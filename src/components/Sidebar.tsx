@@ -8,7 +8,15 @@ import { ThemeToggle } from "./ThemeToggle";
 import { roleAtLeast } from "@/lib/types";
 import type { SessionUser } from "@/lib/types";
 
-export async function Sidebar({ user, reviewCount }: { user: SessionUser; reviewCount: number }) {
+export async function Sidebar({
+  user,
+  reviewCount,
+  trashCount,
+}: {
+  user: SessionUser;
+  reviewCount: number;
+  trashCount: number;
+}) {
   const [spaces, settings] = await Promise.all([listSpaces(), getAppSettings()]);
   const isEditor = roleAtLeast(user.role, "editor");
   const isApprover = roleAtLeast(user.role, "approver");
@@ -36,6 +44,11 @@ export async function Sidebar({ user, reviewCount }: { user: SessionUser; review
         {isApprover && (
           <NavLink href="/review" icon="📋" badge={reviewCount}>
             Review queue
+          </NavLink>
+        )}
+        {isEditor && (
+          <NavLink href="/trash" icon="🗑️" badge={trashCount}>
+            Trash
           </NavLink>
         )}
         {isAdmin && (

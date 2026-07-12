@@ -8,6 +8,8 @@ import {
   DATE_FORMAT_LABEL,
   SESSION_TIMEOUT_MIN,
   SESSION_TIMEOUT_MAX,
+  TRASH_RETENTION_MIN,
+  TRASH_RETENTION_MAX,
 } from "@/lib/settings";
 import type { AppSettings } from "@/lib/settings";
 
@@ -132,6 +134,28 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
             </select>
           </label>
         </div>
+      </div>
+
+      {/* Trash retention */}
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+        <h3 className="mb-1 font-semibold text-slate-900">Trash retention</h3>
+        <p className="mb-3 text-sm text-slate-500">
+          Days to keep deleted documents in the Trash before they&rsquo;re permanently
+          removed. Set to 0 to keep them until deleted by hand.
+        </p>
+        <label className="block max-w-xs">
+          <span className="mb-1 block text-xs font-medium text-slate-500">
+            Days ({TRASH_RETENTION_MIN}–{TRASH_RETENTION_MAX})
+          </span>
+          <input
+            type="number"
+            min={TRASH_RETENTION_MIN}
+            max={TRASH_RETENTION_MAX}
+            value={s.trash_retention_days}
+            onChange={(e) => set("trash_retention_days", Number(e.target.value))}
+            className={field}
+          />
+        </label>
       </div>
 
       {/* Security */}

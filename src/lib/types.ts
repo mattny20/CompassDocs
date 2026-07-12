@@ -124,6 +124,7 @@ export interface Document {
   author: string;
   created_at: string;
   updated_at: string;
+  deleted_at?: string | null;
 }
 
 export interface DocumentWithSpace extends Document {

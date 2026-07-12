@@ -20,6 +20,7 @@ history.
 - **Full-text search** — instant, ranked, keyword-highlighted results powered by **PostgreSQL full-text search** (`tsvector` + GIN index, `ts_rank`). A ⌘K quick-search is available everywhere. Drafts are hidden from Viewers in search, lists, and AI answers.
 - **AI-powered answers** — "Ask CompassDocs" answers plain-English questions grounded in your knowledge base, with inline citations and clickable sources.
 - **Version history** — every content change is snapshotted; browse and preview past revisions.
+- **Trash & retention** — deleting a document moves it to the **Trash** (a soft delete), where Editors can restore it and Admins can remove it for good. A configurable retention window auto-purges trashed documents after a set number of days (or never).
 - **Drafts & publishing** — mark documents as draft or published.
 - **Tags** — tag documents and browse by popular tags.
 - **Self-seeding storage** — on first connection the app creates its own PostgreSQL schema and seeds realistic sample content; no manual migrations.

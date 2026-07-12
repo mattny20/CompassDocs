@@ -18,6 +18,8 @@ export interface AppSettings {
   time_format: TimeFormat;
   /** Idle session timeout in minutes before a signed-in user is logged out. */
   session_timeout_minutes: number;
+  /** Days to keep documents in the Trash before auto-purging (0 = forever). */
+  trash_retention_days: number;
 }
 
 export const SETTINGS_DEFAULTS: AppSettings = {
@@ -27,6 +29,7 @@ export const SETTINGS_DEFAULTS: AppSettings = {
   date_format: "medium",
   time_format: "24h",
   session_timeout_minutes: 480, // 8 hours
+  trash_retention_days: 30,
 };
 
 export const DATE_FORMATS: DateFormat[] = ["medium", "long", "iso", "us", "eu"];
@@ -41,6 +44,9 @@ export const DATE_FORMAT_LABEL: Record<DateFormat, string> = {
 
 export const SESSION_TIMEOUT_MIN = 5;
 export const SESSION_TIMEOUT_MAX = 43200; // 30 days
+
+export const TRASH_RETENTION_MIN = 0; // 0 = keep forever
+export const TRASH_RETENTION_MAX = 3650; // 10 years
 
 export const LOGO_MAX_LEN = 500_000; // generous, allows a small embedded data: URL
 
@@ -60,6 +66,11 @@ export function clampTimeout(n: number): number {
   return Math.min(SESSION_TIMEOUT_MAX, Math.max(SESSION_TIMEOUT_MIN, Math.round(n)));
 }
 
+export function clampRetention(n: number): number {
+  if (!Number.isFinite(n)) return SETTINGS_DEFAULTS.trash_retention_days;
+  return Math.min(TRASH_RETENTION_MAX, Math.max(TRASH_RETENTION_MIN, Math.round(n)));
+}
+
 /** Coerce a raw key→value map into a fully-populated, valid AppSettings. */
 export function normalizeSettings(raw: Record<string, string>): AppSettings {
   return {
@@ -73,5 +84,9 @@ export function normalizeSettings(raw: Record<string, string>): AppSettings {
     session_timeout_minutes: raw.session_timeout_minutes
       ? clampTimeout(Number(raw.session_timeout_minutes))
       : SETTINGS_DEFAULTS.session_timeout_minutes,
+    trash_retention_days:
+      raw.trash_retention_days !== undefined
+        ? clampRetention(Number(raw.trash_retention_days))
+        : SETTINGS_DEFAULTS.trash_retention_days,
   };
 }
