@@ -5,7 +5,7 @@ search SOPs, technical documentation, policies, and internal knowledge with a
 clean interface, AI-powered search, and collaborative editing with version
 history.
 
-![Next.js](https://img.shields.io/badge/Next.js-15-black) ![TypeScript](https://img.shields.io/badge/TypeScript-5-blue) ![SQLite](https://img.shields.io/badge/SQLite-FTS5-green)
+![Next.js](https://img.shields.io/badge/Next.js-15-black) ![TypeScript](https://img.shields.io/badge/TypeScript-5-blue) ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-blue) ![License](https://img.shields.io/badge/license-AGPL--3.0-orange)
 
 ## Features
 
@@ -16,12 +16,12 @@ history.
 - **Spaces** — group knowledge by team or domain (Engineering, People Ops, Security, …).
 - **Four document types** — SOPs, Technical docs, Policies, and Knowledge/how-tos, each color-coded.
 - **Markdown editing** — a distraction-free editor with a live preview tab and GitHub-flavored markdown (tables, checklists, code blocks).
-- **Full-text search** — instant, ranked, keyword-highlighted results powered by SQLite **FTS5** (BM25 ranking). A ⌘K quick-search is available everywhere. Drafts are hidden from Viewers in search, lists, and AI answers.
+- **Full-text search** — instant, ranked, keyword-highlighted results powered by **PostgreSQL full-text search** (`tsvector` + GIN index, `ts_rank`). A ⌘K quick-search is available everywhere. Drafts are hidden from Viewers in search, lists, and AI answers.
 - **AI-powered answers** — "Ask CompassDocs" answers plain-English questions grounded in your knowledge base, with inline citations and clickable sources.
 - **Version history** — every content change is snapshotted; browse and preview past revisions.
 - **Drafts & publishing** — mark documents as draft or published.
 - **Tags** — tag documents and browse by popular tags.
-- **Zero-config storage** — a local SQLite database that seeds realistic sample content on first run.
+- **Self-seeding storage** — on first connection the app creates its own PostgreSQL schema and seeds realistic sample content; no manual migrations.
 
 ## Roles & permissions
 
@@ -155,3 +155,21 @@ Search stays consistent automatically: the `documents.search` column is a
 generated `tsvector` (title + summary + content + tags) with a GIN index, so
 Postgres maintains the full-text index on every insert and update — newly
 created documents are searchable immediately, ranked with `ts_rank`.
+
+## License
+
+CompassDocs is free and open-source software, licensed under the **GNU Affero
+General Public License v3.0 (AGPL-3.0)** — see [`LICENSE`](./LICENSE).
+
+Copyright © 2026 CompassDocs authors.
+
+In plain terms: you can **self-host and use CompassDocs for free**, including in a
+company, and modify it however you like. The AGPL's one condition is that if you
+run a **modified** version as a **network service** for others, you must make
+your modified source available to those users under the same license.
+
+This is the same model as tools like Snipe-IT: the software is fully open and
+free to self-host, and a managed **CompassDocs Cloud** hosting tier (run and
+maintained for you) is offered separately. The AGPL keeps the self-hosted
+edition open while ensuring improvements made in hosted derivatives flow back to
+the community.
