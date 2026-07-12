@@ -3,10 +3,18 @@ import { getAppSettings } from "@/lib/settings-store";
 import "./globals.css";
 
 export async function generateMetadata(): Promise<Metadata> {
-  const { company_name } = await getAppSettings();
-  const isDefault = company_name === "CompassDocs";
+  // The title reflects the configured company name, but metadata is also
+  // evaluated at build time (e.g. prerendering /_not-found) when no database is
+  // available — fall back to the default name rather than failing the build.
+  let companyName = "CompassDocs";
+  try {
+    companyName = (await getAppSettings()).company_name;
+  } catch {
+    // No DB reachable (build time / cold start) — keep the default.
+  }
+  const isDefault = companyName === "CompassDocs";
   return {
-    title: isDefault ? "CompassDocs — Team Knowledge Platform" : `${company_name} — Knowledge Base`,
+    title: isDefault ? "CompassDocs — Team Knowledge Platform" : `${companyName} — Knowledge Base`,
     description:
       "Create, organize, and search SOPs, technical docs, policies, and internal knowledge with AI-powered search.",
   };

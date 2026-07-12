@@ -20,6 +20,8 @@ export function Brand({
       : "text-lg font-bold tracking-tight text-slate-900";
 
   const mark = logoUrl ? (
+    // A customer-supplied logo (white-label): keep it on a light chip since we
+    // can't know its shape/colours.
     // eslint-disable-next-line @next/next/no-img-element
     <img
       src={logoUrl}
@@ -27,12 +29,9 @@ export function Brand({
       className={`${box} object-contain bg-white shadow-sm ring-1 ring-slate-200`}
     />
   ) : (
-    <span
-      className={`grid ${box} place-items-center bg-compass-600 text-white shadow-sm`}
-      aria-hidden
-    >
-      🧭
-    </span>
+    // The CompassDocs mark — a transparent PNG that sits on any background.
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src="/brand/mark.png" alt={name} className={`${box} object-contain`} />
   );
 
   return (
