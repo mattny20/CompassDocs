@@ -9,15 +9,38 @@ history.
 
 ## Features
 
+- **Accounts & roles** — the whole site is private (login required). Four role tiers — **Viewer**, **Editor**, **Approver**, **Admin** — govern who can read, write, publish, and administer.
+- **Editorial approval workflow** — in **strict** mode, an Editor's changes to a published doc (or a request to publish) go to a **review queue**; Approvers/Admins approve (applies it live) or reject. Admins can switch to **open** mode, letting Editors publish directly.
+- **Suggestions** — any signed-in user can leave a "suggest an edit" note on a doc; Approvers/Admins triage them from the review queue.
+- **Admin console** — create users, assign/change roles, reset passwords, enable/disable accounts, and toggle the approval workflow — all with a last-admin lockout guard.
 - **Spaces** — group knowledge by team or domain (Engineering, People Ops, Security, …).
 - **Four document types** — SOPs, Technical docs, Policies, and Knowledge/how-tos, each color-coded.
 - **Markdown editing** — a distraction-free editor with a live preview tab and GitHub-flavored markdown (tables, checklists, code blocks).
-- **Full-text search** — instant, ranked, keyword-highlighted results powered by SQLite **FTS5** (BM25 ranking). A ⌘K quick-search is available everywhere.
+- **Full-text search** — instant, ranked, keyword-highlighted results powered by SQLite **FTS5** (BM25 ranking). A ⌘K quick-search is available everywhere. Drafts are hidden from Viewers in search, lists, and AI answers.
 - **AI-powered answers** — "Ask CompassDocs" answers plain-English questions grounded in your knowledge base, with inline citations and clickable sources.
 - **Version history** — every content change is snapshotted; browse and preview past revisions.
 - **Drafts & publishing** — mark documents as draft or published.
 - **Tags** — tag documents and browse by popular tags.
 - **Zero-config storage** — a local SQLite database that seeds realistic sample content on first run.
+
+## Roles & permissions
+
+| Action | Viewer | Editor | Approver | Admin |
+| --- | :--: | :--: | :--: | :--: |
+| Read / search / ask AI | ✓ | ✓ | ✓ | ✓ |
+| Submit a suggestion | ✓ | ✓ | ✓ | ✓ |
+| Create & edit drafts | – | ✓ | ✓ | ✓ |
+| Publish / push a change live | – | –¹ | ✓ | ✓ |
+| Review queue (approve edits & suggestions) | – | – | ✓ | ✓ |
+| Manage users, roles & settings | – | – | – | ✓ |
+
+¹ In **open** approval mode, Editors can publish and edit live docs directly. In **strict** mode (the default) those changes become pending change requests for an Approver.
+
+## First login
+
+On first run CompassDocs creates a single **admin** account — by default `admin` / `admin`, which you're required to change on first sign-in. Override the bootstrap credentials with `COMPASSDOCS_ADMIN_USER` / `COMPASSDOCS_ADMIN_PASSWORD` (see `.env.example`). From **Admin → Users** you then create everyone else and assign roles.
+
+> **Authentication** uses local accounts (username + password hashed with Node's `scrypt`) and secure HTTP-only cookie sessions — no external services required. The user model carries `auth_provider` / `external_id` columns so SSO (Azure/Google/Okta/Duo) and SCIM provisioning can be layered on later without a rewrite.
 
 ## Tech stack
 

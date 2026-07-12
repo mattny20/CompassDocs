@@ -59,8 +59,11 @@ function fallbackAnswer(question: string, docs: Document[]): AiAnswer {
   };
 }
 
-export async function answerQuestion(question: string): Promise<AiAnswer> {
-  const docs = retrieveForAnswer(question, 6);
+export async function answerQuestion(
+  question: string,
+  includeDrafts = false
+): Promise<AiAnswer> {
+  const docs = retrieveForAnswer(question, 6, includeDrafts);
 
   if (!process.env.ANTHROPIC_API_KEY) {
     return fallbackAnswer(question, docs);

@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
 import { SEED_SPACES, SEED_DOCS } from "./seed-data";
+import { hashPassword } from "./password";
 import type {
   Document,
   DocumentWithSpace,
@@ -10,6 +11,11 @@ import type {
   SearchHit,
   DocType,
   DocStatus,
+  Role,
+  User,
+  ApprovalMode,
+  Suggestion,
+  ChangeRequest,
 } from "./types";
 
 // --- Connection (singleton across hot reloads) -------------------------------
@@ -96,10 +102,100 @@ function init(): Database.Database {
       INSERT INTO documents_fts(rowid, title, content, summary, tags)
       VALUES (new.id, new.title, new.content, new.summary, new.tags);
     END;
+
+    -- Users, sessions, and workspace settings for auth & roles.
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT UNIQUE NOT NULL,
+      email TEXT NOT NULL DEFAULT '',
+      name TEXT NOT NULL DEFAULT '',
+      password_hash TEXT,
+      password_salt TEXT,
+      role TEXT NOT NULL DEFAULT 'viewer',
+      status TEXT NOT NULL DEFAULT 'active',
+      auth_provider TEXT NOT NULL DEFAULT 'local',
+      external_id TEXT,
+      must_change_password INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      last_login_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS sessions (
+      token TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      expires_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+
+    -- Logged-in users can suggest changes; approvers/admins resolve them.
+    CREATE TABLE IF NOT EXISTS suggestions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      document_id INTEGER REFERENCES documents(id) ON DELETE CASCADE,
+      proposed_title TEXT NOT NULL DEFAULT '',
+      body TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'open',
+      created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      resolved_by INTEGER REFERENCES users(id),
+      resolved_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_suggestions_status ON suggestions(status);
+
+    -- Proposed edits to live docs, pending approver/admin review (strict mode).
+    CREATE TABLE IF NOT EXISTS change_requests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL DEFAULT 'edit',
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
+      summary TEXT NOT NULL DEFAULT '',
+      tags TEXT NOT NULL DEFAULT '',
+      type TEXT NOT NULL DEFAULT 'knowledge',
+      target_status TEXT NOT NULL DEFAULT 'published',
+      note TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      reviewed_by INTEGER REFERENCES users(id),
+      reviewed_at TEXT,
+      review_note TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS idx_cr_status ON change_requests(status);
   `);
 
   seedIfEmpty(db);
+  bootstrapAuth(db);
   return db;
+}
+
+/**
+ * Idempotently ensure default settings and a first admin account exist. Runs on
+ * every init so it also upgrades a database that predates the auth feature.
+ */
+function bootstrapAuth(db: Database.Database) {
+  const setDefault = db.prepare(
+    "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING"
+  );
+  setDefault.run("approval_mode", "strict");
+
+  const userCount = db.prepare("SELECT COUNT(*) AS n FROM users").get() as { n: number };
+  if (userCount.n === 0) {
+    const username = process.env.COMPASSDOCS_ADMIN_USER || "admin";
+    const password = process.env.COMPASSDOCS_ADMIN_PASSWORD || "admin";
+    const { hash, salt } = hashPassword(password);
+    // Force a password change on first login unless the admin explicitly set one.
+    const mustChange = process.env.COMPASSDOCS_ADMIN_PASSWORD ? 0 : 1;
+    db.prepare(
+      `INSERT INTO users (username, email, name, password_hash, password_salt, role, must_change_password)
+       VALUES (?, ?, ?, ?, ?, 'admin', ?)`
+    ).run(username, `${username}@compassdocs.local`, "Administrator", hash, salt, mustChange);
+  }
 }
 
 function seedIfEmpty(db: Database.Database) {
@@ -196,20 +292,25 @@ export function getDocument(id: number): DocumentWithSpace | undefined {
   return row ? mapDoc(row) : undefined;
 }
 
-export function listDocumentsBySpace(spaceId: number): DocumentWithSpace[] {
+export function listDocumentsBySpace(spaceId: number, includeDrafts = false): DocumentWithSpace[] {
+  const filter = includeDrafts ? "" : " AND d.status = 'published'";
   const rows = getDb()
-    .prepare(`${DOC_SELECT} WHERE d.space_id = ? ORDER BY d.updated_at DESC`)
+    .prepare(`${DOC_SELECT} WHERE d.space_id = ?${filter} ORDER BY d.updated_at DESC`)
     .all(spaceId);
   return (rows as any[]).map(mapDoc);
 }
 
-export function listRecentDocuments(limit = 8): DocumentWithSpace[] {
-  const rows = getDb().prepare(`${DOC_SELECT} ORDER BY d.updated_at DESC LIMIT ?`).all(limit);
+export function listRecentDocuments(limit = 8, includeDrafts = false): DocumentWithSpace[] {
+  const filter = includeDrafts ? "" : " WHERE d.status = 'published'";
+  const rows = getDb()
+    .prepare(`${DOC_SELECT}${filter} ORDER BY d.updated_at DESC LIMIT ?`)
+    .all(limit);
   return (rows as any[]).map(mapDoc);
 }
 
-export function countDocuments(): number {
-  return (getDb().prepare("SELECT COUNT(*) AS n FROM documents").get() as { n: number }).n;
+export function countDocuments(includeDrafts = false): number {
+  const filter = includeDrafts ? "" : " WHERE status = 'published'";
+  return (getDb().prepare(`SELECT COUNT(*) AS n FROM documents${filter}`).get() as { n: number }).n;
 }
 
 export function allTags(): { tag: string; count: number }[] {
@@ -316,9 +417,10 @@ function toMatchQuery(raw: string): string {
   return tokens.map((t) => `"${t}"*`).join(" OR ");
 }
 
-export function searchDocuments(raw: string, limit = 25): SearchHit[] {
+export function searchDocuments(raw: string, limit = 25, includeDrafts = false): SearchHit[] {
   const match = toMatchQuery(raw);
   if (!match) return [];
+  const filter = includeDrafts ? "" : " AND d.status = 'published'";
   const rows = getDb()
     .prepare(
       `SELECT d.id, d.title, d.slug, d.type, d.status, d.tags, d.updated_at,
@@ -328,7 +430,7 @@ export function searchDocuments(raw: string, limit = 25): SearchHit[] {
        FROM documents_fts
        JOIN documents d ON d.id = documents_fts.rowid
        JOIN spaces s ON s.id = d.space_id
-       WHERE documents_fts MATCH ?
+       WHERE documents_fts MATCH ?${filter}
        ORDER BY rank
        LIMIT ?`
     )
@@ -350,17 +452,301 @@ export function searchDocuments(raw: string, limit = 25): SearchHit[] {
 }
 
 /** Plain (non-highlighted) top matches used to build AI answer context. */
-export function retrieveForAnswer(raw: string, limit = 6): Document[] {
+export function retrieveForAnswer(raw: string, limit = 6, includeDrafts = false): Document[] {
   const match = toMatchQuery(raw);
   if (!match) return [];
+  const filter = includeDrafts ? "" : " AND d.status = 'published'";
   const rows = getDb()
     .prepare(
       `SELECT d.* FROM documents_fts
        JOIN documents d ON d.id = documents_fts.rowid
-       WHERE documents_fts MATCH ?
+       WHERE documents_fts MATCH ?${filter}
        ORDER BY bm25(documents_fts)
        LIMIT ?`
     )
     .all(match, limit) as any[];
   return rows.map((r) => ({ ...r, tags: parseTags(r.tags) }));
+}
+
+// --- Settings ----------------------------------------------------------------
+
+export function getSetting(key: string): string | undefined {
+  const row = getDb().prepare("SELECT value FROM settings WHERE key = ?").get(key) as
+    | { value: string }
+    | undefined;
+  return row?.value;
+}
+
+export function setSetting(key: string, value: string): void {
+  getDb()
+    .prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+    .run(key, value);
+}
+
+export function getApprovalMode(): ApprovalMode {
+  return getSetting("approval_mode") === "open" ? "open" : "strict";
+}
+
+// --- Users -------------------------------------------------------------------
+
+const USER_COLUMNS = `id, username, email, name, role, status, auth_provider, external_id,
+  must_change_password, created_at, last_login_at`;
+
+export function getUserById(id: number): User | undefined {
+  return getDb().prepare(`SELECT ${USER_COLUMNS} FROM users WHERE id = ?`).get(id) as
+    | User
+    | undefined;
+}
+
+export function getUserByUsername(username: string):
+  | (User & { password_hash: string | null; password_salt: string | null })
+  | undefined {
+  return getDb()
+    .prepare("SELECT * FROM users WHERE username = ? COLLATE NOCASE")
+    .get(username) as any;
+}
+
+export function listUsers(): User[] {
+  return getDb()
+    .prepare(`SELECT ${USER_COLUMNS} FROM users ORDER BY role DESC, username`)
+    .all() as User[];
+}
+
+export function createUser(input: {
+  username: string;
+  name: string;
+  email: string;
+  role: Role;
+  passwordHash: string;
+  passwordSalt: string;
+  mustChange?: boolean;
+}): User {
+  const info = getDb()
+    .prepare(
+      `INSERT INTO users (username, email, name, password_hash, password_salt, role, must_change_password)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      input.username,
+      input.email,
+      input.name,
+      input.passwordHash,
+      input.passwordSalt,
+      input.role,
+      input.mustChange ? 1 : 0
+    );
+  return getUserById(Number(info.lastInsertRowid))!;
+}
+
+export function updateUser(
+  id: number,
+  fields: { role?: Role; status?: "active" | "disabled" }
+): User | undefined {
+  const existing = getUserById(id);
+  if (!existing) return undefined;
+  getDb()
+    .prepare("UPDATE users SET role = ?, status = ? WHERE id = ?")
+    .run(fields.role ?? existing.role, fields.status ?? existing.status, id);
+  return getUserById(id);
+}
+
+export function setUserPassword(id: number, hash: string, salt: string, mustChange = false): void {
+  getDb()
+    .prepare(
+      "UPDATE users SET password_hash = ?, password_salt = ?, must_change_password = ? WHERE id = ?"
+    )
+    .run(hash, salt, mustChange ? 1 : 0, id);
+}
+
+export function markLogin(id: number): void {
+  getDb().prepare("UPDATE users SET last_login_at = datetime('now') WHERE id = ?").run(id);
+}
+
+export function deleteUser(id: number): boolean {
+  return getDb().prepare("DELETE FROM users WHERE id = ?").run(id).changes > 0;
+}
+
+export function countAdmins(): number {
+  return (
+    getDb().prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND status = 'active'").get() as {
+      n: number;
+    }
+  ).n;
+}
+
+// --- Sessions ----------------------------------------------------------------
+
+export function createSession(token: string, userId: number, expiresAt: string): void {
+  getDb()
+    .prepare("INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)")
+    .run(token, userId, expiresAt);
+}
+
+export function getSessionUser(token: string): User | undefined {
+  const row = getDb()
+    .prepare(
+      `SELECT ${USER_COLUMNS.split(",")
+        .map((c) => "u." + c.trim())
+        .join(", ")}
+       FROM sessions s JOIN users u ON u.id = s.user_id
+       WHERE s.token = ? AND s.expires_at > datetime('now') AND u.status = 'active'`
+    )
+    .get(token) as User | undefined;
+  return row;
+}
+
+export function deleteSession(token: string): void {
+  getDb().prepare("DELETE FROM sessions WHERE token = ?").run(token);
+}
+
+export function deleteUserSessions(userId: number): void {
+  getDb().prepare("DELETE FROM sessions WHERE user_id = ?").run(userId);
+}
+
+// --- Suggestions -------------------------------------------------------------
+
+export function createSuggestion(input: {
+  document_id: number | null;
+  proposed_title: string;
+  body: string;
+  created_by: number;
+}): number {
+  const info = getDb()
+    .prepare(
+      "INSERT INTO suggestions (document_id, proposed_title, body, created_by) VALUES (?, ?, ?, ?)"
+    )
+    .run(input.document_id, input.proposed_title, input.body, input.created_by);
+  return Number(info.lastInsertRowid);
+}
+
+const SUGGESTION_SELECT = `
+  SELECT sg.*, u.name AS author_name, d.title AS document_title
+  FROM suggestions sg
+  JOIN users u ON u.id = sg.created_by
+  LEFT JOIN documents d ON d.id = sg.document_id`;
+
+export function listSuggestions(status?: "open"): Suggestion[] {
+  const where = status ? " WHERE sg.status = 'open'" : "";
+  return getDb()
+    .prepare(`${SUGGESTION_SELECT}${where} ORDER BY sg.created_at DESC`)
+    .all() as Suggestion[];
+}
+
+export function listSuggestionsForDocument(documentId: number): Suggestion[] {
+  return getDb()
+    .prepare(`${SUGGESTION_SELECT} WHERE sg.document_id = ? ORDER BY sg.created_at DESC`)
+    .all(documentId) as Suggestion[];
+}
+
+export function resolveSuggestion(id: number, resolverId: number, status: "accepted" | "dismissed") {
+  getDb()
+    .prepare(
+      "UPDATE suggestions SET status = ?, resolved_by = ?, resolved_at = datetime('now') WHERE id = ? AND status = 'open'"
+    )
+    .run(status, resolverId, id);
+}
+
+export function countOpenSuggestions(): number {
+  return (getDb().prepare("SELECT COUNT(*) AS n FROM suggestions WHERE status = 'open'").get() as {
+    n: number;
+  }).n;
+}
+
+// --- Change requests ---------------------------------------------------------
+
+export function createChangeRequest(input: {
+  document_id: number;
+  kind: "edit" | "publish";
+  title: string;
+  content: string;
+  summary: string;
+  tags: string[];
+  type: DocType;
+  target_status: DocStatus;
+  note: string;
+  created_by: number;
+}): number {
+  const info = getDb()
+    .prepare(
+      `INSERT INTO change_requests (document_id, kind, title, content, summary, tags, type, target_status, note, created_by)
+       VALUES (@document_id, @kind, @title, @content, @summary, @tags, @type, @target_status, @note, @created_by)`
+    )
+    .run({ ...input, tags: input.tags.join(",") });
+  return Number(info.lastInsertRowid);
+}
+
+const CR_SELECT = `
+  SELECT cr.*, u.name AS author_name, d.title AS document_title
+  FROM change_requests cr
+  JOIN users u ON u.id = cr.created_by
+  LEFT JOIN documents d ON d.id = cr.document_id`;
+
+export function getChangeRequest(id: number): ChangeRequest | undefined {
+  return getDb().prepare(`${CR_SELECT} WHERE cr.id = ?`).get(id) as ChangeRequest | undefined;
+}
+
+export function listChangeRequests(status?: "pending"): ChangeRequest[] {
+  const where = status ? " WHERE cr.status = 'pending'" : "";
+  return getDb()
+    .prepare(`${CR_SELECT}${where} ORDER BY cr.created_at DESC`)
+    .all() as ChangeRequest[];
+}
+
+export function listPendingForDocument(documentId: number): ChangeRequest[] {
+  return getDb()
+    .prepare(`${CR_SELECT} WHERE cr.document_id = ? AND cr.status = 'pending' ORDER BY cr.created_at DESC`)
+    .all(documentId) as ChangeRequest[];
+}
+
+export function countPendingChangeRequests(): number {
+  return (
+    getDb().prepare("SELECT COUNT(*) AS n FROM change_requests WHERE status = 'pending'").get() as {
+      n: number;
+    }
+  ).n;
+}
+
+/** Approve a change request: apply its proposed state to the document. */
+export function approveChangeRequest(
+  id: number,
+  reviewerId: number,
+  reviewerName: string,
+  note = ""
+): boolean {
+  const db = getDb();
+  const cr = getChangeRequest(id);
+  if (!cr || cr.status !== "pending") return false;
+  const apply = db.transaction(() => {
+    db.prepare(
+      `UPDATE documents SET title=@title, slug=@slug, type=@type, status=@target_status,
+         content=@content, summary=@summary, tags=@tags, updated_at=datetime('now')
+       WHERE id=@document_id`
+    ).run({
+      title: cr.title,
+      slug: slugify(cr.title) || "untitled",
+      type: cr.type,
+      target_status: cr.target_status,
+      content: cr.content,
+      summary: cr.summary,
+      tags: cr.tags,
+      document_id: cr.document_id,
+    });
+    db.prepare(
+      `INSERT INTO doc_versions (document_id, title, content, author, note) VALUES (?, ?, ?, ?, ?)`
+    ).run(cr.document_id, cr.title, cr.content, cr.author_name, `Approved by ${reviewerName}`);
+    db.prepare(
+      "UPDATE change_requests SET status='approved', reviewed_by=?, reviewed_at=datetime('now'), review_note=? WHERE id=?"
+    ).run(reviewerId, note, id);
+  });
+  apply();
+  return true;
+}
+
+export function rejectChangeRequest(id: number, reviewerId: number, note = ""): boolean {
+  const info = getDb()
+    .prepare(
+      "UPDATE change_requests SET status='rejected', reviewed_by=?, reviewed_at=datetime('now'), review_note=? WHERE id=? AND status='pending'"
+    )
+    .run(reviewerId, note, id);
+  return info.changes > 0;
 }

@@ -23,10 +23,12 @@ export function DocEditor({
   spaces,
   initial,
   mode,
+  canPublish,
 }: {
   spaces: Pick<Space, "id" | "name" | "icon">[];
   initial: Initial;
   mode: "create" | "edit";
+  canPublish: boolean;
 }) {
   const router = useRouter();
   const [spaceId, setSpaceId] = useState(initial.space_id ?? spaces[0]?.id);
@@ -35,11 +37,15 @@ export function DocEditor({
   const [status, setStatus] = useState<DocStatus>(initial.status);
   const [summary, setSummary] = useState(initial.summary);
   const [tags, setTags] = useState(initial.tags.join(", "));
-  const [author, setAuthor] = useState(initial.author);
   const [content, setContent] = useState(initial.content);
   const [tab, setTab] = useState<"write" | "preview">("write");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [submittedDocId, setSubmittedDocId] = useState<number | null>(null);
+
+  // An editor without publish rights who marks the doc "published" is really
+  // submitting a change for approval.
+  const willSubmitForReview = !canPublish && status === "published";
 
   async function save() {
     if (!title.trim()) {
@@ -56,7 +62,6 @@ export function DocEditor({
       summary,
       tags,
       content,
-      author: author.trim() || "Anonymous",
     };
     try {
       const res =
@@ -73,12 +78,44 @@ export function DocEditor({
             });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Save failed.");
+      if (data.pending) {
+        // Editor's change to live content went to the review queue.
+        setSubmittedDocId(data.docId);
+        setSaving(false);
+        return;
+      }
       router.push(`/doc/${data.doc.id}`);
       router.refresh();
     } catch (e: any) {
       setError(e.message || "Something went wrong.");
       setSaving(false);
     }
+  }
+
+  if (submittedDocId !== null) {
+    return (
+      <div className="mx-auto max-w-lg px-8 py-16 text-center">
+        <div className="mb-3 text-4xl">📋</div>
+        <h1 className="text-xl font-bold text-slate-900">Submitted for review</h1>
+        <p className="mt-2 text-slate-500">
+          Your change was sent to the review queue. An approver or admin will publish it.
+        </p>
+        <div className="mt-6 flex justify-center gap-2">
+          <Link
+            href={`/doc/${submittedDocId}`}
+            className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+          >
+            View document
+          </Link>
+          <Link
+            href="/"
+            className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white hover:bg-compass-700"
+          >
+            Back to dashboard
+          </Link>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -99,7 +136,15 @@ export function DocEditor({
             disabled={saving}
             className="rounded-lg bg-compass-600 px-4 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-compass-700 disabled:opacity-60"
           >
-            {saving ? "Saving…" : mode === "create" ? "Publish" : "Save changes"}
+            {saving
+              ? "Saving…"
+              : willSubmitForReview
+                ? "Submit for review"
+                : mode === "create"
+                  ? status === "published"
+                    ? "Publish"
+                    : "Save draft"
+                  : "Save changes"}
           </button>
         </div>
       </div>
@@ -118,7 +163,7 @@ export function DocEditor({
           className="w-full rounded-lg border border-slate-200 bg-white px-4 py-3 text-lg font-semibold text-slate-900 outline-none focus:border-compass-400 focus:ring-2 focus:ring-compass-100"
         />
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <Field label="Space">
             <select
               value={spaceId}
@@ -155,15 +200,14 @@ export function DocEditor({
               <option value="published">Published</option>
             </select>
           </Field>
-          <Field label="Author">
-            <input
-              value={author}
-              onChange={(e) => setAuthor(e.target.value)}
-              placeholder="Your name"
-              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-compass-400"
-            />
-          </Field>
         </div>
+
+        {!canPublish && (
+          <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            You can save drafts freely. Setting the status to <strong>Published</strong> submits
+            your change to the review queue for an approver to publish.
+          </p>
+        )}
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Summary">

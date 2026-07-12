@@ -1,23 +1,31 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getDocument, listVersions } from "@/lib/db";
+import { getDocument, listVersions, listPendingForDocument } from "@/lib/db";
+import { requireUser } from "@/lib/auth";
 import { MarkdownView } from "@/components/MarkdownView";
 import { TypeBadge, StatusBadge, Tag } from "@/components/Badges";
 import { DocActions } from "@/components/DocActions";
+import { SuggestBox } from "@/components/SuggestBox";
+import { roleAtLeast } from "@/lib/types";
 import { timeAgo } from "@/lib/ui";
 
 export const dynamic = "force-dynamic";
 
 export default async function DocPage({ params }: { params: Promise<{ id: string }> }) {
+  const user = await requireUser();
   const { id } = await params;
   const doc = getDocument(Number(id));
   if (!doc) notFound();
 
+  const isStaff = roleAtLeast(user.role, "editor");
+  // Viewers may not see drafts.
+  if (doc.status === "draft" && !isStaff) notFound();
+
   const versionCount = listVersions(doc.id).length;
+  const pending = roleAtLeast(user.role, "approver") ? listPendingForDocument(doc.id) : [];
 
   return (
     <div className="mx-auto max-w-3xl px-8 py-8">
-      {/* Breadcrumb */}
       <nav className="mb-4 flex items-center gap-1.5 text-sm text-slate-400">
         <Link href="/" className="hover:text-slate-600">
           Home
@@ -36,8 +44,28 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
           </div>
           <h1 className="text-3xl font-bold tracking-tight text-slate-900">{doc.title}</h1>
         </div>
-        <DocActions id={doc.id} spaceSlug={doc.space_slug} />
+        <DocActions
+          id={doc.id}
+          spaceSlug={doc.space_slug}
+          role={user.role}
+          isPublished={doc.status === "published"}
+        />
       </div>
+
+      {doc.status === "draft" && isStaff && (
+        <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-600">
+          📝 This is a <strong>draft</strong> — it isn&apos;t visible to viewers yet.
+        </div>
+      )}
+
+      {pending.length > 0 && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+          ⏳ {pending.length} pending change{pending.length === 1 ? "" : "s"} awaiting review.{" "}
+          <Link href="/review" className="font-medium underline">
+            Open review queue →
+          </Link>
+        </div>
+      )}
 
       <div className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-slate-100 pb-4 text-sm text-slate-500">
         <span>
@@ -68,6 +96,8 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
       <article>
         <MarkdownView content={doc.content} />
       </article>
+
+      <SuggestBox documentId={doc.id} />
     </div>
   );
 }

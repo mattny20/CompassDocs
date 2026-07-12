@@ -3,10 +3,25 @@
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useState } from "react";
+import { roleAtLeast } from "@/lib/types";
+import type { Role } from "@/lib/types";
 
-export function DocActions({ id, spaceSlug }: { id: number; spaceSlug: string }) {
+export function DocActions({
+  id,
+  spaceSlug,
+  role,
+  isPublished,
+}: {
+  id: number;
+  spaceSlug: string;
+  role: Role;
+  isPublished: boolean;
+}) {
   const router = useRouter();
   const [deleting, setDeleting] = useState(false);
+
+  const canEdit = roleAtLeast(role, "editor");
+  const canDelete = roleAtLeast(role, "approver") || (roleAtLeast(role, "editor") && !isPublished);
 
   async function onDelete() {
     if (!confirm("Delete this document? This cannot be undone.")) return;
@@ -16,8 +31,9 @@ export function DocActions({ id, spaceSlug }: { id: number; spaceSlug: string })
       router.push(`/spaces/${spaceSlug}`);
       router.refresh();
     } else {
+      const data = await res.json().catch(() => ({}));
       setDeleting(false);
-      alert("Failed to delete.");
+      alert(data?.error || "Failed to delete.");
     }
   }
 
@@ -29,19 +45,23 @@ export function DocActions({ id, spaceSlug }: { id: number; spaceSlug: string })
       >
         History
       </Link>
-      <Link
-        href={`/doc/${id}/edit`}
-        className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
-      >
-        Edit
-      </Link>
-      <button
-        onClick={onDelete}
-        disabled={deleting}
-        className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
-      >
-        {deleting ? "Deleting…" : "Delete"}
-      </button>
+      {canEdit && (
+        <Link
+          href={`/doc/${id}/edit`}
+          className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+        >
+          Edit
+        </Link>
+      )}
+      {canDelete && (
+        <button
+          onClick={onDelete}
+          disabled={deleting}
+          className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+        >
+          {deleting ? "Deleting…" : "Delete"}
+        </button>
+      )}
     </div>
   );
 }
