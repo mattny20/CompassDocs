@@ -39,11 +39,12 @@ ok "Fetched docker-compose.yml"
 FRESH=0
 if [ ! -f .env ]; then
   FRESH=1
-  ADMIN_PW="$(gen_secret | cut -c1-20)"
   cat > .env <<EOF
 POSTGRES_PASSWORD=$(gen_secret)
-COMPASSDOCS_ADMIN_USER=admin
-COMPASSDOCS_ADMIN_PASSWORD=$ADMIN_PW
+# You'll create your admin account in the browser on first run (the setup
+# wizard). To pre-create it headlessly instead, uncomment and set these:
+# COMPASSDOCS_ADMIN_USER=admin
+# COMPASSDOCS_ADMIN_PASSWORD=a-strong-password
 # ANTHROPIC_API_KEY=sk-ant-...
 PORT=3000
 EOF
@@ -63,13 +64,8 @@ PORT_VAL="$(grep -E '^PORT=' .env | cut -d= -f2)"; PORT_VAL="${PORT_VAL:-3000}"
 echo
 ok "CompassDocs is running at http://localhost:${PORT_VAL}"
 if [ "$FRESH" = "1" ]; then
-  ADMIN_USER="$(grep -E '^COMPASSDOCS_ADMIN_USER=' .env | cut -d= -f2)"
-  ADMIN_PASS="$(grep -E '^COMPASSDOCS_ADMIN_PASSWORD=' .env | cut -d= -f2)"
   echo
-  echo "  Sign in with:"
-  echo "    username: ${ADMIN_USER}"
-  echo "    password: ${ADMIN_PASS}"
-  echo "  (also saved in ./$APP_DIR/.env)"
+  echo "  → Open http://localhost:${PORT_VAL} to create your admin account and finish setup."
 fi
 echo
 echo "  Update later:  cd $APP_DIR && docker compose pull && docker compose up -d"

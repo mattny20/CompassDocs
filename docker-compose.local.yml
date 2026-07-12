@@ -1,0 +1,44 @@
+# Run the FULL CompassDocs app in Docker locally — builds the image from this
+# repo and starts it together with Postgres. No container registry or GitHub
+# auth needed, so it works even while the repo is private.
+#
+#   docker compose -f docker-compose.local.yml up -d --build   # build + start
+#   open http://localhost:3000
+#   docker compose -f docker-compose.local.yml logs -f app      # watch logs
+#   docker compose -f docker-compose.local.yml down             # stop (keeps data)
+#   docker compose -f docker-compose.local.yml down -v          # stop AND wipe data
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: compass
+      POSTGRES_PASSWORD: compass
+      POSTGRES_DB: compassdocs
+    volumes:
+      - compassdocs_local_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U compass -d compassdocs"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # App and db talk over the private compose network, so SSL is off.
+      DATABASE_URL: postgres://compass:compass@db:5432/compassdocs
+      DATABASE_SSL: disable
+      # Leave admin creds unset → create the admin via the web setup wizard.
+      COMPASSDOCS_ADMIN_USER: ${COMPASSDOCS_ADMIN_USER:-}
+      COMPASSDOCS_ADMIN_PASSWORD: ${COMPASSDOCS_ADMIN_PASSWORD:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    ports:
+      - "${PORT:-3000}:3000"
+
+volumes:
+  compassdocs_local_pgdata:

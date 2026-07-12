@@ -267,17 +267,26 @@ async function bootstrapAuth(client: import("pg").PoolClient) {
     "INSERT INTO settings (key, value) VALUES ('approval_mode', 'strict') ON CONFLICT (key) DO NOTHING"
   );
   const { rows } = await client.query("SELECT COUNT(*)::int AS n FROM users");
-  if (rows[0].n === 0) {
-    const username = process.env.COMPASSDOCS_ADMIN_USER || "admin";
-    const password = process.env.COMPASSDOCS_ADMIN_PASSWORD || "admin";
-    const { hash, salt } = hashPassword(password);
-    const mustChange = process.env.COMPASSDOCS_ADMIN_PASSWORD ? 0 : 1;
-    await client.query(
-      `INSERT INTO users (username, email, name, password_hash, password_salt, role, must_change_password)
-       VALUES ($1,$2,$3,$4,$5,'admin',$6)`,
-      [username, `${username}@compassdocs.local`, "Administrator", hash, salt, mustChange]
-    );
-  }
+  if (rows[0].n > 0) return;
+
+  // Auto-create the admin only when credentials are provided via the
+  // environment (headless / automated provisioning). Otherwise leave the
+  // instance with no users so the first-run web setup wizard (/setup) can
+  // create the admin account interactively — no default password to leak.
+  const password = process.env.COMPASSDOCS_ADMIN_PASSWORD;
+  if (!password) return;
+  const username = process.env.COMPASSDOCS_ADMIN_USER || "admin";
+  const { hash, salt } = hashPassword(password);
+  await client.query(
+    `INSERT INTO users (username, email, name, password_hash, password_salt, role, must_change_password)
+     VALUES ($1,$2,$3,$4,$5,'admin',0)`,
+    [username, `${username}@compassdocs.local`, "Administrator", hash, salt]
+  );
+}
+
+/** True when the instance has no users yet — first-run setup is required. */
+export async function needsSetup(): Promise<boolean> {
+  return (await q<{ n: number }>("SELECT COUNT(*)::int AS n FROM users"))[0].n === 0;
 }
 
 // --- Row mapping -------------------------------------------------------------

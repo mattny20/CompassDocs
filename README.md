@@ -39,9 +39,16 @@ history.
 
 ¹ In **open** approval mode, Editors can publish and edit live docs directly. In **strict** mode (the default) those changes become pending change requests for an Approver.
 
-## First login
+## First-run setup
 
-On first run CompassDocs creates a single **admin** account — by default `admin` / `admin`, which you're required to change on first sign-in. Override the bootstrap credentials with `COMPASSDOCS_ADMIN_USER` / `COMPASSDOCS_ADMIN_PASSWORD` (see `.env.example`). From **Admin → Users** you then create everyone else and assign roles.
+The first time you open a fresh install, CompassDocs shows a **setup wizard** at
+`/setup` where you create your **admin account** (and optionally set your company
+name) right in the browser — no default password to look up. From **Admin →
+Users** you then add everyone else and assign roles.
+
+Prefer to provision headlessly (CI, automation)? Set `COMPASSDOCS_ADMIN_USER`
+and `COMPASSDOCS_ADMIN_PASSWORD` (see `.env.example`) and the admin is created on
+first launch instead, skipping the wizard.
 
 > **Authentication** uses local accounts (username + password hashed with Node's `scrypt`) and secure HTTP-only cookie sessions — no external services required. The user model carries `auth_provider` / `external_id` columns so SSO (Azure/Google/Okta/Duo) and SCIM provisioning can be layered on later without a rewrite.
 
@@ -141,6 +148,14 @@ the install command does the same thing.)
 Prefer to do it by hand? Grab [`deploy/docker-compose.yml`](./deploy/docker-compose.yml)
 and [`deploy/.env.example`](./deploy/.env.example), fill in the `.env`, and run
 `docker compose up -d`.
+
+**Build from source instead of pulling an image** — for local development or a
+private fork, [`docker-compose.local.yml`](./docker-compose.local.yml) builds the
+app from this repo and runs it with Postgres, so no registry or auth is needed:
+
+```bash
+docker compose -f docker-compose.local.yml up -d --build   # http://localhost:3000
+```
 
 > Images are published to `ghcr.io/mattny20/compassdocs` automatically on every
 > merge to `main` (`:latest`) and on version tags (`:X.Y.Z`) by the
