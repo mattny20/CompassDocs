@@ -78,7 +78,7 @@ async function q<T = any>(text: string, params: any[] = []): Promise<T[]> {
   return res.rows as T[];
 }
 
-function slugify(input: string): string {
+export function slugify(input: string): string {
   return input
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
@@ -309,6 +309,27 @@ export async function getSpaceBySlug(slug: string): Promise<Space | undefined> {
   return (await q<Space>("SELECT * FROM spaces WHERE slug = $1", [slug]))[0];
 }
 
+export async function createSpace(input: {
+  slug: string;
+  name: string;
+  description?: string;
+  icon?: string;
+  color?: string;
+}): Promise<Space> {
+  const r = await q<Space>(
+    `INSERT INTO spaces (slug, name, description, icon, color)
+     VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+    [
+      input.slug,
+      input.name,
+      input.description ?? "",
+      input.icon ?? "📁",
+      input.color ?? "#3366f2",
+    ]
+  );
+  return r[0];
+}
+
 // --- Documents ---------------------------------------------------------------
 
 const DOC_SELECT = `
@@ -318,6 +339,26 @@ const DOC_SELECT = `
 export async function getDocument(id: number): Promise<DocumentWithSpace | undefined> {
   const rows = await q(`${DOC_SELECT} WHERE d.id = $1 AND d.deleted_at IS NULL`, [id]);
   return rows[0] ? mapDoc(rows[0]) : undefined;
+}
+
+/** Find a live document within a space by its slug (used by import upsert). */
+export async function getDocumentBySpaceAndSlug(
+  spaceId: number,
+  slug: string
+): Promise<DocumentWithSpace | undefined> {
+  const rows = await q(
+    `${DOC_SELECT} WHERE d.space_id = $1 AND d.slug = $2 AND d.deleted_at IS NULL`,
+    [spaceId, slug]
+  );
+  return rows[0] ? mapDoc(rows[0]) : undefined;
+}
+
+/** All live documents (incl. drafts) with their space, for a full export. */
+export async function exportDocuments(): Promise<DocumentWithSpace[]> {
+  const rows = await q(
+    `${DOC_SELECT} WHERE d.deleted_at IS NULL ORDER BY s.slug, d.slug`
+  );
+  return rows.map(mapDoc);
 }
 
 export async function listDocumentsBySpace(
