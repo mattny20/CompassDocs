@@ -22,6 +22,6 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     return NextResponse.json({ error: "action must be 'accept' or 'dismiss'." }, { status: 400 });
   }
 
-  resolveSuggestion(Number(id), user.id, action === "accept" ? "accepted" : "dismissed");
+  await resolveSuggestion(Number(id), user.id, action === "accept" ? "accepted" : "dismissed");
   return NextResponse.json({ ok: true });
 }

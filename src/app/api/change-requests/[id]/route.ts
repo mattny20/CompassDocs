@@ -21,12 +21,12 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const note = String(body?.note ?? "").trim();
 
   if (action === "approve") {
-    const ok = approveChangeRequest(Number(id), user.id, user.name || user.username, note);
+    const ok = await approveChangeRequest(Number(id), user.id, user.name || user.username, note);
     if (!ok) return NextResponse.json({ error: "Already reviewed or not found." }, { status: 409 });
     return NextResponse.json({ ok: true, result: "approved" });
   }
   if (action === "reject") {
-    const ok = rejectChangeRequest(Number(id), user.id, note);
+    const ok = await rejectChangeRequest(Number(id), user.id, note);
     if (!ok) return NextResponse.json({ error: "Already reviewed or not found." }, { status: 409 });
     return NextResponse.json({ ok: true, result: "rejected" });
   }

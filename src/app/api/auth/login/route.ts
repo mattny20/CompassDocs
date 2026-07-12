@@ -16,7 +16,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Username and password are required." }, { status: 400 });
   }
 
-  const result = login(username, password);
+  const result = await login(username, password);
   if (!result) {
     return NextResponse.json({ error: "Invalid username or password." }, { status: 401 });
   }

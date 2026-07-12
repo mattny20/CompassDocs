@@ -5,8 +5,8 @@ import { UserMenu } from "./UserMenu";
 import { roleAtLeast } from "@/lib/types";
 import type { SessionUser } from "@/lib/types";
 
-export function Sidebar({ user, reviewCount }: { user: SessionUser; reviewCount: number }) {
-  const spaces = listSpaces();
+export async function Sidebar({ user, reviewCount }: { user: SessionUser; reviewCount: number }) {
+  const spaces = await listSpaces();
   const isEditor = roleAtLeast(user.role, "editor");
   const isApprover = roleAtLeast(user.role, "approver");
   const isAdmin = user.role === "admin";

@@ -15,5 +15,5 @@ export async function GET(req: Request) {
   if (!q) return NextResponse.json({ hits: [] });
 
   const includeDrafts = roleAtLeast(user.role, "editor");
-  return NextResponse.json({ hits: searchDocuments(q, limit, includeDrafts) });
+  return NextResponse.json({ hits: await searchDocuments(q, limit, includeDrafts) });
 }

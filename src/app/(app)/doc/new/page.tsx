@@ -12,9 +12,9 @@ export default async function NewDocPage({
 }) {
   const user = await requireRole("editor");
   const { space } = await searchParams;
-  const spaces = listSpaces();
-  const preselected = space ? getSpaceBySlug(space) : undefined;
-  const canPublish = roleAtLeast(user.role, "approver") || getApprovalMode() === "open";
+  const spaces = await listSpaces();
+  const preselected = space ? await getSpaceBySlug(space) : undefined;
+  const canPublish = roleAtLeast(user.role, "approver") || (await getApprovalMode()) === "open";
 
   return (
     <DocEditor

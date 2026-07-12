@@ -22,12 +22,12 @@ export async function POST(req: Request) {
 
   let documentId: number | null = null;
   if (body?.document_id != null) {
-    const doc = getDocument(Number(body.document_id));
+    const doc = await getDocument(Number(body.document_id));
     if (!doc) return NextResponse.json({ error: "Document not found." }, { status: 404 });
     documentId = doc.id;
   }
 
-  const id = createSuggestion({
+  const id = await createSuggestion({
     document_id: documentId,
     proposed_title: String(body?.proposed_title ?? "").trim(),
     body: text,

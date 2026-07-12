@@ -39,7 +39,7 @@ export function toSessionUser(u: User): SessionUser {
 export async function getCurrentUser(): Promise<SessionUser | null> {
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return null;
-  const user = getSessionUser(token);
+  const user = await getSessionUser(token);
   return user ? toSessionUser(user) : null;
 }
 
@@ -61,21 +61,24 @@ export async function requireRole(min: Role): Promise<SessionUser> {
  * Verify credentials and open a session. Returns the token to set as a cookie,
  * or null on failure (bad password, unknown user, or disabled account).
  */
-export function login(username: string, password: string): { token: string; user: User } | null {
-  const record = getUserByUsername(username.trim());
+export async function login(
+  username: string,
+  password: string
+): Promise<{ token: string; user: User } | null> {
+  const record = await getUserByUsername(username.trim());
   if (!record || record.status !== "active") return null;
   if (!record.password_hash || !record.password_salt) return null;
   if (!verifyPassword(password, record.password_hash, record.password_salt)) return null;
 
   const token = newToken();
   const expires = new Date(Date.now() + SESSION_TTL_DAYS * 86400_000).toISOString();
-  createSession(token, record.id, expires.replace("T", " ").slice(0, 19));
-  markLogin(record.id);
+  await createSession(token, record.id, expires);
+  await markLogin(record.id);
   return { token, user: record };
 }
 
-export function logout(token: string | undefined) {
-  if (token) deleteSession(token);
+export async function logout(token: string | undefined): Promise<void> {
+  if (token) await deleteSession(token);
 }
 
 export const SESSION_MAX_AGE = SESSION_TTL_DAYS * 86400;

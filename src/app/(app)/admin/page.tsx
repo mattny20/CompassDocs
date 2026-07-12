@@ -6,8 +6,7 @@ export const dynamic = "force-dynamic";
 
 export default async function AdminPage() {
   const admin = await requireRole("admin");
-  const users = listUsers();
-  const approvalMode = getApprovalMode();
+  const [users, approvalMode] = await Promise.all([listUsers(), getApprovalMode()]);
 
   return (
     <div className="mx-auto max-w-5xl px-8 py-8">

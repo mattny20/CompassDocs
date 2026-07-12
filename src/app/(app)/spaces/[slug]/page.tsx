@@ -10,11 +10,11 @@ export const dynamic = "force-dynamic";
 export default async function SpacePage({ params }: { params: Promise<{ slug: string }> }) {
   const user = await requireUser();
   const { slug } = await params;
-  const space = getSpaceBySlug(slug);
+  const space = await getSpaceBySlug(slug);
   if (!space) notFound();
 
   const isEditor = roleAtLeast(user.role, "editor");
-  const docs = listDocumentsBySpace(space.id, isEditor);
+  const docs = await listDocumentsBySpace(space.id, isEditor);
 
   return (
     <div className="mx-auto max-w-6xl px-8 py-8">

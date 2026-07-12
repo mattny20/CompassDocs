@@ -44,24 +44,30 @@ On first run CompassDocs creates a single **admin** account — by default `admi
 
 ## Tech stack
 
-| Layer     | Choice                                                     |
-| --------- | ---------------------------------------------------------- |
-| Framework | Next.js 15 (App Router, React 19, TypeScript)              |
-| Styling   | Tailwind CSS                                               |
-| Storage   | SQLite via `better-sqlite3`, full-text search with FTS5    |
-| Rendering | `react-markdown` + `remark-gfm`                            |
-| AI        | Anthropic SDK (`claude-opus-4-8`) with keyword fallback    |
+| Layer     | Choice                                                        |
+| --------- | ------------------------------------------------------------- |
+| Framework | Next.js 15 (App Router, React 19, TypeScript)                 |
+| Styling   | Tailwind CSS                                                  |
+| Storage   | PostgreSQL via `pg`, native full-text search (`tsvector`/GIN) |
+| Rendering | `react-markdown` + `remark-gfm`                               |
+| AI        | Anthropic SDK (`claude-opus-4-8`) with keyword fallback       |
 
 ## Getting started
 
+You need a **PostgreSQL** database (any will do — a local instance, or a free
+managed one from [Neon](https://neon.tech), Supabase, Railway, etc.).
+
 ```bash
 npm install
+cp .env.example .env       # then set DATABASE_URL
 npm run dev
 # open http://localhost:3000
 ```
 
-On first run, the app creates `./data/compassdocs.db` and seeds it with four
-spaces and nine example documents so you have something to explore immediately.
+On first connection the app **creates its own schema and seeds** four spaces and
+nine example documents — no manual migrations to run. Schema creation is
+idempotent and guarded by a Postgres advisory lock, so it's safe across
+concurrent startups (e.g. serverless cold starts). Sign in with `admin` / `admin`.
 
 ### Production build
 
@@ -75,19 +81,36 @@ npm run start
 Search and answers work out of the box **without any API key** — the "Ask
 CompassDocs" page falls back to returning the best-matching document snippets.
 
-To enable synthesized, cited AI answers, copy `.env.example` to `.env` and set:
+To enable synthesized, cited AI answers, set in `.env`:
 
 ```bash
 ANTHROPIC_API_KEY=sk-ant-...
-# optional overrides:
+# optional override:
 # COMPASSDOCS_AI_MODEL=claude-opus-4-8
-# COMPASSDOCS_DB_PATH=./data/compassdocs.db
 ```
 
 The AI answer flow is a lightweight RAG pipeline: the question is used to
-retrieve the top documents via FTS5, those excerpts are passed to Claude as
-grounded context, and the model is instructed to answer only from them and cite
-sources. Any API error degrades gracefully to the keyword fallback.
+retrieve the top documents via Postgres full-text search, those excerpts are
+passed to Claude as grounded context, and the model is instructed to answer only
+from them and cite sources. Any API error degrades gracefully to the keyword
+fallback.
+
+## Deployment
+
+CompassDocs is a standard Next.js server plus a Postgres database — the app is
+stateless, so it runs anywhere and scales horizontally. Set `DATABASE_URL` (and
+optionally `ANTHROPIC_API_KEY`, `COMPASSDOCS_ADMIN_*`) as environment variables.
+
+| Target | How |
+| --- | --- |
+| **Vercel + Neon** | Import the repo on Vercel; add a Neon (or Vercel Postgres) database and set `DATABASE_URL`. Cheapest to start; Vercel's free tier is non-commercial. |
+| **Railway** | One project with the app **and** a Postgres plugin. Railway injects `DATABASE_URL`. Commercial-friendly, ~$5/mo. |
+| **Render** | Web Service from the repo + a managed Postgres instance; wire its internal `DATABASE_URL` to the service. |
+| **Docker (Fly.io, a VPS, anywhere)** | A `Dockerfile` is included (Next.js standalone output). `docker build -t compassdocs . && docker run -p 3000:3000 -e DATABASE_URL=... compassdocs`. |
+
+Use a managed Postgres with connection pooling (Neon and Supabase provide a
+pooled connection string) when deploying to serverless platforms, and keep
+`DATABASE_POOL_MAX` modest.
 
 ## How it fits together
 
@@ -104,12 +127,14 @@ src/
 │   └── api/                     REST routes: documents, search, ai-search
 ├── components/                  Sidebar, editor, search, cards, badges
 └── lib/
-    ├── db.ts                    Schema, FTS5 triggers, queries, seeding
+    ├── db.ts                    Postgres pool, schema/migration, queries, seeding
+    ├── auth.ts                  Sessions, cookies, role guards
     ├── ai.ts                    RAG answer pipeline + fallback
     ├── seed-data.ts             Sample spaces & documents
     └── types.ts                 Shared types
 ```
 
-Search stays consistent automatically: FTS5 triggers keep the search index in
-sync on every insert, update, and delete, so newly created documents are
-searchable immediately.
+Search stays consistent automatically: the `documents.search` column is a
+generated `tsvector` (title + summary + content + tags) with a GIN index, so
+Postgres maintains the full-text index on every insert and update — newly
+created documents are searchable immediately, ranked with `ts_rank`.

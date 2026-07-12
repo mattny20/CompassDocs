@@ -32,7 +32,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const user = gate as SessionUser;
 
   const { id } = await params;
-  const doc = getDocument(Number(id));
+  const doc = await getDocument(Number(id));
   if (!doc) return NextResponse.json({ error: "Not found." }, { status: 404 });
   if (doc.status === "draft" && !roleAtLeast(user.role, "editor")) {
     return NextResponse.json({ error: "Not found." }, { status: 404 });
@@ -46,7 +46,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   const user = gate as SessionUser;
 
   const { id } = await params;
-  const existing = getDocument(Number(id));
+  const existing = await getDocument(Number(id));
   if (!existing) return NextResponse.json({ error: "Not found." }, { status: 404 });
 
   let body: any;
@@ -69,12 +69,12 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   // A change "affects live content" if the doc is already published, or if this
   // edit would publish it. Those are the changes that require approval.
   const affectsLive = existing.status === "published" || proposed.status === "published";
-  const canPublish = roleAtLeast(user.role, "approver") || getApprovalMode() === "open";
+  const canPublish = roleAtLeast(user.role, "approver") || (await getApprovalMode()) === "open";
 
   if (affectsLive && !canPublish) {
     // Editor in strict mode: queue a change request; leave the live doc untouched.
     const kind = existing.status === "draft" ? "publish" : "edit";
-    const crId = createChangeRequest({
+    const crId = await createChangeRequest({
       document_id: existing.id,
       kind,
       title: proposed.title,
@@ -90,7 +90,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   }
 
   // Otherwise apply directly (draft edit, or a privileged/open-mode change).
-  const doc = updateDocument(existing.id, {
+  const doc = await updateDocument(existing.id, {
     ...proposed,
     author: user.name || user.username,
     versionNote: String(body?.versionNote ?? "").trim() || "Edited",
@@ -104,7 +104,7 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   const user = gate as SessionUser;
 
   const { id } = await params;
-  const doc = getDocument(Number(id));
+  const doc = await getDocument(Number(id));
   if (!doc) return NextResponse.json({ error: "Not found." }, { status: 404 });
 
   // Editors may only delete drafts; deleting a published doc needs approver+.
@@ -115,6 +115,6 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
     );
   }
 
-  deleteDocument(doc.id);
+  await deleteDocument(doc.id);
   return NextResponse.json({ ok: true });
 }

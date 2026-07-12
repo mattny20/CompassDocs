@@ -6,8 +6,10 @@ export const dynamic = "force-dynamic";
 
 export default async function ReviewPage() {
   await requireRole("approver");
-  const changeRequests = listChangeRequests("pending");
-  const suggestions = listSuggestions("open");
+  const [changeRequests, suggestions] = await Promise.all([
+    listChangeRequests("pending"),
+    listSuggestions("open"),
+  ]);
 
   return (
     <div className="mx-auto max-w-4xl px-8 py-8">
