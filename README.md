@@ -54,12 +54,29 @@ On first run CompassDocs creates a single **admin** account — by default `admi
 
 ## Getting started
 
-You need a **PostgreSQL** database (any will do — a local instance, or a free
-managed one from [Neon](https://neon.tech), Supabase, Railway, etc.).
+You need **Node.js 20+** and a **PostgreSQL** database. Two easy ways to get a
+local Postgres:
+
+**Option A — Docker (recommended).** A `docker-compose.yml` is included:
+
+```bash
+docker compose up -d
+# DATABASE_URL=postgres://compass:compass@localhost:5432/compassdocs
+```
+
+**Option B — Homebrew (no Docker):**
+
+```bash
+brew install postgresql@16 && brew services start postgresql@16
+createdb compassdocs
+# DATABASE_URL=postgres://localhost:5432/compassdocs
+```
+
+Then run the app:
 
 ```bash
 npm install
-cp .env.example .env       # then set DATABASE_URL
+cp .env.example .env        # set DATABASE_URL to the value from above
 npm run dev
 # open http://localhost:3000
 ```
