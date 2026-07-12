@@ -33,8 +33,9 @@ services:
       # App and db talk over the private compose network, so SSL is off.
       DATABASE_URL: postgres://compass:compass@db:5432/compassdocs
       DATABASE_SSL: disable
-      COMPASSDOCS_ADMIN_USER: admin
-      COMPASSDOCS_ADMIN_PASSWORD: ${COMPASSDOCS_ADMIN_PASSWORD:-changeme-local}
+      # Leave admin creds unset → create the admin via the web setup wizard.
+      COMPASSDOCS_ADMIN_USER: ${COMPASSDOCS_ADMIN_USER:-}
+      COMPASSDOCS_ADMIN_PASSWORD: ${COMPASSDOCS_ADMIN_PASSWORD:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     ports:
       - "${PORT:-3000}:3000"

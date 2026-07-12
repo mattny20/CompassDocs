@@ -1,12 +1,15 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { getAppSettings } from "@/lib/settings-store";
+import { needsSetup } from "@/lib/db";
 import { LoginForm } from "@/components/LoginForm";
 import { Brand } from "@/components/Brand";
 
 export const dynamic = "force-dynamic";
 
 export default async function LoginPage() {
+  // Fresh install with no admin yet → send to the first-run setup wizard.
+  if (await needsSetup()) redirect("/setup");
   const user = await getCurrentUser();
   if (user) redirect("/");
   const settings = await getAppSettings();
