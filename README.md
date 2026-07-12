@@ -112,7 +112,38 @@ passed to Claude as grounded context, and the model is instructed to answer only
 from them and cite sources. Any API error degrades gracefully to the keyword
 fallback.
 
-## Deployment
+## Self-hosting (one command)
+
+The easiest way to run CompassDocs is with Docker — it starts the app **and** a
+Postgres database together. On a machine with [Docker](https://docs.docker.com/get-docker/)
+installed:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mattny20/CompassDocs/main/install.sh | bash
+```
+
+This creates a `./compassdocs` folder, generates strong random passwords, starts
+everything, and prints your admin login. Open **http://localhost:3000**.
+
+**Update to the latest release** — from that folder:
+
+```bash
+docker compose pull && docker compose up -d
+```
+
+Your data lives in a Docker volume and is preserved across updates; the app
+migrates its own schema on start, so there are no manual upgrade steps. (Re-running
+the install command does the same thing.)
+
+Prefer to do it by hand? Grab [`deploy/docker-compose.yml`](./deploy/docker-compose.yml)
+and [`deploy/.env.example`](./deploy/.env.example), fill in the `.env`, and run
+`docker compose up -d`.
+
+> Images are published to `ghcr.io/mattny20/compassdocs` automatically on every
+> merge to `main` (`:latest`) and on version tags (`:X.Y.Z`) by the
+> [Docker publish workflow](./.github/workflows/docker-publish.yml).
+
+## Deploying to a platform (Vercel / Railway / Render)
 
 CompassDocs is a standard Next.js server plus a Postgres database — the app is
 stateless, so it runs anywhere and scales horizontally. Set `DATABASE_URL` (and
