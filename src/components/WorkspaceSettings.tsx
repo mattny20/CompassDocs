@@ -61,7 +61,7 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
   return (
     <div className="space-y-6">
       {/* Branding */}
-      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
         <h3 className="mb-3 font-semibold text-slate-900">Branding</h3>
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="block">
@@ -93,7 +93,7 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
       </div>
 
       {/* Localization */}
-      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
         <h3 className="mb-3 font-semibold text-slate-900">Date &amp; time</h3>
         <div className="grid gap-4 sm:grid-cols-3">
           <label className="block sm:col-span-1">
@@ -135,7 +135,7 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
       </div>
 
       {/* Security */}
-      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
         <h3 className="mb-1 font-semibold text-slate-900">Session timeout</h3>
         <p className="mb-3 text-sm text-slate-500">
           Signed-in users are logged out after this many minutes of inactivity.

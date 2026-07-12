@@ -51,7 +51,7 @@ export default async function DashboardPage() {
             <Link
               key={s.id}
               href={`/spaces/${s.slug}`}
-              className="group rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-compass-300 hover:shadow-md"
+              className="group rounded-xl border border-slate-200 bg-surface p-4 shadow-sm transition hover:border-compass-300 hover:shadow-md"
             >
               <div
                 className="mb-3 grid h-10 w-10 place-items-center rounded-lg text-xl"
@@ -90,7 +90,7 @@ export default async function DashboardPage() {
               <Link
                 key={t.tag}
                 href={`/search?q=${encodeURIComponent(t.tag)}`}
-                className="rounded-full border border-slate-200 bg-white px-3 py-1 text-sm text-slate-600 transition hover:border-compass-300 hover:text-compass-700"
+                className="rounded-full border border-slate-200 bg-surface px-3 py-1 text-sm text-slate-600 transition hover:border-compass-300 hover:text-compass-700"
               >
                 #{t.tag} <span className="text-slate-400">{t.count}</span>
               </Link>
@@ -104,7 +104,7 @@ export default async function DashboardPage() {
 
 function Stat({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
       <div className="text-2xl font-bold text-slate-900">{value}</div>
       <div className="text-sm text-slate-500">{label}</div>
     </div>

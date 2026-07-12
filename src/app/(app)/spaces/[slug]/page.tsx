@@ -42,7 +42,7 @@ export default async function SpacePage({ params }: { params: Promise<{ slug: st
       </div>
 
       {docs.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-slate-300 bg-white p-10 text-center text-slate-500">
+        <div className="rounded-xl border border-dashed border-slate-300 bg-surface p-10 text-center text-slate-500">
           No documents in this space yet.
           {isEditor && (
             <>

@@ -103,7 +103,7 @@ export function DocEditor({
         <div className="mt-6 flex justify-center gap-2">
           <Link
             href={`/doc/${submittedDocId}`}
-            className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+            className="rounded-lg border border-slate-200 bg-surface px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
           >
             View document
           </Link>
@@ -127,7 +127,7 @@ export function DocEditor({
         <div className="flex items-center gap-2">
           <Link
             href={mode === "edit" && initial.id ? `/doc/${initial.id}` : "/"}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+            className="rounded-lg border border-slate-200 bg-surface px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
           >
             Cancel
           </Link>
@@ -160,7 +160,7 @@ export function DocEditor({
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="Document title"
-          className="w-full rounded-lg border border-slate-200 bg-white px-4 py-3 text-lg font-semibold text-slate-900 outline-none focus:border-compass-400 focus:ring-2 focus:ring-compass-100"
+          className="w-full rounded-lg border border-slate-200 bg-surface px-4 py-3 text-lg font-semibold text-slate-900 outline-none focus:border-compass-400 focus:ring-2 focus:ring-compass-100"
         />
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -168,7 +168,7 @@ export function DocEditor({
             <select
               value={spaceId}
               onChange={(e) => setSpaceId(Number(e.target.value))}
-              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-compass-400"
+              className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-none focus:border-compass-400"
             >
               {spaces.map((s) => (
                 <option key={s.id} value={s.id}>
@@ -181,7 +181,7 @@ export function DocEditor({
             <select
               value={type}
               onChange={(e) => setType(e.target.value as DocType)}
-              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-compass-400"
+              className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-none focus:border-compass-400"
             >
               {DOC_TYPES.map((t) => (
                 <option key={t.value} value={t.value}>
@@ -194,7 +194,7 @@ export function DocEditor({
             <select
               value={status}
               onChange={(e) => setStatus(e.target.value as DocStatus)}
-              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-compass-400"
+              className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-none focus:border-compass-400"
             >
               <option value="draft">Draft</option>
               <option value="published">Published</option>
@@ -215,7 +215,7 @@ export function DocEditor({
               value={summary}
               onChange={(e) => setSummary(e.target.value)}
               placeholder="One-line description for cards & search"
-              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-compass-400"
+              className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-none focus:border-compass-400"
             />
           </Field>
           <Field label="Tags (comma separated)">
@@ -223,13 +223,13 @@ export function DocEditor({
               value={tags}
               onChange={(e) => setTags(e.target.value)}
               placeholder="deploy, ci-cd, release"
-              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-compass-400"
+              className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-none focus:border-compass-400"
             />
           </Field>
         </div>
 
         {/* Editor / preview */}
-        <div className="rounded-lg border border-slate-200 bg-white">
+        <div className="rounded-lg border border-slate-200 bg-surface">
           <div className="flex items-center gap-1 border-b border-slate-100 px-2 py-1.5">
             <TabButton active={tab === "write"} onClick={() => setTab("write")}>
               Write

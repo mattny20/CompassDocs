@@ -86,7 +86,7 @@ export function SearchClient({ initialQuery }: { initialQuery: string }) {
           onChange={(e) => setQuery(e.target.value)}
           autoFocus
           placeholder="e.g. How do I roll back a bad deploy?"
-          className="flex-1 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-slate-800 outline-none focus:border-compass-400 focus:ring-2 focus:ring-compass-100"
+          className="flex-1 rounded-lg border border-slate-200 bg-surface px-4 py-2.5 text-slate-800 outline-none focus:border-compass-400 focus:ring-2 focus:ring-compass-100"
         />
         <button
           type="submit"
@@ -98,7 +98,7 @@ export function SearchClient({ initialQuery }: { initialQuery: string }) {
 
       {/* AI answer */}
       {(asking || answer) && (
-        <div className="mb-8 rounded-xl border border-compass-200 bg-gradient-to-br from-compass-50/70 to-white p-5 shadow-sm">
+        <div className="mb-8 rounded-xl border border-compass-200 bg-gradient-to-br from-compass-50/70 to-surface p-5 shadow-sm">
           <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-compass-700">
             <span>✨</span> Answer
             {answer?.mode === "fallback" && (
@@ -125,7 +125,7 @@ export function SearchClient({ initialQuery }: { initialQuery: string }) {
                         <Link
                           key={s.id}
                           href={`/doc/${s.id}`}
-                          className="rounded-lg border border-slate-200 bg-white px-3 py-1 text-sm text-slate-600 hover:border-compass-300 hover:text-compass-700"
+                          className="rounded-lg border border-slate-200 bg-surface px-3 py-1 text-sm text-slate-600 hover:border-compass-300 hover:text-compass-700"
                         >
                           {s.title}
                         </Link>
@@ -150,7 +150,7 @@ export function SearchClient({ initialQuery }: { initialQuery: string }) {
               <Link
                 key={h.id}
                 href={`/doc/${h.id}`}
-                className="block rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-compass-300 hover:shadow-md"
+                className="block rounded-xl border border-slate-200 bg-surface p-4 shadow-sm transition hover:border-compass-300 hover:shadow-md"
               >
                 <div className="mb-1 flex items-center gap-2">
                   <TypeBadge type={h.type} />
@@ -166,7 +166,7 @@ export function SearchClient({ initialQuery }: { initialQuery: string }) {
               </Link>
             ))}
             {!searching && hits.length === 0 && (
-              <p className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center text-slate-400">
+              <p className="rounded-xl border border-dashed border-slate-300 bg-surface p-8 text-center text-slate-400">
                 No documents matched. Try different keywords.
               </p>
             )}

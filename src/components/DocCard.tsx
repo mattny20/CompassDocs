@@ -7,7 +7,7 @@ export function DocCard({ doc }: { doc: DocumentWithSpace }) {
   return (
     <Link
       href={`/doc/${doc.id}`}
-      className="group flex flex-col rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-compass-300 hover:shadow-md"
+      className="group flex flex-col rounded-xl border border-slate-200 bg-surface p-4 shadow-sm transition hover:border-compass-300 hover:shadow-md"
     >
       <div className="mb-2 flex items-center gap-2">
         <TypeBadge type={doc.type} />

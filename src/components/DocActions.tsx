@@ -41,14 +41,14 @@ export function DocActions({
     <div className="flex items-center gap-2">
       <Link
         href={`/doc/${id}/history`}
-        className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+        className="rounded-lg border border-slate-200 bg-surface px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
       >
         History
       </Link>
       {canEdit && (
         <Link
           href={`/doc/${id}/edit`}
-          className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+          className="rounded-lg border border-slate-200 bg-surface px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
         >
           Edit
         </Link>
@@ -57,7 +57,7 @@ export function DocActions({
         <button
           onClick={onDelete}
           disabled={deleting}
-          className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+          className="rounded-lg border border-red-200 bg-surface px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
         >
           {deleting ? "Deleting…" : "Delete"}
         </button>

@@ -71,12 +71,12 @@ export function GlobalSearch() {
           onChange={(e) => setQ(e.target.value)}
           onFocus={() => hits.length && setOpen(true)}
           placeholder="Search docs…  (⌘K)"
-          className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 outline-none placeholder:text-slate-400 focus:border-compass-400 focus:bg-white focus:ring-2 focus:ring-compass-100"
+          className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 outline-none placeholder:text-slate-400 focus:border-compass-400 focus:bg-surface focus:ring-2 focus:ring-compass-100"
         />
       </form>
 
       {open && q.trim().length >= 2 && (
-        <div className="absolute z-20 mt-1 w-72 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg">
+        <div className="absolute z-20 mt-1 w-72 overflow-hidden rounded-lg border border-slate-200 bg-surface shadow-lg">
           {loading && hits.length === 0 && (
             <div className="px-3 py-3 text-sm text-slate-400">Searching…</div>
           )}
