@@ -43,13 +43,25 @@ function makePool(): Pool {
     throw new Error("DATABASE_URL is not set. Point it at a Postgres database.");
   }
   // Enable SSL for remote hosts (managed Postgres); skip it for local dev.
-  const isLocal = /@(localhost|127\.0\.0\.1)[:/]/.test(connectionString);
+  // Detect the host from the URL so it works whether or not a user is present
+  // (e.g. both postgres://localhost/db and postgres://user@localhost/db).
+  let host = "";
+  try {
+    host = new URL(connectionString).hostname;
+  } catch {
+    // Non-URL DSN (key=value form) — fall through treating host as unknown.
+  }
+  const isLocal =
+    host === "" || host === "localhost" || host === "127.0.0.1" || host === "::1";
   const sslDisabled =
     process.env.DATABASE_SSL === "disable" || /sslmode=disable/.test(connectionString);
+  // DATABASE_SSL=require forces SSL even when the host looks local.
+  const useSsl =
+    process.env.DATABASE_SSL === "require" || (!isLocal && !sslDisabled);
   return new Pool({
     connectionString,
     max: Number(process.env.DATABASE_POOL_MAX) || 5,
-    ssl: isLocal || sslDisabled ? undefined : { rejectUnauthorized: false },
+    ssl: useSsl ? { rejectUnauthorized: false } : undefined,
     // Always speak UTC so timestamp strings are unambiguous.
     options: "-c timezone=UTC",
   });
