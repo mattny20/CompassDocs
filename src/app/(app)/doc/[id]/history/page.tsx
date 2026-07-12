@@ -2,6 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getDocument, listVersions } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
+import { getAppSettings } from "@/lib/settings-store";
+import { formatDateTime } from "@/lib/format";
 import { roleAtLeast } from "@/lib/types";
 import { timeAgo } from "@/lib/ui";
 
@@ -13,7 +15,7 @@ export default async function HistoryPage({ params }: { params: Promise<{ id: st
   const doc = await getDocument(Number(id));
   if (!doc) notFound();
   if (doc.status === "draft" && !roleAtLeast(user.role, "editor")) notFound();
-  const versions = await listVersions(doc.id);
+  const [versions, settings] = await Promise.all([listVersions(doc.id), getAppSettings()]);
 
   return (
     <div className="mx-auto max-w-3xl px-8 py-8">
@@ -35,7 +37,9 @@ export default async function HistoryPage({ params }: { params: Promise<{ id: st
                   {i === 0 ? "Current" : `Revision ${versions.length - i}`}
                   <span className="ml-2 text-sm font-normal text-slate-400">{v.note}</span>
                 </span>
-                <span className="text-xs text-slate-400">{timeAgo(v.created_at)}</span>
+                <span className="text-xs text-slate-400" title={formatDateTime(v.created_at, settings)}>
+                  {timeAgo(v.created_at)}
+                </span>
               </div>
               <div className="mt-1 text-sm text-slate-500">
                 {v.title} · edited by {v.author}

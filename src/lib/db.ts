@@ -521,6 +521,14 @@ export async function getApprovalMode(): Promise<ApprovalMode> {
   return (await getSetting("approval_mode")) === "open" ? "open" : "strict";
 }
 
+/** All settings as a plain key→value map (missing keys simply absent). */
+export async function getAllSettings(): Promise<Record<string, string>> {
+  const rows = await q<{ key: string; value: string }>("SELECT key, value FROM settings");
+  const out: Record<string, string> = {};
+  for (const r of rows) out[r.key] = r.value;
+  return out;
+}
+
 // --- Users -------------------------------------------------------------------
 
 const USER_COLUMNS = `id, username, email, name, role, status, auth_provider, external_id,
@@ -622,17 +630,24 @@ export async function createSession(
   ]);
 }
 
-export async function getSessionUser(token: string): Promise<User | undefined> {
+export async function getSessionUser(
+  token: string
+): Promise<(User & { expires_at: string }) | undefined> {
   const cols = USER_COLUMNS.split(",")
     .map((c) => "u." + c.trim())
     .join(", ");
   return (
-    await q<User>(
-      `SELECT ${cols} FROM sessions s JOIN users u ON u.id = s.user_id
+    await q<User & { expires_at: string }>(
+      `SELECT ${cols}, s.expires_at FROM sessions s JOIN users u ON u.id = s.user_id
        WHERE s.token = $1 AND s.expires_at > now() AND u.status = 'active'`,
       [token]
     )
   )[0];
+}
+
+/** Slide a session's expiry forward (sliding idle timeout). */
+export async function touchSession(token: string, expiresAt: string): Promise<void> {
+  await q("UPDATE sessions SET expires_at = $1 WHERE token = $2", [expiresAt, token]);
 }
 
 export async function deleteSession(token: string): Promise<void> {

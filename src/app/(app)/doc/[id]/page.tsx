@@ -2,6 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getDocument, listVersions, listPendingForDocument } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
+import { getAppSettings } from "@/lib/settings-store";
+import { formatDateTime } from "@/lib/format";
 import { MarkdownView } from "@/components/MarkdownView";
 import { TypeBadge, StatusBadge, Tag } from "@/components/Badges";
 import { DocActions } from "@/components/DocActions";
@@ -23,6 +25,7 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
 
   const versionCount = (await listVersions(doc.id)).length;
   const pending = roleAtLeast(user.role, "approver") ? await listPendingForDocument(doc.id) : [];
+  const settings = await getAppSettings();
 
   return (
     <div className="mx-auto max-w-3xl px-8 py-8">
@@ -72,7 +75,7 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
           By <span className="font-medium text-slate-700">{doc.author}</span>
         </span>
         <span>·</span>
-        <span>Updated {timeAgo(doc.updated_at)}</span>
+        <span title={formatDateTime(doc.updated_at, settings)}>Updated {timeAgo(doc.updated_at)}</span>
         <span>·</span>
         <Link href={`/doc/${doc.id}/history`} className="hover:text-compass-600">
           {versionCount} version{versionCount === 1 ? "" : "s"}
