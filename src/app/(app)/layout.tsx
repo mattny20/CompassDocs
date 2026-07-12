@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth";
 import { Sidebar } from "@/components/Sidebar";
-import { countOpenSuggestions, countPendingChangeRequests } from "@/lib/db";
+import { countOpenSuggestions, countPendingChangeRequests, countTrashed } from "@/lib/db";
 import { roleAtLeast } from "@/lib/types";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -10,13 +10,19 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // Force the first-login password change before anything else is usable.
   if (user.must_change_password) redirect("/account/password");
 
-  const reviewCount = roleAtLeast(user.role, "approver")
-    ? (await countOpenSuggestions()) + (await countPendingChangeRequests())
-    : 0;
+  const isEditor = roleAtLeast(user.role, "editor");
+  const [reviewCount, trashCount] = await Promise.all([
+    roleAtLeast(user.role, "approver")
+      ? Promise.all([countOpenSuggestions(), countPendingChangeRequests()]).then(
+          ([a, b]) => a + b
+        )
+      : Promise.resolve(0),
+    isEditor ? countTrashed() : Promise.resolve(0),
+  ]);
 
   return (
     <div className="flex h-screen overflow-hidden">
-      <Sidebar user={user} reviewCount={reviewCount} />
+      <Sidebar user={user} reviewCount={reviewCount} trashCount={trashCount} />
       <main className="flex-1 overflow-y-auto">{children}</main>
     </div>
   );

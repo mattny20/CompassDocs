@@ -24,7 +24,7 @@ export function DocActions({
   const canDelete = roleAtLeast(role, "approver") || (roleAtLeast(role, "editor") && !isPublished);
 
   async function onDelete() {
-    if (!confirm("Delete this document? This cannot be undone.")) return;
+    if (!confirm("Move this document to the Trash? You can restore it later.")) return;
     setDeleting(true);
     const res = await fetch(`/api/documents/${id}`, { method: "DELETE" });
     if (res.ok) {

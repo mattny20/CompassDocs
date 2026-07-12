@@ -36,6 +36,7 @@ export async function PATCH(req: Request) {
     "date_format",
     "time_format",
     "session_timeout_minutes",
+    "trash_retention_days",
   ];
   const patch: Partial<AppSettings> = {};
   for (const k of keys) {

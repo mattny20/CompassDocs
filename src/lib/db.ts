@@ -144,6 +144,10 @@ const SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS idx_documents_space ON documents(space_id);
   CREATE INDEX IF NOT EXISTS idx_documents_search ON documents USING gin(search);
 
+  -- Soft delete: non-null deleted_at means the doc is in the Trash.
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
+  CREATE INDEX IF NOT EXISTS idx_documents_deleted ON documents(deleted_at);
+
   CREATE TABLE IF NOT EXISTS doc_versions (
     id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     document_id integer NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
@@ -295,7 +299,8 @@ function mapDoc(row: any): DocumentWithSpace {
 
 export async function listSpaces(): Promise<(Space & { doc_count: number })[]> {
   return q(
-    `SELECT s.*, (SELECT COUNT(*)::int FROM documents d WHERE d.space_id = s.id) AS doc_count
+    `SELECT s.*, (SELECT COUNT(*)::int FROM documents d
+       WHERE d.space_id = s.id AND d.deleted_at IS NULL) AS doc_count
      FROM spaces s ORDER BY s.name`
   );
 }
@@ -311,7 +316,7 @@ const DOC_SELECT = `
   FROM documents d JOIN spaces s ON s.id = d.space_id`;
 
 export async function getDocument(id: number): Promise<DocumentWithSpace | undefined> {
-  const rows = await q(`${DOC_SELECT} WHERE d.id = $1`, [id]);
+  const rows = await q(`${DOC_SELECT} WHERE d.id = $1 AND d.deleted_at IS NULL`, [id]);
   return rows[0] ? mapDoc(rows[0]) : undefined;
 }
 
@@ -321,7 +326,7 @@ export async function listDocumentsBySpace(
 ): Promise<DocumentWithSpace[]> {
   const filter = includeDrafts ? "" : " AND d.status = 'published'";
   const rows = await q(
-    `${DOC_SELECT} WHERE d.space_id = $1${filter} ORDER BY d.updated_at DESC`,
+    `${DOC_SELECT} WHERE d.space_id = $1 AND d.deleted_at IS NULL${filter} ORDER BY d.updated_at DESC`,
     [spaceId]
   );
   return rows.map(mapDoc);
@@ -331,18 +336,27 @@ export async function listRecentDocuments(
   limit = 8,
   includeDrafts = false
 ): Promise<DocumentWithSpace[]> {
-  const filter = includeDrafts ? "" : " WHERE d.status = 'published'";
-  const rows = await q(`${DOC_SELECT}${filter} ORDER BY d.updated_at DESC LIMIT $1`, [limit]);
+  const filter = includeDrafts ? "" : " AND d.status = 'published'";
+  const rows = await q(
+    `${DOC_SELECT} WHERE d.deleted_at IS NULL${filter} ORDER BY d.updated_at DESC LIMIT $1`,
+    [limit]
+  );
   return rows.map(mapDoc);
 }
 
 export async function countDocuments(includeDrafts = false): Promise<number> {
-  const filter = includeDrafts ? "" : " WHERE status = 'published'";
-  return (await q<{ n: number }>(`SELECT COUNT(*)::int AS n FROM documents${filter}`))[0].n;
+  const filter = includeDrafts ? "" : " AND status = 'published'";
+  return (
+    await q<{ n: number }>(
+      `SELECT COUNT(*)::int AS n FROM documents WHERE deleted_at IS NULL${filter}`
+    )
+  )[0].n;
 }
 
 export async function allTags(): Promise<{ tag: string; count: number }[]> {
-  const rows = await q<{ tags: string }>("SELECT tags FROM documents WHERE tags <> ''");
+  const rows = await q<{ tags: string }>(
+    "SELECT tags FROM documents WHERE tags <> '' AND deleted_at IS NULL"
+  );
   const counts = new Map<string, number>();
   for (const r of rows) {
     for (const t of parseTags(r.tags)) counts.set(t, (counts.get(t) ?? 0) + 1);
@@ -429,9 +443,66 @@ export async function updateDocument(
   return getDocument(id);
 }
 
+/** Soft-delete: move a document to the Trash (recoverable). */
 export async function deleteDocument(id: number): Promise<boolean> {
-  const res = await pool().query("DELETE FROM documents WHERE id = $1", [id]);
+  await ready();
+  const res = await pool().query(
+    "UPDATE documents SET deleted_at = now() WHERE id = $1 AND deleted_at IS NULL",
+    [id]
+  );
   return (res.rowCount ?? 0) > 0;
+}
+
+/** List the documents currently in the Trash, most-recently-deleted first. */
+export async function listTrashedDocuments(): Promise<DocumentWithSpace[]> {
+  const rows = await q(
+    `${DOC_SELECT} WHERE d.deleted_at IS NOT NULL ORDER BY d.deleted_at DESC`
+  );
+  return rows.map(mapDoc);
+}
+
+/** Restore a trashed document back to its space. */
+export async function restoreDocument(id: number): Promise<boolean> {
+  await ready();
+  const res = await pool().query(
+    "UPDATE documents SET deleted_at = NULL WHERE id = $1 AND deleted_at IS NOT NULL",
+    [id]
+  );
+  return (res.rowCount ?? 0) > 0;
+}
+
+/** Permanently delete a trashed document (irreversible). Only affects Trash. */
+export async function purgeDocument(id: number): Promise<boolean> {
+  await ready();
+  const res = await pool().query(
+    "DELETE FROM documents WHERE id = $1 AND deleted_at IS NOT NULL",
+    [id]
+  );
+  return (res.rowCount ?? 0) > 0;
+}
+
+/**
+ * Permanently delete trashed documents older than `retentionDays`. A value of
+ * 0 (or less) disables auto-purge (Trash is kept forever). Returns the count
+ * removed.
+ */
+export async function purgeExpiredTrash(retentionDays: number): Promise<number> {
+  if (!Number.isFinite(retentionDays) || retentionDays <= 0) return 0;
+  await ready();
+  const res = await pool().query(
+    `DELETE FROM documents
+     WHERE deleted_at IS NOT NULL AND deleted_at < now() - ($1 * interval '1 day')`,
+    [retentionDays]
+  );
+  return res.rowCount ?? 0;
+}
+
+export async function countTrashed(): Promise<number> {
+  return (
+    await q<{ n: number }>(
+      "SELECT COUNT(*)::int AS n FROM documents WHERE deleted_at IS NOT NULL"
+    )
+  )[0].n;
 }
 
 export async function listVersions(documentId: number): Promise<DocVersion[]> {
@@ -464,7 +535,7 @@ export async function searchDocuments(
      FROM documents d
      JOIN spaces s ON s.id = d.space_id
      CROSS JOIN LATERAL (SELECT ${OR_TSQUERY} AS query) tq
-     WHERE d.search @@ tq.query${filter}
+     WHERE d.search @@ tq.query AND d.deleted_at IS NULL${filter}
      ORDER BY ts_rank(d.search, tq.query) DESC
      LIMIT $2`,
     [raw, limit]
@@ -495,7 +566,7 @@ export async function retrieveForAnswer(
   const rows = await q(
     `SELECT d.* FROM documents d
      CROSS JOIN LATERAL (SELECT ${OR_TSQUERY} AS query) tq
-     WHERE d.search @@ tq.query${filter}
+     WHERE d.search @@ tq.query AND d.deleted_at IS NULL${filter}
      ORDER BY ts_rank(d.search, tq.query) DESC
      LIMIT $2`,
     [raw, limit]
@@ -680,8 +751,10 @@ const SUGGESTION_SELECT = `
   LEFT JOIN documents d ON d.id = sg.document_id`;
 
 export async function listSuggestions(status?: "open"): Promise<Suggestion[]> {
-  const where = status ? " WHERE sg.status = 'open'" : "";
-  return q(`${SUGGESTION_SELECT}${where} ORDER BY sg.created_at DESC`);
+  // Hide suggestions attached to a trashed document; keep general (doc-less) ones.
+  const conds = ["(sg.document_id IS NULL OR d.deleted_at IS NULL)"];
+  if (status) conds.push("sg.status = 'open'");
+  return q(`${SUGGESTION_SELECT} WHERE ${conds.join(" AND ")} ORDER BY sg.created_at DESC`);
 }
 
 export async function resolveSuggestion(
@@ -697,7 +770,11 @@ export async function resolveSuggestion(
 
 export async function countOpenSuggestions(): Promise<number> {
   return (
-    await q<{ n: number }>("SELECT COUNT(*)::int AS n FROM suggestions WHERE status = 'open'")
+    await q<{ n: number }>(
+      `SELECT COUNT(*)::int AS n FROM suggestions sg
+       LEFT JOIN documents d ON d.id = sg.document_id
+       WHERE sg.status = 'open' AND (sg.document_id IS NULL OR d.deleted_at IS NULL)`
+    )
   )[0].n;
 }
 
@@ -745,8 +822,10 @@ export async function getChangeRequest(id: number): Promise<ChangeRequest | unde
 }
 
 export async function listChangeRequests(status?: "pending"): Promise<ChangeRequest[]> {
-  const where = status ? " WHERE cr.status = 'pending'" : "";
-  return q(`${CR_SELECT}${where} ORDER BY cr.created_at DESC`);
+  // Exclude change requests whose document has been trashed.
+  const conds = ["d.deleted_at IS NULL"];
+  if (status) conds.push("cr.status = 'pending'");
+  return q(`${CR_SELECT} WHERE ${conds.join(" AND ")} ORDER BY cr.created_at DESC`);
 }
 
 export async function listPendingForDocument(documentId: number): Promise<ChangeRequest[]> {
@@ -759,7 +838,9 @@ export async function listPendingForDocument(documentId: number): Promise<Change
 export async function countPendingChangeRequests(): Promise<number> {
   return (
     await q<{ n: number }>(
-      "SELECT COUNT(*)::int AS n FROM change_requests WHERE status = 'pending'"
+      `SELECT COUNT(*)::int AS n FROM change_requests cr
+       JOIN documents d ON d.id = cr.document_id
+       WHERE cr.status = 'pending' AND d.deleted_at IS NULL`
     )
   )[0].n;
 }

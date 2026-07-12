@@ -5,6 +5,7 @@ import {
   DATE_FORMATS,
   LOGO_MAX_LEN,
   clampTimeout,
+  clampRetention,
   isValidTimeZone,
   normalizeSettings,
 } from "./settings";
@@ -42,6 +43,12 @@ export async function updateAppSettings(patch: Partial<AppSettings>): Promise<Ap
     await setSetting(
       "session_timeout_minutes",
       String(clampTimeout(Number(patch.session_timeout_minutes)))
+    );
+  }
+  if (patch.trash_retention_days !== undefined) {
+    await setSetting(
+      "trash_retention_days",
+      String(clampRetention(Number(patch.trash_retention_days)))
     );
   }
   return getAppSettings();
