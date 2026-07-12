@@ -17,7 +17,7 @@ export async function PATCH(req: Request) {
 
   if (body?.approval_mode !== undefined) {
     const mode = body.approval_mode === "open" ? "open" : "strict";
-    setSetting("approval_mode", mode);
+    await setSetting("approval_mode", mode);
   }
   return NextResponse.json({ ok: true });
 }

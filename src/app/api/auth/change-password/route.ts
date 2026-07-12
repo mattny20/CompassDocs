@@ -21,7 +21,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "New password must be at least 6 characters." }, { status: 400 });
   }
 
-  const record = getUserByUsername(sessionUser.username);
+  const record = await getUserByUsername(sessionUser.username);
   if (!record || !record.password_hash || !record.password_salt) {
     return NextResponse.json({ error: "Account cannot change password here." }, { status: 400 });
   }
@@ -30,6 +30,6 @@ export async function POST(req: Request) {
   }
 
   const { hash, salt } = hashPassword(newPassword);
-  setUserPassword(record.id, hash, salt, false);
+  await setUserPassword(record.id, hash, salt, false);
   return NextResponse.json({ ok: true });
 }

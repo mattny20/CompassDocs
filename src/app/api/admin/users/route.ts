@@ -33,12 +33,12 @@ export async function POST(req: Request) {
   if (!ROLE_ORDER.includes(role)) {
     return NextResponse.json({ error: "Invalid role." }, { status: 400 });
   }
-  if (getUserByUsername(username)) {
+  if (await getUserByUsername(username)) {
     return NextResponse.json({ error: "That username is already taken." }, { status: 409 });
   }
 
   const { hash, salt } = hashPassword(password);
-  const user = createUser({
+  const user = await createUser({
     username,
     name: String(body?.name ?? "").trim() || username,
     email: String(body?.email ?? "").trim(),

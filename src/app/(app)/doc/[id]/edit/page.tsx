@@ -9,10 +9,10 @@ export const dynamic = "force-dynamic";
 export default async function EditDocPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requireRole("editor");
   const { id } = await params;
-  const doc = getDocument(Number(id));
+  const doc = await getDocument(Number(id));
   if (!doc) notFound();
-  const spaces = listSpaces();
-  const canPublish = roleAtLeast(user.role, "approver") || getApprovalMode() === "open";
+  const spaces = await listSpaces();
+  const canPublish = roleAtLeast(user.role, "approver") || (await getApprovalMode()) === "open";
 
   return (
     <DocEditor

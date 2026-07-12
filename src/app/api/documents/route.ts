@@ -36,18 +36,18 @@ export async function POST(req: Request) {
 
   let spaceId: number | undefined;
   if (body?.space_id) spaceId = Number(body.space_id);
-  else if (body?.space_slug) spaceId = getSpaceBySlug(String(body.space_slug))?.id;
-  if (!spaceId) spaceId = listSpaces()[0]?.id;
+  else if (body?.space_slug) spaceId = (await getSpaceBySlug(String(body.space_slug)))?.id;
+  if (!spaceId) spaceId = (await listSpaces())[0]?.id;
   if (!spaceId) return NextResponse.json({ error: "No space available." }, { status: 400 });
 
   const type: DocType = TYPES.includes(body?.type) ? body.type : "knowledge";
   const requested: DocStatus = STATUSES.includes(body?.status) ? body.status : "draft";
 
   // Editors in strict mode can't publish directly — new docs start as drafts.
-  const canPublish = roleAtLeast(user.role, "approver") || getApprovalMode() === "open";
+  const canPublish = roleAtLeast(user.role, "approver") || (await getApprovalMode()) === "open";
   const status: DocStatus = requested === "published" && !canPublish ? "draft" : requested;
 
-  const doc = createDocument({
+  const doc = await createDocument({
     space_id: spaceId,
     title,
     type,

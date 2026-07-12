@@ -20,7 +20,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const admin = gate as SessionUser;
 
   const { id } = await params;
-  const target = getUserById(Number(id));
+  const target = await getUserById(Number(id));
   if (!target) return NextResponse.json({ error: "User not found." }, { status: 404 });
 
   let body: any;
@@ -36,8 +36,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       return NextResponse.json({ error: "Password must be at least 6 characters." }, { status: 400 });
     }
     const { hash, salt } = hashPassword(body.resetPassword);
-    setUserPassword(target.id, hash, salt, true);
-    deleteUserSessions(target.id); // force re-login with the new password
+    await setUserPassword(target.id, hash, salt, true);
+    await deleteUserSessions(target.id); // force re-login with the new password
     return NextResponse.json({ ok: true });
   }
 
@@ -50,12 +50,12 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   // Never let the last active admin be demoted or disabled — avoids lockout.
   const demoting = role !== undefined && target.role === "admin" && role !== "admin";
   const disabling = status === "disabled" && target.role === "admin";
-  if ((demoting || disabling) && countAdmins() <= 1) {
+  if ((demoting || disabling) && (await countAdmins()) <= 1) {
     return NextResponse.json({ error: "Can't remove the last admin." }, { status: 400 });
   }
 
-  const updated = updateUser(target.id, { role, status });
-  if (status === "disabled") deleteUserSessions(target.id);
+  const updated = await updateUser(target.id, { role, status });
+  if (status === "disabled") await deleteUserSessions(target.id);
   return NextResponse.json({ user: updated });
 }
 
@@ -65,15 +65,15 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   const admin = gate as SessionUser;
 
   const { id } = await params;
-  const target = getUserById(Number(id));
+  const target = await getUserById(Number(id));
   if (!target) return NextResponse.json({ error: "User not found." }, { status: 404 });
   if (target.id === admin.id) {
     return NextResponse.json({ error: "You can't delete your own account." }, { status: 400 });
   }
-  if (target.role === "admin" && countAdmins() <= 1) {
+  if (target.role === "admin" && (await countAdmins()) <= 1) {
     return NextResponse.json({ error: "Can't delete the last admin." }, { status: 400 });
   }
 
-  deleteUser(target.id);
+  await deleteUser(target.id);
   return NextResponse.json({ ok: true });
 }

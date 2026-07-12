@@ -14,15 +14,15 @@ export const dynamic = "force-dynamic";
 export default async function DocPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requireUser();
   const { id } = await params;
-  const doc = getDocument(Number(id));
+  const doc = await getDocument(Number(id));
   if (!doc) notFound();
 
   const isStaff = roleAtLeast(user.role, "editor");
   // Viewers may not see drafts.
   if (doc.status === "draft" && !isStaff) notFound();
 
-  const versionCount = listVersions(doc.id).length;
-  const pending = roleAtLeast(user.role, "approver") ? listPendingForDocument(doc.id) : [];
+  const versionCount = (await listVersions(doc.id)).length;
+  const pending = roleAtLeast(user.role, "approver") ? await listPendingForDocument(doc.id) : [];
 
   return (
     <div className="mx-auto max-w-3xl px-8 py-8">

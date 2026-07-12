@@ -11,7 +11,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   if (user.must_change_password) redirect("/account/password");
 
   const reviewCount = roleAtLeast(user.role, "approver")
-    ? countOpenSuggestions() + countPendingChangeRequests()
+    ? (await countOpenSuggestions()) + (await countPendingChangeRequests())
     : 0;
 
   return (

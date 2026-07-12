@@ -9,10 +9,13 @@ export const dynamic = "force-dynamic";
 export default async function DashboardPage() {
   const user = await requireUser();
   const includeDrafts = roleAtLeast(user.role, "editor");
-  const spaces = listSpaces();
-  const recent = listRecentDocuments(6, includeDrafts);
-  const totalDocs = countDocuments(includeDrafts);
-  const tags = allTags().slice(0, 12);
+  const [spaces, recent, totalDocs, allTagList] = await Promise.all([
+    listSpaces(),
+    listRecentDocuments(6, includeDrafts),
+    countDocuments(includeDrafts),
+    allTags(),
+  ]);
+  const tags = allTagList.slice(0, 12);
 
   return (
     <div className="mx-auto max-w-6xl px-8 py-8">
@@ -28,7 +31,7 @@ export default async function DashboardPage() {
       <div className="mb-8 grid grid-cols-2 gap-4 sm:grid-cols-4">
         <Stat label="Documents" value={totalDocs} />
         <Stat label="Spaces" value={spaces.length} />
-        <Stat label="Tags" value={allTags().length} />
+        <Stat label="Tags" value={allTagList.length} />
         <Link
           href="/search"
           className="flex flex-col justify-center rounded-xl border border-compass-200 bg-compass-50 p-4 transition hover:border-compass-300"
