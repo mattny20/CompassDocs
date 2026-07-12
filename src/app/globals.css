@@ -1,0 +1,77 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  @apply bg-slate-50 text-slate-800 antialiased;
+}
+
+/* Search snippet highlight coming from SQLite snippet() */
+mark {
+  @apply rounded bg-yellow-200 px-0.5 text-slate-900;
+}
+
+/* Rendered markdown ("prose") styling — self-contained, no plugin needed. */
+.doc-prose {
+  @apply text-[15px] leading-7 text-slate-700;
+}
+.doc-prose h1 {
+  @apply mb-4 mt-8 text-2xl font-bold text-slate-900 first:mt-0;
+}
+.doc-prose h2 {
+  @apply mb-3 mt-8 border-b border-slate-100 pb-1 text-xl font-semibold text-slate-900;
+}
+.doc-prose h3 {
+  @apply mb-2 mt-6 text-lg font-semibold text-slate-900;
+}
+.doc-prose p {
+  @apply my-3;
+}
+.doc-prose a {
+  @apply text-compass-600 underline underline-offset-2 hover:text-compass-700;
+}
+.doc-prose ul {
+  @apply my-3 list-disc space-y-1 pl-6;
+}
+.doc-prose ol {
+  @apply my-3 list-decimal space-y-1 pl-6;
+}
+.doc-prose li {
+  @apply pl-1;
+}
+.doc-prose blockquote {
+  @apply my-4 border-l-4 border-compass-200 bg-compass-50/60 py-1 pl-4 text-slate-600;
+}
+.doc-prose code {
+  @apply rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[13px] text-pink-700;
+}
+.doc-prose pre {
+  @apply my-4 overflow-x-auto rounded-lg bg-slate-900 p-4 text-[13px] leading-6 text-slate-100;
+}
+.doc-prose pre code {
+  @apply bg-transparent p-0 text-slate-100;
+}
+.doc-prose table {
+  @apply my-4 w-full border-collapse overflow-hidden rounded-lg text-sm;
+}
+.doc-prose th {
+  @apply border border-slate-200 bg-slate-100 px-3 py-2 text-left font-semibold text-slate-700;
+}
+.doc-prose td {
+  @apply border border-slate-200 px-3 py-2 align-top;
+}
+.doc-prose hr {
+  @apply my-6 border-slate-200;
+}
+.doc-prose input[type="checkbox"] {
+  @apply mr-1 align-middle;
+}
