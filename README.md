@@ -13,6 +13,7 @@ history.
 - **Editorial approval workflow** — in **strict** mode, an Editor's changes to a published doc (or a request to publish) go to a **review queue**; Approvers/Admins approve (applies it live) or reject. Admins can switch to **open** mode, letting Editors publish directly.
 - **Suggestions** — any signed-in user can leave a "suggest an edit" note on a doc; Approvers/Admins triage them from the review queue.
 - **Admin console** — create users, assign/change roles, reset passwords, enable/disable accounts, and toggle the approval workflow — all with a last-admin lockout guard.
+- **Appearance & workspace settings** — set your **company name and logo**, choose a **timezone**, **date** and **time format** for how timestamps render, and configure the **idle session timeout** — all from the Admin page.
 - **Spaces** — group knowledge by team or domain (Engineering, People Ops, Security, …).
 - **Four document types** — SOPs, Technical docs, Policies, and Knowledge/how-tos, each color-coded.
 - **Markdown editing** — a distraction-free editor with a live preview tab and GitHub-flavored markdown (tables, checklists, code blocks).

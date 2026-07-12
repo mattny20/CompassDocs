@@ -4,15 +4,19 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ROLE_ORDER, ROLE_LABEL, ROLE_BLURB } from "@/lib/types";
 import type { User, Role, ApprovalMode } from "@/lib/types";
+import type { AppSettings } from "@/lib/settings";
+import { WorkspaceSettings } from "./WorkspaceSettings";
 
 export function AdminClient({
   users,
   currentUserId,
   approvalMode,
+  settings,
 }: {
   users: User[];
   currentUserId: number;
   approvalMode: ApprovalMode;
+  settings: AppSettings;
 }) {
   const router = useRouter();
   const [mode, setMode] = useState<ApprovalMode>(approvalMode);
@@ -32,6 +36,12 @@ export function AdminClient({
 
   return (
     <div className="space-y-10">
+      {/* Appearance & workspace settings */}
+      <section>
+        <h2 className="mb-3 text-lg font-semibold text-slate-900">Appearance &amp; workspace</h2>
+        <WorkspaceSettings initial={settings} />
+      </section>
+
       {/* Approval workflow setting */}
       <section>
         <h2 className="mb-3 text-lg font-semibold text-slate-900">Approval workflow</h2>

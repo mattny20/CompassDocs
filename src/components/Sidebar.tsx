@@ -1,12 +1,14 @@
 import Link from "next/link";
 import { listSpaces } from "@/lib/db";
+import { getAppSettings } from "@/lib/settings-store";
 import { GlobalSearch } from "./GlobalSearch";
 import { UserMenu } from "./UserMenu";
+import { Brand } from "./Brand";
 import { roleAtLeast } from "@/lib/types";
 import type { SessionUser } from "@/lib/types";
 
 export async function Sidebar({ user, reviewCount }: { user: SessionUser; reviewCount: number }) {
-  const spaces = await listSpaces();
+  const [spaces, settings] = await Promise.all([listSpaces(), getAppSettings()]);
   const isEditor = roleAtLeast(user.role, "editor");
   const isApprover = roleAtLeast(user.role, "approver");
   const isAdmin = user.role === "admin";
@@ -15,10 +17,7 @@ export async function Sidebar({ user, reviewCount }: { user: SessionUser; review
     <aside className="flex w-64 shrink-0 flex-col border-r border-slate-200 bg-white">
       <div className="flex h-16 items-center gap-2 border-b border-slate-100 px-5">
         <Link href="/" className="flex items-center gap-2">
-          <span className="grid h-8 w-8 place-items-center rounded-lg bg-compass-600 text-lg text-white shadow-sm">
-            🧭
-          </span>
-          <span className="text-lg font-bold tracking-tight text-slate-900">CompassDocs</span>
+          <Brand name={settings.company_name} logoUrl={settings.logo_url || undefined} />
         </Link>
       </div>
 
