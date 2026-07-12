@@ -1,0 +1,44 @@
+# CompassDocs — production stack (app + Postgres).
+#
+# Quickest start (from a fresh directory):
+#   curl -fsSL https://raw.githubusercontent.com/mattny20/CompassDocs/main/install.sh | bash
+#
+# Or manually: put this file and a .env (see deploy/.env.example) in a folder, then:
+#   docker compose up -d          # start
+#   docker compose pull && docker compose up -d   # update to the latest release
+#   docker compose logs -f app    # view logs
+#   docker compose down           # stop (data is kept in the named volume)
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: compass
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: compassdocs
+    volumes:
+      - compassdocs_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U compass -d compassdocs"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
+    image: ghcr.io/mattny20/compassdocs:${COMPASSDOCS_VERSION:-latest}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # The app and db talk over the private compose network, so SSL is off.
+      DATABASE_URL: postgres://compass:${POSTGRES_PASSWORD}@db:5432/compassdocs
+      DATABASE_SSL: disable
+      COMPASSDOCS_ADMIN_USER: ${COMPASSDOCS_ADMIN_USER:-admin}
+      COMPASSDOCS_ADMIN_PASSWORD: ${COMPASSDOCS_ADMIN_PASSWORD:?set COMPASSDOCS_ADMIN_PASSWORD in .env}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    ports:
+      - "${PORT:-3000}:3000"
+
+volumes:
+  compassdocs_pgdata:
