@@ -1,13 +1,17 @@
 import Link from "next/link";
 import { listSpaces, listRecentDocuments, countDocuments, allTags } from "@/lib/db";
+import { requireUser } from "@/lib/auth";
+import { roleAtLeast } from "@/lib/types";
 import { DocCard } from "@/components/DocCard";
 
 export const dynamic = "force-dynamic";
 
-export default function DashboardPage() {
+export default async function DashboardPage() {
+  const user = await requireUser();
+  const includeDrafts = roleAtLeast(user.role, "editor");
   const spaces = listSpaces();
-  const recent = listRecentDocuments(6);
-  const totalDocs = countDocuments();
+  const recent = listRecentDocuments(6, includeDrafts);
+  const totalDocs = countDocuments(includeDrafts);
   const tags = allTags().slice(0, 12);
 
   return (

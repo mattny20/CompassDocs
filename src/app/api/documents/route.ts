@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
-import { createDocument, getSpaceBySlug, listSpaces } from "@/lib/db";
-import type { DocType, DocStatus } from "@/lib/types";
+import { createDocument, getSpaceBySlug, listSpaces, getApprovalMode } from "@/lib/db";
+import { apiGuard } from "@/lib/api-auth";
+import { roleAtLeast } from "@/lib/types";
+import type { DocType, DocStatus, SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +20,10 @@ function normalizeTags(input: unknown): string[] {
 }
 
 export async function POST(req: Request) {
+  const gate = await apiGuard("editor");
+  if (gate instanceof NextResponse) return gate;
+  const user = gate as SessionUser;
+
   let body: any;
   try {
     body = await req.json();
@@ -28,18 +34,18 @@ export async function POST(req: Request) {
   const title = String(body?.title ?? "").trim();
   if (!title) return NextResponse.json({ error: "Title is required." }, { status: 400 });
 
-  // Resolve the space by numeric id or slug.
   let spaceId: number | undefined;
   if (body?.space_id) spaceId = Number(body.space_id);
   else if (body?.space_slug) spaceId = getSpaceBySlug(String(body.space_slug))?.id;
-  if (!spaceId) {
-    const first = listSpaces()[0];
-    spaceId = first?.id;
-  }
+  if (!spaceId) spaceId = listSpaces()[0]?.id;
   if (!spaceId) return NextResponse.json({ error: "No space available." }, { status: 400 });
 
   const type: DocType = TYPES.includes(body?.type) ? body.type : "knowledge";
-  const status: DocStatus = STATUSES.includes(body?.status) ? body.status : "draft";
+  const requested: DocStatus = STATUSES.includes(body?.status) ? body.status : "draft";
+
+  // Editors in strict mode can't publish directly — new docs start as drafts.
+  const canPublish = roleAtLeast(user.role, "approver") || getApprovalMode() === "open";
+  const status: DocStatus = requested === "published" && !canPublish ? "draft" : requested;
 
   const doc = createDocument({
     space_id: spaceId,
@@ -49,8 +55,8 @@ export async function POST(req: Request) {
     content: String(body?.content ?? ""),
     summary: String(body?.summary ?? "").trim(),
     tags: normalizeTags(body?.tags),
-    author: String(body?.author ?? "").trim() || "Anonymous",
+    author: user.name || user.username,
   });
 
-  return NextResponse.json({ doc }, { status: 201 });
+  return NextResponse.json({ doc, downgraded: status !== requested }, { status: 201 });
 }

@@ -1,9 +1,16 @@
 import Link from "next/link";
 import { listSpaces } from "@/lib/db";
 import { GlobalSearch } from "./GlobalSearch";
+import { UserMenu } from "./UserMenu";
+import { roleAtLeast } from "@/lib/types";
+import type { SessionUser } from "@/lib/types";
 
-export function Sidebar() {
+export function Sidebar({ user, reviewCount }: { user: SessionUser; reviewCount: number }) {
   const spaces = listSpaces();
+  const isEditor = roleAtLeast(user.role, "editor");
+  const isApprover = roleAtLeast(user.role, "approver");
+  const isAdmin = user.role === "admin";
+
   return (
     <aside className="flex w-64 shrink-0 flex-col border-r border-slate-200 bg-white">
       <div className="flex h-16 items-center gap-2 border-b border-slate-100 px-5">
@@ -20,18 +27,22 @@ export function Sidebar() {
       </div>
 
       <nav className="px-3 pb-2 text-sm">
-        <Link
-          href="/"
-          className="flex items-center gap-2 rounded-md px-3 py-2 font-medium text-slate-600 hover:bg-slate-100"
-        >
-          <span>🏠</span> Dashboard
-        </Link>
-        <Link
-          href="/search"
-          className="flex items-center gap-2 rounded-md px-3 py-2 font-medium text-slate-600 hover:bg-slate-100"
-        >
-          <span>✨</span> Ask CompassDocs
-        </Link>
+        <NavLink href="/" icon="🏠">
+          Dashboard
+        </NavLink>
+        <NavLink href="/search" icon="✨">
+          Ask CompassDocs
+        </NavLink>
+        {isApprover && (
+          <NavLink href="/review" icon="📋" badge={reviewCount}>
+            Review queue
+          </NavLink>
+        )}
+        {isAdmin && (
+          <NavLink href="/admin" icon="⚙️">
+            Admin
+          </NavLink>
+        )}
       </nav>
 
       <div className="mt-2 px-5 pb-1 text-xs font-semibold uppercase tracking-wider text-slate-400">
@@ -48,21 +59,49 @@ export function Sidebar() {
               <span>{s.icon}</span>
               <span className="truncate">{s.name}</span>
             </span>
-            <span className="ml-2 rounded-full bg-slate-100 px-1.5 text-xs text-slate-400">
-              {s.doc_count}
-            </span>
           </Link>
         ))}
       </nav>
 
-      <div className="border-t border-slate-100 p-3">
-        <Link
-          href="/doc/new"
-          className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-compass-600 px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-compass-700"
-        >
-          <span className="text-base leading-none">＋</span> New document
-        </Link>
-      </div>
+      {isEditor && (
+        <div className="border-t border-slate-100 p-3">
+          <Link
+            href="/doc/new"
+            className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-compass-600 px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-compass-700"
+          >
+            <span className="text-base leading-none">＋</span> New document
+          </Link>
+        </div>
+      )}
+
+      <UserMenu user={user} />
     </aside>
+  );
+}
+
+function NavLink({
+  href,
+  icon,
+  badge,
+  children,
+}: {
+  href: string;
+  icon: string;
+  badge?: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <Link
+      href={href}
+      className="flex items-center gap-2 rounded-md px-3 py-2 font-medium text-slate-600 hover:bg-slate-100"
+    >
+      <span>{icon}</span>
+      <span className="flex-1">{children}</span>
+      {badge ? (
+        <span className="rounded-full bg-compass-100 px-1.5 text-xs font-semibold text-compass-700">
+          {badge}
+        </span>
+      ) : null}
+    </Link>
   );
 }

@@ -1,14 +1,18 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getDocument, listVersions } from "@/lib/db";
+import { requireUser } from "@/lib/auth";
+import { roleAtLeast } from "@/lib/types";
 import { timeAgo } from "@/lib/ui";
 
 export const dynamic = "force-dynamic";
 
 export default async function HistoryPage({ params }: { params: Promise<{ id: string }> }) {
+  const user = await requireUser();
   const { id } = await params;
   const doc = getDocument(Number(id));
   if (!doc) notFound();
+  if (doc.status === "draft" && !roleAtLeast(user.role, "editor")) notFound();
   const versions = listVersions(doc.id);
 
   return (
