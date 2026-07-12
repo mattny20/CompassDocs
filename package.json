@@ -11,6 +11,8 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
+    "gray-matter": "^4.0.3",
+    "jszip": "^3.10.1",
     "next": "^15.5.20",
     "pg": "^8.13.1",
     "react": "19.1.1",

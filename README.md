@@ -21,6 +21,7 @@ history.
 - **AI-powered answers** — "Ask CompassDocs" answers plain-English questions grounded in your knowledge base, with inline citations and clickable sources.
 - **Version history** — every content change is snapshotted; browse and preview past revisions.
 - **Trash & retention** — deleting a document moves it to the **Trash** (a soft delete), where Editors can restore it and Admins can remove it for good. A configurable retention window auto-purges trashed documents after a set number of days (or never).
+- **Import & export** — Admins can export the whole knowledge base as a zip of Markdown files with YAML front-matter (organized by space), and import such a zip back in — matching documents are updated in place and new documents/spaces are created.
 - **Drafts & publishing** — mark documents as draft or published.
 - **Tags** — tag documents and browse by popular tags.
 - **Self-seeding storage** — on first connection the app creates its own PostgreSQL schema and seeds realistic sample content; no manual migrations.

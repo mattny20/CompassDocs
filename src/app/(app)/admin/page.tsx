@@ -2,6 +2,7 @@ import { requireRole } from "@/lib/auth";
 import { listUsers, getApprovalMode } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings-store";
 import { AdminClient } from "@/components/AdminClient";
+import { ImportExport } from "@/components/ImportExport";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +24,11 @@ export default async function AdminPage() {
         approvalMode={approvalMode}
         settings={settings}
       />
+
+      <section className="mt-10">
+        <h2 className="mb-3 text-lg font-semibold text-slate-900">Import &amp; export</h2>
+        <ImportExport />
+      </section>
     </div>
   );
 }
