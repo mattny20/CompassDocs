@@ -12,9 +12,22 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
+// Resolve the saved theme preference and stamp data-theme on <html> *before*
+// first paint, so there's no light/dark flash on load. `system` follows the OS.
+const THEME_INIT = `
+(function(){try{
+  var p = localStorage.getItem('compass-theme') || 'system';
+  var dark = p === 'dark' || (p !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+}catch(e){}})();
+`;
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT }} />
+      </head>
       <body>{children}</body>
     </html>
   );

@@ -18,7 +18,7 @@ export default async function LoginPage() {
           <Brand name={settings.company_name} logoUrl={settings.logo_url || undefined} size="lg" layout="col" />
           <p className="mt-1 text-sm text-slate-500">Sign in to your team&apos;s knowledge base</p>
         </div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="rounded-2xl border border-slate-200 bg-surface p-6 shadow-sm">
           <LoginForm />
         </div>
       </div>

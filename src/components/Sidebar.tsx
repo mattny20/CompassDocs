@@ -4,6 +4,7 @@ import { getAppSettings } from "@/lib/settings-store";
 import { GlobalSearch } from "./GlobalSearch";
 import { UserMenu } from "./UserMenu";
 import { Brand } from "./Brand";
+import { ThemeToggle } from "./ThemeToggle";
 import { roleAtLeast } from "@/lib/types";
 import type { SessionUser } from "@/lib/types";
 
@@ -14,7 +15,7 @@ export async function Sidebar({ user, reviewCount }: { user: SessionUser; review
   const isAdmin = user.role === "admin";
 
   return (
-    <aside className="flex w-64 shrink-0 flex-col border-r border-slate-200 bg-white">
+    <aside className="flex w-64 shrink-0 flex-col border-r border-slate-200 bg-surface">
       <div className="flex h-16 items-center gap-2 border-b border-slate-100 px-5">
         <Link href="/" className="flex items-center gap-2">
           <Brand name={settings.company_name} logoUrl={settings.logo_url || undefined} />
@@ -72,6 +73,10 @@ export async function Sidebar({ user, reviewCount }: { user: SessionUser; review
           </Link>
         </div>
       )}
+
+      <div className="border-t border-slate-100 px-3 py-2">
+        <ThemeToggle />
+      </div>
 
       <UserMenu user={user} />
     </aside>

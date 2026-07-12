@@ -54,7 +54,7 @@ export function ReviewClient({
   const empty = crs.length === 0 && sugs.length === 0;
   if (empty) {
     return (
-      <div className="rounded-xl border border-dashed border-slate-300 bg-white p-10 text-center text-slate-400">
+      <div className="rounded-xl border border-dashed border-slate-300 bg-surface p-10 text-center text-slate-400">
         🎉 The queue is empty. Nothing to review right now.
       </div>
     );
@@ -69,7 +69,7 @@ export function ReviewClient({
           </h2>
           <div className="space-y-3">
             {crs.map((cr) => (
-              <div key={cr.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div key={cr.id} className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <div className="mb-1 flex items-center gap-2">
@@ -130,7 +130,7 @@ export function ReviewClient({
           </h2>
           <div className="space-y-3">
             {sugs.map((sg) => (
-              <div key={sg.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div key={sg.id} className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <p className="text-sm text-slate-700">{sg.body}</p>

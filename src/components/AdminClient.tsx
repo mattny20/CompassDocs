@@ -95,7 +95,7 @@ function ModeCard({
       className={`rounded-xl border p-4 text-left transition ${
         active
           ? "border-compass-400 bg-compass-50 ring-2 ring-compass-100"
-          : "border-slate-200 bg-white hover:border-slate-300"
+          : "border-slate-200 bg-surface hover:border-slate-300"
       }`}
     >
       <div className="flex items-center gap-2">
@@ -104,7 +104,7 @@ function ModeCard({
             active ? "border-compass-600 bg-compass-600" : "border-slate-300"
           }`}
         >
-          {active && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
+          {active && <span className="h-1.5 w-1.5 rounded-full bg-surface" />}
         </span>
         <span className="font-semibold text-slate-900">{title}</span>
       </div>
@@ -161,7 +161,7 @@ function UserTable({ users, currentUserId }: { users: User[]; currentUserId: num
   }
 
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+    <div className="overflow-hidden rounded-xl border border-slate-200 bg-surface shadow-sm">
       <table className="w-full text-sm">
         <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-400">
           <tr>
@@ -187,7 +187,7 @@ function UserTable({ users, currentUserId }: { users: User[]; currentUserId: num
                 <select
                   value={u.role}
                   onChange={(e) => changeRole(u.id, e.target.value as Role)}
-                  className="rounded-md border border-slate-200 bg-white px-2 py-1 text-sm outline-none focus:border-compass-400"
+                  className="rounded-md border border-slate-200 bg-surface px-2 py-1 text-sm outline-none focus:border-compass-400"
                 >
                   {ROLE_ORDER.map((r) => (
                     <option key={r} value={r}>
@@ -289,7 +289,7 @@ function CreateUser() {
     "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
 
   return (
-    <form onSubmit={submit} className="mt-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+    <form onSubmit={submit} className="mt-4 rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
       <h3 className="mb-3 font-semibold text-slate-900">Add a user</h3>
       {error && <div className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
       <div className="grid gap-3 sm:grid-cols-2">

@@ -2,8 +2,50 @@
 @tailwind components;
 @tailwind utilities;
 
+/* --- Theme palettes -------------------------------------------------------
+ * Neutral/surface colors are CSS variables in "R G B" channel form so the
+ * Tailwind slate/surface/compass-tint utilities can flip between light and
+ * dark by toggling `data-theme` on <html> (set pre-paint in the root layout).
+ */
 :root {
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color-scheme: light;
+
+  --surface: 255 255 255;
+  --canvas: 248 250 252;
+  --slate-50: 248 250 252;
+  --slate-100: 241 245 249;
+  --slate-200: 226 232 240;
+  --slate-300: 203 213 225;
+  --slate-400: 148 163 184;
+  --slate-500: 100 116 139;
+  --slate-600: 71 85 105;
+  --slate-700: 51 65 85;
+  --slate-800: 30 41 59;
+  --slate-900: 15 23 42;
+  --slate-950: 2 6 23;
+  --compass-50: 238 244 255;
+  --compass-100: 217 230 255;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --surface: 19 26 40;
+  --canvas: 9 13 22;
+  --slate-50: 9 13 22;
+  --slate-100: 30 39 56;
+  --slate-200: 45 56 78;
+  --slate-300: 58 71 94;
+  --slate-400: 122 134 154;
+  --slate-500: 148 161 181;
+  --slate-600: 176 187 204;
+  --slate-700: 200 209 222;
+  --slate-800: 221 227 236;
+  --slate-900: 237 241 247;
+  --slate-950: 248 250 252;
+  --compass-50: 23 34 58;
+  --compass-100: 30 45 78;
 }
 
 html,
@@ -12,12 +54,18 @@ body {
 }
 
 body {
-  @apply bg-slate-50 text-slate-800 antialiased;
+  @apply bg-canvas text-slate-800 antialiased;
 }
 
-/* Search snippet highlight coming from SQLite snippet() */
+/* Search snippet highlight — kept legible (dark-on-light) in both themes. */
 mark {
-  @apply rounded bg-yellow-200 px-0.5 text-slate-900;
+  @apply rounded px-0.5;
+  background: #fde68a;
+  color: #78350f;
+}
+:root[data-theme="dark"] mark {
+  background: #b45309;
+  color: #fef3c7;
 }
 
 /* Rendered markdown ("prose") styling — self-contained, no plugin needed. */
@@ -54,11 +102,21 @@ mark {
 .doc-prose code {
   @apply rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[13px] text-pink-700;
 }
+:root[data-theme="dark"] .doc-prose code {
+  @apply text-pink-300;
+}
+/* Code blocks stay dark in both themes (literal, immune to the neutral flip). */
 .doc-prose pre {
-  @apply my-4 overflow-x-auto rounded-lg bg-slate-900 p-4 text-[13px] leading-6 text-slate-100;
+  @apply my-4 overflow-x-auto rounded-lg p-4 text-[13px] leading-6;
+  background: #0f172a;
+  color: #e2e8f0;
 }
 .doc-prose pre code {
-  @apply bg-transparent p-0 text-slate-100;
+  @apply bg-transparent p-0;
+  color: inherit;
+}
+:root[data-theme="dark"] .doc-prose a {
+  @apply text-compass-400;
 }
 .doc-prose table {
   @apply my-4 w-full border-collapse overflow-hidden rounded-lg text-sm;

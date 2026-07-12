@@ -30,8 +30,8 @@ export default async function HistoryPage({ params }: { params: Promise<{ id: st
       <ol className="relative border-l border-slate-200 pl-6">
         {versions.map((v, i) => (
           <li key={v.id} className="mb-6 last:mb-0">
-            <span className="absolute -left-[7px] mt-1.5 h-3 w-3 rounded-full border-2 border-white bg-compass-500" />
-            <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+            <span className="absolute -left-[7px] mt-1.5 h-3 w-3 rounded-full border-2 border-surface bg-compass-500" />
+            <div className="rounded-lg border border-slate-200 bg-surface p-4 shadow-sm">
               <div className="flex items-center justify-between">
                 <span className="font-medium text-slate-800">
                   {i === 0 ? "Current" : `Revision ${versions.length - i}`}

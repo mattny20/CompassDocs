@@ -45,12 +45,12 @@ export function SuggestBox({ documentId }: { documentId: number }) {
       {!open ? (
         <button
           onClick={() => setOpen(true)}
-          className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+          className="rounded-lg border border-slate-200 bg-surface px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
         >
           💡 Suggest an edit
         </button>
       ) : (
-        <form onSubmit={submit} className="rounded-xl border border-slate-200 bg-white p-4">
+        <form onSubmit={submit} className="rounded-xl border border-slate-200 bg-surface p-4">
           <label className="mb-1 block text-sm font-medium text-slate-700">
             Suggest an improvement
           </label>
