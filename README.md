@@ -142,6 +142,14 @@ Prefer to do it by hand? Grab [`deploy/docker-compose.yml`](./deploy/docker-comp
 and [`deploy/.env.example`](./deploy/.env.example), fill in the `.env`, and run
 `docker compose up -d`.
 
+**Build from source instead of pulling an image** — for local development or a
+private fork, [`docker-compose.local.yml`](./docker-compose.local.yml) builds the
+app from this repo and runs it with Postgres, so no registry or auth is needed:
+
+```bash
+docker compose -f docker-compose.local.yml up -d --build   # http://localhost:3000
+```
+
 > Images are published to `ghcr.io/mattny20/compassdocs` automatically on every
 > merge to `main` (`:latest`) and on version tags (`:X.Y.Z`) by the
 > [Docker publish workflow](./.github/workflows/docker-publish.yml).
