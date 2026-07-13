@@ -11,6 +11,7 @@ const SECTIONS = [
   { href: "/admin/license", label: "License", icon: "🔑" },
   { href: "/admin/domain", label: "Domain & HTTPS", icon: "🌐" },
   { href: "/admin/users", label: "Users & roles", icon: "👥" },
+  { href: "/admin/directory", label: "Directory", icon: "📇" },
   { href: "/admin/audit", label: "Audit log", icon: "📜" },
   { href: "/admin/backups", label: "Backups", icon: "💾" },
   { href: "/admin/data", label: "Import & export", icon: "📦" },

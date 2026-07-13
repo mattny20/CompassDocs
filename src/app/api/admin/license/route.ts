@@ -14,6 +14,7 @@ const ALL_FEATURES: { key: EntitlementFeature; label: string }[] = [
   { key: "scim", label: "SCIM provisioning" },
   { key: "audit_export", label: "Audit-log export" },
   { key: "priority_support", label: "Priority support" },
+  { key: "directory_sync", label: "Microsoft 365 directory sync" },
 ];
 
 // Build a client-safe view. The raw license token is never echoed back; its

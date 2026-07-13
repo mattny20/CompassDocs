@@ -28,7 +28,12 @@ MCowBQYDK2VwAyEA3zj2D3VLyIij/SovtpZWwY1xFrX8F6n876GPISVnxE0=
 // switch off — avoids a renewal-paperwork lapse breaking, e.g., SSO.
 const GRACE_DAYS = 14;
 
-export type EntitlementFeature = "sso" | "scim" | "audit_export" | "priority_support";
+export type EntitlementFeature =
+  | "sso"
+  | "scim"
+  | "audit_export"
+  | "priority_support"
+  | "directory_sync";
 
 export interface License {
   /** Opaque license id (for a future revocation list). */

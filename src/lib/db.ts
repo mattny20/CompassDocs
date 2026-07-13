@@ -252,6 +252,28 @@ const SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_log(at DESC);
   CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action);
   CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_log(actor_id);
+
+  -- People directory. Rows come from manual entry (source='manual') or the
+  -- enterprise Microsoft Graph sync (source='graph', keyed by external_id).
+  CREATE TABLE IF NOT EXISTS directory_people (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    source text NOT NULL DEFAULT 'manual',
+    external_id text,
+    name text NOT NULL,
+    title text NOT NULL DEFAULT '',
+    department text NOT NULL DEFAULT '',
+    email text NOT NULL DEFAULT '',
+    phone text NOT NULL DEFAULT '',
+    mobile text NOT NULL DEFAULT '',
+    office text NOT NULL DEFAULT '',
+    photo text NOT NULL DEFAULT '',
+    hidden integer NOT NULL DEFAULT 0,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_directory_external
+    ON directory_people(external_id) WHERE external_id IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS idx_directory_name ON directory_people(name);
 `;
 
 async function seedIfEmpty(client: import("pg").PoolClient) {
