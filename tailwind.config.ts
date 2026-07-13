@@ -35,14 +35,15 @@ const config: Config = {
           50: v("--compass-50"),
           100: v("--compass-100"),
           // …while the saturated brand blues stay constant across themes.
-          200: "#bcd3ff",
-          300: "#8eb6ff",
-          400: "#598eff",
-          500: "#3366f2",
-          600: "#2148d8",
-          700: "#1c39ae",
-          800: "#1d3389",
-          900: "#1e306d",
+          // Ramp centered on the brand blue (#2e75bd) at step 600.
+          200: "#b3d3ec",
+          300: "#82b4e0",
+          400: "#5093d0",
+          500: "#3a80c6",
+          600: "#2e75bd",
+          700: "#275f99",
+          800: "#234f7c",
+          900: "#204264",
         },
       },
       fontFamily: {

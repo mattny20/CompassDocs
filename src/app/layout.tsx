@@ -1,5 +1,10 @@
 import type { Metadata } from "next";
 import { getAppSettings } from "@/lib/settings-store";
+// Self-host the brand font (Aileron) so it renders offline / on-prem without
+// reaching out to a font CDN. Weights: regular, semibold, bold.
+import "@fontsource/aileron/400.css";
+import "@fontsource/aileron/600.css";
+import "@fontsource/aileron/700.css";
 import "./globals.css";
 
 export async function generateMetadata(): Promise<Metadata> {

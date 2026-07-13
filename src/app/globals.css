@@ -8,7 +8,7 @@
  * dark by toggling `data-theme` on <html> (set pre-paint in the root layout).
  */
 :root {
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-sans: "Aileron", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color-scheme: light;
 
   --surface: 255 255 255;
@@ -24,8 +24,8 @@
   --slate-800: 30 41 59;
   --slate-900: 15 23 42;
   --slate-950: 2 6 23;
-  --compass-50: 238 244 255;
-  --compass-100: 217 230 255;
+  --compass-50: 237 245 251;
+  --compass-100: 212 230 245;
 }
 
 :root[data-theme="dark"] {
