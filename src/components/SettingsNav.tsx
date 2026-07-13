@@ -7,6 +7,7 @@ const SECTIONS = [
   { href: "/admin", label: "System", icon: "🖥️" },
   { href: "/admin/workspace", label: "Workspace", icon: "🎨" },
   { href: "/admin/spaces", label: "Spaces", icon: "🗂️" },
+  { href: "/admin/ai", label: "AI", icon: "✨" },
   { href: "/admin/domain", label: "Domain & HTTPS", icon: "🌐" },
   { href: "/admin/users", label: "Users & roles", icon: "👥" },
   { href: "/admin/backups", label: "Backups", icon: "💾" },

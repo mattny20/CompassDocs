@@ -1,8 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { retrieveForAnswer } from "./db";
+import { getAnthropicKey, getAiModel } from "./ai-config";
 import type { Document } from "./types";
-
-const MODEL = process.env.COMPASSDOCS_AI_MODEL || "claude-opus-4-8";
 
 export interface AiSource {
   id: number;
@@ -109,11 +108,12 @@ export async function proofread(content: string): Promise<ProofResult> {
   if (!text.trim()) {
     return { mode: "ai", revised: text, changes: [], message: "Nothing to proofread yet." };
   }
-  if (!process.env.ANTHROPIC_API_KEY) {
+  const apiKey = await getAnthropicKey();
+  if (!apiKey) {
     return {
       mode: "unavailable",
       message:
-        "AI proofreading needs an ANTHROPIC_API_KEY. Ask your admin to configure it to enable this.",
+        "AI proofreading needs an Anthropic API key. An admin can add one in Settings → AI.",
     };
   }
 
@@ -121,7 +121,7 @@ export async function proofread(content: string): Promise<ProofResult> {
   const input = truncated ? text.slice(0, PROOF_MAX_CHARS) : text;
 
   try {
-    const client = new Anthropic();
+    const client = new Anthropic({ apiKey });
     const system = `You are a meticulous copy editor for a team's internal documentation.
 Fix spelling, grammar, punctuation, and awkward or unclear phrasing.
 Strict rules:
@@ -132,7 +132,7 @@ Strict rules:
 {"revised": "<the full corrected Markdown>", "changes": [{"type": "spelling|grammar|punctuation|clarity", "before": "<short original snippet>", "after": "<corrected snippet>", "note": "<brief reason>"}]}`;
 
     const response = await client.messages.create({
-      model: MODEL,
+      model: await getAiModel(),
       max_tokens: 8192,
       system,
       messages: [{ role: "user", content: `Proofread this document:\n\n${input}` }],
@@ -182,7 +182,8 @@ export async function answerQuestion(
 ): Promise<AiAnswer> {
   const docs = await retrieveForAnswer(question, 6, includeDrafts);
 
-  if (!process.env.ANTHROPIC_API_KEY) {
+  const apiKey = await getAnthropicKey();
+  if (!apiKey) {
     return fallbackAnswer(question, docs);
   }
 
@@ -196,7 +197,7 @@ export async function answerQuestion(
   }
 
   try {
-    const client = new Anthropic();
+    const client = new Anthropic({ apiKey });
     const system = `You are CompassDocs, an assistant that answers questions strictly from a team's internal knowledge base.
 Rules:
 - Answer ONLY from the provided documents. If they don't contain the answer, say so plainly.
@@ -205,7 +206,7 @@ Rules:
 - Never invent policies, numbers, or steps that aren't in the sources.`;
 
     const response = await client.messages.create({
-      model: MODEL,
+      model: await getAiModel(),
       max_tokens: 1024,
       system,
       messages: [
