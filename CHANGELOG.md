@@ -4,14 +4,27 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
-## [0.3.3] - 2026-07-13
+## [0.3.4] - 2026-07-13
+
+A first-run-experience release: install, activate a license, and set up your
+domain + HTTPS entirely from the one-line installer and the setup wizard.
 
 ### Added
+- **Domain & HTTPS in the setup wizard.** When CompassDocs runs behind its
+  bundled Caddy reverse proxy, the first-run wizard now lets you enter your
+  domain and pick an HTTPS mode — **Automatic** (Let's Encrypt, public DNS),
+  **Self-signed** (internal CA, for LAN / internal DNS), or **Off** — and applies
+  it to the proxy immediately. No separate trip to Settings required.
+- **One-command HTTPS install.** Pass `COMPASSDOCS_TLS=1` to the installer to
+  bring up CompassDocs behind Caddy on ports 80/443 (community and enterprise):
+  ```
+  curl -fsSL .../install.sh | COMPASSDOCS_EDITION=enterprise COMPASSDOCS_TLS=1 bash
+  ```
+  New `deploy/docker-compose.tls.ee.yml` provides the enterprise HTTPS stack.
 - **Apply an Enterprise license during first-run setup.** The setup wizard (on
-  Enterprise builds) now has an optional license-key field, so a customer can
-  activate Enterprise features right after install without any extra command or
-  env var — the plain one-line installer is all that's needed. The key is
-  validated before the admin account is created.
+  Enterprise builds) has an optional license-key field, so a customer can
+  activate Enterprise features right after install — the plain one-line installer
+  is all that's needed. The key is validated before the admin account is created.
 
 ### Changed
 - **Session cookie security is now automatic.** A new `secure_cookies` setting
@@ -103,6 +116,7 @@ approval workflow. Self-hosted, AGPL-3.0.
 - **PostgreSQL** storage; the app migrates its own schema on start.
 - Also runs manually with Node.js 20+ and PostgreSQL 14+.
 
+[0.3.4]: https://github.com/mattny20/CompassDocs/releases/tag/v0.3.4
 [0.3.2]: https://github.com/mattny20/CompassDocs/releases/tag/v0.3.2
 [0.3.1]: https://github.com/mattny20/CompassDocs/releases/tag/v0.3.1
 [0.3.0]: https://github.com/mattny20/CompassDocs/releases/tag/v0.3.0

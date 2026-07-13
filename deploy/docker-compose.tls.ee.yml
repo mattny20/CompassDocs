@@ -1,0 +1,80 @@
+# CompassDocs Enterprise with a custom domain and HTTPS, via a Caddy reverse
+# proxy. Same as docker-compose.tls.yml, but runs the Enterprise image and takes
+# a license key. The image is public (no docker login).
+#
+#   1. Point your domain's DNS (an A/AAAA record) at this server.
+#   2. In .env set POSTGRES_PASSWORD (and optionally COMPASSDOCS_LICENSE_KEY).
+#   3. docker compose -f docker-compose.tls.ee.yml up -d
+#   4. Open the app and finish setup — enter your domain + HTTPS mode right in
+#      the setup wizard (or later under Settings → Domain & HTTPS).
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: compass
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: compassdocs
+    volumes:
+      - compassdocs_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U compass -d compassdocs"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
+    image: ghcr.io/mattny20/compassdocs-ee:${COMPASSDOCS_EE_VERSION:-latest}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://compass:${POSTGRES_PASSWORD}@db:5432/compassdocs
+      DATABASE_SSL: disable
+      COMPASSDOCS_LICENSE_KEY: ${COMPASSDOCS_LICENSE_KEY:-}
+      COMPASSDOCS_ADMIN_USER: ${COMPASSDOCS_ADMIN_USER:-}
+      COMPASSDOCS_ADMIN_PASSWORD: ${COMPASSDOCS_ADMIN_PASSWORD:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # Lets the app drive the Caddy reverse proxy from the setup wizard and
+      # Settings → Domain & HTTPS.
+      COMPASSDOCS_CADDY_ADMIN: http://caddy:2019
+      COMPASSDOCS_CADDY_CERT_DIR: /caddy-certs
+      COMPASSDOCS_INSECURE_COOKIES: ${COMPASSDOCS_INSECURE_COOKIES:-}
+      BACKUP_S3_BUCKET: ${BACKUP_S3_BUCKET:-}
+      BACKUP_S3_REGION: ${BACKUP_S3_REGION:-}
+      BACKUP_S3_ENDPOINT: ${BACKUP_S3_ENDPOINT:-}
+      BACKUP_S3_ACCESS_KEY_ID: ${BACKUP_S3_ACCESS_KEY_ID:-}
+      BACKUP_S3_SECRET_ACCESS_KEY: ${BACKUP_S3_SECRET_ACCESS_KEY:-}
+      BACKUP_S3_PREFIX: ${BACKUP_S3_PREFIX:-}
+      BACKUP_AZURE_CONNECTION_STRING: ${BACKUP_AZURE_CONNECTION_STRING:-}
+      BACKUP_AZURE_CONTAINER: ${BACKUP_AZURE_CONTAINER:-}
+    volumes:
+      - compassdocs_backups:/backups
+      - compassdocs_uploads:/uploads
+      - caddy_certs:/caddy-certs
+    expose:
+      - "3000"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    command: ["run", "--config", "/etc/caddy/Caddyfile", "--resume"]
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_certs:/etc/caddy/certs:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  compassdocs_pgdata:
+  compassdocs_backups:
+  compassdocs_uploads:
+  caddy_data:
+  caddy_config:
+  caddy_certs:

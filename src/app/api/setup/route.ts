@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import { needsSetup, createUser, createSession, markLogin, setSetting } from "@/lib/db";
 import { hashPassword, newToken } from "@/lib/password";
-import { getSessionTimeoutMinutes } from "@/lib/settings-store";
+import { getSessionTimeoutMinutes, updateAppSettings } from "@/lib/settings-store";
 import { SESSION_COOKIE, cookieOptions, SESSION_MAX_AGE, secureCookie } from "@/lib/auth";
 import { SECURE_COOKIE_MODES, type SecureCookieMode } from "@/lib/settings";
+import type { AppSettings, TlsMode } from "@/lib/settings";
 import { parseLicense } from "@/lib/license";
+import { applyProxyConfig } from "@/lib/caddy";
 
 export const dynamic = "force-dynamic";
 
@@ -86,6 +88,22 @@ export async function POST(req: Request) {
 
   // Store the (already-validated) license key, if one was entered.
   if (licenseRaw) await setSetting("license_key", licenseRaw);
+
+  // Optional domain + HTTPS from the wizard. Stored (normalized/validated by
+  // updateAppSettings) and pushed to the reverse proxy if one is attached; a
+  // proxy failure is non-fatal so it never blocks finishing setup.
+  const domainPatch: Partial<AppSettings> = {};
+  if (body?.custom_domain !== undefined) domainPatch.custom_domain = String(body.custom_domain);
+  if (body?.tls_mode !== undefined) domainPatch.tls_mode = body.tls_mode as TlsMode;
+  if (body?.tls_email !== undefined) domainPatch.tls_email = String(body.tls_email);
+  if (Object.keys(domainPatch).length) {
+    await updateAppSettings(domainPatch);
+    try {
+      await applyProxyConfig();
+    } catch {
+      /* proxy may be unreachable during first-run; settings are saved regardless */
+    }
+  }
 
   // Sign the new admin in immediately.
   const token = newToken();

@@ -4,24 +4,34 @@
 #
 #   Community:   curl -fsSL https://raw.githubusercontent.com/mattny20/CompassDocs/main/install.sh | bash
 #   Enterprise:  curl -fsSL https://raw.githubusercontent.com/mattny20/CompassDocs/main/install.sh | COMPASSDOCS_EDITION=enterprise bash
+#   With HTTPS:  add COMPASSDOCS_TLS=1 to serve on your domain via a bundled
+#                Caddy reverse proxy (ports 80/443). Set the domain + HTTPS mode
+#                right in the setup wizard — a cert is obtained automatically.
 #
 # Creates a ./compassdocs directory with a docker-compose.yml and a .env
 # (generating strong random passwords), then starts the app + Postgres.
 # Re-running it updates to the latest image without touching your data or .env.
 #
 # Enterprise: the image is public (no login needed); paste your license in the
-# app under Settings → License, or pass COMPASSDOCS_LICENSE_KEY=... to this
-# script to bake it into the generated .env.
+# setup wizard (or Settings → License), or pass COMPASSDOCS_LICENSE_KEY=... here.
 set -euo pipefail
 
 REPO_RAW="https://raw.githubusercontent.com/mattny20/CompassDocs/main"
 APP_DIR="${COMPASSDOCS_DIR:-compassdocs}"
 
-# Edition: "community" (default) or "enterprise" (aka "ee").
-case "${COMPASSDOCS_EDITION:-community}" in
-  ee|enterprise) EDITION=enterprise; COMPOSE_SRC="deploy/docker-compose.ee.yml"; LABEL="CompassDocs Enterprise" ;;
-  *)             EDITION=community;  COMPOSE_SRC="deploy/docker-compose.yml";    LABEL="CompassDocs" ;;
-esac
+# Edition: community (default) or enterprise. TLS: bundled Caddy proxy on 80/443.
+EDITION=community
+case "${COMPASSDOCS_EDITION:-}" in ee|enterprise) EDITION=enterprise ;; esac
+TLS=0
+case "${COMPASSDOCS_TLS:-}" in 1|true|yes|on) TLS=1 ;; esac
+
+if [ "$EDITION" = enterprise ]; then
+  LABEL="CompassDocs Enterprise"
+  [ "$TLS" = 1 ] && COMPOSE_SRC="deploy/docker-compose.tls.ee.yml" || COMPOSE_SRC="deploy/docker-compose.ee.yml"
+else
+  LABEL="CompassDocs"
+  [ "$TLS" = 1 ] && COMPOSE_SRC="deploy/docker-compose.tls.yml" || COMPOSE_SRC="deploy/docker-compose.yml"
+fi
 
 say()  { printf '\033[1;34m›\033[0m %s\n' "$1"; }
 ok()   { printf '\033[1;32m✓\033[0m %s\n' "$1"; }
@@ -44,7 +54,11 @@ say "Installing $LABEL into ./$APP_DIR"
 mkdir -p "$APP_DIR"
 cd "$APP_DIR"
 curl -fsSL "$REPO_RAW/$COMPOSE_SRC" -o docker-compose.yml || die "Couldn't download docker-compose.yml"
-ok "Fetched docker-compose.yml ($EDITION)"
+ok "Fetched docker-compose.yml ($EDITION$([ "$TLS" = 1 ] && echo ', HTTPS'))"
+if [ "$TLS" = 1 ]; then
+  curl -fsSL "$REPO_RAW/deploy/Caddyfile" -o Caddyfile || die "Couldn't download Caddyfile"
+  ok "Fetched Caddyfile (reverse proxy)"
+fi
 
 # --- generate .env once -------------------------------------------------------
 FRESH=0
@@ -79,13 +93,23 @@ docker compose up -d
 # --- done ---------------------------------------------------------------------
 PORT_VAL="$(grep -E '^PORT=' .env | cut -d= -f2)"; PORT_VAL="${PORT_VAL:-3000}"
 echo
-ok "$LABEL is running at http://localhost:${PORT_VAL}"
-if [ "$FRESH" = "1" ]; then
-  echo
-  echo "  → Open http://localhost:${PORT_VAL} to create your admin account and finish setup."
-  if [ "$EDITION" = "enterprise" ] && ! grep -qE '^COMPASSDOCS_LICENSE_KEY=.+' .env; then
-    echo "  → Then apply your license under Settings → License to activate Enterprise features."
+if [ "$TLS" = 1 ]; then
+  ok "$LABEL is running behind Caddy on ports 80 and 443."
+  if [ "$FRESH" = "1" ]; then
+    echo
+    echo "  → Open http://<this-server>/ (port 80) to create your admin account."
+    echo "  → In the setup wizard, enter your domain and choose an HTTPS mode —"
+    echo "    Caddy fetches a certificate automatically (public DNS + ports 80/443 open)."
   fi
+else
+  ok "$LABEL is running at http://localhost:${PORT_VAL}"
+  if [ "$FRESH" = "1" ]; then
+    echo
+    echo "  → Open http://localhost:${PORT_VAL} to create your admin account and finish setup."
+  fi
+fi
+if [ "$FRESH" = "1" ] && [ "$EDITION" = "enterprise" ] && ! grep -qE '^COMPASSDOCS_LICENSE_KEY=.+' .env; then
+  echo "  → Paste your Enterprise license in the setup wizard (or later under Settings → License)."
 fi
 echo
 echo "  Update later:  cd $APP_DIR && docker compose pull && docker compose up -d"
