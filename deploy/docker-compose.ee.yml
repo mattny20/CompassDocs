@@ -29,6 +29,10 @@ services:
     environment:
       DATABASE_URL: postgres://compass:${POSTGRES_PASSWORD}@db:5432/compassdocs
       DATABASE_SSL: disable
+      # Set to 1 ONLY if serving over plain HTTP (no HTTPS) — otherwise login
+      # loops, because Secure cookies aren't sent over http://. Leave unset for
+      # any HTTPS / internet-facing deployment.
+      COMPASSDOCS_INSECURE_COOKIES: ${COMPASSDOCS_INSECURE_COOKIES:-}
       # Enterprise license — set in .env, or leave blank and apply it in the app
       # under Settings → License. A key set in the UI takes precedence.
       COMPASSDOCS_LICENSE_KEY: ${COMPASSDOCS_LICENSE_KEY:-}

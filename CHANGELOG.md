@@ -4,6 +4,17 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.2] - 2026-07-13
+
+### Fixed
+- **Login loop on plain-HTTP deployments.** Session cookies are `Secure` in
+  production, which browsers won't send back over `http://` — so an install
+  served at `http://host:3000` bounced every request back to the login page.
+  Serving over HTTPS remains the recommendation; for intentional plain-HTTP
+  setups (internal LAN/VPN, or a TLS-terminating proxy the app can't detect),
+  set **`COMPASSDOCS_INSECURE_COOKIES=1`** to drop the `Secure` flag. Default
+  behavior is unchanged (Secure in production).
+
 ## [0.3.1] - 2026-07-13
 
 ### Enterprise licensing (open-core)
@@ -72,5 +83,6 @@ approval workflow. Self-hosted, AGPL-3.0.
 - **PostgreSQL** storage; the app migrates its own schema on start.
 - Also runs manually with Node.js 20+ and PostgreSQL 14+.
 
+[0.3.2]: https://github.com/mattny20/CompassDocs/releases/tag/v0.3.2
 [0.3.1]: https://github.com/mattny20/CompassDocs/releases/tag/v0.3.1
 [0.3.0]: https://github.com/mattny20/CompassDocs/releases/tag/v0.3.0
