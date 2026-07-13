@@ -4,6 +4,20 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] - 2026-07-13
+
+### Added
+- **People directory.** A new **Directory** page (📇 in the sidebar) gives every
+  signed-in user a searchable phone/people directory — name, title, department,
+  email, phones, office — with department filtering and profile photos. Admins
+  manage entries under **Settings → Directory** (add, edit, hide, remove).
+- **Microsoft 365 directory sync** *(Enterprise)*. Connect a Microsoft Entra
+  tenant (app registration with admin-consented `User.Read.All`) and the
+  directory fills itself: users, titles, departments, phones, and profile
+  photos, synced on demand. Junk-account controls included — guests excluded by
+  default, optional require-title/require-phone filters, and optional scoping to
+  a single Entra group. Requires the new `directory_sync` license entitlement.
+
 ## [0.3.5] - 2026-07-13
 
 ### Added
@@ -126,6 +140,7 @@ approval workflow. Self-hosted, AGPL-3.0.
 - **PostgreSQL** storage; the app migrates its own schema on start.
 - Also runs manually with Node.js 20+ and PostgreSQL 14+.
 
+[0.4.0]: https://github.com/mattny20/CompassDocs/releases/tag/v0.4.0
 [0.3.5]: https://github.com/mattny20/CompassDocs/releases/tag/v0.3.5
 [0.3.4]: https://github.com/mattny20/CompassDocs/releases/tag/v0.3.4
 [0.3.2]: https://github.com/mattny20/CompassDocs/releases/tag/v0.3.2

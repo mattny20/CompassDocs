@@ -41,6 +41,9 @@ export async function Sidebar({
         <NavLink href="/search" icon="✨">
           Ask CompassDocs
         </NavLink>
+        <NavLink href="/directory" icon="📇">
+          Directory
+        </NavLink>
         {isApprover && (
           <NavLink href="/review" icon="📋" badge={reviewCount}>
             Review queue
