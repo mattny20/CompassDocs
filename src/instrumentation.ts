@@ -20,4 +20,15 @@ export async function register() {
   // First check shortly after boot, then hourly.
   setTimeout(tick, 60_000);
   setInterval(tick, CHECK_INTERVAL_MS);
+
+  // Re-apply the saved domain/TLS config to the reverse proxy so the database
+  // stays the source of truth across restarts. No-op if no proxy is attached.
+  setTimeout(async () => {
+    try {
+      const { applyProxyConfigOnBoot } = await import("./lib/caddy");
+      await applyProxyConfigOnBoot();
+    } catch (e) {
+      console.error("[proxy] boot apply error:", e);
+    }
+  }, 15_000);
 }

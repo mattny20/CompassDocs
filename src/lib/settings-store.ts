@@ -10,7 +10,9 @@ import {
   clampBackupKeep,
   clampAttachmentMb,
   isValidTimeZone,
+  normalizeDomain,
   normalizeSettings,
+  TLS_MODES,
 } from "./settings";
 
 // DB-backed reads/writes for the appearance & workspace settings. Kept separate
@@ -62,6 +64,15 @@ export async function updateAppSettings(patch: Partial<AppSettings>): Promise<Ap
   }
   if (patch.max_attachment_mb !== undefined) {
     await setSetting("max_attachment_mb", String(clampAttachmentMb(Number(patch.max_attachment_mb))));
+  }
+  if (patch.custom_domain !== undefined) {
+    await setSetting("custom_domain", normalizeDomain(patch.custom_domain));
+  }
+  if (patch.tls_mode !== undefined && TLS_MODES.includes(patch.tls_mode)) {
+    await setSetting("tls_mode", patch.tls_mode);
+  }
+  if (patch.tls_email !== undefined) {
+    await setSetting("tls_email", patch.tls_email.trim().slice(0, 254));
   }
   return getAppSettings();
 }

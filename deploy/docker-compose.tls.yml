@@ -1,14 +1,15 @@
 # CompassDocs with a custom domain and HTTPS, via a Caddy reverse proxy.
 #
 #   1. Point your domain's DNS (an A/AAAA record) at this server.
-#   2. In .env set COMPASSDOCS_DOMAIN=docs.example.com (plus POSTGRES_PASSWORD
-#      and anything else from .env.example).
+#   2. In .env set POSTGRES_PASSWORD (and anything else from .env.example).
 #   3. docker compose -f docker-compose.tls.yml up -d
+#   4. Open the app, go to Settings → Domain & HTTPS, enter your domain and
+#      choose an HTTPS mode. CompassDocs configures Caddy for you — no restart,
+#      no editing config files.
 #
-# Caddy fetches a Let's Encrypt certificate automatically (ports 80 + 443 must
-# be reachable from the internet). For self-signed or bring-your-own certs,
-# edit ./Caddyfile. The app is not exposed on the host directly — all traffic
-# goes through Caddy on 80/443.
+# Caddy's admin API is exposed only on the private Docker network (never on the
+# host), so only the app container can reconfigure the proxy. The app itself is
+# not published on the host — all traffic goes through Caddy on 80/443.
 services:
   db:
     image: postgres:16
@@ -37,6 +38,9 @@ services:
       COMPASSDOCS_ADMIN_USER: ${COMPASSDOCS_ADMIN_USER:-}
       COMPASSDOCS_ADMIN_PASSWORD: ${COMPASSDOCS_ADMIN_PASSWORD:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # Lets the app drive the Caddy reverse proxy from Settings → Domain & HTTPS.
+      COMPASSDOCS_CADDY_ADMIN: http://caddy:2019
+      COMPASSDOCS_CADDY_CERT_DIR: /caddy-certs
       BACKUP_S3_BUCKET: ${BACKUP_S3_BUCKET:-}
       BACKUP_S3_REGION: ${BACKUP_S3_REGION:-}
       BACKUP_S3_ENDPOINT: ${BACKUP_S3_ENDPOINT:-}
@@ -48,22 +52,25 @@ services:
     volumes:
       - compassdocs_backups:/backups
       - compassdocs_uploads:/uploads
+      # Shared with Caddy: the app writes bring-your-own certs here.
+      - caddy_certs:/caddy-certs
     expose:
       - "3000"
 
   caddy:
     image: caddy:2
     restart: unless-stopped
+    # `--resume` reloads the last applied config on restart; on a fresh container
+    # it falls back to the bootstrap Caddyfile below.
+    command: ["run", "--config", "/etc/caddy/Caddyfile", "--resume"]
     depends_on:
       - app
     ports:
       - "80:80"
       - "443:443"
-    environment:
-      COMPASSDOCS_DOMAIN: ${COMPASSDOCS_DOMAIN:?set COMPASSDOCS_DOMAIN in .env}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./certs:/etc/caddy/certs:ro
+      - caddy_certs:/etc/caddy/certs:ro
       - caddy_data:/data
       - caddy_config:/config
 
@@ -73,3 +80,4 @@ volumes:
   compassdocs_uploads:
   caddy_data:
   caddy_config:
+  caddy_certs:
