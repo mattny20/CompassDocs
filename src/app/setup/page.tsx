@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { needsSetup } from "@/lib/db";
 import { eePresent } from "@/lib/ee";
+import { proxyManaged } from "@/lib/caddy";
 import { SetupForm } from "@/components/SetupForm";
 import { Brand } from "@/components/Brand";
 
@@ -21,7 +22,7 @@ export default async function SetupPage() {
           </p>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-surface p-6 shadow-sm">
-          <SetupForm enterprise={eePresent()} />
+          <SetupForm enterprise={eePresent()} proxyManaged={proxyManaged()} />
         </div>
         <p className="mt-4 text-center text-xs text-slate-400">
           You can add teammates and adjust settings later from the Admin console.
