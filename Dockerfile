@@ -7,7 +7,11 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 COPY . .
-# DATABASE_URL is only needed at runtime, not build time (DB access is lazy).
+# Edition switch: the community build (default) resolves `@ee` to the stub. The
+# enterprise build overlays a private `./ee` package and sets COMPASSDOCS_EE=1
+# (see next.config.js). DATABASE_URL is only needed at runtime (DB access is lazy).
+ARG COMPASSDOCS_EE=0
+ENV COMPASSDOCS_EE=$COMPASSDOCS_EE
 RUN npm run build
 
 # --- Runtime stage -------------------------------------------------------------
