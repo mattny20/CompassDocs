@@ -1,20 +1,11 @@
-import Link from "next/link";
-import {
-  Home,
-  Sparkles,
-  BookUser,
-  ClipboardList,
-  Trash2,
-  Settings,
-} from "lucide-react";
+// Server wrapper: fetches the sidebar's data and hands it to the client
+// component, which owns the collapse/expand state (persisted per browser).
+
 import { listSpaces } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings-store";
-import { GlobalSearch } from "./GlobalSearch";
-import { UserMenu } from "./UserMenu";
-import { Brand } from "./Brand";
-import { ThemeToggle } from "./ThemeToggle";
 import { roleAtLeast } from "@/lib/types";
 import type { SessionUser } from "@/lib/types";
+import { SidebarClient } from "./SidebarClient";
 
 export async function Sidebar({
   user,
@@ -26,119 +17,18 @@ export async function Sidebar({
   trashCount: number;
 }) {
   const [spaces, settings] = await Promise.all([listSpaces(), getAppSettings()]);
-  const isEditor = roleAtLeast(user.role, "editor");
-  const isApprover = roleAtLeast(user.role, "approver");
-  const isAdmin = user.role === "admin";
 
   return (
-    <aside className="flex w-64 shrink-0 flex-col border-r border-slate-200 bg-surface">
-      <div className="flex h-16 items-center gap-2 border-b border-slate-100 px-5">
-        <Link href="/" className="flex items-center gap-2">
-          <Brand name={settings.company_name} logoUrl={settings.logo_url || undefined} />
-        </Link>
-      </div>
-
-      <div className="px-3 py-3">
-        <GlobalSearch />
-      </div>
-
-      <nav className="px-3 pb-2 text-sm">
-        <NavLink href="/" icon={<Home className="h-4 w-4" />}>
-          Dashboard
-        </NavLink>
-        <NavLink href="/search" icon={<Sparkles className="h-4 w-4" />}>
-          Ask CompassDocs
-        </NavLink>
-        <NavLink href="/directory" icon={<BookUser className="h-4 w-4" />}>
-          Directory
-        </NavLink>
-        {isApprover && (
-          <NavLink href="/review" icon={<ClipboardList className="h-4 w-4" />} badge={reviewCount}>
-            Review queue
-          </NavLink>
-        )}
-        {isEditor && (
-          <NavLink href="/trash" icon={<Trash2 className="h-4 w-4" />} badge={trashCount}>
-            Trash
-          </NavLink>
-        )}
-        {isAdmin && (
-          <NavLink href="/admin" icon={<Settings className="h-4 w-4" />}>
-            Settings
-          </NavLink>
-        )}
-      </nav>
-
-      <div className="mt-2 flex items-center justify-between px-5 pb-1">
-        <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Spaces</span>
-        {isAdmin && (
-          <Link
-            href="/admin/spaces"
-            title="Manage spaces"
-            className="text-slate-400 transition hover:text-compass-600"
-          >
-            ＋
-          </Link>
-        )}
-      </div>
-      <nav className="flex-1 overflow-y-auto px-3 pb-4 text-sm">
-        {spaces.map((s) => (
-          <Link
-            key={s.id}
-            href={`/spaces/${s.slug}`}
-            className="flex items-center justify-between rounded-md px-3 py-2 text-slate-600 hover:bg-slate-100"
-          >
-            <span className="flex items-center gap-2 truncate">
-              <span>{s.icon}</span>
-              <span className="truncate">{s.name}</span>
-            </span>
-          </Link>
-        ))}
-      </nav>
-
-      {isEditor && (
-        <div className="border-t border-slate-100 p-3">
-          <Link
-            href="/doc/new"
-            className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-compass-600 px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-compass-700"
-          >
-            <span className="text-base leading-none">＋</span> New document
-          </Link>
-        </div>
-      )}
-
-      <div className="border-t border-slate-100 px-3 py-2">
-        <ThemeToggle />
-      </div>
-
-      <UserMenu user={user} />
-    </aside>
-  );
-}
-
-function NavLink({
-  href,
-  icon,
-  badge,
-  children,
-}: {
-  href: string;
-  icon: React.ReactNode;
-  badge?: number;
-  children: React.ReactNode;
-}) {
-  return (
-    <Link
-      href={href}
-      className="flex items-center gap-2 rounded-md px-3 py-2 font-medium text-slate-600 hover:bg-slate-100"
-    >
-      <span className="text-slate-400">{icon}</span>
-      <span className="flex-1">{children}</span>
-      {badge ? (
-        <span className="rounded-full bg-compass-100 px-1.5 text-xs font-semibold text-compass-700">
-          {badge}
-        </span>
-      ) : null}
-    </Link>
+    <SidebarClient
+      user={user}
+      spaces={spaces.map((s) => ({ id: s.id, slug: s.slug, name: s.name, icon: s.icon }))}
+      companyName={settings.company_name}
+      logoUrl={settings.logo_url || undefined}
+      reviewCount={reviewCount}
+      trashCount={trashCount}
+      isEditor={roleAtLeast(user.role, "editor")}
+      isApprover={roleAtLeast(user.role, "approver")}
+      isAdmin={user.role === "admin"}
+    />
   );
 }

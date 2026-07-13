@@ -7,11 +7,14 @@ export function Brand({
   logoUrl,
   size = "md",
   layout = "row",
+  showName = true,
 }: {
   name: string;
   logoUrl?: string;
   size?: "md" | "lg";
   layout?: "row" | "col";
+  /** Hide the workspace name (icon-only contexts, e.g. a collapsed sidebar). */
+  showName?: boolean;
 }) {
   const box = size === "lg" ? "h-12 w-12 rounded-xl text-2xl" : "h-8 w-8 rounded-lg text-lg";
   const nameCls =
@@ -37,7 +40,7 @@ export function Brand({
   return (
     <span className={layout === "col" ? "flex flex-col items-center" : "flex items-center gap-2"}>
       {mark}
-      <span className={nameCls}>{name}</span>
+      {showName && <span className={nameCls}>{name}</span>}
     </span>
   );
 }
