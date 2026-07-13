@@ -8,6 +8,7 @@ import {
   clampTimeout,
   clampRetention,
   clampBackupKeep,
+  clampAttachmentMb,
   isValidTimeZone,
   normalizeSettings,
 } from "./settings";
@@ -58,6 +59,9 @@ export async function updateAppSettings(patch: Partial<AppSettings>): Promise<Ap
   }
   if (patch.backup_keep !== undefined) {
     await setSetting("backup_keep", String(clampBackupKeep(Number(patch.backup_keep))));
+  }
+  if (patch.max_attachment_mb !== undefined) {
+    await setSetting("max_attachment_mb", String(clampAttachmentMb(Number(patch.max_attachment_mb))));
   }
   return getAppSettings();
 }

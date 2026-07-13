@@ -24,7 +24,12 @@ export interface AppSettings {
   backup_frequency: BackupFrequency;
   /** How many local backups to keep before pruning the oldest. */
   backup_keep: number;
+  /** Maximum size of a single document attachment, in megabytes. */
+  max_attachment_mb: number;
 }
+
+export const ATTACHMENT_MB_MIN = 1;
+export const ATTACHMENT_MB_MAX = 200;
 
 export type BackupFrequency = "off" | "daily" | "weekly";
 export const BACKUP_FREQUENCIES: BackupFrequency[] = ["off", "daily", "weekly"];
@@ -41,6 +46,7 @@ export const SETTINGS_DEFAULTS: AppSettings = {
   trash_retention_days: 30,
   backup_frequency: "off",
   backup_keep: 7,
+  max_attachment_mb: 10,
 };
 
 export const DATE_FORMATS: DateFormat[] = ["medium", "long", "iso", "us", "eu"];
@@ -105,10 +111,18 @@ export function normalizeSettings(raw: Record<string, string>): AppSettings {
     backup_keep: raw.backup_keep
       ? clampBackupKeep(Number(raw.backup_keep))
       : SETTINGS_DEFAULTS.backup_keep,
+    max_attachment_mb: raw.max_attachment_mb
+      ? clampAttachmentMb(Number(raw.max_attachment_mb))
+      : SETTINGS_DEFAULTS.max_attachment_mb,
   };
 }
 
 export function clampBackupKeep(n: number): number {
   if (!Number.isFinite(n)) return SETTINGS_DEFAULTS.backup_keep;
   return Math.min(BACKUP_KEEP_MAX, Math.max(BACKUP_KEEP_MIN, Math.round(n)));
+}
+
+export function clampAttachmentMb(n: number): number {
+  if (!Number.isFinite(n)) return SETTINGS_DEFAULTS.max_attachment_mb;
+  return Math.min(ATTACHMENT_MB_MAX, Math.max(ATTACHMENT_MB_MIN, Math.round(n)));
 }

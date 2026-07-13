@@ -134,6 +134,17 @@ export interface DocumentWithSpace extends Document {
   space_color: string;
 }
 
+export interface Attachment {
+  id: number;
+  document_id: number;
+  filename: string;
+  stored_name: string;
+  mime_type: string;
+  size: number;
+  created_by: number | null;
+  created_at: string;
+}
+
 export interface DocVersion {
   id: number;
   document_id: number;

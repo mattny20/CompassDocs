@@ -39,6 +39,7 @@ export async function PATCH(req: Request) {
     "trash_retention_days",
     "backup_frequency",
     "backup_keep",
+    "max_attachment_mb",
   ];
   const patch: Partial<AppSettings> = {};
   for (const k of keys) {

@@ -99,6 +99,7 @@ export function SystemPanel({ info, settings }: { info: SystemInfo; settings: Ap
 
         <Card title="Storage">
           <Row label="Backups" value={`${s.backupCount} · ${bytes(s.backupBytes)}`} />
+          <Row label="Attachments" value={`${s.attachmentCount} · ${bytes(s.attachmentBytes)}`} />
           <Row label="Backup path" value={<code className="text-xs">{s.backupDir}</code>} />
           {diskUsed != null && s.diskTotalBytes != null ? (
             <div className="pt-1">

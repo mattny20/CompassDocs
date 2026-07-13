@@ -50,9 +50,11 @@ services:
       BACKUP_AZURE_CONTAINER: ${BACKUP_AZURE_CONTAINER:-}
     volumes:
       - compassdocs_backups:/backups
+      - compassdocs_uploads:/uploads
     ports:
       - "${PORT:-3000}:3000"
 
 volumes:
   compassdocs_pgdata:
   compassdocs_backups:
+  compassdocs_uploads:

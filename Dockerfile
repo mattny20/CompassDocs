@@ -17,8 +17,9 @@ ENV NODE_ENV=production
 ENV PORT=3000
 # pg_dump / pg_restore for database backups (match the Postgres 16 server).
 RUN apk add --no-cache postgresql16-client
-# Default location for backup files (mount a volume here to persist them).
+# Default locations for backups and attachments (mount volumes to persist).
 ENV COMPASSDOCS_BACKUP_DIR=/backups
+ENV COMPASSDOCS_UPLOAD_DIR=/uploads
 # Bind to all interfaces so the container is reachable (Next standalone
 # otherwise defaults to localhost, which is unreachable from outside).
 ENV HOSTNAME=0.0.0.0

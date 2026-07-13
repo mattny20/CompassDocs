@@ -23,6 +23,7 @@ history.
 - **Trash & retention** — deleting a document moves it to the **Trash** (a soft delete), where Editors can restore it and Admins can remove it for good. A configurable retention window auto-purges trashed documents after a set number of days (or never).
 - **Import & export** — Admins can export the whole knowledge base as a zip of Markdown files with YAML front-matter (organized by space), and import such a zip back in — matching documents are updated in place and new documents/spaces are created.
 - **Database backups** — full `pg_dump` backups on a schedule (daily/weekly) or on demand, with retention and one-click **restore**, from the Admin console. Backups are written to a local volume and can be mirrored off-site to **S3-compatible** storage (S3/R2/MinIO) and/or **Azure Blob** — see [`deploy/.env.example`](./deploy/.env.example).
+- **Attachments** — attach files to any document (stored on a local volume) with a configurable per-file size limit. Images can be embedded directly in Markdown via their link; non-image files are always served as downloads (never executed inline).
 - **Drafts & publishing** — mark documents as draft or published.
 - **Tags** — tag documents and browse by popular tags.
 - **Self-seeding storage** — on first connection the app creates its own PostgreSQL schema and seeds realistic sample content; no manual migrations.

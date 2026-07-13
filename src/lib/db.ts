@@ -14,6 +14,7 @@ import type {
   ApprovalMode,
   Suggestion,
   ChangeRequest,
+  Attachment,
 } from "./types";
 
 // Return timestamps as normalized ISO-8601 UTC strings (the app treats them as
@@ -220,6 +221,18 @@ const SCHEMA_SQL = `
     review_note text NOT NULL DEFAULT ''
   );
   CREATE INDEX IF NOT EXISTS idx_cr_status ON change_requests(status);
+
+  CREATE TABLE IF NOT EXISTS attachments (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    document_id integer NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    filename text NOT NULL,
+    stored_name text UNIQUE NOT NULL,
+    mime_type text NOT NULL DEFAULT 'application/octet-stream',
+    size integer NOT NULL DEFAULT 0,
+    created_by integer REFERENCES users(id),
+    created_at timestamptz NOT NULL DEFAULT now()
+  );
+  CREATE INDEX IF NOT EXISTS idx_attachments_doc ON attachments(document_id);
 `;
 
 async function seedIfEmpty(client: import("pg").PoolClient) {
@@ -287,6 +300,53 @@ async function bootstrapAuth(client: import("pg").PoolClient) {
 /** True when the instance has no users yet — first-run setup is required. */
 export async function needsSetup(): Promise<boolean> {
   return (await q<{ n: number }>("SELECT COUNT(*)::int AS n FROM users"))[0].n === 0;
+}
+
+// --- Attachments -------------------------------------------------------------
+
+export async function createAttachment(input: {
+  document_id: number;
+  filename: string;
+  stored_name: string;
+  mime_type: string;
+  size: number;
+  created_by: number | null;
+}): Promise<Attachment> {
+  const r = await q<Attachment>(
+    `INSERT INTO attachments (document_id, filename, stored_name, mime_type, size, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+    [
+      input.document_id,
+      input.filename,
+      input.stored_name,
+      input.mime_type,
+      input.size,
+      input.created_by,
+    ]
+  );
+  return r[0];
+}
+
+export async function listAttachments(documentId: number): Promise<Attachment[]> {
+  return q("SELECT * FROM attachments WHERE document_id = $1 ORDER BY created_at DESC", [
+    documentId,
+  ]);
+}
+
+export async function getAttachment(id: number): Promise<Attachment | undefined> {
+  return (await q<Attachment>("SELECT * FROM attachments WHERE id = $1", [id]))[0];
+}
+
+/** Delete an attachment row, returning it (so the caller can unlink the file). */
+export async function deleteAttachmentRow(id: number): Promise<Attachment | undefined> {
+  return (await q<Attachment>("DELETE FROM attachments WHERE id = $1 RETURNING *", [id]))[0];
+}
+
+export async function attachmentsUsage(): Promise<{ count: number; bytes: number }> {
+  const [row] = await q<{ count: number; bytes: string }>(
+    "SELECT COUNT(*)::int AS count, COALESCE(SUM(size),0)::text AS bytes FROM attachments"
+  );
+  return { count: row.count, bytes: Number(row.bytes) };
 }
 
 export interface DatabaseStats {

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getDocument, listVersions, listPendingForDocument } from "@/lib/db";
+import { getDocument, listVersions, listPendingForDocument, listAttachments } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { getAppSettings } from "@/lib/settings-store";
 import { formatDateTime } from "@/lib/format";
@@ -8,6 +8,7 @@ import { MarkdownView } from "@/components/MarkdownView";
 import { TypeBadge, StatusBadge, Tag } from "@/components/Badges";
 import { DocActions } from "@/components/DocActions";
 import { SuggestBox } from "@/components/SuggestBox";
+import { Attachments } from "@/components/Attachments";
 import { roleAtLeast } from "@/lib/types";
 import { timeAgo } from "@/lib/ui";
 
@@ -25,7 +26,7 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
 
   const versionCount = (await listVersions(doc.id)).length;
   const pending = roleAtLeast(user.role, "approver") ? await listPendingForDocument(doc.id) : [];
-  const settings = await getAppSettings();
+  const [settings, attachments] = await Promise.all([getAppSettings(), listAttachments(doc.id)]);
 
   return (
     <div className="mx-auto max-w-3xl px-8 py-8">
@@ -99,6 +100,18 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
       <article>
         <MarkdownView content={doc.content} />
       </article>
+
+      <Attachments
+        documentId={doc.id}
+        attachments={attachments.map((a) => ({
+          id: a.id,
+          filename: a.filename,
+          mime_type: a.mime_type,
+          size: a.size,
+        }))}
+        canEdit={isStaff}
+        maxMb={settings.max_attachment_mb}
+      />
 
       <SuggestBox documentId={doc.id} />
     </div>

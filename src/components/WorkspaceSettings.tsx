@@ -10,6 +10,8 @@ import {
   SESSION_TIMEOUT_MAX,
   TRASH_RETENTION_MIN,
   TRASH_RETENTION_MAX,
+  ATTACHMENT_MB_MIN,
+  ATTACHMENT_MB_MAX,
 } from "@/lib/settings";
 import type { AppSettings } from "@/lib/settings";
 
@@ -153,6 +155,27 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
             max={TRASH_RETENTION_MAX}
             value={s.trash_retention_days}
             onChange={(e) => set("trash_retention_days", Number(e.target.value))}
+            className={field}
+          />
+        </label>
+      </div>
+
+      {/* Attachments */}
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+        <h3 className="mb-1 font-semibold text-slate-900">Attachments</h3>
+        <p className="mb-3 text-sm text-slate-500">
+          Maximum size for a single file attached to a document.
+        </p>
+        <label className="block max-w-xs">
+          <span className="mb-1 block text-xs font-medium text-slate-500">
+            Max size in MB ({ATTACHMENT_MB_MIN}–{ATTACHMENT_MB_MAX})
+          </span>
+          <input
+            type="number"
+            min={ATTACHMENT_MB_MIN}
+            max={ATTACHMENT_MB_MAX}
+            value={s.max_attachment_mb}
+            onChange={(e) => set("max_attachment_mb", Number(e.target.value))}
             className={field}
           />
         </label>
