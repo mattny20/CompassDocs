@@ -4,6 +4,24 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] - 2026-07-13
+
+### Added — directory v2
+- **Multiple views**: Cards, a sortable **List** (click a column header to
+  sort), and **Departments** (grouped). The choice is remembered per browser.
+- **Column chooser** for the list view — pick exactly which columns you see,
+  including custom fields; preferences persist per browser.
+- **Assistant links**: connect a person to their assistant; shown on cards and
+  as an optional list column.
+- **Custom fields**: admins define extra fields (cost center, pronouns,
+  extension, …) that appear in the column picker, optionally on cards, and are
+  editable per person.
+- **Custom-field Graph mappings** *(Enterprise)*: map any custom field to any
+  Microsoft Graph user property — including the Exchange custom attributes
+  (`onPremisesExtensionAttributes.extensionAttribute1–15`) — and the Microsoft
+  365 sync fills it automatically. Manual values for unmapped fields survive
+  syncs.
+
 ## [0.4.0] - 2026-07-13
 
 ### Added
@@ -140,6 +158,7 @@ approval workflow. Self-hosted, AGPL-3.0.
 - **PostgreSQL** storage; the app migrates its own schema on start.
 - Also runs manually with Node.js 20+ and PostgreSQL 14+.
 
+[0.5.0]: https://github.com/mattny20/CompassDocs/releases/tag/v0.5.0
 [0.4.0]: https://github.com/mattny20/CompassDocs/releases/tag/v0.4.0
 [0.3.5]: https://github.com/mattny20/CompassDocs/releases/tag/v0.3.5
 [0.3.4]: https://github.com/mattny20/CompassDocs/releases/tag/v0.3.4

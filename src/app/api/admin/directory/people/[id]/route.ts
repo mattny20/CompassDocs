@@ -30,6 +30,10 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     ...(body?.mobile !== undefined ? { mobile: String(body.mobile) } : {}),
     ...(body?.office !== undefined ? { office: String(body.office) } : {}),
     ...(body?.hidden !== undefined ? { hidden: Boolean(body.hidden) } : {}),
+    ...(body?.assistant_id !== undefined
+      ? { assistant_id: body.assistant_id === null ? null : Number(body.assistant_id) }
+      : {}),
+    ...(body?.custom !== undefined && typeof body.custom === "object" ? { custom: body.custom } : {}),
   });
   if (!person) return NextResponse.json({ error: "Not found." }, { status: 404 });
 

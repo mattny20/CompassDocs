@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { apiGuard } from "@/lib/api-auth";
-import { listPeople, listDepartments } from "@/lib/directory";
+import { listPeople, listDepartments, listFields } from "@/lib/directory";
 
 export const dynamic = "force-dynamic";
 
@@ -13,9 +13,10 @@ export async function GET(req: Request) {
   const q = url.searchParams.get("q")?.trim() || undefined;
   const department = url.searchParams.get("department")?.trim() || undefined;
 
-  const [people, departments] = await Promise.all([
+  const [people, departments, fields] = await Promise.all([
     listPeople({ q, department }),
     listDepartments(),
+    listFields(),
   ]);
-  return NextResponse.json({ people, departments });
+  return NextResponse.json({ people, departments, fields });
 }

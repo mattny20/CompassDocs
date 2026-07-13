@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import type { DirectoryPerson } from "@/lib/directory";
+import type { DirectoryPerson, DirectoryField } from "@/lib/directory";
 
 const field =
   "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
@@ -23,16 +23,30 @@ interface GraphState {
 
 const EMPTY_FORM = { name: "", title: "", department: "", email: "", phone: "", mobile: "", office: "" };
 
+// Common Graph user properties offered as mapping suggestions, plus the 15
+// Exchange custom attributes (onPremisesExtensionAttributes).
+const GRAPH_PATHS = [
+  "employeeId", "companyName", "employeeType", "faxNumber", "preferredLanguage",
+  "streetAddress", "city", "state", "postalCode", "country", "usageLocation",
+  "ageGroup", "mailNickname", "onPremisesSamAccountName", "onPremisesDistinguishedName",
+  ...Array.from({ length: 15 }, (_, i) => `onPremisesExtensionAttributes.extensionAttribute${i + 1}`),
+];
+
 export function DirectorySettings({
   initialPeople,
+  initialFields,
   graph,
 }: {
   initialPeople: DirectoryPerson[];
+  initialFields: DirectoryField[];
   graph: GraphState;
 }) {
   const router = useRouter();
   const [people, setPeople] = useState(initialPeople);
+  const [fields, setFields] = useState(initialFields);
   const [form, setForm] = useState({ ...EMPTY_FORM });
+  const [formAssistant, setFormAssistant] = useState<string>("");
+  const [formCustom, setFormCustom] = useState<Record<string, string>>({});
   const [editingId, setEditingId] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -52,7 +66,11 @@ export function DirectorySettings({
       {
         method: editingId === null ? "POST" : "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify({
+          ...form,
+          assistant_id: formAssistant ? Number(formAssistant) : null,
+          custom: formCustom,
+        }),
       }
     );
     setBusy(false);
@@ -61,6 +79,8 @@ export function DirectorySettings({
       return;
     }
     setForm({ ...EMPTY_FORM });
+    setFormAssistant("");
+    setFormCustom({});
     setEditingId(null);
     await refresh();
   }
@@ -91,6 +111,8 @@ export function DirectorySettings({
       mobile: p.mobile,
       office: p.office,
     });
+    setFormAssistant(p.assistant_id ? String(p.assistant_id) : "");
+    setFormCustom({ ...(p.custom ?? {}) });
   }
 
   return (
@@ -106,6 +128,8 @@ export function DirectorySettings({
 
       <GraphPanel graph={graph} onSynced={refresh} />
 
+      <FieldsPanel fields={fields} onChange={setFields} graphEnabled={graph.bundled} />
+
       {/* Manual entry form */}
       <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
         <h3 className="mb-3 font-semibold text-slate-900">
@@ -120,12 +144,31 @@ export function DirectorySettings({
           <input className={field} placeholder="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
           <input className={field} placeholder="Mobile" value={form.mobile} onChange={(e) => setForm({ ...form, mobile: e.target.value })} />
           <input className={field} placeholder="Office / location" value={form.office} onChange={(e) => setForm({ ...form, office: e.target.value })} />
+          <select className={field} value={formAssistant} onChange={(e) => setFormAssistant(e.target.value)}>
+            <option value="">No assistant</option>
+            {people
+              .filter((pp) => pp.id !== editingId)
+              .map((pp) => (
+                <option key={pp.id} value={pp.id}>
+                  Assistant: {pp.name}
+                </option>
+              ))}
+          </select>
+          {fields.map((f) => (
+            <input
+              key={f.key}
+              className={field}
+              placeholder={f.label}
+              value={formCustom[f.key] ?? ""}
+              onChange={(e) => setFormCustom({ ...formCustom, [f.key]: e.target.value })}
+            />
+          ))}
           <div className="flex gap-2">
             <button type="submit" disabled={busy} className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60">
               {editingId === null ? "Add" : "Save"}
             </button>
             {editingId !== null && (
-              <button type="button" className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50" onClick={() => { setEditingId(null); setForm({ ...EMPTY_FORM }); }}>
+              <button type="button" className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50" onClick={() => { setEditingId(null); setForm({ ...EMPTY_FORM }); setFormAssistant(""); setFormCustom({}); }}>
                 Cancel
               </button>
             )}
@@ -346,6 +389,157 @@ function GraphPanel({ graph, onSynced }: { graph: GraphState; onSynced: () => vo
           {g.last_sync.ok ? `${g.last_sync.count} people` : `failed: ${g.last_sync.error}`}
         </p>
       )}
+    </div>
+  );
+}
+
+function FieldsPanel({
+  fields,
+  onChange,
+  graphEnabled,
+}: {
+  fields: DirectoryField[];
+  onChange: (f: DirectoryField[]) => void;
+  graphEnabled: boolean;
+}) {
+  const [label, setLabel] = useState("");
+  const [graphPath, setGraphPath] = useState("");
+  const [showInCard, setShowInCard] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function reload() {
+    const res = await fetch("/api/admin/directory/fields");
+    if (res.ok) onChange((await res.json()).fields);
+  }
+
+  async function add(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    const res = await fetch("/api/admin/directory/fields", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label, graph_path: graphPath, show_in_card: showInCard }),
+    });
+    setBusy(false);
+    if (!res.ok) {
+      setError((await res.json().catch(() => ({})))?.error || "Could not add the field.");
+      return;
+    }
+    setLabel("");
+    setGraphPath("");
+    setShowInCard(false);
+    await reload();
+  }
+
+  async function patch(f: DirectoryField, body: Record<string, unknown>) {
+    await fetch(`/api/admin/directory/fields/${f.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    await reload();
+  }
+
+  async function removeField(f: DirectoryField) {
+    if (!confirm(`Delete the "${f.label}" field? Its values are removed from every person.`)) return;
+    await fetch(`/api/admin/directory/fields/${f.id}`, { method: "DELETE" });
+    await reload();
+  }
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+      <h3 className="mb-1 font-semibold text-slate-900">Custom fields</h3>
+      <p className="mb-3 text-sm text-slate-500">
+        Extra directory fields (e.g. cost center, pronouns, extension). They appear in the list
+        view&rsquo;s column picker, optionally on cards, and are editable per person below.
+        {graphEnabled && (
+          <> Map a field to a Microsoft Graph property — including the Exchange custom attributes
+          (<code className="font-mono">extensionAttribute1–15</code>) — and the sync fills it
+          automatically.</>
+        )}
+      </p>
+
+      {fields.length > 0 && (
+        <div className="mb-3 overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400">
+                <th className="px-3 py-2">Label</th>
+                <th className="px-3 py-2">Key</th>
+                <th className="px-3 py-2">Microsoft Graph mapping</th>
+                <th className="px-3 py-2">On cards</th>
+                <th className="px-3 py-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {fields.map((f) => (
+                <tr key={f.id} className="border-b border-slate-50">
+                  <td className="px-3 py-2 font-medium text-slate-900">{f.label}</td>
+                  <td className="px-3 py-2 font-mono text-xs text-slate-500">{f.key}</td>
+                  <td className="px-3 py-2">
+                    <input
+                      className={`${field} max-w-xs font-mono text-xs`}
+                      defaultValue={f.graph_path}
+                      list="graph-paths"
+                      placeholder="not mapped (manual only)"
+                      onBlur={(e) => {
+                        if (e.target.value.trim() !== f.graph_path) {
+                          patch(f, { graph_path: e.target.value.trim() });
+                        }
+                      }}
+                    />
+                  </td>
+                  <td className="px-3 py-2">
+                    <input
+                      type="checkbox"
+                      checked={f.show_in_card === 1}
+                      onChange={(e) => patch(f, { show_in_card: e.target.checked })}
+                    />
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    <button className="text-xs font-medium text-red-600 hover:underline" onClick={() => removeField(f)}>
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {error && <p className="mb-2 text-sm text-red-600">{error}</p>}
+      <form onSubmit={add} className="flex flex-wrap items-center gap-2">
+        <input
+          className={`${field} w-44`}
+          placeholder="New field label"
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          required
+        />
+        <input
+          className={`${field} w-72 font-mono text-xs`}
+          placeholder="Graph property (optional)"
+          value={graphPath}
+          onChange={(e) => setGraphPath(e.target.value)}
+          list="graph-paths"
+          spellCheck={false}
+        />
+        <datalist id="graph-paths">
+          {GRAPH_PATHS.map((g) => (
+            <option key={g} value={g} />
+          ))}
+        </datalist>
+        <label className="flex items-center gap-1.5 text-sm text-slate-600">
+          <input type="checkbox" checked={showInCard} onChange={(e) => setShowInCard(e.target.checked)} />
+          Show on cards
+        </label>
+        <button type="submit" disabled={busy} className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60">
+          Add field
+        </button>
+      </form>
     </div>
   );
 }

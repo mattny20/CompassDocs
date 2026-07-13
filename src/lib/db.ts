@@ -274,6 +274,26 @@ const SCHEMA_SQL = `
   CREATE UNIQUE INDEX IF NOT EXISTS idx_directory_external
     ON directory_people(external_id) WHERE external_id IS NOT NULL;
   CREATE INDEX IF NOT EXISTS idx_directory_name ON directory_people(name);
+
+  -- Directory v2: assistant link + admin-defined custom fields.
+  ALTER TABLE directory_people
+    ADD COLUMN IF NOT EXISTS assistant_id integer REFERENCES directory_people(id) ON DELETE SET NULL;
+  ALTER TABLE directory_people
+    ADD COLUMN IF NOT EXISTS custom jsonb NOT NULL DEFAULT '{}'::jsonb;
+
+  -- Custom field definitions. graph_path (optional) maps the field to any
+  -- Microsoft Graph user property for the enterprise sync — including nested
+  -- ones like onPremisesExtensionAttributes.extensionAttribute1 (the Exchange
+  -- custom attributes 1–15).
+  CREATE TABLE IF NOT EXISTS directory_fields (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    key text UNIQUE NOT NULL,
+    label text NOT NULL,
+    graph_path text NOT NULL DEFAULT '',
+    show_in_card integer NOT NULL DEFAULT 0,
+    sort integer NOT NULL DEFAULT 0,
+    created_at timestamptz NOT NULL DEFAULT now()
+  );
 `;
 
 async function seedIfEmpty(client: import("pg").PoolClient) {

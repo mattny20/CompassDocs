@@ -34,6 +34,8 @@ export async function POST(req: Request) {
     phone: String(body?.phone ?? ""),
     mobile: String(body?.mobile ?? ""),
     office: String(body?.office ?? ""),
+    assistant_id: body?.assistant_id != null ? Number(body.assistant_id) : null,
+    custom: body?.custom && typeof body.custom === "object" ? body.custom : undefined,
   });
   await audit({
     actor: actorFrom(gate),
