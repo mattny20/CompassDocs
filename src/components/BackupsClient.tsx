@@ -149,8 +149,7 @@ export function BackupsClient({
         <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
           <h3 className="mb-1 font-semibold text-slate-900">Destinations</h3>
           <p className="mb-3 text-sm text-slate-500">
-            Backups are written locally and mirrored to any destination configured via environment
-            variables.
+            Backups are written locally and mirrored to any off-site destination configured below.
           </p>
           <div className="flex flex-wrap gap-2">
             {destinations.map((d) => (
