@@ -45,11 +45,12 @@ async function diskUsage(dir: string): Promise<{ total: number; free: number } |
 }
 
 export async function getSystemInfo(): Promise<SystemInfo> {
-  const [database, backups, attachments, disk] = await Promise.all([
+  const [database, backups, attachments, disk, destinations] = await Promise.all([
     getDatabaseStats(),
     listBackups(),
     attachmentsUsage(),
     diskUsage(backupDir()),
+    destinationStatus(),
   ]);
 
   return {
@@ -69,7 +70,7 @@ export async function getSystemInfo(): Promise<SystemInfo> {
       attachmentBytes: attachments.bytes,
       diskTotalBytes: disk?.total ?? null,
       diskFreeBytes: disk?.free ?? null,
-      destinations: destinationStatus(),
+      destinations,
     },
     resources: {
       cpuCount: os.cpus().length,

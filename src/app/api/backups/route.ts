@@ -12,7 +12,7 @@ export async function GET() {
   if (gate instanceof NextResponse) return gate;
   return NextResponse.json({
     backups: await listBackups(),
-    destinations: destinationStatus(),
+    destinations: await destinationStatus(),
   });
 }
 

@@ -1,11 +1,13 @@
 import { createReadStream } from "fs";
 import { stat } from "fs/promises";
 import { basename } from "path";
+import { getS3Config, getAzureConfig, type S3Config, type AzureConfig } from "./backup-config";
 
-// Optional off-site backup destinations. Each is "configured" purely from
-// environment variables (secrets never live in the database), and the heavy
-// SDKs are imported lazily so they cost nothing unless actually used. A backup
-// is always written locally first; configured destinations receive a copy.
+// Optional off-site backup destinations. Configuration is resolved from the
+// admin settings (with environment-variable fallback) in `backup-config.ts`;
+// this module turns a resolved config into an uploader. The heavy SDKs are
+// imported lazily so they cost nothing unless a destination is actually used. A
+// backup is always written locally first; configured destinations receive a copy.
 
 export interface BackupDestination {
   key: string;
@@ -18,27 +20,11 @@ export interface BackupDestination {
 
 // --- S3 (AWS S3, Cloudflare R2, MinIO, any S3-compatible) --------------------
 
-function s3Config() {
-  const bucket = process.env.BACKUP_S3_BUCKET;
-  const accessKeyId = process.env.BACKUP_S3_ACCESS_KEY_ID;
-  const secretAccessKey = process.env.BACKUP_S3_SECRET_ACCESS_KEY;
-  if (!bucket || !accessKeyId || !secretAccessKey) return null;
-  return {
-    bucket,
-    accessKeyId,
-    secretAccessKey,
-    region: process.env.BACKUP_S3_REGION || "us-east-1",
-    endpoint: process.env.BACKUP_S3_ENDPOINT || undefined, // set for R2/MinIO
-    prefix: (process.env.BACKUP_S3_PREFIX || "").replace(/^\/+|\/+$/g, ""),
-  };
-}
-
 function s3Key(prefix: string, name: string) {
   return prefix ? `${prefix}/${name}` : name;
 }
 
-function makeS3Destination(): BackupDestination {
-  const cfg = s3Config()!;
+function makeS3Destination(cfg: S3Config): BackupDestination {
   async function client() {
     const { S3Client } = await import("@aws-sdk/client-s3");
     return new S3Client({
@@ -75,15 +61,7 @@ function makeS3Destination(): BackupDestination {
 
 // --- Azure Blob Storage ------------------------------------------------------
 
-function azureConfig() {
-  const connectionString = process.env.BACKUP_AZURE_CONNECTION_STRING;
-  const container = process.env.BACKUP_AZURE_CONTAINER;
-  if (!connectionString || !container) return null;
-  return { connectionString, container };
-}
-
-function makeAzureDestination(): BackupDestination {
-  const cfg = azureConfig()!;
+function makeAzureDestination(cfg: AzureConfig): BackupDestination {
   async function container() {
     const { BlobServiceClient } = await import("@azure/storage-blob");
     const svc = BlobServiceClient.fromConnectionString(cfg.connectionString);
@@ -105,20 +83,24 @@ function makeAzureDestination(): BackupDestination {
   };
 }
 
-/** All remote destinations that are configured via the environment. */
-export function activeDestinations(): BackupDestination[] {
+/** All remote destinations that are currently configured. */
+export async function activeDestinations(): Promise<BackupDestination[]> {
   const out: BackupDestination[] = [];
-  if (s3Config()) out.push(makeS3Destination());
-  if (azureConfig()) out.push(makeAzureDestination());
+  const [s3, azure] = await Promise.all([getS3Config(), getAzureConfig()]);
+  if (s3) out.push(makeS3Destination(s3));
+  if (azure) out.push(makeAzureDestination(azure));
   return out;
 }
 
 /** Lightweight status for the admin UI (labels only, no secrets). */
-export function destinationStatus(): { key: string; label: string; configured: boolean }[] {
+export async function destinationStatus(): Promise<
+  { key: string; label: string; configured: boolean }[]
+> {
+  const [s3, azure] = await Promise.all([getS3Config(), getAzureConfig()]);
   return [
     { key: "local", label: "Local volume", configured: true },
-    { key: "s3", label: "S3-compatible", configured: !!s3Config() },
-    { key: "azure", label: "Azure Blob", configured: !!azureConfig() },
+    { key: "s3", label: "S3-compatible", configured: !!s3 },
+    { key: "azure", label: "Azure Blob", configured: !!azure },
   ];
 }
 

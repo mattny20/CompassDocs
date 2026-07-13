@@ -93,7 +93,7 @@ export async function createBackup(now: Date = new Date()): Promise<CreateBackup
   // because a remote is down — just report it).
   const uploaded: string[] = [];
   const uploadErrors: string[] = [];
-  for (const dest of activeDestinations()) {
+  for (const dest of await activeDestinations()) {
     try {
       await dest.upload(path, name);
       uploaded.push(dest.label);
@@ -142,7 +142,7 @@ export async function deleteBackup(name: string): Promise<boolean> {
     return false;
   }
   // Best-effort remote cleanup.
-  for (const dest of activeDestinations()) {
+  for (const dest of await activeDestinations()) {
     try {
       await dest.remove(name);
     } catch {
