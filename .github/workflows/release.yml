@@ -1,15 +1,20 @@
 name: Release
 
-# On a version tag (vX.Y.Z), publish a GitHub Release using that version's
-# section of CHANGELOG.md as the notes. The container image for the tag is built
-# separately by docker-publish.yml. Publishing a Release is what powers the
-# in-app "update available" check (Settings → System).
+# Publish a GitHub Release (and version-tag the image) for the version in
+# package.json. Run it from the Actions tab ("Run workflow") after the version
+# bump is merged to main. It creates the tag + Release server-side via `gh`
+# (using that version's CHANGELOG section as the notes) and adds the semver tags
+# to the already-built container image — no rebuild.
 on:
-  push:
-    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (blank = use package.json)"
+        required: false
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
   release:
@@ -18,24 +23,54 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Resolve version
+        id: v
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          if [ -z "$VERSION" ]; then VERSION="$(node -p "require('./package.json').version")"; fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Releasing v$VERSION"
+
       - name: Build release notes from CHANGELOG
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${{ steps.v.outputs.version }}"
           awk -v ver="$VERSION" '
             $0 ~ "^## \\[" ver "\\]" { capture = 1; next }
             capture && (/^## \[/ || /^\[[0-9]/) { exit }
             capture { print }
           ' CHANGELOG.md > notes.md
-          if [ ! -s notes.md ]; then
-            echo "Release ${GITHUB_REF_NAME}." > notes.md
-          fi
-          echo "----- release notes -----"; cat notes.md
+          if [ ! -s notes.md ]; then echo "Release ${{ steps.v.outputs.tag }}." > notes.md; fi
+          echo "----- notes -----"; cat notes.md
 
-      - name: Publish GitHub Release
+      - name: Create tag + GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "$GITHUB_REF_NAME" \
-            --notes-file notes.md
+          TAG="${{ steps.v.outputs.tag }}"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; skipping."
+          else
+            gh release create "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "$TAG" \
+              --notes-file notes.md
+          fi
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Add semver tags to the built image
+        continue-on-error: true
+        run: |
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
+          SRC="$IMAGE:main-$(git rev-parse --short=7 HEAD)"
+          VERSION="${{ steps.v.outputs.version }}"
+          MM="${VERSION%.*}"
+          echo "Retagging $SRC -> :$VERSION, :$MM"
+          docker buildx imagetools create -t "$IMAGE:$VERSION" -t "$IMAGE:$MM" "$SRC"
