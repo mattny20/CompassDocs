@@ -1,6 +1,6 @@
 import os from "os";
 import { statfs } from "fs/promises";
-import { getDatabaseStats } from "./db";
+import { getDatabaseStats, attachmentsUsage } from "./db";
 import { listBackups, backupDir } from "./backup";
 import { destinationStatus } from "./backup-destinations";
 import pkg from "../../package.json";
@@ -18,6 +18,8 @@ export interface SystemInfo {
     backupCount: number;
     backupBytes: number;
     backupDir: string;
+    attachmentCount: number;
+    attachmentBytes: number;
     diskTotalBytes: number | null;
     diskFreeBytes: number | null;
     destinations: { key: string; label: string; configured: boolean }[];
@@ -43,9 +45,10 @@ async function diskUsage(dir: string): Promise<{ total: number; free: number } |
 }
 
 export async function getSystemInfo(): Promise<SystemInfo> {
-  const [database, backups, disk] = await Promise.all([
+  const [database, backups, attachments, disk] = await Promise.all([
     getDatabaseStats(),
     listBackups(),
+    attachmentsUsage(),
     diskUsage(backupDir()),
   ]);
 
@@ -62,6 +65,8 @@ export async function getSystemInfo(): Promise<SystemInfo> {
       backupCount: backups.length,
       backupBytes: backups.reduce((n, b) => n + b.size, 0),
       backupDir: backupDir(),
+      attachmentCount: attachments.count,
+      attachmentBytes: attachments.bytes,
       diskTotalBytes: disk?.total ?? null,
       diskFreeBytes: disk?.free ?? null,
       destinations: destinationStatus(),

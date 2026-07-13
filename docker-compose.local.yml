@@ -39,9 +39,11 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     volumes:
       - compassdocs_local_backups:/backups
+      - compassdocs_local_uploads:/uploads
     ports:
       - "${PORT:-3000}:3000"
 
 volumes:
   compassdocs_local_pgdata:
   compassdocs_local_backups:
+  compassdocs_local_uploads:
