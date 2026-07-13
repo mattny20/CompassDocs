@@ -26,10 +26,18 @@ export const SESSION_MAX_AGE = SESSION_TIMEOUT_MAX * 60;
 const TOUCH_THROTTLE_MS = 60_000;
 
 export function cookieOptions(maxAgeSeconds: number) {
+  // Session cookies are Secure (HTTPS-only) in production by default. A Secure
+  // cookie is never sent back over plain HTTP, so an install served at
+  // http://host:3000 would bounce every request to /login (a login loop).
+  // Operators who intentionally run over plain HTTP — an internal LAN/VPN, or a
+  // TLS-terminating proxy the app can't detect — can set
+  // COMPASSDOCS_INSECURE_COOKIES=1 to drop the Secure flag. Leave it UNSET for
+  // any internet-facing deployment.
+  const insecure = process.env.COMPASSDOCS_INSECURE_COOKIES === "1";
   return {
     httpOnly: true,
     sameSite: "lax" as const,
-    secure: process.env.NODE_ENV === "production",
+    secure: process.env.NODE_ENV === "production" && !insecure,
     path: "/",
     maxAge: maxAgeSeconds,
   };

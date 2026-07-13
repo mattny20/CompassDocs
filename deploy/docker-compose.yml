@@ -34,6 +34,10 @@ services:
       # The app and db talk over the private compose network, so SSL is off.
       DATABASE_URL: postgres://compass:${POSTGRES_PASSWORD}@db:5432/compassdocs
       DATABASE_SSL: disable
+      # Set to 1 ONLY if serving over plain HTTP (no HTTPS) — otherwise login
+      # loops, because Secure cookies aren't sent over http://. Leave unset for
+      # any HTTPS / internet-facing deployment.
+      COMPASSDOCS_INSECURE_COOKIES: ${COMPASSDOCS_INSECURE_COOKIES:-}
       # Optional — leave unset to create the admin via the first-run web setup
       # wizard; set both to pre-create the admin headlessly.
       COMPASSDOCS_ADMIN_USER: ${COMPASSDOCS_ADMIN_USER:-}
