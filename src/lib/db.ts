@@ -414,6 +414,52 @@ export async function getSpaceBySlug(slug: string): Promise<Space | undefined> {
   return (await q<Space>("SELECT * FROM spaces WHERE slug = $1", [slug]))[0];
 }
 
+export async function getSpaceById(id: number): Promise<Space | undefined> {
+  return (await q<Space>("SELECT * FROM spaces WHERE id = $1", [id]))[0];
+}
+
+/** Turn a name into a slug that isn't already taken (appending -2, -3, …). */
+export async function uniqueSpaceSlug(name: string): Promise<string> {
+  const base = slugify(name) || "space";
+  let slug = base;
+  for (let n = 2; await getSpaceBySlug(slug); n++) slug = `${base}-${n}`.slice(0, 80);
+  return slug;
+}
+
+export async function updateSpace(
+  id: number,
+  patch: { name?: string; description?: string; icon?: string; color?: string }
+): Promise<Space | undefined> {
+  const sets: string[] = [];
+  const vals: any[] = [];
+  for (const key of ["name", "description", "icon", "color"] as const) {
+    if (patch[key] !== undefined) {
+      sets.push(`${key} = $${sets.length + 1}`);
+      vals.push(patch[key]);
+    }
+  }
+  if (!sets.length) return getSpaceById(id);
+  vals.push(id);
+  const r = await q<Space>(
+    `UPDATE spaces SET ${sets.join(", ")} WHERE id = $${vals.length} RETURNING *`,
+    vals
+  );
+  return r[0];
+}
+
+/**
+ * Delete a space. Refuses if it still holds any documents (including trashed
+ * ones) so a space can never silently cascade-delete content.
+ */
+export async function deleteSpace(id: number): Promise<{ ok: boolean; docCount: number }> {
+  const docCount = (
+    await q<{ n: number }>("SELECT COUNT(*)::int AS n FROM documents WHERE space_id = $1", [id])
+  )[0].n;
+  if (docCount > 0) return { ok: false, docCount };
+  await q("DELETE FROM spaces WHERE id = $1", [id]);
+  return { ok: true, docCount: 0 };
+}
+
 export async function createSpace(input: {
   slug: string;
   name: string;

@@ -4,8 +4,25 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { MarkdownView } from "./MarkdownView";
+import { RichTextEditor } from "./RichTextEditor";
 import { DOC_TYPES } from "@/lib/types";
 import type { DocType, DocStatus, Space } from "@/lib/types";
+
+type EditorTab = "rich" | "markdown" | "preview";
+
+interface ProofChange {
+  type: string;
+  before: string;
+  after: string;
+  note: string;
+}
+interface ProofResult {
+  mode: "ai" | "unavailable";
+  revised?: string;
+  changes?: ProofChange[];
+  truncated?: boolean;
+  message?: string;
+}
 
 interface Initial {
   id?: number;
@@ -38,10 +55,39 @@ export function DocEditor({
   const [summary, setSummary] = useState(initial.summary);
   const [tags, setTags] = useState(initial.tags.join(", "));
   const [content, setContent] = useState(initial.content);
-  const [tab, setTab] = useState<"write" | "preview">("write");
+  const [tab, setTab] = useState<EditorTab>("rich");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [submittedDocId, setSubmittedDocId] = useState<number | null>(null);
+
+  // AI proofreading state.
+  const [proofing, setProofing] = useState(false);
+  const [proof, setProof] = useState<ProofResult | null>(null);
+  const [proofError, setProofError] = useState("");
+
+  async function runProofread() {
+    setProofing(true);
+    setProof(null);
+    setProofError("");
+    try {
+      const res = await fetch("/api/proofread", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content }),
+      });
+      const data = await res.json();
+      if (!res.ok) setProofError(data?.error || "Proofreading failed.");
+      else setProof(data as ProofResult);
+    } catch {
+      setProofError("Proofreading failed. Please try again.");
+    }
+    setProofing(false);
+  }
+
+  function applyProof() {
+    if (proof?.revised != null) setContent(proof.revised);
+    setProof(null);
+  }
 
   // An editor without publish rights who marks the doc "published" is really
   // submitting a change for approval.
@@ -231,15 +277,29 @@ export function DocEditor({
         {/* Editor / preview */}
         <div className="rounded-lg border border-slate-200 bg-surface">
           <div className="flex items-center gap-1 border-b border-slate-100 px-2 py-1.5">
-            <TabButton active={tab === "write"} onClick={() => setTab("write")}>
-              Write
+            <TabButton active={tab === "rich"} onClick={() => setTab("rich")}>
+              Rich text
+            </TabButton>
+            <TabButton active={tab === "markdown"} onClick={() => setTab("markdown")}>
+              Markdown
             </TabButton>
             <TabButton active={tab === "preview"} onClick={() => setTab("preview")}>
               Preview
             </TabButton>
-            <span className="ml-auto pr-2 text-xs text-slate-400">Markdown supported</span>
+            <button
+              type="button"
+              onClick={runProofread}
+              disabled={proofing || !content.trim()}
+              title="Check grammar, spelling, and clarity with AI"
+              className="ml-auto mr-1 flex items-center gap-1 rounded-md px-2.5 py-1 text-sm font-medium text-compass-700 hover:bg-compass-50 disabled:opacity-50"
+            >
+              {proofing ? "Proofreading…" : "✨ Proofread"}
+            </button>
           </div>
-          {tab === "write" ? (
+
+          {tab === "rich" ? (
+            <RichTextEditor value={content} onChange={setContent} />
+          ) : tab === "markdown" ? (
             <textarea
               value={content}
               onChange={(e) => setContent(e.target.value)}
@@ -256,6 +316,14 @@ export function DocEditor({
             </div>
           )}
         </div>
+
+        {proofError && (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            {proofError}
+          </div>
+        )}
+
+        {proof && <ProofPanel proof={proof} onApply={applyProof} onDismiss={() => setProof(null)} />}
       </div>
     </div>
   );
@@ -267,6 +335,82 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <span className="mb-1 block text-xs font-medium text-slate-500">{label}</span>
       {children}
     </label>
+  );
+}
+
+function ProofPanel({
+  proof,
+  onApply,
+  onDismiss,
+}: {
+  proof: ProofResult;
+  onApply: () => void;
+  onDismiss: () => void;
+}) {
+  const hasChanges = (proof.changes?.length ?? 0) > 0;
+
+  if (proof.mode === "unavailable") {
+    return (
+      <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+        {proof.message || "AI proofreading is unavailable."}
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-compass-200 bg-compass-50/50 p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h3 className="font-semibold text-slate-900">
+          ✨ Proofreading {hasChanges ? `— ${proof.changes!.length} suggestion${proof.changes!.length === 1 ? "" : "s"}` : ""}
+        </h3>
+        <div className="flex items-center gap-2">
+          {hasChanges && (
+            <button
+              onClick={onApply}
+              className="rounded-lg bg-compass-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-compass-700"
+            >
+              Apply polished version
+            </button>
+          )}
+          <button
+            onClick={onDismiss}
+            className="rounded-lg border border-slate-200 bg-surface px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+          >
+            Dismiss
+          </button>
+        </div>
+      </div>
+
+      {proof.truncated && (
+        <p className="mb-3 text-xs text-amber-700">
+          This document is long — only the beginning was proofread. The rest is kept unchanged.
+        </p>
+      )}
+
+      {!hasChanges ? (
+        <p className="text-sm text-slate-600">{proof.message || "No changes suggested."}</p>
+      ) : (
+        <ul className="space-y-2">
+          {proof.changes!.map((c, i) => (
+            <li key={i} className="rounded-lg border border-slate-200 bg-surface p-2.5 text-sm">
+              <div className="mb-1 flex items-center gap-2">
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                  {c.type}
+                </span>
+                {c.note && <span className="text-xs text-slate-500">{c.note}</span>}
+              </div>
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span className="rounded bg-red-50 px-1.5 py-0.5 text-red-700 line-through decoration-red-300">
+                  {c.before}
+                </span>
+                <span className="text-slate-400">→</span>
+                <span className="rounded bg-green-50 px-1.5 py-0.5 text-green-700">{c.after}</span>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
