@@ -4,6 +4,15 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.5.2] - 2026-07-13
+
+### Added
+- **Collapsible sidebar.** A toggle at the top of the left navigation collapses
+  it to a slim icon-only rail — every destination stays one click away (with
+  tooltips, and a dot in place of numeric badges) while documents and the
+  directory get the extra width. Expanding restores the full layout, and the
+  choice is remembered per browser.
+
 ## [0.5.1] - 2026-07-13
 
 ### Changed
@@ -167,6 +176,7 @@ approval workflow. Self-hosted, AGPL-3.0.
 - **PostgreSQL** storage; the app migrates its own schema on start.
 - Also runs manually with Node.js 20+ and PostgreSQL 14+.
 
+[0.5.2]: https://github.com/mattny20/CompassDocs/releases/tag/v0.5.2
 [0.5.1]: https://github.com/mattny20/CompassDocs/releases/tag/v0.5.1
 [0.5.0]: https://github.com/mattny20/CompassDocs/releases/tag/v0.5.0
 [0.4.0]: https://github.com/mattny20/CompassDocs/releases/tag/v0.4.0
