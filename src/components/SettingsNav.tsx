@@ -10,6 +10,7 @@ const SECTIONS = [
   { href: "/admin/ai", label: "AI", icon: "✨" },
   { href: "/admin/domain", label: "Domain & HTTPS", icon: "🌐" },
   { href: "/admin/users", label: "Users & roles", icon: "👥" },
+  { href: "/admin/audit", label: "Audit log", icon: "📜" },
   { href: "/admin/backups", label: "Backups", icon: "💾" },
   { href: "/admin/data", label: "Import & export", icon: "📦" },
 ];

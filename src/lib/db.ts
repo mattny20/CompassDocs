@@ -233,6 +233,25 @@ const SCHEMA_SQL = `
     created_at timestamptz NOT NULL DEFAULT now()
   );
   CREATE INDEX IF NOT EXISTS idx_attachments_doc ON attachments(document_id);
+
+  -- Audit log: an append-only record of security- and content-significant
+  -- actions (who did what, when). Reads are intentionally not logged.
+  CREATE TABLE IF NOT EXISTS audit_log (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    at timestamptz NOT NULL DEFAULT now(),
+    actor_id integer,
+    actor_name text NOT NULL DEFAULT 'system',
+    actor_role text,
+    action text NOT NULL,
+    target_type text,
+    target_id text,
+    target_label text,
+    details jsonb,
+    ip text
+  );
+  CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_log(at DESC);
+  CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action);
+  CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_log(actor_id);
 `;
 
 async function seedIfEmpty(client: import("pg").PoolClient) {

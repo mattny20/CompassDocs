@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createUser, getUserByUsername } from "@/lib/db";
 import { hashPassword } from "@/lib/password";
 import { apiGuard } from "@/lib/api-auth";
+import { audit, actorFrom, ipFrom } from "@/lib/audit";
 import { ROLE_ORDER } from "@/lib/types";
 import type { Role } from "@/lib/types";
 
@@ -46,6 +47,15 @@ export async function POST(req: Request) {
     passwordHash: hash,
     passwordSalt: salt,
     mustChange: true,
+  });
+  await audit({
+    actor: actorFrom(gate),
+    action: "user.create",
+    targetType: "user",
+    targetId: user.id,
+    targetLabel: user.username,
+    details: { role },
+    ip: ipFrom(req),
   });
   return NextResponse.json({ user }, { status: 201 });
 }

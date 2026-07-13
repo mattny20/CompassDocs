@@ -9,6 +9,7 @@ import {
   storeCustomCert,
 } from "@/lib/caddy";
 import { apiGuard } from "@/lib/api-auth";
+import { audit, actorFrom, ipFrom } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -84,6 +85,17 @@ export async function PATCH(req: Request) {
   // Push to the live proxy. The settings are already saved; a proxy failure is
   // surfaced as a warning rather than failing the whole save.
   const applied = await applyProxyConfig();
+
+  await audit({
+    actor: actorFrom(gate),
+    action: "settings.domain",
+    details: {
+      domain: patch.custom_domain,
+      tls_mode: patch.tls_mode,
+      applied: applied.ok,
+    },
+    ip: ipFrom(req),
+  });
 
   return NextResponse.json({
     ok: true,

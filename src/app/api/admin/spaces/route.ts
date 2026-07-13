@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { listSpaces, createSpace, uniqueSpaceSlug } from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
+import { audit, actorFrom, ipFrom } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +34,14 @@ export async function POST(req: Request) {
     description: String(body?.description ?? "").trim().slice(0, 280),
     icon: String(body?.icon ?? "").trim().slice(0, 8) || "📁",
     color: /^#[0-9a-fA-F]{6}$/.test(body?.color) ? body.color : "#2e75bd",
+  });
+  await audit({
+    actor: actorFrom(gate),
+    action: "space.create",
+    targetType: "space",
+    targetId: space.id,
+    targetLabel: space.name,
+    ip: ipFrom(req),
   });
   return NextResponse.json({ space }, { status: 201 });
 }

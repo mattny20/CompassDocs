@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { updateSpace, deleteSpace, getSpaceById } from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
+import { audit, actorFrom, ipFrom } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -38,15 +39,25 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   }
 
   const space = await updateSpace(id, patch);
+  await audit({
+    actor: actorFrom(gate),
+    action: "space.update",
+    targetType: "space",
+    targetId: id,
+    targetLabel: space?.name,
+    details: { fields: Object.keys(patch) },
+    ip: ipFrom(req),
+  });
   return NextResponse.json({ space });
 }
 
-export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const gate = await apiGuard("admin");
   if (gate instanceof NextResponse) return gate;
 
   const id = Number((await params).id);
-  if (!Number.isInteger(id) || !(await getSpaceById(id))) {
+  const existing = Number.isInteger(id) ? await getSpaceById(id) : undefined;
+  if (!existing) {
     return NextResponse.json({ error: "Space not found." }, { status: 404 });
   }
 
@@ -59,5 +70,13 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
       { status: 409 }
     );
   }
+  await audit({
+    actor: actorFrom(gate),
+    action: "space.delete",
+    targetType: "space",
+    targetId: id,
+    targetLabel: existing.name,
+    ip: ipFrom(req),
+  });
   return NextResponse.json({ ok: true });
 }

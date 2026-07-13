@@ -9,6 +9,7 @@ import {
   DEFAULT_AI_MODEL,
 } from "@/lib/ai-config";
 import { apiGuard } from "@/lib/api-auth";
+import { audit, actorFrom, ipFrom } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -43,16 +44,24 @@ export async function PATCH(req: Request) {
   // Model first (cheap, no external call).
   if (body?.model !== undefined) {
     await setAiModel(String(body.model).trim());
+    await audit({
+      actor: actorFrom(gate),
+      action: "settings.ai_model",
+      details: { model: String(body.model).trim() },
+      ip: ipFrom(req),
+    });
   }
 
   // Remove a stored key.
   if (body?.clear === true) {
     await clearAnthropicKey();
+    await audit({ actor: actorFrom(gate), action: "settings.ai_key_removed", ip: ipFrom(req) });
     return NextResponse.json({ ok: true, state: await state() });
   }
 
   // Set a new key — validate it against the API before saving so a bad paste
-  // is rejected with a clear message instead of silently failing later.
+  // is rejected with a clear message instead of silently failing later. The key
+  // itself is never recorded in the audit log.
   const apiKey = typeof body?.api_key === "string" ? body.api_key.trim() : "";
   if (apiKey) {
     const check = await validateAnthropicKey(apiKey);
@@ -60,6 +69,7 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: check.error || "Key validation failed." }, { status: 400 });
     }
     await setAnthropicKey(apiKey);
+    await audit({ actor: actorFrom(gate), action: "settings.ai_key_set", ip: ipFrom(req) });
   }
 
   return NextResponse.json({ ok: true, state: await state() });

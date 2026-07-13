@@ -3,6 +3,7 @@ import { setSetting } from "@/lib/db";
 import { getAppSettings, updateAppSettings } from "@/lib/settings-store";
 import type { AppSettings } from "@/lib/settings";
 import { apiGuard } from "@/lib/api-auth";
+import { audit, actorFrom, ipFrom } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +27,12 @@ export async function PATCH(req: Request) {
   if (body?.approval_mode !== undefined) {
     const mode = body.approval_mode === "open" ? "open" : "strict";
     await setSetting("approval_mode", mode);
+    await audit({
+      actor: actorFrom(gate),
+      action: "settings.approval_mode",
+      details: { mode },
+      ip: ipFrom(req),
+    });
   }
 
   // Appearance & workspace settings (all optional; validated/clamped in the lib).
@@ -46,6 +53,14 @@ export async function PATCH(req: Request) {
     if (body?.[k] !== undefined) (patch as any)[k] = body[k];
   }
   const settings = Object.keys(patch).length ? await updateAppSettings(patch) : undefined;
+  if (settings) {
+    await audit({
+      actor: actorFrom(gate),
+      action: "settings.workspace",
+      details: { fields: Object.keys(patch) },
+      ip: ipFrom(req),
+    });
+  }
 
   return NextResponse.json({ ok: true, settings });
 }

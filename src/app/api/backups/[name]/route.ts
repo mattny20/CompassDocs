@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { Readable } from "stream";
 import { apiGuard } from "@/lib/api-auth";
+import { audit, actorFrom } from "@/lib/audit";
 import { backupReadStream, deleteBackup, isValidBackupName } from "@/lib/backup";
 
 export const dynamic = "force-dynamic";
@@ -31,5 +32,6 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ name
   const { name } = await params;
   const ok = await deleteBackup(name);
   if (!ok) return NextResponse.json({ error: "Not found." }, { status: 404 });
+  await audit({ actor: actorFrom(gate), action: "backup.delete", targetType: "backup", targetLabel: name });
   return NextResponse.json({ ok: true });
 }

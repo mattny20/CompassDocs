@@ -7,6 +7,7 @@ import {
   getApprovalMode,
 } from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
+import { audit, actorFrom, ipFrom } from "@/lib/audit";
 import { roleAtLeast } from "@/lib/types";
 import type { DocType, DocStatus, SessionUser } from "@/lib/types";
 
@@ -86,6 +87,15 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       note: String(body?.versionNote ?? "").trim(),
       created_by: user.id,
     });
+    await audit({
+      actor: actorFrom(user),
+      action: "change_request.submit",
+      targetType: "document",
+      targetId: existing.id,
+      targetLabel: proposed.title,
+      details: { kind },
+      ip: ipFrom(req),
+    });
     return NextResponse.json({ pending: true, changeRequestId: crId, docId: existing.id });
   }
 
@@ -95,10 +105,19 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     author: user.name || user.username,
     versionNote: String(body?.versionNote ?? "").trim() || "Edited",
   });
+  const published = existing.status !== "published" && proposed.status === "published";
+  await audit({
+    actor: actorFrom(user),
+    action: published ? "document.publish" : "document.update",
+    targetType: "document",
+    targetId: existing.id,
+    targetLabel: proposed.title,
+    ip: ipFrom(req),
+  });
   return NextResponse.json({ doc });
 }
 
-export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const gate = await apiGuard("editor");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
@@ -116,5 +135,13 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   }
 
   await deleteDocument(doc.id);
+  await audit({
+    actor: actorFrom(user),
+    action: "document.delete",
+    targetType: "document",
+    targetId: doc.id,
+    targetLabel: doc.title,
+    ip: ipFrom(req),
+  });
   return NextResponse.json({ ok: true });
 }
