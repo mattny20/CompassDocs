@@ -4,6 +4,23 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.1] - 2026-07-13
+
+### Enterprise licensing (open-core)
+- **License settings page** (Settings → License) showing whether the running
+  build is Community or Enterprise, and the status of any applied license key.
+- **Offline license verification** — Enterprise licenses are Ed25519-signed
+  tokens verified locally against a built-in public key. No license server and
+  no phone-home; works air-gapped, with a 14-day grace period past expiry.
+- **Open-core edition system** groundwork: enterprise features (SSO, SCIM,
+  audit-log export, priority support) are gated by *both* the build and the
+  license. The Community edition is unaffected and fully functional on its own.
+- Embedded the production license-signing public key.
+
+### Notes
+- Enterprise feature implementations ship in the separate Enterprise build; this
+  release provides the core-side licensing framework they plug into.
+
 ## [0.3.0] - 2026-07-13
 
 The first public release of CompassDocs — an open-source team knowledge platform
@@ -55,4 +72,5 @@ approval workflow. Self-hosted, AGPL-3.0.
 - **PostgreSQL** storage; the app migrates its own schema on start.
 - Also runs manually with Node.js 20+ and PostgreSQL 14+.
 
+[0.3.1]: https://github.com/mattny20/CompassDocs/releases/tag/v0.3.1
 [0.3.0]: https://github.com/mattny20/CompassDocs/releases/tag/v0.3.0
