@@ -4,6 +4,16 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.5] - 2026-07-13
+
+### Added
+- **Anthropic API key in the setup wizard.** Optionally enter the AI key during
+  first-run setup to enable AI answers and proofreading immediately — same
+  write-only store as **Settings → AI**, where it can be changed later.
+- **Update from a source tarball (manual installs).** The **Version & updates**
+  panel now shows tarball-based update steps and a direct download link for
+  installs running without Docker, using each release's source `tar.gz`.
+
 ## [0.3.4] - 2026-07-13
 
 A first-run-experience release: install, activate a license, and set up your
@@ -116,6 +126,7 @@ approval workflow. Self-hosted, AGPL-3.0.
 - **PostgreSQL** storage; the app migrates its own schema on start.
 - Also runs manually with Node.js 20+ and PostgreSQL 14+.
 
+[0.3.5]: https://github.com/mattny20/CompassDocs/releases/tag/v0.3.5
 [0.3.4]: https://github.com/mattny20/CompassDocs/releases/tag/v0.3.4
 [0.3.2]: https://github.com/mattny20/CompassDocs/releases/tag/v0.3.2
 [0.3.1]: https://github.com/mattny20/CompassDocs/releases/tag/v0.3.1
