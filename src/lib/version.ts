@@ -32,6 +32,10 @@ export interface UpdateStatus {
   updateAvailable: boolean;
   /** The upgrade command for a Docker deployment. */
   upgradeCommand: string;
+  /** Source tarball of the latest release, for manual (non-Docker) installs. */
+  sourceTarballUrl: string | null;
+  /** Update steps for a manual install, using that tarball. */
+  sourceUpgradeCommand: string | null;
   /** The repo's releases page, for the "view all" link. */
   releasesUrl: string;
   /** Set when the check couldn't be completed (offline, rate-limited, none). */
@@ -107,12 +111,32 @@ export async function getUpdateStatus(force = false): Promise<UpdateStatus> {
   const current = currentVersion();
   const { release, note } = await fetchLatestRelease(force);
   const updateAvailable = !!release && compareVersions(release.tag, current) > 0;
+
+  // Manual (non-Docker) installs update from the release's source tarball.
+  // GitHub extracts vX.Y.Z.tar.gz to "<repo>-X.Y.Z/" (no "v"), e.g.
+  // CompassDocs-0.3.4 — keep the cd path in the steps in sync with that.
+  const repoName = REPO.split("/")[1] || "CompassDocs";
+  const tarballUrl = release
+    ? `https://github.com/${REPO}/archive/refs/tags/${release.tag}.tar.gz`
+    : null;
+  const sourceUpgradeCommand = release
+    ? [
+        `curl -fsSL ${tarballUrl} | tar -xz`,
+        `cd ${repoName}-${release.tag.replace(/^v/, "")}`,
+        `cp /path/to/your/current/.env .   # bring over your configuration`,
+        `npm ci && npm run build`,
+        `# stop the old server, then: npm run start`,
+      ].join("\n")
+    : null;
+
   return {
     current,
     imageTag: process.env.COMPASSDOCS_VERSION || null,
     latest: release,
     updateAvailable,
     upgradeCommand: "docker compose pull && docker compose up -d",
+    sourceTarballUrl: tarballUrl,
+    sourceUpgradeCommand,
     releasesUrl: `https://github.com/${REPO}/releases`,
     note,
     checkedAt: new Date().toISOString(),

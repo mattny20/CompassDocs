@@ -23,6 +23,7 @@ export function SetupForm({
   const [confirm, setConfirm] = useState("");
   const [secureCookies, setSecureCookies] = useState<SecureCookieMode>("auto");
   const [licenseKey, setLicenseKey] = useState("");
+  const [anthropicKey, setAnthropicKey] = useState("");
   const [domain, setDomain] = useState("");
   const [tlsMode, setTlsMode] = useState<TlsMode>("auto");
   const [tlsEmail, setTlsEmail] = useState("");
@@ -53,6 +54,7 @@ export function SetupForm({
           company_name: companyName,
           secure_cookies: secureCookies,
           ...(enterprise && licenseKey.trim() ? { license_key: licenseKey.trim() } : {}),
+          ...(anthropicKey.trim() ? { anthropic_api_key: anthropicKey.trim() } : {}),
           ...(proxyManaged
             ? { custom_domain: domain.trim(), tls_mode: tlsMode, tls_email: tlsEmail.trim() }
             : {}),
@@ -152,6 +154,27 @@ export function SetupForm({
             </label>
           </div>
         </div>
+      </div>
+
+      <div className="border-t border-slate-100 pt-4">
+        <label className="block">
+          <span className="mb-1 block text-sm font-medium text-slate-600">
+            Anthropic API key <span className="font-normal text-slate-400">(optional)</span>
+          </span>
+          <input
+            type="password"
+            value={anthropicKey}
+            onChange={(e) => setAnthropicKey(e.target.value)}
+            autoComplete="off"
+            placeholder="sk-ant-…"
+            spellCheck={false}
+            className={field}
+          />
+          <span className="mt-1 block text-xs text-slate-400">
+            Enables AI answers and proofreading. Search works without it — you can also add or
+            change the key later under Settings → AI.
+          </span>
+        </label>
       </div>
 
       {enterprise && (

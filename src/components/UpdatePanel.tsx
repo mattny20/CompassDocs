@@ -15,6 +15,8 @@ interface UpdateStatus {
   latest: ReleaseInfo | null;
   updateAvailable: boolean;
   upgradeCommand: string;
+  sourceTarballUrl: string | null;
+  sourceUpgradeCommand: string | null;
   releasesUrl: string;
   note?: string;
   checkedAt: string;
@@ -116,6 +118,31 @@ export function UpdatePanel() {
                   Bump it to <code className="font-mono">{status.latest.tag.replace(/^v/, "")}</code> (or{" "}
                   <code className="font-mono">latest</code>) in your <code className="font-mono">.env</code> before running the command.
                 </p>
+              )}
+              {status.sourceUpgradeCommand && (
+                <details className="rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2">
+                  <summary className="cursor-pointer text-xs font-medium text-slate-600">
+                    Not running Docker? Update from the source tarball
+                  </summary>
+                  <pre className="mt-2 overflow-x-auto rounded-lg bg-slate-900 px-3 py-2.5 font-mono text-xs text-slate-100">
+                    {status.sourceUpgradeCommand}
+                  </pre>
+                  <p className="mt-2 text-xs text-slate-500">
+                    {status.sourceTarballUrl && (
+                      <>
+                        Or download the{" "}
+                        <a
+                          href={status.sourceTarballUrl}
+                          className="font-medium text-compass-600 hover:underline"
+                        >
+                          release tarball
+                        </a>{" "}
+                        directly.{" "}
+                      </>
+                    )}
+                    The database schema migrates itself on start — your data is preserved.
+                  </p>
+                </details>
               )}
               <a
                 href={status.latest.url}
