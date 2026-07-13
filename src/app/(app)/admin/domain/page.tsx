@@ -16,6 +16,7 @@ export default async function DomainPage() {
         custom_domain: settings.custom_domain,
         tls_mode: settings.tls_mode,
         tls_email: settings.tls_email,
+        secure_cookies: settings.secure_cookies,
         has_custom_cert: customCert,
         proxy,
       }}

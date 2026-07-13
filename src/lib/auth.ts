@@ -9,7 +9,7 @@ import {
   markLogin,
 } from "./db";
 import { verifyPassword, newToken } from "./password";
-import { getSessionTimeoutMinutes } from "./settings-store";
+import { getSessionTimeoutMinutes, getSecureCookieMode } from "./settings-store";
 import { SESSION_TIMEOUT_MAX } from "./settings";
 import { roleAtLeast } from "./types";
 import type { Role, SessionUser, User } from "./types";
@@ -25,22 +25,40 @@ export const SESSION_MAX_AGE = SESSION_TIMEOUT_MAX * 60;
 // window has advanced by at least this much (keeps it to ~1 write/min/session).
 const TOUCH_THROTTLE_MS = 60_000;
 
-export function cookieOptions(maxAgeSeconds: number) {
-  // Session cookies are Secure (HTTPS-only) in production by default. A Secure
-  // cookie is never sent back over plain HTTP, so an install served at
-  // http://host:3000 would bounce every request to /login (a login loop).
-  // Operators who intentionally run over plain HTTP — an internal LAN/VPN, or a
-  // TLS-terminating proxy the app can't detect — can set
-  // COMPASSDOCS_INSECURE_COOKIES=1 to drop the Secure flag. Leave it UNSET for
-  // any internet-facing deployment.
-  const insecure = process.env.COMPASSDOCS_INSECURE_COOKIES === "1";
+export function cookieOptions(maxAgeSeconds: number, secure: boolean) {
   return {
     httpOnly: true,
     sameSite: "lax" as const,
-    secure: process.env.NODE_ENV === "production" && !insecure,
+    secure,
     path: "/",
     maxAge: maxAgeSeconds,
   };
+}
+
+/** True if the incoming request reached us over HTTPS (honoring a proxy). */
+function requestIsHttps(req: Request): boolean {
+  const xfproto = req.headers.get("x-forwarded-proto");
+  if (xfproto) return xfproto.split(",")[0].trim().toLowerCase() === "https";
+  try {
+    return new URL(req.url).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Whether the session cookie should be marked `Secure` for THIS request. Driven
+ * by the `secure_cookies` setting: `always` → true, `never` → false, `auto` →
+ * match the request protocol (so plain-HTTP installs work with no config, and
+ * HTTPS installs get Secure cookies). `COMPASSDOCS_INSECURE_COOKIES=1` forces
+ * insecure in `auto` mode (config-as-code back-compat).
+ */
+export async function secureCookie(req: Request): Promise<boolean> {
+  const mode = await getSecureCookieMode();
+  if (mode === "always") return true;
+  if (mode === "never") return false;
+  if (process.env.COMPASSDOCS_INSECURE_COOKIES === "1") return false;
+  return requestIsHttps(req);
 }
 
 export function toSessionUser(u: User): SessionUser {

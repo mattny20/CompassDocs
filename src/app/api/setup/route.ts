@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import { needsSetup, createUser, createSession, markLogin, setSetting } from "@/lib/db";
 import { hashPassword, newToken } from "@/lib/password";
 import { getSessionTimeoutMinutes } from "@/lib/settings-store";
-import { SESSION_COOKIE, cookieOptions, SESSION_MAX_AGE } from "@/lib/auth";
+import { SESSION_COOKIE, cookieOptions, SESSION_MAX_AGE, secureCookie } from "@/lib/auth";
+import { SECURE_COOKIE_MODES, type SecureCookieMode } from "@/lib/settings";
+import { parseLicense } from "@/lib/license";
 
 export const dynamic = "force-dynamic";
 
@@ -42,6 +44,16 @@ export async function POST(req: Request) {
     );
   }
 
+  // Validate the optional license key BEFORE creating the admin, so a bad key
+  // doesn't half-complete setup (the admin exists but the request errored).
+  const licenseRaw = String(body?.license_key ?? "").trim();
+  if (licenseRaw) {
+    const { error: licErr } = parseLicense(licenseRaw);
+    if (licErr) {
+      return NextResponse.json({ error: `License key rejected: ${licErr}` }, { status: 400 });
+    }
+  }
+
   // Re-check inside the write to narrow the race window.
   if (!(await needsSetup())) {
     return NextResponse.json({ error: "Setup has already been completed." }, { status: 409 });
@@ -65,6 +77,16 @@ export async function POST(req: Request) {
 
   if (companyName) await setSetting("company_name", companyName.slice(0, 80));
 
+  // Cookie-security choice from the wizard (defaults to "auto", which matches
+  // the request protocol — so plain-HTTP setups don't hit a login loop).
+  const secureMode = String(body?.secure_cookies ?? "auto") as SecureCookieMode;
+  if (SECURE_COOKIE_MODES.includes(secureMode)) {
+    await setSetting("secure_cookies", secureMode);
+  }
+
+  // Store the (already-validated) license key, if one was entered.
+  if (licenseRaw) await setSetting("license_key", licenseRaw);
+
   // Sign the new admin in immediately.
   const token = newToken();
   const expires = new Date(
@@ -74,6 +96,6 @@ export async function POST(req: Request) {
   await markLogin(user.id);
 
   const res = NextResponse.json({ ok: true });
-  res.cookies.set(SESSION_COOKIE, token, cookieOptions(SESSION_MAX_AGE));
+  res.cookies.set(SESSION_COOKIE, token, cookieOptions(SESSION_MAX_AGE, await secureCookie(req)));
   return res;
 }

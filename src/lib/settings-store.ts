@@ -13,7 +13,9 @@ import {
   normalizeDomain,
   normalizeSettings,
   TLS_MODES,
+  SECURE_COOKIE_MODES,
 } from "./settings";
+import type { SecureCookieMode } from "./settings";
 
 // DB-backed reads/writes for the appearance & workspace settings. Kept separate
 // from `settings.ts` (which stays import-safe for client components) because it
@@ -74,7 +76,18 @@ export async function updateAppSettings(patch: Partial<AppSettings>): Promise<Ap
   if (patch.tls_email !== undefined) {
     await setSetting("tls_email", patch.tls_email.trim().slice(0, 254));
   }
+  if (patch.secure_cookies !== undefined && SECURE_COOKIE_MODES.includes(patch.secure_cookies)) {
+    await setSetting("secure_cookies", patch.secure_cookies);
+  }
   return getAppSettings();
+}
+
+/** The Secure-cookie mode (auto/always/never), used by the auth layer. */
+export async function getSecureCookieMode(): Promise<SecureCookieMode> {
+  const raw = await getAllSettings();
+  return SECURE_COOKIE_MODES.includes(raw.secure_cookies as SecureCookieMode)
+    ? (raw.secure_cookies as SecureCookieMode)
+    : "auto";
 }
 
 /** Just the idle session timeout in minutes (used by the auth layer). */
