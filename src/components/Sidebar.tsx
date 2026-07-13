@@ -53,7 +53,7 @@ export async function Sidebar({
         )}
         {isAdmin && (
           <NavLink href="/admin" icon="⚙️">
-            Admin
+            Settings
           </NavLink>
         )}
       </nav>

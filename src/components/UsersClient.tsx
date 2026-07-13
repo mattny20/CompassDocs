@@ -3,113 +3,21 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ROLE_ORDER, ROLE_LABEL, ROLE_BLURB } from "@/lib/types";
-import type { User, Role, ApprovalMode } from "@/lib/types";
-import type { AppSettings } from "@/lib/settings";
-import { WorkspaceSettings } from "./WorkspaceSettings";
+import type { User, Role } from "@/lib/types";
 
-export function AdminClient({
+export function UsersClient({
   users,
   currentUserId,
-  approvalMode,
-  settings,
 }: {
   users: User[];
   currentUserId: number;
-  approvalMode: ApprovalMode;
-  settings: AppSettings;
 }) {
-  const router = useRouter();
-  const [mode, setMode] = useState<ApprovalMode>(approvalMode);
-  const [savingMode, setSavingMode] = useState(false);
-
-  async function saveMode(next: ApprovalMode) {
-    setMode(next);
-    setSavingMode(true);
-    await fetch("/api/admin/settings", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ approval_mode: next }),
-    });
-    setSavingMode(false);
-    router.refresh();
-  }
-
   return (
-    <div className="space-y-10">
-      {/* Appearance & workspace settings */}
-      <section>
-        <h2 className="mb-3 text-lg font-semibold text-slate-900">Appearance &amp; workspace</h2>
-        <WorkspaceSettings initial={settings} />
-      </section>
-
-      {/* Approval workflow setting */}
-      <section>
-        <h2 className="mb-3 text-lg font-semibold text-slate-900">Approval workflow</h2>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <ModeCard
-            active={mode === "strict"}
-            disabled={savingMode}
-            onClick={() => saveMode("strict")}
-            title="Strict (review required)"
-            desc="Editors' changes to published docs and new publishes go to the review queue. Approvers/Admins publish."
-          />
-          <ModeCard
-            active={mode === "open"}
-            disabled={savingMode}
-            onClick={() => saveMode("open")}
-            title="Open (edit freely)"
-            desc="Editors can publish and update live docs directly, with no review step. Approvers still handle suggestions."
-          />
-        </div>
-      </section>
-
-      {/* Users */}
-      <section>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-slate-900">Users ({users.length})</h2>
-        </div>
-        <UserTable users={users} currentUserId={currentUserId} />
-        <CreateUser />
-      </section>
+    <div>
+      <h2 className="mb-3 text-lg font-semibold text-slate-900">Users ({users.length})</h2>
+      <UserTable users={users} currentUserId={currentUserId} />
+      <CreateUser />
     </div>
-  );
-}
-
-function ModeCard({
-  active,
-  disabled,
-  onClick,
-  title,
-  desc,
-}: {
-  active: boolean;
-  disabled: boolean;
-  onClick: () => void;
-  title: string;
-  desc: string;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className={`rounded-xl border p-4 text-left transition ${
-        active
-          ? "border-compass-400 bg-compass-50 ring-2 ring-compass-100"
-          : "border-slate-200 bg-surface hover:border-slate-300"
-      }`}
-    >
-      <div className="flex items-center gap-2">
-        <span
-          className={`grid h-4 w-4 place-items-center rounded-full border ${
-            active ? "border-compass-600 bg-compass-600" : "border-slate-300"
-          }`}
-        >
-          {active && <span className="h-1.5 w-1.5 rounded-full bg-surface" />}
-        </span>
-        <span className="font-semibold text-slate-900">{title}</span>
-      </div>
-      <p className="mt-1 pl-6 text-sm text-slate-500">{desc}</p>
-    </button>
   );
 }
 

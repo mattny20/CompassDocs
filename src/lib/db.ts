@@ -289,6 +289,42 @@ export async function needsSetup(): Promise<boolean> {
   return (await q<{ n: number }>("SELECT COUNT(*)::int AS n FROM users"))[0].n === 0;
 }
 
+export interface DatabaseStats {
+  version: string;
+  sizeBytes: number;
+  documents: number;
+  documents_trashed: number;
+  users: number;
+  spaces: number;
+  versions: number;
+  active_sessions: number;
+  pending_changes: number;
+  open_suggestions: number;
+}
+
+/** Postgres version, database size, and row counts for the System page. */
+export async function getDatabaseStats(): Promise<DatabaseStats> {
+  const [ver] = await q<{ version: string }>("SELECT version()");
+  const [sz] = await q<{ bytes: string }>(
+    "SELECT pg_database_size(current_database())::text AS bytes"
+  );
+  const [c] = await q<any>(`SELECT
+    (SELECT COUNT(*) FROM documents WHERE deleted_at IS NULL)::int AS documents,
+    (SELECT COUNT(*) FROM documents WHERE deleted_at IS NOT NULL)::int AS documents_trashed,
+    (SELECT COUNT(*) FROM users)::int AS users,
+    (SELECT COUNT(*) FROM spaces)::int AS spaces,
+    (SELECT COUNT(*) FROM doc_versions)::int AS versions,
+    (SELECT COUNT(*) FROM sessions WHERE expires_at > now())::int AS active_sessions,
+    (SELECT COUNT(*) FROM change_requests WHERE status='pending')::int AS pending_changes,
+    (SELECT COUNT(*) FROM suggestions WHERE status='open')::int AS open_suggestions`);
+  return {
+    // e.g. "PostgreSQL 16.13 (Ubuntu…) on x86_64…" -> "PostgreSQL 16.13"
+    version: (ver.version || "").match(/^\S+ [\d.]+/)?.[0] || ver.version,
+    sizeBytes: Number(sz.bytes),
+    ...c,
+  };
+}
+
 // --- Row mapping -------------------------------------------------------------
 
 function parseTags(tags: string): string[] {
