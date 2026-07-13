@@ -58,8 +58,17 @@ export async function Sidebar({
         )}
       </nav>
 
-      <div className="mt-2 px-5 pb-1 text-xs font-semibold uppercase tracking-wider text-slate-400">
-        Spaces
+      <div className="mt-2 flex items-center justify-between px-5 pb-1">
+        <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Spaces</span>
+        {isAdmin && (
+          <Link
+            href="/admin/spaces"
+            title="Manage spaces"
+            className="text-slate-400 transition hover:text-compass-600"
+          >
+            ＋
+          </Link>
+        )}
       </div>
       <nav className="flex-1 overflow-y-auto px-3 pb-4 text-sm">
         {spaces.map((s) => (
