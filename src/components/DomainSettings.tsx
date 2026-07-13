@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import type { TlsMode } from "@/lib/settings";
+import type { TlsMode, SecureCookieMode } from "@/lib/settings";
 
 interface ProxyStatus {
   managed: boolean;
@@ -13,6 +13,7 @@ interface DomainState {
   custom_domain: string;
   tls_mode: TlsMode;
   tls_email: string;
+  secure_cookies: SecureCookieMode;
   has_custom_cert: boolean;
   proxy: ProxyStatus;
 }
@@ -43,6 +44,24 @@ const TLS_OPTIONS: { value: TlsMode; label: string; hint: string }[] = [
   },
 ];
 
+const COOKIE_OPTIONS: { value: SecureCookieMode; label: string; hint: string }[] = [
+  {
+    value: "auto",
+    label: "Automatic (recommended)",
+    hint: "Secure over HTTPS, not over plain HTTP — matches how each request arrives. Works whether or not you've set up TLS yet.",
+  },
+  {
+    value: "always",
+    label: "Always require HTTPS",
+    hint: "Only send the session cookie over HTTPS. Choose this once your certificate is installed. Do NOT use it while still on plain HTTP — it will cause a login loop.",
+  },
+  {
+    value: "never",
+    label: "Never (plain HTTP only)",
+    hint: "Never mark the cookie Secure. For deployments that will only ever be reached over plain HTTP.",
+  },
+];
+
 export function DomainSettings({ initial }: { initial: DomainState }) {
   const router = useRouter();
   const [domain, setDomain] = useState(initial.custom_domain);
@@ -51,6 +70,7 @@ export function DomainSettings({ initial }: { initial: DomainState }) {
   const [cert, setCert] = useState("");
   const [key, setKey] = useState("");
   const [hasCert, setHasCert] = useState(initial.has_custom_cert);
+  const [secureCookies, setSecureCookies] = useState<SecureCookieMode>(initial.secure_cookies);
 
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -71,6 +91,7 @@ export function DomainSettings({ initial }: { initial: DomainState }) {
         custom_domain: domain,
         tls_mode: mode,
         tls_email: email,
+        secure_cookies: secureCookies,
         ...(cert || key ? { tls_cert: cert, tls_key: key } : {}),
       }),
     });
@@ -91,6 +112,7 @@ export function DomainSettings({ initial }: { initial: DomainState }) {
       setMode(data.state.tls_mode);
       setEmail(data.state.tls_email);
       setHasCert(data.state.has_custom_cert);
+      if (data.state.secure_cookies) setSecureCookies(data.state.secure_cookies);
     }
     if (!data.applied && data.proxyError) setWarning(data.proxyError);
     setSaved(true);
@@ -243,6 +265,44 @@ export function DomainSettings({ initial }: { initial: DomainState }) {
             </label>
           </div>
         )}
+      </div>
+
+      {/* Cookie security */}
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+        <h3 className="mb-1 font-semibold text-slate-900">Session cookie security</h3>
+        <p className="mb-3 text-sm text-slate-500">
+          Controls when the login cookie is marked <code className="font-mono">Secure</code>.
+          Browsers won&rsquo;t send a Secure cookie over plain HTTP, so leave this on{" "}
+          <strong>Automatic</strong> until HTTPS is in place, then switch to{" "}
+          <strong>Always require HTTPS</strong>.
+        </p>
+        <div className="space-y-2">
+          {COOKIE_OPTIONS.map((opt) => (
+            <label
+              key={opt.value}
+              className={`flex cursor-pointer gap-3 rounded-lg border p-3 transition ${
+                secureCookies === opt.value
+                  ? "border-compass-400 bg-compass-50"
+                  : "border-slate-200 hover:bg-slate-50"
+              }`}
+            >
+              <input
+                type="radio"
+                name="secure_cookies"
+                checked={secureCookies === opt.value}
+                onChange={() => {
+                  setSecureCookies(opt.value);
+                  setSaved(false);
+                }}
+                className="mt-1"
+              />
+              <span>
+                <span className="block text-sm font-medium text-slate-900">{opt.label}</span>
+                <span className="block text-xs text-slate-500">{opt.hint}</span>
+              </span>
+            </label>
+          ))}
+        </div>
       </div>
 
       <div className="flex items-center gap-3">

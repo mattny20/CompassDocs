@@ -4,6 +4,26 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.3] - 2026-07-13
+
+### Added
+- **Apply an Enterprise license during first-run setup.** The setup wizard (on
+  Enterprise builds) now has an optional license-key field, so a customer can
+  activate Enterprise features right after install without any extra command or
+  env var — the plain one-line installer is all that's needed. The key is
+  validated before the admin account is created.
+
+### Changed
+- **Session cookie security is now automatic.** A new `secure_cookies` setting
+  (**auto** / always / never) replaces the manual `COMPASSDOCS_INSECURE_COOKIES`
+  toggle as the primary control. In the default **auto** mode, the login cookie
+  is marked `Secure` over HTTPS and left un-Secure over plain HTTP — matching how
+  each request arrives — so a plain-HTTP install no longer hits a login loop with
+  no configuration. Choose it in the **setup wizard**, and switch to **Always
+  require HTTPS** later under **Settings → Domain & HTTPS** once your certificate
+  is installed. `COMPASSDOCS_INSECURE_COOKIES=1` still works (forces insecure in
+  auto mode).
+
 ## [0.3.2] - 2026-07-13
 
 ### Fixed

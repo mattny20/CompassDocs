@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { login, SESSION_COOKIE, cookieOptions, SESSION_MAX_AGE } from "@/lib/auth";
+import { login, SESSION_COOKIE, cookieOptions, SESSION_MAX_AGE, secureCookie } from "@/lib/auth";
 import { audit, ipFrom } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
@@ -39,6 +39,6 @@ export async function POST(req: Request) {
     ok: true,
     must_change_password: result.user.must_change_password === 1,
   });
-  res.cookies.set(SESSION_COOKIE, result.token, cookieOptions(SESSION_MAX_AGE));
+  res.cookies.set(SESSION_COOKIE, result.token, cookieOptions(SESSION_MAX_AGE, await secureCookie(req)));
   return res;
 }

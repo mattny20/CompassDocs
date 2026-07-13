@@ -15,6 +15,17 @@ export type TimeFormat = "12h" | "24h";
 export type TlsMode = "auto" | "internal" | "custom" | "off";
 export const TLS_MODES: TlsMode[] = ["auto", "internal", "custom", "off"];
 
+/**
+ * When the session cookie is marked `Secure` (HTTPS-only). Browsers never send a
+ * Secure cookie back over plain HTTP, so getting this wrong causes a login loop.
+ * - `auto`   — match the request: Secure over HTTPS, not over plain HTTP. Safe
+ *              default that "just works" whether or not you've set up TLS yet.
+ * - `always` — always require HTTPS (strict). Choose this once you have a cert.
+ * - `never`  — never mark Secure (plain-HTTP-only deployments).
+ */
+export type SecureCookieMode = "auto" | "always" | "never";
+export const SECURE_COOKIE_MODES: SecureCookieMode[] = ["auto", "always", "never"];
+
 export interface AppSettings {
   /** Displayed in the sidebar, login screen, and browser title. */
   company_name: string;
@@ -42,6 +53,8 @@ export interface AppSettings {
   tls_mode: TlsMode;
   /** Optional contact email for Let's Encrypt expiry notices (auto mode). */
   tls_email: string;
+  /** When the session cookie is marked Secure (HTTPS-only). See SecureCookieMode. */
+  secure_cookies: SecureCookieMode;
 }
 
 export const ATTACHMENT_MB_MIN = 1;
@@ -66,6 +79,7 @@ export const SETTINGS_DEFAULTS: AppSettings = {
   custom_domain: "",
   tls_mode: "auto",
   tls_email: "",
+  secure_cookies: "auto",
 };
 
 export const DATE_FORMATS: DateFormat[] = ["medium", "long", "iso", "us", "eu"];
@@ -154,6 +168,9 @@ export function normalizeSettings(raw: Record<string, string>): AppSettings {
       ? (raw.tls_mode as TlsMode)
       : SETTINGS_DEFAULTS.tls_mode,
     tls_email: (raw.tls_email ?? "").trim().slice(0, 254),
+    secure_cookies: SECURE_COOKIE_MODES.includes(raw.secure_cookies as SecureCookieMode)
+      ? (raw.secure_cookies as SecureCookieMode)
+      : SETTINGS_DEFAULTS.secure_cookies,
   };
 }
 

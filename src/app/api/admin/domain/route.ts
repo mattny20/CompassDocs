@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAppSettings, updateAppSettings } from "@/lib/settings-store";
-import { normalizeDomain, TLS_MODES } from "@/lib/settings";
-import type { AppSettings, TlsMode } from "@/lib/settings";
+import { normalizeDomain, TLS_MODES, SECURE_COOKIE_MODES } from "@/lib/settings";
+import type { AppSettings, TlsMode, SecureCookieMode } from "@/lib/settings";
 import {
   applyProxyConfig,
   proxyStatus,
@@ -22,6 +22,7 @@ async function currentState() {
     custom_domain: s.custom_domain,
     tls_mode: s.tls_mode,
     tls_email: s.tls_email,
+    secure_cookies: s.secure_cookies,
     has_custom_cert: customCert,
     proxy: status,
   };
@@ -63,6 +64,12 @@ export async function PATCH(req: Request) {
     patch.tls_mode = body.tls_mode as TlsMode;
   }
   if (body?.tls_email !== undefined) patch.tls_email = String(body.tls_email);
+  if (body?.secure_cookies !== undefined) {
+    if (!SECURE_COOKIE_MODES.includes(body.secure_cookies as SecureCookieMode)) {
+      return NextResponse.json({ error: "Unknown cookie-security mode." }, { status: 400 });
+    }
+    patch.secure_cookies = body.secure_cookies as SecureCookieMode;
+  }
 
   // Store a newly-pasted cert/key pair (write-only) before applying.
   const wantsCustom = (patch.tls_mode ?? (await getAppSettings()).tls_mode) === "custom";
