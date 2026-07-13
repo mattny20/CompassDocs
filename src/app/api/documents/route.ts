@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createDocument, getSpaceBySlug, listSpaces, getApprovalMode } from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
+import { audit, actorFrom, ipFrom } from "@/lib/audit";
 import { roleAtLeast } from "@/lib/types";
 import type { DocType, DocStatus, SessionUser } from "@/lib/types";
 
@@ -56,6 +57,15 @@ export async function POST(req: Request) {
     summary: String(body?.summary ?? "").trim(),
     tags: normalizeTags(body?.tags),
     author: user.name || user.username,
+  });
+
+  await audit({
+    actor: actorFrom(user),
+    action: status === "published" ? "document.publish" : "document.create",
+    targetType: "document",
+    targetId: doc.id,
+    targetLabel: doc.title,
+    ip: ipFrom(req),
   });
 
   return NextResponse.json({ doc, downgraded: status !== requested }, { status: 201 });

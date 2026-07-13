@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { login, SESSION_COOKIE, cookieOptions, SESSION_MAX_AGE } from "@/lib/auth";
+import { audit, ipFrom } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -18,8 +19,21 @@ export async function POST(req: Request) {
 
   const result = await login(username, password);
   if (!result) {
+    await audit({
+      actor: { name: username },
+      action: "auth.login_failed",
+      targetType: "user",
+      targetLabel: username,
+      ip: ipFrom(req),
+    });
     return NextResponse.json({ error: "Invalid username or password." }, { status: 401 });
   }
+
+  await audit({
+    actor: { id: result.user.id, name: result.user.name || result.user.username, role: result.user.role },
+    action: "auth.login",
+    ip: ipFrom(req),
+  });
 
   const res = NextResponse.json({
     ok: true,

@@ -9,6 +9,7 @@ import {
   testAzure,
 } from "@/lib/backup-config";
 import { apiGuard } from "@/lib/api-auth";
+import { audit, actorFrom, ipFrom } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -39,6 +40,12 @@ export async function PATCH(req: Request) {
   if (body?.clear === true) {
     if (provider === "s3") await clearS3();
     else await clearAzure();
+    await audit({
+      actor: actorFrom(gate),
+      action: "settings.backup_destination_removed",
+      details: { provider },
+      ip: ipFrom(req),
+    });
     return NextResponse.json({ ok: true, state: await getBackupDestState() });
   }
 
@@ -64,6 +71,13 @@ export async function PATCH(req: Request) {
   if (body?.test === true) {
     test = provider === "s3" ? await testS3() : await testAzure();
   }
+
+  await audit({
+    actor: actorFrom(gate),
+    action: "settings.backup_destination",
+    details: { provider, tested: body?.test === true, test_ok: test?.ok },
+    ip: ipFrom(req),
+  });
 
   return NextResponse.json({ ok: true, test, state: await getBackupDestState() });
 }
