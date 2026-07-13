@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 const SECTIONS = [
   { href: "/admin", label: "System", icon: "🖥️" },
   { href: "/admin/workspace", label: "Workspace", icon: "🎨" },
+  { href: "/admin/domain", label: "Domain & HTTPS", icon: "🌐" },
   { href: "/admin/users", label: "Users & roles", icon: "👥" },
   { href: "/admin/backups", label: "Backups", icon: "💾" },
   { href: "/admin/data", label: "Import & export", icon: "📦" },

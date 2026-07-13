@@ -5,6 +5,16 @@
 export type DateFormat = "medium" | "long" | "iso" | "us" | "eu";
 export type TimeFormat = "12h" | "24h";
 
+/**
+ * How the bundled reverse proxy terminates TLS for the custom domain:
+ * - `auto`     — automatic HTTPS via Let's Encrypt (public domain required)
+ * - `internal` — self-signed cert from Caddy's internal CA (LAN / testing)
+ * - `custom`   — bring your own certificate (PEM)
+ * - `off`      — plain HTTP only (terminate TLS elsewhere, e.g. a load balancer)
+ */
+export type TlsMode = "auto" | "internal" | "custom" | "off";
+export const TLS_MODES: TlsMode[] = ["auto", "internal", "custom", "off"];
+
 export interface AppSettings {
   /** Displayed in the sidebar, login screen, and browser title. */
   company_name: string;
@@ -26,6 +36,12 @@ export interface AppSettings {
   backup_keep: number;
   /** Maximum size of a single document attachment, in megabytes. */
   max_attachment_mb: number;
+  /** Custom domain served by the bundled reverse proxy (empty = none). */
+  custom_domain: string;
+  /** How the reverse proxy obtains/uses a TLS certificate for that domain. */
+  tls_mode: TlsMode;
+  /** Optional contact email for Let's Encrypt expiry notices (auto mode). */
+  tls_email: string;
 }
 
 export const ATTACHMENT_MB_MIN = 1;
@@ -47,6 +63,9 @@ export const SETTINGS_DEFAULTS: AppSettings = {
   backup_frequency: "off",
   backup_keep: 7,
   max_attachment_mb: 10,
+  custom_domain: "",
+  tls_mode: "auto",
+  tls_email: "",
 };
 
 export const DATE_FORMATS: DateFormat[] = ["medium", "long", "iso", "us", "eu"];
@@ -66,6 +85,22 @@ export const TRASH_RETENTION_MIN = 0; // 0 = keep forever
 export const TRASH_RETENTION_MAX = 3650; // 10 years
 
 export const LOGO_MAX_LEN = 500_000; // generous, allows a small embedded data: URL
+
+// A DNS hostname like `docs.example.com` (no scheme, port, or path). Used to
+// validate the custom domain before handing it to the reverse proxy.
+const DOMAIN_RE =
+  /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
+
+/** Normalize a domain to a bare lowercase hostname, or "" if not valid. */
+export function normalizeDomain(raw: string): string {
+  const d = (raw ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/\/.*$/, "")
+    .replace(/:\d+$/, "");
+  return DOMAIN_RE.test(d) ? d : "";
+}
 
 /** True if `tz` is an IANA timezone the runtime understands. */
 export function isValidTimeZone(tz: string): boolean {
@@ -114,6 +149,11 @@ export function normalizeSettings(raw: Record<string, string>): AppSettings {
     max_attachment_mb: raw.max_attachment_mb
       ? clampAttachmentMb(Number(raw.max_attachment_mb))
       : SETTINGS_DEFAULTS.max_attachment_mb,
+    custom_domain: normalizeDomain(raw.custom_domain ?? ""),
+    tls_mode: TLS_MODES.includes(raw.tls_mode as TlsMode)
+      ? (raw.tls_mode as TlsMode)
+      : SETTINGS_DEFAULTS.tls_mode,
+    tls_email: (raw.tls_email ?? "").trim().slice(0, 254),
   };
 }
 
