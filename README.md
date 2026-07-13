@@ -159,6 +159,26 @@ app from this repo and runs it with Postgres, so no registry or auth is needed:
 docker compose -f docker-compose.local.yml up -d --build   # http://localhost:3000
 ```
 
+### Custom domain & HTTPS
+
+To serve CompassDocs on your own domain with automatic HTTPS, use the Caddy
+reverse-proxy stack ([`deploy/docker-compose.tls.yml`](./deploy/docker-compose.tls.yml)
++ [`deploy/Caddyfile`](./deploy/Caddyfile)):
+
+1. Point your domain's DNS (an `A`/`AAAA` record) at the server, and make sure
+   ports **80** and **443** are reachable.
+2. In `.env`, set `COMPASSDOCS_DOMAIN=docs.example.com` (plus `POSTGRES_PASSWORD`).
+3. Start it:
+   ```bash
+   docker compose -f docker-compose.tls.yml up -d
+   ```
+
+Caddy obtains and renews a **Let's Encrypt** certificate automatically; the app
+isn't exposed on the host directly — all traffic flows through Caddy on 80/443.
+The `Caddyfile` also documents two alternatives you can switch to with one line:
+**self-signed** (`tls internal`, for a LAN or testing) or **bring-your-own
+certificate** (drop `cert.pem`/`key.pem` in `deploy/certs`).
+
 > Images are published to `ghcr.io/mattny20/compassdocs` automatically on every
 > merge to `main` (`:latest`) and on version tags (`:X.Y.Z`) by the
 > [Docker publish workflow](./.github/workflows/docker-publish.yml).
