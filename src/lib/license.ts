@@ -17,10 +17,11 @@
 import { verify } from "node:crypto";
 import { getSetting } from "./db";
 
-// Vendor Ed25519 public key (SPKI PEM). Replace with your own before issuing
-// real licenses — regenerate with the ee repo's `npm run keygen`.
+// Vendor Ed25519 public key (SPKI PEM). This is the production CompassDocs
+// license-signing public key; the matching private key lives only in the vendor
+// signing portal. Safe to ship — it can only verify, never mint.
 const PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
-MCowBQYDK2VwAyEA5vTZ0XcsCqjYpCijTaZMvfLEbch6MXnUD/A7waEyD/A=
+MCowBQYDK2VwAyEA3zj2D3VLyIij/SovtpZWwY1xFrX8F6n876GPISVnxE0=
 -----END PUBLIC KEY-----`;
 
 // Days a license keeps working past its expiry (soft grace) before features
