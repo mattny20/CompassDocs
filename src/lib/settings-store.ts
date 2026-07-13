@@ -3,9 +3,11 @@ import {
   AppSettings,
   SETTINGS_DEFAULTS,
   DATE_FORMATS,
+  BACKUP_FREQUENCIES,
   LOGO_MAX_LEN,
   clampTimeout,
   clampRetention,
+  clampBackupKeep,
   isValidTimeZone,
   normalizeSettings,
 } from "./settings";
@@ -50,6 +52,12 @@ export async function updateAppSettings(patch: Partial<AppSettings>): Promise<Ap
       "trash_retention_days",
       String(clampRetention(Number(patch.trash_retention_days)))
     );
+  }
+  if (patch.backup_frequency !== undefined && BACKUP_FREQUENCIES.includes(patch.backup_frequency)) {
+    await setSetting("backup_frequency", patch.backup_frequency);
+  }
+  if (patch.backup_keep !== undefined) {
+    await setSetting("backup_keep", String(clampBackupKeep(Number(patch.backup_keep))));
   }
   return getAppSettings();
 }

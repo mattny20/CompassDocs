@@ -37,6 +37,8 @@ export async function PATCH(req: Request) {
     "time_format",
     "session_timeout_minutes",
     "trash_retention_days",
+    "backup_frequency",
+    "backup_keep",
   ];
   const patch: Partial<AppSettings> = {};
   for (const k of keys) {

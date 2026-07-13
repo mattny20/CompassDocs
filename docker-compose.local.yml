@@ -37,8 +37,11 @@ services:
       COMPASSDOCS_ADMIN_USER: ${COMPASSDOCS_ADMIN_USER:-}
       COMPASSDOCS_ADMIN_PASSWORD: ${COMPASSDOCS_ADMIN_PASSWORD:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    volumes:
+      - compassdocs_local_backups:/backups
     ports:
       - "${PORT:-3000}:3000"
 
 volumes:
   compassdocs_local_pgdata:
+  compassdocs_local_backups:

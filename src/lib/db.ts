@@ -67,7 +67,7 @@ function makePool(): Pool {
   });
 }
 
-function pool(): Pool {
+export function pool(): Pool {
   if (!global.__compassPool) global.__compassPool = makePool();
   return global.__compassPool;
 }
