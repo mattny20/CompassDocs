@@ -1,5 +1,5 @@
 import { requireRole } from "@/lib/auth";
-import { listPeople } from "@/lib/directory";
+import { listPeople, listFields } from "@/lib/directory";
 import {
   getDirectoryGraphConfig,
   getDirectorySyncStatus,
@@ -11,8 +11,9 @@ export const dynamic = "force-dynamic";
 
 export default async function DirectoryAdminPage() {
   await requireRole("admin");
-  const [people, cfg, lastSync, bundled, enabled] = await Promise.all([
+  const [people, fields, cfg, lastSync, bundled, enabled] = await Promise.all([
     listPeople({ includeHidden: true }),
+    listFields(),
     getDirectoryGraphConfig(),
     getDirectorySyncStatus(),
     Promise.resolve(eePresent()),
@@ -22,6 +23,7 @@ export default async function DirectoryAdminPage() {
   return (
     <DirectorySettings
       initialPeople={people}
+      initialFields={fields}
       graph={{
         enabled,
         bundled,
