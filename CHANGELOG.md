@@ -4,6 +4,15 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.5.1] - 2026-07-13
+
+### Changed
+- **Crisp SVG icons replace emoji in the UI chrome.** The sidebar, settings
+  navigation, and the directory's view switcher / contact rows now use a
+  consistent line-icon set (Lucide) instead of emoji — sharper, uniform across
+  platforms, and aligned with the brand. User-chosen emoji (like space icons)
+  are untouched.
+
 ## [0.5.0] - 2026-07-13
 
 ### Added — directory v2
@@ -158,6 +167,7 @@ approval workflow. Self-hosted, AGPL-3.0.
 - **PostgreSQL** storage; the app migrates its own schema on start.
 - Also runs manually with Node.js 20+ and PostgreSQL 14+.
 
+[0.5.1]: https://github.com/mattny20/CompassDocs/releases/tag/v0.5.1
 [0.5.0]: https://github.com/mattny20/CompassDocs/releases/tag/v0.5.0
 [0.4.0]: https://github.com/mattny20/CompassDocs/releases/tag/v0.4.0
 [0.3.5]: https://github.com/mattny20/CompassDocs/releases/tag/v0.3.5

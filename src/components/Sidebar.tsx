@@ -1,4 +1,12 @@
 import Link from "next/link";
+import {
+  Home,
+  Sparkles,
+  BookUser,
+  ClipboardList,
+  Trash2,
+  Settings,
+} from "lucide-react";
 import { listSpaces } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings-store";
 import { GlobalSearch } from "./GlobalSearch";
@@ -35,27 +43,27 @@ export async function Sidebar({
       </div>
 
       <nav className="px-3 pb-2 text-sm">
-        <NavLink href="/" icon="🏠">
+        <NavLink href="/" icon={<Home className="h-4 w-4" />}>
           Dashboard
         </NavLink>
-        <NavLink href="/search" icon="✨">
+        <NavLink href="/search" icon={<Sparkles className="h-4 w-4" />}>
           Ask CompassDocs
         </NavLink>
-        <NavLink href="/directory" icon="📇">
+        <NavLink href="/directory" icon={<BookUser className="h-4 w-4" />}>
           Directory
         </NavLink>
         {isApprover && (
-          <NavLink href="/review" icon="📋" badge={reviewCount}>
+          <NavLink href="/review" icon={<ClipboardList className="h-4 w-4" />} badge={reviewCount}>
             Review queue
           </NavLink>
         )}
         {isEditor && (
-          <NavLink href="/trash" icon="🗑️" badge={trashCount}>
+          <NavLink href="/trash" icon={<Trash2 className="h-4 w-4" />} badge={trashCount}>
             Trash
           </NavLink>
         )}
         {isAdmin && (
-          <NavLink href="/admin" icon="⚙️">
+          <NavLink href="/admin" icon={<Settings className="h-4 w-4" />}>
             Settings
           </NavLink>
         )}
@@ -115,7 +123,7 @@ function NavLink({
   children,
 }: {
   href: string;
-  icon: string;
+  icon: React.ReactNode;
   badge?: number;
   children: React.ReactNode;
 }) {
@@ -124,7 +132,7 @@ function NavLink({
       href={href}
       className="flex items-center gap-2 rounded-md px-3 py-2 font-medium text-slate-600 hover:bg-slate-100"
     >
-      <span>{icon}</span>
+      <span className="text-slate-400">{icon}</span>
       <span className="flex-1">{children}</span>
       {badge ? (
         <span className="rounded-full bg-compass-100 px-1.5 text-xs font-semibold text-compass-700">

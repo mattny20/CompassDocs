@@ -2,19 +2,33 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import {
+  Monitor,
+  Palette,
+  FolderKanban,
+  Sparkles,
+  KeyRound,
+  Globe,
+  Users,
+  BookUser,
+  ScrollText,
+  DatabaseBackup,
+  Package,
+} from "lucide-react";
 
+const ICON = "h-4 w-4";
 const SECTIONS = [
-  { href: "/admin", label: "System", icon: "🖥️" },
-  { href: "/admin/workspace", label: "Workspace", icon: "🎨" },
-  { href: "/admin/spaces", label: "Spaces", icon: "🗂️" },
-  { href: "/admin/ai", label: "AI", icon: "✨" },
-  { href: "/admin/license", label: "License", icon: "🔑" },
-  { href: "/admin/domain", label: "Domain & HTTPS", icon: "🌐" },
-  { href: "/admin/users", label: "Users & roles", icon: "👥" },
-  { href: "/admin/directory", label: "Directory", icon: "📇" },
-  { href: "/admin/audit", label: "Audit log", icon: "📜" },
-  { href: "/admin/backups", label: "Backups", icon: "💾" },
-  { href: "/admin/data", label: "Import & export", icon: "📦" },
+  { href: "/admin", label: "System", icon: <Monitor className={ICON} /> },
+  { href: "/admin/workspace", label: "Workspace", icon: <Palette className={ICON} /> },
+  { href: "/admin/spaces", label: "Spaces", icon: <FolderKanban className={ICON} /> },
+  { href: "/admin/ai", label: "AI", icon: <Sparkles className={ICON} /> },
+  { href: "/admin/license", label: "License", icon: <KeyRound className={ICON} /> },
+  { href: "/admin/domain", label: "Domain & HTTPS", icon: <Globe className={ICON} /> },
+  { href: "/admin/users", label: "Users & roles", icon: <Users className={ICON} /> },
+  { href: "/admin/directory", label: "Directory", icon: <BookUser className={ICON} /> },
+  { href: "/admin/audit", label: "Audit log", icon: <ScrollText className={ICON} /> },
+  { href: "/admin/backups", label: "Backups", icon: <DatabaseBackup className={ICON} /> },
+  { href: "/admin/data", label: "Import & export", icon: <Package className={ICON} /> },
 ];
 
 export function SettingsNav() {

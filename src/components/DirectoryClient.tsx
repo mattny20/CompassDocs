@@ -1,16 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { LayoutGrid, List as ListIcon, Building2, Phone, Smartphone, MapPin } from "lucide-react";
 import type { DirectoryPerson, DirectoryField } from "@/lib/directory";
 
 const field =
   "rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
 
 type View = "cards" | "list" | "departments";
-const VIEWS: { id: View; label: string; icon: string }[] = [
-  { id: "cards", label: "Cards", icon: "🪪" },
-  { id: "list", label: "List", icon: "☰" },
-  { id: "departments", label: "Departments", icon: "🏢" },
+const VIEWS: { id: View; label: string; icon: React.ReactNode }[] = [
+  { id: "cards", label: "Cards", icon: <LayoutGrid className="h-4 w-4" /> },
+  { id: "list", label: "List", icon: <ListIcon className="h-4 w-4" /> },
+  { id: "departments", label: "Departments", icon: <Building2 className="h-4 w-4" /> },
 ];
 
 // Built-in list columns. Custom fields are appended as `custom:<key>`.
@@ -180,7 +181,10 @@ export function DirectoryClient({
               }`}
               title={v.label}
             >
-              {v.icon} <span className="hidden sm:inline">{v.label}</span>
+              <span className="inline-flex items-center gap-1.5">
+                {v.icon}
+                <span className="hidden sm:inline">{v.label}</span>
+              </span>
             </button>
           ))}
         </div>
@@ -333,16 +337,20 @@ export function DirectoryClient({
                     </a>
                   )}
                   {p.phone && (
-                    <a href={`tel:${p.phone}`} className="block text-slate-600 hover:underline">
-                      ☎ {p.phone}
+                    <a href={`tel:${p.phone}`} className="flex items-center gap-1.5 text-slate-600 hover:underline">
+                      <Phone className="h-3.5 w-3.5 text-slate-400" /> {p.phone}
                     </a>
                   )}
                   {p.mobile && (
-                    <a href={`tel:${p.mobile}`} className="block text-slate-600 hover:underline">
-                      📱 {p.mobile}
+                    <a href={`tel:${p.mobile}`} className="flex items-center gap-1.5 text-slate-600 hover:underline">
+                      <Smartphone className="h-3.5 w-3.5 text-slate-400" /> {p.mobile}
                     </a>
                   )}
-                  {p.office && <p className="text-slate-400">📍 {p.office}</p>}
+                  {p.office && (
+                    <p className="flex items-center gap-1.5 text-slate-400">
+                      <MapPin className="h-3.5 w-3.5" /> {p.office}
+                    </p>
+                  )}
                   {p.assistant_name && (
                     <p className="text-slate-500">
                       <span className="text-slate-400">Assistant:</span> {p.assistant_name}
