@@ -1,0 +1,75 @@
+# CompassDocs with a custom domain and HTTPS, via a Caddy reverse proxy.
+#
+#   1. Point your domain's DNS (an A/AAAA record) at this server.
+#   2. In .env set COMPASSDOCS_DOMAIN=docs.example.com (plus POSTGRES_PASSWORD
+#      and anything else from .env.example).
+#   3. docker compose -f docker-compose.tls.yml up -d
+#
+# Caddy fetches a Let's Encrypt certificate automatically (ports 80 + 443 must
+# be reachable from the internet). For self-signed or bring-your-own certs,
+# edit ./Caddyfile. The app is not exposed on the host directly — all traffic
+# goes through Caddy on 80/443.
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: compass
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: compassdocs
+    volumes:
+      - compassdocs_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U compass -d compassdocs"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
+    image: ghcr.io/mattny20/compassdocs:${COMPASSDOCS_VERSION:-latest}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://compass:${POSTGRES_PASSWORD}@db:5432/compassdocs
+      DATABASE_SSL: disable
+      COMPASSDOCS_ADMIN_USER: ${COMPASSDOCS_ADMIN_USER:-}
+      COMPASSDOCS_ADMIN_PASSWORD: ${COMPASSDOCS_ADMIN_PASSWORD:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      BACKUP_S3_BUCKET: ${BACKUP_S3_BUCKET:-}
+      BACKUP_S3_REGION: ${BACKUP_S3_REGION:-}
+      BACKUP_S3_ENDPOINT: ${BACKUP_S3_ENDPOINT:-}
+      BACKUP_S3_ACCESS_KEY_ID: ${BACKUP_S3_ACCESS_KEY_ID:-}
+      BACKUP_S3_SECRET_ACCESS_KEY: ${BACKUP_S3_SECRET_ACCESS_KEY:-}
+      BACKUP_S3_PREFIX: ${BACKUP_S3_PREFIX:-}
+      BACKUP_AZURE_CONNECTION_STRING: ${BACKUP_AZURE_CONNECTION_STRING:-}
+      BACKUP_AZURE_CONTAINER: ${BACKUP_AZURE_CONTAINER:-}
+    volumes:
+      - compassdocs_backups:/backups
+      - compassdocs_uploads:/uploads
+    expose:
+      - "3000"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      COMPASSDOCS_DOMAIN: ${COMPASSDOCS_DOMAIN:?set COMPASSDOCS_DOMAIN in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./certs:/etc/caddy/certs:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  compassdocs_pgdata:
+  compassdocs_backups:
+  compassdocs_uploads:
+  caddy_data:
+  caddy_config:

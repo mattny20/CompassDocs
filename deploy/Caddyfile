@@ -1,0 +1,23 @@
+# CompassDocs reverse proxy (used by docker-compose.tls.yml).
+#
+# The site address comes from $COMPASSDOCS_DOMAIN. By default Caddy obtains and
+# renews a Let's Encrypt certificate automatically — the domain must be public,
+# resolve to this server, and have ports 80 + 443 reachable.
+#
+# For other TLS modes, uncomment the relevant `tls` line below.
+
+{$COMPASSDOCS_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy app:3000
+
+	# --- TLS -----------------------------------------------------------------
+	# (default: no tls line)  Automatic HTTPS via Let's Encrypt.
+	#   Add your email to receive expiry/renewal notices:
+	# tls you@example.com
+	#
+	# Self-signed via Caddy's internal CA (LAN / testing — browsers warn):
+	# tls internal
+	#
+	# Bring your own certificate (place cert.pem + key.pem in ./certs):
+	# tls /etc/caddy/certs/cert.pem /etc/caddy/certs/key.pem
+}

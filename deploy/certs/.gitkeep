@@ -1,0 +1,2 @@
+# Put your own TLS certificate here (cert.pem + key.pem) if you use the
+# "bring your own certificate" tls option in ../Caddyfile.
