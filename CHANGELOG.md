@@ -4,6 +4,13 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.9.1] - 2026-07-14
+
+### Added
+- **"Connect Claude — one click" card** on the API tokens page: shows your
+  instance's MCP URL with a copy button and the three steps to add it as a
+  custom connector in Claude — no docs required.
+
 ## [0.9.0] - 2026-07-14
 
 ### Added
