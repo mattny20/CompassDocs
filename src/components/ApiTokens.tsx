@@ -7,11 +7,25 @@
 import { useState } from "react";
 import type { ApiToken } from "@/lib/db";
 
+interface Connection {
+  client_id: string;
+  name: string;
+  created_at: string;
+  last_used_at: string | null;
+}
+
 const field =
   "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
 
-export function ApiTokens({ initial }: { initial: ApiToken[] }) {
+export function ApiTokens({
+  initial,
+  initialConnections = [],
+}: {
+  initial: ApiToken[];
+  initialConnections?: Connection[];
+}) {
   const [tokens, setTokens] = useState(initial);
+  const [connections, setConnections] = useState(initialConnections);
   const [name, setName] = useState("");
   const [fresh, setFresh] = useState<{ token: string; name: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -138,26 +152,70 @@ export function ApiTokens({ initial }: { initial: ApiToken[] }) {
           <li className="py-3 text-sm text-slate-400">No tokens yet.</li>
         )}
         {tokens.map((t) => (
-          <li key={t.id} className="flex items-center gap-3 py-2.5 text-sm">
+          <TokenRow key={t.id} t={t} onRevoke={() => revoke(t.id)} />
+        ))}
+      </ul>
+
+      <h3 className="mt-6 border-t border-slate-100 pt-4 text-sm font-semibold text-slate-800">
+        Connected apps
+      </h3>
+      <p className="mt-0.5 text-xs text-slate-400">
+        Apps you approved with the one-click connect flow (e.g. Claude).
+      </p>
+      <ul className="mt-1 divide-y divide-slate-100">
+        {connections.length === 0 && (
+          <li className="py-3 text-sm text-slate-400">No connected apps.</li>
+        )}
+        {connections.map((c) => (
+          <li key={c.client_id} className="flex items-center gap-3 py-2.5 text-sm">
             <div className="min-w-0 flex-1">
-              <div className="truncate font-medium text-slate-800">{t.name}</div>
+              <div className="truncate font-medium text-slate-800">{c.name || "Unnamed app"}</div>
               <div className="text-xs text-slate-400">
-                <code className="font-mono">{t.prefix}</code> · created{" "}
-                {new Date(t.created_at).toLocaleDateString()}
-                {t.last_used_at
-                  ? ` · last used ${new Date(t.last_used_at).toLocaleString()}`
+                connected {new Date(c.created_at).toLocaleDateString()}
+                {c.last_used_at
+                  ? ` · last used ${new Date(c.last_used_at).toLocaleString()}`
                   : " · never used"}
               </div>
             </div>
             <button
-              onClick={() => revoke(t.id)}
+              onClick={async () => {
+                if (!confirm("Disconnect this app? It will have to be re-approved to reconnect.")) return;
+                const res = await fetch(
+                  `/api/account/connections?client_id=${encodeURIComponent(c.client_id)}`,
+                  { method: "DELETE" }
+                );
+                if (res.ok) setConnections(connections.filter((x) => x.client_id !== c.client_id));
+              }}
               className="shrink-0 rounded-lg border border-red-200 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
             >
-              Revoke
+              Disconnect
             </button>
           </li>
         ))}
       </ul>
     </div>
+  );
+}
+
+function TokenRow({ t, onRevoke }: { t: ApiToken; onRevoke: () => void }) {
+  return (
+    <li className="flex items-center gap-3 py-2.5 text-sm">
+      <div className="min-w-0 flex-1">
+        <div className="truncate font-medium text-slate-800">{t.name}</div>
+        <div className="text-xs text-slate-400">
+          <code className="font-mono">{t.prefix}</code> · created{" "}
+          {new Date(t.created_at).toLocaleDateString()}
+          {t.last_used_at
+            ? ` · last used ${new Date(t.last_used_at).toLocaleString()}`
+            : " · never used"}
+        </div>
+      </div>
+      <button
+        onClick={onRevoke}
+        className="shrink-0 rounded-lg border border-red-200 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
+      >
+        Revoke
+      </button>
+    </li>
   );
 }

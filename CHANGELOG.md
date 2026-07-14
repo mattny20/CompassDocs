@@ -4,6 +4,21 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.8.0] - 2026-07-14
+
+### Added
+- **One-click Claude connect.** CompassDocs now ships its own OAuth 2.1
+  authorization server for the MCP connector: discovery metadata, dynamic
+  client registration, a browser consent screen ("Claude wants to connect →
+  Approve"), PKCE-verified token issuance, and rotating refresh tokens. In
+  Claude (desktop or claude.ai), just add `https://your-host/api/mcp` as a
+  custom connector and click Connect — no tokens to copy, no config files.
+  Personal API tokens keep working for clients without the OAuth flow.
+- **Connected apps** on the API tokens page: see every app you've approved
+  (with last-used times) and disconnect any of them instantly.
+- The login page now supports a safe `next` redirect, so the consent flow
+  returns you to the approval screen after signing in.
+
 ## [0.7.0] - 2026-07-14
 
 ### Added

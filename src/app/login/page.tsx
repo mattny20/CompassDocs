@@ -24,15 +24,22 @@ const SSO_ERRORS: Record<string, string> = {
   internal: "Something went wrong during sign-in. Please try again.",
 };
 
+/** Only same-app paths may be used as a post-login destination. */
+function safeNext(next: string | undefined): string {
+  if (next && next.startsWith("/") && !next.startsWith("//")) return next;
+  return "/";
+}
+
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ sso_error?: string }>;
+  searchParams: Promise<{ sso_error?: string; next?: string }>;
 }) {
   // Fresh install with no admin yet → send to the first-run setup wizard.
   if (await needsSetup()) redirect("/setup");
   const user = await getCurrentUser();
-  if (user) redirect("/");
+  const paramsEarly = await searchParams;
+  if (user) redirect(safeNext(paramsEarly.next));
   const [settings, ssoCfg, ssoLicensed, params] = await Promise.all([
     getAppSettings(),
     getSsoConfig(),
@@ -79,7 +86,7 @@ export default async function LoginPage({
               )}
             </>
           )}
-          {!(ssoActive && ssoCfg.ssoOnly) && <LoginForm />}
+          {!(ssoActive && ssoCfg.ssoOnly) && <LoginForm next={safeNext(params.next)} />}
         </div>
       </div>
     </div>

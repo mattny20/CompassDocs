@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-export function LoginForm() {
+export function LoginForm({ next = "/" }: { next?: string }) {
   const router = useRouter();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -22,7 +22,7 @@ export function LoginForm() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Sign in failed.");
-      router.push(data.must_change_password ? "/account/password" : "/");
+      router.push(data.must_change_password ? "/account/password" : next);
       router.refresh();
     } catch (e: any) {
       setError(e.message);
