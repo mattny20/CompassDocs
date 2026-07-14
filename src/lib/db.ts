@@ -185,6 +185,15 @@ const SCHEMA_SQL = `
   );
   CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 
+  -- Device metadata for the "active sessions" account page.
+  ALTER TABLE sessions ADD COLUMN IF NOT EXISTS ip text;
+  ALTER TABLE sessions ADD COLUMN IF NOT EXISTS user_agent text;
+
+  -- TOTP two-factor auth: secret + hashed one-time recovery codes.
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret text;
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled integer NOT NULL DEFAULT 0;
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_recovery jsonb NOT NULL DEFAULT '[]'::jsonb;
+
   -- Personal API tokens (Claude connector / MCP, integrations). Only a SHA-256
   -- hash is stored; the raw token is shown once at creation.
   CREATE TABLE IF NOT EXISTS api_tokens (
@@ -899,7 +908,7 @@ export async function getAllSettings(): Promise<Record<string, string>> {
 // --- Users -------------------------------------------------------------------
 
 const USER_COLUMNS = `id, username, email, name, role, status, auth_provider, external_id,
-  must_change_password, created_at, last_login_at`;
+  must_change_password, totp_enabled, created_at, last_login_at`;
 
 export async function getUserById(id: number): Promise<User | undefined> {
   return (await q<User>(`SELECT ${USER_COLUMNS} FROM users WHERE id = $1`, [id]))[0];
@@ -907,7 +916,14 @@ export async function getUserById(id: number): Promise<User | undefined> {
 
 export async function getUserByUsername(
   username: string
-): Promise<(User & { password_hash: string | null; password_salt: string | null }) | undefined> {
+): Promise<
+  | (User & {
+      password_hash: string | null;
+      password_salt: string | null;
+      totp_secret: string | null;
+    })
+  | undefined
+> {
   return (await q("SELECT * FROM users WHERE lower(username) = lower($1)", [username]))[0];
 }
 
@@ -1250,13 +1266,97 @@ export async function revokeOAuthGrant(userId: number, clientId: string): Promis
 export async function createSession(
   token: string,
   userId: number,
-  expiresAt: string
+  expiresAt: string,
+  ip?: string | null,
+  userAgent?: string | null
 ): Promise<void> {
-  await q("INSERT INTO sessions (token, user_id, expires_at) VALUES ($1,$2,$3)", [
+  await q("INSERT INTO sessions (token, user_id, expires_at, ip, user_agent) VALUES ($1,$2,$3,$4,$5)", [
     token,
     userId,
     expiresAt,
+    ip || null,
+    (userAgent || "").slice(0, 300) || null,
   ]);
+}
+
+export interface SessionInfo {
+  sid: string; // md5 of the token — an identifier, never a credential
+  created_at: string;
+  expires_at: string;
+  ip: string | null;
+  user_agent: string | null;
+  current: boolean;
+}
+
+export async function listUserSessions(userId: number, currentToken: string): Promise<SessionInfo[]> {
+  return q(
+    `SELECT md5(token) AS sid, created_at, expires_at, ip, user_agent,
+            (token = $2) AS current
+     FROM sessions WHERE user_id = $1 AND expires_at > now()
+     ORDER BY (token = $2) DESC, created_at DESC`,
+    [userId, currentToken]
+  );
+}
+
+export async function deleteSessionBySid(userId: number, sid: string): Promise<boolean> {
+  const res = await pool().query("DELETE FROM sessions WHERE user_id = $1 AND md5(token) = $2", [
+    userId,
+    sid,
+  ]);
+  return (res.rowCount ?? 0) > 0;
+}
+
+/** "Sign out everywhere else" — keeps only the calling session alive. */
+export async function deleteOtherSessions(userId: number, currentToken: string): Promise<number> {
+  const res = await pool().query("DELETE FROM sessions WHERE user_id = $1 AND token <> $2", [
+    userId,
+    currentToken,
+  ]);
+  return res.rowCount ?? 0;
+}
+
+// --- Two-factor auth (TOTP) ----------------------------------------------------
+
+/** Stash a pending secret during enrollment (2FA not yet enforced). */
+export async function setPendingTotpSecret(userId: number, secret: string): Promise<void> {
+  await q("UPDATE users SET totp_secret = $1, totp_enabled = 0 WHERE id = $2", [secret, userId]);
+}
+
+export async function getTotpState(
+  userId: number
+): Promise<{ secret: string | null; enabled: boolean; recovery_left: number } | undefined> {
+  const r = (
+    await q<{ totp_secret: string | null; totp_enabled: number; n: number }>(
+      `SELECT totp_secret, totp_enabled, jsonb_array_length(totp_recovery) AS n
+       FROM users WHERE id = $1`,
+      [userId]
+    )
+  )[0];
+  return r ? { secret: r.totp_secret, enabled: r.totp_enabled === 1, recovery_left: r.n } : undefined;
+}
+
+export async function enableTotp(userId: number, recoveryHashes: string[]): Promise<void> {
+  await q("UPDATE users SET totp_enabled = 1, totp_recovery = $1 WHERE id = $2", [
+    JSON.stringify(recoveryHashes),
+    userId,
+  ]);
+}
+
+export async function disableTotp(userId: number): Promise<void> {
+  await q(
+    "UPDATE users SET totp_enabled = 0, totp_secret = NULL, totp_recovery = '[]'::jsonb WHERE id = $1",
+    [userId]
+  );
+}
+
+/** Burn a recovery code (by hash). True if it existed and was removed. */
+export async function consumeRecoveryCode(userId: number, codeHash: string): Promise<boolean> {
+  const res = await pool().query(
+    `UPDATE users SET totp_recovery = totp_recovery - $1
+     WHERE id = $2 AND totp_recovery ? $1`,
+    [codeHash, userId]
+  );
+  return (res.rowCount ?? 0) > 0;
 }
 
 export async function getSessionUser(

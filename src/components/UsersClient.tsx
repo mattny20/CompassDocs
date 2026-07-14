@@ -123,6 +123,18 @@ function UserTable({ users, currentUserId }: { users: User[]; currentUserId: num
                   >
                     Reset password
                   </button>
+                  {u.totp_enabled === 1 && (
+                    <button
+                      onClick={async () => {
+                        if (!confirm(`Reset two-factor auth for ${u.username}? They'll sign in with just their password and can re-enroll.`)) return;
+                        if (await patch(u.id, { reset2fa: true })) alert("Two-factor auth cleared.");
+                      }}
+                      title="Clear this user's authenticator (lost-device recovery)"
+                      className="rounded-md border border-slate-200 px-2 py-1 text-slate-600 hover:bg-slate-50"
+                    >
+                      Reset 2FA
+                    </button>
+                  )}
                   <button
                     onClick={() => toggleStatus(u)}
                     className="rounded-md border border-slate-200 px-2 py-1 text-slate-600 hover:bg-slate-50"

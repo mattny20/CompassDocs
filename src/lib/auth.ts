@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import {
@@ -7,7 +8,9 @@ import {
   deleteSession,
   touchSession,
   markLogin,
+  consumeRecoveryCode,
 } from "./db";
+import { verifyTotp } from "./totp";
 import { verifyPassword, newToken } from "./password";
 import { getSessionTimeoutMinutes, getSecureCookieMode } from "./settings-store";
 import { SESSION_TIMEOUT_MAX } from "./settings";
@@ -105,21 +108,39 @@ export async function requireRole(min: Role): Promise<SessionUser> {
 
 /**
  * Verify credentials and open a session. Returns the token to set as a cookie,
- * or null on failure (bad password, unknown user, or disabled account).
+ * null on failure (bad password/code, unknown user, or disabled account), or
+ * a totp_required marker when the password checked out but the account has
+ * two-factor auth and no (valid) code was supplied yet.
  */
 export async function login(
   username: string,
-  password: string
-): Promise<{ token: string; user: User } | null> {
+  password: string,
+  totpCode?: string,
+  device?: { ip?: string | null; userAgent?: string | null }
+): Promise<{ token: string; user: User } | { totp_required: true } | null> {
   const record = await getUserByUsername(username.trim());
   if (!record || record.status !== "active") return null;
   if (!record.password_hash || !record.password_salt) return null;
   if (!verifyPassword(password, record.password_hash, record.password_salt)) return null;
 
+  if (record.totp_enabled === 1 && record.totp_secret) {
+    const code = (totpCode || "").trim();
+    if (!code) return { totp_required: true };
+    if (!verifyTotp(record.totp_secret, code)) {
+      // Fall back to one-time recovery codes (xxxx-xxxx, consumed on use).
+      const normalized = code.toLowerCase().replace(/[^a-z0-9]/g, "");
+      const pretty = `${normalized.slice(0, 4)}-${normalized.slice(4, 8)}`;
+      const hash = createHash("sha256").update(pretty).digest("hex");
+      if (normalized.length !== 8 || !(await consumeRecoveryCode(record.id, hash))) {
+        return { totp_required: true };
+      }
+    }
+  }
+
   const token = newToken();
   const timeoutMs = (await getSessionTimeoutMinutes()) * 60_000;
   const expires = new Date(Date.now() + timeoutMs).toISOString();
-  await createSession(token, record.id, expires);
+  await createSession(token, record.id, expires, device?.ip, device?.userAgent);
   await markLogin(record.id);
   return { token, user: record };
 }
