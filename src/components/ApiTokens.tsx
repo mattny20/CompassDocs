@@ -86,8 +86,49 @@ export function ApiTokens({
       )
     : "";
 
+  const mcpUrl = `${origin}/api/mcp`;
+
   return (
     <div>
+      {/* One-click Claude connect — the front door; tokens below are the fallback. */}
+      <div className="mb-5 rounded-xl border border-compass-100 bg-compass-50/50 p-4">
+        <div className="flex items-center gap-2">
+          <svg viewBox="0 0 24 24" className="h-4 w-4 text-compass-600" fill="currentColor" aria-hidden>
+            <path d="M12 2 2 7v10l10 5 10-5V7L12 2zm0 2.2 7.5 3.75L12 11.7 4.5 7.95 12 4.2zM4 9.6l7 3.5v6.7l-7-3.5V9.6zm9 10.2v-6.7l7-3.5v6.7l-7 3.5z" />
+          </svg>
+          <h3 className="text-sm font-semibold text-slate-800">Connect Claude — one click</h3>
+        </div>
+        <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-slate-600">
+          <li>
+            In the Claude desktop app (or claude.ai):{" "}
+            <span className="font-medium">Settings → Connectors → Add custom connector</span>
+          </li>
+          <li>
+            Paste this URL:
+            <span className="mt-1 flex items-center gap-2">
+              <code className="min-w-0 flex-1 truncate rounded bg-white px-2 py-1 font-mono text-xs ring-1 ring-compass-100">
+                {mcpUrl}
+              </code>
+              <button
+                onClick={() => copy(mcpUrl, "mcp")}
+                className="shrink-0 rounded-lg bg-compass-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-compass-700"
+              >
+                {copied === "mcp" ? "Copied ✓" : "Copy"}
+              </button>
+            </span>
+          </li>
+          <li>
+            Click <span className="font-medium">Connect</span> — your browser comes back here and
+            you approve once. Done.
+          </li>
+        </ol>
+        <p className="mt-2 text-xs text-slate-400">
+          Claude then acts as you, with your role and the approval workflow. Approved apps appear
+          under &ldquo;Connected apps&rdquo; below. For MCP clients without one-click connect,
+          create a personal token instead.
+        </p>
+      </div>
+
       {fresh && (
         <div className="mb-4 rounded-lg border border-green-200 bg-green-50 p-3 text-sm">
           <p className="font-semibold text-green-800">
