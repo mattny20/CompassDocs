@@ -1,0 +1,115 @@
+name: TLS smoke test
+
+# Boots the real HTTPS stack (app + Postgres + Caddy, from the TLS compose
+# file) and exercises the whole domain/TLS flow end to end: setup wizard →
+# login → save a domain with the internal CA → assert the config push reached
+# Caddy and HTTPS actually serves the app. This is the test that would have
+# caught both the `command: ["run", …]` startup failure and the admin-API
+# origin 403s before a customer did.
+
+on:
+  pull_request:
+    paths:
+      - "deploy/**"
+      - "src/lib/caddy.ts"
+      - "src/instrumentation.ts"
+      - "Dockerfile"
+      - "install.sh"
+      - ".github/workflows/tls-smoke.yml"
+  push:
+    branches: [main]
+    paths:
+      - "deploy/**"
+      - "src/lib/caddy.ts"
+      - "src/instrumentation.ts"
+      - "Dockerfile"
+      - "install.sh"
+      - ".github/workflows/tls-smoke.yml"
+  workflow_dispatch:
+
+jobs:
+  tls-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: /tmp/stack
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the app image from this ref
+        working-directory: ${{ github.workspace }}
+        run: docker build -t compassdocs-test:local .
+
+      - name: Assemble the TLS stack (compose + Caddyfile from this ref)
+        working-directory: ${{ github.workspace }}
+        run: |
+          mkdir -p /tmp/stack
+          cp deploy/docker-compose.tls.yml /tmp/stack/docker-compose.yml
+          cp deploy/Caddyfile /tmp/stack/Caddyfile
+          # run the image we just built instead of the published one
+          sed -i 's|image: ghcr.io/mattny20/compassdocs:.*|image: compassdocs-test:local|' /tmp/stack/docker-compose.yml
+          echo "POSTGRES_PASSWORD=smoketest123" > /tmp/stack/.env
+
+      - name: Start the stack
+        run: docker compose up -d
+
+      - name: App reachable over plain HTTP through Caddy (bootstrap state)
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost/login -o /dev/null; then exit 0; fi
+            sleep 2
+          done
+          echo "::error::App never became reachable through Caddy on :80"
+          docker compose ps; docker compose logs; exit 1
+
+      - name: Setup wizard + login (through the proxy)
+        run: |
+          curl -sf -X POST http://localhost/api/setup -H 'content-type: application/json' \
+            -d '{"username":"admin","name":"Smoke Test","email":"smoke@test.local","password":"Sm0keTest!Sm0keTest!","company":"Smoke Inc"}'
+          curl -sf -c /tmp/stack/jar -X POST http://localhost/api/auth/login -H 'content-type: application/json' \
+            -d '{"username":"admin","password":"Sm0keTest!Sm0keTest!"}'
+
+      - name: Save a domain with the internal CA — the push must APPLY
+        run: |
+          RESP=$(curl -sf -b /tmp/stack/jar -X PATCH http://localhost/api/admin/domain \
+            -H 'content-type: application/json' \
+            -d '{"custom_domain":"smoke.compassdocs.test","tls_mode":"internal"}')
+          echo "$RESP"
+          echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d.get('ok') is True, d; assert d.get('applied') is True, ('proxy did NOT apply', d); assert d['state']['proxy']['reachable'] is True, d; print('config push applied OK')"
+
+      - name: HTTPS serves the app on the configured domain
+        run: |
+          sleep 3
+          CODE=$(curl -sk -o /dev/null -w "%{http_code}" --resolve smoke.compassdocs.test:443:127.0.0.1 https://smoke.compassdocs.test/login)
+          echo "https -> $CODE"
+          test "$CODE" = "200"
+          curl -sk --resolve smoke.compassdocs.test:443:127.0.0.1 https://smoke.compassdocs.test/login | grep -q "Sign in"
+          REDIR=$(curl -s -o /dev/null -w "%{http_code}" --resolve smoke.compassdocs.test:80:127.0.0.1 http://smoke.compassdocs.test/)
+          echo "http -> $REDIR (expect 3xx redirect to https)"
+          case "$REDIR" in 3*) : ;; *) echo "::error::HTTP did not redirect to HTTPS"; exit 1;; esac
+
+      - name: A second save must also apply (generated config keeps admin access open)
+        run: |
+          # Port 80 now (correctly) redirects to HTTPS, so this save goes over
+          # TLS on the configured domain, carrying the session cookie manually.
+          COOKIE=$(awk '/compass_session/ {print $NF}' /tmp/stack/jar)
+          RESP=$(curl -sk --resolve smoke.compassdocs.test:443:127.0.0.1 \
+            -H "Cookie: compass_session=$COOKIE" \
+            -X PATCH https://smoke.compassdocs.test/api/admin/domain \
+            -H 'content-type: application/json' \
+            -d '{"custom_domain":"smoke.compassdocs.test","tls_mode":"internal","tls_email":""}')
+          echo "$RESP"
+          echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d.get('applied') is True, d; print('second push applied OK')"
+
+      - name: No admin-API rejections in the Caddy log
+        run: |
+          if docker compose logs caddy | grep -i "not allowed to access from origin"; then
+            echo "::error::Caddy rejected admin-API requests from the app"
+            exit 1
+          fi
+          echo "caddy admin log clean ✓"
+
+      - name: Dump logs on failure
+        if: failure()
+        run: docker compose ps; docker compose logs

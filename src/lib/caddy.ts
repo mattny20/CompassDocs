@@ -41,14 +41,40 @@ export interface ProxyStatus {
   reachable: boolean;
 }
 
+// Node's fetch (undici) stamps every request with `Sec-Fetch-Mode: cors`,
+// which makes Caddy's admin API treat it as a browser cross-origin request and
+// demand an allowed Origin header — without one it 403s ("client is not
+// allowed to access from origin ''"). A config with a bare `admin
+// 0.0.0.0:2019` only allows its own listen address as the origin, so derive
+// that (it also appears in the origins of every config we generate), and fall
+// back to the admin URL itself for customized setups.
+function adminOrigins(): string[] {
+  let port = "2019";
+  try {
+    port = new URL(CADDY_ADMIN).port || "2019";
+  } catch {}
+  return [`http://0.0.0.0:${port}`, CADDY_ADMIN];
+}
+
+/** fetch() against the admin API, retrying across the allowed-origin candidates. */
+async function adminFetch(path: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  let last: Response | null = null;
+  for (const origin of adminOrigins()) {
+    last = await fetch(`${CADDY_ADMIN}${path}`, {
+      ...init,
+      headers: { ...(init.headers as Record<string, string>), Origin: origin },
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (last.status !== 403) return last;
+  }
+  return last!;
+}
+
 /** Probe the proxy admin API so the GUI can show a live connection state. */
 export async function proxyStatus(): Promise<ProxyStatus> {
   if (!CADDY_ADMIN) return { managed: false, reachable: false };
   try {
-    const res = await fetch(`${CADDY_ADMIN}/config/`, {
-      method: "GET",
-      signal: AbortSignal.timeout(3000),
-    });
+    const res = await adminFetch("/config/", { method: "GET" }, 3000);
     return { managed: true, reachable: res.ok };
   } catch {
     return { managed: true, reachable: false };
@@ -133,12 +159,11 @@ export async function applyProxyConfig(): Promise<ApplyResult> {
 
   const caddyfile = buildCaddyfile(s.custom_domain, s.tls_mode, s.tls_email);
   try {
-    const res = await fetch(`${CADDY_ADMIN}/load`, {
-      method: "POST",
-      headers: { "Content-Type": "text/caddyfile" },
-      body: caddyfile,
-      signal: AbortSignal.timeout(15000),
-    });
+    const res = await adminFetch(
+      "/load",
+      { method: "POST", headers: { "Content-Type": "text/caddyfile" }, body: caddyfile },
+      15000
+    );
     if (!res.ok) {
       const text = (await res.text().catch(() => "")).slice(0, 400);
       return { ok: false, error: `Proxy rejected the configuration (${res.status}). ${text}`.trim() };
