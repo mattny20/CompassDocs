@@ -12,7 +12,11 @@
 # applied configuration on restart; the app also re-applies it on boot.
 
 {
-	admin 0.0.0.0:2019
+	admin 0.0.0.0:2019 {
+		# The app reaches this API as http://caddy:2019 — its Host header must
+		# be an allowed origin or every /load push is rejected with a 403.
+		origins caddy:2019 localhost:2019 127.0.0.1:2019 0.0.0.0:2019
+	}
 }
 
 :80 {

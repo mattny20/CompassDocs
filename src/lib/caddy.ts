@@ -72,9 +72,11 @@ export async function storeCustomCert(cert: string, key: string): Promise<void> 
 }
 
 // Build a Caddyfile from the saved settings. Every config keeps the admin API
-// listening on the Docker network so we never lock ourselves out on reload.
+// listening on the Docker network — WITH our hostname in the allowed origins,
+// or Caddy would 403 the very next /load push and lock us out on reload.
 function buildCaddyfile(domain: string, mode: TlsMode, email: string): string {
-  const globals = "{\n\tadmin 0.0.0.0:2019\n}\n\n";
+  const globals =
+    "{\n\tadmin 0.0.0.0:2019 {\n\t\torigins caddy:2019 localhost:2019 127.0.0.1:2019 0.0.0.0:2019\n\t}\n}\n\n";
 
   // No custom domain configured — serve the app over plain HTTP on any host so
   // the site stays reachable (e.g. by IP) until a domain is set.

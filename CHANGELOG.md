@@ -4,6 +4,19 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.10.1] - 2026-07-14
+
+### Fixed
+- **Domain & HTTPS settings never reached the reverse proxy.** Caddy's admin
+  API rejects requests whose Host isn't in its allowed origins, and ours only
+  allowed the listen address — so every config push from the app (Host
+  `caddy:2019`) got a 403 and saving a domain silently did nothing. Both the
+  bootstrap Caddyfile and the app-generated config now allow `caddy:2019`.
+  Existing HTTPS installs: re-download the Caddyfile
+  (`curl -fsSL https://raw.githubusercontent.com/mattny20/CompassDocs/main/deploy/Caddyfile -o Caddyfile`),
+  pull the new image, then `docker compose up -d --force-recreate caddy` and
+  re-save your domain settings.
+
 ## [0.10.0] - 2026-07-14
 
 ### Added
