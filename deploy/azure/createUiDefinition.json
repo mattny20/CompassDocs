@@ -1,0 +1,292 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/0.1.2-preview/CreateUIDefinition.MultiVm.json#",
+  "handler": "Microsoft.Azure.CreateUIDef",
+  "version": "0.1.2-preview",
+  "parameters": {
+    "basics": [
+      {
+        "name": "vmName",
+        "type": "Microsoft.Common.TextBox",
+        "label": "VM name",
+        "defaultValue": "compassdocs",
+        "toolTip": "Name for the virtual machine and its related resources.",
+        "constraints": {
+          "required": true,
+          "regex": "^[a-zA-Z0-9-]{1,60}$",
+          "validationMessage": "Letters, numbers, and hyphens only (max 60)."
+        }
+      },
+      {
+        "name": "vmSize",
+        "type": "Microsoft.Compute.SizeSelector",
+        "label": "VM size",
+        "toolTip": "2 vCPU / 4 GB (e.g. B2s) is a comfortable start for small teams.",
+        "recommendedSizes": ["Standard_B2s", "Standard_B2ms", "Standard_D2s_v5"],
+        "osPlatform": "Linux",
+        "count": 1
+      },
+      {
+        "name": "adminUsername",
+        "type": "Microsoft.Compute.UserNameTextBox",
+        "label": "SSH admin username",
+        "defaultValue": "azureuser",
+        "toolTip": "Linux account for SSH access to the VM.",
+        "osPlatform": "Linux",
+        "constraints": { "required": true }
+      },
+      {
+        "name": "credentials",
+        "type": "Microsoft.Compute.CredentialsCombo",
+        "label": {
+          "authenticationType": "Authentication type",
+          "password": "Password",
+          "confirmPassword": "Confirm password",
+          "sshPublicKey": "SSH public key"
+        },
+        "toolTip": {
+          "authenticationType": "SSH key is strongly recommended.",
+          "password": "",
+          "sshPublicKey": "Paste an OpenSSH public key (ssh-ed25519/ssh-rsa …)."
+        },
+        "constraints": { "required": true },
+        "options": { "hideConfirmation": false, "hidePassword": false },
+        "osPlatform": "Linux"
+      }
+    ],
+    "steps": [
+      {
+        "name": "networking",
+        "label": "Networking",
+        "elements": [
+          {
+            "name": "vnet",
+            "type": "Microsoft.Network.VirtualNetworkCombo",
+            "label": {
+              "virtualNetwork": "Virtual network",
+              "subnets": "Subnets"
+            },
+            "toolTip": {
+              "virtualNetwork": "Create a new VNet or drop the VM into an existing one.",
+              "subnets": "Subnet the VM's NIC joins."
+            },
+            "defaultValue": {
+              "name": "compassdocs-vnet",
+              "addressPrefixSize": "/16"
+            },
+            "constraints": { "minAddressPrefixSize": "/28" },
+            "subnets": {
+              "subnet1": {
+                "label": "CompassDocs subnet",
+                "defaultValue": { "name": "compassdocs", "addressPrefixSize": "/24" },
+                "constraints": {
+                  "minAddressPrefixSize": "/29",
+                  "minAddressCount": 1,
+                  "requireContiguousAddresses": false
+                }
+              }
+            }
+          },
+          {
+            "name": "publicIp",
+            "type": "Microsoft.Network.PublicIpAddressCombo",
+            "label": {
+              "publicIpAddress": "Public IP address",
+              "domainNameLabel": "DNS label"
+            },
+            "toolTip": {
+              "publicIpAddress": "Create, reuse, or skip (private-only deployments).",
+              "domainNameLabel": "Gives you <label>.<region>.cloudapp.azure.com immediately."
+            },
+            "defaultValue": {
+              "publicIpAddressName": "compassdocs-ip",
+              "domainNameLabel": "[concat('compassdocs-', take(replace(guid(), '-', ''), 8))]"
+            },
+            "constraints": {
+              "required": { "domainNameLabel": true }
+            },
+            "options": { "hideNone": false, "hideDomainNameLabel": false, "hideExisting": false }
+          },
+          {
+            "name": "sshSource",
+            "type": "Microsoft.Common.TextBox",
+            "label": "Allowed SSH source (CIDR)",
+            "defaultValue": "*",
+            "toolTip": "Restrict who can reach port 22 — e.g. your office IP as 203.0.113.5/32. * allows anywhere.",
+            "constraints": {
+              "required": true,
+              "regex": "^(\\*|([0-9]{1,3}\\.){3}[0-9]{1,3}(/[0-9]{1,2})?)$",
+              "validationMessage": "Use * or an IPv4 CIDR like 203.0.113.0/24."
+            }
+          },
+          {
+            "name": "webSource",
+            "type": "Microsoft.Common.TextBox",
+            "label": "Allowed web source (CIDR)",
+            "defaultValue": "*",
+            "toolTip": "Restrict who can reach the app (HTTP/HTTPS). * for a public knowledge base entry point.",
+            "constraints": {
+              "required": true,
+              "regex": "^(\\*|([0-9]{1,3}\\.){3}[0-9]{1,3}(/[0-9]{1,2})?)$",
+              "validationMessage": "Use * or an IPv4 CIDR like 203.0.113.0/24."
+            }
+          }
+        ]
+      },
+      {
+        "name": "storage",
+        "label": "Storage",
+        "elements": [
+          {
+            "name": "osDiskType",
+            "type": "Microsoft.Common.DropDown",
+            "label": "OS disk type",
+            "defaultValue": "Standard SSD",
+            "toolTip": "Premium SSD for the snappiest DB performance; Standard SSD is a good default.",
+            "constraints": {
+              "allowedValues": [
+                { "label": "Premium SSD", "value": "Premium_LRS" },
+                { "label": "Standard SSD", "value": "StandardSSD_LRS" },
+                { "label": "Standard HDD", "value": "Standard_LRS" }
+              ],
+              "required": true
+            }
+          },
+          {
+            "name": "osDiskSize",
+            "type": "Microsoft.Common.Slider",
+            "label": "OS disk size (GB)",
+            "defaultValue": 64,
+            "min": 30,
+            "max": 1024,
+            "showStepMarkers": false,
+            "toolTip": "Holds the OS and — without a data disk — all CompassDocs data.",
+            "constraints": { "required": true }
+          },
+          {
+            "name": "dataDiskEnabled",
+            "type": "Microsoft.Common.CheckBox",
+            "label": "Attach a dedicated data disk for CompassDocs data (database, uploads, backups)",
+            "toolTip": "Recommended for production: isolates data from the OS disk and can be resized/snapshotted independently."
+          },
+          {
+            "name": "dataDiskType",
+            "type": "Microsoft.Common.DropDown",
+            "label": "Data disk type",
+            "defaultValue": "Standard SSD",
+            "visible": "[steps('storage').dataDiskEnabled]",
+            "constraints": {
+              "allowedValues": [
+                { "label": "Premium SSD", "value": "Premium_LRS" },
+                { "label": "Standard SSD", "value": "StandardSSD_LRS" },
+                { "label": "Standard HDD", "value": "Standard_LRS" }
+              ],
+              "required": true
+            }
+          },
+          {
+            "name": "dataDiskSize",
+            "type": "Microsoft.Common.Slider",
+            "label": "Data disk size (GB)",
+            "defaultValue": 128,
+            "min": 32,
+            "max": 4096,
+            "showStepMarkers": false,
+            "visible": "[steps('storage').dataDiskEnabled]",
+            "constraints": { "required": true }
+          }
+        ]
+      },
+      {
+        "name": "compassdocs",
+        "label": "CompassDocs",
+        "elements": [
+          {
+            "name": "edition",
+            "type": "Microsoft.Common.OptionsGroup",
+            "label": "Edition",
+            "defaultValue": "Community (free)",
+            "toolTip": "Enterprise adds SSO, Microsoft 365 directory sync, and more — unlocked by a license key.",
+            "constraints": {
+              "allowedValues": [
+                { "label": "Community (free)", "value": "community" },
+                { "label": "Enterprise", "value": "enterprise" }
+              ],
+              "required": true
+            }
+          },
+          {
+            "name": "licenseKey",
+            "type": "Microsoft.Common.PasswordBox",
+            "label": { "password": "License key", "confirmPassword": "Confirm license key" },
+            "toolTip": "Optional — you can also paste it in the app under Settings → License.",
+            "visible": "[equals(steps('compassdocs').edition, 'enterprise')]",
+            "options": { "hideConfirmation": true },
+            "constraints": { "required": false }
+          },
+          {
+            "name": "enableTls",
+            "type": "Microsoft.Common.CheckBox",
+            "label": "Bundle HTTPS (Caddy reverse proxy on ports 80/443)",
+            "defaultValue": true,
+            "toolTip": "Recommended. Point your domain at the VM's public IP and set it in the setup wizard — a certificate is issued automatically."
+          },
+          {
+            "name": "appAdminUsername",
+            "type": "Microsoft.Common.TextBox",
+            "label": "Pre-create app admin (optional)",
+            "defaultValue": "",
+            "toolTip": "Leave blank to create the admin account in the browser setup wizard instead.",
+            "constraints": { "required": false, "regex": "^[a-zA-Z0-9._-]{0,40}$", "validationMessage": "Letters, numbers, dots, dashes, underscores." }
+          },
+          {
+            "name": "appAdminPassword",
+            "type": "Microsoft.Common.PasswordBox",
+            "label": { "password": "App admin password", "confirmPassword": "Confirm app admin password" },
+            "toolTip": "Avoid single quotes. Only used when a pre-created admin username is set.",
+            "visible": "[not(empty(steps('compassdocs').appAdminUsername))]",
+            "constraints": { "required": false }
+          },
+          {
+            "name": "anthropicApiKey",
+            "type": "Microsoft.Common.PasswordBox",
+            "label": { "password": "Anthropic API key (optional)", "confirmPassword": "Confirm key" },
+            "toolTip": "Enables AI answers and proofreading. Can also be set later under Settings → AI.",
+            "options": { "hideConfirmation": true },
+            "constraints": { "required": false }
+          }
+        ]
+      }
+    ],
+    "outputs": {
+      "vmName": "[basics('vmName')]",
+      "location": "[location()]",
+      "vmSize": "[basics('vmSize')]",
+      "adminUsername": "[basics('adminUsername')]",
+      "authenticationType": "[basics('credentials').authenticationType]",
+      "adminPasswordOrKey": "[coalesce(basics('credentials').sshPublicKey, basics('credentials').password)]",
+      "virtualNetworkName": "[steps('networking').vnet.name]",
+      "virtualNetworkNewOrExisting": "[steps('networking').vnet.newOrExisting]",
+      "virtualNetworkResourceGroup": "[steps('networking').vnet.resourceGroup]",
+      "virtualNetworkAddressPrefixes": "[steps('networking').vnet.addressPrefixes]",
+      "subnetName": "[steps('networking').vnet.subnets.subnet1.name]",
+      "subnetAddressPrefix": "[steps('networking').vnet.subnets.subnet1.addressPrefix]",
+      "publicIpName": "[steps('networking').publicIp.name]",
+      "publicIpNewOrExistingOrNone": "[steps('networking').publicIp.newOrExistingOrNone]",
+      "publicIpResourceGroup": "[steps('networking').publicIp.resourceGroup]",
+      "publicIpDns": "[steps('networking').publicIp.domainNameLabel]",
+      "sshSourcePrefix": "[steps('networking').sshSource]",
+      "webSourcePrefix": "[steps('networking').webSource]",
+      "osDiskType": "[steps('storage').osDiskType]",
+      "osDiskSizeGB": "[steps('storage').osDiskSize]",
+      "dataDiskEnabled": "[steps('storage').dataDiskEnabled]",
+      "dataDiskType": "[coalesce(steps('storage').dataDiskType, 'StandardSSD_LRS')]",
+      "dataDiskSizeGB": "[coalesce(steps('storage').dataDiskSize, 128)]",
+      "edition": "[steps('compassdocs').edition]",
+      "licenseKey": "[coalesce(steps('compassdocs').licenseKey, '')]",
+      "enableTls": "[steps('compassdocs').enableTls]",
+      "appAdminUsername": "[steps('compassdocs').appAdminUsername]",
+      "appAdminPassword": "[coalesce(steps('compassdocs').appAdminPassword, '')]",
+      "anthropicApiKey": "[coalesce(steps('compassdocs').anthropicApiKey, '')]"
+    }
+  }
+}

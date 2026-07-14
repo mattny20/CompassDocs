@@ -124,6 +124,17 @@ passed to Claude as grounded context, and the model is instructed to answer only
 from them and cite sources. Any API error degrades gracefully to the keyword
 fallback.
 
+## Deploy to Azure (one click)
+
+[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fmattny20%2FCompassDocs%2Fmain%2Fdeploy%2Fazure%2Fazuredeploy.json/createUIDefinitionUri/https%3A%2F%2Fraw.githubusercontent.com%2Fmattny20%2FCompassDocs%2Fmain%2Fdeploy%2Fazure%2FcreateUiDefinition.json)
+
+Launches the full stack (app + Postgres, optional HTTPS proxy) on an Ubuntu VM
+through a guided portal wizard: pick any VM size, create or join an existing
+virtual network, restrict SSH/web access by CIDR, choose disk types and an
+optional dedicated data disk, and set the CompassDocs edition, license, and
+admin bootstrap — all before clicking Create. Details in
+[deploy/azure](deploy/azure/).
+
 ## Self-hosting (one command)
 
 The easiest way to run CompassDocs is with Docker — it starts the app **and** a
