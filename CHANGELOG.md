@@ -4,6 +4,18 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.6.1] - 2026-07-14
+
+### Added
+- **One-click SSO setup** *(Enterprise)*: a "Set up automatically with
+  Microsoft" button on Settings → Single sign-on. Sign in once as a tenant
+  admin (device code — no pre-existing app registration needed) and CompassDocs
+  creates the Entra app registration with the right redirect URI, a 24-month
+  client secret, and the service principal, then fills in and enables the
+  configuration. The one-time token is discarded; no standing Microsoft
+  permission is kept. Manual entry still works as before.
+- The SSO panel now shows the stored client secret's expiry date when known.
+
 ## [0.6.0] - 2026-07-14
 
 ### Added — single sign-on (Enterprise)

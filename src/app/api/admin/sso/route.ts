@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiGuard } from "@/lib/api-auth";
 import { getSsoConfig, updateSsoConfig, ssoAuthority } from "@/lib/sso-config";
+import { getSetting } from "@/lib/db";
 import { featureEnabled, eePresent } from "@/lib/ee";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
 import type { Role } from "@/lib/types";
@@ -11,8 +12,13 @@ const ROLES: Role[] = ["viewer", "editor", "approver", "admin"];
 
 // The client secret is write-only: GET only reports whether one is stored.
 async function view() {
-  const [cfg, enabled] = await Promise.all([getSsoConfig(), featureEnabled("sso")]);
+  const [cfg, enabled, secretExpires] = await Promise.all([
+    getSsoConfig(),
+    featureEnabled("sso"),
+    getSetting("sso_secret_expires"),
+  ]);
   return {
+    secret_expires: secretExpires || "",
     enabled, // bundled AND licensed
     bundled: eePresent(),
     sso_enabled: cfg.enabled,
