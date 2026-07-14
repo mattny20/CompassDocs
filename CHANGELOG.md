@@ -4,6 +4,23 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.10.2] - 2026-07-14
+
+### Fixed
+- **Domain & HTTPS pushes were still rejected (403) even after 0.10.1.** Root
+  cause found by reproducing against a real Caddy: Node's fetch marks every
+  request `Sec-Fetch-Mode: cors`, so Caddy's admin API demands an allowed
+  `Origin` header — and a bare admin config only accepts its own listen
+  address. The app now sends `Origin: http://0.0.0.0:2019` (derived from the
+  admin URL, with a fallback), which is accepted by old *and* new configs —
+  existing installs self-heal on upgrade with no Caddyfile or volume surgery.
+
+### Added
+- **TLS smoke test in CI**: every change to the deploy files, Caddy
+  integration, or Dockerfile now boots the real HTTPS stack and walks the full
+  flow — setup → login → save a domain (internal CA) → assert the config push
+  applied and HTTPS actually serves the app, with a clean Caddy admin log.
+
 ## [0.10.1] - 2026-07-14
 
 ### Fixed
