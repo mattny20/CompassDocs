@@ -27,7 +27,15 @@ jobs:
         id: v
         run: |
           VERSION="${{ github.event.inputs.version }}"
-          if [ -z "$VERSION" ]; then VERSION="$(node -p "require('./package.json').version")"; fi
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          if [ -z "$VERSION" ]; then VERSION="$PKG_VERSION"; fi
+          # The app displays package.json's version (Settings → System, MCP
+          # serverInfo). Releasing a different number would ship an image that
+          # reports the wrong version — refuse instead.
+          if [ "$VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::Version mismatch: releasing $VERSION but package.json says $PKG_VERSION. Bump package.json in the release PR first."
+            exit 1
+          fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
           echo "Releasing v$VERSION"

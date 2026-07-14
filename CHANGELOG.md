@@ -4,6 +4,15 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.9.2] - 2026-07-14
+
+### Fixed
+- **Settings → System showed a stale version** (stuck at 0.5.2) because
+  releases since then never bumped `package.json` — the number the app
+  displays. The version is bumped again with every release from now on, and
+  the release workflow refuses to tag a release whose version doesn't match
+  `package.json`, so it can't silently drift again.
+
 ## [0.9.1] - 2026-07-14
 
 ### Added
