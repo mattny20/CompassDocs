@@ -91,10 +91,16 @@ jobs:
 
       - name: A second save must also apply (generated config keeps admin access open)
         run: |
-          RESP=$(curl -sf -b /tmp/stack/jar -X PATCH http://localhost/api/admin/domain \
+          # Port 80 now (correctly) redirects to HTTPS, so this save goes over
+          # TLS on the configured domain, carrying the session cookie manually.
+          COOKIE=$(awk '/compass_session/ {print $NF}' /tmp/stack/jar)
+          RESP=$(curl -sk --resolve smoke.compassdocs.test:443:127.0.0.1 \
+            -H "Cookie: compass_session=$COOKIE" \
+            -X PATCH https://smoke.compassdocs.test/api/admin/domain \
             -H 'content-type: application/json' \
             -d '{"custom_domain":"smoke.compassdocs.test","tls_mode":"internal","tls_email":""}')
-          echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d.get('applied') is True, d; print('second push applied ✓')"
+          echo "$RESP"
+          echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d.get('applied') is True, d; print('second push applied OK')"
 
       - name: No admin-API rejections in the Caddy log
         run: |
