@@ -1,4 +1,5 @@
 import { requireRole } from "@/lib/auth";
+import { getSetting } from "@/lib/db";
 import { listPeople, listFields } from "@/lib/directory";
 import {
   getDirectoryGraphConfig,
@@ -11,13 +12,14 @@ export const dynamic = "force-dynamic";
 
 export default async function DirectoryAdminPage() {
   await requireRole("admin");
-  const [people, fields, cfg, lastSync, bundled, enabled] = await Promise.all([
+  const [people, fields, cfg, lastSync, bundled, enabled, secretExpires] = await Promise.all([
     listPeople({ includeHidden: true }),
     listFields(),
     getDirectoryGraphConfig(),
     getDirectorySyncStatus(),
     Promise.resolve(eePresent()),
     featureEnabled("directory_sync"),
+    getSetting("directory_graph_secret_expires"),
   ]);
 
   return (
@@ -30,6 +32,7 @@ export default async function DirectoryAdminPage() {
         tenant: cfg.tenant,
         client_id: cfg.clientId,
         has_secret: Boolean(cfg.clientSecret),
+        secret_expires: secretExpires || "",
         group: cfg.group,
         include_guests: cfg.includeGuests,
         require_title: cfg.requireTitle,

@@ -4,6 +4,17 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.6.2] - 2026-07-14
+
+### Added
+- **One-click setup for the Microsoft 365 directory sync** *(Enterprise)*:
+  the same "Set up automatically with Microsoft" flow as SSO, now on
+  Settings → Directory. One tenant-admin sign-in creates the app registration
+  with the `User.Read.All` and `GroupMember.Read.All` application permissions,
+  **grants admin consent**, mints a 24-month secret, and fills in the sync
+  configuration — then "Sync now" runs the first import.
+- The directory sync panel also shows its client secret's expiry date.
+
 ## [0.6.1] - 2026-07-14
 
 ### Added

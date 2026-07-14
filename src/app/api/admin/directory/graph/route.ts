@@ -6,16 +6,18 @@ import {
   getDirectorySyncStatus,
 } from "@/lib/directory-config";
 import { featureEnabled, eePresent } from "@/lib/ee";
+import { getSetting } from "@/lib/db";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
 // The client secret is write-only: GET only reports whether one is stored.
 async function view() {
-  const [cfg, status, enabled] = await Promise.all([
+  const [cfg, status, enabled, secretExpires] = await Promise.all([
     getDirectoryGraphConfig(),
     getDirectorySyncStatus(),
     featureEnabled("directory_sync"),
+    getSetting("directory_graph_secret_expires"),
   ]);
   return {
     enabled, // bundled AND licensed
@@ -23,6 +25,7 @@ async function view() {
     tenant: cfg.tenant,
     client_id: cfg.clientId,
     has_secret: Boolean(cfg.clientSecret),
+    secret_expires: secretExpires || "",
     group: cfg.group,
     include_guests: cfg.includeGuests,
     require_title: cfg.requireTitle,
