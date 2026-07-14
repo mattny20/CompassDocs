@@ -4,6 +4,16 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.9.3] - 2026-07-14
+
+### Fixed
+- **HTTPS (Caddy) deployments failed to start** with `exec: "run": executable
+  file not found in $PATH` — the TLS compose files overrode the Caddy image's
+  command without naming the binary. Both TLS compose files now use
+  `["caddy", "run", …]`. Existing installs: re-download the compose file (or
+  edit the caddy `command:` to start with `"caddy"`), then
+  `docker compose up -d`.
+
 ## [0.9.2] - 2026-07-14
 
 ### Fixed

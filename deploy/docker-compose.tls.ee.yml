@@ -59,7 +59,7 @@ services:
   caddy:
     image: caddy:2
     restart: unless-stopped
-    command: ["run", "--config", "/etc/caddy/Caddyfile", "--resume"]
+    command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--resume"]
     depends_on:
       - app
     ports:
