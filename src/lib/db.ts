@@ -198,6 +198,35 @@ const SCHEMA_SQL = `
   );
   CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id);
 
+  -- OAuth 2.1 authorization server for the MCP connector ("Add custom
+  -- connector" in Claude): dynamically registered clients, short-lived auth
+  -- codes, and issued access/refresh token pairs (hashes only).
+  CREATE TABLE IF NOT EXISTS oauth_clients (
+    client_id text PRIMARY KEY,
+    name text NOT NULL DEFAULT '',
+    redirect_uris jsonb NOT NULL DEFAULT '[]'::jsonb,
+    created_at timestamptz NOT NULL DEFAULT now()
+  );
+  CREATE TABLE IF NOT EXISTS oauth_codes (
+    code_hash text PRIMARY KEY,
+    client_id text NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
+    user_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    redirect_uri text NOT NULL,
+    code_challenge text NOT NULL,
+    expires_at timestamptz NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS oauth_tokens (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    client_id text NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
+    user_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    access_hash text UNIQUE NOT NULL,
+    refresh_hash text UNIQUE NOT NULL,
+    access_expires_at timestamptz NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    last_used_at timestamptz
+  );
+  CREATE INDEX IF NOT EXISTS idx_oauth_tokens_user ON oauth_tokens(user_id);
+
   CREATE TABLE IF NOT EXISTS settings (
     key text PRIMARY KEY,
     value text NOT NULL
@@ -1076,6 +1105,144 @@ export async function getUserByApiToken(raw: string): Promise<User | undefined> 
   q("UPDATE api_tokens SET last_used_at = now() WHERE id = $1", [hit.token_id]).catch(() => {});
   const { token_id: _ignored, ...user } = hit;
   return user as User;
+}
+
+// --- OAuth (MCP connector authorization server) --------------------------------
+
+const ACCESS_TTL_MS = 60 * 60 * 1000; // 1h — clients refresh silently
+const CODE_TTL_MS = 10 * 60 * 1000;
+
+export interface OAuthClient {
+  client_id: string;
+  name: string;
+  redirect_uris: string[];
+}
+
+export async function registerOAuthClient(name: string, redirectUris: string[]): Promise<OAuthClient> {
+  const clientId = "cdc_" + randomBytes(16).toString("base64url");
+  await q("INSERT INTO oauth_clients (client_id, name, redirect_uris) VALUES ($1,$2,$3)", [
+    clientId,
+    name.slice(0, 100),
+    JSON.stringify(redirectUris),
+  ]);
+  return { client_id: clientId, name, redirect_uris: redirectUris };
+}
+
+export async function getOAuthClient(clientId: string): Promise<OAuthClient | undefined> {
+  const r = (
+    await q<{ client_id: string; name: string; redirect_uris: string[] }>(
+      "SELECT client_id, name, redirect_uris FROM oauth_clients WHERE client_id = $1",
+      [clientId]
+    )
+  )[0];
+  return r ? { ...r, redirect_uris: r.redirect_uris ?? [] } : undefined;
+}
+
+export async function createOAuthCode(input: {
+  clientId: string;
+  userId: number;
+  redirectUri: string;
+  codeChallenge: string;
+}): Promise<string> {
+  const code = "cda_" + randomBytes(24).toString("base64url");
+  await q(
+    `INSERT INTO oauth_codes (code_hash, client_id, user_id, redirect_uri, code_challenge, expires_at)
+     VALUES ($1,$2,$3,$4,$5,$6)`,
+    [
+      hashApiToken(code),
+      input.clientId,
+      input.userId,
+      input.redirectUri,
+      input.codeChallenge,
+      new Date(Date.now() + CODE_TTL_MS).toISOString(),
+    ]
+  );
+  return code;
+}
+
+/** Fetch-and-delete: an auth code is single-use, expired or not. */
+export async function consumeOAuthCode(code: string): Promise<
+  { client_id: string; user_id: number; redirect_uri: string; code_challenge: string } | undefined
+> {
+  const rows = await q<any>(
+    `DELETE FROM oauth_codes WHERE code_hash = $1
+     RETURNING client_id, user_id, redirect_uri, code_challenge, expires_at`,
+    [hashApiToken(code)]
+  );
+  const r = rows[0];
+  if (!r || new Date(r.expires_at).getTime() < Date.now()) return undefined;
+  return r;
+}
+
+export async function createOAuthTokens(
+  clientId: string,
+  userId: number
+): Promise<{ accessToken: string; refreshToken: string; expiresIn: number }> {
+  const access = "cdo_" + randomBytes(24).toString("base64url");
+  const refresh = "cdr_" + randomBytes(24).toString("base64url");
+  await q(
+    `INSERT INTO oauth_tokens (client_id, user_id, access_hash, refresh_hash, access_expires_at)
+     VALUES ($1,$2,$3,$4,$5)`,
+    [
+      clientId,
+      userId,
+      hashApiToken(access),
+      hashApiToken(refresh),
+      new Date(Date.now() + ACCESS_TTL_MS).toISOString(),
+    ]
+  );
+  return { accessToken: access, refreshToken: refresh, expiresIn: ACCESS_TTL_MS / 1000 };
+}
+
+/** Refresh-token rotation: the old pair dies, a fresh pair is issued. */
+export async function rotateOAuthTokens(
+  refreshToken: string
+): Promise<{ accessToken: string; refreshToken: string; expiresIn: number; clientId: string } | undefined> {
+  const rows = await q<{ client_id: string; user_id: number }>(
+    "DELETE FROM oauth_tokens WHERE refresh_hash = $1 RETURNING client_id, user_id",
+    [hashApiToken(refreshToken)]
+  );
+  const r = rows[0];
+  if (!r) return undefined;
+  const fresh = await createOAuthTokens(r.client_id, r.user_id);
+  return { ...fresh, clientId: r.client_id };
+}
+
+/** Resolve an OAuth access token to its (active) user. */
+export async function getUserByOAuthToken(raw: string): Promise<User | undefined> {
+  if (!raw.startsWith("cdo_")) return undefined;
+  const rows = await q<User & { token_id: number; access_expires_at: string }>(
+    `SELECT ${USER_COLUMNS.split(",").map((c) => "u." + c.trim()).join(", ")},
+            t.id AS token_id, t.access_expires_at
+     FROM oauth_tokens t JOIN users u ON u.id = t.user_id
+     WHERE t.access_hash = $1 AND u.status = 'active'`,
+    [hashApiToken(raw)]
+  );
+  const hit = rows[0];
+  if (!hit || new Date(hit.access_expires_at).getTime() < Date.now()) return undefined;
+  q("UPDATE oauth_tokens SET last_used_at = now() WHERE id = $1", [hit.token_id]).catch(() => {});
+  const { token_id: _t, access_expires_at: _e, ...user } = hit;
+  return user as User;
+}
+
+/** A user's connected OAuth apps (grouped by client) for the account page. */
+export async function listOAuthGrants(
+  userId: number
+): Promise<{ client_id: string; name: string; created_at: string; last_used_at: string | null }[]> {
+  return q(
+    `SELECT t.client_id, c.name, min(t.created_at) AS created_at, max(t.last_used_at) AS last_used_at
+     FROM oauth_tokens t JOIN oauth_clients c ON c.client_id = t.client_id
+     WHERE t.user_id = $1 GROUP BY t.client_id, c.name ORDER BY min(t.created_at) DESC`,
+    [userId]
+  );
+}
+
+export async function revokeOAuthGrant(userId: number, clientId: string): Promise<boolean> {
+  const res = await pool().query("DELETE FROM oauth_tokens WHERE user_id = $1 AND client_id = $2", [
+    userId,
+    clientId,
+  ]);
+  return (res.rowCount ?? 0) > 0;
 }
 
 // --- Sessions ----------------------------------------------------------------

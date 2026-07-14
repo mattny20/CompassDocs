@@ -1,13 +1,16 @@
 import Link from "next/link";
 import { requireUser } from "@/lib/auth";
-import { listApiTokens } from "@/lib/db";
+import { listApiTokens, listOAuthGrants } from "@/lib/db";
 import { ApiTokens } from "@/components/ApiTokens";
 
 export const dynamic = "force-dynamic";
 
 export default async function ApiTokensPage() {
   const user = await requireUser();
-  const tokens = await listApiTokens(user.id);
+  const [tokens, connections] = await Promise.all([
+    listApiTokens(user.id),
+    listOAuthGrants(user.id),
+  ]);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-100 to-compass-50 px-4 py-10">
@@ -20,7 +23,7 @@ export default async function ApiTokensPage() {
           </p>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-surface p-6 shadow-sm">
-          <ApiTokens initial={tokens} />
+          <ApiTokens initial={tokens} initialConnections={connections} />
         </div>
         <div className="mt-4 flex items-center justify-center gap-4 text-sm">
           <Link href="/" className="text-compass-600 hover:text-compass-700">

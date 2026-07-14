@@ -10,6 +10,7 @@
 
 import {
   getUserByApiToken,
+  getUserByOAuthToken,
   listSpaces,
   getSpaceBySlug,
   listDocumentsBySpace,
@@ -22,6 +23,7 @@ import {
   getApprovalMode,
 } from "@/lib/db";
 import { currentVersion } from "@/lib/version";
+import { requestOrigin } from "@/lib/oauth";
 import { audit, actorFrom } from "@/lib/audit";
 import { roleAtLeast } from "@/lib/types";
 import type { DocStatus, DocType, User } from "@/lib/types";
@@ -326,12 +328,27 @@ async function callTool(user: User, name: string, args: any) {
 async function authenticate(req: Request): Promise<User | Response> {
   const auth = req.headers.get("authorization") || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
-  const user = token ? await getUserByApiToken(token) : undefined;
+  // Two credential kinds: personal API tokens (cdk_) and OAuth access tokens
+  // (cdo_) issued by the built-in authorization server for "one-click" clients.
+  const user = token
+    ? token.startsWith("cdo_")
+      ? await getUserByOAuthToken(token)
+      : await getUserByApiToken(token)
+    : undefined;
   if (!user) {
-    return new Response(JSON.stringify({ error: "A valid API token is required (Account → API tokens)." }), {
-      status: 401,
-      headers: { "content-type": "application/json", "www-authenticate": "Bearer" },
-    });
+    // Point OAuth-capable clients (Claude's custom-connector UI) at our
+    // discovery document so they can start the authorization flow themselves.
+    const origin = requestOrigin(req);
+    return new Response(
+      JSON.stringify({ error: "A valid API token is required (Account → API tokens)." }),
+      {
+        status: 401,
+        headers: {
+          "content-type": "application/json",
+          "www-authenticate": `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/api/mcp"`,
+        },
+      }
+    );
   }
   return user;
 }
