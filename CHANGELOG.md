@@ -4,6 +4,23 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] - 2026-07-14
+
+### Added — single sign-on (Enterprise)
+- **Sign in with Microsoft.** With the `sso` entitlement, the login page gains
+  a Microsoft Entra ID sign-in button (OpenID Connect authorization code +
+  PKCE, full ID-token validation). Accounts are matched by directory identity,
+  linked by email to existing users, or auto-provisioned with a role you
+  choose.
+- **Settings → Single sign-on**: tenant/client credentials (secret is
+  write-only), auto-provisioning with a default role, an email-domain
+  allowlist, an SSO-only mode that hides the password form (with a documented
+  break-glass path), and a test sign-in button.
+- **Works beyond Entra**: an advanced custom-authority setting points the same
+  flow at any OIDC provider (Okta, Auth0, …).
+- SSO activity lands in the audit log: `auth.sso_login`,
+  `user.sso_provisioned`, `settings.sso`.
+
 ## [0.5.2] - 2026-07-13
 
 ### Added
