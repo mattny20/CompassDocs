@@ -62,7 +62,7 @@ services:
     restart: unless-stopped
     # `--resume` reloads the last applied config on restart; on a fresh container
     # it falls back to the bootstrap Caddyfile below.
-    command: ["run", "--config", "/etc/caddy/Caddyfile", "--resume"]
+    command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--resume"]
     depends_on:
       - app
     ports:
