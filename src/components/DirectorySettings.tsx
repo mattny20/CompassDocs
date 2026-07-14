@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { MsDeviceSetup } from "./MsDeviceSetup";
 import type { DirectoryPerson, DirectoryField } from "@/lib/directory";
 
 const field =
@@ -13,6 +14,7 @@ interface GraphState {
   tenant: string;
   client_id: string;
   has_secret: boolean;
+  secret_expires?: string;
   group: string;
   include_guests: boolean;
   require_title: boolean;
@@ -324,10 +326,22 @@ function GraphPanel({ graph, onSynced }: { graph: GraphState; onSynced: () => vo
         <h3 className="font-semibold text-slate-900">Microsoft 365 sync</h3>
         <span className="rounded-full bg-compass-600 px-2 py-0.5 text-xs font-semibold text-white">Enterprise</span>
       </div>
-      <p className="mb-4 text-sm text-slate-500">
+      <p className="mb-3 text-sm text-slate-500">
         Register an app in Microsoft Entra with the <code className="font-mono">User.Read.All</code>{" "}
         application permission (admin-consented), then enter its details here.
       </p>
+
+      <MsDeviceSetup
+        startUrl="/api/ee/directory/setup/start"
+        pollUrl="/api/ee/directory/setup/poll"
+        refreshUrl="/api/admin/directory/graph"
+        blurb="Signs you in once as a tenant admin, creates the app registration with User.Read.All + GroupMember.Read.All, grants admin consent, and fills in the details below."
+        doneMessage="Done — the Entra app was created, consented, and the settings below were filled in. Hit “Sync now” to run the first sync."
+        onDone={(state) => {
+          setG(state);
+          setSecret("");
+        }}
+      />
 
       <div className="grid gap-3 sm:grid-cols-3">
         <label className="block">
@@ -343,6 +357,11 @@ function GraphPanel({ graph, onSynced }: { graph: GraphState; onSynced: () => vo
             Client secret {g.has_secret && !secret ? <span className="text-green-600">(stored ✓ — paste to replace)</span> : ""}
           </span>
           <input className={field} type="password" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder={g.has_secret ? "••••••••" : "secret value"} autoComplete="off" />
+          {g.secret_expires && g.has_secret && !secret && (
+            <span className="mt-1 block text-xs text-slate-400">
+              Expires {g.secret_expires} — set a reminder to rotate it.
+            </span>
+          )}
         </label>
       </div>
 

@@ -4,7 +4,8 @@
 // community build → upsell; enterprise build without the `sso` entitlement →
 // license nudge; licensed → the OIDC configuration form.
 
-import { useRef, useState } from "react";
+import { useState } from "react";
+import { MsDeviceSetup } from "./MsDeviceSetup";
 
 const field =
   "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
@@ -136,7 +137,12 @@ export function SsoSettings({ initial }: { initial: SsoState }) {
           uses only OpenID Connect.
         </p>
 
-        <AutoSetup
+        <MsDeviceSetup
+          startUrl="/api/ee/sso/setup/start"
+          pollUrl="/api/ee/sso/setup/poll"
+          refreshUrl="/api/admin/sso"
+          blurb="Signs you in once as a tenant admin and creates the app registration, secret, and settings below — nothing to copy by hand."
+          doneMessage="Done — the Entra app was created and the settings below were filled in and enabled."
           onDone={(state) => {
             setS(state);
             setSecret("");
@@ -307,125 +313,6 @@ export function SsoSettings({ initial }: { initial: SsoState }) {
           {error && <span className="text-sm text-red-600">{error}</span>}
         </div>
       </div>
-    </div>
-  );
-}
-
-// One-click setup: a tenant admin signs in via the Microsoft device-code flow
-// and we create the Entra app registration, secret, and service principal for
-// them, then drop the values straight into the saved config.
-function AutoSetup({ onDone }: { onDone: (state: SsoState) => void }) {
-  const [phase, setPhase] = useState<"idle" | "starting" | "waiting" | "done">("idle");
-  const [code, setCode] = useState("");
-  const [uri, setUri] = useState("");
-  const [error, setError] = useState("");
-  const stop = useRef(false);
-
-  async function begin() {
-    setError("");
-    setPhase("starting");
-    stop.current = false;
-    const res = await fetch("/api/ee/sso/setup/start", { method: "POST" });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      setError(data?.error || "Could not start Microsoft sign-in.");
-      setPhase("idle");
-      return;
-    }
-    setCode(data.user_code);
-    setUri(data.verification_uri);
-    setPhase("waiting");
-
-    const intervalMs = Math.max(2, data.interval ?? 5) * 1000;
-    const deadline = Date.now() + (data.expires_in ?? 900) * 1000;
-    while (!stop.current && Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, intervalMs));
-      if (stop.current) return;
-      const p = await fetch("/api/ee/sso/setup/poll", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ setup_id: data.setup_id }),
-      });
-      const pd = await p.json().catch(() => ({}));
-      if (p.ok && pd.status === "done") {
-        setPhase("done");
-        const fresh = await fetch("/api/admin/sso");
-        if (fresh.ok) {
-          const view = await fresh.json();
-          onDone(view);
-        }
-        return;
-      }
-      if (!p.ok) {
-        setError(pd?.error || "Setup failed.");
-        setPhase("idle");
-        return;
-      }
-    }
-    if (!stop.current) {
-      setError("The sign-in window expired — try again.");
-      setPhase("idle");
-    }
-  }
-
-  if (phase === "done") {
-    return (
-      <div className="mb-4 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
-        Done — the Entra app was created and the settings below were filled in and enabled.
-      </div>
-    );
-  }
-
-  return (
-    <div className="mb-4 rounded-lg border border-compass-100 bg-compass-50/50 p-3">
-      {phase === "waiting" ? (
-        <div className="text-sm text-slate-700">
-          <p>
-            Go to{" "}
-            <a
-              href={uri}
-              target="_blank"
-              rel="noreferrer"
-              className="font-medium text-compass-600 underline"
-            >
-              {uri.replace(/^https?:\/\//, "")}
-            </a>{" "}
-            and enter the code{" "}
-            <code className="rounded bg-white px-2 py-0.5 font-mono text-base font-bold tracking-widest ring-1 ring-slate-200">
-              {code}
-            </code>
-            , signing in as a tenant admin.
-          </p>
-          <p className="mt-1 flex items-center gap-2 text-xs text-slate-500">
-            <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-compass-500" />
-            Waiting for you to finish signing in…
-            <button
-              className="font-medium text-slate-400 underline hover:text-slate-600"
-              onClick={() => {
-                stop.current = true;
-                setPhase("idle");
-              }}
-            >
-              cancel
-            </button>
-          </p>
-        </div>
-      ) : (
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            onClick={begin}
-            disabled={phase === "starting"}
-            className="rounded-lg bg-compass-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60"
-          >
-            {phase === "starting" ? "Contacting Microsoft…" : "Set up automatically with Microsoft"}
-          </button>
-          <span className="text-xs text-slate-500">
-            Signs you in once as a tenant admin and creates the app registration, secret, and
-            settings below — nothing to copy by hand.
-          </span>
-        </div>
-      )}
-      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
     </div>
   );
 }
