@@ -30,7 +30,12 @@ export function UserMenu({ user }: { user: SessionUser }) {
         <Link href="/account/password" className="block truncate text-sm font-medium text-slate-800 hover:text-compass-700">
           {user.name || user.username}
         </Link>
-        <div className="text-xs text-slate-400">{ROLE_LABEL[user.role]}</div>
+        <div className="text-xs text-slate-400">
+          {ROLE_LABEL[user.role]} ·{" "}
+          <Link href="/account/tokens" className="hover:text-compass-600 hover:underline">
+            API tokens
+          </Link>
+        </div>
       </div>
       <button
         onClick={logout}

@@ -4,6 +4,25 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.7.0] - 2026-07-14
+
+### Added
+- **Claude connector (MCP).** CompassDocs now ships a built-in MCP server at
+  `/api/mcp`. Connect it to the Claude desktop app and Claude can search your
+  knowledge base, read documents, draft new articles straight into CompassDocs
+  as markdown, and revise existing ones — acting as you, with your role. Edits
+  to published documents follow the approval workflow (queued as change
+  requests when review is required), and every action is audit-logged.
+  Available in every edition.
+- **Personal API tokens.** Each user can mint and revoke tokens under
+  *your name → API tokens* (`/account/tokens`). Tokens are shown once, stored
+  hashed, display last-used times, and the page generates a ready-to-paste
+  Claude Desktop config.
+- **Run blocks.** Fenced code blocks now render with a header bar — language
+  label and one-click **Copy**. Shell-flavored blocks (```bash, ```sh,
+  ```powershell, ```run, …) get terminal styling with a **Copy commands**
+  button, built for runbooks. Presentation only; nothing executes.
+
 ## [0.6.2] - 2026-07-14
 
 ### Added

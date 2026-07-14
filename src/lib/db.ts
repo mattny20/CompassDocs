@@ -1,4 +1,5 @@
 import { Pool, types } from "pg";
+import { createHash, randomBytes } from "node:crypto";
 import { SEED_SPACES, SEED_DOCS } from "./seed-data";
 import { hashPassword } from "./password";
 import type {
@@ -183,6 +184,19 @@ const SCHEMA_SQL = `
     expires_at timestamptz NOT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+
+  -- Personal API tokens (Claude connector / MCP, integrations). Only a SHA-256
+  -- hash is stored; the raw token is shown once at creation.
+  CREATE TABLE IF NOT EXISTS api_tokens (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name text NOT NULL DEFAULT '',
+    token_hash text UNIQUE NOT NULL,
+    prefix text NOT NULL DEFAULT '',
+    created_at timestamptz NOT NULL DEFAULT now(),
+    last_used_at timestamptz
+  );
+  CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id);
 
   CREATE TABLE IF NOT EXISTS settings (
     key text PRIMARY KEY,
@@ -994,6 +1008,74 @@ export async function countAdmins(): Promise<number> {
       "SELECT COUNT(*)::int AS n FROM users WHERE role = 'admin' AND status = 'active'"
     )
   )[0].n;
+}
+
+// --- Personal API tokens (Claude connector / integrations) --------------------
+
+export interface ApiToken {
+  id: number;
+  name: string;
+  prefix: string;
+  created_at: string;
+  last_used_at: string | null;
+}
+
+function hashApiToken(raw: string): string {
+  return createHash("sha256").update(raw).digest("hex");
+}
+
+/** Mint a token for a user. The raw value is returned ONCE and never stored. */
+export async function createApiToken(
+  userId: number,
+  name: string
+): Promise<{ token: string; record: ApiToken }> {
+  const raw = "cdk_" + randomBytes(24).toString("base64url");
+  const prefix = raw.slice(0, 12) + "…";
+  const r = await q<{ id: number; created_at: string }>(
+    `INSERT INTO api_tokens (user_id, name, token_hash, prefix)
+     VALUES ($1,$2,$3,$4) RETURNING id, created_at`,
+    [userId, name.trim().slice(0, 60) || "token", hashApiToken(raw), prefix]
+  );
+  return {
+    token: raw,
+    record: { id: r[0].id, name, prefix, created_at: r[0].created_at, last_used_at: null },
+  };
+}
+
+export async function listApiTokens(userId: number): Promise<ApiToken[]> {
+  return q(
+    `SELECT id, name, prefix, created_at, last_used_at FROM api_tokens
+     WHERE user_id = $1 ORDER BY created_at DESC`,
+    [userId]
+  );
+}
+
+export async function deleteApiToken(userId: number, id: number): Promise<boolean> {
+  const res = await pool().query("DELETE FROM api_tokens WHERE id = $1 AND user_id = $2", [
+    id,
+    userId,
+  ]);
+  return (res.rowCount ?? 0) > 0;
+}
+
+/** Resolve a raw bearer token to its (active) user, updating last_used_at. */
+export async function getUserByApiToken(raw: string): Promise<User | undefined> {
+  if (!raw.startsWith("cdk_")) return undefined;
+  const rows = await q<User & { token_id: number }>(
+    `SELECT ${USER_COLUMNS
+      .split(",")
+      .map((c) => "u." + c.trim())
+      .join(", ")}, t.id AS token_id
+     FROM api_tokens t JOIN users u ON u.id = t.user_id
+     WHERE t.token_hash = $1 AND u.status = 'active'`,
+    [hashApiToken(raw)]
+  );
+  const hit = rows[0];
+  if (!hit) return undefined;
+  // Fire-and-forget freshness stamp; not worth failing the request over.
+  q("UPDATE api_tokens SET last_used_at = now() WHERE id = $1", [hit.token_id]).catch(() => {});
+  const { token_id: _ignored, ...user } = hit;
+  return user as User;
 }
 
 // --- Sessions ----------------------------------------------------------------
