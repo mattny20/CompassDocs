@@ -872,6 +872,62 @@ export async function listUsers(): Promise<User[]> {
   return q(`SELECT ${USER_COLUMNS} FROM users ORDER BY role DESC, username`);
 }
 
+/** SSO identity lookup: the (provider, external_id) pair is the stable key. */
+export async function getUserByExternalId(
+  provider: string,
+  externalId: string
+): Promise<User | undefined> {
+  return (
+    await q<User>(
+      `SELECT ${USER_COLUMNS} FROM users WHERE auth_provider = $1 AND external_id = $2`,
+      [provider, externalId]
+    )
+  )[0];
+}
+
+/** Email match for linking an SSO identity to a pre-existing account. */
+export async function getUserByEmail(email: string): Promise<User | undefined> {
+  return (
+    await q<User>(
+      `SELECT ${USER_COLUMNS} FROM users WHERE lower(email) = lower($1) ORDER BY id LIMIT 1`,
+      [email]
+    )
+  )[0];
+}
+
+/**
+ * Attach an SSO identity to an existing (typically local) account. The
+ * password, if any, is left in place so both sign-in paths keep working.
+ */
+export async function linkSsoIdentity(
+  userId: number,
+  provider: string,
+  externalId: string
+): Promise<void> {
+  await q("UPDATE users SET auth_provider = $1, external_id = $2 WHERE id = $3", [
+    provider,
+    externalId,
+    userId,
+  ]);
+}
+
+/** Provision a user from an SSO assertion — no password, so no local login. */
+export async function createSsoUser(input: {
+  username: string;
+  name: string;
+  email: string;
+  role: Role;
+  provider: string;
+  externalId: string;
+}): Promise<User> {
+  const r = await q<{ id: number }>(
+    `INSERT INTO users (username, email, name, role, auth_provider, external_id)
+     VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+    [input.username, input.email, input.name, input.role, input.provider, input.externalId]
+  );
+  return (await getUserById(r[0].id))!;
+}
+
 export async function createUser(input: {
   username: string;
   name: string;
