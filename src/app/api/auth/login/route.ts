@@ -13,11 +13,15 @@ export async function POST(req: Request) {
   }
   const username = String(body?.username ?? "").trim();
   const password = String(body?.password ?? "");
+  const totpCode = typeof body?.totp_code === "string" ? body.totp_code : undefined;
   if (!username || !password) {
     return NextResponse.json({ error: "Username and password are required." }, { status: 400 });
   }
 
-  const result = await login(username, password);
+  const result = await login(username, password, totpCode, {
+    ip: ipFrom(req),
+    userAgent: req.headers.get("user-agent"),
+  });
   if (!result) {
     await audit({
       actor: { name: username },
@@ -27,6 +31,15 @@ export async function POST(req: Request) {
       ip: ipFrom(req),
     });
     return NextResponse.json({ error: "Invalid username or password." }, { status: 401 });
+  }
+
+  if ("totp_required" in result) {
+    // Password was right. Ask for (or re-ask after a wrong) authenticator code;
+    // don't audit as a failure — this is a normal step for 2FA accounts.
+    return NextResponse.json(
+      { totp_required: true, error: totpCode ? "That code didn't work — try again." : undefined },
+      { status: 401 }
+    );
   }
 
   await audit({

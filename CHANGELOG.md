@@ -4,6 +4,20 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.9.0] - 2026-07-14
+
+### Added
+- **Two-factor authentication (TOTP).** Any user can add an authenticator-app
+  code to their password sign-in under *your name → Security*: scan the QR,
+  confirm a live code (so a bad scan can't lock you out), save eight one-time
+  recovery codes. Password logins then require the current code — or a
+  recovery code — after the password. Admins get a **Reset 2FA** escape hatch
+  in Users & roles for lost devices; everything lands in the audit log. SSO
+  users keep getting MFA from their identity provider.
+- **Active sessions.** The Security page lists every signed-in device
+  (browser/OS, IP, sign-in time, current device highlighted) with per-device
+  **Sign out** and **Sign out everywhere else**.
+
 ## [0.8.0] - 2026-07-14
 
 ### Added

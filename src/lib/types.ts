@@ -38,6 +38,7 @@ export interface User {
   auth_provider: string;
   external_id: string | null;
   must_change_password: number;
+  totp_enabled: number;
   created_at: string;
   last_login_at: string | null;
 }

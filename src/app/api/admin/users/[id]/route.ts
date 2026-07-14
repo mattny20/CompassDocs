@@ -6,6 +6,7 @@ import {
   deleteUser,
   countAdmins,
   deleteUserSessions,
+  disableTotp,
 } from "@/lib/db";
 import { hashPassword } from "@/lib/password";
 import { apiGuard } from "@/lib/api-auth";
@@ -42,6 +43,21 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     await audit({
       actor: actorFrom(admin),
       action: "user.reset_password",
+      targetType: "user",
+      targetId: target.id,
+      targetLabel: target.username,
+      ip: ipFrom(req),
+    });
+    return NextResponse.json({ ok: true });
+  }
+
+  // 2FA reset — the admin escape hatch for a user who lost their authenticator
+  // AND recovery codes. Clears the secret so they can sign in and re-enroll.
+  if (body?.reset2fa === true) {
+    await disableTotp(target.id);
+    await audit({
+      actor: actorFrom(admin),
+      action: "user.reset_2fa",
       targetType: "user",
       targetId: target.id,
       targetLabel: target.username,
