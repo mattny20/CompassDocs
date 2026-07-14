@@ -4,6 +4,19 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.10.0] - 2026-07-14
+
+### Added
+- **One-click Deploy to Azure.** A "Deploy to Azure" button (README and docs)
+  opens a guided portal wizard that launches the full stack — app, Postgres,
+  optional Caddy HTTPS — on an Ubuntu VM via Docker Compose. Fully
+  configurable: any VM size (native size picker), new or existing virtual
+  network, public IP new/existing/none with a DNS label, separate SSH/web CIDR
+  allowlists, OS disk type/size, an optional dedicated data disk (formatted
+  and mounted as Docker's data root on first boot), edition + license key,
+  HTTPS on/off, headless admin bootstrap, and an Anthropic API key. Templates
+  live in `deploy/azure/`.
+
 ## [0.9.3] - 2026-07-14
 
 ### Fixed

@@ -1,0 +1,371 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "CompassDocs one-click deploy: an Ubuntu VM running the Docker Compose stack (app + Postgres, optional Caddy HTTPS), with configurable VM size, networking, and storage. Pairs with createUiDefinition.json for the portal wizard."
+  },
+  "parameters": {
+    "vmName": {
+      "type": "string",
+      "defaultValue": "compassdocs",
+      "maxLength": 60,
+      "metadata": { "description": "Name for the VM and related resources." }
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": { "description": "Azure region." }
+    },
+    "vmSize": {
+      "type": "string",
+      "defaultValue": "Standard_B2s",
+      "metadata": { "description": "VM size (2 vCPU / 4 GB is a comfortable start)." }
+    },
+    "adminUsername": {
+      "type": "string",
+      "defaultValue": "azureuser",
+      "metadata": { "description": "Linux admin username for SSH." }
+    },
+    "authenticationType": {
+      "type": "string",
+      "defaultValue": "sshPublicKey",
+      "allowedValues": ["sshPublicKey", "password"],
+      "metadata": { "description": "SSH key (recommended) or password." }
+    },
+    "adminPasswordOrKey": {
+      "type": "securestring",
+      "metadata": { "description": "SSH public key or password, per authenticationType." }
+    },
+    "virtualNetworkName": {
+      "type": "string",
+      "defaultValue": "[concat(parameters('vmName'), '-vnet')]",
+      "metadata": { "description": "Virtual network name." }
+    },
+    "virtualNetworkNewOrExisting": {
+      "type": "string",
+      "defaultValue": "new",
+      "allowedValues": ["new", "existing"],
+      "metadata": { "description": "Create a new VNet or join an existing one." }
+    },
+    "virtualNetworkResourceGroup": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().name]",
+      "metadata": { "description": "Resource group of the (existing) VNet." }
+    },
+    "virtualNetworkAddressPrefixes": {
+      "type": "array",
+      "defaultValue": ["10.20.0.0/16"],
+      "metadata": { "description": "Address space when creating a new VNet." }
+    },
+    "subnetName": {
+      "type": "string",
+      "defaultValue": "compassdocs",
+      "metadata": { "description": "Subnet for the VM." }
+    },
+    "subnetAddressPrefix": {
+      "type": "string",
+      "defaultValue": "10.20.0.0/24",
+      "metadata": { "description": "Subnet prefix when creating a new VNet." }
+    },
+    "publicIpName": {
+      "type": "string",
+      "defaultValue": "[concat(parameters('vmName'), '-ip')]",
+      "metadata": { "description": "Public IP resource name." }
+    },
+    "publicIpNewOrExistingOrNone": {
+      "type": "string",
+      "defaultValue": "new",
+      "allowedValues": ["new", "existing", "none"],
+      "metadata": { "description": "Public IP: create, reuse, or none (private-only)." }
+    },
+    "publicIpResourceGroup": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().name]",
+      "metadata": { "description": "Resource group of the (existing) public IP." }
+    },
+    "publicIpDns": {
+      "type": "string",
+      "defaultValue": "[concat('compassdocs-', uniqueString(resourceGroup().id))]",
+      "metadata": { "description": "DNS label → <label>.<region>.cloudapp.azure.com." }
+    },
+    "sshSourcePrefix": {
+      "type": "string",
+      "defaultValue": "*",
+      "metadata": { "description": "CIDR (or *) allowed to reach SSH (22). Lock this down." }
+    },
+    "webSourcePrefix": {
+      "type": "string",
+      "defaultValue": "*",
+      "metadata": { "description": "CIDR (or *) allowed to reach the app over HTTP/HTTPS." }
+    },
+    "osDiskType": {
+      "type": "string",
+      "defaultValue": "StandardSSD_LRS",
+      "allowedValues": ["Premium_LRS", "StandardSSD_LRS", "Standard_LRS"],
+      "metadata": { "description": "OS disk SKU." }
+    },
+    "osDiskSizeGB": {
+      "type": "int",
+      "defaultValue": 64,
+      "minValue": 30,
+      "maxValue": 2048,
+      "metadata": { "description": "OS disk size in GB." }
+    },
+    "dataDiskEnabled": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": { "description": "Attach a dedicated data disk for Docker (DB, uploads, backups)." }
+    },
+    "dataDiskType": {
+      "type": "string",
+      "defaultValue": "StandardSSD_LRS",
+      "allowedValues": ["Premium_LRS", "StandardSSD_LRS", "Standard_LRS"],
+      "metadata": { "description": "Data disk SKU." }
+    },
+    "dataDiskSizeGB": {
+      "type": "int",
+      "defaultValue": 128,
+      "minValue": 32,
+      "maxValue": 4096,
+      "metadata": { "description": "Data disk size in GB." }
+    },
+    "edition": {
+      "type": "string",
+      "defaultValue": "community",
+      "allowedValues": ["community", "enterprise"],
+      "metadata": { "description": "CompassDocs edition. Enterprise features unlock with a license." }
+    },
+    "licenseKey": {
+      "type": "securestring",
+      "defaultValue": "",
+      "metadata": { "description": "Enterprise license key (optional — can be pasted in the app later)." }
+    },
+    "enableTls": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": { "description": "Bundle the Caddy HTTPS proxy on 80/443 (set your domain in the setup wizard)." }
+    },
+    "appAdminUsername": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": { "description": "Optional: pre-create the CompassDocs admin account headlessly." }
+    },
+    "appAdminPassword": {
+      "type": "securestring",
+      "defaultValue": "",
+      "metadata": { "description": "Password for the pre-created CompassDocs admin." }
+    },
+    "anthropicApiKey": {
+      "type": "securestring",
+      "defaultValue": "",
+      "metadata": { "description": "Optional Anthropic API key to enable AI answers + proofreading." }
+    },
+    "postgresPassword": {
+      "type": "securestring",
+      "defaultValue": "[replace(newGuid(), '-', '')]",
+      "metadata": { "description": "Postgres password (leave the generated default)." }
+    }
+  },
+  "variables": {
+    "nicName": "[concat(parameters('vmName'), '-nic')]",
+    "nsgName": "[concat(parameters('vmName'), '-nsg')]",
+    "subnetId": "[resourceId(parameters('virtualNetworkResourceGroup'), 'Microsoft.Network/virtualNetworks/subnets', parameters('virtualNetworkName'), parameters('subnetName'))]",
+    "publicIpId": "[resourceId(parameters('publicIpResourceGroup'), 'Microsoft.Network/publicIPAddresses', parameters('publicIpName'))]",
+    "usePublicIp": "[not(equals(parameters('publicIpNewOrExistingOrNone'), 'none'))]",
+    "linuxConfigSsh": {
+      "disablePasswordAuthentication": true,
+      "ssh": {
+        "publicKeys": [
+          {
+            "path": "[concat('/home/', parameters('adminUsername'), '/.ssh/authorized_keys')]",
+            "keyData": "[parameters('adminPasswordOrKey')]"
+          }
+        ]
+      }
+    },
+    "dataDiskArray": [
+      {
+        "lun": 0,
+        "createOption": "Empty",
+        "diskSizeGB": "[parameters('dataDiskSizeGB')]",
+        "managedDisk": { "storageAccountType": "[parameters('dataDiskType')]" }
+      }
+    ],
+    "webPorts": "[if(parameters('enableTls'), createArray('80', '443'), createArray('80'))]",
+    "installScriptLines": [
+      "#!/bin/bash",
+      "set -euo pipefail",
+      "exec > /var/log/compassdocs-init.log 2>&1",
+      "echo '--- CompassDocs Azure bootstrap ---'",
+      "# Dedicated data disk (lun0): format on first boot, mount as Docker's root",
+      "# so the database, uploads, and backups all live on it.",
+      "DISK=/dev/disk/azure/scsi1/lun0",
+      "if [ -e \"$DISK\" ]; then",
+      "  if ! blkid \"${DISK}-part1\" >/dev/null 2>&1; then",
+      "    parted -s \"$DISK\" mklabel gpt mkpart primary ext4 0% 100%",
+      "    sleep 2 && mkfs.ext4 -q \"${DISK}-part1\"",
+      "  fi",
+      "  mkdir -p /var/lib/docker && mount \"${DISK}-part1\" /var/lib/docker",
+      "  echo \"$(blkid -s UUID -o value ${DISK}-part1) /var/lib/docker ext4 defaults,nofail 0 2\" >> /etc/fstab",
+      "fi",
+      "command -v docker >/dev/null || curl -fsSL https://get.docker.com | sh",
+      "# Write .env BEFORE running install.sh — the installer keeps an existing",
+      "# .env untouched, so the deployment parameters become the config.",
+      "mkdir -p /opt/compassdocs && cd /opt/compassdocs",
+      "printf 'POSTGRES_PASSWORD=%s\\nPORT=3000\\n' '{PGPASS}' > .env",
+      "if [ -n '{LICENSE}' ]; then printf 'COMPASSDOCS_LICENSE_KEY=%s\\n' '{LICENSE}' >> .env; fi",
+      "if [ -n '{APPADMIN}' ]; then printf 'COMPASSDOCS_ADMIN_USER=%s\\nCOMPASSDOCS_ADMIN_PASSWORD=%s\\n' '{APPADMIN}' '{APPADMINPW}' >> .env; fi",
+      "if [ -n '{ANTHROPIC}' ]; then printf 'ANTHROPIC_API_KEY=%s\\n' '{ANTHROPIC}' >> .env; fi",
+      "chmod 600 .env",
+      "cd /opt",
+      "export COMPASSDOCS_EDITION='{EDITION}' COMPASSDOCS_TLS='{TLS}'",
+      "curl -fsSL https://raw.githubusercontent.com/mattny20/CompassDocs/main/install.sh -o /tmp/compassdocs-install.sh",
+      "bash /tmp/compassdocs-install.sh",
+      "echo '--- CompassDocs bootstrap complete ---'"
+    ],
+    "installScript": "[replace(replace(replace(replace(replace(replace(replace(join(variables('installScriptLines'), '\n'), '{EDITION}', parameters('edition')), '{TLS}', if(parameters('enableTls'), '1', '0')), '{LICENSE}', parameters('licenseKey')), '{PGPASS}', parameters('postgresPassword')), '{APPADMIN}', parameters('appAdminUsername')), '{APPADMINPW}', parameters('appAdminPassword')), '{ANTHROPIC}', parameters('anthropicApiKey'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "apiVersion": "2023-09-01",
+      "name": "[variables('nsgName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "securityRules": [
+          {
+            "name": "ssh",
+            "properties": {
+              "priority": 1000,
+              "direction": "Inbound",
+              "access": "Allow",
+              "protocol": "Tcp",
+              "sourcePortRange": "*",
+              "sourceAddressPrefix": "[parameters('sshSourcePrefix')]",
+              "destinationPortRange": "22",
+              "destinationAddressPrefix": "*"
+            }
+          },
+          {
+            "name": "web",
+            "properties": {
+              "priority": 1010,
+              "direction": "Inbound",
+              "access": "Allow",
+              "protocol": "Tcp",
+              "sourcePortRange": "*",
+              "sourceAddressPrefix": "[parameters('webSourcePrefix')]",
+              "destinationPortRanges": "[if(parameters('enableTls'), variables('webPorts'), createArray('3000'))]",
+              "destinationAddressPrefix": "*"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "condition": "[equals(parameters('virtualNetworkNewOrExisting'), 'new')]",
+      "type": "Microsoft.Network/virtualNetworks",
+      "apiVersion": "2023-09-01",
+      "name": "[parameters('virtualNetworkName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "addressSpace": { "addressPrefixes": "[parameters('virtualNetworkAddressPrefixes')]" },
+        "subnets": [
+          {
+            "name": "[parameters('subnetName')]",
+            "properties": { "addressPrefix": "[parameters('subnetAddressPrefix')]" }
+          }
+        ]
+      }
+    },
+    {
+      "condition": "[equals(parameters('publicIpNewOrExistingOrNone'), 'new')]",
+      "type": "Microsoft.Network/publicIPAddresses",
+      "apiVersion": "2023-09-01",
+      "name": "[parameters('publicIpName')]",
+      "location": "[parameters('location')]",
+      "sku": { "name": "Standard" },
+      "properties": {
+        "publicIPAllocationMethod": "Static",
+        "dnsSettings": { "domainNameLabel": "[parameters('publicIpDns')]" }
+      }
+    },
+    {
+      "type": "Microsoft.Network/networkInterfaces",
+      "apiVersion": "2023-09-01",
+      "name": "[variables('nicName')]",
+      "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/networkSecurityGroups', variables('nsgName'))]",
+        "[parameters('virtualNetworkName')]",
+        "[parameters('publicIpName')]"
+      ],
+      "properties": {
+        "networkSecurityGroup": {
+          "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('nsgName'))]"
+        },
+        "ipConfigurations": [
+          {
+            "name": "ipconfig1",
+            "properties": {
+              "subnet": { "id": "[variables('subnetId')]" },
+              "privateIPAllocationMethod": "Dynamic",
+              "publicIPAddress": "[if(variables('usePublicIp'), createObject('id', variables('publicIpId')), null())]"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Compute/virtualMachines",
+      "apiVersion": "2024-03-01",
+      "name": "[parameters('vmName')]",
+      "location": "[parameters('location')]",
+      "dependsOn": ["[resourceId('Microsoft.Network/networkInterfaces', variables('nicName'))]"],
+      "properties": {
+        "hardwareProfile": { "vmSize": "[parameters('vmSize')]" },
+        "osProfile": {
+          "computerName": "[parameters('vmName')]",
+          "adminUsername": "[parameters('adminUsername')]",
+          "adminPassword": "[if(equals(parameters('authenticationType'), 'password'), parameters('adminPasswordOrKey'), null())]",
+          "linuxConfiguration": "[if(equals(parameters('authenticationType'), 'sshPublicKey'), variables('linuxConfigSsh'), null())]",
+          "customData": "[base64(variables('installScript'))]"
+        },
+        "storageProfile": {
+          "imageReference": {
+            "publisher": "Canonical",
+            "offer": "ubuntu-24_04-lts",
+            "sku": "server",
+            "version": "latest"
+          },
+          "osDisk": {
+            "createOption": "FromImage",
+            "diskSizeGB": "[parameters('osDiskSizeGB')]",
+            "managedDisk": { "storageAccountType": "[parameters('osDiskType')]" }
+          },
+          "dataDisks": "[if(parameters('dataDiskEnabled'), variables('dataDiskArray'), createArray())]"
+        },
+        "networkProfile": {
+          "networkInterfaces": [
+            { "id": "[resourceId('Microsoft.Network/networkInterfaces', variables('nicName'))]" }
+          ]
+        },
+        "diagnosticsProfile": { "bootDiagnostics": { "enabled": true } }
+      }
+    }
+  ],
+  "outputs": {
+    "appUrl": {
+      "type": "string",
+      "value": "[if(variables('usePublicIp'), concat(if(parameters('enableTls'), 'http://', 'http://'), parameters('publicIpDns'), '.', parameters('location'), '.cloudapp.azure.com', if(parameters('enableTls'), '/', ':3000/')), 'No public IP — reach the VM over its private address.')]"
+    },
+    "sshCommand": {
+      "type": "string",
+      "value": "[if(variables('usePublicIp'), concat('ssh ', parameters('adminUsername'), '@', parameters('publicIpDns'), '.', parameters('location'), '.cloudapp.azure.com'), concat('ssh ', parameters('adminUsername'), '@<private-ip>'))]"
+    },
+    "nextSteps": {
+      "type": "string",
+      "value": "Give the VM ~2 minutes to bootstrap, then open the app URL to run the setup wizard. With HTTPS enabled, point your domain at the public IP and set it in the wizard for an automatic certificate. Bootstrap log on the VM: /var/log/compassdocs-init.log"
+    }
+  }
+}
