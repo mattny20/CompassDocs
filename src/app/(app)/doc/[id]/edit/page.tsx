@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { getDocument, listSpaces, getApprovalMode } from "@/lib/db";
 import { requireRole } from "@/lib/auth";
+import { spaceScopeFor, scopeAllows } from "@/lib/access";
 import { roleAtLeast } from "@/lib/types";
 import { DocEditor } from "@/components/DocEditor";
 
@@ -11,7 +12,9 @@ export default async function EditDocPage({ params }: { params: Promise<{ id: st
   const { id } = await params;
   const doc = await getDocument(Number(id));
   if (!doc) notFound();
-  const spaces = await listSpaces();
+  const scope = await spaceScopeFor(user);
+  if (!scopeAllows(scope, doc.space_id)) notFound();
+  const spaces = await listSpaces(scope);
   const canPublish = roleAtLeast(user.role, "approver") || (await getApprovalMode()) === "open";
 
   return (

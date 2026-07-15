@@ -2,6 +2,7 @@
 // component, which owns the collapse/expand state (persisted per browser).
 
 import { listSpaces } from "@/lib/db";
+import { spaceScopeFor } from "@/lib/access";
 import { getAppSettings } from "@/lib/settings-store";
 import { roleAtLeast } from "@/lib/types";
 import type { SessionUser } from "@/lib/types";
@@ -16,7 +17,8 @@ export async function Sidebar({
   reviewCount: number;
   trashCount: number;
 }) {
-  const [spaces, settings] = await Promise.all([listSpaces(), getAppSettings()]);
+  const scope = await spaceScopeFor(user);
+  const [spaces, settings] = await Promise.all([listSpaces(scope), getAppSettings()]);
 
   return (
     <SidebarClient

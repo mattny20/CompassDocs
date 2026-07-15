@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getDocument, listVersions } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
+import { spaceScopeFor, scopeAllows } from "@/lib/access";
 import { getAppSettings } from "@/lib/settings-store";
 import { formatDateTime } from "@/lib/format";
 import { roleAtLeast } from "@/lib/types";
@@ -14,6 +15,7 @@ export default async function HistoryPage({ params }: { params: Promise<{ id: st
   const { id } = await params;
   const doc = await getDocument(Number(id));
   if (!doc) notFound();
+  if (!scopeAllows(await spaceScopeFor(user), doc.space_id)) notFound();
   if (doc.status === "draft" && !roleAtLeast(user.role, "editor")) notFound();
   const [versions, settings] = await Promise.all([listVersions(doc.id), getAppSettings()]);
 

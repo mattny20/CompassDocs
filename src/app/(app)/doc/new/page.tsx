@@ -1,5 +1,6 @@
 import { listSpaces, getSpaceBySlug, getApprovalMode } from "@/lib/db";
 import { requireRole } from "@/lib/auth";
+import { spaceScopeFor } from "@/lib/access";
 import { roleAtLeast } from "@/lib/types";
 import { DocEditor } from "@/components/DocEditor";
 
@@ -12,7 +13,7 @@ export default async function NewDocPage({
 }) {
   const user = await requireRole("editor");
   const { space } = await searchParams;
-  const spaces = await listSpaces();
+  const spaces = await listSpaces(await spaceScopeFor(user));
   const preselected = space ? await getSpaceBySlug(space) : undefined;
   const canPublish = roleAtLeast(user.role, "approver") || (await getApprovalMode()) === "open";
 

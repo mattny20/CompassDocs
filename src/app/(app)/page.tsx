@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { listSpaces, listRecentDocuments, countDocuments, allTags } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
+import { spaceScopeFor } from "@/lib/access";
 import { roleAtLeast } from "@/lib/types";
 import { DocCard } from "@/components/DocCard";
 
@@ -9,10 +10,11 @@ export const dynamic = "force-dynamic";
 export default async function DashboardPage() {
   const user = await requireUser();
   const includeDrafts = roleAtLeast(user.role, "editor");
+  const scope = await spaceScopeFor(user);
   const [spaces, recent, totalDocs, allTagList] = await Promise.all([
-    listSpaces(),
-    listRecentDocuments(6, includeDrafts),
-    countDocuments(includeDrafts),
+    listSpaces(scope),
+    listRecentDocuments(6, includeDrafts, scope),
+    countDocuments(includeDrafts, scope),
     allTags(),
   ]);
   const tags = allTagList.slice(0, 12);

@@ -124,6 +124,9 @@ const SCHEMA_SQL = `
     created_at timestamptz NOT NULL DEFAULT now()
   );
 
+  -- Space security: public (any signed-in user) or private (granted groups).
+  ALTER TABLE spaces ADD COLUMN IF NOT EXISTS visibility text NOT NULL DEFAULT 'public';
+
   CREATE TABLE IF NOT EXISTS documents (
     id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     space_id integer NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
@@ -175,6 +178,28 @@ const SCHEMA_SQL = `
     must_change_password integer NOT NULL DEFAULT 0,
     created_at timestamptz NOT NULL DEFAULT now(),
     last_login_at timestamptz
+  );
+
+  -- User groups: hand-made, or linked to a Microsoft Entra group and synced.
+  -- (After users: group_members references it.)
+  CREATE TABLE IF NOT EXISTS groups (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    name text NOT NULL,
+    source text NOT NULL DEFAULT 'manual',
+    external_id text,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    last_synced_at timestamptz
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_groups_external ON groups(external_id) WHERE external_id IS NOT NULL;
+  CREATE TABLE IF NOT EXISTS group_members (
+    group_id integer NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+    user_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    PRIMARY KEY (group_id, user_id)
+  );
+  CREATE TABLE IF NOT EXISTS space_groups (
+    space_id integer NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+    group_id integer NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+    PRIMARY KEY (space_id, group_id)
   );
 
   CREATE TABLE IF NOT EXISTS sessions (
@@ -530,11 +555,13 @@ function mapDoc(row: any): DocumentWithSpace {
 
 // --- Spaces ------------------------------------------------------------------
 
-export async function listSpaces(): Promise<(Space & { doc_count: number })[]> {
+export async function listSpaces(scope?: number[] | "all"): Promise<(Space & { doc_count: number })[]> {
+  const filter = Array.isArray(scope) ? " WHERE s.id = ANY($1)" : "";
   return q(
     `SELECT s.*, (SELECT COUNT(*)::int FROM documents d
        WHERE d.space_id = s.id AND d.deleted_at IS NULL) AS doc_count
-     FROM spaces s ORDER BY s.name`
+     FROM spaces s${filter} ORDER BY s.name`,
+    Array.isArray(scope) ? [scope] : []
   );
 }
 
@@ -556,11 +583,14 @@ export async function uniqueSpaceSlug(name: string): Promise<string> {
 
 export async function updateSpace(
   id: number,
-  patch: { name?: string; description?: string; icon?: string; color?: string }
+  patch: { name?: string; description?: string; icon?: string; color?: string; visibility?: string }
 ): Promise<Space | undefined> {
+  if (patch.visibility !== undefined && !["public", "private"].includes(patch.visibility)) {
+    delete patch.visibility;
+  }
   const sets: string[] = [];
   const vals: any[] = [];
-  for (const key of ["name", "description", "icon", "color"] as const) {
+  for (const key of ["name", "description", "icon", "color", "visibility"] as const) {
     if (patch[key] !== undefined) {
       sets.push(`${key} = $${sets.length + 1}`);
       vals.push(patch[key]);
@@ -594,16 +624,18 @@ export async function createSpace(input: {
   description?: string;
   icon?: string;
   color?: string;
+  visibility?: string;
 }): Promise<Space> {
   const r = await q<Space>(
-    `INSERT INTO spaces (slug, name, description, icon, color)
-     VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+    `INSERT INTO spaces (slug, name, description, icon, color, visibility)
+     VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
     [
       input.slug,
       input.name,
       input.description ?? "",
       input.icon ?? "📁",
       input.color ?? "#3366f2",
+      input.visibility === "private" ? "private" : "public",
     ]
   );
   return r[0];
@@ -654,21 +686,29 @@ export async function listDocumentsBySpace(
 
 export async function listRecentDocuments(
   limit = 8,
-  includeDrafts = false
+  includeDrafts = false,
+  scope?: number[] | "all"
 ): Promise<DocumentWithSpace[]> {
   const filter = includeDrafts ? "" : " AND d.status = 'published'";
+  const scoped = Array.isArray(scope) ? " AND d.space_id = ANY($2)" : "";
   const rows = await q(
-    `${DOC_SELECT} WHERE d.deleted_at IS NULL${filter} ORDER BY d.updated_at DESC LIMIT $1`,
-    [limit]
+    `${DOC_SELECT} WHERE d.deleted_at IS NULL${filter}${scoped} ORDER BY d.updated_at DESC LIMIT $1`,
+    Array.isArray(scope) ? [limit, scope] : [limit]
   );
   return rows.map(mapDoc);
 }
 
-export async function countDocuments(includeDrafts = false): Promise<number> {
-  const filter = includeDrafts ? "" : " AND status = 'published'";
+export async function countDocuments(
+  includeDrafts = false,
+  scope?: number[] | "all"
+): Promise<number> {
+  const filter =
+    (includeDrafts ? "" : " AND status = 'published'") +
+    (Array.isArray(scope) ? " AND space_id = ANY($1)" : "");
   return (
     await q<{ n: number }>(
-      `SELECT COUNT(*)::int AS n FROM documents WHERE deleted_at IS NULL${filter}`
+      `SELECT COUNT(*)::int AS n FROM documents WHERE deleted_at IS NULL${filter}`,
+      Array.isArray(scope) ? [scope] : []
     )
   )[0].n;
 }
@@ -843,10 +883,13 @@ const OR_TSQUERY = `replace(websearch_to_tsquery('english', $1)::text, '&', '|')
 export async function searchDocuments(
   raw: string,
   limit = 25,
-  includeDrafts = false
+  includeDrafts = false,
+  scope?: number[] | "all"
 ): Promise<SearchHit[]> {
   if (!raw.trim()) return [];
-  const filter = includeDrafts ? "" : " AND d.status = 'published'";
+  const filter =
+    (includeDrafts ? "" : " AND d.status = 'published'") +
+    (Array.isArray(scope) ? " AND d.space_id = ANY($3)" : "");
   const rows = await q(
     `SELECT d.id, d.title, d.slug, d.type, d.status, d.tags, d.updated_at,
             s.name AS space_name, s.slug AS space_slug, s.icon AS space_icon, s.color AS space_color,
@@ -858,7 +901,7 @@ export async function searchDocuments(
      WHERE d.search @@ tq.query AND d.deleted_at IS NULL${filter}
      ORDER BY ts_rank(d.search, tq.query) DESC
      LIMIT $2`,
-    [raw, limit]
+    Array.isArray(scope) ? [raw, limit, scope] : [raw, limit]
   );
   return rows.map((r) => ({
     id: r.id,
@@ -879,17 +922,20 @@ export async function searchDocuments(
 export async function retrieveForAnswer(
   raw: string,
   limit = 6,
-  includeDrafts = false
+  includeDrafts = false,
+  scope?: number[] | "all"
 ): Promise<Document[]> {
   if (!raw.trim()) return [];
-  const filter = includeDrafts ? "" : " AND d.status = 'published'";
+  const filter =
+    (includeDrafts ? "" : " AND d.status = 'published'") +
+    (Array.isArray(scope) ? " AND d.space_id = ANY($3)" : "");
   const rows = await q(
     `SELECT d.* FROM documents d
      CROSS JOIN LATERAL (SELECT ${OR_TSQUERY} AS query) tq
      WHERE d.search @@ tq.query AND d.deleted_at IS NULL${filter}
      ORDER BY ts_rank(d.search, tq.query) DESC
      LIMIT $2`,
-    [raw, limit]
+    Array.isArray(scope) ? [raw, limit, scope] : [raw, limit]
   );
   return rows.map((r) => ({ ...r, tags: parseTags(r.tags) }));
 }
@@ -1276,6 +1322,164 @@ export async function revokeOAuthGrant(userId: number, clientId: string): Promis
   return (res.rowCount ?? 0) > 0;
 }
 
+// --- Groups & space access ------------------------------------------------------
+
+export interface Group {
+  id: number;
+  name: string;
+  source: string; // "manual" | "entra"
+  external_id: string | null;
+  created_at: string;
+  last_synced_at: string | null;
+}
+
+export async function listGroups(): Promise<(Group & { member_count: number; space_count: number })[]> {
+  return q(`
+    SELECT g.*,
+      (SELECT COUNT(*) FROM group_members gm WHERE gm.group_id = g.id)::int AS member_count,
+      (SELECT COUNT(*) FROM space_groups sg WHERE sg.group_id = g.id)::int AS space_count
+    FROM groups g ORDER BY g.name`);
+}
+
+export async function getGroup(id: number): Promise<Group | undefined> {
+  return (await q<Group>("SELECT * FROM groups WHERE id = $1", [id]))[0];
+}
+
+export async function createGroup(input: {
+  name: string;
+  source?: string;
+  externalId?: string | null;
+}): Promise<Group> {
+  const r = await q<{ id: number }>(
+    "INSERT INTO groups (name, source, external_id) VALUES ($1,$2,$3) RETURNING id",
+    [input.name.slice(0, 80), input.source ?? "manual", input.externalId ?? null]
+  );
+  return (await getGroup(r[0].id))!;
+}
+
+export async function renameGroup(id: number, name: string): Promise<void> {
+  await q("UPDATE groups SET name = $1 WHERE id = $2", [name.slice(0, 80), id]);
+}
+
+export async function deleteGroup(id: number): Promise<boolean> {
+  const res = await pool().query("DELETE FROM groups WHERE id = $1", [id]);
+  return (res.rowCount ?? 0) > 0;
+}
+
+export async function listGroupMembers(groupId: number): Promise<User[]> {
+  return q(
+    `SELECT ${USER_COLUMNS.split(",").map((c) => "u." + c.trim()).join(", ")}
+     FROM group_members gm JOIN users u ON u.id = gm.user_id
+     WHERE gm.group_id = $1 ORDER BY u.name, u.username`,
+    [groupId]
+  );
+}
+
+export async function addGroupMember(groupId: number, userId: number): Promise<void> {
+  await q(
+    "INSERT INTO group_members (group_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING",
+    [groupId, userId]
+  );
+}
+
+export async function removeGroupMember(groupId: number, userId: number): Promise<void> {
+  await q("DELETE FROM group_members WHERE group_id = $1 AND user_id = $2", [groupId, userId]);
+}
+
+/** Replace a group's membership wholesale (used by the Entra sync). */
+export async function setGroupMembers(groupId: number, userIds: number[]): Promise<void> {
+  const client = await pool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("DELETE FROM group_members WHERE group_id = $1", [groupId]);
+    for (const uid of userIds) {
+      await client.query(
+        "INSERT INTO group_members (group_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING",
+        [groupId, uid]
+      );
+    }
+    await client.query("UPDATE groups SET last_synced_at = now() WHERE id = $1", [groupId]);
+    await client.query("COMMIT");
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+/** space_id → granted group ids, for the whole workspace (admin UI). */
+export async function listAllSpaceGroups(): Promise<Record<number, number[]>> {
+  const rows = await q<{ space_id: number; group_id: number }>(
+    "SELECT space_id, group_id FROM space_groups ORDER BY space_id"
+  );
+  const map: Record<number, number[]> = {};
+  for (const r of rows) (map[r.space_id] ??= []).push(r.group_id);
+  return map;
+}
+
+export async function getSpaceGroupIds(spaceId: number): Promise<number[]> {
+  return (
+    await q<{ group_id: number }>("SELECT group_id FROM space_groups WHERE space_id = $1", [spaceId])
+  ).map((r) => r.group_id);
+}
+
+export async function setSpaceGroups(spaceId: number, groupIds: number[]): Promise<void> {
+  const client = await pool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("DELETE FROM space_groups WHERE space_id = $1", [spaceId]);
+    for (const gid of groupIds) {
+      await client.query(
+        "INSERT INTO space_groups (space_id, group_id) VALUES ($1,$2) ON CONFLICT DO NOTHING",
+        [spaceId, gid]
+      );
+    }
+    await client.query("COMMIT");
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * The space ids a user may see: every public space plus private spaces where
+ * one of their groups is granted. Admins bypass (callers use "all").
+ */
+export async function accessibleSpaceIdsFor(userId: number): Promise<number[]> {
+  const rows = await q<{ id: number }>(
+    `SELECT s.id FROM spaces s WHERE s.visibility = 'public'
+     UNION
+     SELECT sg.space_id FROM space_groups sg
+       JOIN group_members gm ON gm.group_id = sg.group_id
+     WHERE gm.user_id = $1`,
+    [userId]
+  );
+  return rows.map((r) => r.id);
+}
+
+/** Map Entra member identities to local user ids (SSO id first, then email). */
+export async function matchUsersByIdentity(
+  members: { externalId?: string | null; email?: string | null }[]
+): Promise<number[]> {
+  const ids = new Set<number>();
+  for (const m of members) {
+    let hit: { id: number } | undefined;
+    if (m.externalId) {
+      hit = (await q<{ id: number }>("SELECT id FROM users WHERE external_id = $1", [m.externalId]))[0];
+    }
+    if (!hit && m.email) {
+      hit = (
+        await q<{ id: number }>("SELECT id FROM users WHERE lower(email) = lower($1) LIMIT 1", [m.email])
+      )[0];
+    }
+    if (hit) ids.add(hit.id);
+  }
+  return [...ids];
+}
+
 // --- Notification webhooks -----------------------------------------------------
 
 export interface Webhook {
@@ -1578,11 +1782,18 @@ export async function getChangeRequest(id: number): Promise<ChangeRequest | unde
   return (await q<ChangeRequest>(`${CR_SELECT} WHERE cr.id = $1`, [id]))[0];
 }
 
-export async function listChangeRequests(status?: "pending"): Promise<ChangeRequest[]> {
+export async function listChangeRequests(
+  status?: "pending",
+  scope?: number[] | "all"
+): Promise<ChangeRequest[]> {
   // Exclude change requests whose document has been trashed.
   const conds = ["d.deleted_at IS NULL"];
   if (status) conds.push("cr.status = 'pending'");
-  return q(`${CR_SELECT} WHERE ${conds.join(" AND ")} ORDER BY cr.created_at DESC`);
+  if (Array.isArray(scope)) conds.push("d.space_id = ANY($1)");
+  return q(
+    `${CR_SELECT} WHERE ${conds.join(" AND ")} ORDER BY cr.created_at DESC`,
+    Array.isArray(scope) ? [scope] : []
+  );
 }
 
 export async function listPendingForDocument(documentId: number): Promise<ChangeRequest[]> {

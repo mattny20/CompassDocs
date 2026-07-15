@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getSpaceBySlug, listDocumentsBySpace } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
+import { spaceScopeFor, scopeAllows } from "@/lib/access";
 import { roleAtLeast } from "@/lib/types";
 import { DocCard } from "@/components/DocCard";
 
@@ -12,6 +13,7 @@ export default async function SpacePage({ params }: { params: Promise<{ slug: st
   const { slug } = await params;
   const space = await getSpaceBySlug(slug);
   if (!space) notFound();
+  if (!scopeAllows(await spaceScopeFor(user), space.id)) notFound();
 
   const isEditor = roleAtLeast(user.role, "editor");
   const docs = await listDocumentsBySpace(space.id, isEditor);

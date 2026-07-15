@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { updateSpace, deleteSpace, getSpaceById } from "@/lib/db";
+import { updateSpace, deleteSpace, getSpaceById, setSpaceGroups, getSpaceGroupIds } from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
 
@@ -21,7 +21,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
 
-  const patch: { name?: string; description?: string; icon?: string; color?: string } = {};
+  const patch: {
+    name?: string;
+    description?: string;
+    icon?: string;
+    color?: string;
+    visibility?: string;
+  } = {};
   if (body?.name !== undefined) {
     const name = String(body.name).trim();
     if (name.length < 2 || name.length > 60) {
@@ -37,18 +43,40 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }
     patch.color = body.color;
   }
+  if (body?.visibility !== undefined) {
+    if (!["public", "private"].includes(body.visibility)) {
+      return NextResponse.json({ error: "Visibility must be public or private." }, { status: 400 });
+    }
+    patch.visibility = body.visibility;
+  }
 
   const space = await updateSpace(id, patch);
+
+  // Group grants only matter for private spaces; making a space public clears
+  // them so a later flip back to private starts from an explicit empty grant.
+  let groupIds: number[] | undefined;
+  if (space?.visibility === "public") {
+    await setSpaceGroups(id, []);
+    groupIds = [];
+  } else if (Array.isArray(body?.groupIds)) {
+    groupIds = body.groupIds.map(Number).filter((n: number) => Number.isInteger(n) && n > 0);
+    await setSpaceGroups(id, groupIds!);
+  } else {
+    groupIds = await getSpaceGroupIds(id);
+  }
+
   await audit({
     actor: actorFrom(gate),
     action: "space.update",
     targetType: "space",
     targetId: id,
     targetLabel: space?.name,
-    details: { fields: Object.keys(patch) },
+    details: {
+      fields: Object.keys(patch).concat(Array.isArray(body?.groupIds) ? ["groups"] : []),
+    },
     ip: ipFrom(req),
   });
-  return NextResponse.json({ space });
+  return NextResponse.json({ space, groupIds });
 }
 
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {

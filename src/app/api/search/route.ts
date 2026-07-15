@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { searchDocuments } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { roleAtLeast } from "@/lib/types";
+import { spaceScopeFor } from "@/lib/access";
 
 export const dynamic = "force-dynamic";
 
@@ -15,5 +16,6 @@ export async function GET(req: Request) {
   if (!q) return NextResponse.json({ hits: [] });
 
   const includeDrafts = roleAtLeast(user.role, "editor");
-  return NextResponse.json({ hits: await searchDocuments(q, limit, includeDrafts) });
+  const scope = await spaceScopeFor(user);
+  return NextResponse.json({ hits: await searchDocuments(q, limit, includeDrafts, scope) });
 }
