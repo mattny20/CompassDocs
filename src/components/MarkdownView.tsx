@@ -1,6 +1,7 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { CodeBlock } from "./CodeBlock";
+import { DocImage } from "./DocImage";
 
 export function MarkdownView({ content }: { content: string }) {
   return (
@@ -8,6 +9,10 @@ export function MarkdownView({ content }: { content: string }) {
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
+          // Images zoom on click and honor the "w=NN%" title width token.
+          img({ src, alt, title }) {
+            return <DocImage src={String(src ?? "")} alt={alt} title={title ?? undefined} />;
+          },
           // Fenced blocks (```lang) route through CodeBlock for the header bar,
           // Copy button, and run-block styling; inline code stays as-is.
           pre({ children }) {

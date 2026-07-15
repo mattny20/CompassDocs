@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { MarkdownView } from "./MarkdownView";
+import { PageWidth } from "./PageWidth";
 import { RichTextEditor } from "./RichTextEditor";
 import { DOC_TYPES } from "@/lib/types";
 import type { DocType, DocStatus, Space } from "@/lib/types";
@@ -245,7 +246,7 @@ export function DocEditor({
   }
 
   return (
-    <div className="mx-auto max-w-4xl px-8 py-8">
+    <PageWidth>
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-xl font-bold text-slate-900">
           {mode === "create" ? "New document" : "Edit document"}
@@ -429,7 +430,7 @@ export function DocEditor({
 
         {proof && <ProofPanel proof={proof} onApply={applyProof} onDismiss={() => setProof(null)} />}
       </div>
-    </div>
+    </PageWidth>
   );
 }
 

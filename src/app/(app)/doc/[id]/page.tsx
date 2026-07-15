@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { PageWidth } from "@/components/PageWidth";
 import { notFound } from "next/navigation";
 import { getDocument, listVersions, listPendingForDocument, listAttachments } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
@@ -31,7 +32,7 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
   const [settings, attachments] = await Promise.all([getAppSettings(), listAttachments(doc.id)]);
 
   return (
-    <div className="mx-auto max-w-3xl px-8 py-8">
+    <PageWidth>
       <nav className="mb-4 flex items-center gap-1.5 text-sm text-slate-400">
         <Link href="/" className="hover:text-slate-600">
           Home
@@ -116,6 +117,6 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
       />
 
       <SuggestBox documentId={doc.id} />
-    </div>
+    </PageWidth>
   );
 }
