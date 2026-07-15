@@ -70,6 +70,52 @@ export async function listPeople(opts?: {
   return (await pool().query<DirectoryPerson>(sql, params)).rows;
 }
 
+/**
+ * People relevant to a natural-language question ("who runs payroll?",
+ * "who's the head of IT?") for the Ask feature: token-match against name,
+ * title, and department, ranked by how many tokens hit.
+ */
+export async function searchPeopleForAnswer(
+  question: string,
+  limit = 5
+): Promise<DirectoryPerson[]> {
+  const STOP = new Set([
+    "the","who","whos","what","whats","where","when","how","why","is","are","was","for","and",
+    "our","does","do","can","could","should","of","in","on","at","a","an","to","i","we","you",
+    "with","about","contact","person","people","someone","anyone","reach","find","get","need",
+    "help","please","company","org","organization",
+  ]);
+  // Short all-caps words (IT, HR, QA…) are usually departments — keep them
+  // even though they'd fail the 3-character minimum.
+  const acronyms = (question.match(/\b[A-Z]{2,4}\b/g) ?? []).map((t) => t.toLowerCase());
+  const tokens = [
+    ...new Set([
+      ...acronyms,
+      ...question
+        .toLowerCase()
+        .replace(/[^a-z0-9\s@.'-]/g, " ")
+        .split(/\s+/)
+        .filter((t) => t.length >= 3 && !STOP.has(t)),
+    ]),
+  ].slice(0, 8);
+  if (tokens.length === 0) return [];
+
+  const params: unknown[] = tokens.map((t) => `%${t}%`);
+  const per = tokens.map(
+    (_, i) =>
+      `(CASE WHEN p.name ILIKE $${i + 1} OR p.title ILIKE $${i + 1} OR p.department ILIKE $${i + 1} THEN 1 ELSE 0 END)`
+  );
+  const rows = await pool().query<DirectoryPerson & { hits: number }>(
+    `SELECT ${COLS}, (${per.join(" + ")}) AS hits
+     ${FROM}
+     WHERE p.hidden = 0 AND (${per.join(" + ")}) > 0
+     ORDER BY hits DESC, p.name
+     LIMIT ${Math.max(1, Math.min(10, limit))}`,
+    params
+  );
+  return rows.rows;
+}
+
 /** Distinct non-empty departments among visible people (for the filter menu). */
 export async function listDepartments(): Promise<string[]> {
   const res = await pool().query<{ department: string }>(
@@ -181,6 +227,10 @@ export interface PersonInput {
   photo?: string;
   assistant_id?: number | null;
   custom?: Record<string, string>;
+}
+
+export async function getPersonById(id: number): Promise<DirectoryPerson | undefined> {
+  return getPerson(id);
 }
 
 async function getPerson(id: number): Promise<DirectoryPerson | undefined> {

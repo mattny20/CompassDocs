@@ -64,6 +64,7 @@ export function SearchClient({
       setAnswer({
         answer: "Something went wrong while asking. Please try again.",
         sources: [],
+        people: [],
         mode: "fallback",
       });
     } finally {
@@ -132,6 +133,37 @@ export function SearchClient({
             answer && (
               <>
                 <MarkdownView content={answer.answer} />
+                {(answer.people?.length ?? 0) > 0 && (
+                  <div className="mt-4 border-t border-compass-100 pt-3">
+                    <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                      From the people directory
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {answer.people!.map((p) => (
+                        <Link
+                          key={p.id}
+                          href={`/directory/${p.id}`}
+                          className="flex items-center gap-2.5 rounded-lg border border-slate-200 bg-surface px-3 py-2 hover:border-compass-300"
+                        >
+                          {p.photo ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={p.photo} alt="" className="h-8 w-8 rounded-full object-cover" />
+                          ) : (
+                            <span className="grid h-8 w-8 place-items-center rounded-full bg-compass-100 text-xs font-semibold text-compass-700">
+                              {p.name.split(/\s+/).map((w: string) => w[0]).slice(0, 2).join("")}
+                            </span>
+                          )}
+                          <span className="text-sm">
+                            <span className="block font-medium text-slate-800">{p.name}</span>
+                            <span className="block text-xs text-slate-500">
+                              {[p.title, p.department].filter(Boolean).join(" · ")}
+                            </span>
+                          </span>
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {answer.sources.length > 0 && (
                   <div className="mt-4 border-t border-compass-100 pt-3">
                     <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { LayoutGrid, List as ListIcon, Building2, Phone, Smartphone, MapPin } from "lucide-react";
 import type { DirectoryPerson, DirectoryField } from "@/lib/directory";
 
@@ -266,10 +267,13 @@ export function DirectoryClient({
                   {activeColumns.map((c) => (
                     <td key={c.id} className="px-4 py-2.5">
                       {c.id === "name" ? (
-                        <span className="flex items-center gap-2 font-medium text-slate-900">
+                        <Link
+                          href={`/directory/${p.id}`}
+                          className="flex items-center gap-2 font-medium text-slate-900 hover:text-compass-700"
+                        >
                           <Avatar p={p} size={10} />
                           {p.name}
-                        </span>
+                        </Link>
                       ) : c.id === "email" && p.email ? (
                         <a href={`mailto:${p.email}`} className="text-compass-600 hover:underline">
                           {p.email}
@@ -299,7 +303,11 @@ export function DirectoryClient({
               </h2>
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 {members.map((p) => (
-                  <div key={p.id} className="flex items-center gap-3 rounded-lg border border-slate-200 bg-surface px-3 py-2">
+                  <Link
+                    key={p.id}
+                    href={`/directory/${p.id}`}
+                    className="flex items-center gap-3 rounded-lg border border-slate-200 bg-surface px-3 py-2 hover:border-compass-300"
+                  >
                     <Avatar p={p} size={10} />
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium text-slate-900">{p.name}</p>
@@ -309,7 +317,7 @@ export function DirectoryClient({
                         {p.phone || p.mobile}
                       </p>
                     </div>
-                  </div>
+                  </Link>
                 ))}
               </div>
             </div>
@@ -322,7 +330,12 @@ export function DirectoryClient({
             <div key={p.id} className="flex gap-3 rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
               <Avatar p={p} />
               <div className="min-w-0">
-                <p className="truncate font-semibold text-slate-900">{p.name}</p>
+                <Link
+                  href={`/directory/${p.id}`}
+                  className="block truncate font-semibold text-slate-900 hover:text-compass-700"
+                >
+                  {p.name}
+                </Link>
                 {(p.title || p.department) && (
                   <p className="truncate text-sm text-slate-500">
                     {p.title}

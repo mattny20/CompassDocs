@@ -1,5 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { retrieveForAnswer } from "./db";
+import { searchPeopleForAnswer } from "./directory";
+import type { DirectoryPerson } from "./directory";
 import { getAnthropicKey, getAiModel } from "./ai-config";
 import type { Document } from "./types";
 
@@ -10,9 +12,22 @@ export interface AiSource {
   space_id: number;
 }
 
+export interface AiPerson {
+  id: number;
+  name: string;
+  title: string;
+  department: string;
+  email: string;
+  phone: string;
+  office: string;
+  photo: string;
+}
+
 export interface AiAnswer {
   answer: string;
   sources: AiSource[];
+  /** People-directory matches relevant to the question (may be empty). */
+  people: AiPerson[];
   /** "ai" when synthesized by Claude, "fallback" when no API key is configured. */
   mode: "ai" | "fallback";
 }
@@ -22,6 +37,30 @@ function toSources(docs: Document[]): AiSource[] {
 }
 
 /** Build the grounded context block handed to the model. */
+function toPeople(rows: DirectoryPerson[]): AiPerson[] {
+  return rows.map((p) => ({
+    id: p.id,
+    name: p.name,
+    title: p.title ?? "",
+    department: p.department ?? "",
+    email: p.email ?? "",
+    phone: p.phone || p.mobile || "",
+    office: p.office ?? "",
+    photo: p.photo ?? "",
+  }));
+}
+
+function peopleContext(people: AiPerson[]): string {
+  if (people.length === 0) return "";
+  const lines = people
+    .map(
+      (p) =>
+        `- ${p.name}${p.title ? ` — ${p.title}` : ""}${p.department ? ` (${p.department})` : ""}${p.email ? `, ${p.email}` : ""}${p.phone ? `, ${p.phone}` : ""}${p.office ? `, office: ${p.office}` : ""}`
+    )
+    .join("\n");
+  return `\n\nPeople directory matches:\n${lines}`;
+}
+
 function buildContext(docs: Document[]): string {
   return docs
     .map(
@@ -32,12 +71,15 @@ function buildContext(docs: Document[]): string {
 }
 
 /** Fallback answer when no ANTHROPIC_API_KEY is set: return the best snippets. */
-function fallbackAnswer(question: string, docs: Document[]): AiAnswer {
+function fallbackAnswer(question: string, docs: Document[], people: AiPerson[] = []): AiAnswer {
   if (docs.length === 0) {
     return {
       answer:
-        "I couldn't find anything in the knowledge base matching that question. Try different keywords, or browse the spaces from the sidebar.",
+        people.length > 0
+          ? "No documents matched, but the people below (from the directory) look relevant."
+          : "I couldn't find anything in the knowledge base matching that question. Try different keywords, or browse the spaces from the sidebar.",
       sources: [],
+      people,
       mode: "fallback",
     };
   }
@@ -54,6 +96,7 @@ function fallbackAnswer(question: string, docs: Document[]): AiAnswer {
       bullets +
       `\n\nOpen a source below to read the full document.`,
     sources: toSources(docs),
+    people,
     mode: "fallback",
   };
 }
@@ -182,17 +225,26 @@ export async function answerQuestion(
   scope?: number[] | "all"
 ): Promise<AiAnswer> {
   const docs = await retrieveForAnswer(question, 6, includeDrafts, scope);
+  // The people directory is workspace-wide for signed-in users, so "who"
+  // questions can be answered even when no document matches.
+  let people: AiPerson[] = [];
+  try {
+    people = toPeople(await searchPeopleForAnswer(question, 4));
+  } catch {
+    /* directory unavailable — answer from docs alone */
+  }
 
   const apiKey = await getAnthropicKey();
   if (!apiKey) {
-    return fallbackAnswer(question, docs);
+    return fallbackAnswer(question, docs, people);
   }
 
-  if (docs.length === 0) {
+  if (docs.length === 0 && people.length === 0) {
     return {
       answer:
         "I searched the knowledge base but found no documents related to that question. Try rephrasing, or add a document covering this topic.",
       sources: [],
+      people: [],
       mode: "ai",
     };
   }
@@ -201,10 +253,11 @@ export async function answerQuestion(
     const client = new Anthropic({ apiKey });
     const system = `You are CompassDocs, an assistant that answers questions strictly from a team's internal knowledge base.
 Rules:
-- Answer ONLY from the provided documents. If they don't contain the answer, say so plainly.
+- Answer ONLY from the provided documents and the people-directory matches. If they don't contain the answer, say so plainly.
 - Be concise and practical. Use short paragraphs or bullet points.
-- Cite the documents you used inline like [Doc 1], [Doc 2].
-- Never invent policies, numbers, or steps that aren't in the sources.`;
+- Cite the documents you used inline like [Doc 1], [Doc 2]. Cite directory facts as [Directory].
+- For "who"-questions, prefer the people directory: give the person's name, title, and contact info from it.
+- Never invent policies, numbers, steps, names, or contact details that aren't in the sources.`;
 
     const response = await client.messages.create({
       model: await getAiModel(),
@@ -213,7 +266,7 @@ Rules:
       messages: [
         {
           role: "user",
-          content: `Question: ${question}\n\nKnowledge base excerpts:\n\n${buildContext(docs)}`,
+          content: `Question: ${question}\n\nKnowledge base excerpts:\n\n${buildContext(docs) || "(no matching documents)"}${peopleContext(people)}`,
         },
       ],
     });
@@ -227,11 +280,12 @@ Rules:
     return {
       answer: answer || "I wasn't able to produce an answer from the available documents.",
       sources: toSources(docs),
+      people,
       mode: "ai",
     };
   } catch (err) {
     // Any API failure (bad key, rate limit, network) degrades gracefully.
     console.error("AI answer failed, falling back to snippets:", err);
-    return fallbackAnswer(question, docs);
+    return fallbackAnswer(question, docs, people);
   }
 }
