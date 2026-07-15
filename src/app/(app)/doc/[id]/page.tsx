@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { getDocument, listVersions, listPendingForDocument, listAttachments } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { spaceScopeFor, scopeAllows } from "@/lib/access";
+import { getPersonByName } from "@/lib/directory";
 import { getAppSettings } from "@/lib/settings-store";
 import { formatDateTime } from "@/lib/format";
 import { MarkdownView } from "@/components/MarkdownView";
@@ -29,7 +30,11 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
 
   const versionCount = (await listVersions(doc.id)).length;
   const pending = roleAtLeast(user.role, "approver") ? await listPendingForDocument(doc.id) : [];
-  const [settings, attachments] = await Promise.all([getAppSettings(), listAttachments(doc.id)]);
+  const [settings, attachments, authorPerson] = await Promise.all([
+    getAppSettings(),
+    listAttachments(doc.id),
+    getPersonByName(doc.author),
+  ]);
 
   return (
     <PageWidth>
@@ -76,7 +81,18 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
 
       <div className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-slate-100 pb-4 text-sm text-slate-500">
         <span>
-          By <span className="font-medium text-slate-700">{doc.author}</span>
+          By{" "}
+          {authorPerson ? (
+            <Link
+              href={`/directory/${authorPerson.id}`}
+              className="font-medium text-slate-700 hover:text-compass-700 hover:underline"
+              title={[authorPerson.title, authorPerson.department].filter(Boolean).join(" · ") || undefined}
+            >
+              {doc.author}
+            </Link>
+          ) : (
+            <span className="font-medium text-slate-700">{doc.author}</span>
+          )}
         </span>
         <span>·</span>
         <span title={formatDateTime(doc.updated_at, settings)}>Updated {timeAgo(doc.updated_at)}</span>

@@ -4,6 +4,14 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.19.1] - 2026-07-15
+
+### Added
+- The author byline on a document page links to the author's
+  [directory profile](https://docs.compassdocs.io/guides/directory/) when
+  their name matches a directory entry (hover shows their title). Authors
+  without a directory entry stay plain text.
+
 ## [0.19.0] - 2026-07-15
 
 ### Added

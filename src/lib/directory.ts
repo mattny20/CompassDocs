@@ -233,6 +233,17 @@ export async function getPersonById(id: number): Promise<DirectoryPerson | undef
   return getPerson(id);
 }
 
+/** Case-insensitive exact-name lookup (linking doc bylines to profiles). */
+export async function getPersonByName(name: string): Promise<DirectoryPerson | undefined> {
+  if (!name.trim()) return undefined;
+  return (
+    await pool().query<DirectoryPerson>(
+      `SELECT ${COLS} ${FROM} WHERE p.hidden = 0 AND lower(p.name) = lower($1) LIMIT 1`,
+      [name.trim()]
+    )
+  ).rows[0];
+}
+
 async function getPerson(id: number): Promise<DirectoryPerson | undefined> {
   return (
     await pool().query<DirectoryPerson>(`SELECT ${COLS} ${FROM} WHERE p.id = $1`, [id])
