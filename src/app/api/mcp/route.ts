@@ -24,6 +24,7 @@ import {
 } from "@/lib/db";
 import { currentVersion } from "@/lib/version";
 import { requestOrigin } from "@/lib/oauth";
+import { notifyWebhooks } from "@/lib/webhooks";
 import { audit, actorFrom } from "@/lib/audit";
 import { roleAtLeast } from "@/lib/types";
 import type { DocStatus, DocType, User } from "@/lib/types";
@@ -293,6 +294,11 @@ async function callTool(user: User, name: string, args: any) {
           targetId: existing.id,
           targetLabel: proposed.title,
           details: { kind: "edit", via: "mcp" },
+        });
+        void notifyWebhooks("change_request.submitted", {
+          title: proposed.title,
+          kind: "edit",
+          actor: user.name || user.username,
         });
         return toolJson({
           ok: true,

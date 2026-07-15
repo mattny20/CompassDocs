@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
-import { approveChangeRequest, rejectChangeRequest } from "@/lib/db";
+import { approveChangeRequest, rejectChangeRequest, getChangeRequest } from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
+import { notifyWebhooks } from "@/lib/webhooks";
+import { requestOrigin } from "@/lib/oauth";
 import type { SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -20,6 +22,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   }
   const action = body?.action;
   const note = String(body?.note ?? "").trim();
+  // Snapshot the title before the decision mutates the row.
+  const cr = await getChangeRequest(Number(id));
 
   if (action === "approve") {
     const ok = await approveChangeRequest(Number(id), user.id, user.name || user.username, note);
@@ -30,6 +34,12 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       targetType: "change_request",
       targetId: id,
       ip: ipFrom(req),
+    });
+    void notifyWebhooks("change_request.approved", {
+      title: cr?.title || `change request #${id}`,
+      actor: user.name || user.username,
+      note,
+      url: `${requestOrigin(req)}/review`,
     });
     return NextResponse.json({ ok: true, result: "approved" });
   }
@@ -42,6 +52,12 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       targetType: "change_request",
       targetId: id,
       ip: ipFrom(req),
+    });
+    void notifyWebhooks("change_request.rejected", {
+      title: cr?.title || `change request #${id}`,
+      actor: user.name || user.username,
+      note,
+      url: `${requestOrigin(req)}/review`,
     });
     return NextResponse.json({ ok: true, result: "rejected" });
   }
