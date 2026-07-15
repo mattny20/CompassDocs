@@ -133,3 +133,7 @@ mark {
 .doc-prose input[type="checkbox"] {
   @apply mr-1 align-middle;
 }
+
+.doc-prose img {
+  @apply my-4 h-auto max-w-full rounded-lg border border-slate-200 shadow-sm;
+}

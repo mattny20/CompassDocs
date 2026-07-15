@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { MarkdownView } from "./MarkdownView";
@@ -59,6 +59,13 @@ export function DocEditor({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [submittedDocId, setSubmittedDocId] = useState<number | null>(null);
+  // The doc we attach uploads to. In edit mode it's the doc being edited; in
+  // create mode it starts empty and is filled by the silent draft-save that a
+  // first image upload triggers (images need a document row to belong to).
+  const [docId, setDocId] = useState<number | undefined>(initial.id);
+  const [autoDrafted, setAutoDrafted] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const mdRef = useRef<HTMLTextAreaElement>(null);
 
   // AI proofreading state.
   const [proofing, setProofing] = useState(false);
@@ -93,6 +100,77 @@ export function DocEditor({
   // submitting a change for approval.
   const willSubmitForReview = !canPublish && status === "published";
 
+  /**
+   * Upload an image and return its serving URL, creating a draft first when
+   * the document doesn't exist yet. Returns null (and sets the error banner)
+   * on failure so callers can simply bail.
+   */
+  async function uploadImage(file: File): Promise<string | null> {
+    setError("");
+    setUploading(true);
+    try {
+      let id = docId;
+      if (!id) {
+        const res = await fetch("/api/documents", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            space_id: spaceId,
+            title: title.trim() || "Untitled",
+            type,
+            status: "draft",
+            summary,
+            tags,
+            content,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error || "Could not save a draft for the image.");
+        id = data.doc.id as number;
+        setDocId(id);
+        setAutoDrafted(true);
+      }
+      const fd = new FormData();
+      fd.append("file", file, file.name || "image.png");
+      const res = await fetch(`/api/documents/${id}/attachments`, { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Image upload failed.");
+      return data.attachment.url as string;
+    } catch (e: any) {
+      setError(e.message || "Image upload failed.");
+      return null;
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  /** Insert image markdown at the cursor of the raw-markdown textarea. */
+  async function insertImageIntoMarkdown(file: File) {
+    const url = await uploadImage(file);
+    if (!url) return;
+    const alt = (file.name || "image").replace(/\.[a-z0-9]+$/i, "") || "image";
+    const snippet = `![${alt}](${url})`;
+    const ta = mdRef.current;
+    if (ta) {
+      const start = ta.selectionStart ?? content.length;
+      const end = ta.selectionEnd ?? start;
+      const before = content.slice(0, start);
+      const after = content.slice(end);
+      const pad = before && !before.endsWith("\n") ? "\n\n" : before.endsWith("\n\n") || !before ? "" : "\n";
+      setContent(before + pad + snippet + "\n" + after);
+    } else {
+      setContent(content + (content.endsWith("\n") || !content ? "" : "\n") + snippet + "\n");
+    }
+  }
+
+  function imageFromDataTransfer(items: DataTransferItemList | null): File | null {
+    if (!items) return null;
+    for (const item of Array.from(items)) {
+      if (item.kind === "file" && item.type.startsWith("image/")) return item.getAsFile();
+    }
+    return null;
+  }
+
   async function save() {
     if (!title.trim()) {
       setError("A title is required.");
@@ -110,18 +188,20 @@ export function DocEditor({
       content,
     };
     try {
-      const res =
-        mode === "create"
-          ? await fetch("/api/documents", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(payload),
-            })
-          : await fetch(`/api/documents/${initial.id}`, {
-              method: "PUT",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ ...payload, versionNote: "Edited via editor" }),
-            });
+      const res = !docId
+        ? await fetch("/api/documents", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          })
+        : await fetch(`/api/documents/${docId}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              ...payload,
+              versionNote: mode === "create" ? "Created" : "Edited via editor",
+            }),
+          });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Save failed.");
       if (data.pending) {
@@ -298,12 +378,27 @@ export function DocEditor({
           </div>
 
           {tab === "rich" ? (
-            <RichTextEditor value={content} onChange={setContent} />
+            <RichTextEditor value={content} onChange={setContent} onUploadImage={uploadImage} />
           ) : tab === "markdown" ? (
             <textarea
+              ref={mdRef}
               value={content}
               onChange={(e) => setContent(e.target.value)}
-              placeholder="# Start writing…"
+              onPaste={(e) => {
+                const file = imageFromDataTransfer(e.clipboardData?.items ?? null);
+                if (file) {
+                  e.preventDefault();
+                  void insertImageIntoMarkdown(file);
+                }
+              }}
+              onDrop={(e) => {
+                const file = imageFromDataTransfer(e.dataTransfer?.items ?? null);
+                if (file) {
+                  e.preventDefault();
+                  void insertImageIntoMarkdown(file);
+                }
+              }}
+              placeholder="# Start writing…  (paste or drop a screenshot to insert it)"
               className="h-[420px] w-full resize-y rounded-b-lg px-4 py-3 font-mono text-sm text-slate-700 outline-none"
             />
           ) : (
@@ -317,6 +412,15 @@ export function DocEditor({
           )}
         </div>
 
+        {uploading && (
+          <p className="text-xs text-slate-500">Uploading image…</p>
+        )}
+        {autoDrafted && (
+          <p className="rounded-lg border border-compass-200 bg-compass-50 px-3 py-2 text-xs text-compass-800">
+            A draft was saved automatically so your image had a document to attach to — keep
+            editing and save as usual.
+          </p>
+        )}
         {proofError && (
           <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
             {proofError}

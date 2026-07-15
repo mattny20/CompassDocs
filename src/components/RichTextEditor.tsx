@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
+import Image from "@tiptap/extension-image";
 import { Markdown } from "tiptap-markdown";
 
 // A WYSIWYG editor for people who don't want to write Markdown. It reads and
@@ -13,10 +14,33 @@ import { Markdown } from "tiptap-markdown";
 export function RichTextEditor({
   value,
   onChange,
+  onUploadImage,
 }: {
   value: string;
   onChange: (markdown: string) => void;
+  /** Upload an image file, resolving to its serving URL (null on failure). */
+  onUploadImage?: (file: File) => Promise<string | null>;
 }) {
+  // Keep the latest callback in a ref so the editor (created once) always
+  // calls the current closure — uploads depend on live parent state.
+  const uploadRef = useRef(onUploadImage);
+  uploadRef.current = onUploadImage;
+
+  function insertUploaded(editor: Editor, file: File) {
+    void uploadRef.current?.(file).then((url) => {
+      if (!url) return;
+      const alt = (file.name || "image").replace(/\.[a-z0-9]+$/i, "") || "image";
+      editor.chain().focus().setImage({ src: url, alt }).run();
+    });
+  }
+
+  function firstImage(items: DataTransferItemList | null): File | null {
+    if (!items) return null;
+    for (const item of Array.from(items)) {
+      if (item.kind === "file" && item.type.startsWith("image/")) return item.getAsFile();
+    }
+    return null;
+  }
   const editor = useEditor({
     // Next.js renders this on the server first; defer creation to the client to
     // avoid a hydration mismatch.
@@ -24,6 +48,7 @@ export function RichTextEditor({
     extensions: [
       StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
       Link.configure({ openOnClick: false, autolink: true }),
+      Image,
       Markdown.configure({ html: false, linkify: true, breaks: true }),
     ],
     content: value,
@@ -31,6 +56,25 @@ export function RichTextEditor({
       attributes: {
         // Reuse the app's document styling so editing looks like the rendered doc.
         class: "doc-prose min-h-[420px] px-5 py-4 focus:outline-none",
+      },
+      // Pasted or dropped screenshots upload as attachments and insert inline.
+      handlePaste: (view, event) => {
+        const file = firstImage(event.clipboardData?.items ?? null);
+        if (file && uploadRef.current && editor) {
+          event.preventDefault();
+          insertUploaded(editor, file);
+          return true;
+        }
+        return false;
+      },
+      handleDrop: (view, event) => {
+        const file = firstImage(event.dataTransfer?.items ?? null);
+        if (file && uploadRef.current && editor) {
+          event.preventDefault();
+          insertUploaded(editor, file);
+          return true;
+        }
+        return false;
       },
     },
     onUpdate: ({ editor }) => {
@@ -55,13 +99,23 @@ export function RichTextEditor({
 
   return (
     <div>
-      <Toolbar editor={editor} />
+      <Toolbar
+        editor={editor}
+        onPickImage={onUploadImage ? (file) => insertUploaded(editor, file) : undefined}
+      />
       <EditorContent editor={editor} />
     </div>
   );
 }
 
-function Toolbar({ editor }: { editor: Editor }) {
+function Toolbar({
+  editor,
+  onPickImage,
+}: {
+  editor: Editor;
+  onPickImage?: (file: File) => void;
+}) {
+  const fileRef = useRef<HTMLInputElement>(null);
   const promptLink = () => {
     const prev = editor.getAttributes("link").href as string | undefined;
     const url = window.prompt("Link URL", prev || "https://");
@@ -136,6 +190,24 @@ function Toolbar({ editor }: { editor: Editor }) {
       <Btn onClick={promptLink} active={editor.isActive("link")} label="Link">
         🔗
       </Btn>
+      {onPickImage && (
+        <>
+          <Btn onClick={() => fileRef.current?.click()} label="Insert image (or paste / drag one in)">
+            🖼️
+          </Btn>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) onPickImage(file);
+              e.target.value = "";
+            }}
+          />
+        </>
+      )}
       <Btn onClick={() => editor.chain().focus().toggleCode().run()} active={editor.isActive("code")} label="Inline code">
         {"</>"}
       </Btn>
