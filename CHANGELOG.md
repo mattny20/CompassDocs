@@ -4,6 +4,23 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.18.0] - 2026-07-15
+
+### Added
+- **Workspace accent color.** Settings → Workspace → Branding gains an accent
+  picker (nine presets plus any custom hex). One color re-tints the entire
+  product — buttons, links, focus rings, highlights, and tinted surfaces, in
+  light and dark themes, on the login page, and on the public site. The full
+  color ramp is derived automatically from your single brand color.
+- **A real icon picker for spaces.** The 12-emoji row becomes a searchable,
+  categorized catalog of ~90 icons (General & docs, Tech & engineering,
+  Business & sales, People & culture, Security & operations, Places & misc) —
+  type "security" or "training" to find the right one. Any emoji can still be
+  typed or pasted by hand.
+- **"Ask CompassDocs" now carries your name**: the sidebar entry, the Ask
+  page heading, and the dashboard link all say "Ask {your workspace name}"
+  (from Settings → Workspace).
+
 ## [0.17.1] - 2026-07-15
 
 ### Fixed

@@ -26,6 +26,14 @@
   --slate-950: 2 6 23;
   --compass-50: 237 245 251;
   --compass-100: 212 230 245;
+  --compass-200: 179 211 236;
+  --compass-300: 130 180 224;
+  --compass-400: 80 147 208;
+  --compass-500: 58 128 198;
+  --compass-600: 46 117 189;
+  --compass-700: 39 95 153;
+  --compass-800: 35 79 124;
+  --compass-900: 32 66 100;
 }
 
 :root[data-theme="dark"] {

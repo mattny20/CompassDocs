@@ -31,6 +31,8 @@ export interface AppSettings {
   company_name: string;
   /** Optional logo (an image URL or a data: URL). Empty → default compass mark. */
   logo_url: string;
+  /** Workspace accent color (hex) — re-tints the whole compass palette. */
+  accent_color: string;
   /** IANA timezone used to render absolute timestamps (e.g. "America/New_York"). */
   timezone: string;
   /** How calendar dates are formatted. */
@@ -68,6 +70,7 @@ export const BACKUP_KEEP_MAX = 90;
 export const SETTINGS_DEFAULTS: AppSettings = {
   company_name: "CompassDocs",
   logo_url: "",
+  accent_color: "#2e75bd",
   timezone: "UTC",
   date_format: "medium",
   time_format: "24h",
@@ -142,6 +145,9 @@ export function normalizeSettings(raw: Record<string, string>): AppSettings {
   return {
     company_name: (raw.company_name ?? "").trim() || SETTINGS_DEFAULTS.company_name,
     logo_url: (raw.logo_url ?? SETTINGS_DEFAULTS.logo_url).trim(),
+    accent_color: /^#[0-9a-fA-F]{6}$/.test(raw.accent_color ?? "")
+      ? raw.accent_color.toLowerCase()
+      : SETTINGS_DEFAULTS.accent_color,
     timezone: isValidTimeZone(raw.timezone ?? "") ? raw.timezone : SETTINGS_DEFAULTS.timezone,
     date_format: DATE_FORMATS.includes(raw.date_format as DateFormat)
       ? (raw.date_format as DateFormat)

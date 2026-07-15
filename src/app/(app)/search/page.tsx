@@ -1,4 +1,5 @@
 import { SearchClient } from "@/components/SearchClient";
+import { getAppSettings } from "@/lib/settings-store";
 
 export const dynamic = "force-dynamic";
 
@@ -8,5 +9,6 @@ export default async function SearchPage({
   searchParams: Promise<{ q?: string }>;
 }) {
   const { q } = await searchParams;
-  return <SearchClient initialQuery={q ?? ""} />;
+  const { company_name } = await getAppSettings();
+  return <SearchClient initialQuery={q ?? ""} companyName={company_name} />;
 }

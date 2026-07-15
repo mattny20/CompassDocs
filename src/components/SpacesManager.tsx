@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Lock, Globe, Building2 } from "lucide-react";
+import { SpaceIconPicker } from "./SpaceIconPicker";
 import type { Space } from "@/lib/types";
 
 type SpaceRow = Space & { doc_count: number };
@@ -10,10 +11,6 @@ export type GroupOption = { id: number; name: string; source: string; member_cou
 
 const field =
   "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
-
-// A small palette of friendly emoji so non-technical users can pick an icon
-// without hunting for one; they can still type any emoji.
-const ICON_CHOICES = ["📁", "📘", "🧭", "🔧", "🛡️", "🚀", "💡", "📊", "🧩", "🗂️", "⚙️", "📝"];
 
 export function SpacesManager({
   initial,
@@ -261,29 +258,10 @@ function SpaceForm({
         </label>
       </div>
 
-      <div className="mt-4 flex flex-wrap items-end gap-6">
+      <div className="mt-4 grid gap-4 sm:grid-cols-[1fr_auto]">
         <div>
           <span className="mb-1 block text-xs font-medium text-slate-500">Icon</span>
-          <div className="flex flex-wrap items-center gap-1">
-            {ICON_CHOICES.map((c) => (
-              <button
-                key={c}
-                type="button"
-                onClick={() => setIcon(c)}
-                className={`flex h-8 w-8 items-center justify-center rounded-md text-lg ${
-                  icon === c ? "bg-compass-100 ring-2 ring-compass-400" : "hover:bg-slate-100"
-                }`}
-              >
-                {c}
-              </button>
-            ))}
-            <input
-              value={icon}
-              onChange={(e) => setIcon(e.target.value.slice(0, 8))}
-              className="h-8 w-14 rounded-md border border-slate-200 px-2 text-center text-lg outline-none focus:border-compass-400"
-              aria-label="Custom emoji"
-            />
-          </div>
+          <SpaceIconPicker value={icon} onChange={setIcon} />
         </div>
         <div>
           <span className="mb-1 block text-xs font-medium text-slate-500">Color</span>

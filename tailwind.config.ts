@@ -31,19 +31,20 @@ const config: Config = {
           950: v("--slate-950"),
         },
         compass: {
-          // Subtle blue tints double as surfaces, so they follow the theme…
+          // The whole accent ramp is variable-driven: 50/100 follow the
+          // light/dark theme, and every step can be re-tinted at runtime from
+          // the workspace accent color (Settings → Workspace). Defaults in
+          // globals.css are the hand-tuned ramp around #2e75bd.
           50: v("--compass-50"),
           100: v("--compass-100"),
-          // …while the saturated brand blues stay constant across themes.
-          // Ramp centered on the brand blue (#2e75bd) at step 600.
-          200: "#b3d3ec",
-          300: "#82b4e0",
-          400: "#5093d0",
-          500: "#3a80c6",
-          600: "#2e75bd",
-          700: "#275f99",
-          800: "#234f7c",
-          900: "#204264",
+          200: v("--compass-200"),
+          300: v("--compass-300"),
+          400: v("--compass-400"),
+          500: v("--compass-500"),
+          600: v("--compass-600"),
+          700: v("--compass-700"),
+          800: v("--compass-800"),
+          900: v("--compass-900"),
         },
       },
       fontFamily: {

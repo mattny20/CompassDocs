@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { getAppSettings } from "@/lib/settings-store";
 import { listSpaces, listRecentDocuments, countDocuments, allTags } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { spaceScopeFor } from "@/lib/access";
@@ -11,6 +12,7 @@ export default async function DashboardPage() {
   const user = await requireUser();
   const includeDrafts = roleAtLeast(user.role, "editor");
   const scope = await spaceScopeFor(user);
+  const settingsName = (await getAppSettings()).company_name;
   const [spaces, recent, totalDocs, allTagList] = await Promise.all([
     listSpaces(scope),
     listRecentDocuments(6, includeDrafts, scope),
@@ -38,7 +40,7 @@ export default async function DashboardPage() {
           href="/search"
           className="flex flex-col justify-center rounded-xl border border-compass-200 bg-compass-50 p-4 transition hover:border-compass-300"
         >
-          <span className="text-sm font-semibold text-compass-700">✨ Ask CompassDocs</span>
+          <span className="text-sm font-semibold text-compass-700">✨ Ask {settingsName}</span>
           <span className="mt-0.5 text-xs text-compass-600/80">AI-powered answers</span>
         </Link>
       </div>
