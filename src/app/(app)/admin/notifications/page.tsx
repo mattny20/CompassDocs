@@ -1,6 +1,7 @@
 import { requireRole } from "@/lib/auth";
-import { listWebhooks } from "@/lib/db";
-import { WebhooksPanel } from "@/components/WebhooksPanel";
+import { listWebhooks, listSpaces } from "@/lib/db";
+import { WebhooksPanel, SmtpPanel } from "@/components/WebhooksPanel";
+import { getSmtpConfig, smtpConfigured } from "@/lib/smtp-config";
 
 export const dynamic = "force-dynamic";
 
@@ -16,19 +17,34 @@ function maskUrl(url: string): string {
 
 export default async function NotificationsPage() {
   await requireRole("admin");
-  const hooks = await listWebhooks();
+  const [hooks, spaces, smtp] = await Promise.all([listWebhooks(), listSpaces(), getSmtpConfig()]);
   return (
+    <div>
     <WebhooksPanel
+      spaces={spaces.map((sp) => ({ id: sp.id, name: sp.name }))}
       initial={hooks.map((h) => ({
         id: h.id,
         name: h.name,
-        url_preview: maskUrl(h.url),
+        url_preview: h.format === "email" ? h.url : maskUrl(h.url),
         format: h.format,
         events: h.events,
+        space_ids: h.space_ids ?? [],
         enabled: h.enabled === 1,
         last_sent_at: h.last_sent_at,
         last_status: h.last_status,
       }))}
     />
+    <SmtpPanel
+      initial={{
+        host: smtp.host,
+        port: smtp.port,
+        secure: smtp.secure,
+        user: smtp.user,
+        has_pass: Boolean(smtp.pass),
+        from: smtp.from,
+        configured: smtpConfigured(smtp),
+      }}
+    />
+    </div>
   );
 }

@@ -103,6 +103,8 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       kind,
       actor: user.name || user.username,
       url: `${requestOrigin(req)}/review`,
+      spaceId: existing.space_id,
+      spaceName: existing.space_name,
     });
     return NextResponse.json({ pending: true, changeRequestId: crId, docId: existing.id });
   }
@@ -114,6 +116,15 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     versionNote: String(body?.versionNote ?? "").trim() || "Edited",
   });
   const published = existing.status !== "published" && proposed.status === "published";
+  if (published) {
+    void notifyWebhooks("document.published", {
+      title: proposed.title,
+      actor: user.name || user.username,
+      url: `${requestOrigin(req)}/doc/${existing.id}`,
+      spaceId: existing.space_id,
+      spaceName: existing.space_name,
+    });
+  }
   await audit({
     actor: actorFrom(user),
     action: published ? "document.publish" : "document.update",

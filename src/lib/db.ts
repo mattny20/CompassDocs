@@ -248,6 +248,8 @@ const SCHEMA_SQL = `
     last_sent_at timestamptz,
     last_status text
   );
+  -- Optional space scoping: empty array = all spaces.
+  ALTER TABLE webhooks ADD COLUMN IF NOT EXISTS space_ids jsonb NOT NULL DEFAULT '[]'::jsonb;
 
   CREATE TABLE IF NOT EXISTS settings (
     key text PRIMARY KEY,
@@ -1282,6 +1284,7 @@ export interface Webhook {
   url: string;
   format: string;
   events: string[];
+  space_ids: number[];
   enabled: number;
   created_at: string;
   last_sent_at: string | null;
@@ -1301,27 +1304,42 @@ export async function createWebhook(input: {
   url: string;
   format: string;
   events: string[];
+  spaceIds?: number[];
 }): Promise<Webhook> {
   const r = await q<{ id: number }>(
-    "INSERT INTO webhooks (name, url, format, events) VALUES ($1,$2,$3,$4) RETURNING id",
-    [input.name.slice(0, 80), input.url, input.format, JSON.stringify(input.events)]
+    "INSERT INTO webhooks (name, url, format, events, space_ids) VALUES ($1,$2,$3,$4,$5) RETURNING id",
+    [
+      input.name.slice(0, 80),
+      input.url,
+      input.format,
+      JSON.stringify(input.events),
+      JSON.stringify(input.spaceIds ?? []),
+    ]
   );
   return (await getWebhook(r[0].id))!;
 }
 
 export async function updateWebhook(
   id: number,
-  patch: { name?: string; url?: string; format?: string; events?: string[]; enabled?: boolean }
+  patch: {
+    name?: string;
+    url?: string;
+    format?: string;
+    events?: string[];
+    spaceIds?: number[];
+    enabled?: boolean;
+  }
 ): Promise<Webhook | undefined> {
   const existing = await getWebhook(id);
   if (!existing) return undefined;
   await q(
-    "UPDATE webhooks SET name=$1, url=$2, format=$3, events=$4, enabled=$5 WHERE id=$6",
+    "UPDATE webhooks SET name=$1, url=$2, format=$3, events=$4, space_ids=$5, enabled=$6 WHERE id=$7",
     [
       (patch.name ?? existing.name).slice(0, 80),
       patch.url ?? existing.url,
       patch.format ?? existing.format,
       JSON.stringify(patch.events ?? existing.events),
+      JSON.stringify(patch.spaceIds ?? existing.space_ids),
       patch.enabled === undefined ? existing.enabled : patch.enabled ? 1 : 0,
       id,
     ]

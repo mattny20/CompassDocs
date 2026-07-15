@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { createDocument, getSpaceBySlug, listSpaces, getApprovalMode } from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
+import { notifyWebhooks } from "@/lib/webhooks";
+import { requestOrigin } from "@/lib/oauth";
 import { roleAtLeast } from "@/lib/types";
 import type { DocType, DocStatus, SessionUser } from "@/lib/types";
 
@@ -59,6 +61,15 @@ export async function POST(req: Request) {
     author: user.name || user.username,
   });
 
+  if (status === "published") {
+    void notifyWebhooks("document.published", {
+      title: doc.title,
+      actor: user.name || user.username,
+      url: `${requestOrigin(req)}/doc/${doc.id}`,
+      spaceId: doc.space_id,
+      spaceName: doc.space_name,
+    });
+  }
   await audit({
     actor: actorFrom(user),
     action: status === "published" ? "document.publish" : "document.create",

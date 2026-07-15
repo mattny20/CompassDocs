@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { approveChangeRequest, rejectChangeRequest, getChangeRequest } from "@/lib/db";
+import { approveChangeRequest, rejectChangeRequest, getChangeRequest, getDocument } from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
 import { notifyWebhooks } from "@/lib/webhooks";
@@ -22,8 +22,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   }
   const action = body?.action;
   const note = String(body?.note ?? "").trim();
-  // Snapshot the title before the decision mutates the row.
+  // Snapshot the title/space before the decision mutates the row.
   const cr = await getChangeRequest(Number(id));
+  const crDoc = cr ? await getDocument(cr.document_id) : undefined;
 
   if (action === "approve") {
     const ok = await approveChangeRequest(Number(id), user.id, user.name || user.username, note);
@@ -40,6 +41,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       actor: user.name || user.username,
       note,
       url: `${requestOrigin(req)}/review`,
+      spaceId: crDoc?.space_id,
+      spaceName: crDoc?.space_name,
     });
     return NextResponse.json({ ok: true, result: "approved" });
   }
@@ -58,6 +61,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       actor: user.name || user.username,
       note,
       url: `${requestOrigin(req)}/review`,
+      spaceId: crDoc?.space_id,
+      spaceName: crDoc?.space_name,
     });
     return NextResponse.json({ ok: true, result: "rejected" });
   }

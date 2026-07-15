@@ -7,6 +7,12 @@ import type { SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+function validEmails(list: string): boolean {
+  const parts = list.split(",").map((a) => a.trim()).filter(Boolean);
+  return parts.length > 0 && parts.every((a) => EMAIL_RE.test(a));
+}
+
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const gate = await apiGuard("admin");
   if (gate instanceof NextResponse) return gate;
@@ -32,12 +38,23 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const patch: any = {};
   if (typeof body?.name === "string") patch.name = body.name.trim();
   if (typeof body?.url === "string" && body.url.trim()) {
-    try {
-      const parsed = new URL(body.url.trim());
-      if (!["http:", "https:"].includes(parsed.protocol)) throw new Error();
+    const nextFormat = WEBHOOK_FORMATS.includes(body?.format) ? body.format : hook.format;
+    if (nextFormat === "email") {
+      if (!validEmails(body.url.trim())) {
+        return NextResponse.json(
+          { error: "Enter one or more email addresses, comma-separated." },
+          { status: 400 }
+        );
+      }
       patch.url = body.url.trim();
-    } catch {
-      return NextResponse.json({ error: "Enter a valid http(s) webhook URL." }, { status: 400 });
+    } else {
+      try {
+        const parsed = new URL(body.url.trim());
+        if (!["http:", "https:"].includes(parsed.protocol)) throw new Error();
+        patch.url = body.url.trim();
+      } catch {
+        return NextResponse.json({ error: "Enter a valid http(s) webhook URL." }, { status: 400 });
+      }
     }
   }
   if (WEBHOOK_FORMATS.includes(body?.format)) patch.format = body.format;
@@ -47,6 +64,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     );
     if (!events.length) return NextResponse.json({ error: "Pick at least one event." }, { status: 400 });
     patch.events = events;
+  }
+  if (Array.isArray(body?.space_ids)) {
+    patch.spaceIds = body.space_ids
+      .map((n: unknown) => Number(n))
+      .filter((n: number) => Number.isInteger(n) && n > 0);
   }
   if (body?.enabled !== undefined) patch.enabled = Boolean(body.enabled);
 
