@@ -4,6 +4,20 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.19.0] - 2026-07-15
+
+### Added
+- **The people directory joins the Ask feature.** Questions like "who is the
+  head of IT?" or "who handles payroll?" now surface matching people —
+  name, title, department, and contact details — alongside document answers.
+  With an AI key configured the model cites directory facts as [Directory];
+  in keyword mode the people appear as cards. Matches link to their profile.
+- **Person profile pages.** Every directory entry gets a profile at
+  `/directory/{id}` — photo, title, department, contact links, office,
+  assistant, and custom fields — plus **Documents by {name}**: everything
+  they've authored, filtered to the spaces *you* can see. Names throughout
+  the directory (table, cards, and department views) now link to profiles.
+
 ## [0.18.0] - 2026-07-15
 
 ### Added

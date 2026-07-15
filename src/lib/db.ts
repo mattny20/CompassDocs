@@ -686,6 +686,26 @@ export async function getDocumentBySpaceAndSlug(
   return rows[0] ? mapDoc(rows[0]) : undefined;
 }
 
+/** Live documents credited to an author display name (directory profiles). */
+export async function listDocumentsByAuthor(
+  author: string,
+  includeDrafts = false,
+  scope?: number[] | "all"
+): Promise<DocumentWithSpace[]> {
+  const conds = ["lower(d.author) = lower($1)", "d.deleted_at IS NULL"];
+  const params: any[] = [author];
+  if (!includeDrafts) conds.push("d.status = 'published'");
+  if (Array.isArray(scope)) {
+    params.push(scope);
+    conds.push(`d.space_id = ANY($${params.length})`);
+  }
+  const rows = await q(
+    `${DOC_SELECT} WHERE ${conds.join(" AND ")} ORDER BY d.updated_at DESC LIMIT 100`,
+    params
+  );
+  return rows.map(mapDoc);
+}
+
 /** All live documents (incl. drafts) with their space, for a full export. */
 export async function exportDocuments(): Promise<DocumentWithSpace[]> {
   const rows = await q(
