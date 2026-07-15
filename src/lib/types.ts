@@ -84,6 +84,9 @@ export interface ChangeRequest {
   document_title: string | null;
   /** Visibility of the target doc's space — approvers see when a change goes to the open internet. */
   space_visibility: "public" | "internal" | "private" | null;
+  /** When set, approving also moves the doc to this space. */
+  space_id: number | null;
+  target_space_name: string | null;
   created_at: string;
   reviewed_by: number | null;
   reviewed_at: string | null;

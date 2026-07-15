@@ -4,6 +4,18 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.17.1] - 2026-07-15
+
+### Fixed
+- **Moving a document between spaces now works.** Changing the Space in the
+  editor and saving was silently ignored — the update API never read the new
+  space. Moves now apply immediately for approvers/admins (and in open
+  approval mode); an editor's move of a published doc in strict mode rides
+  along with their change request, applies on approval, and the review queue
+  shows a "→ moves to …" badge so approvers see it. The target space must be
+  one the editor can see, and moving a doc out of a Public space immediately
+  removes it from the public site.
+
 ## [0.17.0] - 2026-07-15
 
 ### Added

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   getDocument,
+  getSpaceById,
   updateDocument,
   deleteDocument,
   createChangeRequest,
@@ -55,7 +56,8 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   const { id } = await params;
   const existing = await getDocument(Number(id));
   if (!existing) return NextResponse.json({ error: "Not found." }, { status: 404 });
-  if (!scopeAllows(await spaceScopeFor(user), existing.space_id)) {
+  const scope = await spaceScopeFor(user);
+  if (!scopeAllows(scope, existing.space_id)) {
     return NextResponse.json({ error: "Not found." }, { status: 404 });
   }
 
@@ -65,6 +67,18 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   } catch {
     return NextResponse.json({ error: "Invalid JSON." }, { status: 400 });
   }
+
+  // Optional move to another space — the target must exist and be visible to
+  // the editor (private spaces they aren't granted look nonexistent).
+  let targetSpaceId = existing.space_id;
+  if (body?.space_id !== undefined && body.space_id !== null) {
+    const sid = Number(body.space_id);
+    if (!Number.isInteger(sid) || !(await getSpaceById(sid)) || !scopeAllows(scope, sid)) {
+      return NextResponse.json({ error: "That space isn't available." }, { status: 400 });
+    }
+    targetSpaceId = sid;
+  }
+  const moving = targetSpaceId !== existing.space_id;
 
   // Resolve the proposed next state, falling back to the current values.
   const proposed = {
@@ -95,6 +109,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       target_status: "published",
       note: String(body?.versionNote ?? "").trim(),
       created_by: user.id,
+      space_id: moving ? targetSpaceId : null,
     });
     await audit({
       actor: actorFrom(user),
@@ -119,6 +134,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   // Otherwise apply directly (draft edit, or a privileged/open-mode change).
   const doc = await updateDocument(existing.id, {
     ...proposed,
+    space_id: targetSpaceId,
     author: user.name || user.username,
     versionNote: String(body?.versionNote ?? "").trim() || "Edited",
   });
@@ -128,8 +144,8 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       title: proposed.title,
       actor: user.name || user.username,
       url: `${requestOrigin(req)}/doc/${existing.id}`,
-      spaceId: existing.space_id,
-      spaceName: existing.space_name,
+      spaceId: doc?.space_id ?? existing.space_id,
+      spaceName: doc?.space_name ?? existing.space_name,
     });
   }
   await audit({
