@@ -232,6 +232,14 @@ async function callTool(user: User, name: string, args: any) {
         tags: Array.isArray(args?.tags) ? args.tags.map((t: unknown) => String(t).trim()).filter(Boolean) : [],
         author: user.name || user.username,
       });
+      if (doc.status === "published") {
+        void notifyWebhooks("document.published", {
+          title: doc.title,
+          actor: user.name || user.username,
+          spaceId: doc.space_id,
+          spaceName: doc.space_name,
+        });
+      }
       await audit({
         actor: actorFrom(user),
         action: status === "published" ? "document.publish" : "document.create",
@@ -299,6 +307,8 @@ async function callTool(user: User, name: string, args: any) {
           title: proposed.title,
           kind: "edit",
           actor: user.name || user.username,
+          spaceId: existing.space_id,
+          spaceName: existing.space_name,
         });
         return toolJson({
           ok: true,

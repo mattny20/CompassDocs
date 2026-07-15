@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { createSuggestion, getDocument } from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
+import { notifyWebhooks } from "@/lib/webhooks";
+import { requestOrigin } from "@/lib/oauth";
 import type { SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -32,6 +34,15 @@ export async function POST(req: Request) {
     proposed_title: String(body?.proposed_title ?? "").trim(),
     body: text,
     created_by: user.id,
+  });
+  const doc = documentId ? await getDocument(documentId) : undefined;
+  void notifyWebhooks("suggestion.created", {
+    title: doc?.title || String(body?.proposed_title ?? "").trim(),
+    actor: user.name || user.username,
+    note: text.length > 140 ? text.slice(0, 137) + "…" : text,
+    url: doc ? `${requestOrigin(req)}/doc/${doc.id}` : requestOrigin(req),
+    spaceId: doc?.space_id,
+    spaceName: doc?.space_name,
   });
   return NextResponse.json({ ok: true, id }, { status: 201 });
 }

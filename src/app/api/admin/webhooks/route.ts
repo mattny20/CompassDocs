@@ -7,6 +7,12 @@ import type { SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+function validEmails(list: string): boolean {
+  const parts = list.split(",").map((a) => a.trim()).filter(Boolean);
+  return parts.length > 0 && parts.every((a) => EMAIL_RE.test(a));
+}
+
 /** Webhook URLs embed their secret — only ever return a masked preview. */
 function maskUrl(url: string): string {
   try {
@@ -22,9 +28,10 @@ function view(hooks: Awaited<ReturnType<typeof listWebhooks>>) {
   return hooks.map((h) => ({
     id: h.id,
     name: h.name,
-    url_preview: maskUrl(h.url),
+    url_preview: h.format === "email" ? h.url : maskUrl(h.url),
     format: h.format,
     events: h.events,
+    space_ids: h.space_ids ?? [],
     enabled: h.enabled === 1,
     last_sent_at: h.last_sent_at,
     last_status: h.last_status,
@@ -49,14 +56,23 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
 
-  const url = String(body?.url ?? "").trim();
-  try {
-    const parsed = new URL(url);
-    if (!["http:", "https:"].includes(parsed.protocol)) throw new Error();
-  } catch {
-    return NextResponse.json({ error: "Enter a valid http(s) webhook URL." }, { status: 400 });
-  }
   const format = WEBHOOK_FORMATS.includes(body?.format) ? body.format : "generic";
+  const url = String(body?.url ?? "").trim();
+  if (format === "email") {
+    if (!validEmails(url)) {
+      return NextResponse.json(
+        { error: "Enter one or more email addresses, comma-separated." },
+        { status: 400 }
+      );
+    }
+  } else {
+    try {
+      const parsed = new URL(url);
+      if (!["http:", "https:"].includes(parsed.protocol)) throw new Error();
+    } catch {
+      return NextResponse.json({ error: "Enter a valid http(s) webhook URL." }, { status: 400 });
+    }
+  }
   const events = (Array.isArray(body?.events) ? body.events : []).filter((e: string) =>
     (WEBHOOK_EVENTS as readonly string[]).includes(e)
   );
@@ -64,7 +80,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Pick at least one event." }, { status: 400 });
   }
 
-  await createWebhook({ name: String(body?.name ?? "").trim(), url, format, events });
+  const spaceIds = (Array.isArray(body?.space_ids) ? body.space_ids : [])
+    .map((n: unknown) => Number(n))
+    .filter((n: number) => Number.isInteger(n) && n > 0);
+  await createWebhook({ name: String(body?.name ?? "").trim(), url, format, events, spaceIds });
   await audit({
     actor: actorFrom(user),
     action: "settings.webhook_created",

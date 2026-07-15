@@ -4,6 +4,22 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.12.0] - 2026-07-15
+
+### Added
+- **Email alerts (SMTP).** Settings → Notifications gains an **Email (SMTP)**
+  section — host/port/encryption/credentials (password write-only), from
+  address, and a send-test-email button. Any relay works (Microsoft 365,
+  Google Workspace, SES, Postmark, self-hosted). Add an *Email* channel with
+  comma-separated recipients and it behaves like every other channel: same
+  events, same space scoping, same Test button and delivery status.
+- **Two new notification events**: **Document published** (direct publishes
+  from the app or the Claude connector) and **Suggestion left** (reader
+  feedback, with a preview of the suggestion text).
+- **Per-space channel scoping**: each notification channel can be limited to
+  specific spaces — leave unchecked for all. #engineering only hears about
+  Engineering docs.
+
 ## [0.11.0] - 2026-07-15
 
 ### Added
