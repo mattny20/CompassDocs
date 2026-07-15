@@ -4,6 +4,32 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.16.0] - 2026-07-15
+
+### Added
+- **Image sizing.** Select an image in the rich-text editor and pick
+  S / M / L / Full from the toolbar (25/50/75/100% of the text column). The
+  size travels as a `"w=NN%"` title in standard markdown —
+  `![shot](url "w=50%")` — so it renders consistently in the editor, the
+  preview, the document page, and the public site, and can be typed by hand
+  in the Markdown tab.
+- **Click to zoom.** Images on document pages (app and public site) open in a
+  full-screen lightbox on click; Esc or another click closes it.
+- **Adjustable page width.** Document pages and the editor gain a
+  Normal / Wide / Full width toggle (top right). The choice is per-person,
+  remembered in the browser, and shared between reading and editing.
+- **Alt text for images.** Select an image and click **Alt** in the toolbar
+  to describe it for screen readers (and for when the image can't load). The
+  description is stored as the markdown alt — `![description](url)` — and can
+  also be edited directly in the Markdown tab.
+- The rich-text editor toolbar now uses the app's icon set instead of
+  emoji/ASCII labels.
+
+### Changed
+- **Copy link** on an attachment now copies a plain URL instead of a
+  markdown snippet — embedding an image in the doc is done by pasting it
+  straight into the editor.
+
 ## [0.15.0] - 2026-07-15
 
 ### Added

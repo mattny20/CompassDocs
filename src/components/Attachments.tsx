@@ -63,10 +63,10 @@ export function Attachments({
   }
 
   async function copyLink(a: Att) {
-    const url = `${location.origin}/api/attachments/${a.id}`;
-    const md = isImg(a.mime_type) ? `![${a.filename}](${url})` : `[${a.filename}](${url})`;
+    // A plain URL — paste it anywhere. (Embedding an image in the doc is
+    // easier done by pasting the image straight into the editor.)
     try {
-      await navigator.clipboard.writeText(md);
+      await navigator.clipboard.writeText(`${location.origin}/api/attachments/${a.id}`);
       setCopied(a.id);
       setTimeout(() => setCopied(null), 1500);
     } catch {

@@ -5,7 +5,45 @@ import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
 import Image from "@tiptap/extension-image";
+import { mergeAttributes } from "@tiptap/core";
 import { Markdown } from "tiptap-markdown";
+import {
+  Bold as BoldIcon,
+  Italic as ItalicIcon,
+  Strikethrough,
+  Heading1,
+  Heading2,
+  Heading3,
+  List as ListIcon,
+  ListOrdered,
+  TextQuote,
+  Link as LinkIcon,
+  Code as CodeIcon,
+  SquareCode,
+  ImagePlus,
+} from "lucide-react";
+
+const TB_ICON = "h-4 w-4";
+
+// Image with an author-chosen display width. The width is carried in the
+// node's `title` attribute as "w=NN%", which tiptap-markdown serializes to
+// standard `![alt](src "w=NN%")` — the same token MarkdownView renders.
+const SizableImage = Image.extend({
+  renderHTML({ node, HTMLAttributes }) {
+    const m = /^w=(\d{1,3})%$/.exec(String(node.attrs.title ?? ""));
+    return [
+      "img",
+      mergeAttributes(HTMLAttributes, m ? { style: `width:${Math.min(100, Number(m[1]))}%` } : {}),
+    ];
+  },
+});
+
+const IMAGE_SIZES: { label: string; title: string | null }[] = [
+  { label: "S", title: "w=25%" },
+  { label: "M", title: "w=50%" },
+  { label: "L", title: "w=75%" },
+  { label: "Full", title: null },
+];
 
 // A WYSIWYG editor for people who don't want to write Markdown. It reads and
 // writes Markdown under the hood (via tiptap-markdown), so the stored content,
@@ -48,7 +86,7 @@ export function RichTextEditor({
     extensions: [
       StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
       Link.configure({ openOnClick: false, autolink: true }),
-      Image,
+      SizableImage,
       Markdown.configure({ html: false, linkify: true, breaks: true }),
     ],
     content: value,
@@ -130,17 +168,17 @@ function Toolbar({
   return (
     <div className="flex flex-wrap items-center gap-0.5 border-b border-slate-100 px-2 py-1.5">
       <Btn onClick={() => editor.chain().focus().toggleBold().run()} active={editor.isActive("bold")} label="Bold">
-        <span className="font-bold">B</span>
+        <BoldIcon className={TB_ICON} />
       </Btn>
       <Btn onClick={() => editor.chain().focus().toggleItalic().run()} active={editor.isActive("italic")} label="Italic">
-        <span className="italic">I</span>
+        <ItalicIcon className={TB_ICON} />
       </Btn>
       <Btn
         onClick={() => editor.chain().focus().toggleStrike().run()}
         active={editor.isActive("strike")}
         label="Strikethrough"
       >
-        <span className="line-through">S</span>
+        <Strikethrough className={TB_ICON} />
       </Btn>
       <Divider />
       <Btn
@@ -148,21 +186,21 @@ function Toolbar({
         active={editor.isActive("heading", { level: 1 })}
         label="Heading 1"
       >
-        H1
+        <Heading1 className={TB_ICON} />
       </Btn>
       <Btn
         onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
         active={editor.isActive("heading", { level: 2 })}
         label="Heading 2"
       >
-        H2
+        <Heading2 className={TB_ICON} />
       </Btn>
       <Btn
         onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
         active={editor.isActive("heading", { level: 3 })}
         label="Heading 3"
       >
-        H3
+        <Heading3 className={TB_ICON} />
       </Btn>
       <Divider />
       <Btn
@@ -170,30 +208,30 @@ function Toolbar({
         active={editor.isActive("bulletList")}
         label="Bulleted list"
       >
-        • List
+        <ListIcon className={TB_ICON} />
       </Btn>
       <Btn
         onClick={() => editor.chain().focus().toggleOrderedList().run()}
         active={editor.isActive("orderedList")}
         label="Numbered list"
       >
-        1. List
+        <ListOrdered className={TB_ICON} />
       </Btn>
       <Btn
         onClick={() => editor.chain().focus().toggleBlockquote().run()}
         active={editor.isActive("blockquote")}
         label="Quote"
       >
-        ❝
+        <TextQuote className={TB_ICON} />
       </Btn>
       <Divider />
       <Btn onClick={promptLink} active={editor.isActive("link")} label="Link">
-        🔗
+        <LinkIcon className={TB_ICON} />
       </Btn>
       {onPickImage && (
         <>
           <Btn onClick={() => fileRef.current?.click()} label="Insert image (or paste / drag one in)">
-            🖼️
+            <ImagePlus className={TB_ICON} />
           </Btn>
           <input
             ref={fileRef}
@@ -209,15 +247,48 @@ function Toolbar({
         </>
       )}
       <Btn onClick={() => editor.chain().focus().toggleCode().run()} active={editor.isActive("code")} label="Inline code">
-        {"</>"}
+        <CodeIcon className={TB_ICON} />
       </Btn>
       <Btn
         onClick={() => editor.chain().focus().toggleCodeBlock().run()}
         active={editor.isActive("codeBlock")}
         label="Code block"
       >
-        {"{ }"}
+        <SquareCode className={TB_ICON} />
       </Btn>
+      {editor.isActive("image") && (
+        <>
+          <Divider />
+          <Btn
+            onClick={() => {
+              const prev = (editor.getAttributes("image").alt as string) ?? "";
+              const alt = window.prompt(
+                "Describe this image (alt text — read aloud by screen readers, shown if the image can't load):",
+                prev
+              );
+              if (alt === null) return;
+              editor.chain().focus().updateAttributes("image", { alt: alt.trim() }).run();
+            }}
+            active={Boolean(editor.getAttributes("image").alt)}
+            label="Alt text — describe the image for accessibility"
+          >
+            Alt
+          </Btn>
+          <span className="px-1 text-xs font-medium text-slate-400">Image size</span>
+          {IMAGE_SIZES.map((s) => (
+            <Btn
+              key={s.label}
+              onClick={() =>
+                editor.chain().focus().updateAttributes("image", { title: s.title }).run()
+              }
+              active={(editor.getAttributes("image").title ?? null) === s.title}
+              label={s.title ? `Display at ${s.title.slice(2)}` : "Full width"}
+            >
+              {s.label}
+            </Btn>
+          ))}
+        </>
+      )}
     </div>
   );
 }
