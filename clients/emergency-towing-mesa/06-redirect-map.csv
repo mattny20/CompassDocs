@@ -1,0 +1,17 @@
+source_domain,source_path,target_url,status,notes
+emergencytowingheavyrescue.com,/,https://emergencytowingaz.com/heavy-duty-towing/,301,Heavy Rescue brand home -> heavy hub page (create page first; fallback target: /)
+emergencytowingheavyrescue.com,/about/,https://emergencytowingaz.com/about/,301,create /about/ on primary if missing
+emergencytowingheavyrescue.com,/services/,https://emergencytowingaz.com/services/,301,create services index on primary if missing
+emergencytowingheavyrescue.com,/services-tirechanges/,https://emergencytowingaz.com/services-tirechanges/,301,same slug exists on primary
+emergencytowingheavyrescue.com,/emergency-roadside-assistance/,https://emergencytowingaz.com/emergency-roadside-assistance/,301,create on primary (roadside hub: winch-out/jump/lockout/tire)
+emergencytowingheavyrescue.com,/gallery/,https://emergencytowingaz.com/gallery/,301,migrate photos to primary first
+emergencytowingheavyrescue.com,/blog/,https://emergencytowingaz.com/blog/,301,migrate any posts worth keeping
+emergencytowingheavyrescue.com,/contacts/,https://emergencytowingaz.com/contacts/,301,same slug exists on primary
+emergencytowingheavyrescue.com,/*,https://emergencytowingaz.com/heavy-duty-towing/,301,catch-all LAST rule
+emergencytowingandtransportaz.com,/,https://emergencytowingaz.com/,301,brand home -> primary home
+emergencytowingandtransportaz.com,/about/,https://emergencytowingaz.com/about/,301,
+emergencytowingandtransportaz.com,/services/,https://emergencytowingaz.com/services/,301,
+emergencytowingandtransportaz.com,/contact/,https://emergencytowingaz.com/contacts/,301,note slug difference contact -> contacts
+emergencytowingandtransportaz.com,/*,https://emergencytowingaz.com/,301,catch-all LAST rule
+emergencyheavyrescue.com,/*,https://emergencytowingaz.com/heavy-duty-towing/,301,domain not indexed; single catch-all is sufficient
+www.emergencytowingaz.com,/*,https://emergencytowingaz.com/${1},301,www -> apex preserve path (Cloudflare dynamic redirect)
