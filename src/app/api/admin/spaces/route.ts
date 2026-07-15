@@ -34,7 +34,9 @@ export async function POST(req: Request) {
   }
 
   const slug = await uniqueSpaceSlug(name);
-  const visibility = body?.visibility === "private" ? "private" : "public";
+  const visibility = ["public", "internal", "private"].includes(body?.visibility)
+    ? body.visibility
+    : "internal";
   const space = await createSpace({
     slug,
     name,

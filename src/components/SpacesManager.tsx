@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Lock, Globe } from "lucide-react";
+import { Lock, Globe, Building2 } from "lucide-react";
 import type { Space } from "@/lib/types";
 
 type SpaceRow = Space & { doc_count: number };
@@ -134,6 +134,12 @@ export function SpacesManager({
                       )}
                     </span>
                   )}
+                  {s.visibility === "public" && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-xs font-medium text-emerald-700">
+                      <Globe className="h-3 w-3" />
+                      Public — no sign-in
+                    </span>
+                  )}
                 </div>
                 {s.description && (
                   <p className="truncate text-xs text-slate-500">{s.description}</p>
@@ -181,8 +187,8 @@ function SpaceForm({
   const [description, setDescription] = useState(space?.description ?? "");
   const [icon, setIcon] = useState(space?.icon ?? "📁");
   const [color, setColor] = useState(space?.color ?? "#2e75bd");
-  const [visibility, setVisibility] = useState<"public" | "private">(
-    space?.visibility ?? "public"
+  const [visibility, setVisibility] = useState<"public" | "internal" | "private">(
+    space?.visibility ?? "internal"
   );
   const [groupIds, setGroupIds] = useState<number[]>(grantedIds);
   const [saving, setSaving] = useState(false);
@@ -196,6 +202,14 @@ function SpaceForm({
     if (name.trim().length < 2) {
       setError("Give the space a name (at least 2 characters).");
       return;
+    }
+    if (visibility === "public" && space?.visibility !== "public") {
+      const ok = confirm(
+        "Make this space PUBLIC? Its published documents will be readable by anyone " +
+          "on the internet, without signing in (once the public site is enabled in " +
+          "Settings \u2192 Public site)."
+      );
+      if (!ok) return;
     }
     setSaving(true);
     setError("");
@@ -284,18 +298,18 @@ function SpaceForm({
 
       <div className="mt-4">
         <span className="mb-1 block text-xs font-medium text-slate-500">Who can see it</span>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={() => setVisibility("public")}
+            onClick={() => setVisibility("internal")}
             className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium ${
-              visibility === "public"
+              visibility === "internal"
                 ? "border-compass-400 bg-compass-50 text-compass-700"
                 : "border-slate-200 text-slate-600 hover:bg-slate-50"
             }`}
           >
-            <Globe className="h-3.5 w-3.5" />
-            Public — everyone signed in
+            <Building2 className="h-3.5 w-3.5" />
+            Internal — everyone signed in
           </button>
           <button
             type="button"
@@ -309,7 +323,34 @@ function SpaceForm({
             <Lock className="h-3.5 w-3.5" />
             Private — selected groups only
           </button>
+          <button
+            type="button"
+            onClick={() => setVisibility("public")}
+            className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium ${
+              visibility === "public"
+                ? "border-emerald-400 bg-emerald-50 text-emerald-700"
+                : "border-slate-200 text-slate-600 hover:bg-slate-50"
+            }`}
+          >
+            <Globe className="h-3.5 w-3.5" />
+            Public — anyone, no sign-in
+          </button>
         </div>
+
+        {visibility === "public" && (
+          <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50/50 p-3">
+            <p className="text-xs text-emerald-800">
+              Published documents in this space will be readable by <strong>anyone on the
+              internet</strong> — no account needed — at{" "}
+              <code className="rounded bg-white/70 px-1">/public</code>. Drafts stay hidden.
+              The public site itself is switched on under{" "}
+              <a href="/admin/public-site" className="font-medium underline">
+                Settings → Public site
+              </a>
+              .
+            </p>
+          </div>
+        )}
 
         {visibility === "private" && (
           <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50/50 p-3">

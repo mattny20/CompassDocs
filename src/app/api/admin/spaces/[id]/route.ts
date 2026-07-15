@@ -44,18 +44,21 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     patch.color = body.color;
   }
   if (body?.visibility !== undefined) {
-    if (!["public", "private"].includes(body.visibility)) {
-      return NextResponse.json({ error: "Visibility must be public or private." }, { status: 400 });
+    if (!["public", "internal", "private"].includes(body.visibility)) {
+      return NextResponse.json(
+        { error: "Visibility must be public, internal, or private." },
+        { status: 400 }
+      );
     }
     patch.visibility = body.visibility;
   }
 
   const space = await updateSpace(id, patch);
 
-  // Group grants only matter for private spaces; making a space public clears
-  // them so a later flip back to private starts from an explicit empty grant.
+  // Group grants only matter for private spaces; leaving the private tier
+  // clears them so a later flip back starts from an explicit empty grant.
   let groupIds: number[] | undefined;
-  if (space?.visibility === "public") {
+  if (space && space.visibility !== "private") {
     await setSpaceGroups(id, []);
     groupIds = [];
   } else if (Array.isArray(body?.groupIds)) {

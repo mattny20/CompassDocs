@@ -1,32 +1,44 @@
 import { NextResponse } from "next/server";
 import { Readable } from "stream";
 import { apiGuard } from "@/lib/api-auth";
+import { getCurrentUser } from "@/lib/auth";
 import { spaceScopeFor, scopeAllows } from "@/lib/access";
 import { getAttachment, getDocument, deleteAttachmentRow } from "@/lib/db";
+import { getPublicSiteConfig } from "@/lib/public-site";
 import { uploadReadStream, deleteUpload, isInlineImage } from "@/lib/uploads";
 import { roleAtLeast } from "@/lib/types";
-import type { SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-// Serve an attachment. Any signed-in user (the whole site is private), except
-// draft documents are only visible to editors+ — matching the doc read rules.
+// Serve an attachment. Signed-in users follow their space scope (drafts are
+// editors+ only). Anonymous requests are allowed exactly when the public site
+// is enabled AND the attachment hangs off a published doc in a public space —
+// the same rule as the public doc pages that link here.
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("viewer");
-  if (gate instanceof NextResponse) return gate;
-  const user = gate as SessionUser;
+  const user = await getCurrentUser();
 
   const { id } = await params;
   const att = await getAttachment(Number(id));
   if (!att) return NextResponse.json({ error: "Not found." }, { status: 404 });
 
   const doc = await getDocument(att.document_id); // undefined if trashed
-  if (doc && !scopeAllows(await spaceScopeFor(gate), doc.space_id)) {
-    return NextResponse.json({ error: "Not found." }, { status: 404 });
-  }
   if (!doc) return NextResponse.json({ error: "Not found." }, { status: 404 });
-  if (doc.status === "draft" && !roleAtLeast(user.role, "editor")) {
-    return NextResponse.json({ error: "Not found." }, { status: 404 });
+
+  if (user) {
+    if (!scopeAllows(await spaceScopeFor(user), doc.space_id)) {
+      return NextResponse.json({ error: "Not found." }, { status: 404 });
+    }
+    if (doc.status === "draft" && !roleAtLeast(user.role, "editor")) {
+      return NextResponse.json({ error: "Not found." }, { status: 404 });
+    }
+  } else {
+    const publiclyVisible =
+      doc.space_visibility === "public" &&
+      doc.status === "published" &&
+      (await getPublicSiteConfig()).enabled;
+    if (!publiclyVisible) {
+      return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+    }
   }
 
   const stream = uploadReadStream(att.stored_name);

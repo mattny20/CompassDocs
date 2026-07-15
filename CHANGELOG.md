@@ -4,6 +4,32 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.14.0] - 2026-07-15
+
+### Added
+- **Public site — share spaces with the world, no login.** Space visibility
+  now has three tiers: **Public** (anyone on the internet), **Internal**
+  (everyone signed in — the default; existing spaces migrate here
+  automatically), and **Private** (granted groups). A new anonymous,
+  read-only site at `/public` serves the *published* documents of Public
+  spaces: a branded landing page, per-space article lists, full document
+  rendering with attachments, and rate-limited full-text search scoped to
+  public content only. Drafts, suggestions, internal/private spaces, AI
+  answers, the API, and the Claude connector all stay behind the login.
+- **Settings → Public site**: master switch (off by default — nothing is
+  exposed until an admin turns it on; when off every `/public` page 404s
+  and public attachments stop serving) and a **search-engine indexing**
+  toggle (off = `noindex`, reachable only by link).
+- The review queue badges change requests that target a Public space
+  ("🌐 Goes public") so approvers know a change lands on the open internet.
+- The space editor warns and asks for confirmation before a space is made
+  Public.
+
+### Fixed
+- Search-result snippets now HTML-escape document text before highlighting,
+  so raw HTML in a document body can't be injected into the search page
+  (internal search and the new public search both).
+
 ## [0.13.0] - 2026-07-15
 
 ### Added
