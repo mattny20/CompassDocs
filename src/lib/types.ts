@@ -82,6 +82,8 @@ export interface ChangeRequest {
   created_by: number;
   author_name: string;
   document_title: string | null;
+  /** Visibility of the target doc's space — approvers see when a change goes to the open internet. */
+  space_visibility: "public" | "internal" | "private" | null;
   created_at: string;
   reviewed_by: number | null;
   reviewed_at: string | null;
@@ -110,7 +112,8 @@ export interface Space {
   icon: string;
   color: string;
   created_at: string;
-  visibility: "public" | "private";
+  /** public = anyone on the internet; internal = any signed-in user; private = granted groups. */
+  visibility: "public" | "internal" | "private";
 }
 
 export interface Document {
@@ -134,6 +137,7 @@ export interface DocumentWithSpace extends Document {
   space_slug: string;
   space_icon: string;
   space_color: string;
+  space_visibility: "public" | "internal" | "private";
 }
 
 export interface Attachment {

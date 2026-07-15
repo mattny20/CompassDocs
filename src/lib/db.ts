@@ -105,6 +105,7 @@ async function initialize(): Promise<void> {
   try {
     await client.query("SELECT pg_advisory_lock(id) FROM (SELECT 728341 AS id) t");
     await client.query(SCHEMA_SQL);
+    await migrateVisibilityTiers(client);
     await seedIfEmpty(client);
     await bootstrapAuth(client);
   } finally {
@@ -124,8 +125,10 @@ const SCHEMA_SQL = `
     created_at timestamptz NOT NULL DEFAULT now()
   );
 
-  -- Space security: public (any signed-in user) or private (granted groups).
-  ALTER TABLE spaces ADD COLUMN IF NOT EXISTS visibility text NOT NULL DEFAULT 'public';
+  -- Space security tiers: 'public' (anyone on the internet, no sign-in),
+  -- 'internal' (any signed-in user — the default), 'private' (granted groups).
+  ALTER TABLE spaces ADD COLUMN IF NOT EXISTS visibility text NOT NULL DEFAULT 'internal';
+  ALTER TABLE spaces ALTER COLUMN visibility SET DEFAULT 'internal';
 
   CREATE TABLE IF NOT EXISTS documents (
     id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -388,6 +391,21 @@ const SCHEMA_SQL = `
   );
 `;
 
+/**
+ * One-time rename for the 0.14 visibility tiers: before 0.14, 'public' meant
+ * "every signed-in user". That tier is now 'internal', and 'public' means
+ * anonymous internet access — so existing rows must flip exactly once (never
+ * again, or an admin's deliberate 'public' choice would be reverted on boot).
+ */
+async function migrateVisibilityTiers(client: import("pg").PoolClient) {
+  const done = await client.query("SELECT 1 FROM settings WHERE key = 'migrated_visibility_tiers'");
+  if (done.rowCount) return;
+  await client.query("UPDATE spaces SET visibility = 'internal' WHERE visibility = 'public'");
+  await client.query(
+    "INSERT INTO settings (key, value) VALUES ('migrated_visibility_tiers','1') ON CONFLICT (key) DO NOTHING"
+  );
+}
+
 async function seedIfEmpty(client: import("pg").PoolClient) {
   const { rows } = await client.query("SELECT COUNT(*)::int AS n FROM spaces");
   if (rows[0].n > 0) return;
@@ -585,7 +603,7 @@ export async function updateSpace(
   id: number,
   patch: { name?: string; description?: string; icon?: string; color?: string; visibility?: string }
 ): Promise<Space | undefined> {
-  if (patch.visibility !== undefined && !["public", "private"].includes(patch.visibility)) {
+  if (patch.visibility !== undefined && !["public", "internal", "private"].includes(patch.visibility)) {
     delete patch.visibility;
   }
   const sets: string[] = [];
@@ -635,7 +653,7 @@ export async function createSpace(input: {
       input.description ?? "",
       input.icon ?? "📁",
       input.color ?? "#3366f2",
-      input.visibility === "private" ? "private" : "public",
+      ["public", "internal", "private"].includes(input.visibility ?? "") ? input.visibility : "internal",
     ]
   );
   return r[0];
@@ -644,7 +662,8 @@ export async function createSpace(input: {
 // --- Documents ---------------------------------------------------------------
 
 const DOC_SELECT = `
-  SELECT d.*, s.name AS space_name, s.slug AS space_slug, s.icon AS space_icon, s.color AS space_color
+  SELECT d.*, s.name AS space_name, s.slug AS space_slug, s.icon AS space_icon,
+         s.color AS space_color, s.visibility AS space_visibility
   FROM documents d JOIN spaces s ON s.id = d.space_id`;
 
 export async function getDocument(id: number): Promise<DocumentWithSpace | undefined> {
@@ -1450,7 +1469,7 @@ export async function setSpaceGroups(spaceId: number, groupIds: number[]): Promi
  */
 export async function accessibleSpaceIdsFor(userId: number): Promise<number[]> {
   const rows = await q<{ id: number }>(
-    `SELECT s.id FROM spaces s WHERE s.visibility = 'public'
+    `SELECT s.id FROM spaces s WHERE s.visibility IN ('public', 'internal')
      UNION
      SELECT sg.space_id FROM space_groups sg
        JOIN group_members gm ON gm.group_id = sg.group_id
@@ -1458,6 +1477,22 @@ export async function accessibleSpaceIdsFor(userId: number): Promise<number[]> {
     [userId]
   );
   return rows.map((r) => r.id);
+}
+
+/** Spaces exposed on the anonymous public site (visibility 'public'). */
+export async function publicSpaceIds(): Promise<number[]> {
+  return (await q<{ id: number }>("SELECT id FROM spaces WHERE visibility = 'public'")).map(
+    (r) => r.id
+  );
+}
+
+/** Public spaces with their *published* doc counts, for the public landing. */
+export async function listPublicSpaces(): Promise<(Space & { doc_count: number })[]> {
+  return q(
+    `SELECT s.*, (SELECT COUNT(*)::int FROM documents d
+       WHERE d.space_id = s.id AND d.deleted_at IS NULL AND d.status = 'published') AS doc_count
+     FROM spaces s WHERE s.visibility = 'public' ORDER BY s.name`
+  );
 }
 
 /** Map Entra member identities to local user ids (SSO id first, then email). */
@@ -1773,10 +1808,12 @@ export async function createChangeRequest(input: {
 }
 
 const CR_SELECT = `
-  SELECT cr.*, u.name AS author_name, d.title AS document_title
+  SELECT cr.*, u.name AS author_name, d.title AS document_title,
+         s.visibility AS space_visibility
   FROM change_requests cr
   JOIN users u ON u.id = cr.created_by
-  LEFT JOIN documents d ON d.id = cr.document_id`;
+  LEFT JOIN documents d ON d.id = cr.document_id
+  LEFT JOIN spaces s ON s.id = d.space_id`;
 
 export async function getChangeRequest(id: number): Promise<ChangeRequest | undefined> {
   return (await q<ChangeRequest>(`${CR_SELECT} WHERE cr.id = $1`, [id]))[0];

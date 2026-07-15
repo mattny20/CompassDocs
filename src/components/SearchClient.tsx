@@ -8,6 +8,17 @@ import { timeAgo } from "@/lib/ui";
 import type { SearchHit } from "@/lib/types";
 import type { AiAnswer } from "@/lib/ai";
 
+// ts_headline copies document text verbatim (no HTML escaping) — escape it and
+// restore only our own <mark> highlight tokens before injecting.
+function safeSnippet(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/&lt;mark&gt;/g, "<mark>")
+    .replace(/&lt;\/mark&gt;/g, "</mark>");
+}
+
 export function SearchClient({ initialQuery }: { initialQuery: string }) {
   const [query, setQuery] = useState(initialQuery);
   const [submitted, setSubmitted] = useState(initialQuery);
@@ -161,7 +172,7 @@ export function SearchClient({ initialQuery }: { initialQuery: string }) {
                 <h3 className="font-semibold text-slate-900">{h.title}</h3>
                 <p
                   className="mt-1 text-sm text-slate-500"
-                  dangerouslySetInnerHTML={{ __html: h.snippet }}
+                  dangerouslySetInnerHTML={{ __html: safeSnippet(h.snippet) }}
                 />
               </Link>
             ))}
