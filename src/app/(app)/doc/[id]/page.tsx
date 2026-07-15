@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getDocument, listVersions, listPendingForDocument, listAttachments } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
+import { spaceScopeFor, scopeAllows } from "@/lib/access";
 import { getAppSettings } from "@/lib/settings-store";
 import { formatDateTime } from "@/lib/format";
 import { MarkdownView } from "@/components/MarkdownView";
@@ -19,6 +20,7 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
   const { id } = await params;
   const doc = await getDocument(Number(id));
   if (!doc) notFound();
+  if (!scopeAllows(await spaceScopeFor(user), doc.space_id)) notFound();
 
   const isStaff = roleAtLeast(user.role, "editor");
   // Viewers may not see drafts.

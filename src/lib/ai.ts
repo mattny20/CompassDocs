@@ -178,9 +178,10 @@ Strict rules:
 
 export async function answerQuestion(
   question: string,
-  includeDrafts = false
+  includeDrafts = false,
+  scope?: number[] | "all"
 ): Promise<AiAnswer> {
-  const docs = await retrieveForAnswer(question, 6, includeDrafts);
+  const docs = await retrieveForAnswer(question, 6, includeDrafts, scope);
 
   const apiKey = await getAnthropicKey();
   if (!apiKey) {

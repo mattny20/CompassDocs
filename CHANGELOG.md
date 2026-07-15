@@ -4,6 +4,28 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.13.0] - 2026-07-15
+
+### Added
+- **Private spaces.** Settings → Spaces now has a *Who can see it* control:
+  **Public** (everyone signed in — the default, and how every existing space
+  keeps behaving) or **Private** (admins plus granted groups only). Private
+  spaces vanish for everyone else across the whole product — sidebar,
+  dashboard, space/document pages, version history, full-text search, AI
+  answers, attachments, the REST API, and the Claude connector all resolve
+  the signed-in user's space scope server-side and return 404s that don't
+  even leak the space's name.
+- **User groups** (Settings → Groups): named sets of users you can grant on
+  any number of private spaces. Create/rename/delete groups and manage
+  members by hand; every change is audited.
+- **Microsoft Entra group sync** *(enterprise, Microsoft 365 directory sync
+  entitlement)*: browse the tenant's security groups, import the ones you
+  want, and keep membership mirrored with **Sync now**. Members are matched
+  to CompassDocs accounts by SSO identity first, then email; group renames in
+  the tenant propagate; removing someone in Entra revokes their space access
+  on the next sync. Reuses the Settings → Directory app registration
+  (GroupMember.Read.All — the one-click setup already grants it).
+
 ## [0.12.0] - 2026-07-15
 
 ### Added

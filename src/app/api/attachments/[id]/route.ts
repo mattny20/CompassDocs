@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { Readable } from "stream";
 import { apiGuard } from "@/lib/api-auth";
+import { spaceScopeFor, scopeAllows } from "@/lib/access";
 import { getAttachment, getDocument, deleteAttachmentRow } from "@/lib/db";
 import { uploadReadStream, deleteUpload, isInlineImage } from "@/lib/uploads";
 import { roleAtLeast } from "@/lib/types";
@@ -20,6 +21,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   if (!att) return NextResponse.json({ error: "Not found." }, { status: 404 });
 
   const doc = await getDocument(att.document_id); // undefined if trashed
+  if (doc && !scopeAllows(await spaceScopeFor(gate), doc.space_id)) {
+    return NextResponse.json({ error: "Not found." }, { status: 404 });
+  }
   if (!doc) return NextResponse.json({ error: "Not found." }, { status: 404 });
   if (doc.status === "draft" && !roleAtLeast(user.role, "editor")) {
     return NextResponse.json({ error: "Not found." }, { status: 404 });

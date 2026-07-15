@@ -11,6 +11,7 @@ import { audit, actorFrom, ipFrom } from "@/lib/audit";
 import { notifyWebhooks } from "@/lib/webhooks";
 import { requestOrigin } from "@/lib/oauth";
 import { roleAtLeast } from "@/lib/types";
+import { spaceScopeFor, scopeAllows } from "@/lib/access";
 import type { DocType, DocStatus, SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -37,6 +38,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const { id } = await params;
   const doc = await getDocument(Number(id));
   if (!doc) return NextResponse.json({ error: "Not found." }, { status: 404 });
+  if (!scopeAllows(await spaceScopeFor(user), doc.space_id)) {
+    return NextResponse.json({ error: "Not found." }, { status: 404 });
+  }
   if (doc.status === "draft" && !roleAtLeast(user.role, "editor")) {
     return NextResponse.json({ error: "Not found." }, { status: 404 });
   }
@@ -51,6 +55,9 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   const { id } = await params;
   const existing = await getDocument(Number(id));
   if (!existing) return NextResponse.json({ error: "Not found." }, { status: 404 });
+  if (!scopeAllows(await spaceScopeFor(user), existing.space_id)) {
+    return NextResponse.json({ error: "Not found." }, { status: 404 });
+  }
 
   let body: any;
   try {
@@ -144,6 +151,9 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
   const { id } = await params;
   const doc = await getDocument(Number(id));
   if (!doc) return NextResponse.json({ error: "Not found." }, { status: 404 });
+  if (!scopeAllows(await spaceScopeFor(user), doc.space_id)) {
+    return NextResponse.json({ error: "Not found." }, { status: 404 });
+  }
 
   // Editors may only delete drafts; deleting a published doc needs approver+.
   if (doc.status === "published" && !roleAtLeast(user.role, "approver")) {

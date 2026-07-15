@@ -5,6 +5,7 @@ import { audit, actorFrom, ipFrom } from "@/lib/audit";
 import { notifyWebhooks } from "@/lib/webhooks";
 import { requestOrigin } from "@/lib/oauth";
 import { roleAtLeast } from "@/lib/types";
+import { spaceScopeFor, scopeAllows } from "@/lib/access";
 import type { DocType, DocStatus, SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -37,11 +38,14 @@ export async function POST(req: Request) {
   const title = String(body?.title ?? "").trim();
   if (!title) return NextResponse.json({ error: "Title is required." }, { status: 400 });
 
+  const scope = await spaceScopeFor(user);
   let spaceId: number | undefined;
   if (body?.space_id) spaceId = Number(body.space_id);
   else if (body?.space_slug) spaceId = (await getSpaceBySlug(String(body.space_slug)))?.id;
-  if (!spaceId) spaceId = (await listSpaces())[0]?.id;
-  if (!spaceId) return NextResponse.json({ error: "No space available." }, { status: 400 });
+  if (!spaceId) spaceId = (await listSpaces(scope))[0]?.id;
+  if (!spaceId || !scopeAllows(scope, spaceId)) {
+    return NextResponse.json({ error: "No space available." }, { status: 400 });
+  }
 
   const type: DocType = TYPES.includes(body?.type) ? body.type : "knowledge";
   const requested: DocStatus = STATUSES.includes(body?.status) ? body.status : "draft";

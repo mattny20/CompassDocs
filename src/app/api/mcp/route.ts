@@ -26,6 +26,7 @@ import { currentVersion } from "@/lib/version";
 import { requestOrigin } from "@/lib/oauth";
 import { notifyWebhooks } from "@/lib/webhooks";
 import { audit, actorFrom } from "@/lib/audit";
+import { spaceScopeFor, scopeAllows } from "@/lib/access";
 import { roleAtLeast } from "@/lib/types";
 import type { DocStatus, DocType, User } from "@/lib/types";
 
@@ -142,10 +143,13 @@ const TOOLS = [
 
 async function callTool(user: User, name: string, args: any) {
   const isEditor = roleAtLeast(user.role, "editor");
+  // The connector acts as the user, so it sees exactly the spaces they can:
+  // public ones plus private ones granted via their groups (admins see all).
+  const scope = await spaceScopeFor(user);
 
   switch (name) {
     case "list_spaces": {
-      const spaces = await listSpaces();
+      const spaces = await listSpaces(scope);
       return toolJson(
         spaces.map((s) => ({ slug: s.slug, name: s.name, description: s.description, docs: s.doc_count }))
       );
@@ -155,10 +159,12 @@ async function callTool(user: User, name: string, args: any) {
       let docs;
       if (args?.space) {
         const space = await getSpaceBySlug(String(args.space));
-        if (!space) return toolText(`No space with slug "${args.space}".`, true);
+        if (!space || !scopeAllows(scope, space.id)) {
+          return toolText(`No space with slug "${args.space}".`, true);
+        }
         docs = await listDocumentsBySpace(space.id, isEditor);
       } else {
-        docs = await listRecentDocuments(30, isEditor);
+        docs = await listRecentDocuments(30, isEditor, scope);
       }
       return toolJson(
         docs.map((d) => ({
@@ -174,7 +180,7 @@ async function callTool(user: User, name: string, args: any) {
     }
 
     case "search_docs": {
-      const hits = await searchDocuments(String(args?.query ?? ""), 15, isEditor);
+      const hits = await searchDocuments(String(args?.query ?? ""), 15, isEditor, scope);
       return toolJson(
         hits.map((h) => ({
           id: h.id,
@@ -188,7 +194,7 @@ async function callTool(user: User, name: string, args: any) {
 
     case "read_doc": {
       const doc = await getDocument(Number(args?.id));
-      if (!doc || (doc.status === "draft" && !isEditor)) {
+      if (!doc || !scopeAllows(scope, doc.space_id) || (doc.status === "draft" && !isEditor)) {
         return toolText(`No document with id ${args?.id}.`, true);
       }
       const header =
@@ -211,10 +217,12 @@ async function callTool(user: User, name: string, args: any) {
       let spaceId: number | undefined;
       if (args?.space) {
         const space = await getSpaceBySlug(String(args.space));
-        if (!space) return toolText(`No space with slug "${args.space}" — call list_spaces first.`, true);
+        if (!space || !scopeAllows(scope, space.id)) {
+          return toolText(`No space with slug "${args.space}" — call list_spaces first.`, true);
+        }
         spaceId = space.id;
       } else {
-        spaceId = (await listSpaces())[0]?.id;
+        spaceId = (await listSpaces(scope))[0]?.id;
       }
       if (!spaceId) return toolText("No space available to create the document in.", true);
 
@@ -265,7 +273,9 @@ async function callTool(user: User, name: string, args: any) {
         return toolText("Your role (viewer) can't edit documents — ask an admin for editor access.", true);
       }
       const existing = await getDocument(Number(args?.id));
-      if (!existing) return toolText(`No document with id ${args?.id}.`, true);
+      if (!existing || !scopeAllows(scope, existing.space_id)) {
+        return toolText(`No document with id ${args?.id}.`, true);
+      }
 
       const proposed = {
         title: typeof args?.title === "string" && args.title.trim() ? args.title.trim() : existing.title,

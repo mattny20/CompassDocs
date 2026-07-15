@@ -2,9 +2,11 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Lock, Globe } from "lucide-react";
 import type { Space } from "@/lib/types";
 
 type SpaceRow = Space & { doc_count: number };
+export type GroupOption = { id: number; name: string; source: string; member_count: number };
 
 const field =
   "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
@@ -13,16 +15,29 @@ const field =
 // without hunting for one; they can still type any emoji.
 const ICON_CHOICES = ["📁", "📘", "🧭", "🔧", "🛡️", "🚀", "💡", "📊", "🧩", "🗂️", "⚙️", "📝"];
 
-export function SpacesManager({ initial }: { initial: SpaceRow[] }) {
+export function SpacesManager({
+  initial,
+  groups,
+  initialSpaceGroups,
+}: {
+  initial: SpaceRow[];
+  groups: GroupOption[];
+  initialSpaceGroups: Record<number, number[]>;
+}) {
   const router = useRouter();
   const [spaces, setSpaces] = useState<SpaceRow[]>(initial);
+  const [spaceGroups, setSpaceGroups] = useState<Record<number, number[]>>(initialSpaceGroups);
   const [editing, setEditing] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
 
   async function refresh() {
     const res = await fetch("/api/admin/spaces");
-    if (res.ok) setSpaces((await res.json()).spaces);
+    if (res.ok) {
+      const data = await res.json();
+      setSpaces(data.spaces);
+      setSpaceGroups(data.spaceGroups ?? {});
+    }
     router.refresh();
   }
 
@@ -43,8 +58,9 @@ export function SpacesManager({ initial }: { initial: SpaceRow[] }) {
         <div>
           <h2 className="text-lg font-semibold text-slate-900">Spaces</h2>
           <p className="mt-1 text-sm text-slate-500">
-            Spaces group related documents — one per team, product, or topic. They appear in the
-            sidebar and organize search and browsing.
+            Spaces group related documents — one per team, product, or topic. Public spaces are
+            visible to everyone who signs in; private spaces only to admins and the groups you
+            grant.
           </p>
         </div>
         {!creating && editing === null && (
@@ -65,6 +81,8 @@ export function SpacesManager({ initial }: { initial: SpaceRow[] }) {
 
       {creating && (
         <SpaceForm
+          groups={groups}
+          grantedIds={[]}
           onCancel={() => setCreating(false)}
           onSaved={async () => {
             setCreating(false);
@@ -79,6 +97,8 @@ export function SpacesManager({ initial }: { initial: SpaceRow[] }) {
             <SpaceForm
               key={s.id}
               space={s}
+              groups={groups}
+              grantedIds={spaceGroups[s.id] ?? []}
               onCancel={() => setEditing(null)}
               onSaved={async () => {
                 setEditing(null);
@@ -102,6 +122,18 @@ export function SpacesManager({ initial }: { initial: SpaceRow[] }) {
                   <span className="rounded-full bg-slate-100 px-1.5 text-xs text-slate-500">
                     {s.doc_count} doc{s.doc_count === 1 ? "" : "s"}
                   </span>
+                  {s.visibility === "private" && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-700">
+                      <Lock className="h-3 w-3" />
+                      Private
+                      {(spaceGroups[s.id]?.length ?? 0) > 0 && (
+                        <span className="text-amber-600/80">
+                          · {spaceGroups[s.id].length} group
+                          {spaceGroups[s.id].length === 1 ? "" : "s"}
+                        </span>
+                      )}
+                    </span>
+                  )}
                 </div>
                 {s.description && (
                   <p className="truncate text-xs text-slate-500">{s.description}</p>
@@ -134,10 +166,14 @@ export function SpacesManager({ initial }: { initial: SpaceRow[] }) {
 
 function SpaceForm({
   space,
+  groups,
+  grantedIds,
   onCancel,
   onSaved,
 }: {
   space?: SpaceRow;
+  groups: GroupOption[];
+  grantedIds: number[];
   onCancel: () => void;
   onSaved: () => void;
 }) {
@@ -145,8 +181,16 @@ function SpaceForm({
   const [description, setDescription] = useState(space?.description ?? "");
   const [icon, setIcon] = useState(space?.icon ?? "📁");
   const [color, setColor] = useState(space?.color ?? "#2e75bd");
+  const [visibility, setVisibility] = useState<"public" | "private">(
+    space?.visibility ?? "public"
+  );
+  const [groupIds, setGroupIds] = useState<number[]>(grantedIds);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  function toggleGroup(id: number) {
+    setGroupIds((prev) => (prev.includes(id) ? prev.filter((g) => g !== id) : [...prev, id]));
+  }
 
   async function save() {
     if (name.trim().length < 2) {
@@ -158,7 +202,14 @@ function SpaceForm({
     const res = await fetch(space ? `/api/admin/spaces/${space.id}` : "/api/admin/spaces", {
       method: space ? "PATCH" : "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: name.trim(), description, icon, color }),
+      body: JSON.stringify({
+        name: name.trim(),
+        description,
+        icon,
+        color,
+        visibility,
+        groupIds: visibility === "private" ? groupIds : [],
+      }),
     });
     setSaving(false);
     if (!res.ok) {
@@ -229,6 +280,78 @@ function SpaceForm({
             className="h-9 w-16 cursor-pointer rounded-md border border-slate-200"
           />
         </div>
+      </div>
+
+      <div className="mt-4">
+        <span className="mb-1 block text-xs font-medium text-slate-500">Who can see it</span>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => setVisibility("public")}
+            className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium ${
+              visibility === "public"
+                ? "border-compass-400 bg-compass-50 text-compass-700"
+                : "border-slate-200 text-slate-600 hover:bg-slate-50"
+            }`}
+          >
+            <Globe className="h-3.5 w-3.5" />
+            Public — everyone signed in
+          </button>
+          <button
+            type="button"
+            onClick={() => setVisibility("private")}
+            className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium ${
+              visibility === "private"
+                ? "border-amber-400 bg-amber-50 text-amber-700"
+                : "border-slate-200 text-slate-600 hover:bg-slate-50"
+            }`}
+          >
+            <Lock className="h-3.5 w-3.5" />
+            Private — selected groups only
+          </button>
+        </div>
+
+        {visibility === "private" && (
+          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50/50 p-3">
+            <p className="mb-2 text-xs text-amber-800">
+              Admins always have access. Grant one or more groups to give their members access:
+            </p>
+            {groups.length === 0 ? (
+              <p className="text-sm text-slate-500">
+                No groups yet — create one under{" "}
+                <a href="/admin/groups" className="font-medium text-compass-700 underline">
+                  Settings → Groups
+                </a>
+                . Until a group is granted, only admins can see this space.
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {groups.map((g) => (
+                  <label
+                    key={g.id}
+                    className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm ${
+                      groupIds.includes(g.id)
+                        ? "border-compass-400 bg-white text-compass-800 shadow-sm"
+                        : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={groupIds.includes(g.id)}
+                      onChange={() => toggleGroup(g.id)}
+                      className="h-3.5 w-3.5 accent-compass-600"
+                    />
+                    {g.name}
+                    <span className="text-xs text-slate-400">
+                      {g.member_count} member{g.member_count === 1 ? "" : "s"}
+                      {g.source === "entra" ? " · synced" : ""}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {error && <p className="mt-3 text-sm text-red-600">{error}</p>}

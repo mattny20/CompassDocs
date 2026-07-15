@@ -110,6 +110,7 @@ export interface Space {
   icon: string;
   color: string;
   created_at: string;
+  visibility: "public" | "private";
 }
 
 export interface Document {
