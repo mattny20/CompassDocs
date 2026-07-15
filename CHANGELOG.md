@@ -4,6 +4,24 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.15.0] - 2026-07-15
+
+### Added
+- **Inline images in documents.** Paste a screenshot (or drag one in, or use
+  the new 🖼️ toolbar button) in either editor mode and it lands right at the
+  cursor — write a step, paste the screenshot, write the next step. The image
+  uploads as a document attachment behind the scenes (stored as standard
+  markdown `![alt](/api/attachments/…)`), renders in the rich editor, the
+  preview, the document page, and the anonymous public site, and respects the
+  existing attachment size limit. Starting a brand-new document? The first
+  pasted image quietly saves a draft so it has a document to attach to — you
+  keep editing and save as usual.
+
+### Fixed
+- The attachment **upload** endpoint now enforces space access like every
+  other document route — an editor can no longer upload files to a document
+  in a private space they can't see.
+
 ## [0.14.0] - 2026-07-15
 
 ### Added
