@@ -315,6 +315,9 @@ const SCHEMA_SQL = `
     reviewed_at timestamptz,
     review_note text NOT NULL DEFAULT ''
   );
+
+  -- A change request may also move the document to another space (null = stay).
+  ALTER TABLE change_requests ADD COLUMN IF NOT EXISTS space_id integer;
   CREATE INDEX IF NOT EXISTS idx_cr_status ON change_requests(status);
 
   CREATE TABLE IF NOT EXISTS attachments (
@@ -795,11 +798,12 @@ export async function updateDocument(
     summary: input.summary ?? existing.summary,
     tags: input.tags ? input.tags.join(",") : existing.tags.join(","),
     author: input.author ?? existing.author,
+    space_id: input.space_id ?? existing.space_id,
   };
 
   await q(
     `UPDATE documents SET title=$1, slug=$2, type=$3, status=$4, content=$5, summary=$6,
-       tags=$7, author=$8, updated_at=now() WHERE id=$9`,
+       tags=$7, author=$8, space_id=$9, updated_at=now() WHERE id=$10`,
     [
       next.title,
       slugify(next.title) || "untitled",
@@ -809,6 +813,7 @@ export async function updateDocument(
       next.summary,
       next.tags,
       next.author,
+      next.space_id,
       id,
     ]
   );
@@ -1787,10 +1792,12 @@ export async function createChangeRequest(input: {
   target_status: DocStatus;
   note: string;
   created_by: number;
+  /** Move the doc to this space on approval (null/undefined = stay put). */
+  space_id?: number | null;
 }): Promise<number> {
   const r = await q<{ id: number }>(
-    `INSERT INTO change_requests (document_id, kind, title, content, summary, tags, type, target_status, note, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+    `INSERT INTO change_requests (document_id, kind, title, content, summary, tags, type, target_status, note, created_by, space_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
     [
       input.document_id,
       input.kind,
@@ -1802,6 +1809,7 @@ export async function createChangeRequest(input: {
       input.target_status,
       input.note,
       input.created_by,
+      input.space_id ?? null,
     ]
   );
   return r[0].id;
@@ -1809,11 +1817,12 @@ export async function createChangeRequest(input: {
 
 const CR_SELECT = `
   SELECT cr.*, u.name AS author_name, d.title AS document_title,
-         s.visibility AS space_visibility
+         s.visibility AS space_visibility, ts.name AS target_space_name
   FROM change_requests cr
   JOIN users u ON u.id = cr.created_by
   LEFT JOIN documents d ON d.id = cr.document_id
-  LEFT JOIN spaces s ON s.id = d.space_id`;
+  LEFT JOIN spaces s ON s.id = d.space_id
+  LEFT JOIN spaces ts ON ts.id = cr.space_id`;
 
 export async function getChangeRequest(id: number): Promise<ChangeRequest | undefined> {
   return (await q<ChangeRequest>(`${CR_SELECT} WHERE cr.id = $1`, [id]))[0];
@@ -1869,8 +1878,9 @@ export async function approveChangeRequest(
       return false;
     }
     await client.query(
-      `UPDATE documents SET title=$1, slug=$2, type=$3, status=$4, content=$5, summary=$6, tags=$7, updated_at=now()
-       WHERE id=$8`,
+      `UPDATE documents SET title=$1, slug=$2, type=$3, status=$4, content=$5, summary=$6, tags=$7,
+         space_id=COALESCE($8, space_id), updated_at=now()
+       WHERE id=$9`,
       [
         cr.title,
         slugify(cr.title) || "untitled",
@@ -1879,6 +1889,7 @@ export async function approveChangeRequest(
         cr.content,
         cr.summary,
         cr.tags,
+        cr.space_id ?? null,
         cr.document_id,
       ]
     );

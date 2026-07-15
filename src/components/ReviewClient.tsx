@@ -76,6 +76,14 @@ export function ReviewClient({
                       <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
                         {cr.kind === "publish" ? "Publish request" : "Edit"}
                       </span>
+                      {cr.target_space_name && (
+                        <span
+                          className="rounded-full bg-sky-100 px-2 py-0.5 text-xs font-medium text-sky-700"
+                          title="Approving also moves the document to this space."
+                        >
+                          → moves to {cr.target_space_name}
+                        </span>
+                      )}
                       {cr.space_visibility === "public" && (
                         <span
                           className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700"
