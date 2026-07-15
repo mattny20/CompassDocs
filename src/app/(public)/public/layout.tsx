@@ -31,7 +31,7 @@ export default async function PublicLayout({ children }: { children: React.React
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <header className="border-b border-slate-200 bg-white">
+      <header className="border-b border-slate-200 bg-white print:hidden">
         <div className="mx-auto flex max-w-4xl flex-wrap items-center gap-4 px-6 py-4">
           <Link href="/public" className="flex items-center gap-2.5">
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -80,7 +80,7 @@ export default async function PublicLayout({ children }: { children: React.React
 
       <main className="mx-auto max-w-4xl px-6 py-8">{children}</main>
 
-      <footer className="border-t border-slate-200 py-6 text-center text-xs text-slate-400">
+      <footer className="border-t border-slate-200 py-6 text-center text-xs text-slate-400 print:hidden">
         {settings.company_name} knowledge base · powered by{" "}
         <a href="https://compassdocs.io" className="underline hover:text-slate-600">
           CompassDocs

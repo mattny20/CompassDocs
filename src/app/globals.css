@@ -137,3 +137,20 @@ mark {
 .doc-prose img {
   @apply my-4 h-auto max-w-full rounded-lg border border-slate-200 shadow-sm;
 }
+
+/* Print: clean document output for the Print / Save-as-PDF button. */
+@media print {
+  .doc-prose img,
+  .doc-prose pre,
+  .doc-prose table {
+    break-inside: avoid;
+  }
+  .doc-prose img {
+    cursor: default;
+    box-shadow: none;
+  }
+  .doc-prose a {
+    color: inherit;
+    text-decoration: underline;
+  }
+}

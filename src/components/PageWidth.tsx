@@ -39,7 +39,7 @@ export function PageWidth({ children }: { children: React.ReactNode }) {
 
   return (
     <div className={`mx-auto px-8 py-8 ${WIDTH_CLASS[width]}`}>
-      <div className="mb-2 flex justify-end">
+      <div className="mb-2 flex justify-end print:hidden">
         <div
           className="flex items-center gap-0.5 rounded-lg border border-slate-200 bg-surface p-0.5"
           role="group"
