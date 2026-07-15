@@ -21,9 +21,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   ]);
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex h-screen overflow-hidden print:h-auto print:overflow-visible">
       <Sidebar user={user} reviewCount={reviewCount} trashCount={trashCount} />
-      <main className="flex-1 overflow-y-auto">{children}</main>
+      <main className="flex-1 overflow-y-auto print:overflow-visible">{children}</main>
     </div>
   );
 }

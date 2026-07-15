@@ -4,6 +4,16 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.17.0] - 2026-07-15
+
+### Added
+- **Print / Save as PDF.** Every document page — in the app and on the public
+  site — gains a **Print / PDF** button that opens the browser's print
+  dialog, where "Save as PDF" is built in on every platform. Print
+  stylesheets strip the app chrome (sidebar, buttons, breadcrumbs,
+  suggestion box) so the output is a clean document: badges, title, byline,
+  and content, with images and code blocks kept whole across page breaks.
+
 ## [0.16.0] - 2026-07-15
 
 ### Added

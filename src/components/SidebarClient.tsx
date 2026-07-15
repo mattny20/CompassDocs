@@ -73,7 +73,7 @@ export function SidebarClient({
 
   return (
     <aside
-      className={`flex shrink-0 flex-col border-r border-slate-200 bg-surface transition-[width] duration-200 ${
+      className={`print:hidden flex shrink-0 flex-col border-r border-slate-200 bg-surface transition-[width] duration-200 ${
         collapsed ? "w-16" : "w-64"
       }`}
     >

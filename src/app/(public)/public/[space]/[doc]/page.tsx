@@ -5,6 +5,7 @@ import { getSpaceBySlug, getDocumentBySpaceAndSlug, listAttachments } from "@/li
 import { DOC_TYPE_LABEL } from "@/lib/types";
 import { MarkdownView } from "@/components/MarkdownView";
 import { Paperclip } from "lucide-react";
+import { PrintButton } from "@/components/PrintButton";
 
 export const dynamic = "force-dynamic";
 
@@ -38,14 +39,19 @@ export default async function PublicDocPage({
 
   return (
     <article>
-      <nav className="mb-4 text-sm text-slate-400">
-        <Link href="/public" className="hover:text-compass-700">
-          Home
-        </Link>
-        {" / "}
-        <Link href={`/public/${space.slug}`} className="hover:text-compass-700">
-          {space.name}
-        </Link>
+      <nav className="mb-4 flex items-center text-sm text-slate-400 print:hidden">
+        <span>
+          <Link href="/public" className="hover:text-compass-700">
+            Home
+          </Link>
+          {" / "}
+          <Link href={`/public/${space.slug}`} className="hover:text-compass-700">
+            {space.name}
+          </Link>
+        </span>
+        <span className="ml-auto">
+          <PrintButton compact />
+        </span>
       </nav>
 
       <h1 className="text-3xl font-bold text-slate-900">{doc.title}</h1>
@@ -69,7 +75,7 @@ export default async function PublicDocPage({
       </div>
 
       {attachments.length > 0 && (
-        <div className="mt-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mt-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm print:hidden">
           <h2 className="mb-2 text-sm font-semibold text-slate-700">Attachments</h2>
           <ul className="space-y-1">
             {attachments.map((a) => (

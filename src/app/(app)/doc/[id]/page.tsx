@@ -33,7 +33,7 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
 
   return (
     <PageWidth>
-      <nav className="mb-4 flex items-center gap-1.5 text-sm text-slate-400">
+      <nav className="mb-4 flex items-center gap-1.5 text-sm text-slate-400 print:hidden">
         <Link href="/" className="hover:text-slate-600">
           Home
         </Link>
@@ -60,13 +60,13 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
       </div>
 
       {doc.status === "draft" && isStaff && (
-        <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-600">
+        <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-600 print:hidden">
           📝 This is a <strong>draft</strong> — it isn&apos;t visible to viewers yet.
         </div>
       )}
 
       {pending.length > 0 && (
-        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800 print:hidden">
           ⏳ {pending.length} pending change{pending.length === 1 ? "" : "s"} awaiting review.{" "}
           <Link href="/review" className="font-medium underline">
             Open review queue →
@@ -104,6 +104,7 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
         <MarkdownView content={doc.content} />
       </article>
 
+      <div className="print:hidden">
       <Attachments
         documentId={doc.id}
         attachments={attachments.map((a) => ({
@@ -115,8 +116,11 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
         canEdit={isStaff}
         maxMb={settings.max_attachment_mb}
       />
+      </div>
 
-      <SuggestBox documentId={doc.id} />
+      <div className="print:hidden">
+        <SuggestBox documentId={doc.id} />
+      </div>
     </PageWidth>
   );
 }

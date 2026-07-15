@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { roleAtLeast } from "@/lib/types";
 import type { Role } from "@/lib/types";
+import { PrintButton } from "./PrintButton";
 
 export function DocActions({
   id,
@@ -38,7 +39,8 @@ export function DocActions({
   }
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2 print:hidden">
+      <PrintButton />
       <Link
         href={`/doc/${id}/history`}
         className="rounded-lg border border-slate-200 bg-surface px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
