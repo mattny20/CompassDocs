@@ -37,6 +37,9 @@ export async function updateAppSettings(patch: Partial<AppSettings>): Promise<Ap
   if (patch.logo_url !== undefined) {
     await setSetting("logo_url", patch.logo_url.trim().slice(0, LOGO_MAX_LEN));
   }
+  if (patch.accent_color !== undefined && /^#[0-9a-fA-F]{6}$/.test(patch.accent_color)) {
+    await setSetting("accent_color", patch.accent_color.toLowerCase());
+  }
   if (patch.timezone !== undefined && isValidTimeZone(patch.timezone)) {
     await setSetting("timezone", patch.timezone);
   }

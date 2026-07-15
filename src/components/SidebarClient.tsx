@@ -114,7 +114,7 @@ export function SidebarClient({
 
       <nav className={`text-sm ${collapsed ? "px-2 pt-3" : "px-3"} pb-2`}>
         <NavLink href="/" icon={<Home className="h-4 w-4" />} label="Dashboard" collapsed={collapsed} />
-        <NavLink href="/search" icon={<Sparkles className="h-4 w-4" />} label="Ask CompassDocs" collapsed={collapsed} />
+        <NavLink href="/search" icon={<Sparkles className="h-4 w-4" />} label={`Ask ${companyName || "CompassDocs"}`} collapsed={collapsed} />
         <NavLink href="/directory" icon={<BookUser className="h-4 w-4" />} label="Directory" collapsed={collapsed} />
         {isApprover && (
           <NavLink

@@ -90,6 +90,46 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
             />
           </label>
         </div>
+        <div className="mt-4 border-t border-slate-100 pt-3">
+          <span className="mb-1 block text-xs font-medium text-slate-500">Accent color</span>
+          <p className="mb-2 text-xs text-slate-400">
+            Re-tints buttons, links, highlights, and tinted surfaces across the whole app —
+            light and dark theme, login page, and the public site.
+          </p>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {[
+              ["#2e75bd", "Compass blue (default)"],
+              ["#4f46e5", "Indigo"],
+              ["#7c3aed", "Violet"],
+              ["#0d9488", "Teal"],
+              ["#059669", "Emerald"],
+              ["#d97706", "Amber"],
+              ["#dc2626", "Red"],
+              ["#db2777", "Pink"],
+              ["#475569", "Graphite"],
+            ].map(([hex, label]) => (
+              <button
+                key={hex}
+                type="button"
+                title={label}
+                onClick={() => set("accent_color", hex)}
+                className={`h-7 w-7 rounded-full border-2 transition ${
+                  s.accent_color === hex ? "scale-110 border-slate-700" : "border-transparent hover:scale-105"
+                }`}
+                style={{ backgroundColor: hex }}
+              />
+            ))}
+            <input
+              type="color"
+              value={s.accent_color}
+              onChange={(e) => set("accent_color", e.target.value)}
+              className="h-8 w-12 cursor-pointer rounded-md border border-slate-200"
+              aria-label="Custom accent color"
+            />
+            <code className="text-xs text-slate-400">{s.accent_color}</code>
+          </div>
+          <p className="mt-1 text-xs text-slate-400">Applies everywhere after saving (pages refresh with the new color).</p>
+        </div>
         <div className="mt-4 flex items-center gap-3 border-t border-slate-100 pt-3">
           <span className="text-xs font-medium text-slate-500">Preview</span>
           <Brand name={s.company_name || "CompassDocs"} logoUrl={s.logo_url || undefined} />

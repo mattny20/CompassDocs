@@ -19,7 +19,13 @@ function safeSnippet(s: string): string {
     .replace(/&lt;\/mark&gt;/g, "</mark>");
 }
 
-export function SearchClient({ initialQuery }: { initialQuery: string }) {
+export function SearchClient({
+  initialQuery,
+  companyName = "CompassDocs",
+}: {
+  initialQuery: string;
+  companyName?: string;
+}) {
   const [query, setQuery] = useState(initialQuery);
   const [submitted, setSubmitted] = useState(initialQuery);
   const [hits, setHits] = useState<SearchHit[]>([]);
@@ -85,7 +91,7 @@ export function SearchClient({ initialQuery }: { initialQuery: string }) {
 
   return (
     <div className="mx-auto max-w-3xl px-8 py-8">
-      <h1 className="mb-1 text-2xl font-bold text-slate-900">Ask CompassDocs</h1>
+      <h1 className="mb-1 text-2xl font-bold text-slate-900">Ask {companyName}</h1>
       <p className="mb-5 text-slate-500">
         Ask a question in plain English, or search by keyword. Answers are grounded in your
         knowledge base.

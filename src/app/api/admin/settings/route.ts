@@ -39,6 +39,7 @@ export async function PATCH(req: Request) {
   const keys: (keyof AppSettings)[] = [
     "company_name",
     "logo_url",
+    "accent_color",
     "timezone",
     "date_format",
     "time_format",

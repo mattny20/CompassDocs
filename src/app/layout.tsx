@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { getAppSettings } from "@/lib/settings-store";
+import { accentCss } from "@/lib/theme";
 // Self-host the brand font (Aileron) so it renders offline / on-prem without
 // reaching out to a font CDN. Weights: regular, semibold, bold.
 import "@fontsource/aileron/400.css";
@@ -35,11 +36,20 @@ const THEME_INIT = `
 }catch(e){}})();
 `;
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // Custom workspace accent: derive the palette override server-side. Like
+  // generateMetadata above, tolerate a missing database (build time).
+  let accent = "";
+  try {
+    accent = accentCss((await getAppSettings()).accent_color);
+  } catch {
+    /* no DB (build/prerender) — default palette from globals.css applies */
+  }
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT }} />
+        {accent && <style id="workspace-accent">{accent}</style>}
       </head>
       <body>{children}</body>
     </html>
