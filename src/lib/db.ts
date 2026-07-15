@@ -236,6 +236,19 @@ const SCHEMA_SQL = `
   );
   CREATE INDEX IF NOT EXISTS idx_oauth_tokens_user ON oauth_tokens(user_id);
 
+  -- Outgoing notification webhooks (Webex, Teams, Slack, generic JSON).
+  CREATE TABLE IF NOT EXISTS webhooks (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    name text NOT NULL DEFAULT '',
+    url text NOT NULL,
+    format text NOT NULL DEFAULT 'generic',
+    events jsonb NOT NULL DEFAULT '[]'::jsonb,
+    enabled integer NOT NULL DEFAULT 1,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    last_sent_at timestamptz,
+    last_status text
+  );
+
   CREATE TABLE IF NOT EXISTS settings (
     key text PRIMARY KEY,
     value text NOT NULL
@@ -1259,6 +1272,74 @@ export async function revokeOAuthGrant(userId: number, clientId: string): Promis
     clientId,
   ]);
   return (res.rowCount ?? 0) > 0;
+}
+
+// --- Notification webhooks -----------------------------------------------------
+
+export interface Webhook {
+  id: number;
+  name: string;
+  url: string;
+  format: string;
+  events: string[];
+  enabled: number;
+  created_at: string;
+  last_sent_at: string | null;
+  last_status: string | null;
+}
+
+export async function listWebhooks(): Promise<Webhook[]> {
+  return q("SELECT * FROM webhooks ORDER BY id");
+}
+
+export async function getWebhook(id: number): Promise<Webhook | undefined> {
+  return (await q<Webhook>("SELECT * FROM webhooks WHERE id = $1", [id]))[0];
+}
+
+export async function createWebhook(input: {
+  name: string;
+  url: string;
+  format: string;
+  events: string[];
+}): Promise<Webhook> {
+  const r = await q<{ id: number }>(
+    "INSERT INTO webhooks (name, url, format, events) VALUES ($1,$2,$3,$4) RETURNING id",
+    [input.name.slice(0, 80), input.url, input.format, JSON.stringify(input.events)]
+  );
+  return (await getWebhook(r[0].id))!;
+}
+
+export async function updateWebhook(
+  id: number,
+  patch: { name?: string; url?: string; format?: string; events?: string[]; enabled?: boolean }
+): Promise<Webhook | undefined> {
+  const existing = await getWebhook(id);
+  if (!existing) return undefined;
+  await q(
+    "UPDATE webhooks SET name=$1, url=$2, format=$3, events=$4, enabled=$5 WHERE id=$6",
+    [
+      (patch.name ?? existing.name).slice(0, 80),
+      patch.url ?? existing.url,
+      patch.format ?? existing.format,
+      JSON.stringify(patch.events ?? existing.events),
+      patch.enabled === undefined ? existing.enabled : patch.enabled ? 1 : 0,
+      id,
+    ]
+  );
+  return getWebhook(id);
+}
+
+export async function deleteWebhook(id: number): Promise<boolean> {
+  const res = await pool().query("DELETE FROM webhooks WHERE id = $1", [id]);
+  return (res.rowCount ?? 0) > 0;
+}
+
+/** Delivery bookkeeping so the admin UI can show per-hook health. */
+export async function markWebhookResult(id: number, status: string): Promise<void> {
+  await q("UPDATE webhooks SET last_sent_at = now(), last_status = $1 WHERE id = $2", [
+    status.slice(0, 200),
+    id,
+  ]);
 }
 
 // --- Sessions ----------------------------------------------------------------

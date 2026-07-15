@@ -8,6 +8,8 @@ import {
 } from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
+import { notifyWebhooks } from "@/lib/webhooks";
+import { requestOrigin } from "@/lib/oauth";
 import { roleAtLeast } from "@/lib/types";
 import type { DocType, DocStatus, SessionUser } from "@/lib/types";
 
@@ -95,6 +97,12 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       targetLabel: proposed.title,
       details: { kind },
       ip: ipFrom(req),
+    });
+    void notifyWebhooks("change_request.submitted", {
+      title: proposed.title,
+      kind,
+      actor: user.name || user.username,
+      url: `${requestOrigin(req)}/review`,
     });
     return NextResponse.json({ pending: true, changeRequestId: crId, docId: existing.id });
   }

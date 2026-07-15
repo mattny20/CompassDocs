@@ -13,6 +13,7 @@ import {
   Fingerprint,
   BookUser,
   ScrollText,
+  BellRing,
   DatabaseBackup,
   Package,
 } from "lucide-react";
@@ -28,6 +29,7 @@ const SECTIONS = [
   { href: "/admin/users", label: "Users & roles", icon: <Users className={ICON} /> },
   { href: "/admin/sso", label: "Single sign-on", icon: <Fingerprint className={ICON} /> },
   { href: "/admin/directory", label: "Directory", icon: <BookUser className={ICON} /> },
+  { href: "/admin/notifications", label: "Notifications", icon: <BellRing className={ICON} /> },
   { href: "/admin/audit", label: "Audit log", icon: <ScrollText className={ICON} /> },
   { href: "/admin/backups", label: "Backups", icon: <DatabaseBackup className={ICON} /> },
   { href: "/admin/data", label: "Import & export", icon: <Package className={ICON} /> },

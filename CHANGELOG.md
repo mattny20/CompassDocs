@@ -4,6 +4,17 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.11.0] - 2026-07-15
+
+### Added
+- **Chat notifications for the approval workflow.** Settings → Notifications
+  lets admins register outgoing webhooks — **Webex**, **Microsoft Teams**
+  (Workflows / Adaptive Cards), **Slack**, or generic JSON — for change
+  submitted / approved / rejected events, with per-event subscriptions, a Test
+  button, and last-delivery status per hook. Deliveries are fired in the
+  background and never slow down a save; webhook URLs are stored write-only.
+  Notifications fire from the app UI and the Claude connector alike.
+
 ## [0.10.2] - 2026-07-14
 
 ### Fixed
