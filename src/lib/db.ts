@@ -500,6 +500,19 @@ const SCHEMA_SQL = `
     user_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     PRIMARY KEY (announcement_id, user_id)
   );
+
+  -- Org newsletters: rich (markdown) emails composed by admins and sent via
+  -- SMTP to everyone or to selected groups. Rows are the send history.
+  CREATE TABLE IF NOT EXISTS newsletters (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    subject text NOT NULL,
+    body text NOT NULL DEFAULT '',
+    author_name text NOT NULL DEFAULT '',
+    created_by integer REFERENCES users(id) ON DELETE SET NULL,
+    audience text NOT NULL DEFAULT '',
+    sent_count integer NOT NULL DEFAULT 0,
+    created_at timestamptz NOT NULL DEFAULT now()
+  );
 `;
 
 /**
@@ -2322,6 +2335,47 @@ export async function listAnnouncementRecipients(
      ORDER BY u.email`,
     [groupIds]
   );
+}
+
+// --- Newsletters -------------------------------------------------------------------
+
+export interface Newsletter {
+  id: number;
+  subject: string;
+  body: string;
+  author_name: string;
+  created_by: number | null;
+  audience: string;
+  sent_count: number;
+  created_at: string;
+}
+
+export async function recordNewsletter(input: {
+  subject: string;
+  body: string;
+  author_name: string;
+  created_by: number;
+  audience: string;
+  sent_count: number;
+}): Promise<Newsletter> {
+  return (
+    await q<Newsletter>(
+      `INSERT INTO newsletters (subject, body, author_name, created_by, audience, sent_count)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [
+        input.subject.trim().slice(0, 200),
+        input.body.slice(0, 100_000),
+        input.author_name.slice(0, 100),
+        input.created_by,
+        input.audience.slice(0, 300),
+        input.sent_count,
+      ]
+    )
+  )[0];
+}
+
+export async function listNewsletters(): Promise<Newsletter[]> {
+  return q("SELECT * FROM newsletters ORDER BY created_at DESC LIMIT 50");
 }
 
 /** Map Entra member identities to local user ids (SSO id first, then email). */

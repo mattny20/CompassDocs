@@ -4,6 +4,20 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.27.0] - 2026-07-16
+
+### Added
+- **Organization newsletter.** Compose a rich email under **Settings →
+  Newsletter** using the **same editor as documents** (headings, lists,
+  links, quotes, code, tables) and send it through your SMTP settings as a
+  **branded HTML email** — your logo and accent color in the header, the
+  subject as the title, a plain-text fallback, and a "Sent by …" footer.
+  **Send test to me** delivers a preview to your own inbox without recording
+  anything; real sends go to **everyone** or to **selected groups**
+  (individual messages, deduplicated, 1000-recipient cap), are listed in a
+  send history with recipient counts, and land in the audit log. Relative
+  links in the content are rewritten to absolute so they work from inboxes.
+
 ## [0.26.0] - 2026-07-16
 
 ### Added
