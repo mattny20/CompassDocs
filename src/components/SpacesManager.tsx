@@ -2,13 +2,14 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Lock, Globe, Building2, PencilRuler } from "lucide-react";
+import { Lock, Globe, Building2, PencilRuler, ChevronUp, ChevronDown, Pencil, Trash2 } from "lucide-react";
 import { SpaceIconPicker } from "./SpaceIconPicker";
 import type { Space } from "@/lib/types";
 
 type SpaceRow = Space & { doc_count: number };
 export type GroupOption = { id: number; name: string; source: string; member_count: number };
 export type EditorUserOption = { id: number; name: string; role: string };
+export type CategoryOption = { id: number; name: string; position: number };
 type EditorGrants = { users: Record<number, number[]>; groups: Record<number, number[]> };
 
 const field =
@@ -22,6 +23,7 @@ export function SpacesManager({
   initialSubscriptionGroups,
   initialEditorGrants,
   initialEditorsEditAll,
+  initialCategories,
 }: {
   initial: SpaceRow[];
   groups: GroupOption[];
@@ -30,6 +32,7 @@ export function SpacesManager({
   initialSubscriptionGroups: Record<number, number[]>;
   initialEditorGrants: EditorGrants;
   initialEditorsEditAll: boolean;
+  initialCategories: Record<number, CategoryOption[]>;
 }) {
   const router = useRouter();
   const [spaces, setSpaces] = useState<SpaceRow[]>(initial);
@@ -138,6 +141,7 @@ export function SpacesManager({
           subscribedGroupIds={[]}
           editorUserIds={[]}
           editorGroupIds={[]}
+          initialCategories={[]}
           editAllActive={editAll}
           onCancel={() => setCreating(false)}
           onSaved={async () => {
@@ -159,6 +163,7 @@ export function SpacesManager({
               subscribedGroupIds={subGroups[s.id] ?? []}
               editorUserIds={editorGrants.users[s.id] ?? []}
               editorGroupIds={editorGrants.groups[s.id] ?? []}
+              initialCategories={initialCategories[s.id] ?? []}
               editAllActive={editAll}
               onCancel={() => setEditing(null)}
               onSaved={async () => {
@@ -247,6 +252,7 @@ function SpaceForm({
   subscribedGroupIds,
   editorUserIds,
   editorGroupIds,
+  initialCategories,
   editAllActive,
   onCancel,
   onSaved,
@@ -258,6 +264,7 @@ function SpaceForm({
   subscribedGroupIds: number[];
   editorUserIds: number[];
   editorGroupIds: number[];
+  initialCategories: CategoryOption[];
   /** True while the org-wide "all editors edit all spaces" switch is on. */
   editAllActive: boolean;
   onCancel: () => void;
@@ -587,6 +594,19 @@ function SpaceForm({
         )}
       </div>
 
+      {space && (
+        <div className="mt-4">
+          <span className="mb-1 block text-xs font-medium text-slate-500">
+            Categories <span className="text-slate-400">(optional)</span>
+          </span>
+          <p className="mb-2 text-xs text-slate-400">
+            Group this space&apos;s documents into sections. Writers pick a category in the
+            editor; documents without one appear under &ldquo;General&rdquo;.
+          </p>
+          <CategoryEditor spaceId={space.id} initial={initialCategories} />
+        </div>
+      )}
+
       <div className="mt-4">
         <span className="mb-1 block text-xs font-medium text-slate-500">
           Email subscriptions <span className="text-slate-400">(optional)</span>
@@ -645,6 +665,112 @@ function SpaceForm({
           className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
         >
           Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+
+/** Inline category manager for one space; changes apply immediately. */
+function CategoryEditor({ spaceId, initial }: { spaceId: number; initial: CategoryOption[] }) {
+  const [cats, setCats] = useState<CategoryOption[]>(initial);
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function reload() {
+    const res = await fetch(`/api/admin/spaces/${spaceId}/categories`);
+    if (res.ok) setCats((await res.json()).categories);
+  }
+
+  async function add() {
+    if (!name.trim()) return;
+    setBusy(true);
+    await fetch(`/api/admin/spaces/${spaceId}/categories`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    setName("");
+    await reload();
+    setBusy(false);
+  }
+
+  async function rename(c: CategoryOption) {
+    const next = prompt("Rename category", c.name)?.trim();
+    if (!next || next === c.name) return;
+    await fetch(`/api/admin/spaces/${spaceId}/categories/${c.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: next }),
+    });
+    await reload();
+  }
+
+  async function move(c: CategoryOption, dir: -1 | 1) {
+    const idx = cats.findIndex((x) => x.id === c.id);
+    const other = cats[idx + dir];
+    if (!other) return;
+    setBusy(true);
+    await Promise.all([
+      fetch(`/api/admin/spaces/${spaceId}/categories/${c.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ position: other.position }),
+      }),
+      fetch(`/api/admin/spaces/${spaceId}/categories/${other.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ position: c.position }),
+      }),
+    ]);
+    await reload();
+    setBusy(false);
+  }
+
+  async function remove(c: CategoryOption) {
+    if (!confirm(`Delete the "${c.name}" category? Its documents move to General.`)) return;
+    await fetch(`/api/admin/spaces/${spaceId}/categories/${c.id}`, { method: "DELETE" });
+    await reload();
+  }
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-surface p-3">
+      <ul className="mb-2 space-y-1">
+        {cats.map((c, i) => (
+          <li key={c.id} className="flex items-center gap-1.5 text-sm">
+            <span className="flex-1 text-slate-700">{c.name}</span>
+            <button type="button" onClick={() => move(c, -1)} disabled={busy || i === 0} title="Move up" className="rounded p-1 text-slate-400 hover:bg-slate-100 disabled:opacity-30">
+              <ChevronUp className="h-3.5 w-3.5" />
+            </button>
+            <button type="button" onClick={() => move(c, 1)} disabled={busy || i === cats.length - 1} title="Move down" className="rounded p-1 text-slate-400 hover:bg-slate-100 disabled:opacity-30">
+              <ChevronDown className="h-3.5 w-3.5" />
+            </button>
+            <button type="button" onClick={() => rename(c)} disabled={busy} title="Rename" className="rounded p-1 text-slate-400 hover:bg-slate-100">
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+            <button type="button" onClick={() => remove(c)} disabled={busy} title="Delete" className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600">
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </li>
+        ))}
+        {cats.length === 0 && <li className="text-sm text-slate-400">No categories yet.</li>}
+      </ul>
+      <div className="flex gap-2">
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), add())}
+          placeholder="New category name"
+          className="w-56 rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none focus:border-compass-400"
+        />
+        <button
+          type="button"
+          onClick={add}
+          disabled={busy || !name.trim()}
+          className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+        >
+          Add
         </button>
       </div>
     </div>

@@ -72,6 +72,7 @@ export function toSessionUser(u: User): SessionUser {
     email: u.email,
     role: u.role,
     must_change_password: u.must_change_password === 1,
+    page_width: u.page_width === "normal" || u.page_width === "full" ? u.page_width : "wide",
   };
 }
 

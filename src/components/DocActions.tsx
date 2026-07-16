@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useState } from "react";
+import { History, Pencil, Trash2, LoaderCircle } from "lucide-react";
 import { roleAtLeast } from "@/lib/types";
 import type { Role } from "@/lib/types";
 import { PrintButton } from "./PrintButton";
@@ -43,30 +44,34 @@ export function DocActions({
     }
   }
 
+  // Icon-only actions with tooltips + accessible labels for a cleaner header.
+  const iconBtn =
+    "inline-flex items-center rounded-lg border border-slate-200 bg-surface p-2 text-slate-500 hover:bg-slate-50 hover:text-slate-700";
   return (
     <div className="flex items-center gap-2 print:hidden">
-      <PrintButton />
+      <PrintButton iconOnly />
       <Link
         href={`/doc/${id}/history`}
-        className="rounded-lg border border-slate-200 bg-surface px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+        title="Version history"
+        aria-label="Version history"
+        className={iconBtn}
       >
-        History
+        <History className="h-4 w-4" />
       </Link>
       {canEdit && (
-        <Link
-          href={`/doc/${id}/edit`}
-          className="rounded-lg border border-slate-200 bg-surface px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
-        >
-          Edit
+        <Link href={`/doc/${id}/edit`} title="Edit" aria-label="Edit document" className={iconBtn}>
+          <Pencil className="h-4 w-4" />
         </Link>
       )}
       {canDelete && (
         <button
           onClick={onDelete}
           disabled={deleting}
-          className="rounded-lg border border-red-200 bg-surface px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+          title="Move to Trash"
+          aria-label="Move document to Trash"
+          className="inline-flex items-center rounded-lg border border-red-200 bg-surface p-2 text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-800/70"
         >
-          {deleting ? "Deleting…" : "Delete"}
+          {deleting ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
         </button>
       )}
     </div>

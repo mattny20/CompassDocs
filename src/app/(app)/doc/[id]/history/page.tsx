@@ -7,6 +7,7 @@ import { getAppSettings } from "@/lib/settings-store";
 import { formatDateTime } from "@/lib/format";
 import { roleAtLeast } from "@/lib/types";
 import { timeAgo } from "@/lib/ui";
+import { PageContainer } from "@/components/PageWidth";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +21,7 @@ export default async function HistoryPage({ params }: { params: Promise<{ id: st
   const [versions, settings] = await Promise.all([listVersions(doc.id), getAppSettings()]);
 
   return (
-    <div className="mx-auto max-w-3xl px-8 py-8">
+    <PageContainer>
       <nav className="mb-4 flex items-center gap-1.5 text-sm text-slate-400">
         <Link href={`/doc/${doc.id}`} className="hover:text-slate-600">
           ← Back to document
@@ -58,6 +59,6 @@ export default async function HistoryPage({ params }: { params: Promise<{ id: st
           </li>
         ))}
       </ol>
-    </div>
+    </PageContainer>
   );
 }

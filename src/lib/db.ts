@@ -501,6 +501,20 @@ const SCHEMA_SQL = `
     PRIMARY KEY (announcement_id, user_id)
   );
 
+  -- Per-user page width preference (normal | wide | full), applied app-wide.
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS page_width text NOT NULL DEFAULT 'wide';
+
+  -- Categories within a space: an optional grouping level for its documents.
+  -- Deleting a category never deletes documents (they fall back to General).
+  CREATE TABLE IF NOT EXISTS space_categories (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    space_id integer NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+    name text NOT NULL,
+    position integer NOT NULL DEFAULT 0
+  );
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS
+    category_id integer REFERENCES space_categories(id) ON DELETE SET NULL;
+
   -- Org newsletters: rich (markdown) emails composed by admins and sent via
   -- SMTP to everyone or to selected groups. Rows are the send history.
   CREATE TABLE IF NOT EXISTS newsletters (
@@ -900,6 +914,69 @@ export async function allTags(): Promise<{ tag: string; count: number }[]> {
     .sort((a, b) => b.count - a.count);
 }
 
+// --- Space categories ---------------------------------------------------------
+
+export interface SpaceCategory {
+  id: number;
+  space_id: number;
+  name: string;
+  position: number;
+}
+
+export async function listSpaceCategories(spaceId: number): Promise<SpaceCategory[]> {
+  return q("SELECT * FROM space_categories WHERE space_id = $1 ORDER BY position, name", [spaceId]);
+}
+
+/** Every category across all spaces (editor dropdowns, admin screen). */
+export async function listAllSpaceCategories(): Promise<SpaceCategory[]> {
+  return q("SELECT * FROM space_categories ORDER BY space_id, position, name");
+}
+
+export async function getSpaceCategory(id: number): Promise<SpaceCategory | undefined> {
+  return (await q<SpaceCategory>("SELECT * FROM space_categories WHERE id = $1", [id]))[0];
+}
+
+export async function createSpaceCategory(spaceId: number, name: string): Promise<SpaceCategory> {
+  const max = (
+    await q<{ m: number }>(
+      "SELECT COALESCE(MAX(position), 0)::int AS m FROM space_categories WHERE space_id = $1",
+      [spaceId]
+    )
+  )[0].m;
+  return (
+    await q<SpaceCategory>(
+      "INSERT INTO space_categories (space_id, name, position) VALUES ($1,$2,$3) RETURNING *",
+      [spaceId, name.trim().slice(0, 60), max + 1]
+    )
+  )[0];
+}
+
+export async function updateSpaceCategory(
+  id: number,
+  patch: { name?: string; position?: number }
+): Promise<void> {
+  if (patch.name !== undefined) {
+    await q("UPDATE space_categories SET name = $1 WHERE id = $2", [
+      patch.name.trim().slice(0, 60),
+      id,
+    ]);
+  }
+  if (patch.position !== undefined) {
+    await q("UPDATE space_categories SET position = $1 WHERE id = $2", [patch.position, id]);
+  }
+}
+
+/** Delete a category; its documents stay (category_id becomes NULL). */
+export async function deleteSpaceCategory(id: number): Promise<boolean> {
+  const res = await pool().query("DELETE FROM space_categories WHERE id = $1", [id]);
+  return (res.rowCount ?? 0) > 0;
+}
+
+/** Per-user page width preference. */
+export async function setPageWidth(userId: number, width: string): Promise<void> {
+  await q("UPDATE users SET page_width = $1 WHERE id = $2", [width, userId]);
+}
+
 export interface DocInput {
   space_id: number;
   title: string;
@@ -909,12 +986,21 @@ export interface DocInput {
   summary: string;
   tags: string[];
   author: string;
+  /** Optional category within the space; validated against space_id. */
+  category_id?: number | null;
+}
+
+/** A category id valid for the given space, else null. */
+async function categoryForSpace(categoryId: number | null | undefined, spaceId: number) {
+  if (!categoryId) return null;
+  const cat = await getSpaceCategory(categoryId);
+  return cat && cat.space_id === spaceId ? cat.id : null;
 }
 
 export async function createDocument(input: DocInput): Promise<DocumentWithSpace> {
   const r = await q<{ id: number }>(
-    `INSERT INTO documents (space_id, title, slug, type, status, content, summary, tags, author)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+    `INSERT INTO documents (space_id, title, slug, type, status, content, summary, tags, author, category_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
     [
       input.space_id,
       input.title,
@@ -925,6 +1011,7 @@ export async function createDocument(input: DocInput): Promise<DocumentWithSpace
       input.summary,
       input.tags.join(","),
       input.author,
+      await categoryForSpace(input.category_id, input.space_id),
     ]
   );
   const id = r[0].id;
@@ -951,11 +1038,15 @@ export async function updateDocument(
     tags: input.tags ? input.tags.join(",") : existing.tags.join(","),
     author: input.author ?? existing.author,
     space_id: input.space_id ?? existing.space_id,
+    category_id: input.category_id !== undefined ? input.category_id : existing.category_id,
   };
+  // A category must belong to the doc's (possibly new) space; a cross-space
+  // move with a stale category quietly falls back to General.
+  const categoryId = await categoryForSpace(next.category_id, next.space_id);
 
   await q(
     `UPDATE documents SET title=$1, slug=$2, type=$3, status=$4, content=$5, summary=$6,
-       tags=$7, author=$8, space_id=$9, updated_at=now() WHERE id=$10`,
+       tags=$7, author=$8, space_id=$9, category_id=$10, updated_at=now() WHERE id=$11`,
     [
       next.title,
       slugify(next.title) || "untitled",
@@ -966,6 +1057,7 @@ export async function updateDocument(
       next.tags,
       next.author,
       next.space_id,
+      categoryId,
       id,
     ]
   );
@@ -1070,12 +1162,15 @@ export async function searchDocuments(
   raw: string,
   limit = 25,
   includeDrafts = false,
-  scope?: number[] | "all"
+  scope?: number[] | "all",
+  /** Restrict hits to one space (the in-space search box). */
+  spaceId?: number
 ): Promise<SearchHit[]> {
   if (!raw.trim()) return [];
   const filter =
     (includeDrafts ? "" : " AND d.status = 'published'") +
-    (Array.isArray(scope) ? " AND d.space_id = ANY($3)" : "");
+    (Array.isArray(scope) ? " AND d.space_id = ANY($3)" : "") +
+    (spaceId ? ` AND d.space_id = ${Number(spaceId)}` : "");
   const rows = await q(
     `SELECT d.id, d.title, d.slug, d.type, d.status, d.tags, d.updated_at,
             s.name AS space_name, s.slug AS space_slug, s.icon AS space_icon, s.color AS space_color,
@@ -1156,7 +1251,7 @@ export async function getAllSettings(): Promise<Record<string, string>> {
 
 const USER_COLUMNS = `id, username, email, name, role, status, auth_provider, external_id,
   must_change_password, totp_enabled, directory_person_id, email_notifications,
-  created_at, last_login_at`;
+  page_width, created_at, last_login_at`;
 
 export async function getUserById(id: number): Promise<User | undefined> {
   return (await q<User>(`SELECT ${USER_COLUMNS} FROM users WHERE id = $1`, [id]))[0];

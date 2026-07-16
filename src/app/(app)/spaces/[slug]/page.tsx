@@ -1,10 +1,18 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getSpaceBySlug, listDocumentsBySpace, getSubscriptionState } from "@/lib/db";
+import {
+  getSpaceBySlug,
+  listDocumentsBySpace,
+  listSpaceCategories,
+  getSubscriptionState,
+} from "@/lib/db";
 import { SubscribeButton } from "@/components/SubscribeButton";
+import { SpaceSearch } from "@/components/SpaceSearch";
+import { PageContainer } from "@/components/PageWidth";
 import { requireUser } from "@/lib/auth";
 import { spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
 import { roleAtLeast } from "@/lib/types";
+import type { DocumentWithSpace } from "@/lib/types";
 import { DocCard } from "@/components/DocCard";
 
 export const dynamic = "force-dynamic";
@@ -17,14 +25,32 @@ export default async function SpacePage({ params }: { params: Promise<{ slug: st
   if (!scopeAllows(await spaceScopeFor(user), space.id)) notFound();
 
   const isEditor = roleAtLeast(user.role, "editor");
-  const [docs, sub, canAuthor] = await Promise.all([
+  const [docs, categories, sub, canAuthor] = await Promise.all([
     listDocumentsBySpace(space.id, isEditor),
+    listSpaceCategories(space.id),
     getSubscriptionState(space.id, user.id),
     canEditSpace(user, space.id),
   ]);
 
+  // Group documents by category (categories in admin order, General last).
+  const byCategory = new Map<number | null, DocumentWithSpace[]>();
+  for (const d of docs) {
+    const key = d.category_id ?? null;
+    (byCategory.get(key) ?? byCategory.set(key, []).get(key)!).push(d);
+  }
+  const sections: { name: string | null; docs: DocumentWithSpace[] }[] = [];
+  for (const c of categories) {
+    const rows = byCategory.get(c.id);
+    if (rows?.length) sections.push({ name: c.name, docs: rows });
+  }
+  const general = byCategory.get(null);
+  if (general?.length) {
+    // Only label the leftovers when there are named sections above them.
+    sections.push({ name: sections.length > 0 ? "General" : null, docs: general });
+  }
+
   return (
-    <div className="mx-auto max-w-6xl px-8 py-8">
+    <PageContainer>
       <div className="mb-6 flex items-start justify-between gap-4">
         <div className="flex items-center gap-4">
           <div
@@ -55,25 +81,38 @@ export default async function SpacePage({ params }: { params: Promise<{ slug: st
         </div>
       </div>
 
-      {docs.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-slate-300 bg-surface p-10 text-center text-slate-500">
-          No documents in this space yet.
-          {isEditor && canAuthor && (
-            <>
-              {" "}
-              <Link href={`/doc/new?space=${space.slug}`} className="font-medium text-compass-600">
-                Create the first one →
-              </Link>
-            </>
-          )}
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {docs.map((d) => (
-            <DocCard key={d.id} doc={d} />
-          ))}
-        </div>
-      )}
-    </div>
+      <SpaceSearch spaceId={space.id} spaceName={space.name}>
+        {docs.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-slate-300 bg-surface p-10 text-center text-slate-500">
+            No documents in this space yet.
+            {isEditor && canAuthor && (
+              <>
+                {" "}
+                <Link href={`/doc/new?space=${space.slug}`} className="font-medium text-compass-600">
+                  Create the first one →
+                </Link>
+              </>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-8">
+            {sections.map((s, i) => (
+              <section key={s.name ?? `general-${i}`}>
+                {s.name && (
+                  <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                    {s.name}
+                  </h2>
+                )}
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {s.docs.map((d) => (
+                    <DocCard key={d.id} doc={d} />
+                  ))}
+                </div>
+              </section>
+            ))}
+          </div>
+        )}
+      </SpaceSearch>
+    </PageContainer>
   );
 }

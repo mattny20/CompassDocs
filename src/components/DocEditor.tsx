@@ -25,9 +25,16 @@ interface ProofResult {
   message?: string;
 }
 
+interface Category {
+  id: number;
+  space_id: number;
+  name: string;
+}
+
 interface Initial {
   id?: number;
   space_id?: number;
+  category_id?: number | null;
   title: string;
   type: DocType;
   status: DocStatus;
@@ -39,17 +46,21 @@ interface Initial {
 
 export function DocEditor({
   spaces,
+  categories = [],
   initial,
   mode,
   canPublish,
 }: {
   spaces: Pick<Space, "id" | "name" | "icon">[];
+  /** Categories across the offered spaces; filtered by the selected space. */
+  categories?: Category[];
   initial: Initial;
   mode: "create" | "edit";
   canPublish: boolean;
 }) {
   const router = useRouter();
   const [spaceId, setSpaceId] = useState(initial.space_id ?? spaces[0]?.id);
+  const [categoryId, setCategoryId] = useState<number | null>(initial.category_id ?? null);
   const [title, setTitle] = useState(initial.title);
   const [type, setType] = useState<DocType>(initial.type);
   const [status, setStatus] = useState<DocStatus>(initial.status);
@@ -117,6 +128,7 @@ export function DocEditor({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             space_id: spaceId,
+            category_id: categoryId,
             title: title.trim() || "Untitled",
             type,
             status: "draft",
@@ -181,6 +193,7 @@ export function DocEditor({
     setError("");
     const payload = {
       space_id: spaceId,
+      category_id: categoryId,
       title: title.trim(),
       type,
       status,
@@ -294,7 +307,13 @@ export function DocEditor({
           <Field label="Space">
             <select
               value={spaceId}
-              onChange={(e) => setSpaceId(Number(e.target.value))}
+              onChange={(e) => {
+                const next = Number(e.target.value);
+                setSpaceId(next);
+                if (categoryId && !categories.some((c) => c.id === categoryId && c.space_id === next)) {
+                  setCategoryId(null);
+                }
+              }}
               className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-none focus:border-compass-400"
             >
               {spaces.map((s) => (
@@ -304,6 +323,24 @@ export function DocEditor({
               ))}
             </select>
           </Field>
+          {categories.some((c) => c.space_id === spaceId) && (
+            <Field label="Category">
+              <select
+                value={categoryId ?? ""}
+                onChange={(e) => setCategoryId(e.target.value ? Number(e.target.value) : null)}
+                className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-none focus:border-compass-400"
+              >
+                <option value="">General</option>
+                {categories
+                  .filter((c) => c.space_id === spaceId)
+                  .map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+              </select>
+            </Field>
+          )}
           <Field label="Type">
             <select
               value={type}

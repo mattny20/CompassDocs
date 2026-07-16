@@ -7,6 +7,7 @@ import { listDocumentsByAuthor, listLinkedUserNames } from "@/lib/db";
 import { spaceScopeFor } from "@/lib/access";
 import { roleAtLeast } from "@/lib/types";
 import { DocCard } from "@/components/DocCard";
+import { PageContainer } from "@/components/PageWidth";
 
 export const dynamic = "force-dynamic";
 
@@ -41,7 +42,7 @@ export default async function PersonProfilePage({
     .filter((f) => f.value);
 
   return (
-    <div className="mx-auto max-w-3xl px-8 py-8">
+    <PageContainer>
       <Link
         href="/directory"
         className="mb-4 inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-600"
@@ -123,6 +124,6 @@ export default async function PersonProfilePage({
           ))}
         </div>
       )}
-    </div>
+    </PageContainer>
   );
 }

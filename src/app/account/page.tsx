@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
-import { ArrowLeft, BellRing, KeyRound, ShieldCheck, Cable } from "lucide-react";
+import { ArrowLeft, BellRing, KeyRound, ShieldCheck, Cable, PanelLeftClose } from "lucide-react";
+import { WidthPreference } from "@/components/PageWidth";
 import { requireUser, SESSION_COOKIE } from "@/lib/auth";
 import {
   getUserById,
@@ -44,6 +45,7 @@ export default async function AccountPage() {
     .toUpperCase();
 
   const NAV = [
+    { href: "#preferences", label: "Preferences", icon: <PanelLeftClose className="h-3.5 w-3.5" /> },
     { href: "#notifications", label: "Notifications", icon: <BellRing className="h-3.5 w-3.5" /> },
     { href: "#security", label: "Security & MFA", icon: <ShieldCheck className="h-3.5 w-3.5" /> },
     { href: "#password", label: "Password", icon: <KeyRound className="h-3.5 w-3.5" /> },
@@ -90,6 +92,17 @@ export default async function AccountPage() {
         </nav>
 
         <div className="space-y-8">
+          <section id="preferences" className="scroll-mt-6">
+            <h2 className="mb-1 font-semibold text-slate-900">Preferences</h2>
+            <p className="mb-3 text-sm text-slate-500">
+              How wide pages render across the whole app (documents, dashboard, settings).
+            </p>
+            <div className="rounded-2xl border border-slate-200 bg-surface p-5 shadow-sm">
+              <span className="mb-2 block text-xs font-medium text-slate-500">Page width</span>
+              <WidthPreference initial={user.page_width} />
+            </div>
+          </section>
+
           <section id="notifications" className="scroll-mt-6">
             <h2 className="mb-1 font-semibold text-slate-900">Notifications</h2>
             <p className="mb-3 text-sm text-slate-500">

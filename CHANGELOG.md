@@ -4,6 +4,31 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.29.0] - 2026-07-16
+
+### Added
+- **Categories within spaces.** Admins can define ordered categories per
+  space (Settings → Spaces → Edit → Categories); writers pick one in the
+  document editor, and the space page renders documents grouped into
+  sections with uncategorized docs under "General". Deleting a category
+  keeps its documents; moving a document to another space clears its
+  category (or keeps it when the target has the same category id).
+- **In-space search.** Every space page gets a search box scoped to that
+  space — debounced, keyword-highlighted results that respect visibility
+  and draft rules, replacing the document grid while a query is active.
+- **App-wide page width as an account preference.** The Normal / Wide /
+  Full choice from document pages now applies to the whole app (dashboard,
+  spaces, search, directory, links, settings) and is stored on your account
+  — set it under Manage account → Preferences or with the toggle on any
+  document. **Wide is the default** for new and existing users.
+
+### Changed
+- **Icon action buttons on documents.** Print/PDF, History, Edit, and
+  Delete are now clean icon buttons (printer, clock, pencil, trash) with
+  tooltips and accessible labels.
+- Every screen now shares the same page container — consistent width,
+  padding, and spacing across the app and settings pages.
+
 ## [0.28.0] - 2026-07-16
 
 ### Added

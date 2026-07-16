@@ -7,6 +7,7 @@ import { spaceScopeFor, scopeAllows } from "@/lib/access";
 import { featureEnabled } from "@/lib/ee";
 import { getAppSettings } from "@/lib/settings-store";
 import { formatDateTime } from "@/lib/format";
+import { PageContainer } from "@/components/PageWidth";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +28,7 @@ export default async function AcknowledgementsPage({
   const pending = rows.filter((r) => !r.acknowledged_at);
 
   return (
-    <div className="mx-auto max-w-3xl px-8 py-8">
+    <PageContainer>
       <Link
         href={`/doc/${doc.id}`}
         className="mb-4 inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-600"
@@ -96,6 +97,6 @@ export default async function AcknowledgementsPage({
           </tbody>
         </table>
       </div>
-    </div>
+    </PageContainer>
   );
 }
