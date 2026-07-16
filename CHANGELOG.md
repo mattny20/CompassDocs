@@ -4,6 +4,15 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.21.1] - 2026-07-16
+
+### Fixed
+- **Settings → License now lists the Policy acknowledgements entitlement.**
+  0.21.0 shipped the feature but forgot to add it to the entitlement list in
+  the admin license console, so admins couldn't see whether their license
+  granted `policy_ack` (it showed no row at all). The row now appears with
+  the usual Enabled / Not licensed / Not in build status.
+
 ## [0.21.0] - 2026-07-16
 
 ### Added
