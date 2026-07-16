@@ -1,32 +1,75 @@
+<div align="center">
+
 # 🧭 CompassDocs
 
-A modern documentation and knowledge platform for teams. Create, organize, and
-search SOPs, technical documentation, policies, and internal knowledge with a
-clean interface, AI-powered search, and collaborative editing with version
-history.
+**The open-source, self-hosted team knowledge base.**
 
-![Next.js](https://img.shields.io/badge/Next.js-15-black) ![TypeScript](https://img.shields.io/badge/TypeScript-5-blue) ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-blue) ![License](https://img.shields.io/badge/license-AGPL--3.0-orange)
+Write, organize, and search SOPs, technical docs, and policies — with AI answers
+grounded in your own documents, a people directory, and an approval workflow.
+
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-orange)](./LICENSE)
+[![Latest release](https://img.shields.io/github/v/release/mattny20/CompassDocs)](https://github.com/mattny20/CompassDocs/releases)
+[![Docker image](https://img.shields.io/badge/ghcr.io-mattny20%2Fcompassdocs-blue?logo=docker)](https://github.com/mattny20/CompassDocs/pkgs/container/compassdocs)
+![Next.js](https://img.shields.io/badge/Next.js-15-black)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-14%2B-blue)
+
+[Website](https://compassdocs.io) · [Documentation](https://docs.compassdocs.io) · [Features](https://compassdocs.io/features) · [Pricing](https://compassdocs.io/pricing) · [Quick start](#self-hosting-one-command)
+
+<img src="https://compassdocs.io/img/dashboard.webp" alt="The CompassDocs dashboard: organization announcements, spaces, and recently updated documents" width="800">
+
+</div>
+
+## Why CompassDocs
+
+Team knowledge shouldn't be a scavenger hunt across wikis, drives, and chat
+scrollback. CompassDocs is one clean, self-hosted place for it — free and
+open-source (AGPL-3.0), running from a single Docker command, with no per-seat
+pricing on the core product, ever.
 
 ## Features
 
-- **Accounts & roles** — the whole site is private (login required). Four role tiers — **Viewer**, **Editor**, **Approver**, **Admin** — govern who can read, write, publish, and administer.
-- **Editorial approval workflow** — in **strict** mode, an Editor's changes to a published doc (or a request to publish) go to a **review queue**; Approvers/Admins approve (applies it live) or reject. Admins can switch to **open** mode, letting Editors publish directly.
-- **Suggestions** — any signed-in user can leave a "suggest an edit" note on a doc; Approvers/Admins triage them from the review queue.
-- **Admin console** — create users, assign/change roles, reset passwords, enable/disable accounts, and toggle the approval workflow — all with a last-admin lockout guard.
-- **Appearance & workspace settings** — set your **company name and logo**, choose a **timezone**, **date** and **time format** for how timestamps render, and configure the **idle session timeout** — all from the Admin page.
-- **Spaces** — group knowledge by team or domain (Engineering, People Ops, Security, …).
-- **Four document types** — SOPs, Technical docs, Policies, and Knowledge/how-tos, each color-coded.
-- **Markdown editing** — a distraction-free editor with a live preview tab and GitHub-flavored markdown (tables, checklists, code blocks).
-- **Full-text search** — instant, ranked, keyword-highlighted results powered by **PostgreSQL full-text search** (`tsvector` + GIN index, `ts_rank`). A ⌘K quick-search is available everywhere. Drafts are hidden from Viewers in search, lists, and AI answers.
-- **AI-powered answers** — "Ask CompassDocs" answers plain-English questions grounded in your knowledge base, with inline citations and clickable sources.
-- **Version history** — every content change is snapshotted; browse and preview past revisions.
-- **Trash & retention** — deleting a document moves it to the **Trash** (a soft delete), where Editors can restore it and Admins can remove it for good. A configurable retention window auto-purges trashed documents after a set number of days (or never).
-- **Import & export** — Admins can export the whole knowledge base as a zip of Markdown files with YAML front-matter (organized by space), and import such a zip back in — matching documents are updated in place and new documents/spaces are created.
-- **Database backups** — full `pg_dump` backups on a schedule (daily/weekly) or on demand, with retention and one-click **restore**, from the Admin console. Backups are written to a local volume and can be mirrored off-site to **S3-compatible** storage (S3/R2/MinIO) and/or **Azure Blob** — see [`deploy/.env.example`](./deploy/.env.example).
-- **Attachments** — attach files to any document (stored on a local volume) with a configurable per-file size limit. Images can be embedded directly in Markdown via their link; non-image files are always served as downloads (never executed inline).
-- **Drafts & publishing** — mark documents as draft or published.
-- **Tags** — tag documents and browse by popular tags.
-- **Self-seeding storage** — on first connection the app creates its own PostgreSQL schema and seeds realistic sample content; no manual migrations.
+**Find & ask**
+- **Ask CompassDocs** — plain-English questions answered from your docs with inline citations, plus "who does X?" answers straight from the people directory. Powered by a lightweight RAG pipeline over PostgreSQL full-text search; works keyword-only without an API key.
+- **Instant search** — ranked, keyword-highlighted results with a ⌘K quick-search everywhere. Drafts stay hidden from viewers.
+
+**Write**
+- **Rich editor or Markdown** — headings, tables, checklists, code blocks; paste screenshots inline, size them, add alt text. AI proofreading built in.
+- **Version history, drafts, tags, attachments,** and one-click **Print / Save as PDF**. Readers pick their page width.
+
+**Organize**
+- **Spaces** with three visibility tiers — internal, **private** (granted groups only), or **public** (a branded, read-only site for the open internet, off by default).
+- **Per-space edit rights** — restrict who can author in a space, per person or group, with an org-wide override switch.
+- **People directory** — profiles, custom fields, assistants, and each person's authored docs; clickable article bylines.
+- **Quick links** — a launchpad of categorized shortcuts to your other tools, group-restricted, with auto-fetched icons.
+
+**Communicate**
+- **Announcements** — org-wide dashboard alerts (info/warning/critical) with a sidebar unread badge, optional email and chat delivery.
+- **Newsletter** — branded HTML email written in the doc editor, sent to everyone or selected groups.
+- **Subscriptions** — anyone can follow a space and get an email when its docs change; admins can auto-subscribe groups.
+- **Notifications** — Webex, Microsoft Teams, Slack, email, or any webhook on review/publish/announcement events.
+
+**Govern**
+- **Roles & approval workflow** — Viewer/Editor/Approver/Admin, with a review queue for changes to live docs (strict mode) or direct publishing (open mode), plus suggestions from any reader.
+- **Security** — authenticator-app 2FA with recovery codes, per-device sessions, idle timeout, and a full audit log.
+- **Trash & retention**, import/export as front-matter Markdown, scheduled backups with off-site mirroring (S3/R2/MinIO/Azure).
+
+**Administer & integrate**
+- **Your brand** — fetch your website's icon or upload a logo, pick an accent color, and the whole app re-tints (light/dark/auto).
+- **Groups** — manual or synced from Microsoft Entra ID (enterprise); **custom domain with automatic HTTPS**; a system console with storage and resource usage.
+- **Claude connector (MCP)** — connect the Claude app with one click and draft, search, and revise docs from Claude; approvals still apply.
+
+**Enterprise** *(separate licensed build — [pricing](https://compassdocs.io/pricing): flat $599/yr, unlimited users)*
+- **SSO** (OIDC, one-click Microsoft Entra setup) · **Microsoft 365 directory & group sync** · **Policy acknowledgements** ("I've read this" compliance records with CSV export) · **audit-log export** · optional dedicated support.
+- Licenses are offline, cryptographically signed keys — no phone-home, air-gap friendly. The Community edition is complete on its own.
+
+## Screenshots
+
+| | |
+| --- | --- |
+| ![AI answer with citations](https://compassdocs.io/img/ai.webp) | ![A rendered SOP document](https://compassdocs.io/img/document.webp) |
+| *Ask CompassDocs — cited answers* | *Documents — rich rendering, print to PDF* |
+| ![The people directory](https://compassdocs.io/img/directory.webp) | ![The anonymous public site](https://compassdocs.io/img/public-site.webp) |
+| *People directory* | *Optional public site* |
 
 ## Roles & permissions
 
@@ -52,7 +95,7 @@ Prefer to provision headlessly (CI, automation)? Set `COMPASSDOCS_ADMIN_USER`
 and `COMPASSDOCS_ADMIN_PASSWORD` (see `.env.example`) and the admin is created on
 first launch instead, skipping the wizard.
 
-> **Authentication** uses local accounts (username + password hashed with Node's `scrypt`) and secure HTTP-only cookie sessions — no external services required. The user model carries `auth_provider` / `external_id` columns so SSO (Azure/Google/Okta/Duo) and SCIM provisioning can be layered on later without a rewrite.
+> **Authentication** uses local accounts (username + password hashed with Node's `scrypt`) and secure HTTP-only cookie sessions — no external services required. Authenticator-app **2FA** is available to every user. Single sign-on (OIDC, with one-click Microsoft Entra setup) ships in the Enterprise build.
 
 ## Tech stack
 
@@ -216,21 +259,20 @@ pooled connection string) when deploying to serverless platforms, and keep
 ```
 src/
 ├── app/
-│   ├── page.tsx                 Dashboard (stats, spaces, recent, tags)
-│   ├── spaces/[slug]/           Documents within a space
-│   ├── doc/[id]/                Read view
-│   ├── doc/[id]/edit/           Editor (edit mode)
-│   ├── doc/[id]/history/        Version history timeline
-│   ├── doc/new/                 Editor (create mode)
-│   ├── search/                  "Ask CompassDocs" (AI + keyword)
-│   └── api/                     REST routes: documents, search, ai-search
-├── components/                  Sidebar, editor, search, cards, badges
+│   ├── (app)/                   Signed-in app: dashboard, spaces, docs, editor,
+│   │                            history, search/Ask, directory, links, review,
+│   │                            trash, and the admin console
+│   ├── (public)/public/         Anonymous public site (opt-in, per space)
+│   ├── account/                 Manage account (notifications, 2FA, tokens)
+│   └── api/                     REST routes: documents, search, admin, MCP, …
+├── components/                  Sidebar, editors, panels, cards, badges
+├── ee-stub/                     Open-source stand-in for the enterprise add-ins
 └── lib/
     ├── db.ts                    Postgres pool, schema/migration, queries, seeding
-    ├── auth.ts                  Sessions, cookies, role guards
-    ├── ai.ts                    RAG answer pipeline + fallback
-    ├── seed-data.ts             Sample spaces & documents
-    └── types.ts                 Shared types
+    ├── auth.ts / access.ts      Sessions, role guards, space visibility & edit rights
+    ├── ai.ts                    RAG answer pipeline + keyword fallback
+    ├── webhooks.ts / mailer.ts  Chat + email delivery
+    └── license.ts               Offline Ed25519 license verification (fails open)
 ```
 
 Search stays consistent automatically: the `documents.search` column is a
