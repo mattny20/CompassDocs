@@ -6,7 +6,7 @@ import { notifyWebhooks } from "@/lib/webhooks";
 import { notifySpaceSubscribers } from "@/lib/subscriptions";
 import { requestOrigin } from "@/lib/oauth";
 import { roleAtLeast } from "@/lib/types";
-import { spaceScopeFor, scopeAllows } from "@/lib/access";
+import { spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
 import type { DocType, DocStatus, SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -46,6 +46,12 @@ export async function POST(req: Request) {
   if (!spaceId) spaceId = (await listSpaces(scope))[0]?.id;
   if (!spaceId || !scopeAllows(scope, spaceId)) {
     return NextResponse.json({ error: "No space available." }, { status: 400 });
+  }
+  if (!(await canEditSpace(user, spaceId))) {
+    return NextResponse.json(
+      { error: "You don't have edit access to this space." },
+      { status: 403 }
+    );
   }
 
   const type: DocType = TYPES.includes(body?.type) ? body.type : "knowledge";

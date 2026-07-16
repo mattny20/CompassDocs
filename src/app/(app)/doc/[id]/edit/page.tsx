@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { getDocument, listSpaces, getApprovalMode } from "@/lib/db";
 import { requireRole } from "@/lib/auth";
-import { spaceScopeFor, scopeAllows } from "@/lib/access";
+import { spaceScopeFor, scopeAllows, canEditSpace, editableScopeFor } from "@/lib/access";
 import { roleAtLeast } from "@/lib/types";
 import { DocEditor } from "@/components/DocEditor";
 
@@ -14,7 +14,9 @@ export default async function EditDocPage({ params }: { params: Promise<{ id: st
   if (!doc) notFound();
   const scope = await spaceScopeFor(user);
   if (!scopeAllows(scope, doc.space_id)) notFound();
-  const spaces = await listSpaces(scope);
+  if (!(await canEditSpace(user, doc.space_id))) notFound();
+  // The move-to-space dropdown only offers spaces the user can author in.
+  const spaces = await listSpaces(await editableScopeFor(user));
   const canPublish = roleAtLeast(user.role, "approver") || (await getApprovalMode()) === "open";
 
   return (

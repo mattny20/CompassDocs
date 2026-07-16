@@ -3,7 +3,7 @@ import { PageWidth } from "@/components/PageWidth";
 import { notFound } from "next/navigation";
 import { getDocument, listVersions, listPendingForDocument, listAttachments } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
-import { spaceScopeFor, scopeAllows } from "@/lib/access";
+import { spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
 import { resolveAuthorPerson } from "@/lib/directory";
 import { featureEnabled } from "@/lib/ee";
 import { getCurrentAck, ackStatusForDocument } from "@/lib/db";
@@ -33,11 +33,12 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
 
   const versionCount = (await listVersions(doc.id)).length;
   const pending = roleAtLeast(user.role, "approver") ? await listPendingForDocument(doc.id) : [];
-  const [settings, attachments, authorPerson, ackEnabled] = await Promise.all([
+  const [settings, attachments, authorPerson, ackEnabled, hasEditRights] = await Promise.all([
     getAppSettings(),
     listAttachments(doc.id),
     resolveAuthorPerson(doc.author),
     featureEnabled("policy_ack"),
+    canEditSpace(user, doc.space_id),
   ]);
   const isApprover = roleAtLeast(user.role, "approver");
   // Reader banner state + approver progress, only when the feature is licensed.
@@ -73,6 +74,7 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
           spaceSlug={doc.space_slug}
           role={user.role}
           isPublished={doc.status === "published"}
+          hasEditRights={hasEditRights}
         />
       </div>
 
@@ -154,7 +156,7 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
           mime_type: a.mime_type,
           size: a.size,
         }))}
-        canEdit={isStaff}
+        canEdit={isStaff && hasEditRights}
         maxMb={settings.max_attachment_mb}
       />
       </div>

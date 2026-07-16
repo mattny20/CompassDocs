@@ -2,12 +2,14 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Lock, Globe, Building2 } from "lucide-react";
+import { Lock, Globe, Building2, PencilRuler } from "lucide-react";
 import { SpaceIconPicker } from "./SpaceIconPicker";
 import type { Space } from "@/lib/types";
 
 type SpaceRow = Space & { doc_count: number };
 export type GroupOption = { id: number; name: string; source: string; member_count: number };
+export type EditorUserOption = { id: number; name: string; role: string };
+type EditorGrants = { users: Record<number, number[]>; groups: Record<number, number[]> };
 
 const field =
   "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
@@ -15,18 +17,27 @@ const field =
 export function SpacesManager({
   initial,
   groups,
+  users,
   initialSpaceGroups,
   initialSubscriptionGroups,
+  initialEditorGrants,
+  initialEditorsEditAll,
 }: {
   initial: SpaceRow[];
   groups: GroupOption[];
+  users: EditorUserOption[];
   initialSpaceGroups: Record<number, number[]>;
   initialSubscriptionGroups: Record<number, number[]>;
+  initialEditorGrants: EditorGrants;
+  initialEditorsEditAll: boolean;
 }) {
   const router = useRouter();
   const [spaces, setSpaces] = useState<SpaceRow[]>(initial);
   const [spaceGroups, setSpaceGroups] = useState<Record<number, number[]>>(initialSpaceGroups);
   const [subGroups, setSubGroups] = useState<Record<number, number[]>>(initialSubscriptionGroups);
+  const [editorGrants, setEditorGrants] = useState<EditorGrants>(initialEditorGrants);
+  const [editAll, setEditAll] = useState(initialEditorsEditAll);
+  const [togglingEditAll, setTogglingEditAll] = useState(false);
   const [editing, setEditing] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
@@ -38,8 +49,23 @@ export function SpacesManager({
       setSpaces(data.spaces);
       setSpaceGroups(data.spaceGroups ?? {});
       setSubGroups(data.subscriptionGroups ?? {});
+      setEditorGrants(data.editorGrants ?? { users: {}, groups: {} });
+      setEditAll(Boolean(data.editorsEditAll));
     }
     router.refresh();
+  }
+
+  async function toggleEditAll(next: boolean) {
+    setTogglingEditAll(true);
+    setError("");
+    const res = await fetch("/api/admin/spaces", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ editorsEditAll: next }),
+    });
+    setTogglingEditAll(false);
+    if (res.ok) setEditAll(next);
+    else setError((await res.json().catch(() => ({}))).error || "Could not update the setting.");
   }
 
   async function remove(space: SpaceRow) {
@@ -80,11 +106,39 @@ export function SpacesManager({
         </div>
       )}
 
+      {/* Org-level edit-rights switch */}
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+        <label className="flex cursor-pointer items-start gap-3">
+          <input
+            type="checkbox"
+            checked={editAll}
+            disabled={togglingEditAll}
+            onChange={(e) => toggleEditAll(e.target.checked)}
+            className="mt-0.5 h-4 w-4 accent-compass-600"
+          />
+          <span>
+            <span className="font-medium text-slate-800">
+              All editors can edit all spaces
+            </span>
+            <span className="mt-0.5 block text-xs text-slate-500">
+              On (default): anyone with the editor role can author in every space they can
+              see, and per-space editor lists below are ignored. Off: each space&apos;s
+              &ldquo;Who can edit&rdquo; list applies — a space with no list stays open to
+              all editors. Admins can always edit everything.
+            </span>
+          </span>
+        </label>
+      </div>
+
       {creating && (
         <SpaceForm
           groups={groups}
+          users={users}
           grantedIds={[]}
           subscribedGroupIds={[]}
+          editorUserIds={[]}
+          editorGroupIds={[]}
+          editAllActive={editAll}
           onCancel={() => setCreating(false)}
           onSaved={async () => {
             setCreating(false);
@@ -100,8 +154,12 @@ export function SpacesManager({
               key={s.id}
               space={s}
               groups={groups}
+              users={users}
               grantedIds={spaceGroups[s.id] ?? []}
               subscribedGroupIds={subGroups[s.id] ?? []}
+              editorUserIds={editorGrants.users[s.id] ?? []}
+              editorGroupIds={editorGrants.groups[s.id] ?? []}
+              editAllActive={editAll}
               onCancel={() => setEditing(null)}
               onSaved={async () => {
                 setEditing(null);
@@ -143,6 +201,14 @@ export function SpacesManager({
                       Public — no sign-in
                     </span>
                   )}
+                  {!editAll &&
+                    ((editorGrants.users[s.id]?.length ?? 0) > 0 ||
+                      (editorGrants.groups[s.id]?.length ?? 0) > 0) && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-1.5 py-0.5 text-xs font-medium text-violet-700">
+                        <PencilRuler className="h-3 w-3" />
+                        Restricted editing
+                      </span>
+                    )}
                 </div>
                 {s.description && (
                   <p className="truncate text-xs text-slate-500">{s.description}</p>
@@ -176,15 +242,24 @@ export function SpacesManager({
 function SpaceForm({
   space,
   groups,
+  users,
   grantedIds,
   subscribedGroupIds,
+  editorUserIds,
+  editorGroupIds,
+  editAllActive,
   onCancel,
   onSaved,
 }: {
   space?: SpaceRow;
   groups: GroupOption[];
+  users: EditorUserOption[];
   grantedIds: number[];
   subscribedGroupIds: number[];
+  editorUserIds: number[];
+  editorGroupIds: number[];
+  /** True while the org-wide "all editors edit all spaces" switch is on. */
+  editAllActive: boolean;
   onCancel: () => void;
   onSaved: () => void;
 }) {
@@ -197,6 +272,11 @@ function SpaceForm({
   );
   const [groupIds, setGroupIds] = useState<number[]>(grantedIds);
   const [subGroupIds, setSubGroupIds] = useState<number[]>(subscribedGroupIds);
+  const [edUserIds, setEdUserIds] = useState<number[]>(editorUserIds);
+  const [edGroupIds, setEdGroupIds] = useState<number[]>(editorGroupIds);
+  const [restrictEditing, setRestrictEditing] = useState(
+    editorUserIds.length > 0 || editorGroupIds.length > 0
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -230,6 +310,8 @@ function SpaceForm({
         visibility,
         groupIds: visibility === "private" ? groupIds : [],
         subscriptionGroupIds: subGroupIds,
+        editorUserIds: restrictEditing ? edUserIds : [],
+        editorGroupIds: restrictEditing ? edGroupIds : [],
       }),
     });
     setSaving(false);
@@ -378,6 +460,128 @@ function SpaceForm({
                   </label>
                 ))}
               </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="mt-4">
+        <span className="mb-1 block text-xs font-medium text-slate-500">Who can edit</span>
+        {editAllActive && (
+          <p className="mb-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+            The org-wide <strong>&ldquo;All editors can edit all spaces&rdquo;</strong> switch
+            (top of this page) is on, so this list is saved but not enforced until you turn
+            that switch off.
+          </p>
+        )}
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setRestrictEditing(false)}
+            className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${
+              !restrictEditing
+                ? "border-compass-400 bg-compass-50 text-compass-700"
+                : "border-slate-200 text-slate-600 hover:bg-slate-50"
+            }`}
+          >
+            All editors
+          </button>
+          <button
+            type="button"
+            onClick={() => setRestrictEditing(true)}
+            className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${
+              restrictEditing
+                ? "border-violet-400 bg-violet-50 text-violet-700"
+                : "border-slate-200 text-slate-600 hover:bg-slate-50"
+            }`}
+          >
+            Only selected people or groups
+          </button>
+        </div>
+        {restrictEditing && (
+          <div className="mt-3 space-y-3 rounded-lg border border-violet-200 bg-violet-50/40 p-3">
+            <p className="text-xs text-violet-900/80">
+              Only the people and group members below can create, edit, move, or trash
+              documents in this space (they also need the editor role). Everyone with view
+              access can still read and suggest. Admins always have edit access.
+            </p>
+            <div>
+              <span className="mb-1 block text-xs font-medium text-slate-500">People</span>
+              {users.length === 0 ? (
+                <p className="text-sm text-slate-400">No editor or approver accounts yet.</p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {users.map((u) => (
+                    <label
+                      key={u.id}
+                      className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm ${
+                        edUserIds.includes(u.id)
+                          ? "border-violet-400 bg-white text-violet-800 shadow-sm"
+                          : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={edUserIds.includes(u.id)}
+                        onChange={() =>
+                          setEdUserIds((prev) =>
+                            prev.includes(u.id) ? prev.filter((x) => x !== u.id) : [...prev, u.id]
+                          )
+                        }
+                        className="h-3.5 w-3.5 accent-violet-600"
+                      />
+                      {u.name}
+                      <span className="text-xs text-slate-400">{u.role}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div>
+              <span className="mb-1 block text-xs font-medium text-slate-500">Groups</span>
+              {groups.length === 0 ? (
+                <p className="text-sm text-slate-400">
+                  No groups yet — create one under{" "}
+                  <a href="/admin/groups" className="font-medium text-compass-700 underline">
+                    Settings → Groups
+                  </a>
+                  .
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {groups.map((g) => (
+                    <label
+                      key={g.id}
+                      className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm ${
+                        edGroupIds.includes(g.id)
+                          ? "border-violet-400 bg-white text-violet-800 shadow-sm"
+                          : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={edGroupIds.includes(g.id)}
+                        onChange={() =>
+                          setEdGroupIds((prev) =>
+                            prev.includes(g.id) ? prev.filter((x) => x !== g.id) : [...prev, g.id]
+                          )
+                        }
+                        className="h-3.5 w-3.5 accent-violet-600"
+                      />
+                      {g.name}
+                      <span className="text-xs text-slate-400">
+                        {g.member_count} member{g.member_count === 1 ? "" : "s"}
+                        {g.source === "entra" ? " · synced" : ""}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+            {edUserIds.length === 0 && edGroupIds.length === 0 && (
+              <p className="text-xs text-amber-700">
+                Nothing selected yet — saving like this leaves the space open to all editors.
+              </p>
             )}
           </div>
         )}

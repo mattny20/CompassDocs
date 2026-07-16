@@ -27,7 +27,7 @@ import { requestOrigin } from "@/lib/oauth";
 import { notifyWebhooks } from "@/lib/webhooks";
 import { notifySpaceSubscribers } from "@/lib/subscriptions";
 import { audit, actorFrom } from "@/lib/audit";
-import { spaceScopeFor, scopeAllows } from "@/lib/access";
+import { spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
 import { roleAtLeast } from "@/lib/types";
 import type { DocStatus, DocType, User } from "@/lib/types";
 
@@ -226,6 +226,9 @@ async function callTool(user: User, name: string, args: any) {
         spaceId = (await listSpaces(scope))[0]?.id;
       }
       if (!spaceId) return toolText("No space available to create the document in.", true);
+      if (!(await canEditSpace(user, spaceId))) {
+        return toolText("You don't have edit access to that space — pick another with list_spaces.", true);
+      }
 
       const canPublish = roleAtLeast(user.role, "approver") || (await getApprovalMode()) === "open";
       const wantPublish = args?.publish === true;
@@ -285,6 +288,9 @@ async function callTool(user: User, name: string, args: any) {
       const existing = await getDocument(Number(args?.id));
       if (!existing || !scopeAllows(scope, existing.space_id)) {
         return toolText(`No document with id ${args?.id}.`, true);
+      }
+      if (!(await canEditSpace(user, existing.space_id))) {
+        return toolText("You don't have edit access to this document's space.", true);
       }
 
       const proposed = {

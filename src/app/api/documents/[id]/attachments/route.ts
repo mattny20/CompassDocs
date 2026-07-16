@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { apiGuard } from "@/lib/api-auth";
-import { spaceScopeFor, scopeAllows } from "@/lib/access";
+import { spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
 import { getDocument, createAttachment } from "@/lib/db";
 import { saveUpload, safeExt } from "@/lib/uploads";
 import { getAppSettings } from "@/lib/settings-store";
@@ -19,6 +19,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (!doc) return NextResponse.json({ error: "Document not found." }, { status: 404 });
   if (!scopeAllows(await spaceScopeFor(user), doc.space_id)) {
     return NextResponse.json({ error: "Document not found." }, { status: 404 });
+  }
+  if (!(await canEditSpace(user, doc.space_id))) {
+    return NextResponse.json(
+      { error: "You don't have edit access to this space." },
+      { status: 403 }
+    );
   }
 
   const { max_attachment_mb } = await getAppSettings();
