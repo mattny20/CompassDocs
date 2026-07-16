@@ -4,6 +4,21 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.28.0] - 2026-07-16
+
+### Added
+- **Unread-announcements badge.** The sidebar's Dashboard entry now shows a
+  count of active announcements you haven't dismissed yet (a dot when the
+  sidebar is collapsed), clearing as you dismiss them.
+
+### Fixed
+- **Announcements are now legible in dark mode.** Info blocks rendered
+  dark-on-dark titles and the warning/critical blocks stayed bright; all
+  three severities (dashboard block, read-confirmation banner, and the
+  admin screen's chips) now have proper dark-theme colors.
+- The theme toggle's emoji (☀️/🌙/🖥️) are replaced with the app's icon set
+  (Sun / Moon / Monitor).
+
 ## [0.27.0] - 2026-07-16
 
 ### Added

@@ -1,14 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Sun, Moon, Monitor } from "lucide-react";
 
 type Pref = "light" | "dark" | "system";
 
 const KEY = "compass-theme";
-const OPTIONS: { value: Pref; label: string; icon: string }[] = [
-  { value: "light", label: "Light", icon: "☀️" },
-  { value: "dark", label: "Dark", icon: "🌙" },
-  { value: "system", label: "Auto", icon: "🖥️" },
+const ICON = "h-3.5 w-3.5";
+const OPTIONS: { value: Pref; label: string; icon: React.ReactNode }[] = [
+  { value: "light", label: "Light", icon: <Sun className={ICON} /> },
+  { value: "dark", label: "Dark", icon: <Moon className={ICON} /> },
+  { value: "system", label: "Auto", icon: <Monitor className={ICON} /> },
 ];
 
 function systemPrefersDark(): boolean {

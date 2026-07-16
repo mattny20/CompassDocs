@@ -5,6 +5,7 @@
 // from Settings → Announcements).
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Megaphone, TriangleAlert, Siren, X } from "lucide-react";
 
 export interface AnnouncementView {
@@ -16,34 +17,40 @@ export interface AnnouncementView {
   created_at: string;
 }
 
+// Amber/red are literal Tailwind colors (they don't follow the CSS-variable
+// theme like slate/compass do), and compass-900 stays dark in dark mode — so
+// every piece needs an explicit dark: counterpart to stay legible.
 const STYLE = {
   info: {
-    box: "border-compass-200 bg-compass-50/70",
-    title: "text-compass-900",
-    body: "text-compass-900/80",
-    icon: <Megaphone className="h-4 w-4 text-compass-600" />,
+    box: "border-compass-200 bg-compass-50/70 dark:border-compass-100 dark:bg-compass-50/60",
+    title: "text-compass-900 dark:text-compass-300",
+    body: "text-compass-900/80 dark:text-slate-600",
+    icon: <Megaphone className="h-4 w-4 text-compass-600 dark:text-compass-400" />,
   },
   warning: {
-    box: "border-amber-300 bg-amber-50",
-    title: "text-amber-900",
-    body: "text-amber-900/80",
-    icon: <TriangleAlert className="h-4 w-4 text-amber-600" />,
+    box: "border-amber-300 bg-amber-50 dark:border-amber-700/60 dark:bg-amber-950/40",
+    title: "text-amber-900 dark:text-amber-200",
+    body: "text-amber-900/80 dark:text-amber-100/70",
+    icon: <TriangleAlert className="h-4 w-4 text-amber-600 dark:text-amber-400" />,
   },
   critical: {
-    box: "border-red-300 bg-red-50",
-    title: "text-red-900",
-    body: "text-red-900/80",
-    icon: <Siren className="h-4 w-4 text-red-600" />,
+    box: "border-red-300 bg-red-50 dark:border-red-800/70 dark:bg-red-950/40",
+    title: "text-red-900 dark:text-red-200",
+    body: "text-red-900/80 dark:text-red-100/70",
+    icon: <Siren className="h-4 w-4 text-red-600 dark:text-red-400" />,
   },
 } as const;
 
 export function AnnouncementBoard({ initial }: { initial: AnnouncementView[] }) {
+  const router = useRouter();
   const [items, setItems] = useState(initial);
   if (items.length === 0) return null;
 
   async function dismiss(id: number) {
     setItems((prev) => prev.filter((a) => a.id !== id));
     await fetch(`/api/announcements/${id}/dismiss`, { method: "POST" }).catch(() => {});
+    // Re-render server components so the sidebar's unread badge follows.
+    router.refresh();
   }
 
   return (
@@ -65,7 +72,7 @@ export function AnnouncementBoard({ initial }: { initial: AnnouncementView[] }) 
                 onClick={() => dismiss(a.id)}
                 title="Dismiss for me"
                 aria-label="Dismiss announcement"
-                className="shrink-0 rounded-md p-1 text-slate-400 hover:bg-white/60 hover:text-slate-600"
+                className="shrink-0 rounded-md p-1 text-slate-400 hover:bg-white/60 hover:text-slate-600 dark:hover:bg-white/10"
               >
                 <X className="h-4 w-4" />
               </button>
