@@ -4,6 +4,21 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.21.0] - 2026-07-16
+
+### Added
+- **Policy acknowledgements** *(enterprise — new `policy_ack` entitlement)*.
+  Approvers and admins can require read confirmation on any published
+  document. Readers see an **"I've read and understood this"** banner (and a
+  dashboard reminder listing everything awaiting them); each confirmation is
+  recorded with person, timestamp, and IP in an append-only ledger and the
+  audit log. **Editing the document resets everyone to pending** — a revised
+  policy must be re-confirmed. A per-document compliance page shows live
+  progress and who's outstanding (scoped to the people who can actually see
+  the document, so private spaces count only granted groups), with CSV
+  export for auditors. Community/unlicensed installs show none of this and
+  the APIs return 402.
+
 ## [0.20.0] - 2026-07-16
 
 ### Added
