@@ -45,6 +45,8 @@ export interface User {
   email_notifications: number;
   /** App-wide page width preference: normal | wide | full. */
   page_width: string;
+  /** Newsletter capability: none | contributor | approver. */
+  newsletter_role: string;
   created_at: string;
   last_login_at: string | null;
 }
@@ -59,6 +61,8 @@ export interface SessionUser {
   must_change_password: boolean;
   /** App-wide page width preference: normal | wide | full. */
   page_width: "normal" | "wide" | "full";
+  /** Newsletter capability: none | contributor | approver (admins: full). */
+  newsletter_role: "none" | "contributor" | "approver";
 }
 
 export interface Suggestion {
