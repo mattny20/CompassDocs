@@ -17,6 +17,7 @@ import {
   SquareArrowOutUpRight,
   ScrollText,
   BellRing,
+  Siren,
   DatabaseBackup,
   Package,
 } from "lucide-react";
@@ -28,6 +29,7 @@ const SECTIONS = [
   { href: "/admin/spaces", label: "Spaces", icon: <FolderKanban className={ICON} /> },
   { href: "/admin/public-site", label: "Public site", icon: <Megaphone className={ICON} /> },
   { href: "/admin/links", label: "Links", icon: <SquareArrowOutUpRight className={ICON} /> },
+  { href: "/admin/announcements", label: "Announcements", icon: <Siren className={ICON} /> },
   { href: "/admin/ai", label: "AI", icon: <Sparkles className={ICON} /> },
   { href: "/admin/license", label: "License", icon: <KeyRound className={ICON} /> },
   { href: "/admin/domain", label: "Domain & HTTPS", icon: <Globe className={ICON} /> },

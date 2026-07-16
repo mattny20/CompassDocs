@@ -4,6 +4,21 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.26.0] - 2026-07-16
+
+### Added
+- **Organization announcements.** Admins can post messages that appear in a
+  colored block at the top of **every user's dashboard** (Settings →
+  Announcements): a title, a message, an Info / Warning / Critical severity,
+  and an optional auto-hide after 1–30 days. Users can dismiss a message for
+  themselves; admins can archive (and restore) it for everyone — personal
+  dismissals survive. Optionally, a post is **also delivered** through the
+  channels you already configured: **email via SMTP** to everyone or to
+  selected groups (targeting affects the email only — the dashboard block
+  always shows for all users), and **chat webhooks** via a new
+  `announcement.posted` event (Webex, Teams, Slack, generic, email
+  channels). Posts, archives, deletes, and email counts are audit-logged.
+
 ## [0.25.0] - 2026-07-16
 
 ### Changed
