@@ -9,12 +9,40 @@ import { unified } from "unified";
 import remarkParse from "remark-parse";
 import remarkGfm from "remark-gfm";
 import remarkRehype from "remark-rehype";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize from "rehype-sanitize";
 import { toHtml } from "hast-util-to-html";
-import { listAnnouncementRecipients } from "./db";
+import { MD_SANITIZE_SCHEMA, rehypeFilterStyles } from "./md-html";
+import { listAnnouncementRecipients, getSetting, setSetting } from "./db";
 import { getSmtpConfig, smtpConfigured } from "./smtp-config";
 import { sendMail } from "./mailer";
 
 const MAX_RECIPIENTS = 1000;
+
+// --- Sender addresses ---------------------------------------------------------
+// Admins curate a list of From addresses ("Team News <news@acme.com>" or plain
+// addresses); each newsletter may pick one. Stored one-per-line in a setting.
+
+const FROM_SETTING = "newsletter_from_addresses";
+const FROM_RE = /^(?:[^<>@\n]{1,80}<[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+>|[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+)$/;
+
+export function isValidFromAddress(entry: string): boolean {
+  return FROM_RE.test(entry.trim());
+}
+
+export async function listNewsletterFromAddresses(): Promise<string[]> {
+  const raw = (await getSetting(FROM_SETTING)) || "";
+  return raw
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+}
+
+export async function saveNewsletterFromAddresses(entries: string[]): Promise<string[]> {
+  const clean = [...new Set(entries.map((e) => e.trim()).filter(Boolean))].slice(0, 20);
+  await setSetting(FROM_SETTING, clean.join("\n"));
+  return clean;
+}
 
 // Per-tag inline styles: dark text on white, accent for links/quotes.
 function tagStyles(accent: string): Record<string, string> {
@@ -38,28 +66,56 @@ function tagStyles(accent: string): Record<string, string> {
   };
 }
 
-/** Recursively stamp inline styles onto a hast tree. */
-function applyStyles(node: any, styles: Record<string, string>): void {
+/**
+ * Recursively stamp inline styles onto a hast tree. Styles already on a node
+ * (alignment, indent, spacer height — sanitized upstream) are kept and win
+ * over the per-tag defaults. Newsletter blocks get their email look here:
+ * a.email-btn becomes a real button, div.nl-spacer collapses to pure height.
+ */
+function applyStyles(node: any, styles: Record<string, string>, accent: string): void {
   if (node?.type === "element") {
-    const style = styles[node.tagName];
+    const classes: string[] = Array.isArray(node.properties?.className)
+      ? node.properties.className.map(String)
+      : [];
+    const own = node.properties?.style ? String(node.properties.style) : "";
+    let base = styles[node.tagName] || "";
+    if (node.tagName === "a" && classes.includes("email-btn")) {
+      base = `display:inline-block;background:${accent};color:#ffffff;padding:11px 22px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px`;
+      delete node.properties.className;
+    } else if (node.tagName === "div" && classes.includes("nl-spacer")) {
+      base = "font-size:0;line-height:0";
+      delete node.properties.className;
+    }
+    const style = [base, own].filter(Boolean).join(";");
     if (style) {
       node.properties = { ...node.properties, style };
     }
   }
-  for (const child of node?.children ?? []) applyStyles(child, styles);
+  for (const child of node?.children ?? []) applyStyles(child, styles, accent);
 }
 
 /** Make relative app links/images absolute so they work from an inbox. */
 function absolutize(markdown: string, origin: string): string {
   if (!origin) return markdown;
-  return markdown.replace(/(\]\()\/(?!\/)/g, `$1${origin}/`);
+  return markdown
+    .replace(/(\]\()\/(?!\/)/g, `$1${origin}/`)
+    // Same for the editor's HTML islands (buttons, aligned images).
+    .replace(/((?:href|src)=")\/(?!\/)/g, `$1${origin}/`);
 }
 
 /** Render newsletter markdown to inline-styled HTML (no template wrapper). */
 export async function renderBodyHtml(markdown: string, accent: string, origin: string): Promise<string> {
-  const processor = unified().use(remarkParse).use(remarkGfm).use(remarkRehype);
+  // The editor's HTML islands (alignment, buttons, spacers) pass through the
+  // same sanitize + style-whitelist rules as the in-app view before styling.
+  const processor = unified()
+    .use(remarkParse)
+    .use(remarkGfm)
+    .use(remarkRehype, { allowDangerousHtml: true })
+    .use(rehypeRaw)
+    .use(rehypeSanitize, MD_SANITIZE_SCHEMA)
+    .use(rehypeFilterStyles);
   const hast = await processor.run(processor.parse(absolutize(markdown, origin)));
-  applyStyles(hast, tagStyles(accent));
+  applyStyles(hast, tagStyles(accent), accent);
   return toHtml(hast as any);
 }
 
@@ -126,6 +182,8 @@ export async function sendNewsletter(input: {
   authorName: string;
   /** "all", selected group ids, or explicit addresses (test sends). */
   to: "all" | number[] | { emails: string[] };
+  /** Optional From override (admin-curated list); '' = SMTP default. */
+  from?: string;
 }): Promise<{ sent: number; error?: string }> {
   if (!smtpConfigured(await getSmtpConfig())) {
     return { sent: 0, error: "SMTP isn't configured (Settings → Notifications)." };
@@ -141,7 +199,7 @@ export async function sendNewsletter(input: {
   let sent = 0;
   for (const r of recipients) {
     try {
-      await sendMail([r.email], input.subject, text, html);
+      await sendMail([r.email], input.subject, text, html, input.from || undefined);
       sent++;
     } catch (e) {
       console.error(`Newsletter to ${r.email} failed:`, e);

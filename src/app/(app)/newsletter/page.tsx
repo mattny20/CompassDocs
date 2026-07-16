@@ -26,6 +26,7 @@ export default async function NewsletterPage() {
           sent_count: r.sent_count,
           updated_at: String(r.updated_at),
           sent_at: r.sent_at ? String(r.sent_at) : null,
+          scheduled_at: r.scheduled_at ? String(r.scheduled_at) : null,
         }))}
       />
     </PageContainer>

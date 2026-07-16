@@ -18,6 +18,7 @@ import {
   canDelete,
 } from "@/lib/newsletter-access";
 import { getSmtpConfig, smtpConfigured } from "@/lib/smtp-config";
+import { listNewsletterFromAddresses } from "@/lib/newsletter";
 import { PageContainer } from "@/components/PageWidth";
 import { NewsletterWorkspace } from "@/components/NewsletterWorkspace";
 
@@ -29,19 +30,23 @@ export default async function NewsletterDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const user = await requireUser();
-  if (!canUseNewsletter(user)) redirect("/");
+  const hasModuleAccess = canUseNewsletter(user);
+  const home = hasModuleAccess ? "/newsletter" : "/";
 
   const { id } = await params;
   const n = await getNewsletter(Number(id));
-  if (!n) redirect("/newsletter");
+  if (!n) redirect(home);
   const approverIds = await getNewsletterApproverIds(n.id);
-  if (!canView(user, n, approverIds)) redirect("/newsletter");
+  // Sent newsletters are readable by every signed-in user (the dashboard
+  // links here); everything unsent stays with the editorial crew.
+  if (!canView(user, n, approverIds)) redirect(home);
 
-  const [comments, groups, pool, smtp] = await Promise.all([
-    listNewsletterComments(n.id),
+  const [comments, groups, pool, smtp, fromAddresses] = await Promise.all([
+    hasModuleAccess ? listNewsletterComments(n.id) : Promise.resolve([]),
     listGroups(),
     listNewsletterApproverPool(),
     getSmtpConfig(),
+    listNewsletterFromAddresses(),
   ]);
 
   return (
@@ -74,6 +79,8 @@ export default async function NewsletterDetailPage({
         groups={groups.map((g) => ({ id: g.id, name: g.name, member_count: g.member_count }))}
         approverPool={pool}
         smtpReady={smtpConfigured(smtp)}
+        fromAddresses={fromAddresses}
+        hasModuleAccess={hasModuleAccess}
       />
     </PageContainer>
   );

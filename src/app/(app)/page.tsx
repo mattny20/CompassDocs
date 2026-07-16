@@ -8,6 +8,7 @@ import {
   allTags,
   listPendingAcksFor,
   listActiveAnnouncementsFor,
+  listDashboardNewslettersFor,
 } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { spaceScopeFor } from "@/lib/access";
@@ -15,6 +16,7 @@ import { featureEnabled } from "@/lib/ee";
 import { roleAtLeast } from "@/lib/types";
 import { DocCard } from "@/components/DocCard";
 import { AnnouncementBoard } from "@/components/AnnouncementBoard";
+import { NewsletterBoard } from "@/components/NewsletterBoard";
 
 export const dynamic = "force-dynamic";
 
@@ -26,12 +28,13 @@ export default async function DashboardPage() {
   const pendingAcks = (await featureEnabled("policy_ack"))
     ? await listPendingAcksFor(user.id, scope)
     : [];
-  const [spaces, recent, totalDocs, allTagList, announcements] = await Promise.all([
+  const [spaces, recent, totalDocs, allTagList, announcements, newsletters] = await Promise.all([
     listSpaces(scope),
     listRecentDocuments(6, includeDrafts, scope),
     countDocuments(includeDrafts, scope),
     allTags(),
     listActiveAnnouncementsFor(user.id),
+    listDashboardNewslettersFor(user.id),
   ]);
   const tags = allTagList.slice(0, 12);
 
@@ -53,6 +56,15 @@ export default async function DashboardPage() {
           level: a.level,
           author_name: a.author_name,
           created_at: a.created_at,
+        }))}
+      />
+
+      <NewsletterBoard
+        initial={newsletters.map((n) => ({
+          id: n.id,
+          subject: n.subject,
+          author_name: n.author_name,
+          sent_at: String(n.sent_at),
         }))}
       />
 

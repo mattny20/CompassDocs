@@ -1,5 +1,8 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize from "rehype-sanitize";
+import { MD_SANITIZE_SCHEMA, rehypeFilterStyles } from "@/lib/md-html";
 import { CodeBlock } from "./CodeBlock";
 import { EmailTemplate } from "./EmailTemplate";
 import { DocImage } from "./DocImage";
@@ -9,6 +12,10 @@ export function MarkdownView({ content }: { content: string }) {
     <div className="doc-prose">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
+        // The rich editor stores a little inline HTML (underline, alignment,
+        // indent, buttons, spacers). Raw HTML is reified, sanitized against an
+        // allowlist schema, and inline styles filtered to safe properties.
+        rehypePlugins={[rehypeRaw, [rehypeSanitize, MD_SANITIZE_SCHEMA], rehypeFilterStyles]}
         components={{
           // Images zoom on click and honor the "w=NN%" title width token.
           img({ src, alt, title }) {

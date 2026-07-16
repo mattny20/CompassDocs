@@ -6,7 +6,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Mail } from "lucide-react";
+import { Mail, Plus, X } from "lucide-react";
 
 interface PersonRow {
   id: number;
@@ -18,10 +18,38 @@ interface PersonRow {
   newsletter_role: string;
 }
 
-export function NewsletterPeople({ initial }: { initial: PersonRow[] }) {
+export function NewsletterPeople({
+  initial,
+  initialSenders = [],
+}: {
+  initial: PersonRow[];
+  initialSenders?: string[];
+}) {
   const [rows, setRows] = useState(initial);
   const [busyId, setBusyId] = useState(0);
   const [error, setError] = useState("");
+  const [senders, setSenders] = useState<string[]>(initialSenders);
+  const [newSender, setNewSender] = useState("");
+  const [senderBusy, setSenderBusy] = useState(false);
+  const [senderError, setSenderError] = useState("");
+
+  async function saveSenders(next: string[]) {
+    setSenderBusy(true);
+    setSenderError("");
+    const res = await fetch("/api/admin/newsletter/senders", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ from_addresses: next }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setSenderBusy(false);
+    if (!res.ok) {
+      setSenderError(data?.error || "Couldn't save the sender list.");
+      return;
+    }
+    setSenders(data.from_addresses);
+    setNewSender("");
+  }
 
   async function setRole(userId: number, role: string) {
     setBusyId(userId);
@@ -65,6 +93,56 @@ export function NewsletterPeople({ initial }: { initial: PersonRow[] }) {
         >
           <Mail className="h-4 w-4" /> Open the newsletter workspace
         </Link>
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+        <h2 className="font-semibold text-slate-900">From addresses</h2>
+        <p className="mt-1 text-sm text-slate-500">
+          Senders a newsletter can go out as — composers pick one per newsletter, or leave
+          the workspace default from Settings → Notifications. Use{" "}
+          <code className="rounded bg-slate-100 px-1 text-xs">address@domain</code> or{" "}
+          <code className="rounded bg-slate-100 px-1 text-xs">Name &lt;address@domain&gt;</code>.
+        </p>
+        {senders.length > 0 && (
+          <ul className="mt-3 flex flex-wrap gap-2">
+            {senders.map((s) => (
+              <li
+                key={s}
+                className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-sm text-slate-700"
+              >
+                {s}
+                <button
+                  onClick={() => saveSenders(senders.filter((x) => x !== s))}
+                  disabled={senderBusy}
+                  title="Remove this sender"
+                  aria-label={`Remove ${s}`}
+                  className="rounded p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-600"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="mt-3 flex items-center gap-2">
+          <input
+            value={newSender}
+            onChange={(e) => setNewSender(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && newSender.trim()) saveSenders([...senders, newSender]);
+            }}
+            placeholder="Team News <news@acme.com>"
+            className="w-full max-w-sm rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none focus:border-compass-400"
+          />
+          <button
+            onClick={() => saveSenders([...senders, newSender])}
+            disabled={senderBusy || !newSender.trim()}
+            className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+          >
+            <Plus className="h-4 w-4" /> Add
+          </button>
+        </div>
+        {senderError && <p className="mt-2 text-sm text-red-600 dark:text-red-400">{senderError}</p>}
       </div>
 
       {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}

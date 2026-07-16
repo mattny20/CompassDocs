@@ -1,7 +1,7 @@
 // Server wrapper: fetches the sidebar's data and hands it to the client
 // component, which owns the collapse/expand state (persisted per browser).
 
-import { listSpaces, listActiveAnnouncementsFor } from "@/lib/db";
+import { listSpaces, listActiveAnnouncementsFor, listDashboardNewslettersFor } from "@/lib/db";
 import { spaceScopeFor } from "@/lib/access";
 import { canUseNewsletter } from "@/lib/newsletter-access";
 import { getAppSettings } from "@/lib/settings-store";
@@ -19,10 +19,11 @@ export async function Sidebar({
   trashCount: number;
 }) {
   const scope = await spaceScopeFor(user);
-  const [spaces, settings, announcements] = await Promise.all([
+  const [spaces, settings, announcements, freshNewsletters] = await Promise.all([
     listSpaces(scope),
     getAppSettings(),
     listActiveAnnouncementsFor(user.id),
+    listDashboardNewslettersFor(user.id),
   ]);
 
   return (
@@ -33,7 +34,7 @@ export async function Sidebar({
       logoUrl={settings.logo_url || undefined}
       reviewCount={reviewCount}
       trashCount={trashCount}
-      announcementCount={announcements.length}
+      announcementCount={announcements.length + freshNewsletters.length}
       showNewsletter={canUseNewsletter(user)}
       isEditor={roleAtLeast(user.role, "editor")}
       isApprover={roleAtLeast(user.role, "approver")}

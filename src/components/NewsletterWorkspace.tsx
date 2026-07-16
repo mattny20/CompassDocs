@@ -18,6 +18,8 @@ import {
   MessageSquare,
   Mail,
   Save,
+  CalendarClock,
+  X,
 } from "lucide-react";
 import { RichTextEditor } from "./RichTextEditor";
 import { MarkdownView } from "./MarkdownView";
@@ -36,6 +38,8 @@ interface NewsletterDetail {
   group_ids: string;
   updated_at: string;
   sent_at: string | null;
+  scheduled_at: string | null;
+  from_address: string;
 }
 
 interface CommentRow {
@@ -82,11 +86,17 @@ export function NewsletterWorkspace({
   groups,
   approverPool,
   smtpReady,
+  fromAddresses = [],
+  hasModuleAccess = true,
 }: {
   initial: DetailPayload;
   groups: GroupLite[];
   approverPool: ApproverLite[];
   smtpReady: boolean;
+  /** Admin-curated sender list; empty hides the From picker. */
+  fromAddresses?: string[];
+  /** False for readers who only see sent pieces (no editorial thread). */
+  hasModuleAccess?: boolean;
 }) {
   const router = useRouter();
   const [n, setN] = useState(initial.newsletter);
@@ -105,6 +115,7 @@ export function NewsletterWorkspace({
     (initial.newsletter.group_ids || "").split(",").map(Number).filter(Boolean)
   );
   const [pickedApprovers, setPickedApprovers] = useState<number[]>(initial.approver_ids);
+  const [fromAddress, setFromAddress] = useState(initial.newsletter.from_address || "");
 
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -113,6 +124,8 @@ export function NewsletterWorkspace({
   const [decisionNote, setDecisionNote] = useState("");
   const [submitNote, setSubmitNote] = useState("");
   const [submitOpen, setSubmitOpen] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleAt, setScheduleAt] = useState("");
   const [newComment, setNewComment] = useState("");
 
   const dirty =
@@ -121,6 +134,7 @@ export function NewsletterWorkspace({
       body !== n.body ||
       mode !== (n.mode === "groups" ? "groups" : "all") ||
       groupIds.join(",") !== (n.group_ids || "").split(",").map(Number).filter(Boolean).join(",") ||
+      fromAddress !== (n.from_address || "") ||
       pickedApprovers.join(",") !== approverIds.join(","));
 
   const apply = useCallback((data: DetailPayload) => {
@@ -133,6 +147,7 @@ export function NewsletterWorkspace({
     setMode(data.newsletter.mode === "groups" ? "groups" : "all");
     setGroupIds((data.newsletter.group_ids || "").split(",").map(Number).filter(Boolean));
     setPickedApprovers(data.approver_ids);
+    setFromAddress(data.newsletter.from_address || "");
   }, []);
 
   async function refresh() {
@@ -165,6 +180,7 @@ export function NewsletterWorkspace({
           body,
           mode,
           group_ids: mode === "groups" ? groupIds : [],
+          from_address: fromAddress,
           approver_ids: pickedApprovers,
         }),
       },
@@ -253,6 +269,42 @@ export function NewsletterWorkspace({
     router.refresh();
   }
 
+  // Newsletter images are stored publicly (unguessable names) so they load in
+  // recipients' inboxes without a session.
+  async function uploadImage(file: File): Promise<string | null> {
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch("/api/newsletter/assets", { method: "POST", body: form });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setError(data?.error || "Image upload failed.");
+      return null;
+    }
+    return data.url as string;
+  }
+
+  async function schedule(at: string | null) {
+    const data = await call(
+      `/api/newsletter/${n.id}/schedule`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ at: at ? new Date(at).toISOString() : null }),
+      },
+      "schedule"
+    );
+    if (!data) return;
+    setScheduleOpen(false);
+    setScheduleAt("");
+    setNotice(
+      at
+        ? `Scheduled — it will go out ${new Date(at).toLocaleString()}.`
+        : "Schedule cancelled."
+    );
+    await refresh();
+    router.refresh();
+  }
+
   async function postComment() {
     const text = newComment.trim();
     if (!text) return;
@@ -283,10 +335,10 @@ export function NewsletterWorkspace({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <Link
-            href="/newsletter"
+            href={hasModuleAccess ? "/newsletter" : "/"}
             className="inline-flex items-center gap-1 text-sm font-medium text-slate-500 hover:text-compass-600"
           >
-            <ArrowLeft className="h-4 w-4" /> Newsletter
+            <ArrowLeft className="h-4 w-4" /> {hasModuleAccess ? "Newsletter" : "Dashboard"}
           </Link>
           <StatusBadge status={n.status} />
           <span className="text-xs text-slate-400">
@@ -314,6 +366,24 @@ export function NewsletterWorkspace({
         </div>
       )}
 
+      {n.scheduled_at && n.status === "approved" && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-500/30 dark:bg-green-500/10 dark:text-green-300">
+          <span className="inline-flex items-center gap-1.5">
+            <CalendarClock className="h-4 w-4" />
+            Scheduled to send {new Date(n.scheduled_at).toLocaleString()}.
+          </span>
+          {can.send && (
+            <button
+              onClick={() => schedule(null)}
+              disabled={!!busy}
+              className="inline-flex items-center gap-1 font-medium underline hover:no-underline disabled:opacity-50"
+            >
+              <X className="h-3.5 w-3.5" /> Cancel schedule
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Content: editable while the workflow allows it, read-only otherwise. */}
       <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
         {can.edit ? (
@@ -330,10 +400,11 @@ export function NewsletterWorkspace({
             </label>
             <div>
               <span className="mb-1 block text-xs font-medium text-slate-500">Content</span>
-              <RichTextEditor value={body} onChange={setBody} />
+              <RichTextEditor value={body} onChange={setBody} onUploadImage={uploadImage} emailBlocks />
               <p className="mt-1 text-xs text-slate-400">
-                Tip: images linked from documents require sign-in and may not display in
-                inboxes — externally hosted images work everywhere.
+                Images added here (uploaded, pasted, or dragged in) are hosted for inboxes
+                and display for every recipient. Use the button and spacer blocks to shape
+                the email.
               </p>
             </div>
           </div>
@@ -352,6 +423,23 @@ export function NewsletterWorkspace({
         <div className="grid gap-4 md:grid-cols-2">
           <fieldset className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
             <legend className="px-1 text-xs font-medium text-slate-500">Recipients</legend>
+            {fromAddresses.length > 0 && (
+              <label className="mb-3 block">
+                <span className="mb-1 block text-xs font-medium text-slate-500">From</span>
+                <select
+                  value={fromAddress}
+                  onChange={(e) => setFromAddress(e.target.value)}
+                  className="w-full rounded-lg border border-slate-200 bg-surface px-2 py-1.5 text-sm outline-none focus:border-compass-400"
+                >
+                  <option value="">Workspace default</option>
+                  {fromAddresses.map((f) => (
+                    <option key={f} value={f}>
+                      {f}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <div className="space-y-1.5 text-sm">
               <label className="flex cursor-pointer items-center gap-2">
                 <input
@@ -506,6 +594,48 @@ export function NewsletterWorkspace({
               {busy === "send" ? "Sending…" : "Send newsletter"}
             </button>
           )}
+          {can.send && !n.scheduled_at && (
+            <button
+              onClick={() => setScheduleOpen((v) => !v)}
+              disabled={!!busy || dirty || !smtpReady}
+              title={dirty ? "Save your changes first" : "Pick a date and time for the send"}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-green-200 bg-green-50 px-4 py-2 text-sm font-semibold text-green-700 hover:bg-green-100 disabled:opacity-50 dark:border-green-500/30 dark:bg-green-500/10 dark:text-green-300 dark:hover:bg-green-500/20"
+            >
+              <CalendarClock className="h-4 w-4" /> Schedule…
+            </button>
+          )}
+        </div>
+      )}
+
+      {scheduleOpen && can.send && !n.scheduled_at && (
+        <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-slate-500">
+              Send date &amp; time (your local time — delivered within a minute of it)
+            </span>
+            <input
+              type="datetime-local"
+              value={scheduleAt}
+              onChange={(e) => setScheduleAt(e.target.value)}
+              className={`${field} max-w-xs`}
+            />
+          </label>
+          <div className="mt-2 flex gap-2">
+            <button
+              onClick={() => schedule(scheduleAt)}
+              disabled={!!busy || !scheduleAt}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-50"
+            >
+              <CalendarClock className="h-4 w-4" />
+              {busy === "schedule" ? "Scheduling…" : "Confirm schedule"}
+            </button>
+            <button
+              onClick={() => setScheduleOpen(false)}
+              className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+          </div>
         </div>
       )}
 
@@ -576,7 +706,9 @@ export function NewsletterWorkspace({
         </div>
       )}
 
-      {/* Activity: workflow events and discussion, oldest first. */}
+      {/* Activity: workflow events and discussion, oldest first. Hidden from
+          readers outside the editorial crew. */}
+      {hasModuleAccess && (
       <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
         <h2 className="mb-3 flex items-center gap-2 font-semibold text-slate-900">
           <MessageSquare className="h-4 w-4 text-slate-400" /> Activity
@@ -621,6 +753,7 @@ export function NewsletterWorkspace({
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }

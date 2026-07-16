@@ -21,6 +21,19 @@ export async function register() {
   setTimeout(tick, 60_000);
   setInterval(tick, CHECK_INTERVAL_MS);
 
+  // Scheduled newsletters: check every minute. The claim is a single atomic
+  // UPDATE, so overlapping instances can't double-send.
+  const newsletterTick = async () => {
+    try {
+      const { sendDueNewsletters } = await import("./lib/newsletter-scheduler");
+      await sendDueNewsletters();
+    } catch (e) {
+      console.error("[newsletter] scheduler error:", e);
+    }
+  };
+  setTimeout(newsletterTick, 30_000);
+  setInterval(newsletterTick, 60_000);
+
   // Re-apply the saved domain/TLS config to the reverse proxy so the database
   // stays the source of truth across restarts. No-op if no proxy is attached.
   setTimeout(async () => {

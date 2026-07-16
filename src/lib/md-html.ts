@@ -1,0 +1,64 @@
+// Shared rules for rendering the app's Markdown, which may carry a small
+// amount of inline HTML written by the rich editor (underline, text alignment,
+// indent, email buttons, spacers). Everything raw is sanitized against this
+// schema, then inline styles are filtered to an explicit property whitelist —
+// so stored content can never inject scripts, event handlers, or arbitrary CSS.
+// Used by the in-app Markdown view and the newsletter email renderer.
+
+import { defaultSchema } from "rehype-sanitize";
+
+type Schema = typeof defaultSchema;
+
+// The default `a` rules already carry a className allowlist (footnote
+// back-refs); the sanitizer honors the FIRST className entry it finds, so our
+// button class must be merged into that entry rather than appended as a new one.
+const A_ATTRS = (defaultSchema.attributes?.a ?? []).map((entry) =>
+  Array.isArray(entry) && entry[0] === "className" ? [...entry, "email-btn"] : entry
+);
+
+export const MD_SANITIZE_SCHEMA: Schema = {
+  ...defaultSchema,
+  tagNames: [...(defaultSchema.tagNames ?? []), "u", "div", "span"],
+  attributes: {
+    ...defaultSchema.attributes,
+    "*": [...(defaultSchema.attributes?.["*"] ?? []), "style"],
+    a: A_ATTRS as any,
+    div: [["className", "nl-spacer"]],
+  },
+};
+
+// property -> allowed value pattern. Anything else is dropped.
+const STYLE_WHITELIST: [RegExp, RegExp][] = [
+  [/^text-align$/, /^(left|center|right|justify)$/],
+  [/^margin-left$/, /^\d{1,3}px$/],
+  [/^height$/, /^\d{1,3}px$/],
+  [/^width$/, /^\d{1,3}%$/],
+];
+
+function filterStyle(style: string): string {
+  return style
+    .split(";")
+    .map((decl) => {
+      const i = decl.indexOf(":");
+      if (i < 0) return "";
+      const prop = decl.slice(0, i).trim().toLowerCase();
+      const value = decl.slice(i + 1).trim().toLowerCase();
+      const ok = STYLE_WHITELIST.some(([p, v]) => p.test(prop) && v.test(value));
+      return ok ? `${prop}: ${value}` : "";
+    })
+    .filter(Boolean)
+    .join("; ");
+}
+
+/** Rehype plugin: keep only whitelisted CSS properties in style attributes. */
+export function rehypeFilterStyles() {
+  function walk(node: any): void {
+    if (node?.type === "element" && node.properties && node.properties.style != null) {
+      const filtered = filterStyle(String(node.properties.style));
+      if (filtered) node.properties.style = filtered;
+      else delete node.properties.style;
+    }
+    for (const child of node?.children ?? []) walk(child);
+  }
+  return (tree: any) => walk(tree);
+}

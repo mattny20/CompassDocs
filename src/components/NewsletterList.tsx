@@ -7,7 +7,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Plus, Mail } from "lucide-react";
+import { Plus, Mail, CalendarClock } from "lucide-react";
 
 export interface NewsletterRow {
   id: number;
@@ -18,6 +18,7 @@ export interface NewsletterRow {
   sent_count: number;
   updated_at: string;
   sent_at: string | null;
+  scheduled_at: string | null;
 }
 
 export const STATUS_META: Record<string, { label: string; cls: string }> = {
@@ -141,6 +142,12 @@ export function NewsletterList({ initial }: { initial: NewsletterRow[] }) {
                     {r.status === "sent" && (
                       <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
                         {r.sent_count} sent
+                      </span>
+                    )}
+                    {r.status === "approved" && r.scheduled_at && (
+                      <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-500/20 dark:text-green-300">
+                        <CalendarClock className="h-3 w-3" />
+                        {new Date(r.scheduled_at).toLocaleString()}
                       </span>
                     )}
                     <StatusBadge status={r.status} />

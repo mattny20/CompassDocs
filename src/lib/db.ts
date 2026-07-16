@@ -555,6 +555,22 @@ const SCHEMA_SQL = `
     kind text NOT NULL DEFAULT 'comment',
     created_at timestamptz NOT NULL DEFAULT now()
   );
+
+  -- Approved newsletters can be scheduled: the in-app sweeper sends them when
+  -- due. scheduled_origin remembers the site origin from when the schedule was
+  -- set, so links absolutize correctly outside a request context.
+  ALTER TABLE newsletters ADD COLUMN IF NOT EXISTS scheduled_at timestamptz;
+  ALTER TABLE newsletters ADD COLUMN IF NOT EXISTS scheduled_origin text NOT NULL DEFAULT '';
+  -- Optional per-newsletter sender, picked from the admin-curated list
+  -- (setting: newsletter_from_addresses). Empty = the SMTP default From.
+  ALTER TABLE newsletters ADD COLUMN IF NOT EXISTS from_address text NOT NULL DEFAULT '';
+  -- Sent newsletters surface on every dashboard for a few days; the X hides
+  -- one for that user only (mirrors announcement_dismissals).
+  CREATE TABLE IF NOT EXISTS newsletter_dismissals (
+    newsletter_id integer NOT NULL REFERENCES newsletters(id) ON DELETE CASCADE,
+    user_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    PRIMARY KEY (newsletter_id, user_id)
+  );
 `;
 
 /**
@@ -2487,6 +2503,11 @@ export interface Newsletter {
   created_at: string;
   updated_at: string;
   sent_at: string | null;
+  /** When set (status approved), the sweeper sends it at this time. */
+  scheduled_at: string | null;
+  scheduled_origin: string;
+  /** Sender override from the admin-curated list; '' = SMTP default. */
+  from_address: string;
 }
 
 export interface NewsletterComment {
@@ -2546,18 +2567,19 @@ export async function listNewslettersFor(userId: number, seeAll: boolean): Promi
 
 export async function updateNewsletterContent(
   id: number,
-  input: { subject: string; body: string; mode: string; group_ids: string }
+  input: { subject: string; body: string; mode: string; group_ids: string; from_address: string }
 ): Promise<Newsletter | undefined> {
   return (
     await q<Newsletter>(
       `UPDATE newsletters SET subject = $2, body = $3, mode = $4, group_ids = $5,
-       updated_at = now() WHERE id = $1 RETURNING *`,
+       from_address = $6, updated_at = now() WHERE id = $1 RETURNING *`,
       [
         id,
         input.subject.trim().slice(0, 200),
         input.body.slice(0, 100_000),
         input.mode === "groups" ? "groups" : "all",
         input.group_ids.slice(0, 300),
+        input.from_address.slice(0, 200),
       ]
     )
   )[0];
@@ -2583,7 +2605,7 @@ export async function markNewsletterSent(
 ): Promise<void> {
   await q(
     `UPDATE newsletters SET status = 'sent', audience = $2, sent_count = $3,
-     sent_at = now(), updated_at = now() WHERE id = $1`,
+     sent_at = now(), updated_at = now(), scheduled_at = NULL WHERE id = $1`,
     [id, audience.slice(0, 300), sentCount]
   );
 }
@@ -2614,7 +2636,8 @@ export async function setNewsletterApprovers(newsletterId: number, userIds: numb
 
 export async function addNewsletterComment(input: {
   newsletter_id: number;
-  user_id: number;
+  /** null for system events (the schedule sweeper). */
+  user_id: number | null;
   author_name: string;
   body: string;
   kind: string;
@@ -2655,6 +2678,59 @@ export async function listNewsletterApproverPool(): Promise<
 export async function setUserNewsletterRole(userId: number, role: string): Promise<void> {
   const value = role === "contributor" || role === "approver" ? role : "none";
   await q("UPDATE users SET newsletter_role = $2 WHERE id = $1", [userId, value]);
+}
+
+/** Set (or clear, with null) the send time of an approved newsletter. */
+export async function setNewsletterSchedule(
+  id: number,
+  at: string | null,
+  origin: string
+): Promise<Newsletter | undefined> {
+  return (
+    await q<Newsletter>(
+      `UPDATE newsletters SET scheduled_at = $2, scheduled_origin = $3, updated_at = now()
+       WHERE id = $1 RETURNING *`,
+      [id, at, at ? origin.slice(0, 300) : ""]
+    )
+  )[0];
+}
+
+/**
+ * Claim newsletters whose scheduled send time has arrived. Clearing
+ * scheduled_at in the same statement makes the claim atomic — concurrent
+ * sweeps (or a manual send racing the sweeper) can't double-send.
+ */
+export async function claimDueNewsletters(): Promise<Newsletter[]> {
+  return q<Newsletter>(
+    `UPDATE newsletters SET scheduled_at = NULL
+     WHERE status = 'approved' AND scheduled_at IS NOT NULL AND scheduled_at <= now()
+     RETURNING *`
+  );
+}
+
+/** Sent newsletters still fresh enough for the dashboard, minus dismissed. */
+export async function listDashboardNewslettersFor(
+  userId: number,
+  days = 3
+): Promise<Newsletter[]> {
+  return q<Newsletter>(
+    `SELECT n.* FROM newsletters n
+     WHERE n.status = 'sent' AND n.sent_at > now() - ($2 || ' days')::interval
+       AND NOT EXISTS (
+         SELECT 1 FROM newsletter_dismissals d
+         WHERE d.newsletter_id = n.id AND d.user_id = $1
+       )
+     ORDER BY n.sent_at DESC LIMIT 10`,
+    [userId, days]
+  );
+}
+
+export async function dismissNewsletter(userId: number, newsletterId: number): Promise<void> {
+  await q(
+    `INSERT INTO newsletter_dismissals (newsletter_id, user_id)
+     VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+    [newsletterId, userId]
+  );
 }
 
 /** Map Entra member identities to local user ids (SSO id first, then email). */
