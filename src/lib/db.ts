@@ -479,6 +479,27 @@ const SCHEMA_SQL = `
     group_id integer NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
     PRIMARY KEY (space_id, group_id)
   );
+
+  -- Organization announcements: admin-posted messages shown on every user's
+  -- dashboard until they expire, are archived by an admin, or the user
+  -- dismisses them for themselves. Email/webhook delivery happens at post
+  -- time and doesn't affect who sees the dashboard block.
+  CREATE TABLE IF NOT EXISTS announcements (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    title text NOT NULL,
+    body text NOT NULL DEFAULT '',
+    level text NOT NULL DEFAULT 'info',
+    author_name text NOT NULL DEFAULT '',
+    created_by integer REFERENCES users(id) ON DELETE SET NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    expires_at timestamptz,
+    archived_at timestamptz
+  );
+  CREATE TABLE IF NOT EXISTS announcement_dismissals (
+    announcement_id integer NOT NULL REFERENCES announcements(id) ON DELETE CASCADE,
+    user_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    PRIMARY KEY (announcement_id, user_id)
+  );
 `;
 
 /**
@@ -2189,6 +2210,118 @@ export async function setLinkGroups(linkId: number, groupIds: number[]): Promise
   } finally {
     client.release();
   }
+}
+
+// --- Organization announcements ---------------------------------------------------
+
+export interface Announcement {
+  id: number;
+  title: string;
+  body: string;
+  level: "info" | "warning" | "critical";
+  author_name: string;
+  created_by: number | null;
+  created_at: string;
+  expires_at: string | null;
+  archived_at: string | null;
+}
+
+export async function createAnnouncement(input: {
+  title: string;
+  body: string;
+  level: Announcement["level"];
+  author_name: string;
+  created_by: number;
+  /** Days until auto-hide; null/0 = never expires. */
+  expires_days?: number | null;
+}): Promise<Announcement> {
+  return (
+    await q<Announcement>(
+      `INSERT INTO announcements (title, body, level, author_name, created_by, expires_at)
+       VALUES ($1,$2,$3,$4,$5, CASE WHEN $6::int > 0 THEN now() + ($6::int || ' days')::interval END)
+       RETURNING *`,
+      [
+        input.title.trim().slice(0, 150),
+        input.body.trim().slice(0, 4000),
+        input.level,
+        input.author_name.slice(0, 100),
+        input.created_by,
+        input.expires_days ?? 0,
+      ]
+    )
+  )[0];
+}
+
+/** Live announcements for a user's dashboard (not expired/archived/dismissed). */
+export async function listActiveAnnouncementsFor(userId: number): Promise<Announcement[]> {
+  return q(
+    `SELECT a.* FROM announcements a
+     WHERE a.archived_at IS NULL
+       AND (a.expires_at IS NULL OR a.expires_at > now())
+       AND NOT EXISTS (
+         SELECT 1 FROM announcement_dismissals d
+         WHERE d.announcement_id = a.id AND d.user_id = $1
+       )
+     ORDER BY a.created_at DESC
+     LIMIT 10`,
+    [userId]
+  );
+}
+
+/** Every announcement with a per-row dismissal count, for the admin screen. */
+export async function listAllAnnouncements(): Promise<(Announcement & { dismissed_count: number })[]> {
+  return q(
+    `SELECT a.*,
+       (SELECT COUNT(*) FROM announcement_dismissals d WHERE d.announcement_id = a.id)::int
+         AS dismissed_count
+     FROM announcements a ORDER BY a.created_at DESC LIMIT 100`
+  );
+}
+
+export async function setAnnouncementArchived(id: number, archived: boolean): Promise<boolean> {
+  const res = await pool().query(
+    `UPDATE announcements SET archived_at = CASE WHEN $2 THEN now() END WHERE id = $1`,
+    [id, archived]
+  );
+  return (res.rowCount ?? 0) > 0;
+}
+
+export async function deleteAnnouncement(id: number): Promise<boolean> {
+  const res = await pool().query("DELETE FROM announcements WHERE id = $1", [id]);
+  return (res.rowCount ?? 0) > 0;
+}
+
+/** Per-user dismiss (idempotent). */
+export async function dismissAnnouncement(id: number, userId: number): Promise<void> {
+  await q(
+    `INSERT INTO announcement_dismissals (announcement_id, user_id)
+     SELECT $1, $2 WHERE EXISTS (SELECT 1 FROM announcements WHERE id = $1)
+     ON CONFLICT DO NOTHING`,
+    [id, userId]
+  );
+}
+
+/**
+ * Email recipients for an announcement: every active account with an email,
+ * or only members of the given groups. Deduplicated.
+ */
+export async function listAnnouncementRecipients(
+  groupIds: number[] | "all"
+): Promise<{ email: string; name: string }[]> {
+  if (groupIds === "all") {
+    return q(
+      `SELECT DISTINCT email, name FROM users
+       WHERE status = 'active' AND email <> '' ORDER BY email`
+    );
+  }
+  if (groupIds.length === 0) return [];
+  return q(
+    `SELECT DISTINCT u.email, u.name FROM users u
+     JOIN group_members gm ON gm.user_id = u.id
+     WHERE gm.group_id = ANY($1) AND u.status = 'active' AND u.email <> ''
+     ORDER BY u.email`,
+    [groupIds]
+  );
 }
 
 /** Map Entra member identities to local user ids (SSO id first, then email). */

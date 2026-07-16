@@ -15,6 +15,7 @@ export const WEBHOOK_EVENTS = [
   "change_request.rejected",
   "document.published",
   "suggestion.created",
+  "announcement.posted",
 ] as const;
 export type WebhookEvent = (typeof WEBHOOK_EVENTS)[number];
 
@@ -44,6 +45,7 @@ const EVENT_LABEL: Record<WebhookEvent, { title: string; emoji: string }> = {
   "change_request.rejected": { title: "Change rejected", emoji: "❌" },
   "document.published": { title: "Document published", emoji: "📣" },
   "suggestion.created": { title: "New suggestion", emoji: "💡" },
+  "announcement.posted": { title: "Announcement", emoji: "📢" },
 };
 
 function describe(event: WebhookEvent, info: WebhookInfo): string {
@@ -60,6 +62,9 @@ function describe(event: WebhookEvent, info: WebhookInfo): string {
     }
     case "suggestion.created":
       return `**${info.actor}** left a suggestion${info.title ? ` on **“${info.title}”**` : ""}${info.note ? `: “${info.note}”` : "."}`;
+    case "announcement.posted":
+      // note carries the announcement body.
+      return `**${info.title}**${info.note ? `\n\n${info.note}` : ""}\n\n— ${info.actor}`;
   }
 }
 

@@ -23,6 +23,7 @@ const EVENTS = [
   { value: "change_request.rejected", label: "Change rejected" },
   { value: "document.published", label: "Document published" },
   { value: "suggestion.created", label: "Suggestion left" },
+  { value: "announcement.posted", label: "Announcement posted" },
 ];
 
 interface HookView {

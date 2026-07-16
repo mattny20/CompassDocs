@@ -1,11 +1,19 @@
 import Link from "next/link";
 import { getAppSettings } from "@/lib/settings-store";
-import { listSpaces, listRecentDocuments, countDocuments, allTags, listPendingAcksFor } from "@/lib/db";
+import {
+  listSpaces,
+  listRecentDocuments,
+  countDocuments,
+  allTags,
+  listPendingAcksFor,
+  listActiveAnnouncementsFor,
+} from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { spaceScopeFor } from "@/lib/access";
 import { featureEnabled } from "@/lib/ee";
 import { roleAtLeast } from "@/lib/types";
 import { DocCard } from "@/components/DocCard";
+import { AnnouncementBoard } from "@/components/AnnouncementBoard";
 
 export const dynamic = "force-dynamic";
 
@@ -17,11 +25,12 @@ export default async function DashboardPage() {
   const pendingAcks = (await featureEnabled("policy_ack"))
     ? await listPendingAcksFor(user.id, scope)
     : [];
-  const [spaces, recent, totalDocs, allTagList] = await Promise.all([
+  const [spaces, recent, totalDocs, allTagList, announcements] = await Promise.all([
     listSpaces(scope),
     listRecentDocuments(6, includeDrafts, scope),
     countDocuments(includeDrafts, scope),
     allTags(),
+    listActiveAnnouncementsFor(user.id),
   ]);
   const tags = allTagList.slice(0, 12);
 
@@ -34,6 +43,17 @@ export default async function DashboardPage() {
           searchable in one place.
         </p>
       </header>
+
+      <AnnouncementBoard
+        initial={announcements.map((a) => ({
+          id: a.id,
+          title: a.title,
+          body: a.body,
+          level: a.level,
+          author_name: a.author_name,
+          created_at: a.created_at,
+        }))}
+      />
 
       {pendingAcks.length > 0 && (
         <div className="mb-6 rounded-xl border border-amber-300 bg-amber-50 p-4">
