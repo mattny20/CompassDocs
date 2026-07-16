@@ -27,21 +27,13 @@ export function UserMenu({ user }: { user: SessionUser }) {
         {initials}
       </span>
       <div className="min-w-0 flex-1">
-        <Link href="/account/password" className="block truncate text-sm font-medium text-slate-800 hover:text-compass-700">
+        <Link href="/account" className="block truncate text-sm font-medium text-slate-800 hover:text-compass-700">
           {user.name || user.username}
         </Link>
         <div className="text-xs text-slate-400">
           {ROLE_LABEL[user.role]} ·{" "}
-          <Link href="/account/notifications" className="hover:text-compass-600 hover:underline">
-            Notifications
-          </Link>
-          <span aria-hidden>·</span>
-          <Link href="/account/security" className="hover:text-compass-600 hover:underline">
-            Security
-          </Link>{" "}
-          ·{" "}
-          <Link href="/account/tokens" className="hover:text-compass-600 hover:underline">
-            API tokens
+          <Link href="/account" className="font-medium text-compass-600 hover:underline">
+            Manage account
           </Link>
         </div>
       </div>

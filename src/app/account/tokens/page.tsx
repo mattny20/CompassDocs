@@ -1,39 +1,6 @@
-import Link from "next/link";
-import { requireUser } from "@/lib/auth";
-import { listApiTokens, listOAuthGrants } from "@/lib/db";
-import { ApiTokens } from "@/components/ApiTokens";
+import { redirect } from "next/navigation";
 
-export const dynamic = "force-dynamic";
-
-export default async function ApiTokensPage() {
-  const user = await requireUser();
-  const [tokens, connections] = await Promise.all([
-    listApiTokens(user.id),
-    listOAuthGrants(user.id),
-  ]);
-
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-100 to-compass-50 px-4 py-10">
-      <div className="w-full max-w-xl">
-        <div className="mb-6 text-center">
-          <h1 className="text-xl font-bold text-slate-900">API tokens</h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Personal tokens for the Claude connector and other integrations. They act as you, with
-            your role ({user.role}).
-          </p>
-        </div>
-        <div className="rounded-2xl border border-slate-200 bg-surface p-6 shadow-sm">
-          <ApiTokens initial={tokens} initialConnections={connections} />
-        </div>
-        <div className="mt-4 flex items-center justify-center gap-4 text-sm">
-          <Link href="/" className="text-compass-600 hover:text-compass-700">
-            ← Back to CompassDocs
-          </Link>
-          <Link href="/account/password" className="text-slate-500 hover:text-slate-700">
-            Change password
-          </Link>
-        </div>
-      </div>
-    </div>
-  );
+// Folded into the unified account page.
+export default function ApiTokensPage() {
+  redirect("/account#api");
 }
