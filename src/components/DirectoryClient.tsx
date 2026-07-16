@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { LayoutGrid, List as ListIcon, Building2, Phone, Smartphone, MapPin } from "lucide-react";
 import type { DirectoryPerson, DirectoryField } from "@/lib/directory";
+import { TagBadges } from "./TagBadges";
 
 const field =
   "rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
@@ -102,6 +103,7 @@ export function DirectoryClient({
         id: `custom:${f.key}`,
         label: f.label,
         get: (p: DirectoryPerson) => p.custom?.[f.key] ?? "",
+        tag: f.display === "tag",
       })),
     ],
     [fields]
@@ -282,6 +284,8 @@ export function DirectoryClient({
                         <a href={`tel:${c.get(p)}`} className="text-slate-600 hover:underline">
                           {c.get(p)}
                         </a>
+                      ) : (c as any).tag && c.get(p) ? (
+                        <TagBadges value={c.get(p)} />
                       ) : (
                         <span className="text-slate-600">{c.get(p)}</span>
                       )}
@@ -371,9 +375,15 @@ export function DirectoryClient({
                   )}
                   {cardFields.map((f) =>
                     p.custom?.[f.key] ? (
-                      <p key={f.key} className="text-slate-500">
-                        <span className="text-slate-400">{f.label}:</span> {p.custom[f.key]}
-                      </p>
+                      f.display === "tag" ? (
+                        <div key={f.key} className="pt-1">
+                          <TagBadges value={p.custom[f.key]} />
+                        </div>
+                      ) : (
+                        <p key={f.key} className="text-slate-500">
+                          <span className="text-slate-400">{f.label}:</span> {p.custom[f.key]}
+                        </p>
+                      )
                     ) : null
                   )}
                 </div>

@@ -392,6 +392,9 @@ const SCHEMA_SQL = `
     sort integer NOT NULL DEFAULT 0,
     created_at timestamptz NOT NULL DEFAULT now()
   );
+  -- How a custom attribute renders: 'field' = label + text value; 'tag' =
+  -- comma-separated values shown as badge chips (skills, certifications, …).
+  ALTER TABLE directory_fields ADD COLUMN IF NOT EXISTS display text NOT NULL DEFAULT 'field';
 
   -- Account ↔ directory linking: a user can be tied to their directory entry
   -- (auto-matched by SSO id or email, or set by an admin). Survives directory

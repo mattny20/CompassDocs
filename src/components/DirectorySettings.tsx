@@ -424,6 +424,7 @@ function FieldsPanel({
   const [label, setLabel] = useState("");
   const [graphPath, setGraphPath] = useState("");
   const [showInCard, setShowInCard] = useState(false);
+  const [display, setDisplay] = useState<"field" | "tag">("field");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -439,7 +440,7 @@ function FieldsPanel({
     const res = await fetch("/api/admin/directory/fields", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ label, graph_path: graphPath, show_in_card: showInCard }),
+      body: JSON.stringify({ label, graph_path: graphPath, show_in_card: showInCard, display }),
     });
     setBusy(false);
     if (!res.ok) {
@@ -449,6 +450,7 @@ function FieldsPanel({
     setLabel("");
     setGraphPath("");
     setShowInCard(false);
+    setDisplay("field");
     await reload();
   }
 
@@ -471,7 +473,9 @@ function FieldsPanel({
     <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
       <h3 className="mb-1 font-semibold text-slate-900">Custom fields</h3>
       <p className="mb-3 text-sm text-slate-500">
-        Extra directory fields (e.g. cost center, pronouns, extension). They appear in the list
+        Extra directory attributes (e.g. cost center, pronouns, extension). Display each as a
+        plain <strong>field</strong> or as <strong>tags</strong> — comma-separated values shown
+        as badges, ideal for skills, certifications, or technologies. They appear in the list
         view&rsquo;s column picker, optionally on cards, and are editable per person below.
         {graphEnabled && (
           <> Map a field to a Microsoft Graph property — including the Exchange custom attributes
@@ -488,6 +492,7 @@ function FieldsPanel({
                 <th className="px-3 py-2">Label</th>
                 <th className="px-3 py-2">Key</th>
                 <th className="px-3 py-2">Microsoft Graph mapping</th>
+                <th className="px-3 py-2">Display</th>
                 <th className="px-3 py-2">On cards</th>
                 <th className="px-3 py-2"></th>
               </tr>
@@ -509,6 +514,16 @@ function FieldsPanel({
                         }
                       }}
                     />
+                  </td>
+                  <td className="px-3 py-2">
+                    <select
+                      className={`${field} w-32 text-xs`}
+                      value={f.display}
+                      onChange={(e) => patch(f, { display: e.target.value })}
+                    >
+                      <option value="field">Field</option>
+                      <option value="tag">Tags</option>
+                    </select>
                   </td>
                   <td className="px-3 py-2">
                     <input
@@ -551,6 +566,15 @@ function FieldsPanel({
             <option key={g} value={g} />
           ))}
         </datalist>
+        <select
+          className={`${field} w-40`}
+          value={display}
+          onChange={(e) => setDisplay(e.target.value as "field" | "tag")}
+          title="Field shows as label + text; Tag splits comma-separated values into badges"
+        >
+          <option value="field">Field (text value)</option>
+          <option value="tag">Tags (badges)</option>
+        </select>
         <label className="flex items-center gap-1.5 text-sm text-slate-600">
           <input type="checkbox" checked={showInCard} onChange={(e) => setShowInCard(e.target.checked)} />
           Show on cards

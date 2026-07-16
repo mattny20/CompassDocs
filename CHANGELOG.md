@@ -4,6 +4,17 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.31.0] - 2026-07-16
+
+### Added
+- **Directory attributes as fields or tags.** Every custom directory
+  attribute now has a display type: **Field** (label + text value — office
+  location, employee ID, extension) or **Tags** — comma-separated values
+  rendered as badge chips, ideal for skills, certifications, or
+  technologies. Pick the type when creating an attribute (Settings →
+  Directory) or flip it anytime; tags render on directory cards, in list
+  columns, and on profile pages, in light and dark themes.
+
 ## [0.30.0] - 2026-07-16
 
 ### Added

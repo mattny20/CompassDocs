@@ -38,6 +38,8 @@ export interface DirectoryField {
   graph_path: string; // "" = manual-only field
   show_in_card: number; // 0 | 1
   sort: number;
+  /** field = label + text value; tag = comma-separated values as badges. */
+  display: "field" | "tag";
 }
 
 const COLS =
@@ -126,7 +128,7 @@ export async function listDepartments(): Promise<string[]> {
 
 // --- Custom field definitions -------------------------------------------------
 
-const FIELD_COLS = "id, key, label, graph_path, show_in_card, sort";
+const FIELD_COLS = "id, key, label, graph_path, show_in_card, sort, display";
 const KEY_RE = /^[a-z0-9_]{1,40}$/;
 
 export function slugifyFieldKey(label: string): string {
@@ -150,21 +152,34 @@ export async function createField(input: {
   label: string;
   graph_path?: string;
   show_in_card?: boolean;
+  display?: "field" | "tag";
 }): Promise<DirectoryField> {
   const key = (input.key?.trim() || slugifyFieldKey(input.label)).toLowerCase();
   if (!KEY_RE.test(key)) throw new Error("Field key must be 1–40 chars of a–z, 0–9, _");
   const res = await pool().query<DirectoryField>(
-    `INSERT INTO directory_fields (key, label, graph_path, show_in_card, sort)
-     VALUES ($1, $2, $3, $4, COALESCE((SELECT MAX(sort)+1 FROM directory_fields), 0))
+    `INSERT INTO directory_fields (key, label, graph_path, show_in_card, sort, display)
+     VALUES ($1, $2, $3, $4, COALESCE((SELECT MAX(sort)+1 FROM directory_fields), 0), $5)
      RETURNING ${FIELD_COLS}`,
-    [key, input.label.trim(), (input.graph_path ?? "").trim(), input.show_in_card ? 1 : 0]
+    [
+      key,
+      input.label.trim(),
+      (input.graph_path ?? "").trim(),
+      input.show_in_card ? 1 : 0,
+      input.display === "tag" ? "tag" : "field",
+    ]
   );
   return res.rows[0];
 }
 
 export async function updateField(
   id: number,
-  fields: { label?: string; graph_path?: string; show_in_card?: boolean; sort?: number }
+  fields: {
+    label?: string;
+    graph_path?: string;
+    show_in_card?: boolean;
+    sort?: number;
+    display?: "field" | "tag";
+  }
 ): Promise<DirectoryField | undefined> {
   const existing = (
     await pool().query<DirectoryField>(
@@ -174,13 +189,15 @@ export async function updateField(
   ).rows[0];
   if (!existing) return undefined;
   const res = await pool().query<DirectoryField>(
-    `UPDATE directory_fields SET label = $1, graph_path = $2, show_in_card = $3, sort = $4
-     WHERE id = $5 RETURNING ${FIELD_COLS}`,
+    `UPDATE directory_fields SET label = $1, graph_path = $2, show_in_card = $3, sort = $4,
+       display = $5
+     WHERE id = $6 RETURNING ${FIELD_COLS}`,
     [
       (fields.label ?? existing.label).trim(),
       (fields.graph_path ?? existing.graph_path).trim(),
       fields.show_in_card === undefined ? existing.show_in_card : fields.show_in_card ? 1 : 0,
       fields.sort ?? existing.sort,
+      fields.display === undefined ? existing.display : fields.display === "tag" ? "tag" : "field",
       id,
     ]
   );
