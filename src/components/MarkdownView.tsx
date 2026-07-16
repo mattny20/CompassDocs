@@ -1,6 +1,7 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { CodeBlock } from "./CodeBlock";
+import { EmailTemplate } from "./EmailTemplate";
 import { DocImage } from "./DocImage";
 
 export function MarkdownView({ content }: { content: string }) {
@@ -21,6 +22,8 @@ export function MarkdownView({ content }: { content: string }) {
               const cls: string = child.props?.className || "";
               const lang = /language-([\w-]+)/.exec(cls)?.[1] || "";
               const code = String(child.props?.children ?? "");
+              // ```email blocks get the letter-style template card instead.
+              if (lang === "email") return <EmailTemplate raw={code} />;
               return <CodeBlock language={lang} code={code} />;
             }
             return <pre>{children}</pre>;

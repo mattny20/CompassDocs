@@ -21,7 +21,19 @@ import {
   Code as CodeIcon,
   SquareCode,
   ImagePlus,
+  Mail,
 } from "lucide-react";
+
+// Starter content inserted by the "Email template" toolbar button. Rendered
+// on document pages as a letter-style card with copy buttons (```email).
+const EMAIL_STARTER = `Subject: 
+
+Hi ,
+
+
+
+Thanks,
+`;
 
 const TB_ICON = "h-4 w-4";
 
@@ -251,10 +263,31 @@ function Toolbar({
       </Btn>
       <Btn
         onClick={() => editor.chain().focus().toggleCodeBlock().run()}
-        active={editor.isActive("codeBlock")}
+        active={editor.isActive("codeBlock") && editor.getAttributes("codeBlock").language !== "email"}
         label="Code block"
       >
         <SquareCode className={TB_ICON} />
+      </Btn>
+      <Btn
+        onClick={() => {
+          if (editor.isActive("codeBlock", { language: "email" })) {
+            editor.chain().focus().toggleCodeBlock().run();
+            return;
+          }
+          editor
+            .chain()
+            .focus()
+            .insertContent({
+              type: "codeBlock",
+              attrs: { language: "email" },
+              content: [{ type: "text", text: EMAIL_STARTER }],
+            })
+            .run();
+        }}
+        active={editor.isActive("codeBlock", { language: "email" })}
+        label="Email template — a copy-paste email block with Subject/To fields"
+      >
+        <Mail className={TB_ICON} />
       </Btn>
       {editor.isActive("image") && (
         <>

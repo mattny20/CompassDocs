@@ -162,3 +162,26 @@ mark {
     text-decoration: underline;
   }
 }
+
+/* Email-template blocks inside the rich editor: keep them visually distinct
+ * from ordinary code blocks (accent border + label) so authors can tell at a
+ * glance which block renders as the letter-style card. */
+.tiptap pre:has(> code.language-email) {
+  border-left: 3px solid rgb(var(--compass-500));
+  background: rgb(var(--compass-50));
+  color: rgb(var(--slate-800));
+  position: relative;
+  padding-top: 1.9rem;
+}
+.tiptap pre:has(> code.language-email)::before {
+  content: "✉ Email template";
+  position: absolute;
+  top: 0.4rem;
+  left: 0.75rem;
+  font-size: 0.675rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: rgb(var(--compass-500));
+  font-family: var(--font-sans);
+}
