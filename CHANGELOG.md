@@ -4,6 +4,30 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.23.0] - 2026-07-16
+
+### Added
+- **Per-space edit rights.** Admins can now restrict who may *author* in a
+  space — create, edit, move, or trash documents and manage attachments —
+  independently of who can read it. Each space's **"Who can edit"** setting
+  (Settings → Spaces) offers **All editors** (default) or **only selected
+  people and/or groups** (manual or Entra-synced). An org-wide switch,
+  **"All editors can edit all spaces"** (on by default, so nothing changes on
+  upgrade), ignores all per-space lists when enabled. Only admins can change
+  grants or the switch; admins always retain edit access; approvers still
+  review queued changes; anyone with view access can still read and suggest.
+  Enforced server-side everywhere — pages, APIs, and the Claude connector —
+  and the UI follows: the Edit button disappears and restricted spaces drop
+  out of the new-document and move-to-space pickers.
+
+### Fixed
+- Deleting an attachment now requires edit access to the document's space
+  (previously any editor could delete any attachment by id).
+- Restoring a document from the Trash now requires edit access to the space
+  it returns to.
+- Settings → License now labels the support entitlement "Dedicated support
+  (48-hour response)" to match the current plans.
+
 ## [0.22.0] - 2026-07-16
 
 ### Added

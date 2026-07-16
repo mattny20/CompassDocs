@@ -13,7 +13,7 @@ const ALL_FEATURES: { key: EntitlementFeature; label: string }[] = [
   { key: "sso", label: "Single sign-on (SSO)" },
   { key: "scim", label: "SCIM provisioning" },
   { key: "audit_export", label: "Audit-log export" },
-  { key: "priority_support", label: "Priority support" },
+  { key: "priority_support", label: "Dedicated support (48-hour response)" },
   { key: "directory_sync", label: "Microsoft 365 directory sync" },
   { key: "policy_ack", label: "Policy acknowledgements" },
 ];

@@ -12,17 +12,22 @@ export function DocActions({
   spaceSlug,
   role,
   isPublished,
+  hasEditRights,
 }: {
   id: number;
   spaceSlug: string;
   role: Role;
   isPublished: boolean;
+  /** Server-resolved per-space edit rights (role alone isn't enough). */
+  hasEditRights: boolean;
 }) {
   const router = useRouter();
   const [deleting, setDeleting] = useState(false);
 
-  const canEdit = roleAtLeast(role, "editor");
-  const canDelete = roleAtLeast(role, "approver") || (roleAtLeast(role, "editor") && !isPublished);
+  const canEdit = roleAtLeast(role, "editor") && hasEditRights;
+  const canDelete =
+    hasEditRights &&
+    (roleAtLeast(role, "approver") || (roleAtLeast(role, "editor") && !isPublished));
 
   async function onDelete() {
     if (!confirm("Move this document to the Trash? You can restore it later.")) return;

@@ -6,6 +6,8 @@ import {
   setSpaceGroups,
   getSpaceGroupIds,
   setSpaceSubscriptionGroups,
+  setSpaceEditors,
+  setSpaceEditorGroups,
 } from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
@@ -79,6 +81,20 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     await setSpaceSubscriptionGroups(
       id,
       body.subscriptionGroupIds.map(Number).filter((n: number) => Number.isInteger(n) && n > 0)
+    );
+  }
+
+  // Per-space edit grants (who may author here). Empty arrays = unrestricted.
+  if (Array.isArray(body?.editorUserIds)) {
+    await setSpaceEditors(
+      id,
+      body.editorUserIds.map(Number).filter((n: number) => Number.isInteger(n) && n > 0)
+    );
+  }
+  if (Array.isArray(body?.editorGroupIds)) {
+    await setSpaceEditorGroups(
+      id,
+      body.editorGroupIds.map(Number).filter((n: number) => Number.isInteger(n) && n > 0)
     );
   }
 

@@ -2,11 +2,12 @@ import { NextResponse } from "next/server";
 import { Readable } from "stream";
 import { apiGuard } from "@/lib/api-auth";
 import { getCurrentUser } from "@/lib/auth";
-import { spaceScopeFor, scopeAllows } from "@/lib/access";
+import { spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
 import { getAttachment, getDocument, deleteAttachmentRow } from "@/lib/db";
 import { getPublicSiteConfig } from "@/lib/public-site";
 import { uploadReadStream, deleteUpload, isInlineImage } from "@/lib/uploads";
 import { roleAtLeast } from "@/lib/types";
+import type { SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -57,13 +58,27 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   });
 }
 
-// Delete an attachment (editors and up).
+// Delete an attachment (editors and up, with edit rights on the doc's space).
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const gate = await apiGuard("editor");
   if (gate instanceof NextResponse) return gate;
+  const user = gate as SessionUser;
 
   const { id } = await params;
-  const row = await deleteAttachmentRow(Number(id));
+  const att = await getAttachment(Number(id));
+  if (!att) return NextResponse.json({ error: "Not found." }, { status: 404 });
+  const doc = await getDocument(att.document_id);
+  if (!doc || !scopeAllows(await spaceScopeFor(user), doc.space_id)) {
+    return NextResponse.json({ error: "Not found." }, { status: 404 });
+  }
+  if (!(await canEditSpace(user, doc.space_id))) {
+    return NextResponse.json(
+      { error: "You don't have edit access to this space." },
+      { status: 403 }
+    );
+  }
+
+  const row = await deleteAttachmentRow(att.id);
   if (!row) return NextResponse.json({ error: "Not found." }, { status: 404 });
   await deleteUpload(row.stored_name);
   return NextResponse.json({ ok: true });

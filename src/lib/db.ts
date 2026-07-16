@@ -464,6 +464,21 @@ const SCHEMA_SQL = `
     group_id integer NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
     PRIMARY KEY (link_id, group_id)
   );
+
+  -- Per-space edit rights. A space with no rows in either table is editable by
+  -- any editor+; with rows, only the listed users / group members may author in
+  -- it (admins always can). The org-level setting 'editors_edit_all' (default
+  -- on) short-circuits all of this back to "any editor edits any space".
+  CREATE TABLE IF NOT EXISTS space_editors (
+    space_id integer NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+    user_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    PRIMARY KEY (space_id, user_id)
+  );
+  CREATE TABLE IF NOT EXISTS space_editor_groups (
+    space_id integer NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+    group_id integer NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+    PRIMARY KEY (space_id, group_id)
+  );
 `;
 
 /**
@@ -946,6 +961,16 @@ export async function listTrashedDocuments(): Promise<DocumentWithSpace[]> {
     `${DOC_SELECT} WHERE d.deleted_at IS NOT NULL ORDER BY d.deleted_at DESC`
   );
   return rows.map(mapDoc);
+}
+
+/** The space a trashed doc belongs to (for edit-rights checks on restore). */
+export async function getTrashedDocumentSpaceId(id: number): Promise<number | undefined> {
+  await ready();
+  const rows = await q<{ space_id: number }>(
+    "SELECT space_id FROM documents WHERE id = $1 AND deleted_at IS NOT NULL",
+    [id]
+  );
+  return rows[0]?.space_id;
 }
 
 /** Restore a trashed document back to its space. */
@@ -1570,6 +1595,116 @@ export async function setSpaceGroups(spaceId: number, groupIds: number[]): Promi
   } finally {
     client.release();
   }
+}
+
+// --- Per-space edit rights -------------------------------------------------------
+
+export async function getSpaceEditorUserIds(spaceId: number): Promise<number[]> {
+  return (
+    await q<{ user_id: number }>("SELECT user_id FROM space_editors WHERE space_id = $1", [spaceId])
+  ).map((r) => r.user_id);
+}
+
+export async function getSpaceEditorGroupIds(spaceId: number): Promise<number[]> {
+  return (
+    await q<{ group_id: number }>(
+      "SELECT group_id FROM space_editor_groups WHERE space_id = $1",
+      [spaceId]
+    )
+  ).map((r) => r.group_id);
+}
+
+export async function setSpaceEditors(spaceId: number, userIds: number[]): Promise<void> {
+  const client = await pool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("DELETE FROM space_editors WHERE space_id = $1", [spaceId]);
+    for (const uid of userIds) {
+      await client.query(
+        "INSERT INTO space_editors (space_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING",
+        [spaceId, uid]
+      );
+    }
+    await client.query("COMMIT");
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+export async function setSpaceEditorGroups(spaceId: number, groupIds: number[]): Promise<void> {
+  const client = await pool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("DELETE FROM space_editor_groups WHERE space_id = $1", [spaceId]);
+    for (const gid of groupIds) {
+      await client.query(
+        "INSERT INTO space_editor_groups (space_id, group_id) VALUES ($1,$2) ON CONFLICT DO NOTHING",
+        [spaceId, gid]
+      );
+    }
+    await client.query("COMMIT");
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+/** All edit grants at once, for the admin spaces screen. */
+export async function listAllSpaceEditorGrants(): Promise<{
+  users: Record<number, number[]>;
+  groups: Record<number, number[]>;
+}> {
+  const [u, g] = await Promise.all([
+    q<{ space_id: number; user_id: number }>("SELECT space_id, user_id FROM space_editors"),
+    q<{ space_id: number; group_id: number }>("SELECT space_id, group_id FROM space_editor_groups"),
+  ]);
+  const users: Record<number, number[]> = {};
+  const groups: Record<number, number[]> = {};
+  for (const r of u) (users[r.space_id] ??= []).push(r.user_id);
+  for (const r of g) (groups[r.space_id] ??= []).push(r.group_id);
+  return { users, groups };
+}
+
+/**
+ * Whether the user may author in the space under per-space rules: true when
+ * the space has no grants at all (unrestricted), or the user is granted
+ * directly or via a group. Role and visibility are checked by the caller.
+ */
+export async function spaceEditGrantAllows(spaceId: number, userId: number): Promise<boolean> {
+  const rows = await q<{ ok: boolean }>(
+    `SELECT (
+       (NOT EXISTS (SELECT 1 FROM space_editors WHERE space_id = $1)
+        AND NOT EXISTS (SELECT 1 FROM space_editor_groups WHERE space_id = $1))
+       OR EXISTS (SELECT 1 FROM space_editors WHERE space_id = $1 AND user_id = $2)
+       OR EXISTS (SELECT 1 FROM space_editor_groups seg
+                    JOIN group_members gm ON gm.group_id = seg.group_id
+                  WHERE seg.space_id = $1 AND gm.user_id = $2)
+     ) AS ok`,
+    [spaceId, userId]
+  );
+  return rows[0]?.ok ?? false;
+}
+
+/** Space ids the user may author in under per-space rules (unrestricted ∪ granted). */
+export async function editGrantedSpaceIdsFor(userId: number): Promise<number[]> {
+  const rows = await q<{ id: number }>(
+    `SELECT s.id FROM spaces s
+     WHERE NOT EXISTS (SELECT 1 FROM space_editors se WHERE se.space_id = s.id)
+       AND NOT EXISTS (SELECT 1 FROM space_editor_groups seg WHERE seg.space_id = s.id)
+     UNION
+     SELECT space_id FROM space_editors WHERE user_id = $1
+     UNION
+     SELECT seg.space_id FROM space_editor_groups seg
+       JOIN group_members gm ON gm.group_id = seg.group_id
+     WHERE gm.user_id = $1`,
+    [userId]
+  );
+  return rows.map((r) => r.id);
 }
 
 /**

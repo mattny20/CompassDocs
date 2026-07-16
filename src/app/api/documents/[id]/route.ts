@@ -13,7 +13,7 @@ import { notifyWebhooks } from "@/lib/webhooks";
 import { notifySpaceSubscribers } from "@/lib/subscriptions";
 import { requestOrigin } from "@/lib/oauth";
 import { roleAtLeast } from "@/lib/types";
-import { spaceScopeFor, scopeAllows } from "@/lib/access";
+import { spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
 import type { DocType, DocStatus, SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -61,6 +61,12 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   if (!scopeAllows(scope, existing.space_id)) {
     return NextResponse.json({ error: "Not found." }, { status: 404 });
   }
+  if (!(await canEditSpace(user, existing.space_id))) {
+    return NextResponse.json(
+      { error: "You don't have edit access to this space." },
+      { status: 403 }
+    );
+  }
 
   let body: any;
   try {
@@ -69,13 +75,20 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     return NextResponse.json({ error: "Invalid JSON." }, { status: 400 });
   }
 
-  // Optional move to another space — the target must exist and be visible to
-  // the editor (private spaces they aren't granted look nonexistent).
+  // Optional move to another space — the target must exist, be visible to the
+  // editor (private spaces they aren't granted look nonexistent), and be one
+  // they hold edit rights on.
   let targetSpaceId = existing.space_id;
   if (body?.space_id !== undefined && body.space_id !== null) {
     const sid = Number(body.space_id);
     if (!Number.isInteger(sid) || !(await getSpaceById(sid)) || !scopeAllows(scope, sid)) {
       return NextResponse.json({ error: "That space isn't available." }, { status: 400 });
+    }
+    if (sid !== existing.space_id && !(await canEditSpace(user, sid))) {
+      return NextResponse.json(
+        { error: "You don't have edit access to the target space." },
+        { status: 403 }
+      );
     }
     targetSpaceId = sid;
   }
@@ -182,6 +195,12 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
   if (!doc) return NextResponse.json({ error: "Not found." }, { status: 404 });
   if (!scopeAllows(await spaceScopeFor(user), doc.space_id)) {
     return NextResponse.json({ error: "Not found." }, { status: 404 });
+  }
+  if (!(await canEditSpace(user, doc.space_id))) {
+    return NextResponse.json(
+      { error: "You don't have edit access to this space." },
+      { status: 403 }
+    );
   }
 
   // Editors may only delete drafts; deleting a published doc needs approver+.

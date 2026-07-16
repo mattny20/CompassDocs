@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { getSpaceBySlug, listDocumentsBySpace, getSubscriptionState } from "@/lib/db";
 import { SubscribeButton } from "@/components/SubscribeButton";
 import { requireUser } from "@/lib/auth";
-import { spaceScopeFor, scopeAllows } from "@/lib/access";
+import { spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
 import { roleAtLeast } from "@/lib/types";
 import { DocCard } from "@/components/DocCard";
 
@@ -17,9 +17,10 @@ export default async function SpacePage({ params }: { params: Promise<{ slug: st
   if (!scopeAllows(await spaceScopeFor(user), space.id)) notFound();
 
   const isEditor = roleAtLeast(user.role, "editor");
-  const [docs, sub] = await Promise.all([
+  const [docs, sub, canAuthor] = await Promise.all([
     listDocumentsBySpace(space.id, isEditor),
     getSubscriptionState(space.id, user.id),
+    canEditSpace(user, space.id),
   ]);
 
   return (
@@ -43,7 +44,7 @@ export default async function SpacePage({ params }: { params: Promise<{ slug: st
             initialState={sub.state}
             initialViaGroup={sub.viaGroup}
           />
-          {isEditor && (
+          {isEditor && canAuthor && (
             <Link
               href={`/doc/new?space=${space.slug}`}
               className="whitespace-nowrap rounded-lg bg-compass-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-compass-700"
@@ -57,7 +58,7 @@ export default async function SpacePage({ params }: { params: Promise<{ slug: st
       {docs.length === 0 ? (
         <div className="rounded-xl border border-dashed border-slate-300 bg-surface p-10 text-center text-slate-500">
           No documents in this space yet.
-          {isEditor && (
+          {isEditor && canAuthor && (
             <>
               {" "}
               <Link href={`/doc/new?space=${space.slug}`} className="font-medium text-compass-600">
