@@ -4,6 +4,19 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.30.0] - 2026-07-16
+
+### Added
+- **Email template blocks.** Documents can now hold copy-paste email
+  templates in a dedicated block — the email sibling of the code block.
+  Write an ` ```email ` fence (or click the new **✉ Email template** button
+  in the rich editor, which inserts a starter with a distinct in-editor
+  look), and readers see a letter-style card: leading `Subject:` / `To:` /
+  `Cc:` / `Bcc:` lines become styled envelope fields, the body renders in a
+  normal reading font, and **Copy subject / Copy body / Copy all** buttons
+  make pasting into a mail client one click per part. Works on the public
+  site and in dark mode.
+
 ## [0.29.0] - 2026-07-16
 
 ### Added
