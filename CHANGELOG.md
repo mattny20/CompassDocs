@@ -4,6 +4,18 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.25.0] - 2026-07-16
+
+### Changed
+- **One "Manage account" page.** The personal settings that were spread over
+  four little pages — notification preferences, security & MFA (two-factor
+  auth and active sessions), password change, and API tokens / connected
+  apps — now live together on a single account page with a profile header
+  and quick section shortcuts. Click **Manage account** (or your name) at
+  the bottom of the sidebar. Old `/account/*` URLs redirect to the right
+  section, and the focused set-a-new-password page still appears when a
+  password change is required at sign-in.
+
 ## [0.24.0] - 2026-07-16
 
 ### Added
