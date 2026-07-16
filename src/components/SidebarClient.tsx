@@ -11,6 +11,7 @@ import {
   Home,
   Sparkles,
   BookUser,
+  SquareArrowOutUpRight,
   ClipboardList,
   Trash2,
   Settings,
@@ -116,6 +117,7 @@ export function SidebarClient({
         <NavLink href="/" icon={<Home className="h-4 w-4" />} label="Dashboard" collapsed={collapsed} />
         <NavLink href="/search" icon={<Sparkles className="h-4 w-4" />} label={`Ask ${companyName || "CompassDocs"}`} collapsed={collapsed} />
         <NavLink href="/directory" icon={<BookUser className="h-4 w-4" />} label="Directory" collapsed={collapsed} />
+        <NavLink href="/links" icon={<SquareArrowOutUpRight className="h-4 w-4" />} label="Links" collapsed={collapsed} />
         {isApprover && (
           <NavLink
             href="/review"

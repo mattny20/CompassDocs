@@ -433,6 +433,37 @@ const SCHEMA_SQL = `
     ip text NOT NULL DEFAULT ''
   );
   CREATE INDEX IF NOT EXISTS idx_ack_doc ON acknowledgements(document_id, user_id, acknowledged_at DESC);
+
+  -- Quick links: an admin-curated launchpad of external shortcuts (Duo
+  -- Central-style bookmarks). A link with no link_groups rows is visible to
+  -- every signed-in user; with rows, only to members of those groups (admins
+  -- always see everything).
+  CREATE TABLE IF NOT EXISTS link_categories (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    name text NOT NULL,
+    position integer NOT NULL DEFAULT 0,
+    created_at timestamptz NOT NULL DEFAULT now()
+  );
+  CREATE TABLE IF NOT EXISTS links (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    category_id integer REFERENCES link_categories(id) ON DELETE SET NULL,
+    title text NOT NULL,
+    url text NOT NULL,
+    description text NOT NULL DEFAULT '',
+    -- favicon = auto-fetched site icon (cached below); brand = workspace logo;
+    -- custom = an uploaded image. icon_file/icon_mime hold the cached favicon
+    -- or the custom upload; empty = fall back to a letter tile.
+    icon_type text NOT NULL DEFAULT 'favicon',
+    icon_file text,
+    icon_mime text,
+    position integer NOT NULL DEFAULT 0,
+    created_at timestamptz NOT NULL DEFAULT now()
+  );
+  CREATE TABLE IF NOT EXISTS link_groups (
+    link_id integer NOT NULL REFERENCES links(id) ON DELETE CASCADE,
+    group_id integer NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+    PRIMARY KEY (link_id, group_id)
+  );
 `;
 
 /**
@@ -1825,6 +1856,204 @@ export async function listPendingAcksFor(
      LIMIT 20`,
     Array.isArray(scope) ? [userId, scope] : [userId]
   );
+}
+
+// --- Quick links (external shortcuts launchpad) ----------------------------------
+
+export interface LinkCategory {
+  id: number;
+  name: string;
+  position: number;
+  created_at: string;
+}
+
+export interface QuickLink {
+  id: number;
+  category_id: number | null;
+  title: string;
+  url: string;
+  description: string;
+  /** favicon = cached site icon; brand = workspace logo; custom = uploaded image. */
+  icon_type: "favicon" | "brand" | "custom";
+  icon_file: string | null;
+  icon_mime: string | null;
+  position: number;
+  created_at: string;
+}
+
+export async function listLinkCategories(): Promise<LinkCategory[]> {
+  return q("SELECT * FROM link_categories ORDER BY position, name");
+}
+
+export async function createLinkCategory(name: string): Promise<LinkCategory> {
+  const max = (
+    await q<{ m: number }>("SELECT COALESCE(MAX(position), 0)::int AS m FROM link_categories")
+  )[0].m;
+  return (
+    await q<LinkCategory>(
+      "INSERT INTO link_categories (name, position) VALUES ($1,$2) RETURNING *",
+      [name.trim().slice(0, 60), max + 1]
+    )
+  )[0];
+}
+
+export async function updateLinkCategory(
+  id: number,
+  patch: { name?: string; position?: number }
+): Promise<void> {
+  if (patch.name !== undefined) {
+    await q("UPDATE link_categories SET name = $1 WHERE id = $2", [
+      patch.name.trim().slice(0, 60),
+      id,
+    ]);
+  }
+  if (patch.position !== undefined) {
+    await q("UPDATE link_categories SET position = $1 WHERE id = $2", [patch.position, id]);
+  }
+}
+
+/** Delete a category; its links stay (category_id becomes NULL → "General"). */
+export async function deleteLinkCategory(id: number): Promise<boolean> {
+  const res = await pool().query("DELETE FROM link_categories WHERE id = $1", [id]);
+  return (res.rowCount ?? 0) > 0;
+}
+
+export async function getLink(id: number): Promise<QuickLink | undefined> {
+  return (await q<QuickLink>("SELECT * FROM links WHERE id = $1", [id]))[0];
+}
+
+/**
+ * Links the user may see: unrestricted ones (no link_groups rows) plus those
+ * granted to one of their groups. Admins pass "all" and see everything.
+ */
+export async function listLinksVisibleTo(who: number | "all"): Promise<QuickLink[]> {
+  if (who === "all") return q("SELECT * FROM links ORDER BY position, title");
+  return q(
+    `SELECT l.* FROM links l
+     WHERE NOT EXISTS (SELECT 1 FROM link_groups lg WHERE lg.link_id = l.id)
+        OR EXISTS (SELECT 1 FROM link_groups lg
+                     JOIN group_members gm ON gm.group_id = lg.group_id
+                   WHERE lg.link_id = l.id AND gm.user_id = $1)
+     ORDER BY l.position, l.title`,
+    [who]
+  );
+}
+
+/** Whether a specific link is visible to the user (icon serving). */
+export async function linkVisibleTo(linkId: number, userId: number): Promise<boolean> {
+  const rows = await q<{ ok: boolean }>(
+    `SELECT (NOT EXISTS (SELECT 1 FROM link_groups lg WHERE lg.link_id = $1)
+         OR EXISTS (SELECT 1 FROM link_groups lg
+                      JOIN group_members gm ON gm.group_id = lg.group_id
+                    WHERE lg.link_id = $1 AND gm.user_id = $2)) AS ok`,
+    [linkId, userId]
+  );
+  return rows[0]?.ok ?? false;
+}
+
+export async function createLink(input: {
+  category_id: number | null;
+  title: string;
+  url: string;
+  description: string;
+  icon_type: QuickLink["icon_type"];
+  icon_file?: string | null;
+  icon_mime?: string | null;
+}): Promise<QuickLink> {
+  const max = (
+    await q<{ m: number }>("SELECT COALESCE(MAX(position), 0)::int AS m FROM links")
+  )[0].m;
+  return (
+    await q<QuickLink>(
+      `INSERT INTO links (category_id, title, url, description, icon_type, icon_file, icon_mime, position)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      [
+        input.category_id,
+        input.title.trim().slice(0, 120),
+        input.url.trim().slice(0, 2000),
+        input.description.trim().slice(0, 300),
+        input.icon_type,
+        input.icon_file ?? null,
+        input.icon_mime ?? null,
+        max + 1,
+      ]
+    )
+  )[0];
+}
+
+export async function updateLink(
+  id: number,
+  patch: Partial<{
+    category_id: number | null;
+    title: string;
+    url: string;
+    description: string;
+    icon_type: QuickLink["icon_type"];
+    icon_file: string | null;
+    icon_mime: string | null;
+    position: number;
+  }>
+): Promise<QuickLink | undefined> {
+  const sets: string[] = [];
+  const vals: unknown[] = [];
+  const push = (col: string, v: unknown) => {
+    vals.push(v);
+    sets.push(`${col} = $${vals.length}`);
+  };
+  if (patch.category_id !== undefined) push("category_id", patch.category_id);
+  if (patch.title !== undefined) push("title", patch.title.trim().slice(0, 120));
+  if (patch.url !== undefined) push("url", patch.url.trim().slice(0, 2000));
+  if (patch.description !== undefined) push("description", patch.description.trim().slice(0, 300));
+  if (patch.icon_type !== undefined) push("icon_type", patch.icon_type);
+  if (patch.icon_file !== undefined) push("icon_file", patch.icon_file);
+  if (patch.icon_mime !== undefined) push("icon_mime", patch.icon_mime);
+  if (patch.position !== undefined) push("position", patch.position);
+  if (!sets.length) return getLink(id);
+  vals.push(id);
+  return (
+    await q<QuickLink>(`UPDATE links SET ${sets.join(", ")} WHERE id = $${vals.length} RETURNING *`, vals)
+  )[0];
+}
+
+/** Delete a link; returns the row so callers can clean up its icon file. */
+export async function deleteLink(id: number): Promise<QuickLink | undefined> {
+  return (await q<QuickLink>("DELETE FROM links WHERE id = $1 RETURNING *", [id]))[0];
+}
+
+export async function getLinkGroupIds(linkId: number): Promise<number[]> {
+  return (
+    await q<{ group_id: number }>("SELECT group_id FROM link_groups WHERE link_id = $1", [linkId])
+  ).map((r) => r.group_id);
+}
+
+/** link_id → granted group ids for the whole workspace (admin UI). */
+export async function listAllLinkGroups(): Promise<Record<number, number[]>> {
+  const rows = await q<{ link_id: number; group_id: number }>(
+    "SELECT link_id, group_id FROM link_groups ORDER BY link_id"
+  );
+  const map: Record<number, number[]> = {};
+  for (const r of rows) (map[r.link_id] ??= []).push(r.group_id);
+  return map;
+}
+
+export async function setLinkGroups(linkId: number, groupIds: number[]): Promise<void> {
+  const client = await pool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("DELETE FROM link_groups WHERE link_id = $1", [linkId]);
+    for (const gid of groupIds) {
+      await client.query(
+        "INSERT INTO link_groups (link_id, group_id) VALUES ($1,$2) ON CONFLICT DO NOTHING",
+        [linkId, gid]
+      );
+    }
+    await client.query("COMMIT");
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
 /** Map Entra member identities to local user ids (SSO id first, then email). */
