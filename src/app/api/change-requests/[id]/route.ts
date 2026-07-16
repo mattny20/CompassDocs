@@ -3,6 +3,7 @@ import { approveChangeRequest, rejectChangeRequest, getChangeRequest, getDocumen
 import { apiGuard } from "@/lib/api-auth";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
 import { notifyWebhooks } from "@/lib/webhooks";
+import { notifySpaceSubscribers } from "@/lib/subscriptions";
 import { requestOrigin } from "@/lib/oauth";
 import type { SessionUser } from "@/lib/types";
 
@@ -44,6 +45,21 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       spaceId: crDoc?.space_id,
       spaceName: crDoc?.space_name,
     });
+    // Subscribers hear about the change landing (the doc may have moved
+    // spaces as part of the approval — notify its current space).
+    const after = cr ? await getDocument(cr.document_id) : undefined;
+    if (after && after.status === "published") {
+      void notifySpaceSubscribers({
+        spaceId: after.space_id,
+        spaceName: after.space_name,
+        docId: after.id,
+        title: after.title,
+        kind: cr!.kind === "publish" ? "published" : "updated",
+        actorUserId: cr!.created_by,
+        actorName: cr!.author_name,
+        origin: requestOrigin(req),
+      });
+    }
     return NextResponse.json({ ok: true, result: "approved" });
   }
   if (action === "reject") {

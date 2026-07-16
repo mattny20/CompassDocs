@@ -3,6 +3,7 @@ import { createDocument, getSpaceBySlug, listSpaces, getApprovalMode } from "@/l
 import { apiGuard } from "@/lib/api-auth";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
 import { notifyWebhooks } from "@/lib/webhooks";
+import { notifySpaceSubscribers } from "@/lib/subscriptions";
 import { requestOrigin } from "@/lib/oauth";
 import { roleAtLeast } from "@/lib/types";
 import { spaceScopeFor, scopeAllows } from "@/lib/access";
@@ -72,6 +73,16 @@ export async function POST(req: Request) {
       url: `${requestOrigin(req)}/doc/${doc.id}`,
       spaceId: doc.space_id,
       spaceName: doc.space_name,
+    });
+    void notifySpaceSubscribers({
+      spaceId: doc.space_id,
+      spaceName: doc.space_name,
+      docId: doc.id,
+      title: doc.title,
+      kind: "published",
+      actorUserId: user.id,
+      actorName: user.name || user.username,
+      origin: requestOrigin(req),
     });
   }
   await audit({

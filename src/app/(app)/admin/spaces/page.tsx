@@ -1,13 +1,14 @@
-import { listSpaces, listGroups, listAllSpaceGroups } from "@/lib/db";
+import { listSpaces, listGroups, listAllSpaceGroups, listAllSpaceSubscriptionGroups } from "@/lib/db";
 import { SpacesManager } from "@/components/SpacesManager";
 
 export const dynamic = "force-dynamic";
 
 export default async function SpacesPage() {
-  const [spaces, groups, spaceGroups] = await Promise.all([
+  const [spaces, groups, spaceGroups, subscriptionGroups] = await Promise.all([
     listSpaces(),
     listGroups(),
     listAllSpaceGroups(),
+    listAllSpaceSubscriptionGroups(),
   ]);
   return (
     <SpacesManager
@@ -19,6 +20,7 @@ export default async function SpacesPage() {
         member_count: g.member_count,
       }))}
       initialSpaceGroups={spaceGroups}
+      initialSubscriptionGroups={subscriptionGroups}
     />
   );
 }

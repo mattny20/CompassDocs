@@ -39,6 +39,10 @@ export interface User {
   external_id: string | null;
   must_change_password: number;
   totp_enabled: number;
+  /** Linked people-directory entry (auto-matched or admin-set); null = unlinked. */
+  directory_person_id: number | null;
+  /** Master switch for subscription emails (1 = on). */
+  email_notifications: number;
   created_at: string;
   last_login_at: string | null;
 }

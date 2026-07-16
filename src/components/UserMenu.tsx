@@ -32,6 +32,10 @@ export function UserMenu({ user }: { user: SessionUser }) {
         </Link>
         <div className="text-xs text-slate-400">
           {ROLE_LABEL[user.role]} ·{" "}
+          <Link href="/account/notifications" className="hover:text-compass-600 hover:underline">
+            Notifications
+          </Link>
+          <span aria-hidden>·</span>
           <Link href="/account/security" className="hover:text-compass-600 hover:underline">
             Security
           </Link>{" "}

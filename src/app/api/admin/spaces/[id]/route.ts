@@ -1,5 +1,12 @@
 import { NextResponse } from "next/server";
-import { updateSpace, deleteSpace, getSpaceById, setSpaceGroups, getSpaceGroupIds } from "@/lib/db";
+import {
+  updateSpace,
+  deleteSpace,
+  getSpaceById,
+  setSpaceGroups,
+  getSpaceGroupIds,
+  setSpaceSubscriptionGroups,
+} from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
 
@@ -66,6 +73,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     await setSpaceGroups(id, groupIds!);
   } else {
     groupIds = await getSpaceGroupIds(id);
+  }
+
+  if (Array.isArray(body?.subscriptionGroupIds)) {
+    await setSpaceSubscriptionGroups(
+      id,
+      body.subscriptionGroupIds.map(Number).filter((n: number) => Number.isInteger(n) && n > 0)
+    );
   }
 
   await audit({

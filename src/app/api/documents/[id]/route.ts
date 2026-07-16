@@ -10,6 +10,7 @@ import {
 import { apiGuard } from "@/lib/api-auth";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
 import { notifyWebhooks } from "@/lib/webhooks";
+import { notifySpaceSubscribers } from "@/lib/subscriptions";
 import { requestOrigin } from "@/lib/oauth";
 import { roleAtLeast } from "@/lib/types";
 import { spaceScopeFor, scopeAllows } from "@/lib/access";
@@ -146,6 +147,18 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       url: `${requestOrigin(req)}/doc/${existing.id}`,
       spaceId: doc?.space_id ?? existing.space_id,
       spaceName: doc?.space_name ?? existing.space_name,
+    });
+  }
+  if (doc && doc.status === "published") {
+    void notifySpaceSubscribers({
+      spaceId: doc.space_id,
+      spaceName: doc.space_name,
+      docId: doc.id,
+      title: doc.title,
+      kind: published ? "published" : "updated",
+      actorUserId: user.id,
+      actorName: user.name || user.username,
+      origin: requestOrigin(req),
     });
   }
   await audit({
