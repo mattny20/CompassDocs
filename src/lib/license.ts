@@ -33,7 +33,8 @@ export type EntitlementFeature =
   | "scim"
   | "audit_export"
   | "priority_support"
-  | "directory_sync";
+  | "directory_sync"
+  | "policy_ack";
 
 export interface License {
   /** Opaque license id (for a future revocation list). */

@@ -419,6 +419,20 @@ const SCHEMA_SQL = `
     group_id integer NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
     PRIMARY KEY (space_id, group_id)
   );
+
+  -- Policy acknowledgements (enterprise): docs can require readers to confirm
+  -- they've read them. The ledger is append-only for compliance — an ack is
+  -- "current" only while acknowledged_at >= the doc's updated_at, so any edit
+  -- to the document asks everyone again.
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS ack_required integer NOT NULL DEFAULT 0;
+  CREATE TABLE IF NOT EXISTS acknowledgements (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    document_id integer NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    user_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    acknowledged_at timestamptz NOT NULL DEFAULT now(),
+    ip text NOT NULL DEFAULT ''
+  );
+  CREATE INDEX IF NOT EXISTS idx_ack_doc ON acknowledgements(document_id, user_id, acknowledged_at DESC);
 `;
 
 /**
@@ -1723,6 +1737,93 @@ export async function listSubscriberRecipients(
                     WHERE spg.space_id = $1 AND gm2.user_id = u.id)
        )`,
     [spaceId, excludeUserId]
+  );
+}
+
+// --- Policy acknowledgements (enterprise) ---------------------------------------
+
+export async function setAckRequired(docId: number, required: boolean): Promise<void> {
+  await q("UPDATE documents SET ack_required = $1 WHERE id = $2", [required ? 1 : 0, docId]);
+}
+
+/** Record an acknowledgement (append-only; no-op if already current). */
+export async function recordAcknowledgement(
+  docId: number,
+  userId: number,
+  ip: string
+): Promise<{ recorded: boolean }> {
+  const current = await getCurrentAck(docId, userId);
+  if (current) return { recorded: false };
+  await q(
+    "INSERT INTO acknowledgements (document_id, user_id, ip) VALUES ($1,$2,$3)",
+    [docId, userId, ip.slice(0, 100)]
+  );
+  return { recorded: true };
+}
+
+/** The user's ack for the doc's *current* revision, if any. */
+export async function getCurrentAck(
+  docId: number,
+  userId: number
+): Promise<{ acknowledged_at: string } | undefined> {
+  return (
+    await q<{ acknowledged_at: string }>(
+      `SELECT a.acknowledged_at FROM acknowledgements a
+       JOIN documents d ON d.id = a.document_id
+       WHERE a.document_id = $1 AND a.user_id = $2 AND a.acknowledged_at >= d.updated_at
+       ORDER BY a.acknowledged_at DESC LIMIT 1`,
+      [docId, userId]
+    )
+  )[0];
+}
+
+/**
+ * Compliance status: everyone who is expected to acknowledge the doc (active
+ * accounts that can see its space) with their current-revision ack, if any.
+ */
+export async function ackStatusForDocument(docId: number): Promise<
+  { id: number; name: string; username: string; email: string; role: string; acknowledged_at: string | null }[]
+> {
+  return q(
+    `SELECT u.id, u.name, u.username, u.email, u.role, a.acknowledged_at
+     FROM users u
+     JOIN documents d ON d.id = $1
+     JOIN spaces s ON s.id = d.space_id
+     LEFT JOIN LATERAL (
+       SELECT acknowledged_at FROM acknowledgements
+       WHERE document_id = $1 AND user_id = u.id AND acknowledged_at >= d.updated_at
+       ORDER BY acknowledged_at DESC LIMIT 1
+     ) a ON true
+     WHERE u.status = 'active'
+       AND (
+         s.visibility IN ('public', 'internal')
+         OR u.role = 'admin'
+         OR EXISTS (SELECT 1 FROM space_groups sg JOIN group_members gm ON gm.group_id = sg.group_id
+                    WHERE sg.space_id = s.id AND gm.user_id = u.id)
+       )
+     ORDER BY (a.acknowledged_at IS NULL) DESC, u.name`,
+    [docId]
+  );
+}
+
+/** Published ack-required docs in the user's scope they haven't confirmed yet. */
+export async function listPendingAcksFor(
+  userId: number,
+  scope?: number[] | "all"
+): Promise<{ id: number; title: string; space_name: string; space_icon: string }[]> {
+  const scopeCond = Array.isArray(scope) ? " AND d.space_id = ANY($2)" : "";
+  return q(
+    `SELECT d.id, d.title, s.name AS space_name, s.icon AS space_icon
+     FROM documents d
+     JOIN spaces s ON s.id = d.space_id
+     WHERE d.ack_required = 1 AND d.status = 'published' AND d.deleted_at IS NULL${scopeCond}
+       AND NOT EXISTS (
+         SELECT 1 FROM acknowledgements a
+         WHERE a.document_id = d.id AND a.user_id = $1 AND a.acknowledged_at >= d.updated_at
+       )
+     ORDER BY d.updated_at DESC
+     LIMIT 20`,
+    Array.isArray(scope) ? [userId, scope] : [userId]
   );
 }
 

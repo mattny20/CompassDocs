@@ -5,6 +5,9 @@ import { getDocument, listVersions, listPendingForDocument, listAttachments } fr
 import { requireUser } from "@/lib/auth";
 import { spaceScopeFor, scopeAllows } from "@/lib/access";
 import { resolveAuthorPerson } from "@/lib/directory";
+import { featureEnabled } from "@/lib/ee";
+import { getCurrentAck, ackStatusForDocument } from "@/lib/db";
+import { AckBanner, AckControls } from "@/components/AckBanner";
 import { getAppSettings } from "@/lib/settings-store";
 import { formatDateTime } from "@/lib/format";
 import { MarkdownView } from "@/components/MarkdownView";
@@ -30,11 +33,20 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
 
   const versionCount = (await listVersions(doc.id)).length;
   const pending = roleAtLeast(user.role, "approver") ? await listPendingForDocument(doc.id) : [];
-  const [settings, attachments, authorPerson] = await Promise.all([
+  const [settings, attachments, authorPerson, ackEnabled] = await Promise.all([
     getAppSettings(),
     listAttachments(doc.id),
     resolveAuthorPerson(doc.author),
+    featureEnabled("policy_ack"),
   ]);
+  const isApprover = roleAtLeast(user.role, "approver");
+  // Reader banner state + approver progress, only when the feature is licensed.
+  const myAck =
+    ackEnabled && doc.ack_required === 1 && doc.status === "published"
+      ? await getCurrentAck(doc.id, user.id)
+      : undefined;
+  const ackRows =
+    ackEnabled && isApprover && doc.ack_required === 1 ? await ackStatusForDocument(doc.id) : [];
 
   return (
     <PageWidth>
@@ -63,6 +75,19 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
           isPublished={doc.status === "published"}
         />
       </div>
+
+      {ackEnabled && isApprover && doc.status === "published" && (
+        <AckControls
+          docId={doc.id}
+          initialRequired={doc.ack_required === 1}
+          ackedCount={ackRows.filter((r) => r.acknowledged_at).length}
+          requiredCount={ackRows.length}
+          isPublished={doc.status === "published"}
+        />
+      )}
+      {ackEnabled && doc.ack_required === 1 && doc.status === "published" && (
+        <AckBanner docId={doc.id} initialAckedAt={myAck?.acknowledged_at ?? null} />
+      )}
 
       {doc.status === "draft" && isStaff && (
         <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-600 print:hidden">

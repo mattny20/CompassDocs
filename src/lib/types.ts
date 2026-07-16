@@ -134,6 +134,8 @@ export interface Document {
   summary: string;
   tags: string[];
   author: string;
+  /** 1 = readers must confirm they've read this doc (enterprise). */
+  ack_required: number;
   created_at: string;
   updated_at: string;
   deleted_at?: string | null;

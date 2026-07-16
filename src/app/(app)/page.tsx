@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { getAppSettings } from "@/lib/settings-store";
-import { listSpaces, listRecentDocuments, countDocuments, allTags } from "@/lib/db";
+import { listSpaces, listRecentDocuments, countDocuments, allTags, listPendingAcksFor } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { spaceScopeFor } from "@/lib/access";
+import { featureEnabled } from "@/lib/ee";
 import { roleAtLeast } from "@/lib/types";
 import { DocCard } from "@/components/DocCard";
 
@@ -13,6 +14,9 @@ export default async function DashboardPage() {
   const includeDrafts = roleAtLeast(user.role, "editor");
   const scope = await spaceScopeFor(user);
   const settingsName = (await getAppSettings()).company_name;
+  const pendingAcks = (await featureEnabled("policy_ack"))
+    ? await listPendingAcksFor(user.id, scope)
+    : [];
   const [spaces, recent, totalDocs, allTagList] = await Promise.all([
     listSpaces(scope),
     listRecentDocuments(6, includeDrafts, scope),
@@ -30,6 +34,26 @@ export default async function DashboardPage() {
           searchable in one place.
         </p>
       </header>
+
+      {pendingAcks.length > 0 && (
+        <div className="mb-6 rounded-xl border border-amber-300 bg-amber-50 p-4">
+          <p className="mb-2 text-sm font-semibold text-amber-900">
+            📋 {pendingAcks.length} document{pendingAcks.length === 1 ? "" : "s"} need
+            {pendingAcks.length === 1 ? "s" : ""} your read confirmation
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {pendingAcks.map((d) => (
+              <Link
+                key={d.id}
+                href={`/doc/${d.id}`}
+                className="rounded-lg border border-amber-200 bg-white px-3 py-1.5 text-sm font-medium text-amber-900 hover:border-amber-400"
+              >
+                {d.space_icon} {d.title}
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Stats */}
       <div className="mb-8 grid grid-cols-2 gap-4 sm:grid-cols-4">
