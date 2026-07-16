@@ -4,6 +4,25 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.22.0] - 2026-07-16
+
+### Added
+- **Quick links launchpad.** A new **Links** page in the sidebar gives every
+  signed-in user shortcuts to the external tools your org uses (HR portal,
+  status pages, ticketing…). Admins curate it under **Settings → Links**:
+  - **Categories** to organize links into sections, with reordering; deleting
+    a category moves its links back to "General".
+  - **Group-based visibility** per link — show a link to everyone, or only to
+    members of selected groups (manual or Entra-synced). Enforced
+    server-side, including the icon.
+  - **Icons three ways**: the site's favicon fetched and cached
+    automatically when you save (with a re-fetch button), your workspace
+    brand logo, or a custom uploaded image (PNG/JPEG/GIF/WebP/ICO, 1 MB max —
+    no SVG, same script-safety policy as attachments). Links without a usable
+    icon get a letter tile in your accent color.
+  - Everything is audit-logged (`link.created` / `link.updated` /
+    `link.deleted`, category events, icon uploads).
+
 ## [0.21.1] - 2026-07-16
 
 ### Fixed
