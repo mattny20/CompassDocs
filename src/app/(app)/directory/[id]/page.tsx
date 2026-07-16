@@ -7,6 +7,7 @@ import { listDocumentsByAuthor, listLinkedUserNames } from "@/lib/db";
 import { spaceScopeFor } from "@/lib/access";
 import { roleAtLeast } from "@/lib/types";
 import { DocCard } from "@/components/DocCard";
+import { TagBadges } from "@/components/TagBadges";
 import { PageContainer } from "@/components/PageWidth";
 
 export const dynamic = "force-dynamic";
@@ -38,7 +39,11 @@ export default async function PersonProfilePage({
     listFields(),
   ]);
   const custom = fields
-    .map((f) => ({ label: f.label, value: (person.custom as Record<string, string>)?.[f.key] }))
+    .map((f) => ({
+      label: f.label,
+      display: f.display,
+      value: (person.custom as Record<string, string>)?.[f.key],
+    }))
     .filter((f) => f.value);
 
   return (
@@ -100,8 +105,10 @@ export default async function PersonProfilePage({
               <dl className="mt-3 grid gap-x-8 gap-y-1 text-sm sm:grid-cols-2">
                 {custom.map((f) => (
                   <div key={f.label} className="flex gap-2">
-                    <dt className="text-slate-400">{f.label}:</dt>
-                    <dd className="text-slate-700">{f.value}</dd>
+                    <dt className="shrink-0 text-slate-400">{f.label}:</dt>
+                    <dd className="text-slate-700">
+                      {f.display === "tag" ? <TagBadges value={f.value!} size="md" /> : f.value}
+                    </dd>
                   </div>
                 ))}
               </dl>

@@ -31,6 +31,7 @@ export async function POST(req: Request) {
       key: body?.key ? String(body.key) : undefined,
       graph_path: String(body?.graph_path ?? ""),
       show_in_card: Boolean(body?.show_in_card),
+      display: body?.display === "tag" ? "tag" : "field",
     });
     await audit({
       actor: actorFrom(gate),
