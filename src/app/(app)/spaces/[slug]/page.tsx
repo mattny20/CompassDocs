@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getSpaceBySlug, listDocumentsBySpace } from "@/lib/db";
+import { getSpaceBySlug, listDocumentsBySpace, getSubscriptionState } from "@/lib/db";
+import { SubscribeButton } from "@/components/SubscribeButton";
 import { requireUser } from "@/lib/auth";
 import { spaceScopeFor, scopeAllows } from "@/lib/access";
 import { roleAtLeast } from "@/lib/types";
@@ -16,7 +17,10 @@ export default async function SpacePage({ params }: { params: Promise<{ slug: st
   if (!scopeAllows(await spaceScopeFor(user), space.id)) notFound();
 
   const isEditor = roleAtLeast(user.role, "editor");
-  const docs = await listDocumentsBySpace(space.id, isEditor);
+  const [docs, sub] = await Promise.all([
+    listDocumentsBySpace(space.id, isEditor),
+    getSubscriptionState(space.id, user.id),
+  ]);
 
   return (
     <div className="mx-auto max-w-6xl px-8 py-8">
@@ -33,14 +37,21 @@ export default async function SpacePage({ params }: { params: Promise<{ slug: st
             <p className="text-slate-500">{space.description}</p>
           </div>
         </div>
-        {isEditor && (
-          <Link
-            href={`/doc/new?space=${space.slug}`}
-            className="whitespace-nowrap rounded-lg bg-compass-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-compass-700"
-          >
-            ＋ New in {space.name}
-          </Link>
-        )}
+        <div className="flex shrink-0 items-center gap-2">
+          <SubscribeButton
+            spaceId={space.id}
+            initialState={sub.state}
+            initialViaGroup={sub.viaGroup}
+          />
+          {isEditor && (
+            <Link
+              href={`/doc/new?space=${space.slug}`}
+              className="whitespace-nowrap rounded-lg bg-compass-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-compass-700"
+            >
+              ＋ New in {space.name}
+            </Link>
+          )}
+        </div>
       </div>
 
       {docs.length === 0 ? (

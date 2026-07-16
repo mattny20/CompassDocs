@@ -40,6 +40,9 @@ export default async function SecurityPage() {
           <Link href="/account/tokens" className="text-slate-500 hover:text-slate-700">
             API tokens
           </Link>
+          <Link href="/account/notifications" className="text-slate-500 hover:text-slate-700">
+            Notifications
+          </Link>
         </div>
       </div>
     </div>

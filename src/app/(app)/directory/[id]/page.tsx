@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { Mail, Phone, Smartphone, MapPin, UserRound, ArrowLeft } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { getPersonById, listFields } from "@/lib/directory";
-import { listDocumentsByAuthor } from "@/lib/db";
+import { listDocumentsByAuthor, listLinkedUserNames } from "@/lib/db";
 import { spaceScopeFor } from "@/lib/access";
 import { roleAtLeast } from "@/lib/types";
 import { DocCard } from "@/components/DocCard";
@@ -31,8 +31,9 @@ export default async function PersonProfilePage({
 
   const scope = await spaceScopeFor(user);
   const isEditor = roleAtLeast(user.role, "editor");
+  const aliases = [...new Set([person.name, ...(await listLinkedUserNames(person.id))])];
   const [docs, fields] = await Promise.all([
-    listDocumentsByAuthor(person.name, isEditor, scope),
+    listDocumentsByAuthor(aliases, isEditor, scope),
     listFields(),
   ]);
   const custom = fields

@@ -16,14 +16,17 @@ export function SpacesManager({
   initial,
   groups,
   initialSpaceGroups,
+  initialSubscriptionGroups,
 }: {
   initial: SpaceRow[];
   groups: GroupOption[];
   initialSpaceGroups: Record<number, number[]>;
+  initialSubscriptionGroups: Record<number, number[]>;
 }) {
   const router = useRouter();
   const [spaces, setSpaces] = useState<SpaceRow[]>(initial);
   const [spaceGroups, setSpaceGroups] = useState<Record<number, number[]>>(initialSpaceGroups);
+  const [subGroups, setSubGroups] = useState<Record<number, number[]>>(initialSubscriptionGroups);
   const [editing, setEditing] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
@@ -34,6 +37,7 @@ export function SpacesManager({
       const data = await res.json();
       setSpaces(data.spaces);
       setSpaceGroups(data.spaceGroups ?? {});
+      setSubGroups(data.subscriptionGroups ?? {});
     }
     router.refresh();
   }
@@ -80,6 +84,7 @@ export function SpacesManager({
         <SpaceForm
           groups={groups}
           grantedIds={[]}
+          subscribedGroupIds={[]}
           onCancel={() => setCreating(false)}
           onSaved={async () => {
             setCreating(false);
@@ -96,6 +101,7 @@ export function SpacesManager({
               space={s}
               groups={groups}
               grantedIds={spaceGroups[s.id] ?? []}
+              subscribedGroupIds={subGroups[s.id] ?? []}
               onCancel={() => setEditing(null)}
               onSaved={async () => {
                 setEditing(null);
@@ -171,12 +177,14 @@ function SpaceForm({
   space,
   groups,
   grantedIds,
+  subscribedGroupIds,
   onCancel,
   onSaved,
 }: {
   space?: SpaceRow;
   groups: GroupOption[];
   grantedIds: number[];
+  subscribedGroupIds: number[];
   onCancel: () => void;
   onSaved: () => void;
 }) {
@@ -188,6 +196,7 @@ function SpaceForm({
     space?.visibility ?? "internal"
   );
   const [groupIds, setGroupIds] = useState<number[]>(grantedIds);
+  const [subGroupIds, setSubGroupIds] = useState<number[]>(subscribedGroupIds);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -220,6 +229,7 @@ function SpaceForm({
         color,
         visibility,
         groupIds: visibility === "private" ? groupIds : [],
+        subscriptionGroupIds: subGroupIds,
       }),
     });
     setSaving(false);
@@ -369,6 +379,49 @@ function SpaceForm({
                 ))}
               </div>
             )}
+          </div>
+        )}
+      </div>
+
+      <div className="mt-4">
+        <span className="mb-1 block text-xs font-medium text-slate-500">
+          Email subscriptions <span className="text-slate-400">(optional)</span>
+        </span>
+        <p className="mb-2 text-xs text-slate-400">
+          Members of these groups are subscribed automatically — they get an email when a
+          document here is published or updated (each person can mute it).
+        </p>
+        {groups.length === 0 ? (
+          <p className="text-sm text-slate-400">
+            No groups yet — create one under <a href="/admin/groups" className="font-medium text-compass-700 underline">Settings → Groups</a>.
+          </p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {groups.map((g) => (
+              <label
+                key={g.id}
+                className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm ${
+                  subGroupIds.includes(g.id)
+                    ? "border-compass-400 bg-compass-50 text-compass-800"
+                    : "border-slate-200 bg-surface text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={subGroupIds.includes(g.id)}
+                  onChange={() =>
+                    setSubGroupIds((prev) =>
+                      prev.includes(g.id) ? prev.filter((x) => x !== g.id) : [...prev, g.id]
+                    )
+                  }
+                  className="h-3.5 w-3.5 accent-compass-600"
+                />
+                {g.name}
+                <span className="text-xs text-slate-400">
+                  {g.member_count} member{g.member_count === 1 ? "" : "s"}
+                </span>
+              </label>
+            ))}
           </div>
         )}
       </div>

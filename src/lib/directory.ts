@@ -233,6 +233,26 @@ export async function getPersonById(id: number): Promise<DirectoryPerson | undef
   return getPerson(id);
 }
 
+/**
+ * Resolve a document byline to a directory person: prefer an account with
+ * that display name that's LINKED to a directory entry (immune to the
+ * directory name drifting), then fall back to an exact name match.
+ */
+export async function resolveAuthorPerson(name: string): Promise<DirectoryPerson | undefined> {
+  if (!name.trim()) return undefined;
+  const linked = (
+    await pool().query<DirectoryPerson>(
+      `SELECT ${COLS} FROM users u
+       JOIN directory_people p ON p.id = u.directory_person_id
+       LEFT JOIN directory_people a ON a.id = p.assistant_id
+       WHERE lower(u.name) = lower($1) AND p.hidden = 0
+       LIMIT 1`,
+      [name.trim()]
+    )
+  ).rows[0];
+  return linked ?? getPersonByName(name);
+}
+
 /** Case-insensitive exact-name lookup (linking doc bylines to profiles). */
 export async function getPersonByName(name: string): Promise<DirectoryPerson | undefined> {
   if (!name.trim()) return undefined;

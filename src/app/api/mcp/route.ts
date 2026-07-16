@@ -25,6 +25,7 @@ import {
 import { currentVersion } from "@/lib/version";
 import { requestOrigin } from "@/lib/oauth";
 import { notifyWebhooks } from "@/lib/webhooks";
+import { notifySpaceSubscribers } from "@/lib/subscriptions";
 import { audit, actorFrom } from "@/lib/audit";
 import { spaceScopeFor, scopeAllows } from "@/lib/access";
 import { roleAtLeast } from "@/lib/types";
@@ -247,6 +248,15 @@ async function callTool(user: User, name: string, args: any) {
           spaceId: doc.space_id,
           spaceName: doc.space_name,
         });
+        void notifySpaceSubscribers({
+          spaceId: doc.space_id,
+          spaceName: doc.space_name,
+          docId: doc.id,
+          title: doc.title,
+          kind: "published",
+          actorUserId: user.id,
+          actorName: user.name || user.username,
+        });
       }
       await audit({
         actor: actorFrom(user),
@@ -333,6 +343,17 @@ async function callTool(user: User, name: string, args: any) {
         author: user.name || user.username,
         versionNote: note || "Edited via Claude connector",
       });
+      if (doc && doc.status === "published") {
+        void notifySpaceSubscribers({
+          spaceId: doc.space_id,
+          spaceName: doc.space_name,
+          docId: doc.id,
+          title: doc.title,
+          kind: "updated",
+          actorUserId: user.id,
+          actorName: user.name || user.username,
+        });
+      }
       await audit({
         actor: actorFrom(user),
         action: "document.update",

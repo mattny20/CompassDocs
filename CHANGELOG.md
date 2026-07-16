@@ -4,6 +4,29 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.20.0] - 2026-07-16
+
+### Added
+- **Space subscriptions with email alerts.** Every space page gains a
+  **Subscribe** button — subscribers get a short email whenever a document
+  in that space is published or updated (including changes landing through
+  the review queue and via the Claude connector). Emails go only to people
+  who can actually see the space, never to the person who made the change,
+  and use the workspace SMTP settings.
+- **Admin-assigned group subscriptions.** In Settings → Spaces, subscribe a
+  whole group to a space — every member is subscribed automatically as
+  membership changes (works with Entra-synced groups). Individuals can mute
+  a group-assigned subscription without leaving the group.
+- **Account → Notifications**: a personal page listing every subscription
+  (with mute/unsubscribe controls and "via group" indicators) plus a master
+  "email me" switch.
+- **Account ↔ directory linking.** Accounts link to their people-directory
+  entry — automatically by SSO identity or email (an **Auto-link directory**
+  button in Users & roles; enterprise directory syncs also link on the fly),
+  with the link surviving syncs. Article bylines and profile "documents by"
+  lists now resolve through the link, so a renamed directory entry no longer
+  breaks them.
+
 ## [0.19.1] - 2026-07-15
 
 ### Added

@@ -392,6 +392,33 @@ const SCHEMA_SQL = `
     sort integer NOT NULL DEFAULT 0,
     created_at timestamptz NOT NULL DEFAULT now()
   );
+
+  -- Account ↔ directory linking: a user can be tied to their directory entry
+  -- (auto-matched by SSO id or email, or set by an admin). Survives directory
+  -- syncs because Graph people upsert by external_id; if an entry is removed,
+  -- the link clears and auto-link restores it later.
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS
+    directory_person_id integer REFERENCES directory_people(id) ON DELETE SET NULL;
+  -- Per-user master switch for subscription emails.
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS email_notifications integer NOT NULL DEFAULT 1;
+
+  -- Space subscriptions. A row with state='subscribed' is a personal opt-in;
+  -- state='muted' overrides a group-based subscription. No row = follow the
+  -- admin-assigned group subscriptions below.
+  CREATE TABLE IF NOT EXISTS space_subscriptions (
+    space_id integer NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+    user_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    state text NOT NULL DEFAULT 'subscribed',
+    created_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (space_id, user_id)
+  );
+  -- Admin-assigned: every member of these groups is subscribed to the space
+  -- (resolved live at send time, so membership changes just work).
+  CREATE TABLE IF NOT EXISTS space_subscription_groups (
+    space_id integer NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+    group_id integer NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+    PRIMARY KEY (space_id, group_id)
+  );
 `;
 
 /**
@@ -687,13 +714,24 @@ export async function getDocumentBySpaceAndSlug(
 }
 
 /** Live documents credited to an author display name (directory profiles). */
+/** Display names of accounts linked to a directory person (byline aliases). */
+export async function listLinkedUserNames(personId: number): Promise<string[]> {
+  return (
+    await q<{ name: string }>(
+      "SELECT name FROM users WHERE directory_person_id = $1 AND name <> ''",
+      [personId]
+    )
+  ).map((r) => r.name);
+}
+
 export async function listDocumentsByAuthor(
-  author: string,
+  author: string | string[],
   includeDrafts = false,
   scope?: number[] | "all"
 ): Promise<DocumentWithSpace[]> {
-  const conds = ["lower(d.author) = lower($1)", "d.deleted_at IS NULL"];
-  const params: any[] = [author];
+  const names = (Array.isArray(author) ? author : [author]).map((n) => n.toLowerCase());
+  const conds = ["lower(d.author) = ANY($1)", "d.deleted_at IS NULL"];
+  const params: any[] = [names];
   if (!includeDrafts) conds.push("d.status = 'published'");
   if (Array.isArray(scope)) {
     params.push(scope);
@@ -1013,7 +1051,8 @@ export async function getAllSettings(): Promise<Record<string, string>> {
 // --- Users -------------------------------------------------------------------
 
 const USER_COLUMNS = `id, username, email, name, role, status, auth_provider, external_id,
-  must_change_password, totp_enabled, created_at, last_login_at`;
+  must_change_password, totp_enabled, directory_person_id, email_notifications,
+  created_at, last_login_at`;
 
 export async function getUserById(id: number): Promise<User | undefined> {
   return (await q<User>(`SELECT ${USER_COLUMNS} FROM users WHERE id = $1`, [id]))[0];
@@ -1517,6 +1556,173 @@ export async function listPublicSpaces(): Promise<(Space & { doc_count: number }
     `SELECT s.*, (SELECT COUNT(*)::int FROM documents d
        WHERE d.space_id = s.id AND d.deleted_at IS NULL AND d.status = 'published') AS doc_count
      FROM spaces s WHERE s.visibility = 'public' ORDER BY s.name`
+  );
+}
+
+// --- Account ↔ directory linking & space subscriptions ---------------------------
+
+/**
+ * Link unlinked users to directory entries — by SSO external id first, then
+ * by email. Returns how many links were created. Idempotent; never relinks.
+ */
+export async function autoLinkUsersToDirectory(): Promise<number> {
+  const res = await pool().query(
+    `UPDATE users u SET directory_person_id = p.id
+     FROM directory_people p
+     WHERE u.directory_person_id IS NULL AND p.hidden = 0
+       AND (
+         (u.external_id IS NOT NULL AND u.external_id <> '' AND u.external_id = p.external_id)
+         OR (u.email <> '' AND lower(u.email) = lower(p.email))
+       )`
+  );
+  return res.rowCount ?? 0;
+}
+
+export async function setUserDirectoryPerson(userId: number, personId: number | null): Promise<void> {
+  await q("UPDATE users SET directory_person_id = $1 WHERE id = $2", [personId, userId]);
+}
+
+export async function setEmailNotifications(userId: number, on: boolean): Promise<void> {
+  await q("UPDATE users SET email_notifications = $1 WHERE id = $2", [on ? 1 : 0, userId]);
+}
+
+export type SubscriptionState = "subscribed" | "muted" | null;
+
+export async function getSubscriptionState(
+  spaceId: number,
+  userId: number
+): Promise<{ state: SubscriptionState; viaGroup: boolean }> {
+  const row = (
+    await q<{ state: string }>(
+      "SELECT state FROM space_subscriptions WHERE space_id = $1 AND user_id = $2",
+      [spaceId, userId]
+    )
+  )[0];
+  const via = (
+    await q<{ n: number }>(
+      `SELECT COUNT(*)::int AS n FROM space_subscription_groups sg
+       JOIN group_members gm ON gm.group_id = sg.group_id
+       WHERE sg.space_id = $1 AND gm.user_id = $2`,
+      [spaceId, userId]
+    )
+  )[0];
+  return { state: (row?.state as SubscriptionState) ?? null, viaGroup: via.n > 0 };
+}
+
+export async function setSubscriptionState(
+  spaceId: number,
+  userId: number,
+  state: SubscriptionState
+): Promise<void> {
+  if (state === null) {
+    await q("DELETE FROM space_subscriptions WHERE space_id = $1 AND user_id = $2", [spaceId, userId]);
+  } else {
+    await q(
+      `INSERT INTO space_subscriptions (space_id, user_id, state) VALUES ($1,$2,$3)
+       ON CONFLICT (space_id, user_id) DO UPDATE SET state = EXCLUDED.state`,
+      [spaceId, userId, state]
+    );
+  }
+}
+
+/** A user's subscriptions (direct + via admin-assigned groups), for the account page. */
+export async function listSubscriptionsForUser(
+  userId: number
+): Promise<{ space_id: number; name: string; slug: string; icon: string; state: SubscriptionState; via_group: boolean }[]> {
+  return q(
+    `SELECT s.id AS space_id, s.name, s.slug, s.icon, ss.state,
+            EXISTS (
+              SELECT 1 FROM space_subscription_groups sg
+              JOIN group_members gm ON gm.group_id = sg.group_id
+              WHERE sg.space_id = s.id AND gm.user_id = $1
+            ) AS via_group
+     FROM spaces s
+     LEFT JOIN space_subscriptions ss ON ss.space_id = s.id AND ss.user_id = $1
+     WHERE ss.state = 'subscribed'
+        OR (ss.state IS DISTINCT FROM 'muted' AND EXISTS (
+              SELECT 1 FROM space_subscription_groups sg
+              JOIN group_members gm ON gm.group_id = sg.group_id
+              WHERE sg.space_id = s.id AND gm.user_id = $1
+            ))
+        OR ss.state = 'muted'
+     ORDER BY s.name`,
+    [userId]
+  );
+}
+
+export async function getSpaceSubscriptionGroupIds(spaceId: number): Promise<number[]> {
+  return (
+    await q<{ group_id: number }>(
+      "SELECT group_id FROM space_subscription_groups WHERE space_id = $1",
+      [spaceId]
+    )
+  ).map((r) => r.group_id);
+}
+
+export async function setSpaceSubscriptionGroups(spaceId: number, groupIds: number[]): Promise<void> {
+  const client = await pool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("DELETE FROM space_subscription_groups WHERE space_id = $1", [spaceId]);
+    for (const gid of groupIds) {
+      await client.query(
+        "INSERT INTO space_subscription_groups (space_id, group_id) VALUES ($1,$2) ON CONFLICT DO NOTHING",
+        [spaceId, gid]
+      );
+    }
+    await client.query("COMMIT");
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+export async function listAllSpaceSubscriptionGroups(): Promise<Record<number, number[]>> {
+  const rows = await q<{ space_id: number; group_id: number }>(
+    "SELECT space_id, group_id FROM space_subscription_groups"
+  );
+  const map: Record<number, number[]> = {};
+  for (const r of rows) (map[r.space_id] ??= []).push(r.group_id);
+  return map;
+}
+
+/**
+ * Who should be emailed about activity in a space: direct subscribers plus
+ * members of admin-subscribed groups, minus mutes — restricted to active
+ * accounts with an email, the personal master switch on, and (crucially)
+ * permission to see the space. The actor is excluded.
+ */
+export async function listSubscriberRecipients(
+  spaceId: number,
+  excludeUserId: number
+): Promise<{ id: number; email: string; name: string }[]> {
+  return q(
+    `SELECT u.id, u.email, u.name
+     FROM users u
+     JOIN spaces s ON s.id = $1
+     WHERE u.status = 'active' AND u.email <> '' AND u.email_notifications = 1
+       AND u.id <> $2
+       AND (
+         EXISTS (SELECT 1 FROM space_subscriptions ss
+                 WHERE ss.space_id = $1 AND ss.user_id = u.id AND ss.state = 'subscribed')
+         OR (
+           EXISTS (SELECT 1 FROM space_subscription_groups sg
+                   JOIN group_members gm ON gm.group_id = sg.group_id
+                   WHERE sg.space_id = $1 AND gm.user_id = u.id)
+           AND NOT EXISTS (SELECT 1 FROM space_subscriptions ss
+                           WHERE ss.space_id = $1 AND ss.user_id = u.id AND ss.state = 'muted')
+         )
+       )
+       AND (
+         s.visibility IN ('public', 'internal')
+         OR u.role = 'admin'
+         OR EXISTS (SELECT 1 FROM space_groups spg
+                    JOIN group_members gm2 ON gm2.group_id = spg.group_id
+                    WHERE spg.space_id = $1 AND gm2.user_id = u.id)
+       )`,
+    [spaceId, excludeUserId]
   );
 }
 

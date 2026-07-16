@@ -14,7 +14,10 @@ export function UsersClient({
 }) {
   return (
     <div>
-      <h2 className="mb-3 text-lg font-semibold text-slate-900">Users ({users.length})</h2>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold text-slate-900">Users ({users.length})</h2>
+        <AutoLinkButton />
+      </div>
       <UserTable users={users} currentUserId={currentUserId} />
       <CreateUser />
     </div>
@@ -262,5 +265,35 @@ function CreateUser() {
         </button>
       </div>
     </form>
+  );
+}
+
+
+function AutoLinkButton() {
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+  return (
+    <span className="flex items-center gap-2">
+      {msg && <span className="text-xs text-slate-500">{msg}</span>}
+      <button
+        onClick={async () => {
+          setBusy(true);
+          setMsg("");
+          const res = await fetch("/api/admin/users/link-directory", { method: "POST" });
+          setBusy(false);
+          if (res.ok) {
+            const d = await res.json();
+            setMsg(d.linked === 0 ? "All accounts already linked." : `Linked ${d.linked} account${d.linked === 1 ? "" : "s"}.`);
+          } else {
+            setMsg("Auto-link failed.");
+          }
+        }}
+        disabled={busy}
+        title="Match accounts to people-directory entries by SSO identity or email — powers profile links and article bylines."
+        className="rounded-lg border border-slate-200 bg-surface px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+      >
+        {busy ? "Linking…" : "Auto-link directory"}
+      </button>
+    </span>
   );
 }

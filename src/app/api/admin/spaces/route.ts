@@ -5,6 +5,8 @@ import {
   uniqueSpaceSlug,
   listAllSpaceGroups,
   setSpaceGroups,
+  listAllSpaceSubscriptionGroups,
+  setSpaceSubscriptionGroups,
 } from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
@@ -14,7 +16,11 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const gate = await apiGuard("admin");
   if (gate instanceof NextResponse) return gate;
-  return NextResponse.json({ spaces: await listSpaces(), spaceGroups: await listAllSpaceGroups() });
+  return NextResponse.json({
+    spaces: await listSpaces(),
+    spaceGroups: await listAllSpaceGroups(),
+    subscriptionGroups: await listAllSpaceSubscriptionGroups(),
+  });
 }
 
 export async function POST(req: Request) {
@@ -49,6 +55,12 @@ export async function POST(req: Request) {
     await setSpaceGroups(
       space.id,
       body.groupIds.map(Number).filter((n: number) => Number.isInteger(n) && n > 0)
+    );
+  }
+  if (Array.isArray(body?.subscriptionGroupIds)) {
+    await setSpaceSubscriptionGroups(
+      space.id,
+      body.subscriptionGroupIds.map(Number).filter((n: number) => Number.isInteger(n) && n > 0)
     );
   }
   await audit({
