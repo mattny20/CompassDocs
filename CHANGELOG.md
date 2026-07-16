@@ -4,6 +4,31 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.32.0] - 2026-07-16
+
+### Added
+- **Newsletter editorial workflow.** Newsletters moved out of the admin
+  console into a dedicated **Newsletter workspace** (sidebar → Newsletter)
+  with a draft → review → approve → send lifecycle. Access is a per-user
+  capability — **Contributor** (write drafts and submit for review) or
+  **Approver** (also review, comment, edit directly, approve, and send) —
+  granted under Settings → Newsletter, with admins always having full
+  access. Each newsletter can optionally be restricted to specific
+  approvers; leaving the list empty lets any approver act. Approvers can
+  add comments and suggestions to an activity thread, edit the content
+  directly, send a piece back to the author with required notes, or
+  approve it for sending; approved content locks for the author. Review
+  requests and decisions are emailed to the people concerned (best-effort,
+  when SMTP is configured), the full editorial trail lives in the piece's
+  activity thread, and submissions, decisions, sends, and deletions are
+  audited.
+
+### Changed
+- **Settings → Newsletter** is now the access roster (who can contribute
+  or approve) instead of the composer; writing and sending happen in the
+  Newsletter workspace. Existing sent newsletters appear in the
+  workspace's history unchanged.
+
 ## [0.31.0] - 2026-07-16
 
 ### Added

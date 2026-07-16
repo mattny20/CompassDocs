@@ -1,22 +1,25 @@
 import { requireRole } from "@/lib/auth";
-import { listNewsletters, listGroups } from "@/lib/db";
-import { getSmtpConfig, smtpConfigured } from "@/lib/smtp-config";
-import { NewsletterComposer } from "@/components/NewsletterComposer";
+import { listUsers } from "@/lib/db";
+import { NewsletterPeople } from "@/components/NewsletterPeople";
 
 export const dynamic = "force-dynamic";
 
+// Settings → Newsletter is the access roster; writing and sending happens in
+// the /newsletter workspace (linked from the roster and the sidebar).
 export default async function NewsletterAdminPage() {
   await requireRole("admin");
-  const [newsletters, groups, smtp] = await Promise.all([
-    listNewsletters(),
-    listGroups(),
-    getSmtpConfig(),
-  ]);
+  const users = await listUsers();
   return (
-    <NewsletterComposer
-      initial={newsletters}
-      groups={groups.map((g) => ({ id: g.id, name: g.name, member_count: g.member_count }))}
-      smtpReady={smtpConfigured(smtp)}
+    <NewsletterPeople
+      initial={users.map((u) => ({
+        id: u.id,
+        username: u.username,
+        name: u.name,
+        email: u.email,
+        role: u.role,
+        status: u.status,
+        newsletter_role: u.newsletter_role,
+      }))}
     />
   );
 }

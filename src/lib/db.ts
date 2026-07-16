@@ -518,8 +518,11 @@ const SCHEMA_SQL = `
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS
     category_id integer REFERENCES space_categories(id) ON DELETE SET NULL;
 
-  -- Org newsletters: rich (markdown) emails composed by admins and sent via
-  -- SMTP to everyone or to selected groups. Rows are the send history.
+  -- Org newsletters: rich (markdown) emails with an editorial workflow.
+  -- Lifecycle: draft -> in_review -> (changes_requested -> draft…) ->
+  -- approved -> sent. Pre-workflow rows default to 'sent' (they were the
+  -- send history). Access is per-user (users.newsletter_role) with an
+  -- optional per-newsletter approver list.
   CREATE TABLE IF NOT EXISTS newsletters (
     id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     subject text NOT NULL,
@@ -528,6 +531,28 @@ const SCHEMA_SQL = `
     created_by integer REFERENCES users(id) ON DELETE SET NULL,
     audience text NOT NULL DEFAULT '',
     sent_count integer NOT NULL DEFAULT 0,
+    created_at timestamptz NOT NULL DEFAULT now()
+  );
+  ALTER TABLE newsletters ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'sent';
+  ALTER TABLE newsletters ADD COLUMN IF NOT EXISTS mode text NOT NULL DEFAULT 'all';
+  ALTER TABLE newsletters ADD COLUMN IF NOT EXISTS group_ids text NOT NULL DEFAULT '';
+  ALTER TABLE newsletters ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
+  ALTER TABLE newsletters ADD COLUMN IF NOT EXISTS sent_at timestamptz;
+  UPDATE newsletters SET sent_at = created_at WHERE status = 'sent' AND sent_at IS NULL;
+  -- none | contributor | approver (admins implicitly have full access).
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS newsletter_role text NOT NULL DEFAULT 'none';
+  CREATE TABLE IF NOT EXISTS newsletter_approvers (
+    newsletter_id integer NOT NULL REFERENCES newsletters(id) ON DELETE CASCADE,
+    user_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    PRIMARY KEY (newsletter_id, user_id)
+  );
+  CREATE TABLE IF NOT EXISTS newsletter_comments (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    newsletter_id integer NOT NULL REFERENCES newsletters(id) ON DELETE CASCADE,
+    user_id integer REFERENCES users(id) ON DELETE SET NULL,
+    author_name text NOT NULL DEFAULT '',
+    body text NOT NULL,
+    kind text NOT NULL DEFAULT 'comment',
     created_at timestamptz NOT NULL DEFAULT now()
   );
 `;
@@ -1254,7 +1279,7 @@ export async function getAllSettings(): Promise<Record<string, string>> {
 
 const USER_COLUMNS = `id, username, email, name, role, status, auth_provider, external_id,
   must_change_password, totp_enabled, directory_person_id, email_notifications,
-  page_width, created_at, last_login_at`;
+  page_width, newsletter_role, created_at, last_login_at`;
 
 export async function getUserById(id: number): Promise<User | undefined> {
   return (await q<User>(`SELECT ${USER_COLUMNS} FROM users WHERE id = $1`, [id]))[0];
@@ -2437,6 +2462,16 @@ export async function listAnnouncementRecipients(
 
 // --- Newsletters -------------------------------------------------------------------
 
+export type NewsletterStatus = "draft" | "in_review" | "changes_requested" | "approved" | "sent";
+
+export const NEWSLETTER_STATUSES: NewsletterStatus[] = [
+  "draft",
+  "in_review",
+  "changes_requested",
+  "approved",
+  "sent",
+];
+
 export interface Newsletter {
   id: number;
   subject: string;
@@ -2445,35 +2480,181 @@ export interface Newsletter {
   created_by: number | null;
   audience: string;
   sent_count: number;
+  status: NewsletterStatus;
+  /** Planned recipients: 'all' or 'groups' (group_ids holds the ids). */
+  mode: string;
+  group_ids: string;
+  created_at: string;
+  updated_at: string;
+  sent_at: string | null;
+}
+
+export interface NewsletterComment {
+  id: number;
+  newsletter_id: number;
+  user_id: number | null;
+  author_name: string;
+  body: string;
+  /** comment | submitted | changes_requested | approved | sent — events share the thread. */
+  kind: string;
   created_at: string;
 }
 
-export async function recordNewsletter(input: {
+export async function createNewsletterDraft(input: {
   subject: string;
   body: string;
   author_name: string;
   created_by: number;
-  audience: string;
-  sent_count: number;
+  mode: string;
+  group_ids: string;
 }): Promise<Newsletter> {
   return (
     await q<Newsletter>(
-      `INSERT INTO newsletters (subject, body, author_name, created_by, audience, sent_count)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      `INSERT INTO newsletters (subject, body, author_name, created_by, status, mode, group_ids)
+       VALUES ($1,$2,$3,$4,'draft',$5,$6) RETURNING *`,
       [
         input.subject.trim().slice(0, 200),
         input.body.slice(0, 100_000),
         input.author_name.slice(0, 100),
         input.created_by,
-        input.audience.slice(0, 300),
-        input.sent_count,
+        input.mode === "groups" ? "groups" : "all",
+        input.group_ids.slice(0, 300),
       ]
     )
   )[0];
 }
 
-export async function listNewsletters(): Promise<Newsletter[]> {
-  return q("SELECT * FROM newsletters ORDER BY created_at DESC LIMIT 50");
+export async function getNewsletter(id: number): Promise<Newsletter | undefined> {
+  return (await q<Newsletter>("SELECT * FROM newsletters WHERE id = $1", [id]))[0];
+}
+
+/**
+ * Newsletters visible to a user: everything for admins/approvers (seeAll),
+ * otherwise only their own. Sent history is visible to anyone with access
+ * to the module. Capped, newest activity first.
+ */
+export async function listNewslettersFor(userId: number, seeAll: boolean): Promise<Newsletter[]> {
+  if (seeAll) {
+    return q("SELECT * FROM newsletters ORDER BY updated_at DESC LIMIT 100");
+  }
+  return q(
+    `SELECT * FROM newsletters WHERE created_by = $1 OR status = 'sent'
+     ORDER BY updated_at DESC LIMIT 100`,
+    [userId]
+  );
+}
+
+export async function updateNewsletterContent(
+  id: number,
+  input: { subject: string; body: string; mode: string; group_ids: string }
+): Promise<Newsletter | undefined> {
+  return (
+    await q<Newsletter>(
+      `UPDATE newsletters SET subject = $2, body = $3, mode = $4, group_ids = $5,
+       updated_at = now() WHERE id = $1 RETURNING *`,
+      [
+        id,
+        input.subject.trim().slice(0, 200),
+        input.body.slice(0, 100_000),
+        input.mode === "groups" ? "groups" : "all",
+        input.group_ids.slice(0, 300),
+      ]
+    )
+  )[0];
+}
+
+export async function setNewsletterStatus(
+  id: number,
+  status: NewsletterStatus
+): Promise<Newsletter | undefined> {
+  return (
+    await q<Newsletter>(
+      "UPDATE newsletters SET status = $2, updated_at = now() WHERE id = $1 RETURNING *",
+      [id, status]
+    )
+  )[0];
+}
+
+/** Stamp a newsletter as sent with the final audience + recipient count. */
+export async function markNewsletterSent(
+  id: number,
+  audience: string,
+  sentCount: number
+): Promise<void> {
+  await q(
+    `UPDATE newsletters SET status = 'sent', audience = $2, sent_count = $3,
+     sent_at = now(), updated_at = now() WHERE id = $1`,
+    [id, audience.slice(0, 300), sentCount]
+  );
+}
+
+export async function deleteNewsletter(id: number): Promise<void> {
+  await q("DELETE FROM newsletters WHERE id = $1", [id]);
+}
+
+/** Per-newsletter approver override; empty = the whole approver pool may act. */
+export async function getNewsletterApproverIds(newsletterId: number): Promise<number[]> {
+  const rows = await q<{ user_id: number }>(
+    "SELECT user_id FROM newsletter_approvers WHERE newsletter_id = $1 ORDER BY user_id",
+    [newsletterId]
+  );
+  return rows.map((r) => r.user_id);
+}
+
+export async function setNewsletterApprovers(newsletterId: number, userIds: number[]): Promise<void> {
+  await q("DELETE FROM newsletter_approvers WHERE newsletter_id = $1", [newsletterId]);
+  for (const uid of [...new Set(userIds)]) {
+    await q(
+      `INSERT INTO newsletter_approvers (newsletter_id, user_id)
+       VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+      [newsletterId, uid]
+    );
+  }
+}
+
+export async function addNewsletterComment(input: {
+  newsletter_id: number;
+  user_id: number;
+  author_name: string;
+  body: string;
+  kind: string;
+}): Promise<NewsletterComment> {
+  return (
+    await q<NewsletterComment>(
+      `INSERT INTO newsletter_comments (newsletter_id, user_id, author_name, body, kind)
+       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+      [
+        input.newsletter_id,
+        input.user_id,
+        input.author_name.slice(0, 100),
+        input.body.slice(0, 10_000),
+        input.kind.slice(0, 30),
+      ]
+    )
+  )[0];
+}
+
+export async function listNewsletterComments(newsletterId: number): Promise<NewsletterComment[]> {
+  return q(
+    "SELECT * FROM newsletter_comments WHERE newsletter_id = $1 ORDER BY created_at ASC, id ASC LIMIT 500",
+    [newsletterId]
+  );
+}
+
+/** Active users who can approve newsletters: capability holders plus admins. */
+export async function listNewsletterApproverPool(): Promise<
+  { id: number; name: string; email: string }[]
+> {
+  return q(
+    `SELECT id, name, email FROM users
+     WHERE status = 'active' AND (newsletter_role = 'approver' OR role = 'admin')
+     ORDER BY name`
+  );
+}
+
+export async function setUserNewsletterRole(userId: number, role: string): Promise<void> {
+  const value = role === "contributor" || role === "approver" ? role : "none";
+  await q("UPDATE users SET newsletter_role = $2 WHERE id = $1", [userId, value]);
 }
 
 /** Map Entra member identities to local user ids (SSO id first, then email). */

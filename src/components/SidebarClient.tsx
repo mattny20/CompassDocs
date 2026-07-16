@@ -11,6 +11,7 @@ import {
   Home,
   Sparkles,
   BookUser,
+  Mail,
   SquareArrowOutUpRight,
   ClipboardList,
   Trash2,
@@ -42,6 +43,7 @@ export function SidebarClient({
   reviewCount,
   trashCount,
   announcementCount,
+  showNewsletter,
   isEditor,
   isApprover,
   isAdmin,
@@ -54,6 +56,8 @@ export function SidebarClient({
   trashCount: number;
   /** Active announcements the user hasn't dismissed — badged on Dashboard. */
   announcementCount: number;
+  /** Whether this user has newsletter access (contributor/approver/admin). */
+  showNewsletter: boolean;
   isEditor: boolean;
   isApprover: boolean;
   isAdmin: boolean;
@@ -127,6 +131,9 @@ export function SidebarClient({
         <NavLink href="/search" icon={<Sparkles className="h-4 w-4" />} label={`Ask ${companyName || "CompassDocs"}`} collapsed={collapsed} />
         <NavLink href="/directory" icon={<BookUser className="h-4 w-4" />} label="Directory" collapsed={collapsed} />
         <NavLink href="/links" icon={<SquareArrowOutUpRight className="h-4 w-4" />} label="Links" collapsed={collapsed} />
+        {showNewsletter && (
+          <NavLink href="/newsletter" icon={<Mail className="h-4 w-4" />} label="Newsletter" collapsed={collapsed} />
+        )}
         {isApprover && (
           <NavLink
             href="/review"

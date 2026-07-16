@@ -3,6 +3,7 @@
 
 import { listSpaces, listActiveAnnouncementsFor } from "@/lib/db";
 import { spaceScopeFor } from "@/lib/access";
+import { canUseNewsletter } from "@/lib/newsletter-access";
 import { getAppSettings } from "@/lib/settings-store";
 import { roleAtLeast } from "@/lib/types";
 import type { SessionUser } from "@/lib/types";
@@ -33,6 +34,7 @@ export async function Sidebar({
       reviewCount={reviewCount}
       trashCount={trashCount}
       announcementCount={announcements.length}
+      showNewsletter={canUseNewsletter(user)}
       isEditor={roleAtLeast(user.role, "editor")}
       isApprover={roleAtLeast(user.role, "approver")}
       isAdmin={user.role === "admin"}

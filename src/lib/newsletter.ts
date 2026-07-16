@@ -150,6 +150,27 @@ export async function sendNewsletter(input: {
   return { sent };
 }
 
+/**
+ * Best-effort plain-text workflow notification (review requests, decisions).
+ * Silently skips when SMTP isn't configured — the in-app thread is the source
+ * of truth; email is a convenience.
+ */
+export async function sendWorkflowNotice(
+  emails: string[],
+  subject: string,
+  text: string
+): Promise<void> {
+  if (emails.length === 0) return;
+  if (!smtpConfigured(await getSmtpConfig())) return;
+  for (const email of [...new Set(emails)].slice(0, 50)) {
+    try {
+      await sendMail([email], subject, text);
+    } catch (e) {
+      console.error(`Workflow notice to ${email} failed:`, e);
+    }
+  }
+}
+
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
