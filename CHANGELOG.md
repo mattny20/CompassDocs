@@ -4,6 +4,19 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.24.0] - 2026-07-16
+
+### Added
+- **Easier workspace logos.** Settings → Workspace now offers two new ways to
+  set your logo alongside the existing image-URL field: **fetch your
+  website's icon** (type `yourcompany.com` and CompassDocs grabs and caches
+  the site's favicon), or **upload an image** (PNG/JPEG/GIF/WebP/ICO up to
+  1 MB — no SVG, same script-safety policy as attachments). Fetched and
+  uploaded logos are stored in the uploads volume (so they're in your
+  backups and survive site redesigns), served from a public route so the
+  login page and public site show them pre-auth, and a **Remove logo**
+  button returns to the compass mark. Changes are audit-logged.
+
 ## [0.23.0] - 2026-07-16
 
 ### Added

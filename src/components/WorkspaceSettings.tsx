@@ -33,10 +33,65 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
+  const [siteUrl, setSiteUrl] = useState("");
+  const [logoBusy, setLogoBusy] = useState(false);
+  const [logoMsg, setLogoMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   function set<K extends keyof AppSettings>(key: K, value: AppSettings[K]) {
     setS((prev) => ({ ...prev, [key]: value }));
     setSaved(false);
+  }
+
+  // Logo fetch/upload/remove apply immediately (they store a file server-side),
+  // unlike the text fields which wait for "Save changes".
+  async function fetchSiteIcon() {
+    if (!siteUrl.trim()) return;
+    setLogoBusy(true);
+    setLogoMsg(null);
+    const res = await fetch("/api/admin/branding/logo", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ site_url: siteUrl }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setLogoBusy(false);
+    if (res.ok) {
+      setS((prev) => ({ ...prev, logo_url: data.logo_url }));
+      setLogoMsg({ ok: true, text: "Icon fetched and set as your logo." });
+      router.refresh();
+    } else {
+      setLogoMsg({ ok: false, text: data?.error || "Could not fetch an icon." });
+    }
+  }
+
+  async function uploadLogo(file: File | undefined | null) {
+    if (!file) return;
+    setLogoBusy(true);
+    setLogoMsg(null);
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch("/api/admin/branding/logo", { method: "POST", body: fd });
+    const data = await res.json().catch(() => ({}));
+    setLogoBusy(false);
+    if (res.ok) {
+      setS((prev) => ({ ...prev, logo_url: data.logo_url }));
+      setLogoMsg({ ok: true, text: "Logo uploaded." });
+      router.refresh();
+    } else {
+      setLogoMsg({ ok: false, text: data?.error || "The upload failed." });
+    }
+  }
+
+  async function removeLogo() {
+    setLogoBusy(true);
+    setLogoMsg(null);
+    const res = await fetch("/api/admin/branding/logo", { method: "DELETE" });
+    setLogoBusy(false);
+    if (res.ok) {
+      setS((prev) => ({ ...prev, logo_url: "" }));
+      setLogoMsg({ ok: true, text: "Logo removed — back to the compass mark." });
+      router.refresh();
+    }
   }
 
   async function save() {
@@ -80,7 +135,7 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
           </label>
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-slate-500">
-              Logo URL <span className="text-slate-400">(optional)</span>
+              Logo URL <span className="text-slate-400">(optional — or use the options below)</span>
             </span>
             <input
               value={s.logo_url}
@@ -90,6 +145,68 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
             />
           </label>
         </div>
+
+        {/* Logo from a website or an upload — these apply immediately. */}
+        <div className="mt-4 grid gap-4 border-t border-slate-100 pt-3 sm:grid-cols-2">
+          <div>
+            <span className="mb-1 block text-xs font-medium text-slate-500">
+              Use a website&apos;s icon
+            </span>
+            <p className="mb-2 text-xs text-slate-400">
+              Enter your company site — we&apos;ll fetch its favicon and use it as the logo.
+            </p>
+            <div className="flex gap-2">
+              <input
+                value={siteUrl}
+                onChange={(e) => setSiteUrl(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && fetchSiteIcon()}
+                className={field}
+                placeholder="yourcompany.com"
+              />
+              <button
+                type="button"
+                onClick={fetchSiteIcon}
+                disabled={logoBusy || !siteUrl.trim()}
+                className="shrink-0 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+              >
+                {logoBusy ? "Working…" : "Fetch icon"}
+              </button>
+            </div>
+          </div>
+          <div>
+            <span className="mb-1 block text-xs font-medium text-slate-500">Upload a logo</span>
+            <p className="mb-2 text-xs text-slate-400">
+              PNG, JPEG, GIF, WebP, or ICO up to 1 MB. Square images look best.
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/gif,image/webp,image/x-icon,image/vnd.microsoft.icon"
+                disabled={logoBusy}
+                onChange={(e) => {
+                  uploadLogo(e.target.files?.[0]);
+                  e.target.value = "";
+                }}
+                className="text-xs"
+              />
+              {s.logo_url && (
+                <button
+                  type="button"
+                  onClick={removeLogo}
+                  disabled={logoBusy}
+                  className="shrink-0 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                >
+                  Remove logo
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+        {logoMsg && (
+          <p className={`mt-2 text-xs ${logoMsg.ok ? "text-green-600" : "text-red-600"}`}>
+            {logoMsg.text}
+          </p>
+        )}
         <div className="mt-4 border-t border-slate-100 pt-3">
           <span className="mb-1 block text-xs font-medium text-slate-500">Accent color</span>
           <p className="mb-2 text-xs text-slate-400">
