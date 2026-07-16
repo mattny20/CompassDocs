@@ -185,3 +185,45 @@ mark {
   color: rgb(var(--compass-500));
   font-family: var(--font-sans);
 }
+
+/* Newsletter blocks: the CTA button and the spacer. The same markup renders
+ * in the rich editor (.tiptap) and the read-only Markdown view (.doc-prose);
+ * the email renderer restyles both inline for inboxes. */
+.doc-prose a.email-btn,
+.tiptap a.email-btn {
+  display: inline-block;
+  background: rgb(var(--compass-600));
+  color: #fff;
+  padding: 0.6rem 1.35rem;
+  border-radius: 0.5rem;
+  font-weight: 600;
+  font-size: 0.875rem;
+  text-decoration: none;
+  cursor: pointer;
+}
+.doc-prose a.email-btn:hover {
+  background: rgb(var(--compass-700));
+}
+.tiptap a.email-btn.ProseMirror-selectednode {
+  outline: 2px solid rgb(var(--compass-400));
+  outline-offset: 2px;
+}
+.doc-prose div.nl-spacer {
+  /* Pure vertical space in rendered documents and previews. */
+}
+.tiptap div.nl-spacer {
+  /* Authors need to see (and select) the invisible: a soft striped bar. */
+  border-radius: 0.375rem;
+  background: repeating-linear-gradient(
+    -45deg,
+    rgb(var(--slate-100)),
+    rgb(var(--slate-100)) 6px,
+    transparent 6px,
+    transparent 12px
+  );
+  outline: 1px dashed rgb(var(--slate-200));
+  outline-offset: -1px;
+}
+.tiptap div.nl-spacer.ProseMirror-selectednode {
+  outline: 2px solid rgb(var(--compass-400));
+}

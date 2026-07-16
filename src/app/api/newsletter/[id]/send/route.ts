@@ -58,6 +58,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     accent: settings.accent_color || "#2e75bd",
     origin: requestOrigin(req),
     authorName: n.author_name,
+    from: n.from_address || undefined,
   };
 
   if (isTest) {

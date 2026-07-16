@@ -1,5 +1,5 @@
 import { createReadStream } from "fs";
-import { mkdir, unlink, writeFile } from "fs/promises";
+import { mkdir, stat, unlink, writeFile } from "fs/promises";
 import { join, extname } from "path";
 import { randomBytes } from "crypto";
 
@@ -33,6 +33,16 @@ export async function saveUpload(buf: Buffer, ext: string): Promise<string> {
 export function uploadReadStream(storedName: string) {
   if (!isValidStoredName(storedName)) return null;
   return createReadStream(join(uploadDir(), storedName));
+}
+
+/** Whether the stored file actually exists (streams error mid-response otherwise). */
+export async function uploadExists(storedName: string): Promise<boolean> {
+  if (!isValidStoredName(storedName)) return false;
+  try {
+    return (await stat(join(uploadDir(), storedName))).isFile();
+  } catch {
+    return false;
+  }
 }
 
 export async function deleteUpload(storedName: string): Promise<void> {

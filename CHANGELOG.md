@@ -4,6 +4,39 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.33.0] - 2026-07-16
+
+### Added
+- **Richer editing toolbar** (documents and newsletters). New tools:
+  **underline**, **text alignment** (left / center / right per paragraph or
+  heading), **indent / outdent** (nests list items when inside a list),
+  **clear formatting**, a **format painter** (copy formatting from one spot,
+  apply it to the next selection), and a one-click **divider**. Every toolbar
+  button now shows a proper tooltip. Formatting Markdown can't express is
+  stored as small sanitized HTML islands inside the Markdown — it round-trips
+  through the raw Markdown view, renders on document pages, the public site,
+  and in newsletter emails, and is scrubbed against an allowlist (tags,
+  attributes, and CSS properties) everywhere it's rendered.
+- **Newsletter content blocks.** The newsletter composer gains
+  email-specific blocks: **images** (upload, paste, or drag in — hosted at
+  unguessable public URLs so they display in recipients' inboxes),
+  **call-to-action buttons** (accent-colored, editable label + URL),
+  **dividers**, and **spacers** (three sizes, shown as a striped bar while
+  editing, pure whitespace in the email).
+- **Scheduled sends.** Approved newsletters can be scheduled for a date and
+  time; the app delivers within a minute of the chosen moment (works across
+  restarts and multiple instances — the claim is atomic, so no double
+  sends). Scheduling and cancelling land in the activity thread and the
+  audit log, and the list shows when each approved piece will go out.
+- **Newsletters on the dashboard.** A sent newsletter appears as a card on
+  every user's dashboard for three days (counted in the sidebar's unread
+  badge) until that user dismisses it. Sent newsletters are now readable by
+  every signed-in user; the editorial thread stays with the newsletter crew.
+- **Choose the From address.** Admins curate a sender list under Settings →
+  Newsletter (`Name <address@domain>` entries); each newsletter can pick one
+  of them — for test sends, manual sends, and scheduled sends alike — or
+  keep the workspace SMTP default.
+
 ## [0.32.0] - 2026-07-16
 
 ### Added

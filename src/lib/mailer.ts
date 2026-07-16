@@ -9,7 +9,9 @@ export async function sendMail(
   to: string[],
   subject: string,
   text: string,
-  html?: string
+  html?: string,
+  /** Override the configured From (newsletters with a chosen sender). */
+  fromOverride?: string
 ): Promise<void> {
   const cfg = await getSmtpConfig();
   if (!smtpConfigured(cfg)) {
@@ -25,5 +27,5 @@ export async function sendMail(
     connectionTimeout: 8000,
     socketTimeout: 10000,
   });
-  await transport.sendMail({ from: cfg.from, to: to.join(", "), subject, text, html });
+  await transport.sendMail({ from: fromOverride || cfg.from, to: to.join(", "), subject, text, html });
 }

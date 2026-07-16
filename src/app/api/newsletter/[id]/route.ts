@@ -11,6 +11,7 @@ import {
 } from "@/lib/db";
 import {
   canView,
+  canUseNewsletter,
   canEditContent,
   canSubmit,
   canDecide,
@@ -20,6 +21,7 @@ import {
   canApprove,
   isAuthor,
 } from "@/lib/newsletter-access";
+import { listNewsletterFromAddresses } from "@/lib/newsletter";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
 import type { SessionUser } from "@/lib/types";
 
@@ -42,7 +44,9 @@ export async function GET(_req: Request, { params }: Params) {
 
   return NextResponse.json({
     newsletter: n,
-    comments: await listNewsletterComments(n.id),
+    // The editorial thread stays with the editorial crew — a sent newsletter
+    // is readable by everyone, but its review history isn't.
+    comments: canUseNewsletter(user) ? await listNewsletterComments(n.id) : [],
     approver_ids: approverIds,
     can: {
       edit: canEditContent(user, n, approverIds),
@@ -79,6 +83,7 @@ export async function PATCH(req: Request, { params }: Params) {
     typeof body?.subject === "string" ||
     typeof body?.body === "string" ||
     typeof body?.mode === "string" ||
+    typeof body?.from_address === "string" ||
     Array.isArray(body?.group_ids);
   if (wantsContent) {
     if (!canEditContent(user, n, approverIds)) {
@@ -87,12 +92,26 @@ export async function PATCH(req: Request, { params }: Params) {
     const groupIds: number[] = Array.isArray(body?.group_ids)
       ? body.group_ids.map(Number).filter((x: number) => Number.isInteger(x) && x > 0)
       : (n.group_ids || "").split(",").map(Number).filter(Boolean);
+    // The sender must come from the admin-curated list (or '' = SMTP default).
+    let fromAddress = n.from_address;
+    if (typeof body?.from_address === "string") {
+      const wanted = body.from_address.trim();
+      if (wanted === "" || (await listNewsletterFromAddresses()).includes(wanted)) {
+        fromAddress = wanted;
+      } else {
+        return NextResponse.json(
+          { error: "Pick a From address from the list an admin has configured." },
+          { status: 400 }
+        );
+      }
+    }
     updated =
       (await updateNewsletterContent(n.id, {
         subject: typeof body?.subject === "string" ? body.subject : n.subject,
         body: typeof body?.body === "string" ? body.body : n.body,
         mode: typeof body?.mode === "string" ? body.mode : n.mode,
         group_ids: groupIds.join(","),
+        from_address: fromAddress,
       })) ?? n;
   }
 

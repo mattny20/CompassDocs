@@ -70,8 +70,12 @@ export function canDelete(user: SessionUser, n: Newsletter): boolean {
   return isAuthor(user, n) && (n.status === "draft" || n.status === "changes_requested");
 }
 
-/** Anyone who may see this newsletter's detail page at all. */
+/**
+ * Anyone who may see this newsletter's detail page at all. Sent newsletters
+ * are readable by every signed-in user — they were emailed org-wide and
+ * surface on everyone's dashboard. Unsent drafts stay with the editorial crew.
+ */
 export function canView(user: SessionUser, n: Newsletter, approverIds: number[]): boolean {
-  if (n.status === "sent") return canUseNewsletter(user);
+  if (n.status === "sent") return true;
   return isAuthor(user, n) || canApprove(user, approverIds) || isNewsletterApprover(user);
 }
