@@ -30,9 +30,9 @@ const field =
   "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
 
 const LEVELS = [
-  { value: "info", label: "Info", icon: <Megaphone className="h-3.5 w-3.5" />, cls: "border-compass-400 bg-compass-50 text-compass-700" },
-  { value: "warning", label: "Warning", icon: <TriangleAlert className="h-3.5 w-3.5" />, cls: "border-amber-400 bg-amber-50 text-amber-700" },
-  { value: "critical", label: "Critical", icon: <Siren className="h-3.5 w-3.5" />, cls: "border-red-400 bg-red-50 text-red-700" },
+  { value: "info", label: "Info", icon: <Megaphone className="h-3.5 w-3.5" />, cls: "border-compass-400 bg-compass-50 text-compass-700 dark:text-compass-300" },
+  { value: "warning", label: "Warning", icon: <TriangleAlert className="h-3.5 w-3.5" />, cls: "border-amber-400 bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300" },
+  { value: "critical", label: "Critical", icon: <Siren className="h-3.5 w-3.5" />, cls: "border-red-400 bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300" },
 ] as const;
 
 export function AnnouncementsAdmin({
@@ -122,7 +122,7 @@ export function AnnouncementsAdmin({
       ? { label: "Archived", cls: "bg-slate-100 text-slate-500" }
       : r.expires_at && new Date(r.expires_at).getTime() < now
         ? { label: "Expired", cls: "bg-slate-100 text-slate-500" }
-        : { label: "Live", cls: "bg-green-100 text-green-700" };
+        : { label: "Live", cls: "bg-green-100 text-green-700 dark:bg-green-950/60 dark:text-green-300" };
 
   return (
     <div className="space-y-6">

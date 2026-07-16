@@ -56,8 +56,8 @@ export default async function DashboardPage() {
       />
 
       {pendingAcks.length > 0 && (
-        <div className="mb-6 rounded-xl border border-amber-300 bg-amber-50 p-4">
-          <p className="mb-2 text-sm font-semibold text-amber-900">
+        <div className="mb-6 rounded-xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-700/60 dark:bg-amber-950/40">
+          <p className="mb-2 text-sm font-semibold text-amber-900 dark:text-amber-200">
             📋 {pendingAcks.length} document{pendingAcks.length === 1 ? "" : "s"} need
             {pendingAcks.length === 1 ? "s" : ""} your read confirmation
           </p>
@@ -66,7 +66,7 @@ export default async function DashboardPage() {
               <Link
                 key={d.id}
                 href={`/doc/${d.id}`}
-                className="rounded-lg border border-amber-200 bg-white px-3 py-1.5 text-sm font-medium text-amber-900 hover:border-amber-400"
+                className="rounded-lg border border-amber-200 bg-white px-3 py-1.5 text-sm font-medium text-amber-900 hover:border-amber-400 dark:border-amber-800/70 dark:bg-surface dark:text-amber-200 dark:hover:border-amber-600"
               >
                 {d.space_icon} {d.title}
               </Link>
