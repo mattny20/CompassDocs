@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getAppSettings } from "@/lib/settings-store";
+import { PageContainer } from "@/components/PageWidth";
 import {
   listSpaces,
   listRecentDocuments,
@@ -35,7 +36,7 @@ export default async function DashboardPage() {
   const tags = allTagList.slice(0, 12);
 
   return (
-    <div className="mx-auto max-w-6xl px-8 py-8">
+    <PageContainer>
       <header className="mb-8">
         <h1 className="text-2xl font-bold text-slate-900">Welcome to CompassDocs</h1>
         <p className="mt-1 text-slate-500">
@@ -146,7 +147,7 @@ export default async function DashboardPage() {
           </div>
         </section>
       )}
-    </div>
+    </PageContainer>
   );
 }
 

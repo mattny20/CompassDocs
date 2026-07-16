@@ -149,6 +149,10 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   const doc = await updateDocument(existing.id, {
     ...proposed,
     space_id: targetSpaceId,
+    category_id:
+      body?.category_id === null || Number.isInteger(body?.category_id)
+        ? body.category_id
+        : undefined,
     author: user.name || user.username,
     versionNote: String(body?.versionNote ?? "").trim() || "Edited",
   });

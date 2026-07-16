@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { searchDocuments } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { roleAtLeast } from "@/lib/types";
-import { spaceScopeFor } from "@/lib/access";
+import { spaceScopeFor, scopeAllows } from "@/lib/access";
 
 export const dynamic = "force-dynamic";
 
@@ -17,5 +17,13 @@ export async function GET(req: Request) {
 
   const includeDrafts = roleAtLeast(user.role, "editor");
   const scope = await spaceScopeFor(user);
-  return NextResponse.json({ hits: await searchDocuments(q, limit, includeDrafts, scope) });
+
+  // Optional in-space search: the space must be within the user's scope.
+  const spaceParam = Number(searchParams.get("space_id")) || undefined;
+  if (spaceParam && !scopeAllows(scope, spaceParam)) {
+    return NextResponse.json({ hits: [] });
+  }
+  return NextResponse.json({
+    hits: await searchDocuments(q, limit, includeDrafts, scope, spaceParam),
+  });
 }

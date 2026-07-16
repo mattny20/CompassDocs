@@ -70,6 +70,7 @@ export async function POST(req: Request) {
     summary: String(body?.summary ?? "").trim(),
     tags: normalizeTags(body?.tags),
     author: user.name || user.username,
+    category_id: Number.isInteger(body?.category_id) ? body.category_id : null,
   });
 
   if (status === "published") {

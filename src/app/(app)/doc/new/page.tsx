@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { listSpaces, getSpaceBySlug, getApprovalMode } from "@/lib/db";
+import { listSpaces, getSpaceBySlug, getApprovalMode, listAllSpaceCategories } from "@/lib/db";
 import { requireRole } from "@/lib/auth";
 import { editableScopeFor } from "@/lib/access";
 import { roleAtLeast } from "@/lib/types";
@@ -30,6 +30,8 @@ export default async function NewDocPage({
       </div>
     );
   }
+  const spaceIds = new Set(spaces.map((s) => s.id));
+  const categories = (await listAllSpaceCategories()).filter((c) => spaceIds.has(c.space_id));
   const bySlug = space ? await getSpaceBySlug(space) : undefined;
   // Ignore a ?space= preselection the user can't author in.
   const preselected = bySlug && spaces.some((s) => s.id === bySlug.id) ? bySlug : undefined;
@@ -40,6 +42,7 @@ export default async function NewDocPage({
       mode="create"
       canPublish={canPublish}
       spaces={spaces}
+      categories={categories}
       initial={{
         space_id: preselected?.id ?? spaces[0]?.id,
         title: "",

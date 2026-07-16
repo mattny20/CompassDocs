@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth";
 import { Sidebar } from "@/components/Sidebar";
+import { WidthProvider } from "@/components/PageWidth";
 import { countOpenSuggestions, countPendingChangeRequests, countTrashed } from "@/lib/db";
 import { roleAtLeast } from "@/lib/types";
 
@@ -23,7 +24,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <div className="flex h-screen overflow-hidden print:h-auto print:overflow-visible">
       <Sidebar user={user} reviewCount={reviewCount} trashCount={trashCount} />
-      <main className="flex-1 overflow-y-auto print:overflow-visible">{children}</main>
+      <main className="flex-1 overflow-y-auto print:overflow-visible">
+        <WidthProvider initial={user.page_width}>{children}</WidthProvider>
+      </main>
     </div>
   );
 }

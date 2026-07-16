@@ -5,6 +5,7 @@ import {
   listAllSpaceGroups,
   listAllSpaceSubscriptionGroups,
   listAllSpaceEditorGrants,
+  listAllSpaceCategories,
 } from "@/lib/db";
 import { editorsEditAll } from "@/lib/access";
 import { roleAtLeast } from "@/lib/types";
@@ -13,7 +14,7 @@ import { SpacesManager } from "@/components/SpacesManager";
 export const dynamic = "force-dynamic";
 
 export default async function SpacesPage() {
-  const [spaces, groups, users, spaceGroups, subscriptionGroups, editorGrants, editAll] =
+  const [spaces, groups, users, spaceGroups, subscriptionGroups, editorGrants, editAll, cats] =
     await Promise.all([
       listSpaces(),
       listGroups(),
@@ -22,7 +23,10 @@ export default async function SpacesPage() {
       listAllSpaceSubscriptionGroups(),
       listAllSpaceEditorGrants(),
       editorsEditAll(),
+      listAllSpaceCategories(),
     ]);
+  const categoriesBySpace: Record<number, { id: number; name: string; position: number }[]> = {};
+  for (const c of cats) (categoriesBySpace[c.space_id] ??= []).push({ id: c.id, name: c.name, position: c.position });
   return (
     <SpacesManager
       initial={spaces}
@@ -40,6 +44,7 @@ export default async function SpacesPage() {
       initialSubscriptionGroups={subscriptionGroups}
       initialEditorGrants={editorGrants}
       initialEditorsEditAll={editAll}
+      initialCategories={categoriesBySpace}
     />
   );
 }

@@ -43,6 +43,8 @@ export interface User {
   directory_person_id: number | null;
   /** Master switch for subscription emails (1 = on). */
   email_notifications: number;
+  /** App-wide page width preference: normal | wide | full. */
+  page_width: string;
   created_at: string;
   last_login_at: string | null;
 }
@@ -55,6 +57,8 @@ export interface SessionUser {
   email: string;
   role: Role;
   must_change_password: boolean;
+  /** App-wide page width preference: normal | wide | full. */
+  page_width: "normal" | "wide" | "full";
 }
 
 export interface Suggestion {
@@ -126,6 +130,8 @@ export interface Space {
 export interface Document {
   id: number;
   space_id: number;
+  /** Optional category within the space (null = General). */
+  category_id: number | null;
   title: string;
   slug: string;
   type: DocType;

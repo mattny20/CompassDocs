@@ -4,6 +4,7 @@ import { requireUser } from "@/lib/auth";
 import { listLinkCategories, listLinksVisibleTo } from "@/lib/db";
 import type { QuickLink } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings-store";
+import { PageContainer } from "@/components/PageWidth";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +32,7 @@ export default async function LinksPage() {
   if (uncategorized?.length) sections.push({ name: "General", links: uncategorized });
 
   return (
-    <div className="mx-auto max-w-5xl px-8 py-8">
+    <PageContainer>
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Links</h1>
@@ -92,7 +93,7 @@ export default async function LinksPage() {
           </div>
         </section>
       ))}
-    </div>
+    </PageContainer>
   );
 }
 
