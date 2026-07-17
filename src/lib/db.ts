@@ -571,6 +571,18 @@ const SCHEMA_SQL = `
     user_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     PRIMARY KEY (newsletter_id, user_id)
   );
+
+  -- Files attached to a newsletter and sent WITH the email (real MIME
+  -- attachments), not just linked. Stored like document attachments.
+  CREATE TABLE IF NOT EXISTS newsletter_files (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    newsletter_id integer NOT NULL REFERENCES newsletters(id) ON DELETE CASCADE,
+    filename text NOT NULL,
+    stored_name text NOT NULL,
+    mime_type text NOT NULL DEFAULT 'application/octet-stream',
+    size integer NOT NULL DEFAULT 0,
+    created_at timestamptz NOT NULL DEFAULT now()
+  );
 `;
 
 /**
@@ -2731,6 +2743,50 @@ export async function dismissNewsletter(userId: number, newsletterId: number): P
      VALUES ($1,$2) ON CONFLICT DO NOTHING`,
     [newsletterId, userId]
   );
+}
+
+export interface NewsletterFile {
+  id: number;
+  newsletter_id: number;
+  filename: string;
+  stored_name: string;
+  mime_type: string;
+  size: number;
+  created_at: string;
+}
+
+export async function addNewsletterFile(input: {
+  newsletter_id: number;
+  filename: string;
+  stored_name: string;
+  mime_type: string;
+  size: number;
+}): Promise<NewsletterFile> {
+  return (
+    await q<NewsletterFile>(
+      `INSERT INTO newsletter_files (newsletter_id, filename, stored_name, mime_type, size)
+       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+      [
+        input.newsletter_id,
+        input.filename.slice(0, 200),
+        input.stored_name,
+        input.mime_type.slice(0, 100),
+        input.size,
+      ]
+    )
+  )[0];
+}
+
+export async function listNewsletterFiles(newsletterId: number): Promise<NewsletterFile[]> {
+  return q("SELECT * FROM newsletter_files WHERE newsletter_id = $1 ORDER BY id", [newsletterId]);
+}
+
+export async function getNewsletterFile(id: number): Promise<NewsletterFile | undefined> {
+  return (await q<NewsletterFile>("SELECT * FROM newsletter_files WHERE id = $1", [id]))[0];
+}
+
+export async function deleteNewsletterFileRow(id: number): Promise<void> {
+  await q("DELETE FROM newsletter_files WHERE id = $1", [id]);
 }
 
 /** Map Entra member identities to local user ids (SSO id first, then email). */

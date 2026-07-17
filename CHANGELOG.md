@@ -4,6 +4,38 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.34.0] - 2026-07-17
+
+### Added
+- **Tables in the editor.** Insert a 3×3 table (with header row) from the
+  toolbar; inside a table, extra controls add/delete rows and columns or
+  remove the table. Simple tables store as portable GFM pipe Markdown; the
+  new **transparent table** toggle strips all borders and shading — an
+  invisible layout grid for side-by-side content (shown as dashed guides
+  while editing, invisible to readers and in email).
+- **Heading highlights.** With the cursor in an H1–H3, pick a pastel
+  background from the toolbar palette. Highlighted headings render as a
+  colored pill with automatically dark text — in documents, on the public
+  site, and in newsletter emails.
+- **Color panels.** A colored container block (the free-form sibling of the
+  code and email blocks): wrap any content — text, images, lists, buttons —
+  on one of nine backgrounds. The text color **auto-contrasts** with the
+  chosen background (white on deep colors, ink on pastels), with an explicit
+  Dark/White override.
+- **Font choices.** A small set of email-safe fonts — Default, Serif
+  (Georgia), Typewriter (Courier), Rounded (Trebuchet) — applied per
+  selection, rendering identically in the app and in inboxes.
+- **Side-by-side photos.** Images are now inline: size two photos to ~45%
+  each and they sit next to each other in one paragraph — in the editor, on
+  document pages, and in newsletter emails (the width token becomes a real
+  width in email HTML). For finer control, use a transparent table.
+- **Image size slider.** The S/M/L/Full presets became a 10–100% slider
+  (5% steps) with a live percentage readout.
+- **Newsletter email attachments.** Attach up to 5 files (5 MB each) to a
+  newsletter; they're sent WITH the email as real MIME attachments — on test
+  sends, manual sends, and scheduled sends. Managed on the newsletter page
+  by anyone who can edit it; blobs are cleaned up on delete.
+
 ## [0.33.0] - 2026-07-16
 
 ### Added

@@ -1,6 +1,6 @@
 {
   "name": "compassdocs",
-  "version": "0.33.0",
+  "version": "0.34.0",
   "private": true,
   "license": "AGPL-3.0-only",
   "scripts": {
@@ -14,9 +14,15 @@
     "@aws-sdk/client-s3": "^3.1085.0",
     "@azure/storage-blob": "^12.33.0",
     "@fontsource/aileron": "^5.2.5",
+    "@tiptap/extension-font-family": "^2.27.2",
     "@tiptap/extension-image": "^2.27.2",
     "@tiptap/extension-link": "^2.27.2",
+    "@tiptap/extension-table": "^2.27.2",
+    "@tiptap/extension-table-cell": "^2.27.2",
+    "@tiptap/extension-table-header": "^2.27.2",
+    "@tiptap/extension-table-row": "^2.27.2",
     "@tiptap/extension-text-align": "^2.27.2",
+    "@tiptap/extension-text-style": "^2.27.2",
     "@tiptap/extension-underline": "^2.27.2",
     "@tiptap/pm": "^2.27.2",
     "@tiptap/react": "^2.27.2",

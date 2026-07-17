@@ -58,7 +58,7 @@ function tagStyles(accent: string): Record<string, string> {
     code: "background:#f1f5f9;border-radius:4px;padding:1px 5px;font-size:13px;font-family:ui-monospace,Menlo,Consolas,monospace",
     pre: "background:#f1f5f9;border-radius:8px;padding:12px 14px;overflow:auto;font-size:13px;margin:0 0 12px",
     a: `color:${accent}`,
-    img: "max-width:100%;border-radius:8px",
+    img: "max-width:100%;border-radius:8px;vertical-align:top",
     table: "border-collapse:collapse;margin:0 0 12px;width:100%",
     th: "border:1px solid #e2e8f0;padding:6px 10px;background:#f8fafc;text-align:left",
     td: "border:1px solid #e2e8f0;padding:6px 10px",
@@ -66,13 +66,22 @@ function tagStyles(accent: string): Record<string, string> {
   };
 }
 
+// Cells inside a transparent (layout) table lose borders and shading.
+const BORDERLESS_CELL = "border:none;padding:6px 10px;vertical-align:top";
+
 /**
  * Recursively stamp inline styles onto a hast tree. Styles already on a node
  * (alignment, indent, spacer height — sanitized upstream) are kept and win
  * over the per-tag defaults. Newsletter blocks get their email look here:
  * a.email-btn becomes a real button, div.nl-spacer collapses to pure height.
  */
-function applyStyles(node: any, styles: Record<string, string>, accent: string): void {
+function applyStyles(
+  node: any,
+  styles: Record<string, string>,
+  accent: string,
+  inBorderlessTable = false
+): void {
+  let borderless = inBorderlessTable;
   if (node?.type === "element") {
     const classes: string[] = Array.isArray(node.properties?.className)
       ? node.properties.className.map(String)
@@ -85,13 +94,34 @@ function applyStyles(node: any, styles: Record<string, string>, accent: string):
     } else if (node.tagName === "div" && classes.includes("nl-spacer")) {
       base = "font-size:0;line-height:0";
       delete node.properties.className;
+    } else if (node.tagName === "div" && classes.includes("nl-panel")) {
+      // Color panel: bg + ink arrive inline (sanitized); add the pill shape.
+      base = "padding:16px 20px;border-radius:12px;margin:0 0 12px";
+      delete node.properties.className;
+    } else if (node.tagName === "table" && classes.includes("nl-borderless")) {
+      borderless = true;
+      base = "border-collapse:collapse;margin:0 0 12px;width:100%";
+      delete node.properties.className;
+    } else if (borderless && (node.tagName === "th" || node.tagName === "td")) {
+      base = BORDERLESS_CELL;
+    } else if (node.tagName === "img") {
+      // Author-chosen display width travels in the title token ("w=45%") —
+      // turn it into a real width so side-by-side photos work in inboxes.
+      const m = /^w=(\d{1,3})%$/.exec(String(node.properties?.title ?? ""));
+      if (m) {
+        base = `${base};width:${Math.min(100, Number(m[1]))}%`;
+        delete node.properties.title;
+      }
+    } else if (/^h[1-3]$/.test(node.tagName) && /background-color/.test(own)) {
+      // Highlighted headings get their pill look inline.
+      base = `${base};padding:6px 12px;border-radius:8px`;
     }
     const style = [base, own].filter(Boolean).join(";");
     if (style) {
       node.properties = { ...node.properties, style };
     }
   }
-  for (const child of node?.children ?? []) applyStyles(child, styles, accent);
+  for (const child of node?.children ?? []) applyStyles(child, styles, accent, borderless);
 }
 
 /** Make relative app links/images absolute so they work from an inbox. */
@@ -184,6 +214,8 @@ export async function sendNewsletter(input: {
   to: "all" | number[] | { emails: string[] };
   /** Optional From override (admin-curated list); '' = SMTP default. */
   from?: string;
+  /** Files sent WITH the email as real attachments. */
+  attachments?: { filename: string; path: string }[];
 }): Promise<{ sent: number; error?: string }> {
   if (!smtpConfigured(await getSmtpConfig())) {
     return { sent: 0, error: "SMTP isn't configured (Settings → Notifications)." };
@@ -199,7 +231,7 @@ export async function sendNewsletter(input: {
   let sent = 0;
   for (const r of recipients) {
     try {
-      await sendMail([r.email], input.subject, text, html, input.from || undefined);
+      await sendMail([r.email], input.subject, text, html, input.from || undefined, input.attachments);
       sent++;
     } catch (e) {
       console.error(`Newsletter to ${r.email} failed:`, e);

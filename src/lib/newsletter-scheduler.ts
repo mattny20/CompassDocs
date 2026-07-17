@@ -4,14 +4,17 @@
 // without double-sending. Server-only.
 
 import "server-only";
+import { join } from "path";
 import {
   claimDueNewsletters,
   markNewsletterSent,
   addNewsletterComment,
   listGroups,
+  listNewsletterFiles,
 } from "./db";
 import { sendNewsletter } from "./newsletter";
 import { getAppSettings } from "./settings-store";
+import { uploadDir } from "./uploads";
 import { audit } from "./audit";
 
 export async function sendDueNewsletters(): Promise<void> {
@@ -32,6 +35,10 @@ export async function sendDueNewsletters(): Promise<void> {
         authorName: n.author_name,
         to: n.mode === "groups" ? groupIds : "all",
         from: n.from_address || undefined,
+        attachments: (await listNewsletterFiles(n.id)).map((f) => ({
+          filename: f.filename,
+          path: join(uploadDir(), f.stored_name),
+        })),
       });
       if (r.error) {
         // Sending isn't possible right now (SMTP off, no recipients). Leave

@@ -227,3 +227,87 @@ mark {
 .tiptap div.nl-spacer.ProseMirror-selectednode {
   outline: 2px solid rgb(var(--compass-400));
 }
+
+/* Heading highlights: an inline background-color set from the editor palette.
+ * Pastel backgrounds need dark text in BOTH themes (our slate ramp flips in
+ * dark mode, which would put light text on a light pastel). */
+.doc-prose h1[style*="background-color"],
+.doc-prose h2[style*="background-color"],
+.doc-prose h3[style*="background-color"],
+.tiptap h1[style*="background-color"],
+.tiptap h2[style*="background-color"],
+.tiptap h3[style*="background-color"] {
+  color: #0f172a;
+  padding: 0.3em 0.55em;
+  border-radius: 0.5rem;
+}
+
+/* Transparent (borderless) tables: a layout grid for side-by-side content —
+ * no borders, shading, or zebra anywhere. */
+.doc-prose table.nl-borderless th,
+.doc-prose table.nl-borderless td,
+.tiptap table.nl-borderless th,
+.tiptap table.nl-borderless td {
+  border: none;
+  background: transparent;
+}
+/* In the editor, hint the invisible grid so authors can still see the cells. */
+.tiptap table.nl-borderless th,
+.tiptap table.nl-borderless td {
+  outline: 1px dashed rgb(var(--slate-200));
+  outline-offset: -3px;
+}
+
+/* Sized images flow inline so two photos can sit next to each other. */
+.doc-prose img[style*="width"],
+.tiptap img[style*="width"] {
+  display: inline-block;
+  vertical-align: top;
+  margin-right: 0.5rem;
+}
+
+/* Editor table ergonomics: selected cells + minimum size. */
+.tiptap table {
+  table-layout: fixed;
+}
+.tiptap td,
+.tiptap th {
+  min-width: 2.5rem;
+  position: relative;
+}
+.tiptap .selectedCell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgb(var(--compass-200) / 0.4);
+  pointer-events: none;
+}
+
+/* Color panels: free-form content on a colored background. The background and
+ * text color are inline (author-chosen; text auto-contrasts), so the panel
+ * reads identically in light mode, dark mode, and email. */
+.doc-prose div.nl-panel,
+.tiptap div.nl-panel {
+  padding: 1rem 1.25rem;
+  border-radius: 0.75rem;
+  margin: 1rem 0;
+}
+.doc-prose div.nl-panel > :first-child,
+.tiptap div.nl-panel > :first-child {
+  margin-top: 0;
+}
+.doc-prose div.nl-panel > :last-child,
+.tiptap div.nl-panel > :last-child {
+  margin-bottom: 0;
+}
+/* Headings/links inside a panel inherit the panel's ink so they stay legible. */
+.doc-prose div.nl-panel h1,
+.doc-prose div.nl-panel h2,
+.doc-prose div.nl-panel h3,
+.doc-prose div.nl-panel a,
+.tiptap div.nl-panel h1,
+.tiptap div.nl-panel h2,
+.tiptap div.nl-panel h3,
+.tiptap div.nl-panel a {
+  color: inherit;
+}

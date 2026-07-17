@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { apiGuard } from "@/lib/api-auth";
+import { join } from "path";
 import {
   getNewsletter,
   getNewsletterApproverIds,
@@ -7,7 +8,9 @@ import {
   addNewsletterComment,
   getUserById,
   listGroups,
+  listNewsletterFiles,
 } from "@/lib/db";
+import { uploadDir } from "@/lib/uploads";
 import { canSend, canComment } from "@/lib/newsletter-access";
 import { sendNewsletter } from "@/lib/newsletter";
 import { getAppSettings } from "@/lib/settings-store";
@@ -50,6 +53,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   }
 
   const settings = await getAppSettings();
+  const attachments = (await listNewsletterFiles(n.id)).map((f) => ({
+    filename: f.filename,
+    path: join(uploadDir(), f.stored_name),
+  }));
   const base = {
     subject: n.subject,
     markdown: n.body,
@@ -59,6 +66,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     origin: requestOrigin(req),
     authorName: n.author_name,
     from: n.from_address || undefined,
+    attachments,
   };
 
   if (isTest) {
