@@ -4,9 +4,9 @@
 // new org role — None (no access), Contributor (write + submit drafts), or
 // Approver (review, approve, send). Admins always have full access.
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
-import { Mail, Plus, X } from "lucide-react";
+import { Mail, Plus, X, Image as ImageIcon } from "lucide-react";
 
 interface PersonRow {
   id: number;
@@ -21,9 +21,11 @@ interface PersonRow {
 export function NewsletterPeople({
   initial,
   initialSenders = [],
+  initialAppearance = { width: 640, header_image: "" },
 }: {
   initial: PersonRow[];
   initialSenders?: string[];
+  initialAppearance?: { width: number; header_image: string };
 }) {
   const [rows, setRows] = useState(initial);
   const [busyId, setBusyId] = useState(0);
@@ -32,6 +34,45 @@ export function NewsletterPeople({
   const [newSender, setNewSender] = useState("");
   const [senderBusy, setSenderBusy] = useState(false);
   const [senderError, setSenderError] = useState("");
+
+  const [appearance, setAppearance] = useState(initialAppearance);
+  const [widthDraft, setWidthDraft] = useState(String(initialAppearance.width));
+  const [appearanceBusy, setAppearanceBusy] = useState(false);
+  const [appearanceError, setAppearanceError] = useState("");
+  const headerFileRef = useRef<HTMLInputElement>(null);
+
+  async function saveAppearance(patch: { width?: number; header_image?: string }) {
+    setAppearanceBusy(true);
+    setAppearanceError("");
+    const res = await fetch("/api/admin/newsletter/appearance", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    const data = await res.json().catch(() => ({}));
+    setAppearanceBusy(false);
+    if (!res.ok) {
+      setAppearanceError(data?.error || "Couldn't save.");
+      return;
+    }
+    setAppearance(data);
+    setWidthDraft(String(data.width));
+  }
+
+  async function uploadHeader(file: File) {
+    setAppearanceBusy(true);
+    setAppearanceError("");
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch("/api/newsletter/assets", { method: "POST", body: form });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setAppearanceBusy(false);
+      setAppearanceError(data?.error || "Upload failed.");
+      return;
+    }
+    await saveAppearance({ header_image: data.url });
+  }
 
   async function saveSenders(next: string[]) {
     setSenderBusy(true);
@@ -93,6 +134,89 @@ export function NewsletterPeople({
         >
           <Mail className="h-4 w-4" /> Open the newsletter workspace
         </Link>
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+        <h2 className="font-semibold text-slate-900">Email appearance</h2>
+        <p className="mt-1 text-sm text-slate-500">
+          How newsletter emails look in the inbox: the content width, and an optional
+          header banner that replaces the default logo bar.
+        </p>
+        <div className="mt-3 flex flex-wrap items-end gap-6">
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-slate-500">
+              Email width (480–900 px)
+            </span>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={480}
+                max={900}
+                step={10}
+                value={widthDraft}
+                onChange={(e) => setWidthDraft(e.target.value)}
+                className="w-28 rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none focus:border-compass-400"
+              />
+              <button
+                onClick={() => saveAppearance({ width: Number(widthDraft) })}
+                disabled={appearanceBusy || Number(widthDraft) === appearance.width}
+                className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Save
+              </button>
+            </div>
+          </label>
+          <div>
+            <span className="mb-1 block text-xs font-medium text-slate-500">Header image</span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => headerFileRef.current?.click()}
+                disabled={appearanceBusy}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+              >
+                <ImageIcon className="h-4 w-4" />
+                {appearance.header_image ? "Replace…" : "Upload…"}
+              </button>
+              {appearance.header_image && (
+                <button
+                  onClick={() => saveAppearance({ header_image: "" })}
+                  disabled={appearanceBusy}
+                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50 dark:text-red-400 dark:hover:bg-red-500/10"
+                >
+                  Use default
+                </button>
+              )}
+              <input
+                ref={headerFileRef}
+                type="file"
+                accept="image/png,image/jpeg,image/gif,image/webp"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) uploadHeader(f);
+                  e.target.value = "";
+                }}
+              />
+            </div>
+          </div>
+        </div>
+        {appearance.header_image && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={appearance.header_image}
+            alt="Newsletter header preview"
+            className="mt-3 w-full max-w-lg rounded-lg border border-slate-200"
+          />
+        )}
+        {!appearance.header_image && (
+          <p className="mt-2 text-xs text-slate-400">
+            No custom header — emails use the default bar (workspace logo + name, accent
+            underline).
+          </p>
+        )}
+        {appearanceError && (
+          <p className="mt-2 text-sm text-red-600 dark:text-red-400">{appearanceError}</p>
+        )}
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">

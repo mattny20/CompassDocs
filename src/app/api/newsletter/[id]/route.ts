@@ -24,6 +24,8 @@ import {
   isAuthor,
 } from "@/lib/newsletter-access";
 import { listNewsletterFromAddresses } from "@/lib/newsletter";
+import { spaceScopeFor, scopeAllows } from "@/lib/access";
+import { getSpaceById } from "@/lib/db";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
 import type { SessionUser } from "@/lib/types";
 
@@ -87,6 +89,7 @@ export async function PATCH(req: Request, { params }: Params) {
     typeof body?.body === "string" ||
     typeof body?.mode === "string" ||
     typeof body?.from_address === "string" ||
+    body?.archive_space_id !== undefined ||
     Array.isArray(body?.group_ids);
   if (wantsContent) {
     if (!canEditContent(user, n, approverIds)) {
@@ -108,6 +111,20 @@ export async function PATCH(req: Request, { params }: Params) {
         );
       }
     }
+    // Archive space: any space the editor can see (or null to disable).
+    let archiveSpaceId = n.archive_space_id;
+    if (body?.archive_space_id !== undefined) {
+      if (body.archive_space_id === null) {
+        archiveSpaceId = null;
+      } else {
+        const sid = Number(body.archive_space_id);
+        const space = Number.isInteger(sid) && sid > 0 ? await getSpaceById(sid) : undefined;
+        if (!space || !scopeAllows(await spaceScopeFor(user), sid)) {
+          return NextResponse.json({ error: "Pick a space you have access to." }, { status: 400 });
+        }
+        archiveSpaceId = sid;
+      }
+    }
     updated =
       (await updateNewsletterContent(n.id, {
         subject: typeof body?.subject === "string" ? body.subject : n.subject,
@@ -115,6 +132,7 @@ export async function PATCH(req: Request, { params }: Params) {
         mode: typeof body?.mode === "string" ? body.mode : n.mode,
         group_ids: groupIds.join(","),
         from_address: fromAddress,
+        archive_space_id: archiveSpaceId,
       })) ?? n;
   }
 

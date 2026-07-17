@@ -41,6 +41,7 @@ interface NewsletterDetail {
   sent_at: string | null;
   scheduled_at: string | null;
   from_address: string;
+  archive_space_id: number | null;
 }
 
 interface CommentRow {
@@ -80,6 +81,12 @@ interface GroupLite {
   member_count: number;
 }
 
+interface SpaceLite {
+  id: number;
+  name: string;
+  icon: string;
+}
+
 interface ApproverLite {
   id: number;
   name: string;
@@ -92,6 +99,7 @@ const field =
 export function NewsletterWorkspace({
   initial,
   groups,
+  spaces = [],
   approverPool,
   smtpReady,
   fromAddresses = [],
@@ -99,6 +107,8 @@ export function NewsletterWorkspace({
 }: {
   initial: DetailPayload;
   groups: GroupLite[];
+  /** Spaces the current user can see — the archive destination choices. */
+  spaces?: SpaceLite[];
   approverPool: ApproverLite[];
   smtpReady: boolean;
   /** Admin-curated sender list; empty hides the From picker. */
@@ -126,6 +136,9 @@ export function NewsletterWorkspace({
   );
   const [pickedApprovers, setPickedApprovers] = useState<number[]>(initial.approver_ids);
   const [fromAddress, setFromAddress] = useState(initial.newsletter.from_address || "");
+  const [archiveSpaceId, setArchiveSpaceId] = useState<number | null>(
+    initial.newsletter.archive_space_id ?? null
+  );
 
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -145,6 +158,7 @@ export function NewsletterWorkspace({
       mode !== (n.mode === "groups" ? "groups" : "all") ||
       groupIds.join(",") !== (n.group_ids || "").split(",").map(Number).filter(Boolean).join(",") ||
       fromAddress !== (n.from_address || "") ||
+      archiveSpaceId !== (n.archive_space_id ?? null) ||
       pickedApprovers.join(",") !== approverIds.join(","));
 
   const apply = useCallback((data: DetailPayload) => {
@@ -159,6 +173,7 @@ export function NewsletterWorkspace({
     setGroupIds((data.newsletter.group_ids || "").split(",").map(Number).filter(Boolean));
     setPickedApprovers(data.approver_ids);
     setFromAddress(data.newsletter.from_address || "");
+    setArchiveSpaceId(data.newsletter.archive_space_id ?? null);
   }, []);
 
   async function refresh() {
@@ -192,6 +207,7 @@ export function NewsletterWorkspace({
           mode,
           group_ids: mode === "groups" ? groupIds : [],
           from_address: fromAddress,
+          archive_space_id: archiveSpaceId,
           approver_ids: pickedApprovers,
         }),
       },
@@ -467,6 +483,25 @@ export function NewsletterWorkspace({
                   {fromAddresses.map((f) => (
                     <option key={f} value={f}>
                       {f}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {spaces.length > 0 && (
+              <label className="mb-3 block">
+                <span className="mb-1 block text-xs font-medium text-slate-500">
+                  Archive to space (a published copy is filed there on send)
+                </span>
+                <select
+                  value={archiveSpaceId ?? ""}
+                  onChange={(e) => setArchiveSpaceId(e.target.value ? Number(e.target.value) : null)}
+                  className="w-full rounded-lg border border-slate-200 bg-surface px-2 py-1.5 text-sm outline-none focus:border-compass-400"
+                >
+                  <option value="">No archive</option>
+                  {spaces.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.icon} {s.name}
                     </option>
                   ))}
                 </select>
