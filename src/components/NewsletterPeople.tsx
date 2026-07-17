@@ -22,6 +22,7 @@ interface Appearance {
   width: number;
   header_image: string;
   header_scale: number;
+  header_pad: number;
   header_bg: string;
   body_bg: string;
   body_texture: string;
@@ -31,6 +32,7 @@ const DEFAULT_APPEARANCE: Appearance = {
   width: 640,
   header_image: "",
   header_scale: 100,
+  header_pad: 0,
   header_bg: "",
   body_bg: "#f1f5f9",
   body_texture: "none",
@@ -284,6 +286,25 @@ export function NewsletterPeople({
           {appearance.header_image && (
             <div>
               <span className="mb-1 block text-xs font-medium text-slate-500">
+                Top padding
+              </span>
+              <select
+                value={appearance.header_pad}
+                onChange={(e) => saveAppearance({ header_pad: Number(e.target.value) })}
+                title="Space above the header image"
+                aria-label="Header image top padding"
+                className="rounded-lg border border-slate-200 bg-surface px-2 py-1.5 text-sm outline-none focus:border-compass-400"
+              >
+                <option value={0}>None</option>
+                <option value={5}>5 px</option>
+                <option value={10}>10 px</option>
+                <option value={15}>15 px</option>
+              </select>
+            </div>
+          )}
+          {appearance.header_image && (
+            <div>
+              <span className="mb-1 block text-xs font-medium text-slate-500">
                 Header image scale
               </span>
               <div className="flex items-center gap-2">
@@ -322,7 +343,13 @@ export function NewsletterPeople({
         >
           <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
             {appearance.header_image ? (
-              <div style={{ backgroundColor: appearance.header_bg || "#ffffff", textAlign: "center" }}>
+              <div
+                style={{
+                  backgroundColor: appearance.header_bg || "#ffffff",
+                  textAlign: "center",
+                  paddingTop: appearance.header_pad || undefined,
+                }}
+              >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={appearance.header_image}

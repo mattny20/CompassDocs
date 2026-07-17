@@ -311,3 +311,52 @@ mark {
 .tiptap div.nl-panel a {
   color: inherit;
 }
+
+/* External links: a soft chip with the target site's favicon in rendered
+ * views, and a clear "goes elsewhere" treatment while editing. */
+.doc-prose a.ext-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  padding: 0.05em 0.45em;
+  border-radius: 0.45em;
+  background: rgb(var(--compass-50));
+  border: 1px solid rgb(var(--compass-100));
+  text-decoration: none;
+  font-weight: 500;
+  color: rgb(var(--compass-700));
+  vertical-align: baseline;
+}
+.doc-prose a.ext-link:hover {
+  border-color: rgb(var(--compass-300));
+  background: rgb(var(--compass-100));
+}
+.doc-prose a.ext-link .ext-link-icon {
+  width: 1em;
+  height: 1em;
+  margin: 0;
+  border: none;
+  border-radius: 0.2em;
+  box-shadow: none;
+  display: inline-block;
+  cursor: inherit;
+}
+/* Panels force their own ink; chips inside keep their pill background. */
+.doc-prose div.nl-panel a.ext-link {
+  color: rgb(var(--compass-700));
+}
+/* In the editor, external links read as chips too (favicon comes at render). */
+.tiptap a[href^="http"]:not(.email-btn) {
+  padding: 0.05em 0.35em;
+  border-radius: 0.45em;
+  background: rgb(var(--compass-50));
+  border: 1px solid rgb(var(--compass-100));
+  text-decoration: none;
+  font-weight: 500;
+}
+.tiptap a[href^="http"]:not(.email-btn)::after {
+  content: "↗";
+  font-size: 0.75em;
+  margin-left: 0.2em;
+  opacity: 0.6;
+}

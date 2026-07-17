@@ -4,6 +4,28 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.37.0] - 2026-07-17
+
+### Added
+- **Favicon link chips.** External links in rendered documents and
+  newsletters display as a soft chip with the target site's **favicon**
+  beside the link text. Icons are fetched once server-side through a cached,
+  signed-in-only proxy (public-looking https hosts only — IP literals and
+  internal names are refused), so readers never touch the external site just
+  by viewing a page. Internal links stay plain; in the editor, external
+  links show a chip with an ↗ marker.
+- **Header image top padding.** An optional 5 / 10 / 15 px gap above the
+  newsletter banner (Settings → Newsletter), reflected in the mini-preview.
+
+### Fixed
+- **Color panel automatic text color now survives email delivery.** The
+  panel's ink was set on the wrapper div only, which many mail clients
+  (Outlook in particular) don't inherit into paragraphs — so white-on-navy
+  in the editor arrived black-on-navy in the inbox. The renderer now stamps
+  the panel's text color explicitly on every text element inside the panel
+  (paragraphs, headings, lists, cells), while highlighted headings keep
+  their own dark ink and explicit colors still win.
+
 ## [0.36.0] - 2026-07-17
 
 ### Added

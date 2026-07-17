@@ -6,6 +6,7 @@ import {
   EMAIL_WIDTH_MIN,
   EMAIL_WIDTH_MAX,
   TEXTURES,
+  HEADER_PADS,
 } from "@/lib/newsletter";
 
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
@@ -39,6 +40,7 @@ export async function PUT(req: Request) {
     width?: number;
     header_image?: string;
     header_scale?: number;
+    header_pad?: number;
     header_bg?: string;
     body_bg?: string;
     body_texture?: string;
@@ -73,6 +75,16 @@ export async function PUT(req: Request) {
       );
     }
     patch.header_scale = s;
+  }
+  if (body?.header_pad !== undefined) {
+    const p = Number(body.header_pad);
+    if (!(HEADER_PADS as readonly number[]).includes(p)) {
+      return NextResponse.json(
+        { error: `Header padding must be one of: ${HEADER_PADS.join(", ")} px.` },
+        { status: 400 }
+      );
+    }
+    patch.header_pad = p;
   }
   for (const key of ["header_bg", "body_bg"] as const) {
     if (body?.[key] !== undefined) {

@@ -6,6 +6,7 @@ import { MD_SANITIZE_SCHEMA, rehypeFilterStyles } from "@/lib/md-html";
 import { CodeBlock } from "./CodeBlock";
 import { EmailTemplate } from "./EmailTemplate";
 import { DocImage } from "./DocImage";
+import { DocLink } from "./DocLink";
 
 export function MarkdownView({ content }: { content: string }) {
   return (
@@ -20,6 +21,18 @@ export function MarkdownView({ content }: { content: string }) {
           // Images zoom on click and honor the "w=NN%" title width token.
           img({ src, alt, title }) {
             return <DocImage src={String(src ?? "")} alt={alt} title={title ?? undefined} />;
+          },
+          // External links become favicon chips; internal links stay plain.
+          // Email CTA buttons keep their own styling.
+          a({ href, children, className }) {
+            if (className?.includes("email-btn")) {
+              return (
+                <a href={href} className={className}>
+                  {children}
+                </a>
+              );
+            }
+            return <DocLink href={href}>{children}</DocLink>;
           },
           // Fenced blocks (```lang) route through CodeBlock for the header bar,
           // Copy button, and run-block styling; inline code stays as-is.
