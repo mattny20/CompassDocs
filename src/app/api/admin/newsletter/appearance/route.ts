@@ -5,7 +5,10 @@ import {
   saveNewsletterAppearance,
   EMAIL_WIDTH_MIN,
   EMAIL_WIDTH_MAX,
+  TEXTURES,
 } from "@/lib/newsletter";
+
+const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
 import type { SessionUser } from "@/lib/types";
 
@@ -32,7 +35,14 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
 
-  const patch: { width?: number; header_image?: string } = {};
+  const patch: {
+    width?: number;
+    header_image?: string;
+    header_scale?: number;
+    header_bg?: string;
+    body_bg?: string;
+    body_texture?: string;
+  } = {};
   if (body?.width !== undefined) {
     const w = Number(body.width);
     if (!Number.isInteger(w) || w < EMAIL_WIDTH_MIN || w > EMAIL_WIDTH_MAX) {
@@ -53,6 +63,38 @@ export async function PUT(req: Request) {
       );
     }
     patch.header_image = h.slice(0, 500);
+  }
+  if (body?.header_scale !== undefined) {
+    const s = Number(body.header_scale);
+    if (!Number.isInteger(s) || s < 20 || s > 100) {
+      return NextResponse.json(
+        { error: "Header scale must be a whole number between 20 and 100 percent." },
+        { status: 400 }
+      );
+    }
+    patch.header_scale = s;
+  }
+  for (const key of ["header_bg", "body_bg"] as const) {
+    if (body?.[key] !== undefined) {
+      const v = String(body[key] ?? "").trim();
+      if (v !== "" && !HEX_RE.test(v)) {
+        return NextResponse.json(
+          { error: "Colors must be 6-digit hex values like #1e3a5f." },
+          { status: 400 }
+        );
+      }
+      patch[key] = v.toLowerCase();
+    }
+  }
+  if (body?.body_texture !== undefined) {
+    const t = String(body.body_texture ?? "");
+    if (!(TEXTURES as readonly string[]).includes(t)) {
+      return NextResponse.json(
+        { error: `Texture must be one of: ${TEXTURES.join(", ")}.` },
+        { status: 400 }
+      );
+    }
+    patch.body_texture = t;
   }
 
   const saved = await saveNewsletterAppearance(patch);

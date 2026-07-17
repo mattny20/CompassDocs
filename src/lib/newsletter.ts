@@ -58,21 +58,41 @@ export async function saveNewsletterFromAddresses(entries: string[]): Promise<st
 export const EMAIL_WIDTH_MIN = 480;
 export const EMAIL_WIDTH_MAX = 900;
 export const EMAIL_WIDTH_DEFAULT = 640;
+export const BODY_BG_DEFAULT = "#f1f5f9";
+export const TEXTURES = ["none", "dots", "grid", "stripes"] as const;
+
+const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 
 export interface NewsletterAppearance {
   /** Email content width in px. */
   width: number;
   /** Header banner image URL ('' = default logo bar). */
   header_image: string;
+  /** Banner display width as % of the content column (100 = full width). */
+  header_scale: number;
+  /** Header background color ('' = white). */
+  header_bg: string;
+  /** Outer background color (around the content card). */
+  body_bg: string;
+  /** Outer background texture: none | dots | grid | stripes. */
+  body_texture: string;
 }
 
 export async function getNewsletterAppearance(): Promise<NewsletterAppearance> {
   const w = Number((await getSetting("newsletter_email_width")) || EMAIL_WIDTH_DEFAULT);
+  const scale = Number((await getSetting("newsletter_header_scale")) || 100);
+  const headerBg = (await getSetting("newsletter_header_bg")) || "";
+  const bodyBg = (await getSetting("newsletter_body_bg")) || BODY_BG_DEFAULT;
+  const texture = (await getSetting("newsletter_body_texture")) || "none";
   return {
     width: Number.isInteger(w)
       ? Math.min(EMAIL_WIDTH_MAX, Math.max(EMAIL_WIDTH_MIN, w))
       : EMAIL_WIDTH_DEFAULT,
     header_image: (await getSetting("newsletter_header_image")) || "",
+    header_scale: Number.isInteger(scale) ? Math.min(100, Math.max(20, scale)) : 100,
+    header_bg: HEX_RE.test(headerBg) ? headerBg.toLowerCase() : "",
+    body_bg: HEX_RE.test(bodyBg) ? bodyBg.toLowerCase() : BODY_BG_DEFAULT,
+    body_texture: (TEXTURES as readonly string[]).includes(texture) ? texture : "none",
   };
 }
 
@@ -88,7 +108,30 @@ export async function saveNewsletterAppearance(
   if (patch.header_image !== undefined) {
     await setSetting("newsletter_header_image", patch.header_image);
   }
+  if (patch.header_scale !== undefined) {
+    await setSetting(
+      "newsletter_header_scale",
+      String(Math.min(100, Math.max(20, Math.round(patch.header_scale))))
+    );
+  }
+  if (patch.header_bg !== undefined) {
+    await setSetting("newsletter_header_bg", patch.header_bg);
+  }
+  if (patch.body_bg !== undefined) {
+    await setSetting("newsletter_body_bg", patch.body_bg);
+  }
+  if (patch.body_texture !== undefined) {
+    await setSetting("newsletter_body_texture", patch.body_texture);
+  }
   return getNewsletterAppearance();
+}
+
+/** Readable ink for an arbitrary background color (dark on light, white on dark). */
+function contrastInk(hex: string): string {
+  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/.exec(hex.toLowerCase());
+  if (!m) return "#0f172a";
+  const [r, g, b] = [m[1], m[2], m[3]].map((h) => parseInt(h, 16));
+  return 0.299 * r + 0.587 * g + 0.114 * b > 150 ? "#0f172a" : "#ffffff";
 }
 
 // --- Archive -------------------------------------------------------------------
@@ -236,7 +279,8 @@ export async function renderNewsletterHtml(input: {
   authorName: string;
 }): Promise<string> {
   const bodyHtml = await renderBodyHtml(input.markdown, input.accent, input.origin);
-  const { width, header_image } = await getNewsletterAppearance();
+  const { width, header_image, header_scale, header_bg, body_bg, body_texture } =
+    await getNewsletterAppearance();
   const logoAbs = input.logoUrl
     ? input.logoUrl.startsWith("/")
       ? `${input.origin}${input.logoUrl}`
@@ -247,17 +291,30 @@ export async function renderNewsletterHtml(input: {
       ? `${input.origin}${header_image}`
       : header_image
     : "";
-  // Custom banner replaces the default logo + org-name bar entirely.
+  // Custom banner replaces the default logo + org-name bar entirely; both
+  // honor the header background color, and the banner can be scaled down
+  // (centered) instead of spanning the full column.
+  const headerBgStyle = header_bg ? `background:${header_bg};` : "";
+  const orgInk = header_bg ? contrastInk(header_bg) : "#0f172a";
   const header = headerAbs
-    ? `<img src="${headerAbs}" alt="${escapeHtml(input.orgName)}" width="100%" style="display:block;width:100%;height:auto">`
-    : `<div style="padding:18px 28px;border-bottom:3px solid ${input.accent}">
+    ? `<div style="${headerBgStyle}text-align:center">
+        <img src="${headerAbs}" alt="${escapeHtml(input.orgName)}" width="${header_scale}%" style="display:inline-block;width:${header_scale}%;height:auto;vertical-align:top">
+      </div>`
+    : `<div style="${headerBgStyle}padding:18px 28px;border-bottom:3px solid ${input.accent}">
         ${logoAbs ? `<img src="${logoAbs}" alt="" width="28" height="28" style="vertical-align:middle;border-radius:6px;margin-right:10px">` : ""}
-        <span style="font-size:16px;font-weight:700;color:#0f172a;vertical-align:middle">${escapeHtml(input.orgName)}</span>
+        <span style="font-size:16px;font-weight:700;color:${orgInk};vertical-align:middle">${escapeHtml(input.orgName)}</span>
       </div>`;
+
+  // Outer background: solid color, optionally with a subtle tiled texture
+  // hosted from the app (email clients need absolute URLs).
+  const textureStyle =
+    body_texture !== "none" && input.origin
+      ? `background-image:url(${input.origin}/nl-textures/${body_texture}.png);background-repeat:repeat;`
+      : "";
 
   return `<!doctype html>
 <html>
-<body style="margin:0;padding:0;background:#f1f5f9">
+<body style="margin:0;padding:0;background-color:${body_bg};${textureStyle}">
   <div style="max-width:${width}px;margin:0 auto;padding:24px 12px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1e293b">
     <div style="background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e2e8f0">
       ${header}
