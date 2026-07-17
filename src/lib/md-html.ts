@@ -23,7 +23,8 @@ export const MD_SANITIZE_SCHEMA: Schema = {
     ...defaultSchema.attributes,
     "*": [...(defaultSchema.attributes?.["*"] ?? []), "style"],
     a: A_ATTRS as any,
-    div: [["className", "nl-spacer"]],
+    div: [["className", "nl-spacer", "nl-panel"]],
+    table: [...(defaultSchema.attributes?.table ?? []), ["className", "nl-borderless"]],
   },
 };
 
@@ -33,6 +34,12 @@ const STYLE_WHITELIST: [RegExp, RegExp][] = [
   [/^margin-left$/, /^\d{1,3}px$/],
   [/^height$/, /^\d{1,3}px$/],
   [/^width$/, /^\d{1,3}%$/],
+  // Heading highlights + color panels: solid colors only (hex, or the rgb()
+  // form the DOM serializer produces from hex).
+  [/^background-color$/, /^(#[0-9a-f]{3,8}|rgb\(\d{1,3}, ?\d{1,3}, ?\d{1,3}\))$/],
+  [/^color$/, /^(#[0-9a-f]{3,8}|rgb\(\d{1,3}, ?\d{1,3}, ?\d{1,3}\))$/],
+  // Font choices: plain family lists only — no urls, parens, or escapes.
+  [/^font-family$/, /^[a-z0-9 ,'"-]+$/],
 ];
 
 function filterStyle(style: string): string {

@@ -4,6 +4,7 @@ import {
   getNewsletter,
   getNewsletterApproverIds,
   listNewsletterComments,
+  listNewsletterFiles,
   listNewsletterApproverPool,
   listGroups,
 } from "@/lib/db";
@@ -41,12 +42,13 @@ export default async function NewsletterDetailPage({
   // links here); everything unsent stays with the editorial crew.
   if (!canView(user, n, approverIds)) redirect(home);
 
-  const [comments, groups, pool, smtp, fromAddresses] = await Promise.all([
+  const [comments, groups, pool, smtp, fromAddresses, nlFiles] = await Promise.all([
     hasModuleAccess ? listNewsletterComments(n.id) : Promise.resolve([]),
     listGroups(),
     listNewsletterApproverPool(),
     getSmtpConfig(),
     listNewsletterFromAddresses(),
+    listNewsletterFiles(n.id),
   ]);
 
   return (
@@ -66,6 +68,7 @@ export default async function NewsletterDetailPage({
             kind: c.kind,
             created_at: String(c.created_at),
           })),
+          files: nlFiles.map((f) => ({ id: f.id, filename: f.filename, size: f.size })),
           approver_ids: approverIds,
           can: {
             edit: canEditContent(user, n, approverIds),

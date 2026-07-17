@@ -5,7 +5,7 @@
 // (or admin) fires the actual send. One page, capabilities decided server-side
 // and re-fetched after every action.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -20,6 +20,7 @@ import {
   Save,
   CalendarClock,
   X,
+  Paperclip,
 } from "lucide-react";
 import { RichTextEditor } from "./RichTextEditor";
 import { MarkdownView } from "./MarkdownView";
@@ -59,9 +60,16 @@ interface Caps {
   delete: boolean;
 }
 
+export interface FileRow {
+  id: number;
+  filename: string;
+  size: number;
+}
+
 export interface DetailPayload {
   newsletter: NewsletterDetail;
   comments: CommentRow[];
+  files?: FileRow[];
   approver_ids: number[];
   can: Caps;
 }
@@ -101,8 +109,10 @@ export function NewsletterWorkspace({
   const router = useRouter();
   const [n, setN] = useState(initial.newsletter);
   const [comments, setComments] = useState(initial.comments);
+  const [files, setFiles] = useState<FileRow[]>(initial.files ?? []);
   const [approverIds, setApproverIds] = useState(initial.approver_ids);
   const [can, setCan] = useState(initial.can);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Editable copy of the content; `dirty` gates the workflow buttons so a
   // submit/approve always acts on what's saved, never on unsaved edits.
@@ -140,6 +150,7 @@ export function NewsletterWorkspace({
   const apply = useCallback((data: DetailPayload) => {
     setN(data.newsletter);
     setComments(data.comments);
+    setFiles(data.files ?? []);
     setApproverIds(data.approver_ids);
     setCan(data.can);
     setSubject(data.newsletter.subject);
@@ -281,6 +292,27 @@ export function NewsletterWorkspace({
       return null;
     }
     return data.url as string;
+  }
+
+  async function uploadAttachment(file: File) {
+    const form = new FormData();
+    form.append("file", file);
+    setBusy("attach");
+    setError("");
+    const res = await fetch(`/api/newsletter/${n.id}/files`, { method: "POST", body: form });
+    const data = await res.json().catch(() => ({}));
+    setBusy("");
+    if (!res.ok) {
+      setError(data?.error || "Attachment upload failed.");
+      return;
+    }
+    setFiles((prev) => [...prev, data.file]);
+  }
+
+  async function removeAttachment(fileId: number) {
+    const data = await call(`/api/newsletter/${n.id}/files/${fileId}`, { method: "DELETE" }, "attach");
+    if (!data) return;
+    setFiles((prev) => prev.filter((f) => f.id !== fileId));
   }
 
   async function schedule(at: string | null) {
@@ -520,6 +552,71 @@ export function NewsletterWorkspace({
               </>
             )}
           </fieldset>
+        </div>
+      )}
+
+      {/* Email attachments: sent WITH the newsletter as real files. */}
+      {(can.edit || files.length > 0) && (
+        <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+          <div className="flex items-center justify-between">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+              <Paperclip className="h-4 w-4 text-slate-400" /> Email attachments
+            </h2>
+            {can.edit && (
+              <>
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={busy === "attach" || files.length >= 5}
+                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  {busy === "attach" ? "Working…" : "+ Add file"}
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) uploadAttachment(f);
+                    e.target.value = "";
+                  }}
+                />
+              </>
+            )}
+          </div>
+          {files.length === 0 ? (
+            <p className="mt-2 text-xs text-slate-400">
+              Files attached here go out with the email itself (up to 5 files, 5 MB each).
+            </p>
+          ) : (
+            <ul className="mt-2 divide-y divide-slate-100">
+              {files.map((f) => (
+                <li key={f.id} className="flex items-center gap-3 py-1.5 text-sm">
+                  <a
+                    href={`/api/newsletter/${n.id}/files/${f.id}`}
+                    className="min-w-0 flex-1 truncate font-medium text-compass-700 hover:underline"
+                  >
+                    {f.filename}
+                  </a>
+                  <span className="shrink-0 text-xs text-slate-400">
+                    {f.size >= 1024 * 1024
+                      ? `${(f.size / 1024 / 1024).toFixed(1)} MB`
+                      : `${Math.max(1, Math.round(f.size / 1024))} KB`}
+                  </span>
+                  {can.edit && (
+                    <button
+                      onClick={() => removeAttachment(f.id)}
+                      title="Remove attachment"
+                      aria-label={`Remove ${f.filename}`}
+                      className="shrink-0 rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-red-600"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
 

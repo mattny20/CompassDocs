@@ -11,7 +11,9 @@ export async function sendMail(
   text: string,
   html?: string,
   /** Override the configured From (newsletters with a chosen sender). */
-  fromOverride?: string
+  fromOverride?: string,
+  /** Real MIME attachments (newsletter files). */
+  attachments?: { filename: string; path: string }[]
 ): Promise<void> {
   const cfg = await getSmtpConfig();
   if (!smtpConfigured(cfg)) {
@@ -27,5 +29,12 @@ export async function sendMail(
     connectionTimeout: 8000,
     socketTimeout: 10000,
   });
-  await transport.sendMail({ from: fromOverride || cfg.from, to: to.join(", "), subject, text, html });
+  await transport.sendMail({
+    from: fromOverride || cfg.from,
+    to: to.join(", "),
+    subject,
+    text,
+    html,
+    attachments: attachments?.length ? attachments : undefined,
+  });
 }

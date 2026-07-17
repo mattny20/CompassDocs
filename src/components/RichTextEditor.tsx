@@ -9,6 +9,12 @@ import Underline from "@tiptap/extension-underline";
 import TextAlign from "@tiptap/extension-text-align";
 import Paragraph from "@tiptap/extension-paragraph";
 import Heading from "@tiptap/extension-heading";
+import Table from "@tiptap/extension-table";
+import TableRow from "@tiptap/extension-table-row";
+import TableHeader from "@tiptap/extension-table-header";
+import TableCell from "@tiptap/extension-table-cell";
+import TextStyle from "@tiptap/extension-text-style";
+import FontFamily from "@tiptap/extension-font-family";
 import { Node, Extension, mergeAttributes, getHTMLFromFragment } from "@tiptap/core";
 import { Fragment } from "@tiptap/pm/model";
 import { Markdown } from "tiptap-markdown";
@@ -38,6 +44,14 @@ import {
   Minus,
   MousePointerSquareDashed,
   UnfoldVertical,
+  Table as TableIcon,
+  Rows3,
+  Columns3,
+  Trash2,
+  Grid2x2X,
+  Highlighter,
+  PaintBucket,
+  SquareX,
 } from "lucide-react";
 
 // Starter content inserted by the "Email template" toolbar button. Rendered
@@ -71,17 +85,25 @@ const SizableImage = Image.extend({
   },
 });
 
-const IMAGE_SIZES: { label: string; title: string | null }[] = [
-  { label: "S", title: "w=25%" },
-  { label: "M", title: "w=50%" },
-  { label: "L", title: "w=75%" },
-  { label: "Full", title: null },
-];
+/** Current display width (%) from the image's "w=NN%" title token. */
+function imageWidthPct(title: unknown): number {
+  const m = /^w=(\d{1,3})%$/.exec(String(title ?? ""));
+  return m ? Math.min(100, Math.max(10, Number(m[1]))) : 100;
+}
 
 const SPACER_SIZES: { label: string; size: number }[] = [
   { label: "S", size: 16 },
   { label: "M", size: 32 },
   { label: "L", size: 48 },
+];
+
+// A small, deliberate set of email-safe fonts (web-safe stacks so newsletters
+// look the same in inboxes).
+const FONTS: { label: string; value: string | null }[] = [
+  { label: "Default", value: null },
+  { label: "Serif", value: "Georgia, 'Times New Roman', serif" },
+  { label: "Typewriter", value: "'Courier New', monospace" },
+  { label: "Rounded", value: "'Trebuchet MS', Verdana, sans-serif" },
 ];
 
 // --- Markdown round-trip for styled blocks -----------------------------------
@@ -115,14 +137,207 @@ const MdParagraph = Paragraph.extend({
   },
 });
 
+// Headings additionally carry an optional highlight color; any styled heading
+// (aligned, indented, or highlighted) serializes as an HTML island.
 const MdHeading = Heading.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      bgColor: {
+        default: null,
+        // The DOM serializes hex colors back as rgb(...), so accept both and
+        // normalize to hex — the palette's active-swatch match depends on it.
+        parseHTML: (el: HTMLElement) => {
+          const style = el.getAttribute("style") || "";
+          let m = /background-color:\s*(#[0-9a-fA-F]{3,8})/.exec(style);
+          if (m) return m[1].toLowerCase();
+          m = /background-color:\s*rgb\((\d{1,3}),\s*(\d{1,3}),\s*(\d{1,3})\)/.exec(style);
+          if (m) {
+            return (
+              "#" +
+              [m[1], m[2], m[3]]
+                .map((n) => Math.min(255, Number(n)).toString(16).padStart(2, "0"))
+                .join("")
+            );
+          }
+          return null;
+        },
+        renderHTML: (attrs: any) =>
+          attrs.bgColor ? { style: `background-color: ${attrs.bgColor}` } : {},
+      },
+    };
+  },
   addStorage() {
     return {
       markdown: {
         serialize(state: any, node: any) {
-          if (blockIsStyled(node)) return writeBlockAsHtml(state, node);
+          if (blockIsStyled(node) || node.attrs.bgColor) return writeBlockAsHtml(state, node);
           state.write(state.repeat("#", node.attrs.level) + " ");
           state.renderInline(node, false);
+          state.closeBlock(node);
+        },
+        parse: {},
+      },
+    };
+  },
+});
+
+// Heading highlight palette (light pastels — headings force dark text when
+// highlighted, so they read in both themes and in email).
+const HEADING_COLORS: { label: string; value: string | null; swatch: string }[] = [
+  { label: "None", value: null, swatch: "transparent" },
+  { label: "Gray", value: "#f1f5f9", swatch: "#f1f5f9" },
+  { label: "Yellow", value: "#fef3c7", swatch: "#fef3c7" },
+  { label: "Green", value: "#dcfce7", swatch: "#dcfce7" },
+  { label: "Blue", value: "#dbeafe", swatch: "#dbeafe" },
+  { label: "Purple", value: "#f3e8ff", swatch: "#f3e8ff" },
+  { label: "Pink", value: "#fce7f3", swatch: "#fce7f3" },
+];
+
+// --- Color panel -----------------------------------------------------------------
+// A colored container block (like the code/email blocks, but free-form): any
+// content on a background color. Text color follows the background's
+// luminance automatically unless the author overrides it.
+
+const PANEL_COLORS: { label: string; value: string }[] = [
+  { label: "Gray", value: "#f1f5f9" },
+  { label: "Yellow", value: "#fef3c7" },
+  { label: "Green", value: "#dcfce7" },
+  { label: "Blue", value: "#dbeafe" },
+  { label: "Purple", value: "#f3e8ff" },
+  { label: "Pink", value: "#fce7f3" },
+  { label: "Navy", value: "#1e3a5f" },
+  { label: "Forest", value: "#14532d" },
+  { label: "Slate", value: "#0f172a" },
+];
+
+function parseCssColor(value: string): string | null {
+  let m = /^#([0-9a-fA-F]{6})$/.exec(value.trim());
+  if (m) return `#${m[1].toLowerCase()}`;
+  m = /^rgb\((\d{1,3}),\s*(\d{1,3}),\s*(\d{1,3})\)$/.exec(value.trim());
+  if (m) {
+    return (
+      "#" +
+      [m[1], m[2], m[3]].map((n) => Math.min(255, Number(n)).toString(16).padStart(2, "0")).join("")
+    );
+  }
+  return null;
+}
+
+/** Readable text color for a background: dark ink on light, white on dark. */
+export function contrastText(bgHex: string): string {
+  const hex = parseCssColor(bgHex) ?? "#f1f5f9";
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return 0.299 * r + 0.587 * g + 0.114 * b > 150 ? "#0f172a" : "#ffffff";
+}
+
+function styleColor(el: HTMLElement, prop: "background-color" | "color"): string | null {
+  const m = new RegExp(`(?:^|;)\\s*${prop}:\\s*([^;]+)`).exec(el.getAttribute("style") || "");
+  return m ? parseCssColor(m[1]) : null;
+}
+
+const ColorPanel = Node.create({
+  name: "colorPanel",
+  group: "block",
+  content: "block+",
+  defining: true,
+  addAttributes() {
+    return {
+      bg: { default: "#f1f5f9" },
+      /** null = automatic (contrast-picked from bg). */
+      textColor: { default: null },
+    };
+  },
+  parseHTML() {
+    return [
+      {
+        tag: "div.nl-panel",
+        getAttrs: (el) => {
+          const bg = styleColor(el as HTMLElement, "background-color") ?? "#f1f5f9";
+          const explicit = styleColor(el as HTMLElement, "color");
+          return { bg, textColor: explicit && explicit !== contrastText(bg) ? explicit : null };
+        },
+      },
+    ];
+  },
+  renderHTML({ node }) {
+    const color = node.attrs.textColor || contrastText(node.attrs.bg);
+    return [
+      "div",
+      { class: "nl-panel", style: `background-color: ${node.attrs.bg}; color: ${color}` },
+      0,
+    ];
+  },
+});
+
+// --- Tables --------------------------------------------------------------------
+// Simple tables keep GFM pipe syntax; a table marked transparent (or one using
+// header cells outside the first row / spans) serializes as an HTML island.
+
+function tableChildNodes(node: any): any[] {
+  return node?.content?.content ?? [];
+}
+
+function tableHasSpan(cell: any): boolean {
+  return cell.attrs.colspan > 1 || cell.attrs.rowspan > 1;
+}
+
+function tableIsPipeSerializable(node: any): boolean {
+  const rows = tableChildNodes(node);
+  if (rows.length === 0) return false;
+  const [firstRow, ...bodyRows] = rows;
+  if (
+    tableChildNodes(firstRow).some(
+      (cell) => cell.type.name !== "tableHeader" || tableHasSpan(cell) || cell.childCount > 1
+    )
+  ) {
+    return false;
+  }
+  return !bodyRows.some((row) =>
+    tableChildNodes(row).some(
+      (cell) => cell.type.name === "tableHeader" || tableHasSpan(cell) || cell.childCount > 1
+    )
+  );
+}
+
+const MdTable = Table.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      // Transparent layout table: no borders or header shading — handy for
+      // placing photos or content side by side.
+      transparent: {
+        default: false,
+        parseHTML: (el: HTMLElement) => el.classList.contains("nl-borderless"),
+        renderHTML: (attrs: any) => (attrs.transparent ? { class: "nl-borderless" } : {}),
+      },
+    };
+  },
+  addStorage() {
+    return {
+      markdown: {
+        serialize(state: any, node: any) {
+          if (node.attrs.transparent || !tableIsPipeSerializable(node)) {
+            return writeBlockAsHtml(state, node);
+          }
+          // GFM pipe table (mirrors tiptap-markdown's default writer).
+          node.forEach((row: any, _p: any, i: number) => {
+            state.write("| ");
+            row.forEach((col: any, _p2: any, j: number) => {
+              if (j) state.write(" | ");
+              const cellContent = col.firstChild;
+              if (cellContent.textContent.trim()) state.renderInline(cellContent);
+            });
+            state.write(" |");
+            state.ensureNewLine();
+            if (!i) {
+              const delimiter = Array.from({ length: row.childCount }).map(() => "---").join(" | ");
+              state.write(`| ${delimiter} |`);
+              state.ensureNewLine();
+            }
+          });
           state.closeBlock(node);
         },
         parse: {},
@@ -259,8 +474,16 @@ export function RichTextEditor({
       Indentable,
       EmailButton,
       SpacerBlock,
+      ColorPanel,
+      TextStyle,
+      FontFamily,
+      MdTable.configure({ resizable: false }),
+      TableRow,
+      TableHeader,
+      TableCell,
       Link.configure({ openOnClick: false, autolink: true }),
-      SizableImage,
+      // Inline so two sized photos can sit next to each other in one paragraph.
+      SizableImage.configure({ inline: true }),
       Markdown.configure({ html: true, linkify: true, breaks: true }),
     ],
     content: value,
@@ -465,6 +688,23 @@ function Toolbar({
       <Btn onClick={copyFormat} active={!!painted} label={painted ? "Select text to apply the copied formatting (click again to cancel)" : "Format painter — copy this formatting, then select text to apply it"}>
         <Paintbrush className={TB_ICON} />
       </Btn>
+      <select
+        value={(editor.getAttributes("textStyle").fontFamily as string) || ""}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (v) editor.chain().focus().setFontFamily(v).run();
+          else editor.chain().focus().unsetFontFamily().run();
+        }}
+        title="Font — email-safe choices that render everywhere"
+        aria-label="Font"
+        className="mx-0.5 h-8 rounded-md border border-slate-200 bg-surface px-1 text-xs text-slate-600 outline-none hover:bg-slate-50"
+      >
+        {FONTS.map((f) => (
+          <option key={f.label} value={f.value ?? ""}>
+            {f.label}
+          </option>
+        ))}
+      </select>
       <Btn onClick={clearFormatting} label="Clear formatting">
         <RemoveFormatting className={TB_ICON} />
       </Btn>
@@ -543,6 +783,25 @@ function Toolbar({
       <Btn onClick={() => editor.chain().focus().setHorizontalRule().run()} label="Divider line">
         <Minus className={TB_ICON} />
       </Btn>
+      <Btn
+        onClick={() =>
+          editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
+        }
+        active={editor.isActive("table")}
+        label="Insert table (3×3 — add or remove rows and columns once inside)"
+      >
+        <TableIcon className={TB_ICON} />
+      </Btn>
+      <Btn
+        onClick={() => {
+          if (editor.isActive("colorPanel")) editor.chain().focus().lift("colorPanel").run();
+          else editor.chain().focus().wrapIn("colorPanel").run();
+        }}
+        active={editor.isActive("colorPanel")}
+        label="Color panel — put content on a colored background (click again to remove)"
+      >
+        <PaintBucket className={TB_ICON} />
+      </Btn>
       <Divider />
       <Btn onClick={promptLink} active={editor.isActive("link")} label="Link">
         <LinkIcon className={TB_ICON} />
@@ -610,6 +869,123 @@ function Toolbar({
       >
         <Mail className={TB_ICON} />
       </Btn>
+      {editor.isActive("heading") && (
+        <>
+          <Divider />
+          <span className="inline-flex items-center gap-0.5 px-1 text-xs font-medium text-slate-400">
+            <Highlighter className="h-3.5 w-3.5" /> Highlight
+          </span>
+          {HEADING_COLORS.map((c) => (
+            <button
+              key={c.label}
+              type="button"
+              onClick={() =>
+                editor.chain().focus().updateAttributes("heading", { bgColor: c.value }).run()
+              }
+              title={c.value ? `${c.label} heading highlight` : "No highlight"}
+              aria-label={c.value ? `${c.label} heading highlight` : "Remove heading highlight"}
+              className={`mx-0.5 h-5 w-5 rounded-md border ${
+                (editor.getAttributes("heading").bgColor ?? null) === c.value
+                  ? "border-compass-500 ring-2 ring-compass-200"
+                  : "border-slate-300"
+              }`}
+              style={
+                c.value
+                  ? { backgroundColor: c.swatch }
+                  : {
+                      background:
+                        "linear-gradient(to top right, transparent 45%, #ef4444 47%, #ef4444 53%, transparent 55%)",
+                    }
+              }
+            />
+          ))}
+        </>
+      )}
+      {editor.isActive("colorPanel") && (
+        <>
+          <Divider />
+          <span className="inline-flex items-center gap-0.5 px-1 text-xs font-medium text-slate-400">
+            <PaintBucket className="h-3.5 w-3.5" /> Panel
+          </span>
+          {PANEL_COLORS.map((c) => (
+            <button
+              key={c.label}
+              type="button"
+              onClick={() =>
+                editor.chain().focus().updateAttributes("colorPanel", { bg: c.value }).run()
+              }
+              title={`${c.label} panel background`}
+              aria-label={`${c.label} panel background`}
+              className={`mx-0.5 h-5 w-5 rounded-md border ${
+                editor.getAttributes("colorPanel").bg === c.value
+                  ? "border-compass-500 ring-2 ring-compass-200"
+                  : "border-slate-300"
+              }`}
+              style={{ backgroundColor: c.value }}
+            />
+          ))}
+          <span className="px-1 text-xs font-medium text-slate-400">Text</span>
+          {[
+            { label: "Auto", value: null },
+            { label: "Dark", value: "#0f172a" },
+            { label: "White", value: "#ffffff" },
+          ].map((t) => (
+            <Btn
+              key={t.label}
+              onClick={() =>
+                editor.chain().focus().updateAttributes("colorPanel", { textColor: t.value }).run()
+              }
+              active={(editor.getAttributes("colorPanel").textColor ?? null) === t.value}
+              label={
+                t.value
+                  ? `${t.label} text on this panel`
+                  : "Automatic text color (picked to stay readable on the background)"
+              }
+            >
+              <span className="text-xs">{t.label}</span>
+            </Btn>
+          ))}
+          <Btn
+            onClick={() => editor.chain().focus().lift("colorPanel").run()}
+            label="Remove the panel (keep its content)"
+          >
+            <SquareX className={TB_ICON} />
+          </Btn>
+        </>
+      )}
+      {editor.isActive("table") && (
+        <>
+          <Divider />
+          <Btn onClick={() => editor.chain().focus().addRowAfter().run()} label="Add a row below">
+            <Rows3 className={TB_ICON} />
+          </Btn>
+          <Btn onClick={() => editor.chain().focus().deleteRow().run()} label="Delete this row">
+            <span className="text-xs font-semibold">−R</span>
+          </Btn>
+          <Btn onClick={() => editor.chain().focus().addColumnAfter().run()} label="Add a column to the right">
+            <Columns3 className={TB_ICON} />
+          </Btn>
+          <Btn onClick={() => editor.chain().focus().deleteColumn().run()} label="Delete this column">
+            <span className="text-xs font-semibold">−C</span>
+          </Btn>
+          <Btn
+            onClick={() =>
+              editor
+                .chain()
+                .focus()
+                .updateAttributes("table", { transparent: !editor.getAttributes("table").transparent })
+                .run()
+            }
+            active={Boolean(editor.getAttributes("table").transparent)}
+            label="Transparent table — no borders or shading, for side-by-side layouts"
+          >
+            <Grid2x2X className={TB_ICON} />
+          </Btn>
+          <Btn onClick={() => editor.chain().focus().deleteTable().run()} label="Delete the whole table">
+            <Trash2 className={TB_ICON} />
+          </Btn>
+        </>
+      )}
       {editor.isActive("image") && (
         <>
           <Divider />
@@ -628,19 +1004,28 @@ function Toolbar({
           >
             Alt
           </Btn>
-          <span className="px-1 text-xs font-medium text-slate-400">Image size</span>
-          {IMAGE_SIZES.map((s) => (
-            <Btn
-              key={s.label}
-              onClick={() =>
-                editor.chain().focus().updateAttributes("image", { title: s.title }).run()
-              }
-              active={(editor.getAttributes("image").title ?? null) === s.title}
-              label={s.title ? `Display at ${s.title.slice(2)}` : "Full width"}
-            >
-              {s.label}
-            </Btn>
-          ))}
+          <span className="px-1 text-xs font-medium text-slate-400">Size</span>
+          <input
+            type="range"
+            min={10}
+            max={100}
+            step={5}
+            value={imageWidthPct(editor.getAttributes("image").title)}
+            onChange={(e) => {
+              const pct = Number(e.target.value);
+              editor
+                .chain()
+                .focus()
+                .updateAttributes("image", { title: pct >= 100 ? null : `w=${pct}%` })
+                .run();
+            }}
+            title="Image display width"
+            aria-label="Image display width"
+            className="h-1.5 w-28 cursor-pointer accent-compass-600"
+          />
+          <span className="w-10 px-1 text-xs tabular-nums text-slate-500">
+            {imageWidthPct(editor.getAttributes("image").title)}%
+          </span>
         </>
       )}
       {editor.isActive("emailButton") && (

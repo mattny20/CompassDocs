@@ -7,8 +7,10 @@ import {
   setNewsletterApprovers,
   listNewsletterApproverPool,
   listNewsletterComments,
+  listNewsletterFiles,
   deleteNewsletter,
 } from "@/lib/db";
+import { deleteUpload } from "@/lib/uploads";
 import {
   canView,
   canUseNewsletter,
@@ -47,6 +49,7 @@ export async function GET(_req: Request, { params }: Params) {
     // The editorial thread stays with the editorial crew — a sent newsletter
     // is readable by everyone, but its review history isn't.
     comments: canUseNewsletter(user) ? await listNewsletterComments(n.id) : [],
+    files: await listNewsletterFiles(n.id),
     approver_ids: approverIds,
     can: {
       edit: canEditContent(user, n, approverIds),
@@ -146,6 +149,10 @@ export async function DELETE(req: Request, { params }: Params) {
   if (!n) return NextResponse.json({ error: "Newsletter not found." }, { status: 404 });
   if (!canDelete(user, n)) {
     return NextResponse.json({ error: "You can't delete this newsletter." }, { status: 403 });
+  }
+  // Attachment blobs first — the DB rows cascade with the newsletter.
+  for (const f of await listNewsletterFiles(n.id)) {
+    await deleteUpload(f.stored_name);
   }
   await deleteNewsletter(n.id);
   await audit({
