@@ -4,6 +4,25 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.36.0] - 2026-07-17
+
+### Added
+- **More newsletter appearance controls** (Settings → Newsletter). A
+  **header background color** (behind the banner, or behind the default bar
+  — the workspace name's ink flips automatically to stay readable); a
+  **header image scale** slider (20–100%, centered) so a masthead doesn't
+  have to span the full column; and an **outer background** for the area
+  around the content card — any color plus an optional subtle tiled
+  **texture** (dots, grid, or stripes; served from the app so they render
+  in inboxes). A live mini-preview on the settings page shows the combined
+  result.
+
+### Changed
+- **The editor toolbar is now sticky.** Editing long documents or
+  newsletters no longer means scrolling back to the top for formatting —
+  the toolbar pins to the top of the window while the content scrolls, in
+  both the document and newsletter editors.
+
 ## [0.35.0] - 2026-07-17
 
 ### Added

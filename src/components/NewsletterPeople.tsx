@@ -18,14 +18,32 @@ interface PersonRow {
   newsletter_role: string;
 }
 
+interface Appearance {
+  width: number;
+  header_image: string;
+  header_scale: number;
+  header_bg: string;
+  body_bg: string;
+  body_texture: string;
+}
+
+const DEFAULT_APPEARANCE: Appearance = {
+  width: 640,
+  header_image: "",
+  header_scale: 100,
+  header_bg: "",
+  body_bg: "#f1f5f9",
+  body_texture: "none",
+};
+
 export function NewsletterPeople({
   initial,
   initialSenders = [],
-  initialAppearance = { width: 640, header_image: "" },
+  initialAppearance = DEFAULT_APPEARANCE,
 }: {
   initial: PersonRow[];
   initialSenders?: string[];
-  initialAppearance?: { width: number; header_image: string };
+  initialAppearance?: Appearance;
 }) {
   const [rows, setRows] = useState(initial);
   const [busyId, setBusyId] = useState(0);
@@ -41,7 +59,7 @@ export function NewsletterPeople({
   const [appearanceError, setAppearanceError] = useState("");
   const headerFileRef = useRef<HTMLInputElement>(null);
 
-  async function saveAppearance(patch: { width?: number; header_image?: string }) {
+  async function saveAppearance(patch: Partial<Appearance>) {
     setAppearanceBusy(true);
     setAppearanceError("");
     const res = await fetch("/api/admin/newsletter/appearance", {
@@ -200,14 +218,134 @@ export function NewsletterPeople({
             </div>
           </div>
         </div>
-        {appearance.header_image && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={appearance.header_image}
-            alt="Newsletter header preview"
-            className="mt-3 w-full max-w-lg rounded-lg border border-slate-200"
-          />
-        )}
+        <div className="mt-4 flex flex-wrap items-end gap-6">
+          <div>
+            <span className="mb-1 block text-xs font-medium text-slate-500">
+              Header background
+            </span>
+            <div className="flex items-center gap-2">
+              <input
+                type="color"
+                value={appearance.header_bg || "#ffffff"}
+                onChange={(e) => setAppearance((a) => ({ ...a, header_bg: e.target.value }))}
+                onBlur={(e) => saveAppearance({ header_bg: e.target.value })}
+                title="Header background color"
+                aria-label="Header background color"
+                className="h-8 w-12 cursor-pointer rounded-md border border-slate-200 bg-surface p-0.5"
+              />
+              {appearance.header_bg && (
+                <button
+                  onClick={() => saveAppearance({ header_bg: "" })}
+                  disabled={appearanceBusy}
+                  className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          </div>
+          <div>
+            <span className="mb-1 block text-xs font-medium text-slate-500">
+              Outer background (around the content)
+            </span>
+            <div className="flex items-center gap-2">
+              <input
+                type="color"
+                value={appearance.body_bg}
+                onChange={(e) => setAppearance((a) => ({ ...a, body_bg: e.target.value }))}
+                onBlur={(e) => saveAppearance({ body_bg: e.target.value })}
+                title="Outer background color"
+                aria-label="Outer background color"
+                className="h-8 w-12 cursor-pointer rounded-md border border-slate-200 bg-surface p-0.5"
+              />
+              <select
+                value={appearance.body_texture}
+                onChange={(e) => saveAppearance({ body_texture: e.target.value })}
+                title="Outer background texture"
+                aria-label="Outer background texture"
+                className="rounded-lg border border-slate-200 bg-surface px-2 py-1.5 text-sm outline-none focus:border-compass-400"
+              >
+                <option value="none">No texture</option>
+                <option value="dots">Dots</option>
+                <option value="grid">Grid</option>
+                <option value="stripes">Stripes</option>
+              </select>
+              {(appearance.body_bg !== "#f1f5f9" || appearance.body_texture !== "none") && (
+                <button
+                  onClick={() => saveAppearance({ body_bg: "#f1f5f9", body_texture: "none" })}
+                  disabled={appearanceBusy}
+                  className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                >
+                  Reset
+                </button>
+              )}
+            </div>
+          </div>
+          {appearance.header_image && (
+            <div>
+              <span className="mb-1 block text-xs font-medium text-slate-500">
+                Header image scale
+              </span>
+              <div className="flex items-center gap-2">
+                <input
+                  type="range"
+                  min={20}
+                  max={100}
+                  step={5}
+                  value={appearance.header_scale}
+                  onChange={(e) =>
+                    setAppearance((a) => ({ ...a, header_scale: Number(e.target.value) }))
+                  }
+                  onPointerUp={() => saveAppearance({ header_scale: appearance.header_scale })}
+                  onKeyUp={() => saveAppearance({ header_scale: appearance.header_scale })}
+                  title="Header image display width"
+                  aria-label="Header image scale"
+                  className="h-1.5 w-32 cursor-pointer accent-compass-600"
+                />
+                <span className="w-10 text-xs tabular-nums text-slate-500">
+                  {appearance.header_scale}%
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+        {/* Mini preview: outer bg + texture behind the (scaled) header. */}
+        <div
+          className="mt-3 max-w-lg rounded-lg border border-slate-200 p-4"
+          style={{
+            backgroundColor: appearance.body_bg,
+            backgroundImage:
+              appearance.body_texture !== "none"
+                ? `url(/nl-textures/${appearance.body_texture}.png)`
+                : undefined,
+          }}
+        >
+          <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+            {appearance.header_image ? (
+              <div style={{ backgroundColor: appearance.header_bg || "#ffffff", textAlign: "center" }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={appearance.header_image}
+                  alt="Newsletter header preview"
+                  style={{ width: `${appearance.header_scale}%` }}
+                  className="inline-block align-top"
+                />
+              </div>
+            ) : (
+              <div
+                className="px-4 py-2 text-sm font-bold"
+                style={{
+                  backgroundColor: appearance.header_bg || "#ffffff",
+                  color: "#0f172a",
+                  borderBottom: "3px solid #2e75bd",
+                }}
+              >
+                Default header bar
+              </div>
+            )}
+            <div className="px-4 py-3 text-xs text-slate-400">Newsletter content…</div>
+          </div>
+        </div>
         {!appearance.header_image && (
           <p className="mt-2 text-xs text-slate-400">
             No custom header — emails use the default bar (workspace logo + name, accent
