@@ -13,7 +13,14 @@ import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import { toHtml } from "hast-util-to-html";
 import { MD_SANITIZE_SCHEMA, rehypeFilterStyles } from "./md-html";
-import { listAnnouncementRecipients, getSetting, setSetting } from "./db";
+import {
+  listAnnouncementRecipients,
+  getSetting,
+  setSetting,
+  createDocument,
+  getSpaceById,
+} from "./db";
+import type { Newsletter } from "./db";
 import { getSmtpConfig, smtpConfigured } from "./smtp-config";
 import { sendMail } from "./mailer";
 
@@ -42,6 +49,76 @@ export async function saveNewsletterFromAddresses(entries: string[]): Promise<st
   const clean = [...new Set(entries.map((e) => e.trim()).filter(Boolean))].slice(0, 20);
   await setSetting(FROM_SETTING, clean.join("\n"));
   return clean;
+}
+
+// --- Email appearance ---------------------------------------------------------
+// Admin-set content width and an optional custom header banner (replaces the
+// default logo + org-name bar when set).
+
+export const EMAIL_WIDTH_MIN = 480;
+export const EMAIL_WIDTH_MAX = 900;
+export const EMAIL_WIDTH_DEFAULT = 640;
+
+export interface NewsletterAppearance {
+  /** Email content width in px. */
+  width: number;
+  /** Header banner image URL ('' = default logo bar). */
+  header_image: string;
+}
+
+export async function getNewsletterAppearance(): Promise<NewsletterAppearance> {
+  const w = Number((await getSetting("newsletter_email_width")) || EMAIL_WIDTH_DEFAULT);
+  return {
+    width: Number.isInteger(w)
+      ? Math.min(EMAIL_WIDTH_MAX, Math.max(EMAIL_WIDTH_MIN, w))
+      : EMAIL_WIDTH_DEFAULT,
+    header_image: (await getSetting("newsletter_header_image")) || "",
+  };
+}
+
+export async function saveNewsletterAppearance(
+  patch: Partial<NewsletterAppearance>
+): Promise<NewsletterAppearance> {
+  if (patch.width !== undefined) {
+    await setSetting(
+      "newsletter_email_width",
+      String(Math.min(EMAIL_WIDTH_MAX, Math.max(EMAIL_WIDTH_MIN, Math.round(patch.width))))
+    );
+  }
+  if (patch.header_image !== undefined) {
+    await setSetting("newsletter_header_image", patch.header_image);
+  }
+  return getNewsletterAppearance();
+}
+
+// --- Archive -------------------------------------------------------------------
+
+/**
+ * File a sent newsletter as a published document in its chosen archive space.
+ * Returns the new document's id, or null when no archive is configured (or
+ * the space has since been deleted). Best-effort: never throws.
+ */
+export async function archiveNewsletter(n: Newsletter): Promise<number | null> {
+  if (!n.archive_space_id) return null;
+  try {
+    const space = await getSpaceById(n.archive_space_id);
+    if (!space) return null;
+    const doc = await createDocument({
+      space_id: n.archive_space_id,
+      category_id: null,
+      title: n.subject,
+      type: "knowledge",
+      status: "published",
+      content: n.body,
+      summary: `Newsletter sent ${new Date().toLocaleDateString()}.`,
+      tags: ["newsletter"],
+      author: n.author_name,
+    });
+    return doc.id;
+  } catch (e) {
+    console.error(`[newsletter] archiving #${n.id} failed:`, e);
+    return null;
+  }
 }
 
 // Per-tag inline styles: dark text on white, accent for links/quotes.
@@ -159,21 +236,31 @@ export async function renderNewsletterHtml(input: {
   authorName: string;
 }): Promise<string> {
   const bodyHtml = await renderBodyHtml(input.markdown, input.accent, input.origin);
+  const { width, header_image } = await getNewsletterAppearance();
   const logoAbs = input.logoUrl
     ? input.logoUrl.startsWith("/")
       ? `${input.origin}${input.logoUrl}`
       : input.logoUrl
     : "";
+  const headerAbs = header_image
+    ? header_image.startsWith("/")
+      ? `${input.origin}${header_image}`
+      : header_image
+    : "";
+  // Custom banner replaces the default logo + org-name bar entirely.
+  const header = headerAbs
+    ? `<img src="${headerAbs}" alt="${escapeHtml(input.orgName)}" width="100%" style="display:block;width:100%;height:auto">`
+    : `<div style="padding:18px 28px;border-bottom:3px solid ${input.accent}">
+        ${logoAbs ? `<img src="${logoAbs}" alt="" width="28" height="28" style="vertical-align:middle;border-radius:6px;margin-right:10px">` : ""}
+        <span style="font-size:16px;font-weight:700;color:#0f172a;vertical-align:middle">${escapeHtml(input.orgName)}</span>
+      </div>`;
 
   return `<!doctype html>
 <html>
 <body style="margin:0;padding:0;background:#f1f5f9">
-  <div style="max-width:640px;margin:0 auto;padding:24px 12px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1e293b">
+  <div style="max-width:${width}px;margin:0 auto;padding:24px 12px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1e293b">
     <div style="background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e2e8f0">
-      <div style="padding:18px 28px;border-bottom:3px solid ${input.accent}">
-        ${logoAbs ? `<img src="${logoAbs}" alt="" width="28" height="28" style="vertical-align:middle;border-radius:6px;margin-right:10px">` : ""}
-        <span style="font-size:16px;font-weight:700;color:#0f172a;vertical-align:middle">${escapeHtml(input.orgName)}</span>
-      </div>
+      ${header}
       <div style="padding:28px">
         <h1 style="font-size:26px;margin:0 0 18px;color:#0f172a">${escapeHtml(input.subject)}</h1>
         ${bodyHtml}

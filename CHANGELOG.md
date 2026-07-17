@@ -4,6 +4,27 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.35.0] - 2026-07-17
+
+### Added
+- **Newsletter email appearance** (Settings → Newsletter). Admins set the
+  email's **content width** (480–900 px, default 640) and can upload a
+  **custom header banner** — a masthead image that replaces the default
+  logo + workspace-name bar at the top of every newsletter. Remove it to
+  return to the default. Applies to test, manual, and scheduled sends.
+- **Archive newsletters to a space.** Pick an archive space in the draft
+  window and every send files a published copy as a document in that space
+  (titled with the subject, tagged `newsletter`) — past issues become
+  searchable in the knowledge base. Works for scheduled sends too, and the
+  activity thread records the archived document.
+
+### Fixed
+- **Image size slider survives dragging.** Grabbing the slider no longer
+  makes it vanish after the first pixel (the first change used to steal
+  focus and drop the image selection, so the click position became the
+  size). The drag now previews live, the image follows to the release
+  point, and the controls stay put for repeat adjustments.
+
 ## [0.34.0] - 2026-07-17
 
 ### Added

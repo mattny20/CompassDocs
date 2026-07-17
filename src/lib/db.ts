@@ -564,6 +564,10 @@ const SCHEMA_SQL = `
   -- Optional per-newsletter sender, picked from the admin-curated list
   -- (setting: newsletter_from_addresses). Empty = the SMTP default From.
   ALTER TABLE newsletters ADD COLUMN IF NOT EXISTS from_address text NOT NULL DEFAULT '';
+  -- When set, sending also files the newsletter as a published document in
+  -- this space (the archive). Chosen by the author in the draft window.
+  ALTER TABLE newsletters ADD COLUMN IF NOT EXISTS
+    archive_space_id integer REFERENCES spaces(id) ON DELETE SET NULL;
   -- Sent newsletters surface on every dashboard for a few days; the X hides
   -- one for that user only (mirrors announcement_dismissals).
   CREATE TABLE IF NOT EXISTS newsletter_dismissals (
@@ -2520,6 +2524,8 @@ export interface Newsletter {
   scheduled_origin: string;
   /** Sender override from the admin-curated list; '' = SMTP default. */
   from_address: string;
+  /** Space that receives an archive document on send; null = no archive. */
+  archive_space_id: number | null;
 }
 
 export interface NewsletterComment {
@@ -2579,12 +2585,19 @@ export async function listNewslettersFor(userId: number, seeAll: boolean): Promi
 
 export async function updateNewsletterContent(
   id: number,
-  input: { subject: string; body: string; mode: string; group_ids: string; from_address: string }
+  input: {
+    subject: string;
+    body: string;
+    mode: string;
+    group_ids: string;
+    from_address: string;
+    archive_space_id: number | null;
+  }
 ): Promise<Newsletter | undefined> {
   return (
     await q<Newsletter>(
       `UPDATE newsletters SET subject = $2, body = $3, mode = $4, group_ids = $5,
-       from_address = $6, updated_at = now() WHERE id = $1 RETURNING *`,
+       from_address = $6, archive_space_id = $7, updated_at = now() WHERE id = $1 RETURNING *`,
       [
         id,
         input.subject.trim().slice(0, 200),
@@ -2592,6 +2605,7 @@ export async function updateNewsletterContent(
         input.mode === "groups" ? "groups" : "all",
         input.group_ids.slice(0, 300),
         input.from_address.slice(0, 200),
+        input.archive_space_id,
       ]
     )
   )[0];

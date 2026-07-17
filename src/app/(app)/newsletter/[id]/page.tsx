@@ -7,7 +7,9 @@ import {
   listNewsletterFiles,
   listNewsletterApproverPool,
   listGroups,
+  listSpaces,
 } from "@/lib/db";
+import { spaceScopeFor } from "@/lib/access";
 import {
   canUseNewsletter,
   canView,
@@ -42,13 +44,14 @@ export default async function NewsletterDetailPage({
   // links here); everything unsent stays with the editorial crew.
   if (!canView(user, n, approverIds)) redirect(home);
 
-  const [comments, groups, pool, smtp, fromAddresses, nlFiles] = await Promise.all([
+  const [comments, groups, pool, smtp, fromAddresses, nlFiles, spaces] = await Promise.all([
     hasModuleAccess ? listNewsletterComments(n.id) : Promise.resolve([]),
     listGroups(),
     listNewsletterApproverPool(),
     getSmtpConfig(),
     listNewsletterFromAddresses(),
     listNewsletterFiles(n.id),
+    spaceScopeFor(user).then((scope) => listSpaces(scope)),
   ]);
 
   return (
@@ -80,6 +83,7 @@ export default async function NewsletterDetailPage({
           },
         }}
         groups={groups.map((g) => ({ id: g.id, name: g.name, member_count: g.member_count }))}
+        spaces={spaces.map((s) => ({ id: s.id, name: s.name, icon: s.icon }))}
         approverPool={pool}
         smtpReady={smtpConfigured(smtp)}
         fromAddresses={fromAddresses}

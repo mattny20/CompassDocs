@@ -562,6 +562,11 @@ function Toolbar({
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [painted, setPainted] = useState<PaintedFormat | null>(null);
+  // Image-size drag in progress: the live percentage, plus the image's
+  // document position so it can be re-selected when the drag ends. Keeps the
+  // controls mounted and the pointer capture intact for the whole gesture.
+  const [imgDrag, setImgDrag] = useState<number | null>(null);
+  const imgPosRef = useRef<number | null>(null);
 
   // Format painter: after copying, the next text selection receives the
   // copied formatting and the painter switches itself off. Debounced so a
@@ -986,7 +991,7 @@ function Toolbar({
           </Btn>
         </>
       )}
-      {editor.isActive("image") && (
+      {(editor.isActive("image") || imgDrag !== null) && (
         <>
           <Divider />
           <Btn
@@ -1010,21 +1015,55 @@ function Toolbar({
             min={10}
             max={100}
             step={5}
-            value={imageWidthPct(editor.getAttributes("image").title)}
-            onChange={(e) => {
-              const pct = Number(e.target.value);
-              editor
-                .chain()
-                .focus()
-                .updateAttributes("image", { title: pct >= 100 ? null : `w=${pct}%` })
-                .run();
+            value={imgDrag ?? imageWidthPct(editor.getAttributes("image").title)}
+            onPointerDown={() => {
+              // Remember which image node the drag belongs to.
+              imgPosRef.current =
+                (editor.state.selection as any).node?.type?.name === "image"
+                  ? editor.state.selection.from
+                  : null;
+              setImgDrag(imageWidthPct(editor.getAttributes("image").title));
             }}
-            title="Image display width"
+            onFocus={() => {
+              // Keyboard adjustments need the position too.
+              if (imgPosRef.current === null) {
+                imgPosRef.current =
+                  (editor.state.selection as any).node?.type?.name === "image"
+                    ? editor.state.selection.from
+                    : null;
+              }
+            }}
+            onChange={(e) => {
+              // Live preview WITHOUT stealing focus from the slider (a focus()
+              // here breaks the drag), addressed by document position — the
+              // node selection doesn't survive the first attrs update.
+              const pct = Number(e.target.value);
+              setImgDrag(pct);
+              const title = pct >= 100 ? null : `w=${pct}%`;
+              const pos = imgPosRef.current;
+              const node = pos !== null ? editor.state.doc.nodeAt(pos) : null;
+              if (node?.type.name === "image") {
+                editor.view.dispatch(
+                  editor.state.tr.setNodeMarkup(pos!, undefined, { ...node.attrs, title })
+                );
+              } else {
+                editor.chain().updateAttributes("image", { title }).run();
+              }
+            }}
+            onPointerUp={() => {
+              const pos = imgPosRef.current;
+              const chain = editor.chain().focus();
+              if (pos !== null) chain.setNodeSelection(pos);
+              chain.run();
+              setImgDrag(null);
+              imgPosRef.current = null;
+            }}
+            title="Image display width — drag to resize"
             aria-label="Image display width"
             className="h-1.5 w-28 cursor-pointer accent-compass-600"
           />
           <span className="w-10 px-1 text-xs tabular-nums text-slate-500">
-            {imageWidthPct(editor.getAttributes("image").title)}%
+            {imgDrag ?? imageWidthPct(editor.getAttributes("image").title)}%
           </span>
         </>
       )}

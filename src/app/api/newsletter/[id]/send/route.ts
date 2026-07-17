@@ -12,7 +12,7 @@ import {
 } from "@/lib/db";
 import { uploadDir } from "@/lib/uploads";
 import { canSend, canComment } from "@/lib/newsletter-access";
-import { sendNewsletter } from "@/lib/newsletter";
+import { sendNewsletter, archiveNewsletter } from "@/lib/newsletter";
 import { getAppSettings } from "@/lib/settings-store";
 import { requestOrigin } from "@/lib/oauth";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
@@ -101,6 +101,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     body: `Sent to ${audience.toLowerCase() === "everyone" ? "everyone" : audience} — ${r.sent} ${r.sent === 1 ? "recipient" : "recipients"}.`,
     kind: "sent",
   });
+  const archivedDocId = await archiveNewsletter(n);
+  if (archivedDocId) {
+    await addNewsletterComment({
+      newsletter_id: n.id,
+      user_id: null,
+      author_name: "Archive",
+      body: `Filed in the archive space as document #${archivedDocId}.`,
+      kind: "comment",
+    });
+  }
 
   await audit({
     actor: actorFrom(user),

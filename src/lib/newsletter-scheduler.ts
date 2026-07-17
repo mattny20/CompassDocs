@@ -12,7 +12,7 @@ import {
   listGroups,
   listNewsletterFiles,
 } from "./db";
-import { sendNewsletter } from "./newsletter";
+import { sendNewsletter, archiveNewsletter } from "./newsletter";
 import { getAppSettings } from "./settings-store";
 import { uploadDir } from "./uploads";
 import { audit } from "./audit";
@@ -68,6 +68,16 @@ export async function sendDueNewsletters(): Promise<void> {
         body: `Sent as scheduled to ${audience.toLowerCase() === "everyone" ? "everyone" : audience} — ${r.sent} ${r.sent === 1 ? "recipient" : "recipients"}.`,
         kind: "sent",
       });
+      const archivedDocId = await archiveNewsletter(n);
+      if (archivedDocId) {
+        await addNewsletterComment({
+          newsletter_id: n.id,
+          user_id: null,
+          author_name: "Archive",
+          body: `Filed in the archive space as document #${archivedDocId}.`,
+          kind: "comment",
+        });
+      }
       await audit({
         actor: { name: "system" },
         action: "newsletter.sent",
