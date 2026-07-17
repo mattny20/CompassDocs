@@ -576,6 +576,15 @@ const SCHEMA_SQL = `
     PRIMARY KEY (newsletter_id, user_id)
   );
 
+  -- Cached favicons for external links in documents and newsletters, keyed
+  -- by host. stored_name '' = negative cache (site had no usable icon).
+  CREATE TABLE IF NOT EXISTS site_icons (
+    host text PRIMARY KEY,
+    stored_name text NOT NULL DEFAULT '',
+    mime text NOT NULL DEFAULT '',
+    fetched_at timestamptz NOT NULL DEFAULT now()
+  );
+
   -- Files attached to a newsletter and sent WITH the email (real MIME
   -- attachments), not just linked. Stored like document attachments.
   CREATE TABLE IF NOT EXISTS newsletter_files (
@@ -2801,6 +2810,27 @@ export async function getNewsletterFile(id: number): Promise<NewsletterFile | un
 
 export async function deleteNewsletterFileRow(id: number): Promise<void> {
   await q("DELETE FROM newsletter_files WHERE id = $1", [id]);
+}
+
+// --- Site icons (external-link favicons) ---------------------------------------
+
+export interface SiteIcon {
+  host: string;
+  stored_name: string;
+  mime: string;
+  fetched_at: string;
+}
+
+export async function getSiteIcon(host: string): Promise<SiteIcon | undefined> {
+  return (await q<SiteIcon>("SELECT * FROM site_icons WHERE host = $1", [host]))[0];
+}
+
+export async function saveSiteIcon(host: string, stored: string, mime: string): Promise<void> {
+  await q(
+    `INSERT INTO site_icons (host, stored_name, mime, fetched_at) VALUES ($1,$2,$3,now())
+     ON CONFLICT (host) DO UPDATE SET stored_name = $2, mime = $3, fetched_at = now()`,
+    [host, stored, mime]
+  );
 }
 
 /** Map Entra member identities to local user ids (SSO id first, then email). */

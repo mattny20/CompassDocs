@@ -70,6 +70,8 @@ export interface NewsletterAppearance {
   header_image: string;
   /** Banner display width as % of the content column (100 = full width). */
   header_scale: number;
+  /** Padding above the banner, px (0 | 5 | 10 | 15). */
+  header_pad: number;
   /** Header background color ('' = white). */
   header_bg: string;
   /** Outer background color (around the content card). */
@@ -78,9 +80,12 @@ export interface NewsletterAppearance {
   body_texture: string;
 }
 
+export const HEADER_PADS = [0, 5, 10, 15] as const;
+
 export async function getNewsletterAppearance(): Promise<NewsletterAppearance> {
   const w = Number((await getSetting("newsletter_email_width")) || EMAIL_WIDTH_DEFAULT);
   const scale = Number((await getSetting("newsletter_header_scale")) || 100);
+  const pad = Number((await getSetting("newsletter_header_pad")) ?? 0);
   const headerBg = (await getSetting("newsletter_header_bg")) || "";
   const bodyBg = (await getSetting("newsletter_body_bg")) || BODY_BG_DEFAULT;
   const texture = (await getSetting("newsletter_body_texture")) || "none";
@@ -90,6 +95,7 @@ export async function getNewsletterAppearance(): Promise<NewsletterAppearance> {
       : EMAIL_WIDTH_DEFAULT,
     header_image: (await getSetting("newsletter_header_image")) || "",
     header_scale: Number.isInteger(scale) ? Math.min(100, Math.max(20, scale)) : 100,
+    header_pad: (HEADER_PADS as readonly number[]).includes(pad) ? pad : 0,
     header_bg: HEX_RE.test(headerBg) ? headerBg.toLowerCase() : "",
     body_bg: HEX_RE.test(bodyBg) ? bodyBg.toLowerCase() : BODY_BG_DEFAULT,
     body_texture: (TEXTURES as readonly string[]).includes(texture) ? texture : "none",
@@ -112,6 +118,12 @@ export async function saveNewsletterAppearance(
     await setSetting(
       "newsletter_header_scale",
       String(Math.min(100, Math.max(20, Math.round(patch.header_scale))))
+    );
+  }
+  if (patch.header_pad !== undefined) {
+    await setSetting(
+      "newsletter_header_pad",
+      String((HEADER_PADS as readonly number[]).includes(patch.header_pad) ? patch.header_pad : 0)
     );
   }
   if (patch.header_bg !== undefined) {
@@ -195,19 +207,26 @@ const BORDERLESS_CELL = "border:none;padding:6px 10px;vertical-align:top";
  * over the per-tag defaults. Newsletter blocks get their email look here:
  * a.email-btn becomes a real button, div.nl-spacer collapses to pure height.
  */
+// Text-bearing tags that must carry a color panel's ink explicitly — email
+// clients (Outlook in particular) don't reliably inherit color from a div.
+const INK_TAGS = new Set(["p", "li", "h1", "h2", "h3", "blockquote", "td", "th", "span", "strong", "em", "u"]);
+
 function applyStyles(
   node: any,
   styles: Record<string, string>,
   accent: string,
-  inBorderlessTable = false
+  inBorderlessTable = false,
+  panelInk = ""
 ): void {
   let borderless = inBorderlessTable;
+  let ink = panelInk;
   if (node?.type === "element") {
     const classes: string[] = Array.isArray(node.properties?.className)
       ? node.properties.className.map(String)
       : [];
     const own = node.properties?.style ? String(node.properties.style) : "";
     let base = styles[node.tagName] || "";
+    let inkOverride = "";
     if (node.tagName === "a" && classes.includes("email-btn")) {
       base = `display:inline-block;background:${accent};color:#ffffff;padding:11px 22px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px`;
       delete node.properties.className;
@@ -215,8 +234,11 @@ function applyStyles(
       base = "font-size:0;line-height:0";
       delete node.properties.className;
     } else if (node.tagName === "div" && classes.includes("nl-panel")) {
-      // Color panel: bg + ink arrive inline (sanitized); add the pill shape.
+      // Color panel: bg + ink arrive inline (sanitized); add the pill shape
+      // and remember the ink so descendants get it stamped explicitly.
       base = "padding:16px 20px;border-radius:12px;margin:0 0 12px";
+      const m = /(?:^|;)\s*color:\s*([^;]+)/.exec(own);
+      ink = m ? m[1].trim() : "";
       delete node.properties.className;
     } else if (node.tagName === "table" && classes.includes("nl-borderless")) {
       borderless = true;
@@ -236,12 +258,23 @@ function applyStyles(
       // Highlighted headings get their pill look inline.
       base = `${base};padding:6px 12px;border-radius:8px`;
     }
-    const style = [base, own].filter(Boolean).join(";");
+    // Inside a color panel, stamp the panel's ink on every text element that
+    // doesn't bring its own color (or a highlight background needing dark
+    // text) — clients like Outlook don't inherit color through divs.
+    if (
+      ink &&
+      INK_TAGS.has(node.tagName) &&
+      !/(?:^|;)\s*color:/.test(own) &&
+      !/background-color/.test(own)
+    ) {
+      inkOverride = `color:${ink}`;
+    }
+    const style = [base, own, inkOverride].filter(Boolean).join(";");
     if (style) {
       node.properties = { ...node.properties, style };
     }
   }
-  for (const child of node?.children ?? []) applyStyles(child, styles, accent, borderless);
+  for (const child of node?.children ?? []) applyStyles(child, styles, accent, borderless, ink);
 }
 
 /** Make relative app links/images absolute so they work from an inbox. */
@@ -279,7 +312,7 @@ export async function renderNewsletterHtml(input: {
   authorName: string;
 }): Promise<string> {
   const bodyHtml = await renderBodyHtml(input.markdown, input.accent, input.origin);
-  const { width, header_image, header_scale, header_bg, body_bg, body_texture } =
+  const { width, header_image, header_scale, header_pad, header_bg, body_bg, body_texture } =
     await getNewsletterAppearance();
   const logoAbs = input.logoUrl
     ? input.logoUrl.startsWith("/")
@@ -297,7 +330,7 @@ export async function renderNewsletterHtml(input: {
   const headerBgStyle = header_bg ? `background:${header_bg};` : "";
   const orgInk = header_bg ? contrastInk(header_bg) : "#0f172a";
   const header = headerAbs
-    ? `<div style="${headerBgStyle}text-align:center">
+    ? `<div style="${headerBgStyle}text-align:center${header_pad ? `;padding-top:${header_pad}px` : ""}">
         <img src="${headerAbs}" alt="${escapeHtml(input.orgName)}" width="${header_scale}%" style="display:inline-block;width:${header_scale}%;height:auto;vertical-align:top">
       </div>`
     : `<div style="${headerBgStyle}padding:18px 28px;border-bottom:3px solid ${input.accent}">
