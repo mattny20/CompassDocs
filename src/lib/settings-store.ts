@@ -82,6 +82,12 @@ export async function updateAppSettings(patch: Partial<AppSettings>): Promise<Ap
   if (patch.secure_cookies !== undefined && SECURE_COOKIE_MODES.includes(patch.secure_cookies)) {
     await setSetting("secure_cookies", patch.secure_cookies);
   }
+  if (patch.comments_enabled !== undefined) {
+    await setSetting("comments_enabled", patch.comments_enabled ? "1" : "0");
+  }
+  if (patch.comments_blocked_words !== undefined) {
+    await setSetting("comments_blocked_words", String(patch.comments_blocked_words).slice(0, 5000));
+  }
   return getAppSettings();
 }
 

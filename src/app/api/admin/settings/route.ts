@@ -48,6 +48,8 @@ export async function PATCH(req: Request) {
     "backup_frequency",
     "backup_keep",
     "max_attachment_mb",
+    "comments_enabled",
+    "comments_blocked_words",
   ];
   const patch: Partial<AppSettings> = {};
   for (const k of keys) {

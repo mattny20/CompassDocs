@@ -56,6 +56,7 @@ export default async function DashboardPage() {
           level: a.level,
           author_name: a.author_name,
           created_at: a.created_at,
+          link: a.link,
         }))}
       />
 

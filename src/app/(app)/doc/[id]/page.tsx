@@ -14,6 +14,7 @@ import { MarkdownView } from "@/components/MarkdownView";
 import { TypeBadge, StatusBadge, Tag } from "@/components/Badges";
 import { DocActions } from "@/components/DocActions";
 import { SuggestBox } from "@/components/SuggestBox";
+import { DocComments } from "@/components/DocComments";
 import { Attachments } from "@/components/Attachments";
 import { roleAtLeast } from "@/lib/types";
 import { timeAgo } from "@/lib/ui";
@@ -164,6 +165,10 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
       <div className="print:hidden">
         <SuggestBox documentId={doc.id} />
       </div>
+
+      {settings.comments_enabled && (
+        <DocComments docId={doc.id} currentUserId={user.id} isAdmin={user.role === "admin"} />
+      )}
     </PageWidth>
   );
 }

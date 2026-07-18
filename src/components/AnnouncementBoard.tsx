@@ -15,6 +15,8 @@ export interface AnnouncementView {
   level: "info" | "warning" | "critical";
   author_name: string;
   created_at: string;
+  /** Optional in-app link ("/doc/12#comments") rendered as a button. */
+  link?: string;
 }
 
 // Amber/red are literal Tailwind colors (they don't follow the CSS-variable
@@ -64,6 +66,14 @@ export function AnnouncementBoard({ initial }: { initial: AnnouncementView[] }) 
               <div className="min-w-0 flex-1">
                 <p className={`font-semibold ${s.title}`}>{a.title}</p>
                 <p className={`mt-1 whitespace-pre-line text-sm ${s.body}`}>{a.body}</p>
+                {a.link && (
+                  <a
+                    href={a.link}
+                    className="mt-2 inline-block rounded-lg border border-compass-200 bg-white/70 px-3 py-1 text-xs font-semibold text-compass-700 hover:bg-white dark:border-compass-100 dark:bg-white/10 dark:text-compass-300"
+                  >
+                    View document →
+                  </a>
+                )}
                 <p className="mt-2 text-xs text-slate-500">
                   {a.author_name} · {new Date(a.created_at).toLocaleDateString()}
                 </p>

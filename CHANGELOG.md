@@ -4,6 +4,29 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.38.0] - 2026-07-18
+
+### Added
+- **Comments on documents.** Every document now has a discussion thread:
+  any signed-in user who can see a document can comment on it. Threads
+  follow the document's access rules (private-space documents keep their
+  comments private), and comment activity is recorded in the audit log.
+- **@Mentions with notifications.** Type `@` in the composer to mention a
+  teammate (autocomplete from active users). Mentioned users are notified
+  two ways: an **email** containing the comment and a link to the document
+  (respects each user's notification-email switch), and a **dashboard
+  notice** visible only to them with a "View document" button (dismissible,
+  auto-expires after 14 days). Self-mentions don't notify.
+- **Workplace-safety controls** (Settings → Workspace → Comments):
+  - a workspace-wide **on/off switch** — turning comments off hides all
+    threads immediately without deleting anything;
+  - a **restricted-words list** (case-insensitive; single words match on
+    word boundaries, phrases as substrings) — comments containing a listed
+    term are rejected with a clear message;
+  - **admin moderation**: admins can remove any comment (authors can remove
+    their own). Removed comments keep their slot with a "removed" placeholder,
+    and the removed text is never sent to clients again.
+
 ## [0.37.0] - 2026-07-17
 
 ### Added
