@@ -596,6 +596,32 @@ const SCHEMA_SQL = `
     size integer NOT NULL DEFAULT 0,
     created_at timestamptz NOT NULL DEFAULT now()
   );
+
+  -- Document comments (0.38): a flat discussion under each document, with
+  -- @mentions. Admin-deleted comments stay as rows (deleted_at set) so the
+  -- thread keeps its shape; their body is never returned to clients.
+  CREATE TABLE IF NOT EXISTS doc_comments (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    document_id integer NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    user_id integer REFERENCES users(id) ON DELETE SET NULL,
+    author_name text NOT NULL DEFAULT '',
+    body text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    deleted_at timestamptz,
+    deleted_by text NOT NULL DEFAULT ''
+  );
+  CREATE INDEX IF NOT EXISTS doc_comments_doc_idx ON doc_comments(document_id);
+  CREATE TABLE IF NOT EXISTS doc_comment_mentions (
+    comment_id integer NOT NULL REFERENCES doc_comments(id) ON DELETE CASCADE,
+    user_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    PRIMARY KEY (comment_id, user_id)
+  );
+  -- Mention notifications reuse announcements, targeted at ONE user
+  -- (target_user_id NULL = org-wide, the pre-0.38 behavior) and optionally
+  -- carrying a link rendered as a button on the dashboard block.
+  ALTER TABLE announcements ADD COLUMN IF NOT EXISTS
+    target_user_id integer REFERENCES users(id) ON DELETE CASCADE;
+  ALTER TABLE announcements ADD COLUMN IF NOT EXISTS link text NOT NULL DEFAULT '';
 `;
 
 /**
@@ -2389,6 +2415,114 @@ export async function setLinkGroups(linkId: number, groupIds: number[]): Promise
   }
 }
 
+// --- Document comments (0.38) -----------------------------------------------------
+
+export interface DocComment {
+  id: number;
+  document_id: number;
+  user_id: number | null;
+  author_name: string;
+  body: string;
+  created_at: string;
+  deleted_at: string | null;
+  deleted_by: string;
+  /** Users @mentioned in this comment (for highlighting + notifications). */
+  mentions: { id: number; name: string }[];
+}
+
+/**
+ * Comments for a document, oldest first. Deleted comments come back with an
+ * EMPTY body (the content never leaves the server again) plus who removed
+ * them, so the thread keeps its shape.
+ */
+export async function listDocComments(documentId: number): Promise<DocComment[]> {
+  return q(
+    `SELECT c.id, c.document_id, c.user_id, c.author_name,
+       CASE WHEN c.deleted_at IS NULL THEN c.body ELSE '' END AS body,
+       c.created_at, c.deleted_at, c.deleted_by,
+       COALESCE(
+         (SELECT json_agg(json_build_object('id', u.id, 'name', u.name) ORDER BY u.name)
+            FROM doc_comment_mentions m JOIN users u ON u.id = m.user_id
+           WHERE m.comment_id = c.id),
+         '[]'::json
+       ) AS mentions
+     FROM doc_comments c
+     WHERE c.document_id = $1
+     ORDER BY c.created_at ASC, c.id ASC
+     LIMIT 500`,
+    [documentId]
+  );
+}
+
+export async function createDocComment(input: {
+  document_id: number;
+  user_id: number;
+  author_name: string;
+  body: string;
+  mention_user_ids: number[];
+}): Promise<DocComment> {
+  const row = (
+    await q<Omit<DocComment, "mentions">>(
+      `INSERT INTO doc_comments (document_id, user_id, author_name, body)
+       VALUES ($1,$2,$3,$4) RETURNING *`,
+      [input.document_id, input.user_id, input.author_name.slice(0, 100), input.body]
+    )
+  )[0];
+  let mentions: DocComment["mentions"] = [];
+  if (input.mention_user_ids.length > 0) {
+    mentions = await q(
+      `INSERT INTO doc_comment_mentions (comment_id, user_id)
+       SELECT $1, u.id FROM users u WHERE u.id = ANY($2) AND u.status = 'active'
+       ON CONFLICT DO NOTHING
+       RETURNING user_id AS id, (SELECT name FROM users WHERE id = user_id) AS name`,
+      [row.id, input.mention_user_ids]
+    );
+  }
+  return { ...row, mentions };
+}
+
+export async function getDocComment(
+  id: number
+): Promise<(Omit<DocComment, "mentions"> & { space_id: number }) | undefined> {
+  return (
+    await q<Omit<DocComment, "mentions"> & { space_id: number }>(
+      `SELECT c.*, d.space_id FROM doc_comments c
+       JOIN documents d ON d.id = c.document_id WHERE c.id = $1`,
+      [id]
+    )
+  )[0];
+}
+
+/** Soft delete: clears nothing in the row but marks it removed; the body is
+ * filtered out at read time. Idempotent. */
+export async function softDeleteDocComment(id: number, byLabel: string): Promise<boolean> {
+  const res = await pool().query(
+    `UPDATE doc_comments SET deleted_at = now(), deleted_by = $2
+     WHERE id = $1 AND deleted_at IS NULL`,
+    [id, byLabel.slice(0, 100)]
+  );
+  return (res.rowCount ?? 0) > 0;
+}
+
+/** Mention notification targets: active users among the given ids. */
+export async function getMentionTargets(
+  ids: number[]
+): Promise<{ id: number; name: string; email: string; email_notifications: number }[]> {
+  if (ids.length === 0) return [];
+  return q(
+    `SELECT id, name, email, email_notifications FROM users
+     WHERE id = ANY($1) AND status = 'active'`,
+    [ids]
+  );
+}
+
+/** Active users a comment can @mention (any signed-in user may look this up). */
+export async function listMentionableUsers(): Promise<{ id: number; name: string; username: string }[]> {
+  return q(
+    `SELECT id, name, username FROM users WHERE status = 'active' ORDER BY name, username`
+  );
+}
+
 // --- Organization announcements ---------------------------------------------------
 
 export interface Announcement {
@@ -2401,6 +2535,10 @@ export interface Announcement {
   created_at: string;
   expires_at: string | null;
   archived_at: string | null;
+  /** When set, only this user sees it (mention notifications). */
+  target_user_id: number | null;
+  /** Optional link rendered as a button on the dashboard block. */
+  link: string;
 }
 
 export async function createAnnouncement(input: {
@@ -2411,11 +2549,15 @@ export async function createAnnouncement(input: {
   created_by: number;
   /** Days until auto-hide; null/0 = never expires. */
   expires_days?: number | null;
+  /** Only this user sees it (mention notifications); omit for org-wide. */
+  target_user_id?: number;
+  /** Optional link shown as a button on the dashboard block. */
+  link?: string;
 }): Promise<Announcement> {
   return (
     await q<Announcement>(
-      `INSERT INTO announcements (title, body, level, author_name, created_by, expires_at)
-       VALUES ($1,$2,$3,$4,$5, CASE WHEN $6::int > 0 THEN now() + ($6::int || ' days')::interval END)
+      `INSERT INTO announcements (title, body, level, author_name, created_by, expires_at, target_user_id, link)
+       VALUES ($1,$2,$3,$4,$5, CASE WHEN $6::int > 0 THEN now() + ($6::int || ' days')::interval END, $7, $8)
        RETURNING *`,
       [
         input.title.trim().slice(0, 150),
@@ -2424,6 +2566,8 @@ export async function createAnnouncement(input: {
         input.author_name.slice(0, 100),
         input.created_by,
         input.expires_days ?? 0,
+        input.target_user_id ?? null,
+        (input.link ?? "").slice(0, 500),
       ]
     )
   )[0];
@@ -2435,6 +2579,7 @@ export async function listActiveAnnouncementsFor(userId: number): Promise<Announ
     `SELECT a.* FROM announcements a
      WHERE a.archived_at IS NULL
        AND (a.expires_at IS NULL OR a.expires_at > now())
+       AND (a.target_user_id IS NULL OR a.target_user_id = $1)
        AND NOT EXISTS (
          SELECT 1 FROM announcement_dismissals d
          WHERE d.announcement_id = a.id AND d.user_id = $1
@@ -2451,7 +2596,8 @@ export async function listAllAnnouncements(): Promise<(Announcement & { dismisse
     `SELECT a.*,
        (SELECT COUNT(*) FROM announcement_dismissals d WHERE d.announcement_id = a.id)::int
          AS dismissed_count
-     FROM announcements a ORDER BY a.created_at DESC LIMIT 100`
+     FROM announcements a WHERE a.target_user_id IS NULL
+     ORDER BY a.created_at DESC LIMIT 100`
   );
 }
 

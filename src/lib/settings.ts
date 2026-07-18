@@ -57,6 +57,10 @@ export interface AppSettings {
   tls_email: string;
   /** When the session cookie is marked Secure (HTTPS-only). See SecureCookieMode. */
   secure_cookies: SecureCookieMode;
+  /** Document comments on/off for the whole workspace. */
+  comments_enabled: boolean;
+  /** Words/phrases (one per line or comma-separated) rejected in comments. */
+  comments_blocked_words: string;
 }
 
 export const ATTACHMENT_MB_MIN = 1;
@@ -83,6 +87,8 @@ export const SETTINGS_DEFAULTS: AppSettings = {
   tls_mode: "auto",
   tls_email: "",
   secure_cookies: "auto",
+  comments_enabled: true,
+  comments_blocked_words: "",
 };
 
 export const DATE_FORMATS: DateFormat[] = ["medium", "long", "iso", "us", "eu"];
@@ -143,6 +149,8 @@ export function clampRetention(n: number): number {
 /** Coerce a raw key→value map into a fully-populated, valid AppSettings. */
 export function normalizeSettings(raw: Record<string, string>): AppSettings {
   return {
+    comments_enabled: raw.comments_enabled === undefined ? SETTINGS_DEFAULTS.comments_enabled : raw.comments_enabled === "1",
+    comments_blocked_words: (raw.comments_blocked_words ?? "").slice(0, 5000),
     company_name: (raw.company_name ?? "").trim() || SETTINGS_DEFAULTS.company_name,
     logo_url: (raw.logo_url ?? SETTINGS_DEFAULTS.logo_url).trim(),
     accent_color: /^#[0-9a-fA-F]{6}$/.test(raw.accent_color ?? "")

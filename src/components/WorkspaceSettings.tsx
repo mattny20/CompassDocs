@@ -338,6 +338,38 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
         </label>
       </div>
 
+      {/* Comments */}
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+        <h3 className="mb-1 font-semibold text-slate-900">Comments</h3>
+        <p className="mb-3 text-sm text-slate-500">
+          Discussion threads under every document, with @mentions that notify
+          people by email and on their dashboard. Turning comments off hides
+          all existing comments immediately (nothing is deleted).
+        </p>
+        <label className="flex items-center gap-2 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            checked={s.comments_enabled}
+            onChange={(e) => set("comments_enabled", e.target.checked)}
+            className="h-4 w-4 rounded border-slate-300 text-compass-600"
+          />
+          Allow comments on documents
+        </label>
+        <label className="mt-4 block">
+          <span className="mb-1 block text-xs font-medium text-slate-500">
+            Restricted words (comments containing these are rejected — one per
+            line or comma-separated, case-insensitive)
+          </span>
+          <textarea
+            value={s.comments_blocked_words}
+            onChange={(e) => set("comments_blocked_words", e.target.value)}
+            rows={3}
+            placeholder={"confidential\nproject blue"}
+            className={field}
+          />
+        </label>
+      </div>
+
       {/* Security */}
       <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
         <h3 className="mb-1 font-semibold text-slate-900">Session timeout</h3>
