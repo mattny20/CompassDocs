@@ -450,10 +450,9 @@ export function AnalyticsClient() {
 
   return (
     <div>
-      <div className="mb-1 flex items-center gap-2">
-        <ChartColumn className="h-6 w-6 text-compass-600" />
-        <h1 className="text-2xl font-bold text-slate-900">Analytics</h1>
-      </div>
+      <h1 className="mb-1 flex items-center gap-2 text-2xl font-bold text-slate-900">
+        <ChartColumn className="h-6 w-6 text-compass-600" /> Analytics
+      </h1>
       <p className="mb-5 text-slate-500">
         How your knowledge base is read, searched, and used.
       </p>

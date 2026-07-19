@@ -127,7 +127,9 @@ export function AnnouncementsAdmin({
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">Announcements</h1>
+        <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900">
+          <Megaphone className="h-6 w-6 text-compass-600" /> Announcements
+        </h1>
         <p className="mt-1 text-sm text-slate-500">
           Post a message to every user&apos;s dashboard. Optionally, also send it by email
           (to everyone or to selected groups) and to your chat webhooks — the dashboard

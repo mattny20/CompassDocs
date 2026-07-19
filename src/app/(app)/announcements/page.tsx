@@ -4,6 +4,7 @@ import { canAccessSection } from "@/lib/section-access";
 import { listAllAnnouncements, listGroups, listWebhooks } from "@/lib/db";
 import { getSmtpConfig, smtpConfigured } from "@/lib/smtp-config";
 import { AnnouncementsAdmin } from "@/components/AnnouncementsAdmin";
+import { PageContainer } from "@/components/PageWidth";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +21,7 @@ export default async function AnnouncementsPage() {
     getSmtpConfig(),
   ]);
   return (
+    <PageContainer>
     <AnnouncementsAdmin
       initial={announcements}
       groups={groups.map((g) => ({ id: g.id, name: g.name, member_count: g.member_count }))}
@@ -29,5 +31,6 @@ export default async function AnnouncementsPage() {
           .length
       }
     />
+    </PageContainer>
   );
 }
