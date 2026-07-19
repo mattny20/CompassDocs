@@ -63,7 +63,7 @@ pricing on the core product, ever.
 - **Claude connector (MCP)** — connect the Claude app with one click and draft, search, and revise docs from Claude; approvals still apply.
 
 **Enterprise** *(separate licensed build — [pricing](https://compassdocs.io/pricing): flat $599/yr, unlimited users)*
-- **SSO** (OIDC, one-click Microsoft Entra setup) · **Microsoft 365 directory & group sync** · **Policy acknowledgements** ("I've read this" compliance records with CSV export) · **audit-log export** · optional dedicated support.
+- **SSO** (OIDC, one-click Microsoft Entra setup) · **SCIM provisioning** (Entra creates, updates, and deactivates accounts automatically) · **Microsoft 365 directory & group sync** · **Policy acknowledgements** ("I've read this" compliance records with CSV export) · **audit-log export** · optional dedicated support.
 - Licenses are offline, cryptographically signed keys — no phone-home, air-gap friendly. The Community edition is complete on its own.
 
 ## Screenshots

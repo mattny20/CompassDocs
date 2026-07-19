@@ -4,6 +4,31 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.44.0] - 2026-07-19
+
+### Added
+- **SCIM provisioning** *(enterprise)*. CompassDocs is now a SCIM 2.0 service
+  provider, so Microsoft Entra ID (or any SCIM client) can manage the user
+  lifecycle automatically — new hires appear, name/email changes flow through,
+  and departed employees are deactivated without anyone touching Settings:
+  - Endpoints under `/api/scim/v2` (ServiceProviderConfig, ResourceTypes,
+    Users with `eq` filtering and pagination, and Entra-compatible PATCH —
+    including string booleans and both path/no-path operation forms).
+  - **Setup in Settings → Single sign-on**: copy the tenant URL, generate the
+    secret bearer token (shown once, stored only as a SHA-256 hash, rotatable),
+    and toggle the endpoint on/off. The card shows when Entra last called.
+  - Provisioned users arrive as **Viewers** who sign in via SSO — the SSO
+    login links them by externalId first, then by email. **Deactivation is
+    immediate** (live sessions are revoked) and **deletes are soft**: accounts
+    are disabled, never destroyed, so authorship and audit history survive.
+  - Every provisioning action lands in the audit log (`scim.user_create`,
+    `scim.user_update`, `scim.user_disable`, `scim.user_enable`, plus token
+    generation and enable/disable).
+  - Group provisioning intentionally stays with Entra group sync (richer
+    membership data); the SCIM `/Groups` surface answers politely.
+  - Requires an enterprise license with the `scim` entitlement — existing
+    enterprise licenses already include it.
+
 ## [0.43.1] - 2026-07-19
 
 ### Changed

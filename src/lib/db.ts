@@ -1510,6 +1510,58 @@ export async function createSsoUser(input: {
   return (await getUserById(r[0].id))!;
 }
 
+/** Case-insensitive lookup by external id (SCIM clients vary the casing). */
+export async function getUserByAnyExternalId(externalId: string): Promise<User | undefined> {
+  return (
+    await q<User>(`SELECT ${USER_COLUMNS} FROM users WHERE external_id = $1 ORDER BY id LIMIT 1`, [
+      externalId,
+    ])
+  )[0];
+}
+
+/** Provision a user from a SCIM push. No password — sign-in is via SSO. */
+export async function scimCreateUser(input: {
+  username: string;
+  name: string;
+  email: string;
+  externalId: string | null;
+  active: boolean;
+}): Promise<User> {
+  const r = await q<{ id: number }>(
+    `INSERT INTO users (username, email, name, role, status, auth_provider, external_id)
+     VALUES ($1,$2,$3,'viewer',$4,'oidc',$5) RETURNING id`,
+    [input.username, input.email, input.name, input.active ? "active" : "disabled", input.externalId]
+  );
+  return (await getUserById(r[0].id))!;
+}
+
+/** Partial profile update from a SCIM push; only provided fields change. */
+export async function scimUpdateUser(
+  id: number,
+  fields: {
+    username?: string;
+    name?: string;
+    email?: string;
+    status?: "active" | "disabled";
+    externalId?: string;
+  }
+): Promise<User | undefined> {
+  const existing = await getUserById(id);
+  if (!existing) return undefined;
+  await q(
+    `UPDATE users SET username = $1, name = $2, email = $3, status = $4, external_id = $5 WHERE id = $6`,
+    [
+      fields.username ?? existing.username,
+      fields.name ?? existing.name,
+      fields.email ?? existing.email,
+      fields.status ?? existing.status,
+      fields.externalId ?? existing.external_id,
+      id,
+    ]
+  );
+  return getUserById(id);
+}
+
 export async function createUser(input: {
   username: string;
   name: string;
