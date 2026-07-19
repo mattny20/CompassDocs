@@ -370,6 +370,37 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
         </label>
       </div>
 
+      {/* Outlook add-in */}
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+        <h3 className="mb-1 font-semibold text-slate-900">Outlook add-in</h3>
+        <p className="mb-3 text-sm text-slate-500">
+          Give your team CompassDocs in the Outlook ribbon: search, AI answers,
+          and one-click &ldquo;insert document link&rdquo; while writing email.
+          Download the manifest (it&rsquo;s generated for this workspace&rsquo;s
+          address) and deploy it in the Microsoft 365 admin center under
+          <span className="font-medium"> Integrated apps → Upload custom app</span>,
+          or individually via Outlook&rsquo;s <span className="font-medium">Get
+          add-ins → My add-ins → Add a custom add-in</span>.
+        </p>
+        <a
+          href="/api/addin/manifest"
+          className="inline-block rounded-lg border border-slate-200 bg-surface px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+        >
+          Download Outlook manifest
+        </a>
+        <p className="mt-2 text-xs text-slate-400">
+          Requires this workspace to be served over HTTPS.{" "}
+          <a
+            href="https://docs.compassdocs.io/guides/outlook-addin/"
+            target="_blank"
+            rel="noreferrer"
+            className="underline"
+          >
+            Setup guide
+          </a>
+        </p>
+      </div>
+
       {/* Security */}
       <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
         <h3 className="mb-1 font-semibold text-slate-900">Session timeout</h3>

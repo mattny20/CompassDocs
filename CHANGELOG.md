@@ -4,6 +4,21 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.39.0] - 2026-07-19
+
+### Added
+- **Outlook add-in.** CompassDocs in the Outlook ribbon (Windows, Mac, and
+  web; Microsoft 365 / Outlook 2016+): a task pane with keyword search, Ask
+  AI with cited sources, and recent documents — and while composing email,
+  **Insert link** on any result plus **Insert answer into email** under AI
+  answers, dropped at the cursor with a sources footer. The pane is served
+  by your own workspace (same origin, same session, same permissions) and
+  signs in through an Office dialog that supports both passwords and SSO.
+  Admins download a manifest generated for their workspace's address
+  (Settings → Workspace → Outlook add-in) and deploy it via the Microsoft
+  365 admin center's Integrated apps — re-downloading later updates the
+  add-in in place. See the docs guide: Guides → Outlook add-in.
+
 ## [0.38.0] - 2026-07-18
 
 ### Added
