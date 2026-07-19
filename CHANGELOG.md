@@ -4,6 +4,17 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.43.1] - 2026-07-19
+
+### Changed
+- **One-click block buttons.** The "+ Block" dropdowns are gone: both the
+  rich-text toolbar and the Markdown tab now have a row of icon buttons
+  (callout, tabs, accordion, checklist, Mermaid, PlantUML, decision guide,
+  video, website embed — plus table in Markdown mode), each with a tooltip.
+- **Icons instead of emoji.** Callout headers (note/info/tip/warning/danger)
+  now use crisp line icons matching the rest of the UI, in both the reader
+  view and the editor; the video and embed fallback notices follow suit.
+
 ## [0.43.0] - 2026-07-19
 
 ### Added

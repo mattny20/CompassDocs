@@ -3,9 +3,10 @@
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { Table as TableIcon } from "lucide-react";
 import { MarkdownView } from "./MarkdownView";
 import { PageWidth } from "./PageWidth";
-import { RichTextEditor } from "./RichTextEditor";
+import { RichTextEditor, RICH_BLOCK_BUTTONS } from "./RichTextEditor";
 import { DOC_TYPES } from "@/lib/types";
 import type { DocType, DocStatus, Space } from "@/lib/types";
 
@@ -454,27 +455,29 @@ export function DocEditor({
               Preview
             </TabButton>
             {tab === "markdown" && (
-              <select
-                value=""
-                onChange={(e) => {
-                  if (e.target.value) insertSnippet(e.target.value);
-                  e.target.value = "";
-                }}
-                title="Insert a rich block at the cursor"
-                className="ml-2 rounded-md border border-slate-200 bg-surface px-2 py-1 text-xs font-medium text-slate-600 outline-none"
-              >
-                <option value="">+ Insert block…</option>
-                <option value="callout">Callout (note/tip/warning…)</option>
-                <option value="tabs">Tabs</option>
-                <option value="details">Accordion</option>
-                <option value="mermaid">Mermaid diagram</option>
-                <option value="plantuml">PlantUML diagram</option>
-                <option value="decision">Decision guide</option>
-                <option value="video">Video embed</option>
-                <option value="embed">Website embed</option>
-                <option value="checklist">Checklist</option>
-                <option value="table">Table</option>
-              </select>
+              <span className="ml-2 flex items-center gap-0.5 border-l border-slate-200 pl-2">
+                {RICH_BLOCK_BUTTONS.map(({ kind, label, Icon }) => (
+                  <button
+                    key={kind}
+                    type="button"
+                    onClick={() => insertSnippet(kind)}
+                    title={label}
+                    aria-label={`Insert ${label}`}
+                    className="rounded p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                  >
+                    <Icon className="h-4 w-4" />
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => insertSnippet("table")}
+                  title="Table"
+                  aria-label="Insert table"
+                  className="rounded p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                >
+                  <TableIcon className="h-4 w-4" />
+                </button>
+              </span>
             )}
             <button
               type="button"

@@ -19,7 +19,7 @@ import {
 import mdContainer from "markdown-it-container";
 import { Pencil, Trash2 } from "lucide-react";
 import { MermaidBlock, PlantUmlBlock, DecisionTreeBlock } from "./DocBlocks";
-import { VideoBlock, SiteEmbed } from "./DocBlocksStatic";
+import { VideoBlock, SiteEmbed, CALLOUT_STYLE } from "./DocBlocksStatic";
 
 const CALLOUT_KINDS = ["note", "info", "tip", "warning", "danger"] as const;
 
@@ -116,21 +116,13 @@ function serializeContainer(state: any, node: any, opener: string, closer: strin
 
 // --- Callouts -----------------------------------------------------------------
 
-const CALLOUT_VIEW: Record<string, { icon: string; cls: string }> = {
-  note: { icon: "📝", cls: "border-slate-300 bg-slate-50 dark:border-slate-600 dark:bg-slate-800/40" },
-  info: { icon: "ℹ️", cls: "border-sky-300 bg-sky-50 dark:border-sky-800 dark:bg-sky-950/40" },
-  tip: { icon: "💡", cls: "border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/40" },
-  warning: { icon: "⚠️", cls: "border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/40" },
-  danger: { icon: "🚨", cls: "border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-950/40" },
-};
-
 function CalloutNodeView({ node, updateAttributes }: NodeViewProps) {
   const kind = String(node.attrs.kind);
-  const v = CALLOUT_VIEW[kind] ?? CALLOUT_VIEW.note;
+  const v = CALLOUT_STYLE[kind] ?? CALLOUT_STYLE.note;
   return (
-    <NodeViewWrapper className={`my-3 rounded-lg border border-l-4 px-3 py-2 ${v.cls}`}>
+    <NodeViewWrapper className={`my-3 rounded-lg border border-l-4 px-3 py-2 ${v.box}`}>
       <div contentEditable={false} className="mb-1 flex items-center gap-1.5 text-sm">
-        <span aria-hidden>{v.icon}</span>
+        <v.Icon className={`h-4 w-4 shrink-0 ${v.title}`} aria-hidden />
         <select
           value={kind}
           onChange={(e) => updateAttributes({ kind: e.target.value })}
