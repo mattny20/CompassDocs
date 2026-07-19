@@ -156,6 +156,11 @@ const SCHEMA_SQL = `
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
   CREATE INDEX IF NOT EXISTS idx_documents_deleted ON documents(deleted_at);
 
+  -- Draft branches: a working copy linked to its source document. Branches are
+  -- always drafts, are hidden from listings/search, and go away on merge.
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS branch_of integer REFERENCES documents(id) ON DELETE CASCADE;
+  CREATE INDEX IF NOT EXISTS idx_documents_branch ON documents(branch_of);
+
   CREATE TABLE IF NOT EXISTS doc_versions (
     id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     document_id integer NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
@@ -166,6 +171,8 @@ const SCHEMA_SQL = `
     created_at timestamptz NOT NULL DEFAULT now()
   );
   CREATE INDEX IF NOT EXISTS idx_versions_doc ON doc_versions(document_id);
+  -- Provenance for restores: which older version this snapshot was copied from.
+  ALTER TABLE doc_versions ADD COLUMN IF NOT EXISTS restored_from integer;
 
   CREATE TABLE IF NOT EXISTS users (
     id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -810,7 +817,7 @@ export async function listSpaces(scope?: number[] | "all"): Promise<(Space & { d
   const filter = Array.isArray(scope) ? " WHERE s.id = ANY($1)" : "";
   return q(
     `SELECT s.*, (SELECT COUNT(*)::int FROM documents d
-       WHERE d.space_id = s.id AND d.deleted_at IS NULL) AS doc_count
+       WHERE d.space_id = s.id AND d.deleted_at IS NULL AND d.branch_of IS NULL) AS doc_count
      FROM spaces s${filter} ORDER BY s.name`,
     Array.isArray(scope) ? [scope] : []
   );
@@ -933,7 +940,7 @@ export async function listDocumentsByAuthor(
   scope?: number[] | "all"
 ): Promise<DocumentWithSpace[]> {
   const names = (Array.isArray(author) ? author : [author]).map((n) => n.toLowerCase());
-  const conds = ["lower(d.author) = ANY($1)", "d.deleted_at IS NULL"];
+  const conds = ["lower(d.author) = ANY($1)", "d.deleted_at IS NULL", "d.branch_of IS NULL"];
   const params: any[] = [names];
   if (!includeDrafts) conds.push("d.status = 'published'");
   if (Array.isArray(scope)) {
@@ -950,7 +957,7 @@ export async function listDocumentsByAuthor(
 /** All live documents (incl. drafts) with their space, for a full export. */
 export async function exportDocuments(): Promise<DocumentWithSpace[]> {
   const rows = await q(
-    `${DOC_SELECT} WHERE d.deleted_at IS NULL ORDER BY s.slug, d.slug`
+    `${DOC_SELECT} WHERE d.deleted_at IS NULL AND d.branch_of IS NULL ORDER BY s.slug, d.slug`
   );
   return rows.map(mapDoc);
 }
@@ -961,7 +968,7 @@ export async function listDocumentsBySpace(
 ): Promise<DocumentWithSpace[]> {
   const filter = includeDrafts ? "" : " AND d.status = 'published'";
   const rows = await q(
-    `${DOC_SELECT} WHERE d.space_id = $1 AND d.deleted_at IS NULL${filter} ORDER BY d.updated_at DESC`,
+    `${DOC_SELECT} WHERE d.space_id = $1 AND d.deleted_at IS NULL AND d.branch_of IS NULL${filter} ORDER BY d.updated_at DESC`,
     [spaceId]
   );
   return rows.map(mapDoc);
@@ -975,7 +982,7 @@ export async function listRecentDocuments(
   const filter = includeDrafts ? "" : " AND d.status = 'published'";
   const scoped = Array.isArray(scope) ? " AND d.space_id = ANY($2)" : "";
   const rows = await q(
-    `${DOC_SELECT} WHERE d.deleted_at IS NULL${filter}${scoped} ORDER BY d.updated_at DESC LIMIT $1`,
+    `${DOC_SELECT} WHERE d.deleted_at IS NULL AND d.branch_of IS NULL${filter}${scoped} ORDER BY d.updated_at DESC LIMIT $1`,
     Array.isArray(scope) ? [limit, scope] : [limit]
   );
   return rows.map(mapDoc);
@@ -990,7 +997,7 @@ export async function countDocuments(
     (Array.isArray(scope) ? " AND space_id = ANY($1)" : "");
   return (
     await q<{ n: number }>(
-      `SELECT COUNT(*)::int AS n FROM documents WHERE deleted_at IS NULL${filter}`,
+      `SELECT COUNT(*)::int AS n FROM documents WHERE deleted_at IS NULL AND branch_of IS NULL${filter}`,
       Array.isArray(scope) ? [scope] : []
     )
   )[0].n;
@@ -1083,6 +1090,8 @@ export interface DocInput {
   author: string;
   /** Optional category within the space; validated against space_id. */
   category_id?: number | null;
+  /** Create as a draft branch of this document. */
+  branch_of?: number | null;
 }
 
 /** A category id valid for the given space, else null. */
@@ -1094,32 +1103,34 @@ async function categoryForSpace(categoryId: number | null | undefined, spaceId: 
 
 export async function createDocument(input: DocInput): Promise<DocumentWithSpace> {
   const r = await q<{ id: number }>(
-    `INSERT INTO documents (space_id, title, slug, type, status, content, summary, tags, author, category_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+    `INSERT INTO documents (space_id, title, slug, type, status, content, summary, tags, author, category_id, branch_of)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
     [
       input.space_id,
       input.title,
       slugify(input.title) || "untitled",
       input.type,
-      input.status,
+      // Branches are working copies: they must stay drafts until merged.
+      input.branch_of ? "draft" : input.status,
       input.content,
       input.summary,
       input.tags.join(","),
       input.author,
       await categoryForSpace(input.category_id, input.space_id),
+      input.branch_of ?? null,
     ]
   );
   const id = r[0].id;
   await q(
     "INSERT INTO doc_versions (document_id, title, content, author, note) VALUES ($1,$2,$3,$4,$5)",
-    [id, input.title, input.content, input.author, "Created"]
+    [id, input.title, input.content, input.author, input.branch_of ? "Branched" : "Created"]
   );
   return (await getDocument(id))!;
 }
 
 export async function updateDocument(
   id: number,
-  input: Partial<DocInput> & { versionNote?: string }
+  input: Partial<DocInput> & { versionNote?: string; restoredFrom?: number }
 ): Promise<DocumentWithSpace | undefined> {
   const existing = await getDocument(id);
   if (!existing) return undefined;
@@ -1127,7 +1138,8 @@ export async function updateDocument(
   const next = {
     title: input.title ?? existing.title,
     type: input.type ?? existing.type,
-    status: input.status ?? existing.status,
+    // A draft branch can never be published directly — it publishes by merging.
+    status: existing.branch_of ? "draft" : (input.status ?? existing.status),
     content: input.content ?? existing.content,
     summary: input.summary ?? existing.summary,
     tags: input.tags ? input.tags.join(",") : existing.tags.join(","),
@@ -1159,8 +1171,8 @@ export async function updateDocument(
 
   if (next.content !== existing.content || next.title !== existing.title) {
     await q(
-      "INSERT INTO doc_versions (document_id, title, content, author, note) VALUES ($1,$2,$3,$4,$5)",
-      [id, next.title, next.content, next.author, input.versionNote || "Edited"]
+      "INSERT INTO doc_versions (document_id, title, content, author, note, restored_from) VALUES ($1,$2,$3,$4,$5,$6)",
+      [id, next.title, next.content, next.author, input.versionNote || "Edited", input.restoredFrom ?? null]
     );
   }
   return getDocument(id);
@@ -1245,6 +1257,27 @@ export async function listVersions(documentId: number): Promise<DocVersion[]> {
   );
 }
 
+export async function getVersion(
+  documentId: number,
+  versionId: number
+): Promise<DocVersion | undefined> {
+  return (
+    await q<DocVersion>("SELECT * FROM doc_versions WHERE id = $1 AND document_id = $2", [
+      versionId,
+      documentId,
+    ])
+  )[0];
+}
+
+/** Live draft branches of a document, newest first. */
+export async function listBranches(documentId: number): Promise<DocumentWithSpace[]> {
+  const rows = await q(
+    `${DOC_SELECT} WHERE d.branch_of = $1 AND d.deleted_at IS NULL ORDER BY d.updated_at DESC`,
+    [documentId]
+  );
+  return rows.map(mapDoc);
+}
+
 // --- Search (native Postgres full-text search) -------------------------------
 
 // websearch_to_tsquery safely parses arbitrary user input but ANDs the terms,
@@ -1274,7 +1307,7 @@ export async function searchDocuments(
      FROM documents d
      JOIN spaces s ON s.id = d.space_id
      CROSS JOIN LATERAL (SELECT ${OR_TSQUERY} AS query) tq
-     WHERE d.search @@ tq.query AND d.deleted_at IS NULL${filter}
+     WHERE d.search @@ tq.query AND d.deleted_at IS NULL AND d.branch_of IS NULL${filter}
      ORDER BY ts_rank(d.search, tq.query) DESC
      LIMIT $2`,
     Array.isArray(scope) ? [raw, limit, scope] : [raw, limit]
@@ -1308,7 +1341,7 @@ export async function retrieveForAnswer(
   const rows = await q(
     `SELECT d.* FROM documents d
      CROSS JOIN LATERAL (SELECT ${OR_TSQUERY} AS query) tq
-     WHERE d.search @@ tq.query AND d.deleted_at IS NULL${filter}
+     WHERE d.search @@ tq.query AND d.deleted_at IS NULL AND d.branch_of IS NULL${filter}
      ORDER BY ts_rank(d.search, tq.query) DESC
      LIMIT $2`,
     Array.isArray(scope) ? [raw, limit, scope] : [raw, limit]
@@ -3374,7 +3407,14 @@ export async function approveChangeRequest(
     );
     await client.query(
       "INSERT INTO doc_versions (document_id, title, content, author, note) VALUES ($1,$2,$3,$4,$5)",
-      [cr.document_id, cr.title, cr.content, cr.author_name, `Approved by ${reviewerName}`]
+      [
+        cr.document_id,
+        cr.title,
+        cr.content,
+        cr.author_name,
+        // Keep the submitter's change note; record who approved it.
+        cr.note ? `${cr.note} — approved by ${reviewerName}` : `Approved by ${reviewerName}`,
+      ]
     );
     await client.query(
       "UPDATE change_requests SET status='approved', reviewed_by=$1, reviewed_at=now(), review_note=$2 WHERE id=$3",

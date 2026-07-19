@@ -4,6 +4,38 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.40.0] - 2026-07-19
+
+### Added
+- **Enterprise-grade versioning.** The version history page is now a full
+  revision explorer:
+  - **Compare any two versions** — pick A and B from the timeline and see a
+    **side-by-side or inline diff** with line numbers, added/removed counts,
+    word-level change highlighting inside modified lines, and long unchanged
+    runs folded behind a "show" control. Title changes are diffed too.
+  - **Restore a previous version.** One click makes an older version the
+    current one — as a *new* version on top of the history (nothing is ever
+    rewritten), stamped with who restored it and which version it came from
+    (a "Restored" badge in the timeline). Restores respect the approval
+    workflow: on a published document, editors in strict mode submit the
+    restore to the review queue instead of applying it directly.
+  - **Change notes.** The editor has a "Change note" field, so every save can
+    say *why* it happened; notes appear in the version timeline and survive
+    the review queue (approved changes keep the submitter's note and record
+    the approver). Every version already records who made it and when.
+- **Draft branches.** Editors can branch any document into a private working
+  copy (branch button on the document page, or from Version history). The
+  branch is invisible in spaces, search, dashboards, and Ask AI, can never be
+  published directly, and carries a banner linking back to the original with
+  **Merge into original** (with an optional change note) and **Discard**
+  actions. Merging follows the approval workflow — approvers/admins merge
+  instantly (the branch then moves to the Trash), while editors in strict
+  mode submit the merge for review and keep the branch until it's approved.
+  A live-branch notice on the source document links to its branches.
+- **Audit events** for the new flows: `document.restore_version`,
+  `document.branch_create`, and `document.branch_merge` (with actor, target,
+  and IP, like every other audit entry).
+
 ## [0.39.0] - 2026-07-19
 
 ### Added

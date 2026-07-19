@@ -67,6 +67,7 @@ export function DocEditor({
   const [summary, setSummary] = useState(initial.summary);
   const [tags, setTags] = useState(initial.tags.join(", "));
   const [content, setContent] = useState(initial.content);
+  const [changeNote, setChangeNote] = useState("");
   const [tab, setTab] = useState<EditorTab>("rich");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -213,7 +214,8 @@ export function DocEditor({
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               ...payload,
-              versionNote: mode === "create" ? "Created" : "Edited via editor",
+              versionNote:
+                changeNote.trim() || (mode === "create" ? "Created" : "Edited via editor"),
             }),
           });
       const data = await res.json();
@@ -391,6 +393,18 @@ export function DocEditor({
             />
           </Field>
         </div>
+
+        {mode === "edit" && (
+          <Field label="Change note (shown in version history)">
+            <input
+              value={changeNote}
+              onChange={(e) => setChangeNote(e.target.value)}
+              placeholder="What changed and why? e.g. Updated escalation contacts for Q3"
+              maxLength={200}
+              className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-none focus:border-compass-400"
+            />
+          </Field>
+        )}
 
         {/* Editor / preview */}
         <div className="rounded-lg border border-slate-200 bg-surface">
