@@ -4,6 +4,39 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.41.0] - 2026-07-19
+
+### Security
+- **Credentials are now encrypted at rest.** The SMTP password, Anthropic API
+  key, SSO client secret, backup credentials (S3 secret key / Azure connection
+  string), and custom TLS private key are sealed with AES-256-GCM under a
+  master key that never touches the database. The key comes from the
+  `COMPASSDOCS_SECRET_KEY` environment variable (32 bytes as 64 hex or 44
+  base64 characters — recommended), or is auto-generated on first boot into a
+  `0600` key file inside the uploads volume (`COMPASSDOCS_KEY_FILE` overrides
+  the location). Existing plaintext values are migrated in place on upgrade;
+  no re-entry needed. **Keep a copy of the key (or key file) somewhere safe
+  that is not your backup bucket** — it's required to restore encrypted
+  backups on a new host.
+- **Session tokens are stored hashed.** The sessions table now holds the
+  SHA-256 of each cookie token instead of the token itself, so a leaked
+  database can't be replayed as a login. Existing sessions are migrated in
+  place — nobody gets signed out by the upgrade.
+- **Backups are encrypted.** New backups are written (and mirrored off-site)
+  as `.dump.enc` files — AES-256-GCM under the same master key — and the
+  plaintext dump never rests on disk. Restore transparently handles both
+  encrypted and older plaintext backups.
+- **Login throttling.** Five failed attempts for the same account+IP within
+  15 minutes locks that pair out for 15 minutes (HTTP 429 with `Retry-After`);
+  30 failures from one IP across any accounts locks the IP. Wrong two-factor
+  codes count too, and each lockout is recorded in the audit log
+  (`auth.lockout`). Successful logins clear the counter.
+- **Security headers on every response**: `Strict-Transport-Security`,
+  `X-Content-Type-Options: nosniff`, `Referrer-Policy`, a restrictive
+  `Permissions-Policy`, and an anti-clickjacking Content-Security-Policy
+  (`frame-ancestors 'self'`). The Outlook task pane keeps a carve-out so it
+  stays embeddable by Outlook's own origins — the add-in is unaffected.
+
 ## [0.40.0] - 2026-07-19
 
 ### Added

@@ -4,13 +4,22 @@ import { mkdir, readdir, stat, unlink } from "fs/promises";
 import { join, basename } from "path";
 import { activeDestinations } from "./backup-destinations";
 import { getAllSettings, pool } from "./db";
+import { encryptFile, decryptFile, isEncryptedFile } from "./secretbox";
 
 // Full-database backups via pg_dump (custom format). Dumps are written to a
 // local directory (a mounted volume in Docker) and mirrored to any configured
 // off-site destinations (S3 / Azure). Restore uses pg_restore --clean.
+//
+// Since 0.41.0, new backups are encrypted with the workspace master key
+// (AES-256-GCM, ".dump.enc") before they touch disk or an off-site bucket.
+// Restore transparently handles both encrypted and legacy plaintext dumps —
+// but restoring an encrypted backup on a NEW host requires the same master
+// key (COMPASSDOCS_SECRET_KEY or the key file). Keep a copy of it somewhere
+// safe that is NOT the backup bucket.
 
 const PREFIX = "compassdocs-";
 const EXT = ".dump";
+const EXT_ENC = ".dump.enc";
 const ADVISORY_LOCK = 728342; // distinct from the schema-init lock
 
 export function backupDir(): string {
@@ -58,7 +67,7 @@ function run(cmd: string, args: string[]): Promise<void> {
 
 // Only allow our own dump filenames — blocks path traversal on name params.
 export function isValidBackupName(name: string): boolean {
-  return /^compassdocs-\d{8}-\d{6}\.dump$/.test(name);
+  return /^compassdocs-\d{8}-\d{6}\.dump(\.enc)?$/.test(name);
 }
 
 function stamp(d: Date): string {
@@ -83,10 +92,17 @@ export interface CreateBackupResult extends BackupInfo {
 export async function createBackup(now: Date = new Date()): Promise<CreateBackupResult> {
   const dir = backupDir();
   await mkdir(dir, { recursive: true });
-  const name = `${PREFIX}${stamp(now)}${EXT}`;
+  const name = `${PREFIX}${stamp(now)}${EXT_ENC}`;
   const path = join(dir, name);
 
-  await run(pgBin("pg_dump"), ["-Fc", "--no-owner", "--no-privileges", "-f", path]);
+  // Dump to a scratch file, encrypt it into place, then shred the plaintext.
+  const plain = path + ".tmp";
+  await run(pgBin("pg_dump"), ["-Fc", "--no-owner", "--no-privileges", "-f", plain]);
+  try {
+    await encryptFile(plain, path);
+  } finally {
+    await unlink(plain).catch(() => {});
+  }
   const info = await backupInfo(name);
 
   // Mirror to any configured off-site destinations (never fail the local backup
@@ -167,16 +183,30 @@ export async function restoreBackup(name: string): Promise<void> {
   const p = backupPath(name);
   if (!p) throw new Error("Invalid backup name.");
   await stat(p); // throws if missing
-  const env = pgEnv();
-  await run(pgBin("pg_restore"), [
-    "--clean",
-    "--if-exists",
-    "--no-owner",
-    "--no-privileges",
-    "-d",
-    env.PGDATABASE as string,
-    p,
-  ]);
+
+  // Encrypted dumps are decrypted to a scratch file for pg_restore, then wiped.
+  // Checked by content, not extension, so a renamed file still does the right thing.
+  let dumpPath = p;
+  let scratch: string | null = null;
+  if (await isEncryptedFile(p)) {
+    scratch = p + ".plain.tmp";
+    await decryptFile(p, scratch);
+    dumpPath = scratch;
+  }
+  try {
+    const env = pgEnv();
+    await run(pgBin("pg_restore"), [
+      "--clean",
+      "--if-exists",
+      "--no-owner",
+      "--no-privileges",
+      "-d",
+      env.PGDATABASE as string,
+      dumpPath,
+    ]);
+  } finally {
+    if (scratch) await unlink(scratch).catch(() => {});
+  }
 }
 
 // --- Scheduling --------------------------------------------------------------

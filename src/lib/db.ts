@@ -2,6 +2,7 @@ import { Pool, types } from "pg";
 import { createHash, randomBytes } from "node:crypto";
 import { SEED_SPACES, SEED_DOCS } from "./seed-data";
 import { hashPassword } from "./password";
+import { sealSecret, openSecret, isSealed } from "./secretbox";
 import type {
   Document,
   DocumentWithSpace,
@@ -106,6 +107,7 @@ async function initialize(): Promise<void> {
     await client.query("SELECT pg_advisory_lock(id) FROM (SELECT 728341 AS id) t");
     await client.query(SCHEMA_SQL);
     await migrateVisibilityTiers(client);
+    await migrateSecuritySealing(client);
     await seedIfEmpty(client);
     await bootstrapAuth(client);
   } finally {
@@ -644,6 +646,43 @@ async function migrateVisibilityTiers(client: import("pg").PoolClient) {
   await client.query(
     "INSERT INTO settings (key, value) VALUES ('migrated_visibility_tiers','1') ON CONFLICT (key) DO NOTHING"
   );
+}
+
+/**
+ * One-time security migrations (0.41.0), inside the init advisory lock:
+ * 1. Seal existing plaintext credential settings with the master key.
+ * 2. Replace raw session tokens with their SHA-256 (cookies stay valid — the
+ *    lookup hashes the cookie value from then on). Guarded by a settings flag
+ *    since a raw token and a hash are both 64 hex chars.
+ */
+async function migrateSecuritySealing(client: import("pg").PoolClient) {
+  const keys = Array.from(SENSITIVE_SETTINGS);
+  const { rows: secretRows } = await client.query(
+    "SELECT key, value FROM settings WHERE key = ANY($1) AND value <> ''",
+    [keys]
+  );
+  for (const r of secretRows) {
+    if (!isSealed(r.value)) {
+      await client.query("UPDATE settings SET value = $1 WHERE key = $2", [
+        sealSecret(r.value),
+        r.key,
+      ]);
+    }
+  }
+
+  const done = await client.query("SELECT 1 FROM settings WHERE key = 'sessions_hashed'");
+  if (!done.rowCount) {
+    const { rows: sessions } = await client.query("SELECT token FROM sessions");
+    for (const s of sessions) {
+      await client.query("UPDATE sessions SET token = $1 WHERE token = $2", [
+        createHash("sha256").update(s.token).digest("hex"),
+        s.token,
+      ]);
+    }
+    await client.query(
+      "INSERT INTO settings (key, value) VALUES ('sessions_hashed','1') ON CONFLICT (key) DO NOTHING"
+    );
+  }
 }
 
 async function seedIfEmpty(client: import("pg").PoolClient) {
@@ -1351,15 +1390,28 @@ export async function retrieveForAnswer(
 
 // --- Settings ----------------------------------------------------------------
 
+// Settings values that are credentials. They're sealed with the master key on
+// write and transparently opened on read; everything else stays plaintext.
+const SENSITIVE_SETTINGS = new Set([
+  "smtp_pass",
+  "anthropic_api_key",
+  "sso_client_secret",
+  "backup_s3_secret_access_key",
+  "backup_azure_connection_string",
+  "tls_key_pem",
+]);
+
 export async function getSetting(key: string): Promise<string | undefined> {
-  return (await q<{ value: string }>("SELECT value FROM settings WHERE key = $1", [key]))[0]
+  const value = (await q<{ value: string }>("SELECT value FROM settings WHERE key = $1", [key]))[0]
     ?.value;
+  return value === undefined ? undefined : openSecret(value);
 }
 
 export async function setSetting(key: string, value: string): Promise<void> {
+  const stored = SENSITIVE_SETTINGS.has(key) ? sealSecret(value) : value;
   await q(
     "INSERT INTO settings (key, value) VALUES ($1,$2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
-    [key, value]
+    [key, stored]
   );
 }
 
@@ -1371,7 +1423,7 @@ export async function getApprovalMode(): Promise<ApprovalMode> {
 export async function getAllSettings(): Promise<Record<string, string>> {
   const rows = await q<{ key: string; value: string }>("SELECT key, value FROM settings");
   const out: Record<string, string> = {};
-  for (const r of rows) out[r.key] = r.value;
+  for (const r of rows) out[r.key] = openSecret(r.value);
   return out;
 }
 
@@ -3118,6 +3170,12 @@ export async function markWebhookResult(id: number, status: string): Promise<voi
 
 // --- Sessions ----------------------------------------------------------------
 
+// Sessions are stored by the SHA-256 of the cookie token, so a leaked database
+// can't be replayed as a login. The raw token exists only in the user's cookie.
+function sessionKey(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
 export async function createSession(
   token: string,
   userId: number,
@@ -3126,7 +3184,7 @@ export async function createSession(
   userAgent?: string | null
 ): Promise<void> {
   await q("INSERT INTO sessions (token, user_id, expires_at, ip, user_agent) VALUES ($1,$2,$3,$4,$5)", [
-    token,
+    sessionKey(token),
     userId,
     expiresAt,
     ip || null,
@@ -3149,7 +3207,7 @@ export async function listUserSessions(userId: number, currentToken: string): Pr
             (token = $2) AS current
      FROM sessions WHERE user_id = $1 AND expires_at > now()
      ORDER BY (token = $2) DESC, created_at DESC`,
-    [userId, currentToken]
+    [userId, sessionKey(currentToken)]
   );
 }
 
@@ -3165,7 +3223,7 @@ export async function deleteSessionBySid(userId: number, sid: string): Promise<b
 export async function deleteOtherSessions(userId: number, currentToken: string): Promise<number> {
   const res = await pool().query("DELETE FROM sessions WHERE user_id = $1 AND token <> $2", [
     userId,
-    currentToken,
+    sessionKey(currentToken),
   ]);
   return res.rowCount ?? 0;
 }
@@ -3224,18 +3282,18 @@ export async function getSessionUser(
     await q<User & { expires_at: string }>(
       `SELECT ${cols}, s.expires_at FROM sessions s JOIN users u ON u.id = s.user_id
        WHERE s.token = $1 AND s.expires_at > now() AND u.status = 'active'`,
-      [token]
+      [sessionKey(token)]
     )
   )[0];
 }
 
 /** Slide a session's expiry forward (sliding idle timeout). */
 export async function touchSession(token: string, expiresAt: string): Promise<void> {
-  await q("UPDATE sessions SET expires_at = $1 WHERE token = $2", [expiresAt, token]);
+  await q("UPDATE sessions SET expires_at = $1 WHERE token = $2", [expiresAt, sessionKey(token)]);
 }
 
 export async function deleteSession(token: string): Promise<void> {
-  await q("DELETE FROM sessions WHERE token = $1", [token]);
+  await q("DELETE FROM sessions WHERE token = $1", [sessionKey(token)]);
 }
 
 export async function deleteUserSessions(userId: number): Promise<void> {
