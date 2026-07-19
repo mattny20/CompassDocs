@@ -2,40 +2,53 @@
 // callouts, accordions, video embeds, and website embeds. Kept separate from
 // DocBlocks.tsx so these stay server-rendered — including on the public site.
 
+import {
+  StickyNote,
+  Info,
+  Lightbulb,
+  TriangleAlert,
+  OctagonAlert,
+  Film,
+} from "lucide-react";
 import { videoEmbedUrl } from "@/lib/doc-blocks";
 
 // --- Callouts -----------------------------------------------------------------
 
-const CALLOUT_STYLE: Record<
+export const CALLOUT_STYLE: Record<
   string,
-  { icon: string; box: string; title: string; defaultTitle: string }
+  {
+    Icon: React.ComponentType<{ className?: string }>;
+    box: string;
+    title: string;
+    defaultTitle: string;
+  }
 > = {
   note: {
-    icon: "📝",
+    Icon: StickyNote,
     box: "border-slate-300 bg-slate-50 dark:border-slate-600 dark:bg-slate-800/40",
     title: "text-slate-700 dark:text-slate-200",
     defaultTitle: "Note",
   },
   info: {
-    icon: "ℹ️",
+    Icon: Info,
     box: "border-sky-300 bg-sky-50 dark:border-sky-800 dark:bg-sky-950/40",
     title: "text-sky-800 dark:text-sky-200",
     defaultTitle: "Info",
   },
   tip: {
-    icon: "💡",
+    Icon: Lightbulb,
     box: "border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/40",
     title: "text-emerald-800 dark:text-emerald-200",
     defaultTitle: "Tip",
   },
   warning: {
-    icon: "⚠️",
+    Icon: TriangleAlert,
     box: "border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/40",
     title: "text-amber-800 dark:text-amber-200",
     defaultTitle: "Warning",
   },
   danger: {
-    icon: "🚨",
+    Icon: OctagonAlert,
     box: "border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-950/40",
     title: "text-red-800 dark:text-red-200",
     defaultTitle: "Danger",
@@ -55,7 +68,7 @@ export function Callout({
   return (
     <div className={`md-callout-box my-4 rounded-lg border-l-4 border px-4 py-3 ${s.box}`}>
       <div className={`mb-1 flex items-center gap-1.5 text-sm font-semibold ${s.title}`}>
-        <span aria-hidden>{s.icon}</span> {title || s.defaultTitle}
+        <s.Icon className="h-4 w-4 shrink-0" aria-hidden /> {title || s.defaultTitle}
       </div>
       <div className="[&>*:first-child]:mt-0 [&>*:last-child]:mb-0 text-[0.95em]">{children}</div>
     </div>
@@ -81,8 +94,8 @@ export function VideoBlock({ src, title }: { src: string; title?: string }) {
   const embed = videoEmbedUrl(src);
   if (!embed) {
     return (
-      <p className="my-3 text-sm text-slate-500">
-        🎬{" "}
+      <p className="my-3 flex items-center gap-1.5 text-sm text-slate-500">
+        <Film className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
         <a href={src} className="text-compass-600 underline" rel="noreferrer noopener">
           {title || src}
         </a>{" "}
@@ -125,8 +138,9 @@ export function SiteEmbed({ src, height, title }: { src: string; height?: string
   }
   if (!ok) {
     return (
-      <p className="my-3 text-sm text-amber-700">
-        ⚠️ Embeds need a full <code>https://</code> URL.
+      <p className="my-3 flex items-center gap-1.5 text-sm text-amber-700">
+        <TriangleAlert className="h-4 w-4 shrink-0" aria-hidden /> Embeds need a full{" "}
+        <code>https://</code> URL.
       </p>
     );
   }

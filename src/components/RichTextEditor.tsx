@@ -55,6 +55,15 @@ import {
   Highlighter,
   PaintBucket,
   SquareX,
+  MessageSquareWarning,
+  PanelTop,
+  ListCollapse,
+  ListChecks,
+  Workflow,
+  Network,
+  Split,
+  Film,
+  Globe,
 } from "lucide-react";
 
 // Starter content inserted by the "Email template" toolbar button. Rendered
@@ -553,7 +562,25 @@ export function RichTextEditor({
   );
 }
 
-// Rich-block templates for the toolbar's "+ Block" menu.
+// One-click rich-block toolbar buttons (also used by the Markdown tab in
+// DocEditor, which inserts text templates for the same blocks).
+export const RICH_BLOCK_BUTTONS: {
+  kind: string;
+  label: string;
+  Icon: React.ComponentType<{ className?: string }>;
+}[] = [
+  { kind: "callout", label: "Callout", Icon: MessageSquareWarning },
+  { kind: "tabs", label: "Tabs", Icon: PanelTop },
+  { kind: "details", label: "Accordion", Icon: ListCollapse },
+  { kind: "checklist", label: "Checklist", Icon: ListChecks },
+  { kind: "mermaid", label: "Mermaid diagram", Icon: Workflow },
+  { kind: "plantuml", label: "PlantUML diagram", Icon: Network },
+  { kind: "decision", label: "Decision guide", Icon: Split },
+  { kind: "video", label: "Video", Icon: Film },
+  { kind: "embed", label: "Website embed", Icon: Globe },
+];
+
+// Rich-block templates for the toolbar buttons.
 function insertRichBlock(editor: Editor, kind: string): void {
   const para = (text: string) => ({
     type: "paragraph",
@@ -965,26 +992,12 @@ function Toolbar({
       >
         <Mail className={TB_ICON} />
       </Btn>
-      <select
-        value=""
-        onChange={(e) => {
-          insertRichBlock(editor, e.target.value);
-          e.target.value = "";
-        }}
-        title="Insert a rich block: callout, tabs, accordion, diagram, video, embed…"
-        className="ml-0.5 h-7 rounded-md border border-slate-200 bg-surface px-1.5 text-xs font-medium text-slate-600 outline-none hover:bg-slate-50"
-      >
-        <option value="">+ Block</option>
-        <option value="callout">Callout</option>
-        <option value="tabs">Tabs</option>
-        <option value="details">Accordion</option>
-        <option value="checklist">Checklist</option>
-        <option value="mermaid">Mermaid diagram</option>
-        <option value="plantuml">PlantUML diagram</option>
-        <option value="decision">Decision guide</option>
-        <option value="video">Video</option>
-        <option value="embed">Website embed</option>
-      </select>
+      <Divider />
+      {RICH_BLOCK_BUTTONS.map(({ kind, label, Icon }) => (
+        <Btn key={kind} onClick={() => insertRichBlock(editor, kind)} label={label}>
+          <Icon className={TB_ICON} />
+        </Btn>
+      ))}
       {editor.isActive("heading") && (
         <>
           <Divider />
