@@ -4,6 +4,40 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.42.0] - 2026-07-19
+
+### Added
+- **Rich document blocks.** Ten new building blocks for documents, all
+  authored in plain Markdown (with an **Insert block** menu in the editor's
+  Markdown tab) and rendered everywhere documents appear — including the
+  public site and the editor's Preview:
+  - **Mermaid diagrams** — ` ```mermaid ` fences render flowcharts, sequence
+    diagrams, Gantt charts, and more, right in the page (rendered locally in
+    the browser, light- and dark-theme aware).
+  - **PlantUML diagrams** — ` ```plantuml ` fences render via a PlantUML
+    server (plantuml.com by default; point `COMPASSDOCS_PLANTUML_SERVER` at a
+    self-hosted server to keep diagram text in-network, or set it to `off`).
+    Results are cached; dark mode gets a matching theme.
+  - **Callout blocks** — `:::note`, `:::tip`, `:::info`, `:::warning`,
+    `:::danger`, each with an optional custom title.
+  - **Tabs** — `::::tabs` with `:::tab[Title]` panels, for
+    per-platform instructions and side-by-side variants.
+  - **Accordions** — `:::details[Section title]` collapsible sections.
+  - **Embedded videos** — `::video{src="…"}` for YouTube (privacy-enhanced
+    no-cookie player), Vimeo, Loom, uploaded video attachments, and direct
+    video files, with an optional caption.
+  - **Website embeds** — `::embed{src="https://…" height="500"}` shows a live
+    page in a sandboxed frame (dashboards, status pages, forms).
+  - **Interactive checklists** — GFM task lists (`- [ ]`) are now clickable
+    for every reader; progress is saved per document on their device and
+    never modifies the document itself.
+  - **Decision trees** — ` ```decision ` fences define a question-and-answer
+    flow (`id: question` + `- Answer -> target` lines) that readers walk
+    through one step at a time, with a breadcrumb of choices, back/start-over
+    controls, and a highlighted recommendation at the end.
+  - **Tables with filtering** — every Markdown table with 4+ rows gets a
+    filter box and click-to-sort headers (numeric-aware), automatically.
+
 ## [0.41.0] - 2026-07-19
 
 ### Security

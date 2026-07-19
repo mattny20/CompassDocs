@@ -1,6 +1,6 @@
 {
   "name": "compassdocs",
-  "version": "0.41.0",
+  "version": "0.42.0",
   "private": true,
   "license": "AGPL-3.0-only",
   "scripts": {
@@ -33,6 +33,7 @@
     "hast-util-to-html": "^9.0.5",
     "jszip": "^3.10.1",
     "lucide-react": "^1.24.0",
+    "mermaid": "^11.16.0",
     "next": "^15.5.20",
     "nodemailer": "^9.0.3",
     "pg": "^8.13.1",
@@ -42,11 +43,13 @@
     "react-markdown": "^10.1.0",
     "rehype-raw": "^7.0.0",
     "rehype-sanitize": "^6.0.0",
+    "remark-directive": "^4.0.0",
     "remark-gfm": "^4.0.1",
     "remark-parse": "^11.0.0",
     "remark-rehype": "^11.1.2",
     "tiptap-markdown": "^0.8.10",
-    "unified": "^11.0.5"
+    "unified": "^11.0.5",
+    "unist-util-visit": "^5.1.0"
   },
   "devDependencies": {
     "@types/node": "^24.7.0",
