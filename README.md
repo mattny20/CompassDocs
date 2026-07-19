@@ -34,7 +34,9 @@ pricing on the core product, ever.
 
 **Write**
 - **Rich editor or Markdown** — headings, tables, checklists, code blocks; paste screenshots inline, size them, add alt text. AI proofreading built in.
-- **Version history, drafts, tags, attachments,** and one-click **Print / Save as PDF**. Readers pick their page width.
+- **Full version history** — side-by-side or inline diffs between any two versions with word-level highlights, one-click restore (approval-aware), and change notes on every save.
+- **Draft branches** — edit a private working copy of a live document, then merge it back through the approval workflow. Branches stay out of search and listings.
+- **Drafts, tags, attachments,** and one-click **Print / Save as PDF**. Readers pick their page width.
 
 **Organize**
 - **Spaces** with three visibility tiers — internal, **private** (granted groups only), or **public** (a branded, read-only site for the open internet, off by default).

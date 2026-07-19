@@ -1,13 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getDocument, listVersions } from "@/lib/db";
+import { getDocument, listVersions, listBranches, getApprovalMode } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
-import { spaceScopeFor, scopeAllows } from "@/lib/access";
+import { spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
 import { getAppSettings } from "@/lib/settings-store";
 import { formatDateTime } from "@/lib/format";
 import { roleAtLeast } from "@/lib/types";
 import { timeAgo } from "@/lib/ui";
 import { PageContainer } from "@/components/PageWidth";
+import { VersionHistory } from "@/components/VersionHistory";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +19,29 @@ export default async function HistoryPage({ params }: { params: Promise<{ id: st
   if (!doc) notFound();
   if (!scopeAllows(await spaceScopeFor(user), doc.space_id)) notFound();
   if (doc.status === "draft" && !roleAtLeast(user.role, "editor")) notFound();
-  const [versions, settings] = await Promise.all([listVersions(doc.id), getAppSettings()]);
+
+  const [versions, branches, settings, hasEditRights, approvalMode] = await Promise.all([
+    listVersions(doc.id),
+    listBranches(doc.id),
+    getAppSettings(),
+    canEditSpace(user, doc.space_id),
+    getApprovalMode(),
+  ]);
+  const canEdit = roleAtLeast(user.role, "editor") && hasEditRights;
+  const canPublishDirect = roleAtLeast(user.role, "approver") || approvalMode === "open";
+
+  // Oldest = v1; the list arrives newest-first.
+  const items = versions.map((v, i) => ({
+    id: v.id,
+    rev: versions.length - i,
+    title: v.title,
+    content: v.content,
+    author: v.author,
+    note: v.note,
+    restored_from: v.restored_from,
+    when: timeAgo(v.created_at),
+    whenExact: formatDateTime(v.created_at, settings),
+  }));
 
   return (
     <PageContainer>
@@ -28,37 +51,29 @@ export default async function HistoryPage({ params }: { params: Promise<{ id: st
         </Link>
       </nav>
       <h1 className="mb-1 text-2xl font-bold text-slate-900">Version history</h1>
-      <p className="mb-6 text-slate-500">{doc.title}</p>
+      <p className="mb-6 text-slate-500">
+        {doc.title}
+        {doc.branch_of !== null && (
+          <span className="ml-2 rounded-full bg-violet-100 px-2 py-0.5 text-xs font-semibold text-violet-700 dark:bg-violet-900/50">
+            Draft branch
+          </span>
+        )}
+      </p>
 
-      <ol className="relative border-l border-slate-200 pl-6">
-        {versions.map((v, i) => (
-          <li key={v.id} className="mb-6 last:mb-0">
-            <span className="absolute -left-[7px] mt-1.5 h-3 w-3 rounded-full border-2 border-surface bg-compass-500" />
-            <div className="rounded-lg border border-slate-200 bg-surface p-4 shadow-sm">
-              <div className="flex items-center justify-between">
-                <span className="font-medium text-slate-800">
-                  {i === 0 ? "Current" : `Revision ${versions.length - i}`}
-                  <span className="ml-2 text-sm font-normal text-slate-400">{v.note}</span>
-                </span>
-                <span className="text-xs text-slate-400" title={formatDateTime(v.created_at, settings)}>
-                  {timeAgo(v.created_at)}
-                </span>
-              </div>
-              <div className="mt-1 text-sm text-slate-500">
-                {v.title} · edited by {v.author}
-              </div>
-              <details className="mt-2">
-                <summary className="cursor-pointer text-xs font-medium text-compass-600">
-                  Preview content
-                </summary>
-                <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap rounded bg-slate-50 p-3 text-xs text-slate-600">
-                  {v.content}
-                </pre>
-              </details>
-            </div>
-          </li>
-        ))}
-      </ol>
+      <VersionHistory
+        docId={doc.id}
+        docStatus={doc.status}
+        isBranch={doc.branch_of !== null}
+        canEdit={canEdit}
+        canPublishDirect={canPublishDirect}
+        versions={items}
+        branches={branches.map((b) => ({
+          id: b.id,
+          title: b.title,
+          author: b.author,
+          when: timeAgo(b.updated_at),
+        }))}
+      />
     </PageContainer>
   );
 }

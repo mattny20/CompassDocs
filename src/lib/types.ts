@@ -146,6 +146,8 @@ export interface Document {
   author: string;
   /** 1 = readers must confirm they've read this doc (enterprise). */
   ack_required: number;
+  /** Non-null = this doc is a draft branch of that document. */
+  branch_of: number | null;
   created_at: string;
   updated_at: string;
   deleted_at?: string | null;
@@ -177,6 +179,8 @@ export interface DocVersion {
   content: string;
   author: string;
   note: string;
+  /** If this version was created by restoring an older one, that version's id. */
+  restored_from: number | null;
   created_at: string;
 }
 

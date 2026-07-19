@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useState } from "react";
-import { History, Pencil, Trash2, LoaderCircle } from "lucide-react";
+import { GitBranch, History, Pencil, Trash2, LoaderCircle } from "lucide-react";
 import { roleAtLeast } from "@/lib/types";
 import type { Role } from "@/lib/types";
 import { PrintButton } from "./PrintButton";
@@ -14,6 +14,7 @@ export function DocActions({
   role,
   isPublished,
   hasEditRights,
+  isBranch = false,
 }: {
   id: number;
   spaceSlug: string;
@@ -21,14 +22,30 @@ export function DocActions({
   isPublished: boolean;
   /** Server-resolved per-space edit rights (role alone isn't enough). */
   hasEditRights: boolean;
+  /** Branches can't be branched again. */
+  isBranch?: boolean;
 }) {
   const router = useRouter();
   const [deleting, setDeleting] = useState(false);
+  const [branching, setBranching] = useState(false);
 
   const canEdit = roleAtLeast(role, "editor") && hasEditRights;
   const canDelete =
     hasEditRights &&
     (roleAtLeast(role, "approver") || (roleAtLeast(role, "editor") && !isPublished));
+
+  async function onBranch() {
+    setBranching(true);
+    const res = await fetch(`/api/documents/${id}/branch`, { method: "POST" });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      router.push(`/doc/${data.branch.id}/edit`);
+      router.refresh();
+    } else {
+      setBranching(false);
+      alert(data?.error || "Couldn't create the branch.");
+    }
+  }
 
   async function onDelete() {
     if (!confirm("Move this document to the Trash? You can restore it later.")) return;
@@ -58,6 +75,21 @@ export function DocActions({
       >
         <History className="h-4 w-4" />
       </Link>
+      {canEdit && !isBranch && (
+        <button
+          onClick={onBranch}
+          disabled={branching}
+          title="New draft branch"
+          aria-label="Create a draft branch"
+          className={iconBtn + " disabled:opacity-50"}
+        >
+          {branching ? (
+            <LoaderCircle className="h-4 w-4 animate-spin" />
+          ) : (
+            <GitBranch className="h-4 w-4" />
+          )}
+        </button>
+      )}
       {canEdit && (
         <Link href={`/doc/${id}/edit`} title="Edit" aria-label="Edit document" className={iconBtn}>
           <Pencil className="h-4 w-4" />

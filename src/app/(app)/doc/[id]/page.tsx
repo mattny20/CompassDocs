@@ -1,7 +1,15 @@
 import Link from "next/link";
 import { PageWidth } from "@/components/PageWidth";
 import { notFound } from "next/navigation";
-import { getDocument, listVersions, listPendingForDocument, listAttachments } from "@/lib/db";
+import {
+  getDocument,
+  listVersions,
+  listBranches,
+  listPendingForDocument,
+  listAttachments,
+  getApprovalMode,
+} from "@/lib/db";
+import { BranchBanner } from "@/components/BranchBanner";
 import { requireUser } from "@/lib/auth";
 import { spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
 import { resolveAuthorPerson } from "@/lib/directory";
@@ -41,6 +49,13 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
     featureEnabled("policy_ack"),
     canEditSpace(user, doc.space_id),
   ]);
+  // Draft-branch context: the source doc for the banner, live branches for the note.
+  const branchSource = doc.branch_of !== null ? await getDocument(doc.branch_of) : undefined;
+  const branchCount = isStaff && doc.branch_of === null ? (await listBranches(doc.id)).length : 0;
+  const mergeNeedsReview =
+    branchSource?.status === "published" &&
+    !roleAtLeast(user.role, "approver") &&
+    (await getApprovalMode()) === "strict";
   const isApprover = roleAtLeast(user.role, "approver");
   // Reader banner state + approver progress, only when the feature is licensed.
   const myAck =
@@ -76,6 +91,7 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
           role={user.role}
           isPublished={doc.status === "published"}
           hasEditRights={hasEditRights}
+          isBranch={doc.branch_of !== null}
         />
       </div>
 
@@ -92,9 +108,29 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
         <AckBanner docId={doc.id} initialAckedAt={myAck?.acknowledged_at ?? null} />
       )}
 
-      {doc.status === "draft" && isStaff && (
-        <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-600 print:hidden">
-          📝 This is a <strong>draft</strong> — it isn&apos;t visible to viewers yet.
+      {doc.branch_of !== null && branchSource ? (
+        <BranchBanner
+          branchId={doc.id}
+          sourceId={branchSource.id}
+          sourceTitle={branchSource.title}
+          canEdit={isStaff && hasEditRights}
+          needsReview={Boolean(mergeNeedsReview)}
+        />
+      ) : (
+        doc.status === "draft" &&
+        isStaff && (
+          <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-600 print:hidden">
+            📝 This is a <strong>draft</strong> — it isn&apos;t visible to viewers yet.
+          </div>
+        )
+      )}
+
+      {branchCount > 0 && (
+        <div className="mb-4 rounded-lg border border-violet-200 bg-violet-50 px-4 py-2 text-sm text-violet-800 print:hidden dark:border-violet-800/60 dark:bg-violet-950/40 dark:text-violet-200">
+          🌿 {branchCount} draft branch{branchCount === 1 ? "" : "es"} in progress.{" "}
+          <Link href={`/doc/${doc.id}/history`} className="font-medium underline">
+            View in history →
+          </Link>
         </div>
       )}
 
