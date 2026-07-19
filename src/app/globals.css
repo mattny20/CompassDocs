@@ -360,3 +360,29 @@ mark {
   margin-left: 0.2em;
   opacity: 0.6;
 }
+
+/* Task lists (interactive checklists) — the rich editor's TaskList markup. The
+ * read-only view styles GFM task lists via .doc-prose li > input. */
+.tiptap ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0.25rem;
+}
+.tiptap ul[data-type="taskList"] li {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+.tiptap ul[data-type="taskList"] li > label {
+  margin-top: 0.3rem;
+  flex-shrink: 0;
+}
+.tiptap ul[data-type="taskList"] li > div {
+  flex: 1;
+  min-width: 0;
+}
+.tiptap ul[data-type="taskList"] input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--compass-600, #2e75bd);
+  cursor: pointer;
+}

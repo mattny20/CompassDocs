@@ -4,6 +4,29 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.43.0] - 2026-07-19
+
+### Added
+- **Rich blocks are now first-class in the rich-text editor.** The blocks
+  introduced in 0.42 no longer appear as raw directive text in WYSIWYG mode:
+  - **Callouts** edit as live colored boxes — pick the kind (note/info/tip/
+    warning/danger) from a dropdown, type the title inline, write rich
+    content inside.
+  - **Accordions** edit as titled sections with an inline title field.
+  - **Tab groups** edit as stacked, titled panels (each panel fully
+    editable); readers still get real tabs.
+  - **Mermaid, PlantUML, and decision fences get a live preview** rendered
+    right under the code while you type (debounced).
+  - **Checklists are native task lists** — click to tick, `- [ ]` GFM under
+    the hood, nestable.
+  - **Video and website embeds** appear as preview cards with change-URL and
+    remove controls.
+  - A **“+ Block” menu** in the toolbar inserts any of them (callout, tabs,
+    accordion, checklist, diagrams, decision guide, video, embed).
+  - Everything still round-trips through the exact same Markdown directives —
+    switch freely between Rich text and Markdown modes; storage, diffs,
+    export, and the public site are unchanged.
+
 ## [0.42.0] - 2026-07-19
 
 ### Added
