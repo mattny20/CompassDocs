@@ -16,6 +16,7 @@ import {
   BookUser,
   SquareArrowOutUpRight,
   ScrollText,
+  ShieldCheck,
   BellRing,
   Siren,
   Mail,
@@ -41,6 +42,7 @@ const SECTIONS = [
   { href: "/admin/directory", label: "Directory", icon: <BookUser className={ICON} /> },
   { href: "/admin/notifications", label: "Notifications", icon: <BellRing className={ICON} /> },
   { href: "/admin/audit", label: "Audit log", icon: <ScrollText className={ICON} /> },
+  { href: "/admin/compliance", label: "Compliance", icon: <ShieldCheck className={ICON} /> },
   { href: "/admin/backups", label: "Backups", icon: <DatabaseBackup className={ICON} /> },
   { href: "/admin/data", label: "Import & export", icon: <Package className={ICON} /> },
 ];

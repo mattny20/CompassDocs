@@ -4,6 +4,30 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.46.0] - 2026-07-19
+
+### Added
+- **Central compliance portal** *(enterprise, Settings → Compliance)*. One
+  place to run the whole policy-acknowledgement program:
+  - **KPIs**: policies requiring acknowledgement, overall compliance %,
+    fully-compliant people, and outstanding acknowledgements.
+  - **Policy progress** — every ack-required document with its progress bar,
+    revision date, and last-reminder time; expand any row to see exactly
+    **who has acknowledged and who's pending**, and download the per-policy
+    CSV record.
+  - **Request acknowledgement** — pick any published document and click one
+    button: it starts requiring acknowledgement, and everyone who can see it
+    gets a **targeted dashboard notice and an email** with a direct link.
+    Compliance emails are sent regardless of personal notification settings.
+  - **Remind** — one click notifies only the people who still haven't
+    acknowledged (with an hourly cooldown so nobody gets spammed), stamped on
+    the policy row.
+  - **People view** — each person's required/acknowledged counts with a
+    Compliant / outstanding badge.
+  - **Export CSV** — the full portal-wide compliance matrix (policy × person
+    with timestamps) for auditors.
+  - Everything is audited (`ack.requested`, `ack.reminder_sent`).
+
 ## [0.45.0] - 2026-07-19
 
 ### Added

@@ -146,6 +146,8 @@ export interface Document {
   author: string;
   /** 1 = readers must confirm they've read this doc (enterprise). */
   ack_required: number;
+  /** Last time a compliance reminder went out for this doc (enterprise). */
+  ack_last_reminded_at?: string | null;
   /** Non-null = this doc is a draft branch of that document. */
   branch_of: number | null;
   created_at: string;

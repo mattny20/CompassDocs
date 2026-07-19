@@ -43,6 +43,8 @@ const LABELS: Record<string, string> = {
   "document.restore": "Restored document",
   "document.purge": "Purged document",
   "auth.lockout": "Login lockout engaged",
+  "ack.requested": "Acknowledgement requested",
+  "ack.reminder_sent": "Acknowledgement reminder sent",
   "scim.user_create": "SCIM provisioned user",
   "scim.user_update": "SCIM updated user",
   "scim.user_disable": "SCIM deactivated user",

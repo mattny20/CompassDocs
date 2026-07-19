@@ -474,6 +474,8 @@ const SCHEMA_SQL = `
   -- "current" only while acknowledged_at >= the doc's updated_at, so any edit
   -- to the document asks everyone again.
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS ack_required integer NOT NULL DEFAULT 0;
+  -- Spam guard + display for compliance reminders (central portal).
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS ack_last_reminded_at timestamptz;
   CREATE TABLE IF NOT EXISTS acknowledgements (
     id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     document_id integer NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
@@ -2318,6 +2320,110 @@ export async function listSubscriberRecipients(
 
 export async function setAckRequired(docId: number, required: boolean): Promise<void> {
   await q("UPDATE documents SET ack_required = $1 WHERE id = $2", [required ? 1 : 0, docId]);
+}
+
+// Users "eligible" for a doc's acknowledgement = active users who can see its
+// space (public/internal, admins, or granted via a group on private spaces).
+// Kept as fragments so the central compliance portal and the per-doc record
+// count the same people.
+const ACK_VISIBILITY = `(
+    s.visibility IN ('public', 'internal')
+    OR u.role = 'admin'
+    OR EXISTS (SELECT 1 FROM space_groups sg JOIN group_members gm ON gm.group_id = sg.group_id
+               WHERE sg.space_id = s.id AND gm.user_id = u.id)
+  )`;
+const ACK_ELIGIBLE = `u.status = 'active' AND ${ACK_VISIBILITY}`;
+
+/** Central compliance portal: every ack-required published doc with counts. */
+export async function complianceDocs(): Promise<
+  {
+    id: number;
+    title: string;
+    space_name: string;
+    space_icon: string;
+    updated_at: string;
+    ack_last_reminded_at: string | null;
+    required: number;
+    acked: number;
+  }[]
+> {
+  return q(
+    `SELECT d.id, d.title, s.name AS space_name, s.icon AS space_icon,
+            d.updated_at, d.ack_last_reminded_at,
+            COUNT(u.id)::int AS required,
+            COUNT(u.id) FILTER (WHERE a.acknowledged_at IS NOT NULL)::int AS acked
+     FROM documents d
+     JOIN spaces s ON s.id = d.space_id
+     LEFT JOIN users u ON ${ACK_ELIGIBLE}
+     LEFT JOIN LATERAL (
+       SELECT acknowledged_at FROM acknowledgements
+       WHERE document_id = d.id AND user_id = u.id AND acknowledged_at >= d.updated_at
+       ORDER BY acknowledged_at DESC LIMIT 1
+     ) a ON true
+     WHERE d.ack_required = 1 AND d.status = 'published' AND d.deleted_at IS NULL
+     GROUP BY d.id, d.title, s.name, s.icon, d.updated_at, d.ack_last_reminded_at
+     ORDER BY (COUNT(u.id) - COUNT(u.id) FILTER (WHERE a.acknowledged_at IS NOT NULL)) DESC, d.title`
+  );
+}
+
+/** Eligible users who have NOT acknowledged the doc's current revision. */
+export async function compliancePendingUsers(
+  docId: number
+): Promise<{ id: number; name: string; username: string; email: string }[]> {
+  return q(
+    `SELECT u.id, u.name, u.username, u.email
+     FROM users u
+     JOIN documents d ON d.id = $1
+     JOIN spaces s ON s.id = d.space_id
+     WHERE ${ACK_ELIGIBLE}
+       AND NOT EXISTS (
+         SELECT 1 FROM acknowledgements a
+         WHERE a.document_id = d.id AND a.user_id = u.id AND a.acknowledged_at >= d.updated_at
+       )
+     ORDER BY u.name`,
+    [docId]
+  );
+}
+
+/** Per-user compliance: how many required policies each active user has left. */
+export async function complianceUserSummary(): Promise<
+  { id: number; name: string; username: string; role: string; required: number; acked: number }[]
+> {
+  return q(
+    `SELECT u.id, u.name, u.username, u.role,
+            COUNT(d.id)::int AS required,
+            COUNT(d.id) FILTER (WHERE a.acknowledged_at IS NOT NULL)::int AS acked
+     FROM users u
+     LEFT JOIN documents d
+       ON d.ack_required = 1 AND d.status = 'published' AND d.deleted_at IS NULL
+     LEFT JOIN spaces s ON s.id = d.space_id
+     LEFT JOIN LATERAL (
+       SELECT acknowledged_at FROM acknowledgements
+       WHERE document_id = d.id AND user_id = u.id AND acknowledged_at >= d.updated_at
+       ORDER BY acknowledged_at DESC LIMIT 1
+     ) a ON true
+     WHERE u.status = 'active'
+       AND (d.id IS NULL OR ${ACK_VISIBILITY})
+     GROUP BY u.id, u.name, u.username, u.role
+     ORDER BY (COUNT(d.id) - COUNT(d.id) FILTER (WHERE a.acknowledged_at IS NOT NULL)) DESC, u.name`
+  );
+}
+
+/** Published docs not yet requiring acknowledgement (request-ack picker). */
+export async function ackCandidateDocs(): Promise<
+  { id: number; title: string; space_name: string; space_icon: string }[]
+> {
+  return q(
+    `SELECT d.id, d.title, s.name AS space_name, s.icon AS space_icon
+     FROM documents d JOIN spaces s ON s.id = d.space_id
+     WHERE d.ack_required = 0 AND d.status = 'published' AND d.deleted_at IS NULL
+       AND d.branch_of IS NULL
+     ORDER BY s.name, d.title`
+  );
+}
+
+export async function setAckLastReminded(docId: number): Promise<void> {
+  await q("UPDATE documents SET ack_last_reminded_at = now() WHERE id = $1", [docId]);
 }
 
 /** Record an acknowledgement (append-only; no-op if already current). */
