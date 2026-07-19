@@ -6,12 +6,8 @@ import { Sun, Moon, Monitor } from "lucide-react";
 type Pref = "light" | "dark" | "system";
 
 const KEY = "compass-theme";
-const ICON = "h-3.5 w-3.5";
-const OPTIONS: { value: Pref; label: string; icon: React.ReactNode }[] = [
-  { value: "light", label: "Light", icon: <Sun className={ICON} /> },
-  { value: "dark", label: "Dark", icon: <Moon className={ICON} /> },
-  { value: "system", label: "Auto", icon: <Monitor className={ICON} /> },
-];
+const ORDER: Pref[] = ["light", "dark", "system"];
+const LABEL: Record<Pref, string> = { light: "Light", dark: "Dark", system: "Auto" };
 
 function systemPrefersDark(): boolean {
   return typeof matchMedia !== "undefined" && matchMedia("(prefers-color-scheme: dark)").matches;
@@ -23,7 +19,11 @@ function apply(pref: Pref) {
   document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
 }
 
-export function ThemeToggle() {
+/**
+ * Compact theme control: one icon button that cycles Light → Dark → Auto.
+ * The icon shows the current preference; the tooltip says what's next.
+ */
+export function ThemeToggle({ className = "" }: { className?: string }) {
   // Start from a stable value to keep SSR/first-client render identical, then
   // sync to the stored preference after mount (the inline script already set
   // the actual data-theme, so there's no visual flash).
@@ -32,7 +32,7 @@ export function ThemeToggle() {
 
   useEffect(() => {
     const stored = (localStorage.getItem(KEY) as Pref | null) ?? "system";
-    setPref(stored);
+    setPref(ORDER.includes(stored) ? stored : "system");
     setMounted(true);
   }, []);
 
@@ -45,7 +45,8 @@ export function ThemeToggle() {
     return () => mq.removeEventListener("change", onChange);
   }, [pref]);
 
-  function choose(next: Pref) {
+  function cycle() {
+    const next = ORDER[(ORDER.indexOf(pref) + 1) % ORDER.length];
     setPref(next);
     try {
       localStorage.setItem(KEY, next);
@@ -53,32 +54,18 @@ export function ThemeToggle() {
     apply(next);
   }
 
+  const next = ORDER[(ORDER.indexOf(pref) + 1) % ORDER.length];
+  const Icon = pref === "light" ? Sun : pref === "dark" ? Moon : Monitor;
+
   return (
-    <div
-      className="flex items-center gap-1 rounded-lg border border-slate-200 bg-surface p-0.5"
-      role="group"
-      aria-label="Color theme"
+    <button
+      type="button"
+      onClick={cycle}
+      title={mounted ? `Theme: ${LABEL[pref]} — click for ${LABEL[next]}` : "Theme"}
+      aria-label={`Color theme (currently ${LABEL[pref]})`}
+      className={`rounded-md p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 ${className}`}
     >
-      {OPTIONS.map((o) => {
-        const active = mounted && pref === o.value;
-        return (
-          <button
-            key={o.value}
-            type="button"
-            onClick={() => choose(o.value)}
-            aria-pressed={active}
-            title={`${o.label} theme`}
-            className={`flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition ${
-              active
-                ? "bg-compass-600 text-white shadow-sm"
-                : "text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-            }`}
-          >
-            <span aria-hidden>{o.icon}</span>
-            <span>{o.label}</span>
-          </button>
-        );
-      })}
-    </div>
+      <Icon className="h-4 w-4" />
+    </button>
   );
 }
