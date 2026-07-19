@@ -61,7 +61,7 @@ export function ScimPanel({ initial }: { initial: ScimStatus }) {
         <div>
           <h2 className="flex items-center gap-1.5 text-base font-semibold text-slate-900">
             <KeyRound className="h-4 w-4 text-compass-600" /> SCIM provisioning
-            <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700 dark:bg-violet-900/50">
+            <span className="rounded-full bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-700 dark:bg-violet-900/50 dark:text-violet-300">
               Enterprise
             </span>
           </h2>
