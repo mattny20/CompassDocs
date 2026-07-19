@@ -9,6 +9,7 @@ import "server-only";
 import { createAnnouncement, type DocComment } from "./db";
 import { getSmtpConfig, smtpConfigured } from "./smtp-config";
 import { sendMail } from "./mailer";
+import { renderEmail } from "./email-templates";
 
 export const COMMENT_MAX_LEN = 4000;
 
@@ -65,6 +66,27 @@ export async function notifyMentions(input: {
 
   const mailReady = smtpConfigured(await getSmtpConfig());
 
+  // Same message for every target, so render the template once.
+  let mail: { subject: string; text: string; html: string } | null = null;
+  if (mailReady) {
+    try {
+      mail = await renderEmail(
+        "mention",
+        {
+          author_name: input.authorName,
+          doc_title: input.docTitle,
+          comment: input.comment.body,
+          doc_url: url,
+          org_name: input.orgName,
+          manage_url: `${input.origin}/account/notifications`,
+        },
+        input.origin
+      );
+    } catch (e) {
+      console.error("Mention email render failed:", e);
+    }
+  }
+
   for (const target of input.targets) {
     if (target.id === input.authorId) continue; // self-mentions don't notify
 
@@ -86,27 +108,11 @@ export async function notifyMentions(input: {
     }
 
     // Email (respects the user's notification master switch).
-    if (!mailReady || !target.email || target.email_notifications !== 1) continue;
+    if (!mail || !target.email || target.email_notifications !== 1) continue;
     try {
-      const subject = `[${input.orgName}] ${input.authorName} mentioned you in "${input.docTitle}"`;
-      const text =
-        `${input.authorName} mentioned you in a comment on "${input.docTitle}":\n\n` +
-        `${input.comment.body}\n\n` +
-        `View the document and reply: ${url}\n\n` +
-        `Manage notification emails: ${input.origin}/account/notifications`;
-      const html =
-        `<p><strong>${esc(input.authorName)}</strong> mentioned you in a comment on ` +
-        `<strong>${esc(input.docTitle)}</strong>:</p>` +
-        `<blockquote style="margin:12px 0;padding:10px 14px;border-left:3px solid #2e75bd;background:#f8fafc;white-space:pre-line">${esc(input.comment.body)}</blockquote>` +
-        `<p><a href="${url}">View the document and reply</a></p>` +
-        `<p style="color:#64748b;font-size:13px"><a href="${input.origin}/account/notifications">Manage notification emails</a></p>`;
-      await sendMail([target.email], subject, text, html);
+      await sendMail([target.email], mail.subject, mail.text, mail.html);
     } catch (e) {
       console.error(`Mention email to ${target.email} failed:`, e);
     }
   }
-}
-
-function esc(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }

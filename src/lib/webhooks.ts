@@ -8,6 +8,7 @@
 import "server-only";
 import { listWebhooks, markWebhookResult, type Webhook } from "./db";
 import { sendMail } from "./mailer";
+import { renderEmail } from "./email-templates";
 
 export const WEBHOOK_EVENTS = [
   "change_request.submitted",
@@ -128,13 +129,12 @@ async function deliver(hook: Webhook, event: WebhookEvent, info: WebhookInfo): P
       const label = EVENT_LABEL[event];
       const plain = describe(event, info).replace(/\*\*/g, "");
       const recipients = hook.url.split(",").map((a) => a.trim()).filter(Boolean);
-      await sendMail(
-        recipients,
-        `CompassDocs — ${label.title}: ${info.title}`,
-        plain + (info.url ? `\n\n${info.url}` : ""),
-        `<p>${describe(event, info).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")}</p>` +
-          (info.url ? `<p><a href="${info.url}">Open in CompassDocs</a></p>` : "")
+      const mail = await renderEmail(
+        "workflow_event",
+        { event: label.title, summary: plain, title: info.title, url: info.url ?? "" },
+        ""
       );
+      await sendMail(recipients, mail.subject, mail.text, mail.html);
       await markWebhookResult(hook.id, `ok (sent to ${recipients.length})`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "send failed";

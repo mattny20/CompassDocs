@@ -68,6 +68,8 @@ const LABELS: Record<string, string> = {
   "settings.ai_key_set": "Set AI API key",
   "settings.ai_key_removed": "Removed AI API key",
   "settings.backup_destination": "Updated backup destination",
+  "settings.email_template": "Edited email template",
+  "settings.email_template_reset": "Reset email template",
   "settings.backup_destination_removed": "Removed backup destination",
   "backup.create": "Created backup",
   "backup.delete": "Deleted backup",
