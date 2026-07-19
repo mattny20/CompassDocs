@@ -18,6 +18,9 @@ import FontFamily from "@tiptap/extension-font-family";
 import { Node, Extension, mergeAttributes, getHTMLFromFragment } from "@tiptap/core";
 import { Fragment } from "@tiptap/pm/model";
 import { Markdown } from "tiptap-markdown";
+import TaskList from "@tiptap/extension-task-list";
+import TaskItem from "@tiptap/extension-task-item";
+import { EDITOR_BLOCK_EXTENSIONS, PreviewCodeBlock } from "./EditorBlocks";
 import {
   Bold as BoldIcon,
   Italic as ItalicIcon,
@@ -466,7 +469,13 @@ export function RichTextEditor({
     // avoid a hydration mismatch.
     immediatelyRender: false,
     extensions: [
-      StarterKit.configure({ heading: false, paragraph: false }),
+      StarterKit.configure({ heading: false, paragraph: false, codeBlock: false }),
+      // Code blocks with a live diagram preview for mermaid/plantuml/decision.
+      PreviewCodeBlock,
+      // Rich blocks (callouts, accordions, tabs, embeds) + directive parsing.
+      ...EDITOR_BLOCK_EXTENSIONS,
+      TaskList,
+      TaskItem.configure({ nested: true }),
       MdParagraph,
       MdHeading.configure({ levels: [1, 2, 3] }),
       Underline,
@@ -542,6 +551,86 @@ export function RichTextEditor({
       <EditorContent editor={editor} />
     </div>
   );
+}
+
+// Rich-block templates for the toolbar's "+ Block" menu.
+function insertRichBlock(editor: Editor, kind: string): void {
+  const para = (text: string) => ({
+    type: "paragraph",
+    content: [{ type: "text", text }],
+  });
+  const fence = (language: string, text: string) => ({
+    type: "codeBlock",
+    attrs: { language },
+    content: [{ type: "text", text }],
+  });
+  const chain = editor.chain().focus();
+  switch (kind) {
+    case "callout":
+      chain
+        .insertContent({
+          type: "calloutBlock",
+          attrs: { kind: "tip", title: "" },
+          content: [para("Your advice here.")],
+        })
+        .run();
+      break;
+    case "details":
+      chain
+        .insertContent({
+          type: "detailsBlock",
+          attrs: { title: "Details" },
+          content: [para("Hidden until the reader expands it.")],
+        })
+        .run();
+      break;
+    case "tabs":
+      chain
+        .insertContent({
+          type: "tabsBlock",
+          content: [
+            { type: "tabPanel", attrs: { title: "First tab" }, content: [para("First tab content.")] },
+            { type: "tabPanel", attrs: { title: "Second tab" }, content: [para("Second tab content.")] },
+          ],
+        })
+        .run();
+      break;
+    case "checklist":
+      (chain as any).toggleTaskList().run();
+      break;
+    case "mermaid":
+      chain
+        .insertContent(
+          fence("mermaid", "flowchart LR\n  A[Start] --> B{Decision?}\n  B -- Yes --> C[Do it]\n  B -- No --> D[Skip]")
+        )
+        .run();
+      break;
+    case "plantuml":
+      chain.insertContent(fence("plantuml", "Alice -> Bob: Request\nBob --> Alice: Response")).run();
+      break;
+    case "decision":
+      chain
+        .insertContent(
+          fence(
+            "decision",
+            "start: Is the service responding?\n- Yes -> logs\n- No -> Escalate to the on-call engineer.\nlogs: Any errors in the log?\n- Yes -> Follow the runbook for that error.\n- No -> Open a ticket with details."
+          )
+        )
+        .run();
+      break;
+    case "video": {
+      const src = window.prompt("Video URL (YouTube, Vimeo, Loom, or a video file):");
+      if (src?.trim()) chain.insertContent({ type: "videoEmbed", attrs: { src: src.trim() } }).run();
+      break;
+    }
+    case "embed": {
+      const src = window.prompt("Page URL (https://…):");
+      if (src?.trim()) {
+        chain.insertContent({ type: "siteEmbed", attrs: { src: src.trim(), height: "420" } }).run();
+      }
+      break;
+    }
+  }
 }
 
 // Formatting captured by the format painter: the marks (with attrs) plus the
@@ -876,6 +965,26 @@ function Toolbar({
       >
         <Mail className={TB_ICON} />
       </Btn>
+      <select
+        value=""
+        onChange={(e) => {
+          insertRichBlock(editor, e.target.value);
+          e.target.value = "";
+        }}
+        title="Insert a rich block: callout, tabs, accordion, diagram, video, embed…"
+        className="ml-0.5 h-7 rounded-md border border-slate-200 bg-surface px-1.5 text-xs font-medium text-slate-600 outline-none hover:bg-slate-50"
+      >
+        <option value="">+ Block</option>
+        <option value="callout">Callout</option>
+        <option value="tabs">Tabs</option>
+        <option value="details">Accordion</option>
+        <option value="checklist">Checklist</option>
+        <option value="mermaid">Mermaid diagram</option>
+        <option value="plantuml">PlantUML diagram</option>
+        <option value="decision">Decision guide</option>
+        <option value="video">Video</option>
+        <option value="embed">Website embed</option>
+      </select>
       {editor.isActive("heading") && (
         <>
           <Divider />
