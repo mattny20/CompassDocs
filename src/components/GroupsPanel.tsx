@@ -404,7 +404,7 @@ function EntraSection({
           <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
             <CloudDownload className="h-4 w-4 text-compass-600" />
             Microsoft Entra groups
-            <span className="rounded-full bg-violet-50 px-1.5 py-0.5 text-xs font-medium text-violet-700">
+            <span className="rounded-full bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-700 dark:bg-violet-900/50 dark:text-violet-300">
               Enterprise
             </span>
           </h3>

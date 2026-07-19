@@ -359,9 +359,9 @@ function Header({ extra }: { extra?: React.ReactNode }) {
   return (
     <div className="mb-5 flex items-start justify-between gap-3">
       <div>
-        <h1 className="flex items-center gap-2 text-xl font-bold text-slate-900">
-          <ShieldCheck className="h-5 w-5 text-compass-600" /> Compliance
-          <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700 dark:bg-violet-900/50">
+        <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900">
+          <ShieldCheck className="h-6 w-6 text-compass-600" /> Compliance
+          <span className="rounded-full bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-700 dark:bg-violet-900/50 dark:text-violet-300">
             Enterprise
           </span>
         </h1>

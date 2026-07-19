@@ -324,7 +324,7 @@ function GraphPanel({ graph, onSynced }: { graph: GraphState; onSynced: () => vo
     <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
       <div className="mb-1 flex items-center gap-2">
         <h3 className="font-semibold text-slate-900">Microsoft 365 sync</h3>
-        <span className="rounded-full bg-compass-600 px-2 py-0.5 text-xs font-semibold text-white">Enterprise</span>
+        <span className="rounded-full bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-700 dark:bg-violet-900/50 dark:text-violet-300">Enterprise</span>
       </div>
       <p className="mb-3 text-sm text-slate-500">
         Register an app in Microsoft Entra with the <code className="font-mono">User.Read.All</code>{" "}

@@ -4,6 +4,16 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.50.1] - 2026-07-19
+
+### Fixed
+- **Consistent tags and headings on the operational pages.** Compliance's
+  page title now matches Announcements' size, and the "Enterprise" tag uses
+  the same chip style as every other status tag (the app-standard size,
+  weight, and casing) — the same normalization applied to the one-off
+  Enterprise chip variants on the SCIM, Groups, and Directory settings
+  panels.
+
 ## [0.50.0] - 2026-07-19
 
 ### Changed
