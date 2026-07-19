@@ -329,6 +329,43 @@ const SCHEMA_SQL = `
   ALTER TABLE change_requests ADD COLUMN IF NOT EXISTS space_id integer;
   CREATE INDEX IF NOT EXISTS idx_cr_status ON change_requests(status);
 
+  -- Knowledge-base analytics: raw view/search/download events, aggregated by
+  -- src/lib/analytics.ts. Views carry a duration updated by heartbeats while
+  -- the reader's tab stays visible; source distinguishes in-app from the
+  -- public site (where user_id is null).
+  CREATE TABLE IF NOT EXISTS doc_views (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    document_id integer NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    user_id integer REFERENCES users(id) ON DELETE SET NULL,
+    source text NOT NULL DEFAULT 'app',
+    duration_seconds integer NOT NULL DEFAULT 0,
+    viewed_at timestamptz NOT NULL DEFAULT now()
+  );
+  CREATE INDEX IF NOT EXISTS idx_views_doc_at ON doc_views(document_id, viewed_at);
+  CREATE INDEX IF NOT EXISTS idx_views_at ON doc_views(viewed_at);
+  CREATE INDEX IF NOT EXISTS idx_views_user ON doc_views(user_id);
+
+  CREATE TABLE IF NOT EXISTS search_events (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id integer REFERENCES users(id) ON DELETE SET NULL,
+    query text NOT NULL,
+    results integer NOT NULL DEFAULT 0,
+    source text NOT NULL DEFAULT 'search',
+    searched_at timestamptz NOT NULL DEFAULT now()
+  );
+  CREATE INDEX IF NOT EXISTS idx_search_at ON search_events(searched_at);
+
+  CREATE TABLE IF NOT EXISTS download_events (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    attachment_id integer,
+    document_id integer NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    user_id integer REFERENCES users(id) ON DELETE SET NULL,
+    filename text NOT NULL DEFAULT '',
+    downloaded_at timestamptz NOT NULL DEFAULT now()
+  );
+  CREATE INDEX IF NOT EXISTS idx_downloads_at ON download_events(downloaded_at);
+  CREATE INDEX IF NOT EXISTS idx_downloads_doc ON download_events(document_id);
+
   CREATE TABLE IF NOT EXISTS attachments (
     id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     document_id integer NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
@@ -1287,6 +1324,16 @@ export async function countTrashed(): Promise<number> {
       "SELECT COUNT(*)::int AS n FROM documents WHERE deleted_at IS NOT NULL"
     )
   )[0].n;
+}
+
+/** Distinct authors of live documents (analytics filter options). */
+export async function listAuthors(): Promise<string[]> {
+  return (
+    await q<{ author: string }>(
+      `SELECT DISTINCT author FROM documents
+       WHERE deleted_at IS NULL AND branch_of IS NULL AND author <> '' ORDER BY author`
+    )
+  ).map((r) => r.author);
 }
 
 export async function listVersions(documentId: number): Promise<DocVersion[]> {

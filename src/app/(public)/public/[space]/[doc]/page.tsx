@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import { getSpaceBySlug, getDocumentBySpaceAndSlug, listAttachments } from "@/lib/db";
 import { DOC_TYPE_LABEL } from "@/lib/types";
 import { MarkdownView } from "@/components/MarkdownView";
+import { ViewTracker } from "@/components/ViewTracker";
 import { Paperclip } from "lucide-react";
 import { PrintButton } from "@/components/PrintButton";
 
@@ -39,6 +40,7 @@ export default async function PublicDocPage({
 
   return (
     <article>
+      <ViewTracker docId={doc.id} />
       <nav className="mb-4 flex items-center text-sm text-slate-400 print:hidden">
         <span>
           <Link href="/public" className="hover:text-compass-700">

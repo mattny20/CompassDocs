@@ -4,6 +4,7 @@ import { apiGuard } from "@/lib/api-auth";
 import { getCurrentUser } from "@/lib/auth";
 import { spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
 import { getAttachment, getDocument, deleteAttachmentRow } from "@/lib/db";
+import { recordDownload } from "@/lib/analytics";
 import { getPublicSiteConfig } from "@/lib/public-site";
 import { uploadReadStream, deleteUpload, isInlineImage } from "@/lib/uploads";
 import { roleAtLeast } from "@/lib/types";
@@ -46,6 +47,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   if (!stream) return NextResponse.json({ error: "Not found." }, { status: 404 });
 
   const inline = isInlineImage(att.mime_type);
+  // Analytics: real file downloads only — inline images load on every page
+  // view and would swamp the download counts.
+  if (!inline) void recordDownload(att.id, doc.id, user?.id ?? null, att.filename).catch(() => {});
   const filename = encodeURIComponent(att.filename);
   return new Response(Readable.toWeb(stream) as unknown as ReadableStream, {
     headers: {

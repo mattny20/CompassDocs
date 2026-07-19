@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { answerQuestion } from "@/lib/ai";
+import { recordSearch } from "@/lib/analytics";
 import { spaceScopeFor } from "@/lib/access";
 import { getCurrentUser } from "@/lib/auth";
 import { roleAtLeast } from "@/lib/types";
@@ -24,5 +25,6 @@ export async function POST(req: Request) {
 
   const includeDrafts = roleAtLeast(user.role, "editor");
   const result = await answerQuestion(question, includeDrafts, await spaceScopeFor(user));
+  void recordSearch(user.id, question, result.sources.length, "ask").catch(() => {});
   return NextResponse.json(result);
 }

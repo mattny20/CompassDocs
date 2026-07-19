@@ -2,6 +2,7 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import type { Metadata } from "next";
 import { searchDocuments, publicSpaceIds } from "@/lib/db";
+import { recordSearch } from "@/lib/analytics";
 import { searchRateLimited } from "@/lib/public-site";
 
 export const dynamic = "force-dynamic";
@@ -42,6 +43,7 @@ export default async function PublicSearchPage({
     if (!limited) {
       const ids = await publicSpaceIds();
       hits = ids.length ? await searchDocuments(q, 20, false, ids) : [];
+      void recordSearch(null, q, hits.length, "public").catch(() => {});
     }
   }
 

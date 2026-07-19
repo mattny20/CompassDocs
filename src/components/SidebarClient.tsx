@@ -14,6 +14,7 @@ import {
   Mail,
   SquareArrowOutUpRight,
   ClipboardList,
+  ChartColumn,
   Trash2,
   Settings,
   Plus,
@@ -141,6 +142,14 @@ export function SidebarClient({
             label="Review queue"
             collapsed={collapsed}
             badge={reviewCount}
+          />
+        )}
+        {isApprover && (
+          <NavLink
+            href="/analytics"
+            icon={<ChartColumn className="h-4 w-4" />}
+            label="Analytics"
+            collapsed={collapsed}
           />
         )}
         {isEditor && (
