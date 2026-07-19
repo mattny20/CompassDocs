@@ -1,27 +1,6 @@
-import { requireRole } from "@/lib/auth";
-import { listAllAnnouncements, listGroups, listWebhooks } from "@/lib/db";
-import { getSmtpConfig, smtpConfigured } from "@/lib/smtp-config";
-import { AnnouncementsAdmin } from "@/components/AnnouncementsAdmin";
+import { redirect } from "next/navigation";
 
-export const dynamic = "force-dynamic";
-
-export default async function AnnouncementsAdminPage() {
-  await requireRole("admin");
-  const [announcements, groups, hooks, smtp] = await Promise.all([
-    listAllAnnouncements(),
-    listGroups(),
-    listWebhooks(),
-    getSmtpConfig(),
-  ]);
-  return (
-    <AnnouncementsAdmin
-      initial={announcements}
-      groups={groups.map((g) => ({ id: g.id, name: g.name, member_count: g.member_count }))}
-      smtpReady={smtpConfigured(smtp)}
-      webhookCount={
-        hooks.filter((h) => h.enabled === 1 && (h.events ?? []).includes("announcement.posted"))
-          .length
-      }
-    />
-  );
+// Announcements moved to the main navigation (0.50) — keep old links working.
+export default function MovedAnnouncements() {
+  redirect("/announcements");
 }

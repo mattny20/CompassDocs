@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { apiGuard } from "@/lib/api-auth";
+import { sectionApiGuard } from "@/lib/api-auth";
 import { setAnnouncementArchived, deleteAnnouncement } from "@/lib/db";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
 
@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 // Archive / unarchive: hides the message from every dashboard, reversibly.
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("admin");
+  const gate = await sectionApiGuard("announcements");
   if (gate instanceof NextResponse) return gate;
 
   const { id } = await params;
@@ -34,7 +34,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 }
 
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("admin");
+  const gate = await sectionApiGuard("announcements");
   if (gate instanceof NextResponse) return gate;
 
   const { id } = await params;

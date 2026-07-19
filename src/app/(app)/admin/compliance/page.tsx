@@ -1,10 +1,6 @@
-import { requireRole } from "@/lib/auth";
-import { featureEnabled } from "@/lib/ee";
-import { CompliancePanel } from "@/components/CompliancePanel";
+import { redirect } from "next/navigation";
 
-export const dynamic = "force-dynamic";
-
-export default async function CompliancePage() {
-  await requireRole("admin");
-  return <CompliancePanel licensed={await featureEnabled("policy_ack")} />;
+// Compliance moved to the main navigation (0.50) — keep old links working.
+export default function MovedCompliance() {
+  redirect("/compliance");
 }

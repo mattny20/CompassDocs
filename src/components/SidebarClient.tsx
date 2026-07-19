@@ -10,6 +10,8 @@ import Link from "next/link";
 import {
   Home,
   Sparkles,
+  Megaphone,
+  ShieldCheck,
   BookUser,
   Mail,
   SquareArrowOutUpRight,
@@ -45,6 +47,8 @@ export function SidebarClient({
   trashCount,
   announcementCount,
   showNewsletter,
+  showAnnouncements,
+  showCompliance,
   isEditor,
   isApprover,
   isAdmin,
@@ -59,6 +63,9 @@ export function SidebarClient({
   announcementCount: number;
   /** Whether this user has newsletter access (contributor/approver/admin). */
   showNewsletter: boolean;
+  /** Delegated sections (admins or granted via Settings → Section access). */
+  showAnnouncements: boolean;
+  showCompliance: boolean;
   isEditor: boolean;
   isApprover: boolean;
   isAdmin: boolean;
@@ -149,6 +156,22 @@ export function SidebarClient({
             href="/analytics"
             icon={<ChartColumn className="h-4 w-4" />}
             label="Analytics"
+            collapsed={collapsed}
+          />
+        )}
+        {showAnnouncements && (
+          <NavLink
+            href="/announcements"
+            icon={<Megaphone className="h-4 w-4" />}
+            label="Announcements"
+            collapsed={collapsed}
+          />
+        )}
+        {showCompliance && (
+          <NavLink
+            href="/compliance"
+            icon={<ShieldCheck className="h-4 w-4" />}
+            label="Compliance"
             collapsed={collapsed}
           />
         )}

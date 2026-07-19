@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Lock, Globe, Building2, PencilRuler, ChevronUp, ChevronDown, Pencil, Trash2 } from "lucide-react";
+import { EntityPicker } from "@/components/EntityPicker";
 import { SpaceIconPicker } from "./SpaceIconPicker";
 import type { Space } from "@/lib/types";
 
@@ -287,9 +288,6 @@ function SpaceForm({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  function toggleGroup(id: number) {
-    setGroupIds((prev) => (prev.includes(id) ? prev.filter((g) => g !== id) : [...prev, id]));
-  }
 
   async function save() {
     if (name.trim().length < 2) {
@@ -443,30 +441,16 @@ function SpaceForm({
                 . Until a group is granted, only admins can see this space.
               </p>
             ) : (
-              <div className="flex flex-wrap gap-2">
-                {groups.map((g) => (
-                  <label
-                    key={g.id}
-                    className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm ${
-                      groupIds.includes(g.id)
-                        ? "border-compass-400 bg-white text-compass-800 shadow-sm"
-                        : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={groupIds.includes(g.id)}
-                      onChange={() => toggleGroup(g.id)}
-                      className="h-3.5 w-3.5 accent-compass-600"
-                    />
-                    {g.name}
-                    <span className="text-xs text-slate-400">
-                      {g.member_count} member{g.member_count === 1 ? "" : "s"}
-                      {g.source === "entra" ? " · synced" : ""}
-                    </span>
-                  </label>
-                ))}
-              </div>
+              <EntityPicker
+                options={groups.map((g) => ({
+                  id: g.id,
+                  label: g.name,
+                  sublabel: `${g.member_count} member${g.member_count === 1 ? "" : "s"}${g.source === "entra" ? " · synced" : ""}`,
+                }))}
+                value={groupIds}
+                onChange={setGroupIds}
+                placeholder="Search groups…"
+              />
             )}
           </div>
         )}
@@ -517,31 +501,13 @@ function SpaceForm({
               {users.length === 0 ? (
                 <p className="text-sm text-slate-400">No editor or approver accounts yet.</p>
               ) : (
-                <div className="flex flex-wrap gap-2">
-                  {users.map((u) => (
-                    <label
-                      key={u.id}
-                      className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm ${
-                        edUserIds.includes(u.id)
-                          ? "border-violet-400 bg-white text-violet-800 shadow-sm"
-                          : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={edUserIds.includes(u.id)}
-                        onChange={() =>
-                          setEdUserIds((prev) =>
-                            prev.includes(u.id) ? prev.filter((x) => x !== u.id) : [...prev, u.id]
-                          )
-                        }
-                        className="h-3.5 w-3.5 accent-violet-600"
-                      />
-                      {u.name}
-                      <span className="text-xs text-slate-400">{u.role}</span>
-                    </label>
-                  ))}
-                </div>
+                <EntityPicker
+                  options={users.map((u) => ({ id: u.id, label: u.name, sublabel: u.role }))}
+                  value={edUserIds}
+                  onChange={setEdUserIds}
+                  placeholder="Search people…"
+                  accent="violet"
+                />
               )}
             </div>
             <div>
@@ -555,34 +521,17 @@ function SpaceForm({
                   .
                 </p>
               ) : (
-                <div className="flex flex-wrap gap-2">
-                  {groups.map((g) => (
-                    <label
-                      key={g.id}
-                      className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm ${
-                        edGroupIds.includes(g.id)
-                          ? "border-violet-400 bg-white text-violet-800 shadow-sm"
-                          : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={edGroupIds.includes(g.id)}
-                        onChange={() =>
-                          setEdGroupIds((prev) =>
-                            prev.includes(g.id) ? prev.filter((x) => x !== g.id) : [...prev, g.id]
-                          )
-                        }
-                        className="h-3.5 w-3.5 accent-violet-600"
-                      />
-                      {g.name}
-                      <span className="text-xs text-slate-400">
-                        {g.member_count} member{g.member_count === 1 ? "" : "s"}
-                        {g.source === "entra" ? " · synced" : ""}
-                      </span>
-                    </label>
-                  ))}
-                </div>
+                <EntityPicker
+                  options={groups.map((g) => ({
+                  id: g.id,
+                  label: g.name,
+                  sublabel: `${g.member_count} member${g.member_count === 1 ? "" : "s"}${g.source === "entra" ? " · synced" : ""}`,
+                }))}
+                  value={edGroupIds}
+                  onChange={setEdGroupIds}
+                  placeholder="Search groups…"
+                  accent="violet"
+                />
               )}
             </div>
             {edUserIds.length === 0 && edGroupIds.length === 0 && (
@@ -620,33 +569,16 @@ function SpaceForm({
             No groups yet — create one under <a href="/admin/groups" className="font-medium text-compass-700 underline">Settings → Groups</a>.
           </p>
         ) : (
-          <div className="flex flex-wrap gap-2">
-            {groups.map((g) => (
-              <label
-                key={g.id}
-                className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm ${
-                  subGroupIds.includes(g.id)
-                    ? "border-compass-400 bg-compass-50 text-compass-800"
-                    : "border-slate-200 bg-surface text-slate-600 hover:bg-slate-50"
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  checked={subGroupIds.includes(g.id)}
-                  onChange={() =>
-                    setSubGroupIds((prev) =>
-                      prev.includes(g.id) ? prev.filter((x) => x !== g.id) : [...prev, g.id]
-                    )
-                  }
-                  className="h-3.5 w-3.5 accent-compass-600"
-                />
-                {g.name}
-                <span className="text-xs text-slate-400">
-                  {g.member_count} member{g.member_count === 1 ? "" : "s"}
-                </span>
-              </label>
-            ))}
-          </div>
+          <EntityPicker
+            options={groups.map((g) => ({
+              id: g.id,
+              label: g.name,
+              sublabel: `${g.member_count} member${g.member_count === 1 ? "" : "s"}`,
+            }))}
+            value={subGroupIds}
+            onChange={setSubGroupIds}
+            placeholder="Search groups…"
+          />
         )}
       </div>
 

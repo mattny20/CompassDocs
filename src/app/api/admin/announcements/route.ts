@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { apiGuard } from "@/lib/api-auth";
+import { sectionApiGuard } from "@/lib/api-auth";
 import { createAnnouncement, listAllAnnouncements } from "@/lib/db";
 import { emailAnnouncement } from "@/lib/announcements";
 import { notifyWebhooks } from "@/lib/webhooks";
@@ -13,13 +13,13 @@ export const dynamic = "force-dynamic";
 const LEVELS = ["info", "warning", "critical"] as const;
 
 export async function GET() {
-  const gate = await apiGuard("admin");
+  const gate = await sectionApiGuard("announcements");
   if (gate instanceof NextResponse) return gate;
   return NextResponse.json({ announcements: await listAllAnnouncements() });
 }
 
 export async function POST(req: Request) {
-  const gate = await apiGuard("admin");
+  const gate = await sectionApiGuard("announcements");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
 

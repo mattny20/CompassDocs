@@ -48,6 +48,7 @@ export function NewsletterPeople({
   initialAppearance?: Appearance;
 }) {
   const [rows, setRows] = useState(initial);
+  const [peopleQuery, setPeopleQuery] = useState("");
   const [busyId, setBusyId] = useState(0);
   const [error, setError] = useState("");
   const [senders, setSenders] = useState<string[]>(initialSenders);
@@ -436,6 +437,13 @@ export function NewsletterPeople({
 
       {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 
+      <input
+        value={peopleQuery}
+        onChange={(e) => setPeopleQuery(e.target.value)}
+        placeholder="Search people…"
+        aria-label="Search people"
+        className="w-full max-w-xs rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-none placeholder:text-slate-400 focus:border-compass-400"
+      />
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-surface shadow-sm">
         <table className="w-full text-left text-sm">
           <thead>
@@ -446,7 +454,11 @@ export function NewsletterPeople({
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {rows.map((r) => (
+            {rows
+              .filter((r) =>
+                `${r.name} ${r.username}`.toLowerCase().includes(peopleQuery.trim().toLowerCase())
+              )
+              .map((r) => (
               <tr key={r.id} className={r.status !== "active" ? "opacity-50" : ""}>
                 <td className="px-4 py-2.5">
                   <p className="font-medium text-slate-800">{r.name}</p>
