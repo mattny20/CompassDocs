@@ -42,6 +42,7 @@ const LABELS: Record<string, string> = {
   "document.delete": "Deleted document",
   "document.restore": "Restored document",
   "document.purge": "Purged document",
+  "auth.lockout": "Login lockout engaged",
   "document.restore_version": "Restored previous version",
   "document.branch_create": "Created draft branch",
   "document.branch_merge": "Merged draft branch",

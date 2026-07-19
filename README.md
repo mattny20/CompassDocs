@@ -52,8 +52,9 @@ pricing on the core product, ever.
 
 **Govern**
 - **Roles & approval workflow** — Viewer/Editor/Approver/Admin, with a review queue for changes to live docs (strict mode) or direct publishing (open mode), plus suggestions from any reader.
-- **Security** — authenticator-app 2FA with recovery codes, per-device sessions, idle timeout, and a full audit log.
-- **Trash & retention**, import/export as front-matter Markdown, scheduled backups with off-site mirroring (S3/R2/MinIO/Azure).
+- **Security** — authenticator-app 2FA with recovery codes, per-device sessions, idle timeout, login throttling with lockout, security headers, and a full audit log.
+- **Encryption at rest** — credentials (SMTP, AI key, SSO secret, backup creds) sealed with AES-256-GCM under a master key that never touches the database; session tokens stored hashed; backups encrypted before they reach disk or a bucket.
+- **Trash & retention**, import/export as front-matter Markdown, scheduled **encrypted** backups with off-site mirroring (S3/R2/MinIO/Azure).
 
 **Administer & integrate**
 - **Your brand** — fetch your website's icon or upload a logo, pick an accent color, and the whole app re-tints (light/dark/auto).
