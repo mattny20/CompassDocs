@@ -4,6 +4,37 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.45.0] - 2026-07-19
+
+### Added
+- **Knowledge-base analytics.** A full analytics dashboard (sidebar →
+  **Analytics**, approvers and admins) showing how the knowledge base is
+  actually read, searched, and used:
+  - **KPI strip** with period-over-period deltas: total views, unique
+    viewers, average time on document, documents viewed, searches, searches
+    with no results, downloads, and public-site views (internal vs external
+    share).
+  - **Views over time** chart (all views, public-site views, and daily
+    active users) with hover details.
+  - **Trending documents** (biggest gains vs the previous period), **most
+    viewed** (views, uniques, avg time, downloads), and **least viewed**
+    published documents — the ones to refresh, promote, or retire.
+  - **Search analytics**: top searches (including Ask AI questions) and
+    **searches that found nothing** — your content gaps, each linked so you
+    can run it yourself.
+  - **User engagement** (most active readers with time spent) and **author
+    analytics** (docs, reach, views per doc).
+  - **Recent activity** feed of views, searches, and downloads.
+  - **Filters** for date range (7d/30d/90d/1y), space, category, author, and
+    tag — and **click any document for a drill-down** (daily chart, totals,
+    top readers).
+- **The data behind it**: privacy-conscious view tracking on document pages
+  (time-on-page via visibility-aware heartbeats, capped at 30 minutes;
+  anonymous tracking only on the public site), search capture across app
+  search, Ask AI, and public search (typing bursts collapsed), and download
+  counting for real file attachments (inline images excluded). Analytics
+  never blocks or slows reading — every write is fire-and-forget.
+
 ## [0.44.0] - 2026-07-19
 
 ### Added

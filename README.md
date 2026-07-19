@@ -57,6 +57,9 @@ pricing on the core product, ever.
 - **Encryption at rest** — credentials (SMTP, AI key, SSO secret, backup creds) sealed with AES-256-GCM under a master key that never touches the database; session tokens stored hashed; backups encrypted before they reach disk or a bucket.
 - **Trash & retention**, import/export as front-matter Markdown, scheduled **encrypted** backups with off-site mirroring (S3/R2/MinIO/Azure).
 
+**Measure**
+- **Knowledge-base analytics** — views, unique readers, time-on-doc, trending / most / least viewed, search analytics with content gaps (searches that found nothing), reader engagement, author reach, and download counts — filterable by range, space, category, author, and tag, with per-document drill-downs.
+
 **Administer & integrate**
 - **Your brand** — fetch your website's icon or upload a logo, pick an accent color, and the whole app re-tints (light/dark/auto).
 - **Groups** — manual or synced from Microsoft Entra ID (enterprise); **custom domain with automatic HTTPS**; a system console with storage and resource usage.
