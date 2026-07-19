@@ -36,6 +36,98 @@ export const dynamic = "force-dynamic";
 const PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 const TYPES: DocType[] = ["sop", "technical", "policy", "knowledge"];
 
+// Everything the in-app editor can author, as markdown — returned by the
+// writing_guide tool so connected assistants use the full block vocabulary
+// instead of plain GFM. Keep in sync with src/lib/doc-blocks.ts and the
+// editor toolbar (RichTextEditor).
+const WRITING_GUIDE = `# CompassDocs writing guide
+
+Documents are GitHub-flavored markdown (headings, bold/italic, links, quotes,
+inline code, fenced code blocks, images) **plus** the rich blocks below. Use
+them — they render as interactive components in the app and on the public
+site, exactly like documents written in the built-in editor.
+
+## Callouts
+Five kinds: note, tip, warning, danger, info. Optional custom title in [ ].
+
+:::tip[Pro tip]
+Body supports full markdown.
+:::
+
+## Accordion (collapsed section)
+:::details[Advanced configuration]
+Hidden until the reader expands it.
+:::
+
+## Tabs
+Four colons for the group, three for each tab:
+
+::::tabs
+:::tab[Windows]
+Windows steps.
+:::
+:::tab[macOS]
+macOS steps.
+:::
+::::
+
+## Interactive checklists
+GFM task lists become live checkboxes; each reader's ticks persist for them:
+
+- [ ] First step
+- [ ] Second step
+
+## Tables — filtering & sorting are automatic
+Every markdown table gets click-to-sort headers, and tables with 4+ rows get
+a filter box. Just write a normal GFM table.
+
+## Mermaid diagrams
+\`\`\`mermaid
+flowchart LR
+  A[Start] --> B{Decision?}
+  B -- Yes --> C[Do it]
+  B -- No --> D[Skip]
+\`\`\`
+(Any mermaid type: flowchart, sequenceDiagram, stateDiagram-v2, gantt, pie, …)
+
+## PlantUML diagrams
+\`\`\`plantuml
+Alice -> Bob: Request
+Bob --> Alice: Response
+\`\`\`
+
+## Decision tree (interactive click-through guide)
+Each node is "id: Question" followed by "- Answer -> target" lines. A target
+that matches another node id continues the tree; any other text is a final
+recommendation. The first node is the start.
+
+\`\`\`decision
+start: Is the service responding?
+- Yes -> logs
+- No -> Escalate to the on-call engineer.
+logs: Any errors in the log?
+- Yes -> Follow the runbook for that error.
+- No -> Open a ticket with details.
+\`\`\`
+
+## Video embed
+::video[Optional caption]{src="https://youtu.be/VIDEO_ID"}
+Accepts YouTube, Vimeo, Loom, or a direct video-file URL.
+
+## Website embed
+::embed{src="https://status.example.com" height="500"}
+
+## Images
+Standard markdown images work: ![alt text](https://example.com/image.png).
+To reference an image already uploaded to this workspace, use its
+/api/attachments/… URL from the existing document markdown. (New binary
+uploads happen in the app editor, not through this connector.)
+
+## Notes
+- Callout/details/tabs bodies nest full markdown, including other blocks.
+- Unknown directives render as literal text — stick to the forms above.
+- Keep a single H1 out of the body; the document title is rendered by the app.`;
+
 // --- JSON-RPC plumbing ---------------------------------------------------------
 
 function rpcResult(id: unknown, result: unknown) {
@@ -102,9 +194,15 @@ const TOOLS = [
     },
   },
   {
+    name: "writing_guide",
+    description:
+      "The complete authoring reference for this workspace: every rich block the editor supports (callouts, tabs, accordions, interactive checklists, Mermaid and PlantUML diagrams, decision trees, video and website embeds, auto-filterable tables) with exact markdown syntax. Call this before writing or restructuring a document so you can use the full toolbox, not just plain markdown.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
     name: "create_doc",
     description:
-      "Create a document from markdown (requires the editor role or higher). New docs start as drafts unless publish=true — and publishing may still be downgraded to a draft when the workspace requires approval.",
+      "Create a document from markdown (requires the editor role or higher). Documents support rich blocks far beyond plain GFM — call writing_guide for the syntax. New docs start as drafts unless publish=true — and publishing may still be downgraded to a draft when the workspace requires approval.",
     inputSchema: {
       type: "object",
       properties: {
@@ -123,7 +221,7 @@ const TOOLS = [
   {
     name: "update_doc",
     description:
-      "Update a document's markdown and/or metadata (requires editor or higher). Edits to published documents follow the workspace's approval workflow: they may be queued as a change request for review instead of applying immediately — the response says which happened.",
+      "Update a document: markdown body, metadata (title, summary, tags, type), publish a draft, or move it to another space (requires editor or higher). Rich blocks are supported — call writing_guide for the syntax. Changes affecting published content follow the workspace's approval workflow: they may be queued as a change request for review instead of applying immediately — the response says which happened.",
     inputSchema: {
       type: "object",
       properties: {
@@ -132,6 +230,13 @@ const TOOLS = [
         title: { type: "string" },
         summary: { type: "string" },
         tags: { type: "array", items: { type: "string" } },
+        type: { type: "string", enum: TYPES, description: "Change the document type." },
+        space: { type: "string", description: "Move the document to this space (slug from list_spaces)." },
+        publish: {
+          type: "boolean",
+          description:
+            "Publish this document (drafts go live; may queue for approval instead, depending on workspace settings).",
+        },
         note: { type: "string", description: "Short change note for the version history." },
       },
       required: ["id"],
@@ -206,6 +311,9 @@ async function callTool(user: User, name: string, args: any) {
         `\n\n---\n\n`;
       return toolText(header + doc.content);
     }
+
+    case "writing_guide":
+      return toolText(WRITING_GUIDE);
 
     case "create_doc": {
       if (!isEditor) {
@@ -293,25 +401,43 @@ async function callTool(user: User, name: string, args: any) {
         return toolText("You don't have edit access to this document's space.", true);
       }
 
+      // Optional move to another space — needs edit access on both sides.
+      let targetSpaceId = existing.space_id;
+      if (args?.space) {
+        const space = await getSpaceBySlug(String(args.space));
+        if (!space || !scopeAllows(scope, space.id)) {
+          return toolText(`No space with slug "${args.space}" — call list_spaces first.`, true);
+        }
+        if (!(await canEditSpace(user, space.id))) {
+          return toolText("You don't have edit access to that space.", true);
+        }
+        targetSpaceId = space.id;
+      }
+      const moving = targetSpaceId !== existing.space_id;
+
+      const wantPublish = args?.publish === true;
       const proposed = {
         title: typeof args?.title === "string" && args.title.trim() ? args.title.trim() : existing.title,
         content: typeof args?.markdown === "string" ? args.markdown : existing.content,
         summary: typeof args?.summary === "string" ? args.summary.trim() : existing.summary,
-        type: existing.type,
-        status: existing.status,
+        type: (TYPES.includes(args?.type) ? args.type : existing.type) as DocType,
+        status: (wantPublish ? "published" : existing.status) as DocStatus,
         tags: Array.isArray(args?.tags)
           ? args.tags.map((t: unknown) => String(t).trim()).filter(Boolean)
           : existing.tags,
       };
       const note = String(args?.note ?? "").trim();
 
-      // Same approval rule as the app: published content only changes directly
-      // for approvers+ (or in open mode); otherwise the edit queues for review.
+      // Same approval rule as the app: changes that touch live content (the
+      // doc is published, or this edit would publish it) apply directly only
+      // for approvers+ (or in open mode); otherwise they queue for review.
+      const affectsLive = existing.status === "published" || proposed.status === "published";
       const canPublish = roleAtLeast(user.role, "approver") || (await getApprovalMode()) === "open";
-      if (existing.status === "published" && !canPublish) {
+      if (affectsLive && !canPublish) {
+        const kind = existing.status === "draft" ? "publish" : "edit";
         const crId = await createChangeRequest({
           document_id: existing.id,
-          kind: "edit",
+          kind,
           title: proposed.title,
           content: proposed.content,
           summary: proposed.summary,
@@ -320,6 +446,7 @@ async function callTool(user: User, name: string, args: any) {
           target_status: "published",
           note,
           created_by: user.id,
+          space_id: moving ? targetSpaceId : null,
         });
         await audit({
           actor: actorFrom(user),
@@ -327,11 +454,11 @@ async function callTool(user: User, name: string, args: any) {
           targetType: "document",
           targetId: existing.id,
           targetLabel: proposed.title,
-          details: { kind: "edit", via: "mcp" },
+          details: { kind, via: "mcp" },
         });
         void notifyWebhooks("change_request.submitted", {
           title: proposed.title,
-          kind: "edit",
+          kind,
           actor: user.name || user.username,
           spaceId: existing.space_id,
           spaceName: existing.space_name,
@@ -340,33 +467,46 @@ async function callTool(user: User, name: string, args: any) {
           ok: true,
           pending_review: true,
           change_request_id: crId,
-          note: "This document is published and your role requires approval — the edit was queued for an approver to review, the live document is unchanged.",
+          note:
+            kind === "publish"
+              ? "Publishing requires approval in this workspace — the draft was queued for an approver to review."
+              : "This document is published and your role requires approval — the edit was queued for an approver to review, the live document is unchanged.",
         });
       }
 
       const doc = await updateDocument(existing.id, {
         ...proposed,
+        space_id: targetSpaceId,
         author: user.name || user.username,
         versionNote: note || "Edited via Claude connector",
       });
+      const justPublished = existing.status !== "published" && doc?.status === "published";
+      if (doc && justPublished) {
+        void notifyWebhooks("document.published", {
+          title: doc.title,
+          actor: user.name || user.username,
+          spaceId: doc.space_id,
+          spaceName: doc.space_name,
+        });
+      }
       if (doc && doc.status === "published") {
         void notifySpaceSubscribers({
           spaceId: doc.space_id,
           spaceName: doc.space_name,
           docId: doc.id,
           title: doc.title,
-          kind: "updated",
+          kind: justPublished ? "published" : "updated",
           actorUserId: user.id,
           actorName: user.name || user.username,
         });
       }
       await audit({
         actor: actorFrom(user),
-        action: "document.update",
+        action: justPublished ? "document.publish" : "document.update",
         targetType: "document",
         targetId: existing.id,
         targetLabel: proposed.title,
-        details: { via: "mcp" },
+        details: { via: "mcp", ...(moving ? { moved_to: targetSpaceId } : {}) },
       });
       return toolJson({ ok: true, id: doc!.id, status: doc!.status, url: `/doc/${doc!.id}` });
     }
@@ -420,7 +560,7 @@ async function handleRpc(user: User, msg: any): Promise<unknown | undefined> {
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: "CompassDocs", version: currentVersion() },
         instructions:
-          "CompassDocs is this team's knowledge base. Use search_docs/read_doc to look things up, create_doc to save a drafted article as markdown, and update_doc to revise an existing one. Call list_spaces first when creating, to pick the right space.",
+          "CompassDocs is this team's knowledge base. Use search_docs/read_doc to look things up, create_doc to save a drafted article as markdown, and update_doc to revise, retitle, retag, move, or publish an existing one. Call list_spaces first when creating, to pick the right space. IMPORTANT: before writing or restructuring a document, call writing_guide — CompassDocs documents support rich interactive blocks well beyond plain markdown (callouts, tabs, accordions, checklists, Mermaid/PlantUML diagrams, decision trees, video/website embeds, auto-filterable tables), and good documents use them.",
       });
     }
     case "ping":

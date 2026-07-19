@@ -4,6 +4,26 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.48.0] - 2026-07-19
+
+### Added
+- **Claude connector: the full editing toolbox.** The MCP API now knows —
+  and grants access to — everything the in-app editor can do:
+  - New **`writing_guide` tool**: the complete authoring reference for
+    every rich block (callouts, tabs, accordions, interactive checklists,
+    Mermaid and PlantUML diagrams, decision trees, video and website
+    embeds, auto-filterable tables) with exact markdown syntax. The server
+    instructions tell Claude to consult it before writing, so connector-
+    authored documents use the same block vocabulary as the editor.
+  - **`update_doc` can now publish** a draft (approval-aware: approvers
+    and admins publish immediately; an editor's publish attempt queues a
+    `publish` change request for review in strict mode, exactly like the
+    app), **change the document type**, and **move a document to another
+    space** (edit access required on both sides).
+  - Publishing via the connector fires the same webhooks and subscriber
+    emails as publishing in the app, and audit entries distinguish
+    publish from edit.
+
 ## [0.47.0] - 2026-07-19
 
 ### Added
