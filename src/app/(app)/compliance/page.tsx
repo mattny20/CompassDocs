@@ -3,6 +3,7 @@ import { requireUser } from "@/lib/auth";
 import { canAccessSection } from "@/lib/section-access";
 import { featureEnabled } from "@/lib/ee";
 import { CompliancePanel } from "@/components/CompliancePanel";
+import { PageContainer } from "@/components/PageWidth";
 
 export const dynamic = "force-dynamic";
 
@@ -12,5 +13,9 @@ export const dynamic = "force-dynamic";
 export default async function CompliancePage() {
   const user = await requireUser();
   if (!(await canAccessSection(user, "compliance"))) redirect("/");
-  return <CompliancePanel licensed={await featureEnabled("policy_ack")} />;
+  return (
+    <PageContainer>
+      <CompliancePanel licensed={await featureEnabled("policy_ack")} />
+    </PageContainer>
+  );
 }

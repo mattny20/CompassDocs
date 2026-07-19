@@ -4,6 +4,16 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.50.2] - 2026-07-19
+
+### Fixed
+- **Announcements and Compliance use the standard page shell.** When they
+  moved to the main navigation in 0.50 they lost the app's page container,
+  so they rendered edge-to-edge while Analytics sat in the centered,
+  width-preference-aware layout. Both pages now use the same container, and
+  all three operational pages share one header pattern (icon + title +
+  subtitle at the same size and position).
+
 ## [0.50.1] - 2026-07-19
 
 ### Fixed
