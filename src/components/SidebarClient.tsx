@@ -26,7 +26,6 @@ import {
 import { GlobalSearch } from "./GlobalSearch";
 import { UserMenu } from "./UserMenu";
 import { Brand } from "./Brand";
-import { ThemeToggle } from "./ThemeToggle";
 import type { SessionUser } from "@/lib/types";
 
 const LS_KEY = "compass_sidebar_collapsed";
@@ -243,13 +242,7 @@ export function SidebarClient({
         </div>
       )}
 
-      {!collapsed && (
-        <div className="border-t border-slate-100 px-3 py-2">
-          <ThemeToggle />
-        </div>
-      )}
-
-      {!collapsed && <UserMenu user={user} />}
+      <UserMenu user={user} collapsed={collapsed} />
     </aside>
   );
 }

@@ -4,6 +4,16 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.51.0] - 2026-07-19
+
+### Changed
+- **Compact sidebar footer.** The theme switcher, Manage account, and Sign
+  out are now icon buttons with tooltips on a single row beside your name —
+  half the vertical space of the old two-row footer. The theme button cycles
+  Light → Dark → Auto (the icon shows the current mode, the tooltip says
+  what's next). The collapsed sidebar keeps all three controls as a stacked
+  icon column instead of hiding them.
+
 ## [0.50.2] - 2026-07-19
 
 ### Fixed
