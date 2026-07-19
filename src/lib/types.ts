@@ -199,4 +199,6 @@ export interface SearchHit {
   tags: string[];
   snippet: string;
   updated_at: string;
+  /** How the hit was found: keyword match, semantic similarity, or both. */
+  match?: "keyword" | "semantic" | "both";
 }

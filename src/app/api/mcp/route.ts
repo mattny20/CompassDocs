@@ -15,7 +15,6 @@ import {
   getSpaceBySlug,
   listDocumentsBySpace,
   listRecentDocuments,
-  searchDocuments,
   getDocument,
   createDocument,
   updateDocument,
@@ -174,7 +173,8 @@ const TOOLS = [
   },
   {
     name: "search_docs",
-    description: "Full-text search across documents. Returns matches with snippets.",
+    description:
+      "Search across documents — keyword full-text plus semantic similarity when the workspace has semantic search configured. Returns matches with snippets.",
     inputSchema: {
       type: "object",
       properties: { query: { type: "string", description: "Search terms." } },
@@ -286,7 +286,8 @@ async function callTool(user: User, name: string, args: any) {
     }
 
     case "search_docs": {
-      const hits = await searchDocuments(String(args?.query ?? ""), 15, isEditor, scope);
+      const { hybridSearchDocuments } = await import("@/lib/embeddings");
+      const hits = await hybridSearchDocuments(String(args?.query ?? ""), 15, isEditor, scope);
       return toolJson(
         hits.map((h) => ({
           id: h.id,

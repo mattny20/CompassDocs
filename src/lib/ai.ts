@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { retrieveForAnswer } from "./db";
+import { hybridRetrieveForAnswer } from "./embeddings";
 import { searchPeopleForAnswer } from "./directory";
 import type { DirectoryPerson } from "./directory";
 import { getAnthropicKey, getAiModel } from "./ai-config";
@@ -224,7 +224,7 @@ export async function answerQuestion(
   includeDrafts = false,
   scope?: number[] | "all"
 ): Promise<AiAnswer> {
-  const docs = await retrieveForAnswer(question, 6, includeDrafts, scope);
+  const docs = await hybridRetrieveForAnswer(question, 6, includeDrafts, scope);
   // The people directory is workspace-wide for signed-in users, so "who"
   // questions can be answered even when no document matches.
   let people: AiPerson[] = [];
