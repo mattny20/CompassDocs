@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { apiGuard } from "@/lib/api-auth";
+import { sectionApiGuard } from "@/lib/api-auth";
 import { featureEnabled } from "@/lib/ee";
 import {
   complianceDocs,
@@ -24,7 +24,7 @@ export const dynamic = "force-dynamic";
 const REMIND_COOLDOWN_MS = 60 * 60 * 1000; // one reminder per doc per hour
 
 async function gated() {
-  const gate = await apiGuard("admin");
+  const gate = await sectionApiGuard("compliance");
   if (gate instanceof NextResponse) return { denied: gate };
   if (!(await featureEnabled("policy_ack"))) {
     return {

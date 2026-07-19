@@ -7,6 +7,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { UsersRound, RefreshCw, CloudDownload, Trash2, Pencil, X } from "lucide-react";
+import { EntityPicker } from "@/components/EntityPicker";
 
 type GroupRow = {
   id: number;
@@ -167,7 +168,6 @@ function GroupCard({
   onDelete: () => void;
 }) {
   const [members, setMembers] = useState<Member[] | null>(null);
-  const [pickId, setPickId] = useState("");
   const [renaming, setRenaming] = useState(false);
   const [name, setName] = useState(group.name);
   const [error, setError] = useState("");
@@ -313,28 +313,16 @@ function GroupCard({
                   <li className="py-2 text-sm text-slate-400">No members yet.</li>
                 )}
               </ul>
-              <div className="mt-2 flex gap-2">
-                <select
-                  value={pickId}
-                  onChange={(e) => setPickId(e.target.value)}
-                  className={`${field} flex-1`}
-                >
-                  <option value="">Add a user…</option>
-                  {available.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.name || u.username} ({u.email || u.username})
-                    </option>
-                  ))}
-                </select>
-                <button
-                  onClick={async () => {
-                    if (pickId && (await patch({ addUserId: Number(pickId) }))) setPickId("");
-                  }}
-                  disabled={!pickId}
-                  className="rounded-lg border border-compass-200 bg-compass-50 px-3 py-1.5 text-sm font-semibold text-compass-700 hover:bg-compass-100 disabled:opacity-50"
-                >
-                  Add
-                </button>
+              <div className="mt-2">
+                <EntityPicker
+                  options={available.map((u) => ({
+                    id: u.id,
+                    label: u.name || u.username,
+                    sublabel: u.email || u.username,
+                  }))}
+                  onPick={(id) => void patch({ addUserId: id })}
+                  placeholder="Add a user — search by name or email…"
+                />
               </div>
             </>
           )}

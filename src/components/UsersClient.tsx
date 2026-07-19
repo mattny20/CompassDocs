@@ -27,6 +27,13 @@ export function UsersClient({
 function UserTable({ users, currentUserId }: { users: User[]; currentUserId: number }) {
   const router = useRouter();
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [query, setQuery] = useState("");
+  const needle = query.trim().toLowerCase();
+  const visible = needle
+    ? users.filter((u) =>
+        `${u.name} ${u.username} ${u.email} ${u.role}`.toLowerCase().includes(needle)
+      )
+    : users;
 
   async function patch(id: number, body: any) {
     setBusyId(id);
@@ -72,6 +79,14 @@ function UserTable({ users, currentUserId }: { users: User[]; currentUserId: num
   }
 
   return (
+    <div>
+      <input
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Search by name, username, email, or role…"
+        aria-label="Search users"
+        className="mb-3 w-full max-w-sm rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-none placeholder:text-slate-400 focus:border-compass-400"
+      />
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-surface shadow-sm">
       <table className="w-full text-sm">
         <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-400">
@@ -83,7 +98,7 @@ function UserTable({ users, currentUserId }: { users: User[]; currentUserId: num
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
-          {users.map((u) => (
+          {visible.map((u) => (
             <tr key={u.id} className={busyId === u.id ? "opacity-50" : ""}>
               <td className="px-4 py-3">
                 <div className="font-medium text-slate-800">
@@ -158,6 +173,7 @@ function UserTable({ users, currentUserId }: { users: User[]; currentUserId: num
           ))}
         </tbody>
       </table>
+    </div>
     </div>
   );
 }

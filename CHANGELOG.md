@@ -4,6 +4,32 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.50.0] - 2026-07-19
+
+### Changed
+- **Announcements and Compliance moved to the main navigation.** Settings
+  stays focused on management and configuration; day-to-day operations now
+  live in the sidebar at `/announcements` and `/compliance` (old Settings
+  URLs redirect). The sidebar shows each entry only to people who can use
+  it.
+
+### Added
+- **Delegated section access** (Settings → **Section access**). Grant
+  individual users or groups access to Announcements and Compliance
+  independently — a comms lead can run announcements, an HR manager can run
+  the compliance program, neither needs the admin role. Admins always have
+  access; grants apply immediately to the sidebar, pages, and APIs, and
+  changes are audited (`settings.section_access`).
+- **Settings search.** A search box above the Settings navigation filters
+  sections by name and by what's inside them — typing "smtp" finds
+  Notifications, "logo" finds Workspace, "api key" finds AI.
+- **Scalable people & group pickers.** Settings pages that assign users or
+  groups (space visibility, edit rights, subscriptions, group members,
+  section access) now use a searchable multi-select with keyboard support
+  and capped dropdowns instead of long checkbox walls and giant selects —
+  fast and uncluttered even with thousands of accounts. The Users & roles
+  and Newsletter people tables gained search filters too.
+
 ## [0.49.0] - 2026-07-19
 
 ### Added
