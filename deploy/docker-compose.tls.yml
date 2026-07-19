@@ -12,7 +12,7 @@
 # not published on the host — all traffic goes through Caddy on 80/443.
 services:
   db:
-    image: postgres:16
+    image: pgvector/pgvector:pg16
     restart: unless-stopped
     environment:
       POSTGRES_USER: compass

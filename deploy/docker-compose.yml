@@ -10,7 +10,7 @@
 #   docker compose down           # stop (data is kept in the named volume)
 services:
   db:
-    image: postgres:16
+    image: pgvector/pgvector:pg16
     restart: unless-stopped
     environment:
       POSTGRES_USER: compass

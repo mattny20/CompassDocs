@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { searchDocuments } from "@/lib/db";
+import { hybridSearchDocuments } from "@/lib/embeddings";
 import { recordSearch } from "@/lib/analytics";
 import { getCurrentUser } from "@/lib/auth";
 import { roleAtLeast } from "@/lib/types";
@@ -24,7 +24,7 @@ export async function GET(req: Request) {
   if (spaceParam && !scopeAllows(scope, spaceParam)) {
     return NextResponse.json({ hits: [] });
   }
-  const hits = await searchDocuments(q, limit, includeDrafts, scope, spaceParam);
+  const hits = await hybridSearchDocuments(q, limit, includeDrafts, scope, spaceParam);
   // Fire-and-forget analytics (prefix bursts are collapsed server-side).
   void recordSearch(user.id, q, hits.length, "search").catch(() => {});
   return NextResponse.json({ hits });

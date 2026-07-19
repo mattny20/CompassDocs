@@ -9,7 +9,7 @@
 #   docker compose -f docker-compose.local.yml down -v          # stop AND wipe data
 services:
   db:
-    image: postgres:16
+    image: pgvector/pgvector:pg16
     restart: unless-stopped
     environment:
       POSTGRES_USER: compass

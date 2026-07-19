@@ -4,6 +4,35 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.49.0] - 2026-07-19
+
+### Added
+- **Semantic search.** Search now understands meaning, not just keywords —
+  "how do we handle refunds?" finds the reimbursement policy even when no
+  word matches:
+  - Documents are chunked and embedded into **pgvector**; results are
+    fused with the existing full-text search (reciprocal-rank fusion), so
+    keyword precision and semantic recall work together. Semantic-only
+    hits carry a subtle **"related"** badge.
+  - **Ask AI** and the **Claude connector's `search_docs`** use the same
+    hybrid retrieval, so AI answers can cite documents that share no
+    keywords with the question.
+  - **Bring your own embeddings** (Settings → AI → Semantic search):
+    Voyage AI, OpenAI, or any OpenAI-compatible endpoint — including
+    fully local engines like **Ollama** and LM Studio via a custom URL.
+    Write-only API key, connection test, and a one-click **Rebuild
+    index** with live progress; documents re-embed automatically as
+    they're created and edited.
+  - **Respects every permission**: space visibility, private-space
+    groups, and draft access are enforced on semantic hits exactly like
+    keyword hits. The public site stays keyword-only by design (no
+    per-query provider cost from anonymous traffic).
+  - **Degrades gracefully**: no pgvector, no provider, or a provider
+    outage all leave keyword search working exactly as before.
+- The bundled docker-compose files now use the `pgvector/pgvector:pg16`
+  PostgreSQL image (a drop-in superset of `postgres:16` — existing data
+  volumes upgrade in place).
+
 ## [0.48.0] - 2026-07-19
 
 ### Added

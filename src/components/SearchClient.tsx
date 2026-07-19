@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
+import { Sparkles } from "lucide-react";
 import { MarkdownView } from "./MarkdownView";
 import { TypeBadge } from "./Badges";
 import { timeAgo } from "@/lib/ui";
@@ -206,6 +207,14 @@ export function SearchClient({
                   <span className="text-sm text-slate-400">
                     {h.space_icon} {h.space_name} · {timeAgo(h.updated_at)}
                   </span>
+                  {h.match === "semantic" && (
+                    <span
+                      title="Found by meaning, not keywords"
+                      className="inline-flex items-center gap-1 rounded-full bg-compass-50 px-2 py-0.5 text-xs font-medium text-compass-700"
+                    >
+                      <Sparkles className="h-3 w-3" /> related
+                    </span>
+                  )}
                 </div>
                 <h3 className="font-semibold text-slate-900">{h.title}</h3>
                 <p

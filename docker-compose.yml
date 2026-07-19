@@ -9,7 +9,7 @@
 # and run `npm run dev`.
 services:
   db:
-    image: postgres:16
+    image: pgvector/pgvector:pg16
     container_name: compassdocs-db
     restart: unless-stopped
     environment:

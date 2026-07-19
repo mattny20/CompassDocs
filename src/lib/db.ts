@@ -1203,6 +1203,8 @@ export async function createDocument(input: DocInput): Promise<DocumentWithSpace
     "INSERT INTO doc_versions (document_id, title, content, author, note) VALUES ($1,$2,$3,$4,$5)",
     [id, input.title, input.content, input.author, input.branch_of ? "Branched" : "Created"]
   );
+  // Fire-and-forget semantic index (dynamic import avoids a module cycle).
+  void import("./embeddings").then((m) => m.indexDocument(id)).catch(() => {});
   return (await getDocument(id))!;
 }
 
@@ -1252,6 +1254,8 @@ export async function updateDocument(
       "INSERT INTO doc_versions (document_id, title, content, author, note, restored_from) VALUES ($1,$2,$3,$4,$5,$6)",
       [id, next.title, next.content, next.author, input.versionNote || "Edited", input.restoredFrom ?? null]
     );
+    // Fire-and-forget semantic re-index (dynamic import avoids a module cycle).
+    void import("./embeddings").then((m) => m.indexDocument(id)).catch(() => {});
   }
   return getDocument(id);
 }
@@ -1416,6 +1420,37 @@ export async function searchDocuments(
   }));
 }
 
+/** Search-hit-shaped cards for a set of ids (for merging semantic results). */
+export async function searchCardsByIds(ids: number[]): Promise<Omit<SearchHit, "snippet">[]> {
+  if (ids.length === 0) return [];
+  const rows = await q(
+    `SELECT d.id, d.title, d.slug, d.type, d.status, d.tags, d.updated_at,
+            s.name AS space_name, s.slug AS space_slug, s.icon AS space_icon, s.color AS space_color
+     FROM documents d JOIN spaces s ON s.id = d.space_id
+     WHERE d.id = ANY($1)`,
+    [ids]
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    title: r.title,
+    slug: r.slug,
+    type: r.type,
+    status: r.status,
+    space_name: r.space_name,
+    space_slug: r.space_slug,
+    space_icon: r.space_icon,
+    space_color: r.space_color,
+    tags: parseTags(r.tags),
+    updated_at: r.updated_at,
+  }));
+}
+
+export async function getDocumentsByIds(ids: number[]): Promise<Document[]> {
+  if (ids.length === 0) return [];
+  const rows = await q("SELECT * FROM documents WHERE id = ANY($1)", [ids]);
+  return rows.map((r) => ({ ...r, tags: parseTags(r.tags) }));
+}
+
 export async function retrieveForAnswer(
   raw: string,
   limit = 6,
@@ -1444,6 +1479,7 @@ export async function retrieveForAnswer(
 const SENSITIVE_SETTINGS = new Set([
   "smtp_pass",
   "anthropic_api_key",
+  "embeddings_api_key",
   "sso_client_secret",
   "backup_s3_secret_access_key",
   "backup_azure_connection_string",
