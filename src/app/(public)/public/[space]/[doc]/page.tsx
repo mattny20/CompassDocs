@@ -71,7 +71,7 @@ export default async function PublicDocPage({
       </div>
 
       <div className="prose prose-slate mt-8 max-w-none rounded-xl border border-slate-200 bg-white p-8 shadow-sm">
-        <MarkdownView content={doc.content} />
+        <MarkdownView content={doc.content} docKey={`pub-${doc.id}`} />
       </div>
 
       {attachments.length > 0 && (

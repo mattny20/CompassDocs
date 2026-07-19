@@ -16,6 +16,24 @@ const A_ATTRS = (defaultSchema.attributes?.a ?? []).map((entry) =>
   Array.isArray(entry) && entry[0] === "className" ? [...entry, "email-btn"] : entry
 );
 
+// Rich document blocks (tabs, callouts, accordions, embeds) arrive as
+// md-* divs from the remarkDocBlocks directive plugin; MarkdownView maps
+// them to components. Their data-* payloads (titles, URLs) are re-validated
+// by those components before anything is embedded.
+const DOC_BLOCK_CLASSES = [
+  "md-callout",
+  "md-callout-note",
+  "md-callout-tip",
+  "md-callout-warning",
+  "md-callout-danger",
+  "md-callout-info",
+  "md-details",
+  "md-tabs",
+  "md-tab",
+  "md-video",
+  "md-embed",
+];
+
 export const MD_SANITIZE_SCHEMA: Schema = {
   ...defaultSchema,
   tagNames: [...(defaultSchema.tagNames ?? []), "u", "div", "span"],
@@ -23,7 +41,12 @@ export const MD_SANITIZE_SCHEMA: Schema = {
     ...defaultSchema.attributes,
     "*": [...(defaultSchema.attributes?.["*"] ?? []), "style"],
     a: A_ATTRS as any,
-    div: [["className", "nl-spacer", "nl-panel"]],
+    div: [
+      ["className", "nl-spacer", "nl-panel", ...DOC_BLOCK_CLASSES],
+      "dataTitle",
+      "dataSrc",
+      "dataHeight",
+    ],
     table: [...(defaultSchema.attributes?.table ?? []), ["className", "nl-borderless"]],
   },
 };

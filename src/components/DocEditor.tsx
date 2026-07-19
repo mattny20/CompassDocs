@@ -177,6 +177,41 @@ export function DocEditor({
     }
   }
 
+  // Markdown templates for the rich-block Insert menu.
+  const SNIPPETS: Record<string, string> = {
+    callout: ':::tip[Pro tip]\nYour advice here.\n:::',
+    tabs: '::::tabs\n:::tab[First tab]\nContent for the first tab.\n:::\n:::tab[Second tab]\nContent for the second tab.\n:::\n::::',
+    details: ':::details[Click to expand]\nHidden until the reader opens it.\n:::',
+    mermaid:
+      "```mermaid\nflowchart LR\n  A[Start] --> B{Decision?}\n  B -- Yes --> C[Do the thing]\n  B -- No --> D[Skip it]\n```",
+    plantuml: "```plantuml\nAlice -> Bob: Request\nBob --> Alice: Response\n```",
+    decision:
+      "```decision\nstart: Is the service responding?\n- Yes -> logs\n- No -> Escalate to the on-call engineer.\nlogs: Any errors in the application log?\n- Yes -> Follow the runbook for that error code.\n- No -> Capture details and open a ticket.\n```",
+    video: '::video[Optional caption]{src="https://www.youtube.com/watch?v=VIDEO_ID"}',
+    embed: '::embed{src="https://example.com/status" height="500"}',
+    checklist: "- [ ] First step\n- [ ] Second step\n- [ ] Third step",
+    table: "| Name | Team | Status |\n| --- | --- | --- |\n| Alice | Platform | Active |\n| Bob | Support | Active |",
+  };
+
+  function insertSnippet(kind: string) {
+    const snippet = SNIPPETS[kind];
+    if (!snippet) return;
+    const ta = mdRef.current;
+    const start = ta?.selectionStart ?? content.length;
+    const end = ta?.selectionEnd ?? start;
+    const before = content.slice(0, start);
+    const after = content.slice(end);
+    const pad = before && !before.endsWith("\n\n") ? (before.endsWith("\n") ? "\n" : "\n\n") : "";
+    const next = before + pad + snippet + "\n\n" + after;
+    setContent(next);
+    requestAnimationFrame(() => {
+      if (!ta) return;
+      const cursor = (before + pad + snippet).length;
+      ta.focus();
+      ta.setSelectionRange(cursor, cursor);
+    });
+  }
+
   function imageFromDataTransfer(items: DataTransferItemList | null): File | null {
     if (!items) return null;
     for (const item of Array.from(items)) {
@@ -418,6 +453,29 @@ export function DocEditor({
             <TabButton active={tab === "preview"} onClick={() => setTab("preview")}>
               Preview
             </TabButton>
+            {tab === "markdown" && (
+              <select
+                value=""
+                onChange={(e) => {
+                  if (e.target.value) insertSnippet(e.target.value);
+                  e.target.value = "";
+                }}
+                title="Insert a rich block at the cursor"
+                className="ml-2 rounded-md border border-slate-200 bg-surface px-2 py-1 text-xs font-medium text-slate-600 outline-none"
+              >
+                <option value="">+ Insert block…</option>
+                <option value="callout">Callout (note/tip/warning…)</option>
+                <option value="tabs">Tabs</option>
+                <option value="details">Accordion</option>
+                <option value="mermaid">Mermaid diagram</option>
+                <option value="plantuml">PlantUML diagram</option>
+                <option value="decision">Decision guide</option>
+                <option value="video">Video embed</option>
+                <option value="embed">Website embed</option>
+                <option value="checklist">Checklist</option>
+                <option value="table">Table</option>
+              </select>
+            )}
             <button
               type="button"
               onClick={runProofread}

@@ -181,7 +181,7 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
       )}
 
       <article>
-        <MarkdownView content={doc.content} />
+        <MarkdownView content={doc.content} docKey={`doc-${doc.id}`} />
       </article>
 
       <div className="print:hidden">
