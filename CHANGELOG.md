@@ -4,6 +4,39 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.47.0] - 2026-07-19
+
+### Added
+- **Editable email templates** (Settings → Notifications → **Email
+  templates**). Every alert email CompassDocs sends is now a template an
+  admin can customize:
+  - Five templates: document published/updated (space subscribers),
+    announcement blasts, comment @mentions, acknowledgement requests and
+    reminders, and workflow-event email channels.
+  - **Edit in the doc editor** — the same rich text editor used for
+    documents, with a live **preview** that renders your draft with
+    realistic sample values as you type.
+  - **Dynamic tags** like `{{doc_title}}`, `{{actor_name}}`, and
+    `{{doc_url}}` are replaced with the real values when each email is
+    sent. An **Insert tag** menu in the editor toolbar drops them at the
+    cursor, and each template lists exactly which tags it supports;
+    unknown tags are left visible so typos are easy to spot.
+  - **Reset to default** restores the built-in copy with one click, and a
+    "Customized" badge shows at a glance which templates have been
+    changed. Saving a template that matches the default simply clears the
+    override.
+  - Custom bodies are markdown, rendered through the same sanitized,
+    brand-accented HTML pipeline as newsletters — plain-text parts are
+    generated automatically, and untouched installs keep sending exactly
+    what they always have.
+  - Template edits and resets are audited (`settings.email_template`,
+    `settings.email_template_reset`).
+
+### Changed
+- Announcement, mention, subscriber, acknowledgement, and workflow-event
+  emails now render markdown (bold, links, quotes) in their HTML parts
+  instead of fixed hand-built markup.
+
 ## [0.46.0] - 2026-07-19
 
 ### Added

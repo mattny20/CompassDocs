@@ -7,6 +7,7 @@ import "server-only";
 import { listSubscriberRecipients } from "./db";
 import { getSmtpConfig, smtpConfigured } from "./smtp-config";
 import { sendMail } from "./mailer";
+import { renderEmail } from "./email-templates";
 
 const MAX_RECIPIENTS = 200;
 
@@ -32,19 +33,19 @@ export async function notifySpaceSubscribers(ev: SubscriberEvent): Promise<void>
     if (recipients.length === 0) return;
 
     const verb = ev.kind === "published" ? "published" : "updated";
-    const url = `${ev.origin ?? ""}/doc/${ev.docId}`;
-    const subject = `[${ev.spaceName}] ${ev.title} was ${verb}`;
-    const text =
-      `"${ev.title}" was ${verb} in ${ev.spaceName} by ${ev.actorName}.\n\n` +
-      `Read it: ${url}\n\n` +
-      `You're getting this because you subscribe to the ${ev.spaceName} space. ` +
-      `Manage subscriptions: ${ev.origin ?? ""}/account/notifications`;
-    const html =
-      `<p><strong>${escapeHtml(ev.title)}</strong> was ${verb} in ` +
-      `<strong>${escapeHtml(ev.spaceName)}</strong> by ${escapeHtml(ev.actorName)}.</p>` +
-      `<p><a href="${url}">Read the document</a></p>` +
-      `<p style="color:#64748b;font-size:13px">You subscribe to the ${escapeHtml(ev.spaceName)} space · ` +
-      `<a href="${ev.origin ?? ""}/account/notifications">manage subscriptions</a></p>`;
+    const origin = ev.origin ?? "";
+    const { subject, text, html } = await renderEmail(
+      "doc_update",
+      {
+        doc_title: ev.title,
+        space_name: ev.spaceName,
+        actor_name: ev.actorName,
+        action: verb,
+        doc_url: `${origin}/doc/${ev.docId}`,
+        manage_url: `${origin}/account/notifications`,
+      },
+      origin
+    );
 
     // Individual sends (no shared To/CC): fine at this scale, keeps addresses private.
     for (const r of recipients) {
@@ -57,8 +58,4 @@ export async function notifySpaceSubscribers(ev: SubscriberEvent): Promise<void>
   } catch (e) {
     console.error("notifySpaceSubscribers failed:", e);
   }
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }

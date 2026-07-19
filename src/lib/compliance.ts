@@ -2,7 +2,7 @@ import "server-only";
 import { createAnnouncement } from "./db";
 import { getSmtpConfig, smtpConfigured } from "./smtp-config";
 import { sendMail } from "./mailer";
-import { getAppSettings } from "./settings-store";
+import { renderEmail } from "./email-templates";
 
 // Notifications for the central compliance portal: when an admin requests
 // acknowledgement of a document (or sends a reminder), every affected user
@@ -11,10 +11,6 @@ import { getAppSettings } from "./settings-store";
 // Compliance emails deliberately do NOT honor the personal notification-email
 // switch — an acknowledgement request is a workplace requirement, not a
 // courtesy update. (Documented in the admin guide.)
-
-function esc(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
 
 export async function notifyAckRequest(input: {
   docId: number;
@@ -26,9 +22,28 @@ export async function notifyAckRequest(input: {
   mode: "request" | "reminder";
 }): Promise<{ emailed: number; noticed: number }> {
   const url = `${input.origin}/doc/${input.docId}`;
-  const org = (await getAppSettings()).company_name || "CompassDocs";
   const mailReady = smtpConfigured(await getSmtpConfig());
   const verb = input.mode === "reminder" ? "Reminder" : "Action required";
+
+  // Same message for every target, so render the template once.
+  let mail: { subject: string; text: string; html: string } | null = null;
+  if (mailReady) {
+    try {
+      mail = await renderEmail(
+        "ack_request",
+        {
+          requester_name: input.requesterName,
+          doc_title: input.docTitle,
+          doc_url: url,
+          request_type: input.mode === "reminder" ? "sent a reminder" : "requested",
+          request_label: verb,
+        },
+        input.origin
+      );
+    } catch (e) {
+      console.error("Ack email render failed:", e);
+    }
+  }
 
   let emailed = 0;
   let noticed = 0;
@@ -52,22 +67,9 @@ export async function notifyAckRequest(input: {
       console.error(`Ack announcement for user ${target.id} failed:`, e);
     }
 
-    if (!mailReady || !target.email) continue;
+    if (!mail || !target.email) continue;
     try {
-      const subject = `[${org}] ${verb}: acknowledge "${input.docTitle}"`;
-      const text =
-        `${input.requesterName} ${input.mode === "reminder" ? "sent a reminder" : "requested"} that you read and acknowledge:\n\n` +
-        `  ${input.docTitle}\n\n` +
-        `Open the document and click "I've read and understood": ${url}\n\n` +
-        `This acknowledgement is recorded for compliance.`;
-      const html =
-        `<p><strong>${esc(input.requesterName)}</strong> ${
-          input.mode === "reminder" ? "sent a reminder" : "requested"
-        } that you read and acknowledge:</p>` +
-        `<p style="margin:12px 0;padding:10px 14px;border-left:3px solid #d97706;background:#fffbeb"><strong>${esc(input.docTitle)}</strong></p>` +
-        `<p><a href="${url}">Open the document</a> and click <em>"I've read and understood"</em>.</p>` +
-        `<p style="color:#64748b;font-size:13px">This acknowledgement is recorded for compliance.</p>`;
-      await sendMail([target.email], subject, text, html);
+      await sendMail([target.email], mail.subject, mail.text, mail.html);
       emailed++;
     } catch (e) {
       console.error(`Ack email to ${target.email} failed:`, e);

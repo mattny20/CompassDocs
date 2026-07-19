@@ -6,6 +6,7 @@ import "server-only";
 import { listAnnouncementRecipients } from "./db";
 import { getSmtpConfig, smtpConfigured } from "./smtp-config";
 import { sendMail } from "./mailer";
+import { renderEmail } from "./email-templates";
 
 const MAX_RECIPIENTS = 500;
 
@@ -23,18 +24,18 @@ export async function emailAnnouncement(input: {
   if (recipients.length === 0) return { sent: 0 };
 
   const prefix = input.level === "critical" ? "❗ " : input.level === "warning" ? "⚠️ " : "";
-  const subject = `${prefix}[${input.orgName}] ${input.title}`;
-  const link = input.origin ? `${input.origin}/` : "";
-  const text =
-    `${input.title}\n\n${input.body}\n\n— ${input.authorName}` +
-    (link ? `\n\nSee it on your dashboard: ${link}` : "");
-  const html =
-    `<h2 style="margin:0 0 12px">${escapeHtml(input.title)}</h2>` +
-    `<p style="white-space:pre-line">${escapeHtml(input.body)}</p>` +
-    `<p style="color:#64748b">— ${escapeHtml(input.authorName)}</p>` +
-    (link
-      ? `<p style="color:#64748b;font-size:13px"><a href="${link}">Open ${escapeHtml(input.orgName)}</a></p>`
-      : "");
+  const { subject, text, html } = await renderEmail(
+    "announcement",
+    {
+      title: input.title,
+      body: input.body,
+      author_name: input.authorName,
+      org_name: input.orgName,
+      dashboard_url: input.origin ? `${input.origin}/` : "",
+      level_prefix: prefix,
+    },
+    input.origin ?? ""
+  );
 
   let sent = 0;
   for (const r of recipients) {
@@ -46,8 +47,4 @@ export async function emailAnnouncement(input: {
     }
   }
   return { sent };
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }

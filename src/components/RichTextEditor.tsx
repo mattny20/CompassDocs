@@ -445,6 +445,7 @@ export function RichTextEditor({
   onChange,
   onUploadImage,
   emailBlocks = false,
+  tagMenu,
 }: {
   value: string;
   onChange: (markdown: string) => void;
@@ -452,6 +453,8 @@ export function RichTextEditor({
   onUploadImage?: (file: File) => Promise<string | null>;
   /** Show the newsletter block tools (button, spacer). */
   emailBlocks?: boolean;
+  /** Dynamic {{tag}} placeholders offered by an "Insert tag" toolbar menu. */
+  tagMenu?: { tag: string; label: string }[];
 }) {
   // Keep the latest callback in a ref so the editor (created once) always
   // calls the current closure — uploads depend on live parent state.
@@ -555,6 +558,7 @@ export function RichTextEditor({
       <Toolbar
         editor={editor}
         emailBlocks={emailBlocks}
+        tagMenu={tagMenu}
         onPickImage={onUploadImage ? (file) => insertUploaded(editor, file) : undefined}
       />
       <EditorContent editor={editor} />
@@ -670,10 +674,12 @@ interface PaintedFormat {
 function Toolbar({
   editor,
   emailBlocks,
+  tagMenu,
   onPickImage,
 }: {
   editor: Editor;
   emailBlocks: boolean;
+  tagMenu?: { tag: string; label: string }[];
   onPickImage?: (file: File) => void;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -998,6 +1004,28 @@ function Toolbar({
           <Icon className={TB_ICON} />
         </Btn>
       ))}
+      {tagMenu && tagMenu.length > 0 && (
+        <>
+          <Divider />
+          <select
+            value=""
+            onChange={(e) => {
+              const tag = e.target.value;
+              if (tag) editor.chain().focus().insertContent(`{{${tag}}}`).run();
+            }}
+            title="Insert a dynamic tag — replaced with the real value when each email is sent"
+            aria-label="Insert tag"
+            className="mx-0.5 h-8 rounded-md border border-slate-200 bg-surface px-1 text-xs text-slate-600 outline-none hover:bg-slate-50"
+          >
+            <option value="">Insert tag…</option>
+            {tagMenu.map((t) => (
+              <option key={t.tag} value={t.tag}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+        </>
+      )}
       {editor.isActive("heading") && (
         <>
           <Divider />
