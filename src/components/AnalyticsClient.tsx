@@ -349,7 +349,7 @@ function DocDrilldown({ docId, days, onClose }: { docId: number; days: number; o
                 >
                   Open <ArrowUpRight className="h-3 w-3" />
                 </Link>
-                <button onClick={onClose} aria-label="Close" className="rounded-md border border-slate-200 p-1.5 text-slate-400 hover:text-slate-600">
+                <button onClick={onClose} title="Close" aria-label="Close" className="rounded-md border border-slate-200 p-1.5 text-slate-400 hover:text-slate-600">
                   <X className="h-4 w-4" />
                 </button>
               </div>

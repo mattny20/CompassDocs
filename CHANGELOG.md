@@ -4,6 +4,24 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.54.0] - 2026-07-20
+
+### Changed
+- **Cleaner document pages.** The header is now pure typography: title, one
+  compact meta line, and the summary as a plain lede paragraph instead of a
+  colored box — content stops competing with chrome.
+- **One notice strip instead of stacked banners.** Read-confirmation
+  (reader prompt and approver progress), draft status, draft branches in
+  progress, and pending changes now share a single quiet container with one
+  row each, right above the content.
+- **Read-confirmation toggle moved into the action row.** The approver-side
+  "Require read confirmation" checkbox box is gone; it's now a shield icon
+  next to Print/History/Edit that highlights when active, with progress and
+  the record link in the notice strip.
+- **Sticky title bar.** In long documents, a compact bar with the title,
+  status, and actions fades in at the top once the header scrolls away.
+- Icon-only buttons throughout the app now consistently carry tooltips.
+
 ## [0.53.0] - 2026-07-20
 
 ### Added

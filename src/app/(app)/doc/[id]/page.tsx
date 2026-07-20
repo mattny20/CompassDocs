@@ -16,7 +16,8 @@ import { spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
 import { resolveAuthorPerson } from "@/lib/directory";
 import { featureEnabled } from "@/lib/ee";
 import { getCurrentAck, ackStatusForDocument } from "@/lib/db";
-import { AckBanner, AckControls } from "@/components/AckBanner";
+import { DocNotices } from "@/components/DocNotices";
+import { StickyDocBar } from "@/components/StickyDocBar";
 import { getAppSettings } from "@/lib/settings-store";
 import { formatDateTime } from "@/lib/format";
 import { MarkdownView } from "@/components/MarkdownView";
@@ -83,7 +84,9 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
         </Link>
       </nav>
 
-      <div className="mb-4 flex items-start justify-between gap-4">
+      {/* Masthead: pure typography — badges, title, one meta line, summary as
+          a plain lede. Workflow state lives in the single notice strip below. */}
+      <div className="mb-3 flex items-start justify-between gap-4">
         <div>
           <div className="mb-2 flex items-center gap-2">
             <TypeBadge type={doc.type} />
@@ -98,58 +101,15 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
           isPublished={doc.status === "published"}
           hasEditRights={hasEditRights}
           isBranch={doc.branch_of !== null}
+          ack={
+            ackEnabled && isApprover && doc.branch_of === null
+              ? { required: doc.ack_required === 1 }
+              : undefined
+          }
         />
       </div>
 
-      {ackEnabled && isApprover && doc.status === "published" && (
-        <AckControls
-          docId={doc.id}
-          initialRequired={doc.ack_required === 1}
-          ackedCount={ackRows.filter((r) => r.acknowledged_at).length}
-          requiredCount={ackRows.length}
-          isPublished={doc.status === "published"}
-        />
-      )}
-      {ackEnabled && doc.ack_required === 1 && doc.status === "published" && (
-        <AckBanner docId={doc.id} initialAckedAt={myAck?.acknowledged_at ?? null} />
-      )}
-
-      {doc.branch_of !== null && branchSource ? (
-        <BranchBanner
-          branchId={doc.id}
-          sourceId={branchSource.id}
-          sourceTitle={branchSource.title}
-          canEdit={isStaff && hasEditRights}
-          needsReview={Boolean(mergeNeedsReview)}
-        />
-      ) : (
-        doc.status === "draft" &&
-        isStaff && (
-          <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-600 print:hidden">
-            📝 This is a <strong>draft</strong> — it isn&apos;t visible to viewers yet.
-          </div>
-        )
-      )}
-
-      {branchCount > 0 && (
-        <div className="mb-4 rounded-lg border border-violet-200 bg-violet-50 px-4 py-2 text-sm text-violet-800 print:hidden dark:border-violet-800/60 dark:bg-violet-950/40 dark:text-violet-200">
-          🌿 {branchCount} draft branch{branchCount === 1 ? "" : "es"} in progress.{" "}
-          <Link href={`/doc/${doc.id}/history`} className="font-medium underline">
-            View in history →
-          </Link>
-        </div>
-      )}
-
-      {pending.length > 0 && (
-        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800 print:hidden">
-          ⏳ {pending.length} pending change{pending.length === 1 ? "" : "s"} awaiting review.{" "}
-          <Link href="/review" className="font-medium underline">
-            Open review queue →
-          </Link>
-        </div>
-      )}
-
-      <div className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-slate-100 pb-4 text-sm text-slate-500">
+      <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-500">
         <span>
           By{" "}
           {authorPerson ? (
@@ -181,9 +141,54 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
       </div>
 
       {doc.summary && (
-        <p className="mb-6 rounded-lg border-l-4 border-compass-300 bg-compass-50/50 px-4 py-3 text-slate-600">
-          {doc.summary}
-        </p>
+        <p className="mb-5 max-w-3xl text-lg leading-relaxed text-slate-600">{doc.summary}</p>
+      )}
+
+      <hr className="mb-6 border-slate-100 print:hidden" />
+
+      <StickyDocBar>
+        <StatusBadge status={doc.status} />
+        <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-800">
+          {doc.title}
+        </span>
+        <DocActions
+          id={doc.id}
+          spaceSlug={doc.space_slug}
+          role={user.role}
+          isPublished={doc.status === "published"}
+          hasEditRights={hasEditRights}
+          isBranch={doc.branch_of !== null}
+        />
+      </StickyDocBar>
+
+      {doc.branch_of !== null && branchSource ? (
+        <BranchBanner
+          branchId={doc.id}
+          sourceId={branchSource.id}
+          sourceTitle={branchSource.title}
+          canEdit={isStaff && hasEditRights}
+          needsReview={Boolean(mergeNeedsReview)}
+        />
+      ) : (
+        <DocNotices
+          docId={doc.id}
+          ack={
+            ackEnabled && doc.ack_required === 1 && doc.status === "published"
+              ? { ackedAt: myAck?.acknowledged_at ?? null }
+              : undefined
+          }
+          ackProgress={
+            ackEnabled && isApprover && doc.ack_required === 1 && doc.status === "published"
+              ? {
+                  ackedCount: ackRows.filter((r) => r.acknowledged_at).length,
+                  requiredCount: ackRows.length,
+                }
+              : undefined
+          }
+          isDraft={doc.status === "draft" && isStaff}
+          branchCount={branchCount}
+          pendingCount={pending.length}
+        />
       )}
 
       <div className="lg:flex lg:items-start lg:gap-10">
