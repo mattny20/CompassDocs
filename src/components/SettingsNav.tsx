@@ -23,6 +23,7 @@ import {
   DatabaseBackup,
   Package,
   Search,
+  LayoutTemplate,
 } from "lucide-react";
 
 const ICON = "h-4 w-4";
@@ -33,6 +34,7 @@ const SECTIONS = [
   { href: "/admin", label: "System", icon: <Monitor className={ICON} />, keywords: "version update health status docker" },
   { href: "/admin/workspace", label: "Workspace", icon: <Palette className={ICON} />, keywords: "name logo accent color brand theme icon company date format" },
   { href: "/admin/spaces", label: "Spaces", icon: <FolderKanban className={ICON} />, keywords: "visibility private public categories edit rights permissions subscriptions" },
+  { href: "/admin/templates", label: "Templates", icon: <LayoutTemplate className={ICON} />, keywords: "document template sop runbook policy postmortem meeting notes decision record placeholder default blank" },
   { href: "/admin/public-site", label: "Public site", icon: <Megaphone className={ICON} />, keywords: "anonymous internet seo indexing share" },
   { href: "/admin/links", label: "Links", icon: <SquareArrowOutUpRight className={ICON} />, keywords: "quick launchpad shortcuts tools" },
   { href: "/admin/newsletter", label: "Newsletter", icon: <Mail className={ICON} />, keywords: "email campaign digest contributors approvers schedule appearance" },

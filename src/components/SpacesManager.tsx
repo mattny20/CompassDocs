@@ -12,6 +12,7 @@ export type GroupOption = { id: number; name: string; source: string; member_cou
 export type EditorUserOption = { id: number; name: string; role: string };
 export type CategoryOption = { id: number; name: string; position: number };
 type EditorGrants = { users: Record<number, number[]>; groups: Record<number, number[]> };
+export type TemplateOption = { id: number; name: string; hidden: boolean };
 
 const field =
   "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
@@ -20,6 +21,7 @@ export function SpacesManager({
   initial,
   groups,
   users,
+  templates = [],
   initialSpaceGroups,
   initialSubscriptionGroups,
   initialEditorGrants,
@@ -29,6 +31,7 @@ export function SpacesManager({
   initial: SpaceRow[];
   groups: GroupOption[];
   users: EditorUserOption[];
+  templates?: TemplateOption[];
   initialSpaceGroups: Record<number, number[]>;
   initialSubscriptionGroups: Record<number, number[]>;
   initialEditorGrants: EditorGrants;
@@ -138,6 +141,7 @@ export function SpacesManager({
         <SpaceForm
           groups={groups}
           users={users}
+          templates={templates}
           grantedIds={[]}
           subscribedGroupIds={[]}
           editorUserIds={[]}
@@ -160,6 +164,7 @@ export function SpacesManager({
               space={s}
               groups={groups}
               users={users}
+              templates={templates}
               grantedIds={spaceGroups[s.id] ?? []}
               subscribedGroupIds={subGroups[s.id] ?? []}
               editorUserIds={editorGrants.users[s.id] ?? []}
@@ -249,6 +254,7 @@ function SpaceForm({
   space,
   groups,
   users,
+  templates,
   grantedIds,
   subscribedGroupIds,
   editorUserIds,
@@ -261,6 +267,7 @@ function SpaceForm({
   space?: SpaceRow;
   groups: GroupOption[];
   users: EditorUserOption[];
+  templates: TemplateOption[];
   grantedIds: number[];
   subscribedGroupIds: number[];
   editorUserIds: number[];
@@ -284,6 +291,9 @@ function SpaceForm({
   const [edGroupIds, setEdGroupIds] = useState<number[]>(editorGroupIds);
   const [restrictEditing, setRestrictEditing] = useState(
     editorUserIds.length > 0 || editorGroupIds.length > 0
+  );
+  const [defaultTemplateId, setDefaultTemplateId] = useState<number | null>(
+    space?.default_template_id ?? null
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -317,6 +327,7 @@ function SpaceForm({
         subscriptionGroupIds: subGroupIds,
         editorUserIds: restrictEditing ? edUserIds : [],
         editorGroupIds: restrictEditing ? edGroupIds : [],
+        default_template_id: defaultTemplateId,
       }),
     });
     setSaving(false);
@@ -553,6 +564,35 @@ function SpaceForm({
             editor; documents without one appear under &ldquo;General&rdquo;.
           </p>
           <CategoryEditor spaceId={space.id} initial={initialCategories} />
+        </div>
+      )}
+
+      {templates.length > 0 && (
+        <div className="mt-4">
+          <span className="mb-1 block text-xs font-medium text-slate-500">
+            Default template <span className="text-slate-400">(optional)</span>
+          </span>
+          <p className="mb-2 text-xs text-slate-400">
+            Pre-fills new documents created from this space. Writers can still switch to
+            another template or a blank page. Manage templates under{" "}
+            <a href="/admin/templates" className="font-medium text-compass-700 underline">
+              Settings → Templates
+            </a>
+            .
+          </p>
+          <select
+            value={defaultTemplateId ?? ""}
+            onChange={(e) => setDefaultTemplateId(e.target.value ? Number(e.target.value) : null)}
+            className="w-64 rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-compass-400"
+          >
+            <option value="">None — start blank</option>
+            {templates.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+                {t.hidden ? " (hidden)" : ""}
+              </option>
+            ))}
+          </select>
         </div>
       )}
 

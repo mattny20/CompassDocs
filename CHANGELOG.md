@@ -4,6 +4,30 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.53.0] - 2026-07-20
+
+### Added
+- **Document templates.** Creating a document now starts from a template
+  picker: six built-ins ship out of the box (SOP, Runbook, Policy, Meeting
+  notes, Incident postmortem, Decision record), each a full scaffold using
+  rich blocks — callouts, Mermaid triage flows, severity tables,
+  checklists. Placeholders fill in automatically ({{title}}, {{date}},
+  {{author}}, {{space}}); anything else, like {{owner}}, stays visible as a
+  prompt for the writer. A blank page is always one click away.
+- **Template management (Settings → Templates).** Admins can edit any
+  template's name, type, tags, title pattern, and body in the rich editor
+  (with an insert-placeholder menu), hide templates from the picker, reset
+  built-ins to their shipped content, create new ones from scratch — or
+  save any existing document as a template straight from its page actions.
+- **Per-space default templates.** Each space can name a default template
+  (Settings → Spaces): creating a document from that space pre-fills it
+  automatically, and the writer can still switch templates or start blank.
+- **Templates over the Claude connector.** A new `list_templates` MCP tool
+  exposes each template's structure, and `create_doc` accepts a `template`
+  parameter — ask Claude to "draft a runbook for X" and the document lands
+  in your team's standard runbook shape, with type, tags, and title pattern
+  applied.
+
 ## [0.52.0] - 2026-07-19
 
 ### Added

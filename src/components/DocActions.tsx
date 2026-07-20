@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useState } from "react";
-import { GitBranch, History, Pencil, Trash2, LoaderCircle } from "lucide-react";
+import { GitBranch, History, LayoutTemplate, Pencil, Trash2, LoaderCircle } from "lucide-react";
 import { roleAtLeast } from "@/lib/types";
 import type { Role } from "@/lib/types";
 import { PrintButton } from "./PrintButton";
@@ -28,6 +28,7 @@ export function DocActions({
   const router = useRouter();
   const [deleting, setDeleting] = useState(false);
   const [branching, setBranching] = useState(false);
+  const [templating, setTemplating] = useState(false);
 
   const canEdit = roleAtLeast(role, "editor") && hasEditRights;
   const canDelete =
@@ -45,6 +46,21 @@ export function DocActions({
       setBranching(false);
       alert(data?.error || "Couldn't create the branch.");
     }
+  }
+
+  async function onSaveAsTemplate() {
+    const name = prompt("Template name — writers will see it in the template picker:");
+    if (!name?.trim()) return;
+    setTemplating(true);
+    const res = await fetch("/api/admin/templates", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ from_doc_id: id, name: name.trim() }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setTemplating(false);
+    if (res.ok) router.push("/admin/templates");
+    else alert(data?.error || "Couldn't create the template.");
   }
 
   async function onDelete() {
@@ -87,6 +103,21 @@ export function DocActions({
             <LoaderCircle className="h-4 w-4 animate-spin" />
           ) : (
             <GitBranch className="h-4 w-4" />
+          )}
+        </button>
+      )}
+      {role === "admin" && !isBranch && (
+        <button
+          onClick={onSaveAsTemplate}
+          disabled={templating}
+          title="Save as template"
+          aria-label="Save this document as a template"
+          className={iconBtn + " disabled:opacity-50"}
+        >
+          {templating ? (
+            <LoaderCircle className="h-4 w-4 animate-spin" />
+          ) : (
+            <LayoutTemplate className="h-4 w-4" />
           )}
         </button>
       )}

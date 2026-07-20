@@ -36,6 +36,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     icon?: string;
     color?: string;
     visibility?: string;
+    default_template_id?: number | null;
   } = {};
   if (body?.name !== undefined) {
     const name = String(body.name).trim();
@@ -60,6 +61,18 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       );
     }
     patch.visibility = body.visibility;
+  }
+  if (body?.default_template_id !== undefined) {
+    if (body.default_template_id === null) {
+      patch.default_template_id = null;
+    } else {
+      const tplId = Number(body.default_template_id);
+      const { getTemplate } = await import("@/lib/doc-templates");
+      if (!Number.isInteger(tplId) || !(await getTemplate(tplId))) {
+        return NextResponse.json({ error: "Template not found." }, { status: 400 });
+      }
+      patch.default_template_id = tplId;
+    }
   }
 
   const space = await updateSpace(id, patch);
