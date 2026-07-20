@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 // editors+ only). Anonymous requests are allowed exactly when the public site
 // is enabled AND the attachment hangs off a published doc in a public space —
 // the same rule as the public doc pages that link here.
-export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser();
 
   const { id } = await params;
@@ -34,11 +34,22 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       return NextResponse.json({ error: "Not found." }, { status: 404 });
     }
   } else {
+    // Anonymous: allowed via the public site, or via a share-link token that
+    // covers exactly this attachment's document.
     const publiclyVisible =
       doc.space_visibility === "public" &&
       doc.status === "published" &&
       (await getPublicSiteConfig()).enabled;
+    let sharedVisible = false;
     if (!publiclyVisible) {
+      const token = new URL(req.url).searchParams.get("share");
+      if (token) {
+        const { resolveShare } = await import("@/lib/shares");
+        const resolved = await resolveShare(token);
+        sharedVisible = resolved?.doc.id === doc.id;
+      }
+    }
+    if (!publiclyVisible && !sharedVisible) {
       return NextResponse.json({ error: "Authentication required." }, { status: 401 });
     }
   }

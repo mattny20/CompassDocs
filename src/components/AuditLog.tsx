@@ -77,6 +77,8 @@ const LABELS: Record<string, string> = {
   "settings.template_deleted": "Deleted document template",
   "document.review_schedule": "Changed review schedule",
   "document.reviewed": "Marked document reviewed",
+  "document.share_created": "Created share link",
+  "document.share_revoked": "Revoked share link",
   "settings.semantic_search": "Updated semantic search settings",
   "settings.semantic_reindex": "Rebuilt semantic index",
   "settings.backup_destination_removed": "Removed backup destination",

@@ -4,6 +4,18 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.57.0] - 2026-07-20
+
+### Added
+- **Public share links** (off by default — Settings → Public site). Create
+  a tokenized read-only link to a single published document and hand it to
+  anyone — no account, no exposing the whole space. Links are unguessable,
+  always `noindex`, optionally expiring (7/30/90 days), revocable or
+  regenerable from a Share link card in the doc's side panel (which also
+  counts opens), and audited. Inline images and attachments work through
+  the link, scoped to exactly that document. Unpublishing the document —
+  or turning the master switch off — disables every link instantly.
+
 ## [0.56.0] - 2026-07-20
 
 ### Added
