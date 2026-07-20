@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
+import { DocLinkSuggest } from "./DocLinkSuggest";
 import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
 import Image from "@tiptap/extension-image";
@@ -446,6 +447,7 @@ export function RichTextEditor({
   onUploadImage,
   emailBlocks = false,
   tagMenu,
+  docLinks = false,
 }: {
   value: string;
   onChange: (markdown: string) => void;
@@ -455,6 +457,8 @@ export function RichTextEditor({
   emailBlocks?: boolean;
   /** Dynamic {{tag}} placeholders offered by an "Insert tag" toolbar menu. */
   tagMenu?: { tag: string; label: string }[];
+  /** [[ document-link autocomplete (backlinks feature, admin-gated). */
+  docLinks?: boolean;
 }) {
   // Keep the latest callback in a ref so the editor (created once) always
   // calls the current closure — uploads depend on live parent state.
@@ -562,6 +566,7 @@ export function RichTextEditor({
         onPickImage={onUploadImage ? (file) => insertUploaded(editor, file) : undefined}
       />
       <EditorContent editor={editor} />
+      {docLinks && <DocLinkSuggest editor={editor} />}
     </div>
   );
 }

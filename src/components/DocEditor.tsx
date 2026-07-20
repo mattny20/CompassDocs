@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Table as TableIcon } from "lucide-react";
@@ -43,6 +43,7 @@ interface Initial {
   tags: string[];
   content: string;
   author: string;
+  parent_id?: number | null;
 }
 
 export function DocEditor({
@@ -51,6 +52,8 @@ export function DocEditor({
   initial,
   mode,
   canPublish,
+  nestedEnabled = false,
+  docLinks = false,
 }: {
   spaces: Pick<Space, "id" | "name" | "icon">[];
   /** Categories across the offered spaces; filtered by the selected space. */
@@ -58,6 +61,10 @@ export function DocEditor({
   initial: Initial;
   mode: "create" | "edit";
   canPublish: boolean;
+  /** Nested pages toggle (admin-gated): shows the parent-page selector. */
+  nestedEnabled?: boolean;
+  /** Backlinks toggle (admin-gated): [[ link autocomplete in the editor. */
+  docLinks?: boolean;
 }) {
   const router = useRouter();
   const [spaceId, setSpaceId] = useState(initial.space_id ?? spaces[0]?.id);
@@ -78,6 +85,27 @@ export function DocEditor({
   // first image upload triggers (images need a document row to belong to).
   const [docId, setDocId] = useState<number | undefined>(initial.id);
   const [autoDrafted, setAutoDrafted] = useState(false);
+  // Nested pages: optional parent within the selected space.
+  const [parentId, setParentId] = useState<number | null>(initial.parent_id ?? null);
+  const [parentOptions, setParentOptions] = useState<{ id: number; title: string }[]>([]);
+  useEffect(() => {
+    if (!nestedEnabled || !spaceId) return;
+    let cancelled = false;
+    fetch(`/api/documents/lookup?space=${spaceId}&limit=50`)
+      .then((r) => (r.ok ? r.json() : { docs: [] }))
+      .then((d) => {
+        if (cancelled) return;
+        const opts = (d.docs as { id: number; title: string }[]).filter((o) => o.id !== initial.id);
+        setParentOptions(opts);
+        // A stale parent from another space clears when the space changes.
+        setParentId((p) => (p !== null && !opts.some((o) => o.id === p) ? null : p));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nestedEnabled, spaceId]);
   const [uploading, setUploading] = useState(false);
   const mdRef = useRef<HTMLTextAreaElement>(null);
 
@@ -237,6 +265,7 @@ export function DocEditor({
       summary,
       tags,
       content,
+      ...(nestedEnabled ? { parent_id: parentId } : {}),
     };
     try {
       const res = !docId
@@ -361,6 +390,22 @@ export function DocEditor({
               ))}
             </select>
           </Field>
+          {nestedEnabled && parentOptions.length > 0 && (
+            <Field label="Parent page">
+              <select
+                value={parentId ?? ""}
+                onChange={(e) => setParentId(e.target.value ? Number(e.target.value) : null)}
+                className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-none focus:border-compass-400"
+              >
+                <option value="">None — top level</option>
+                {parentOptions.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.title}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
           {categories.some((c) => c.space_id === spaceId) && (
             <Field label="Category">
               <select
@@ -491,7 +536,7 @@ export function DocEditor({
           </div>
 
           {tab === "rich" ? (
-            <RichTextEditor value={content} onChange={setContent} onUploadImage={uploadImage} />
+            <RichTextEditor value={content} onChange={setContent} onUploadImage={uploadImage} docLinks={docLinks} />
           ) : tab === "markdown" ? (
             <textarea
               ref={mdRef}

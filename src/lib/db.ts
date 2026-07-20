@@ -183,6 +183,22 @@ const SCHEMA_SQL = `
   -- A space can suggest a template for new documents created in it.
   ALTER TABLE spaces ADD COLUMN IF NOT EXISTS default_template_id integer REFERENCES doc_templates(id) ON DELETE SET NULL;
 
+  -- Nested pages: an optional parent within the same space (3-level cap
+  -- enforced in code) and a manual sibling order. Off by default; admins
+  -- enable it under Settings → Workspace.
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS parent_id integer REFERENCES documents(id) ON DELETE SET NULL;
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS position integer NOT NULL DEFAULT 0;
+  CREATE INDEX IF NOT EXISTS idx_documents_parent ON documents(parent_id);
+
+  -- Automatic backlinks: one row per internal /doc/N link found in a
+  -- document's content, refreshed on every save.
+  CREATE TABLE IF NOT EXISTS doc_links (
+    from_id integer NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    to_id integer NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    PRIMARY KEY (from_id, to_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_doc_links_to ON doc_links(to_id);
+
   -- Typed links between documents (policy ↔ procedures, supersession, etc.).
   -- One row per link; symmetric/reverse display is resolved at query time.
   CREATE TABLE IF NOT EXISTS doc_relations (
@@ -1247,6 +1263,7 @@ export async function createDocument(input: DocInput): Promise<DocumentWithSpace
   );
   // Fire-and-forget semantic index (dynamic import avoids a module cycle).
   void import("./embeddings").then((m) => m.indexDocument(id)).catch(() => {});
+  void import("./backlinks").then((m) => m.syncDocLinks(id)).catch(() => {});
   return (await getDocument(id))!;
 }
 
@@ -1273,6 +1290,12 @@ export async function updateDocument(
   // move with a stale category quietly falls back to General.
   const categoryId = await categoryForSpace(next.category_id, next.space_id);
 
+  // Nested pages can't span spaces: moving a doc detaches it from its parent
+  // and promotes its children to top level (in their own space).
+  if (next.space_id !== existing.space_id) {
+    await q("UPDATE documents SET parent_id = NULL WHERE id = $1 OR parent_id = $1", [id]);
+  }
+
   await q(
     `UPDATE documents SET title=$1, slug=$2, type=$3, status=$4, content=$5, summary=$6,
        tags=$7, author=$8, space_id=$9, category_id=$10, updated_at=now() WHERE id=$11`,
@@ -1298,6 +1321,7 @@ export async function updateDocument(
     );
     // Fire-and-forget semantic re-index (dynamic import avoids a module cycle).
     void import("./embeddings").then((m) => m.indexDocument(id)).catch(() => {});
+    void import("./backlinks").then((m) => m.syncDocLinks(id)).catch(() => {});
   }
   return getDocument(id);
 }

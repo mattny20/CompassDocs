@@ -73,6 +73,19 @@ export async function POST(req: Request) {
     category_id: Number.isInteger(body?.category_id) ? body.category_id : null,
   });
 
+  // Nested pages: optional parent (validated — same space, depth cap, no
+  // branches). Only honored when the feature is enabled. The doc is already
+  // created at this point, so a bad parent degrades to a warning, not a 400.
+  let parentWarning: string | undefined;
+  if (Number.isInteger(body?.parent_id)) {
+    const { getAppSettings } = await import("@/lib/settings-store");
+    if ((await getAppSettings()).nested_pages_enabled) {
+      const { setParent } = await import("@/lib/doc-tree");
+      parentWarning = await setParent(doc.id, Number(body.parent_id));
+      if (!parentWarning) doc.parent_id = Number(body.parent_id);
+    }
+  }
+
   if (status === "published") {
     void notifyWebhooks("document.published", {
       title: doc.title,
@@ -101,5 +114,8 @@ export async function POST(req: Request) {
     ip: ipFrom(req),
   });
 
-  return NextResponse.json({ doc, downgraded: status !== requested }, { status: 201 });
+  return NextResponse.json(
+    { doc, downgraded: status !== requested, parentWarning },
+    { status: 201 }
+  );
 }

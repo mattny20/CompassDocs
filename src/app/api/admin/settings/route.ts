@@ -50,12 +50,19 @@ export async function PATCH(req: Request) {
     "max_attachment_mb",
     "comments_enabled",
     "comments_blocked_words",
+    "nested_pages_enabled",
+    "backlinks_enabled",
   ];
   const patch: Partial<AppSettings> = {};
   for (const k of keys) {
     if (body?.[k] !== undefined) (patch as any)[k] = body[k];
   }
   const settings = Object.keys(patch).length ? await updateAppSettings(patch) : undefined;
+  // Turning backlinks on backfills doc_links for content saved before the
+  // feature existed (saves keep it fresh from then on). Fire-and-forget.
+  if (patch.backlinks_enabled === true) {
+    void import("@/lib/backlinks").then((m) => m.reindexAllDocLinks()).catch(() => {});
+  }
   if (settings) {
     await audit({
       actor: actorFrom(gate),

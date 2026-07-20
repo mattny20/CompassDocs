@@ -204,8 +204,10 @@ export function SearchClient({
               >
                 <div className="mb-1 flex items-center gap-2">
                   <TypeBadge type={h.type} />
-                  <span className="text-sm text-slate-400">
-                    {h.space_icon} {h.space_name} · {timeAgo(h.updated_at)}
+                  <span className="min-w-0 truncate text-sm text-slate-400">
+                    {h.space_icon} {h.space_name}
+                    {h.path && h.path.length > 0 && ` › ${h.path.join(" › ")}`} ·{" "}
+                    {timeAgo(h.updated_at)}
                   </span>
                   {h.match === "semantic" && (
                     <span

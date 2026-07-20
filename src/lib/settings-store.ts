@@ -88,6 +88,12 @@ export async function updateAppSettings(patch: Partial<AppSettings>): Promise<Ap
   if (patch.comments_blocked_words !== undefined) {
     await setSetting("comments_blocked_words", String(patch.comments_blocked_words).slice(0, 5000));
   }
+  if (patch.nested_pages_enabled !== undefined) {
+    await setSetting("nested_pages_enabled", patch.nested_pages_enabled ? "1" : "0");
+  }
+  if (patch.backlinks_enabled !== undefined) {
+    await setSetting("backlinks_enabled", patch.backlinks_enabled ? "1" : "0");
+  }
   return getAppSettings();
 }
 

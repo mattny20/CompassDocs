@@ -156,6 +156,18 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     author: user.name || user.username,
     versionNote: String(body?.versionNote ?? "").trim() || "Edited",
   });
+
+  // Nested pages: parent changes are organizational metadata and apply
+  // directly (like categories), gated on the workspace toggle.
+  let parentWarning: string | undefined;
+  if (body?.parent_id !== undefined && (body.parent_id === null || Number.isInteger(body.parent_id))) {
+    const { getAppSettings } = await import("@/lib/settings-store");
+    if ((await getAppSettings()).nested_pages_enabled) {
+      const { setParent } = await import("@/lib/doc-tree");
+      parentWarning = await setParent(existing.id, body.parent_id === null ? null : Number(body.parent_id));
+    }
+  }
+
   const published = existing.status !== "published" && proposed.status === "published";
   if (published) {
     void notifyWebhooks("document.published", {
@@ -186,7 +198,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     targetLabel: proposed.title,
     ip: ipFrom(req),
   });
-  return NextResponse.json({ doc });
+  return NextResponse.json({ doc, parentWarning });
 }
 
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
