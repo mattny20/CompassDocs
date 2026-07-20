@@ -190,6 +190,14 @@ const SCHEMA_SQL = `
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS position integer NOT NULL DEFAULT 0;
   CREATE INDEX IF NOT EXISTS idx_documents_parent ON documents(parent_id);
 
+  -- Content review reminders: an optional re-review cadence per document.
+  -- interval null = off; due/reminded/last-reviewed drive the nudges.
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS review_interval_days integer;
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS review_due_at timestamptz;
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS review_reminded_at timestamptz;
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS last_reviewed_at timestamptz;
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS last_reviewed_by text;
+
   -- Automatic backlinks: one row per internal /doc/N link found in a
   -- document's content, refreshed on every save.
   CREATE TABLE IF NOT EXISTS doc_links (
@@ -1294,6 +1302,18 @@ export async function updateDocument(
   // and promotes its children to top level (in their own space).
   if (next.space_id !== existing.space_id) {
     await q("UPDATE documents SET parent_id = NULL WHERE id = $1 OR parent_id = $1", [id]);
+  }
+
+  // A real content edit refreshes the review clock — the doc was just
+  // touched, so its next review is a full interval away again.
+  if (next.content !== existing.content) {
+    await q(
+      `UPDATE documents
+       SET review_due_at = now() + make_interval(days => review_interval_days),
+           review_reminded_at = NULL
+       WHERE id = $1 AND review_interval_days IS NOT NULL`,
+      [id]
+    );
   }
 
   await q(

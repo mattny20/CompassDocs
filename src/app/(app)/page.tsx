@@ -17,6 +17,9 @@ import { roleAtLeast } from "@/lib/types";
 import { DocCard } from "@/components/DocCard";
 import { AnnouncementBoard } from "@/components/AnnouncementBoard";
 import { NewsletterBoard } from "@/components/NewsletterBoard";
+import { listReviewsDue } from "@/lib/reviews";
+import { formatDate } from "@/lib/format";
+import { CalendarClock, ClipboardCheck } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -28,14 +31,17 @@ export default async function DashboardPage() {
   const pendingAcks = (await featureEnabled("policy_ack"))
     ? await listPendingAcksFor(user.id, scope)
     : [];
-  const [spaces, recent, totalDocs, allTagList, announcements, newsletters] = await Promise.all([
-    listSpaces(scope),
-    listRecentDocuments(6, includeDrafts, scope),
-    countDocuments(includeDrafts, scope),
-    allTags(),
-    listActiveAnnouncementsFor(user.id),
-    listDashboardNewslettersFor(user.id),
-  ]);
+  const [spaces, recent, totalDocs, allTagList, announcements, newsletters, reviewsDue] =
+    await Promise.all([
+      listSpaces(scope),
+      listRecentDocuments(6, includeDrafts, scope),
+      countDocuments(includeDrafts, scope),
+      allTags(),
+      listActiveAnnouncementsFor(user.id),
+      listDashboardNewslettersFor(user.id),
+      includeDrafts ? listReviewsDue(scope, 12) : Promise.resolve([]),
+    ]);
+  const appSettings = await getAppSettings();
   const tags = allTagList.slice(0, 12);
 
   return (
@@ -71,8 +77,9 @@ export default async function DashboardPage() {
 
       {pendingAcks.length > 0 && (
         <div className="mb-6 rounded-xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-700/60 dark:bg-amber-950/40">
-          <p className="mb-2 text-sm font-semibold text-amber-900 dark:text-amber-200">
-            📋 {pendingAcks.length} document{pendingAcks.length === 1 ? "" : "s"} need
+          <p className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-amber-900 dark:text-amber-200">
+            <ClipboardCheck className="h-4 w-4" aria-hidden />
+            {pendingAcks.length} document{pendingAcks.length === 1 ? "" : "s"} need
             {pendingAcks.length === 1 ? "s" : ""} your read confirmation
           </p>
           <div className="flex flex-wrap gap-2">
@@ -83,6 +90,30 @@ export default async function DashboardPage() {
                 className="rounded-lg border border-amber-200 bg-white px-3 py-1.5 text-sm font-medium text-amber-900 hover:border-amber-400 dark:border-amber-800/70 dark:bg-surface dark:text-amber-200 dark:hover:border-amber-600"
               >
                 {d.space_icon} {d.title}
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {reviewsDue.length > 0 && (
+        <div className="mb-6 rounded-xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-700/60 dark:bg-amber-950/40">
+          <p className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-amber-900 dark:text-amber-200">
+            <CalendarClock className="h-4 w-4" aria-hidden />
+            {reviewsDue.length} document{reviewsDue.length === 1 ? "" : "s"} due for content review
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {reviewsDue.map((d) => (
+              <Link
+                key={d.id}
+                href={`/doc/${d.id}`}
+                title={`Due ${formatDate(d.review_due_at, appSettings)}`}
+                className="rounded-lg border border-amber-200 bg-white px-3 py-1.5 text-sm font-medium text-amber-900 hover:border-amber-400 dark:border-amber-800/70 dark:bg-surface dark:text-amber-200 dark:hover:border-amber-600"
+              >
+                {d.space_icon} {d.title}
+                <span className="ml-1.5 text-xs font-normal text-amber-700/80 dark:text-amber-300/80">
+                  due {formatDate(d.review_due_at, appSettings)}
+                </span>
               </Link>
             ))}
           </div>

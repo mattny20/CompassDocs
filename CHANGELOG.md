@@ -4,6 +4,19 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.56.0] - 2026-07-20
+
+### Added
+- **Content review reminders.** Give any document a review cadence
+  (monthly to yearly) from a new Review schedule card in its side panel,
+  and CompassDocs keeps it honest: when the review comes due, the document
+  shows an overdue notice with one-click "Mark as reviewed", due documents
+  surface in an amber block on the dashboard for editors, and approvers
+  get an email (an editable template like every other alert, sent once per
+  due date). Marking a document reviewed — or simply editing its content —
+  pushes the next review a full interval out, and every review action
+  lands in the audit log.
+
 ## [0.55.0] - 2026-07-20
 
 ### Added

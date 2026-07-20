@@ -156,6 +156,13 @@ export interface Document {
   parent_id: number | null;
   /** Manual order among siblings under the same parent. */
   position: number;
+  /** Content review cadence in days (null = no review schedule). */
+  review_interval_days?: number | null;
+  /** When the next review is due (null when no schedule). */
+  review_due_at?: string | null;
+  /** Last "mark as reviewed" (null = never explicitly reviewed). */
+  last_reviewed_at?: string | null;
+  last_reviewed_by?: string | null;
   created_at: string;
   updated_at: string;
   deleted_at?: string | null;
