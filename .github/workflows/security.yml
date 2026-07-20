@@ -37,7 +37,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Run Trivy filesystem scan
-        uses: aquasecurity/trivy-action@0.28.0
+        # Pinned to the maintained branch; Dependabot (github-actions) will
+        # propose a version pin. 0.28.0 tag does not resolve.
+        uses: aquasecurity/trivy-action@master
         with:
           scan-type: fs
           scan-ref: .
