@@ -35,8 +35,10 @@ async function fetchBytes(
   maxBytes: number
 ): Promise<{ buf: Buffer; contentType: string } | null> {
   try {
-    const res = await fetch(url, {
-      redirect: "follow",
+    // SSRF-guarded: blocks metadata/link-local/loopback targets and
+    // re-validates every redirect hop (see safe-fetch.ts).
+    const { safeFetch } = await import("./safe-fetch");
+    const res = await safeFetch(url, {
       headers: { "User-Agent": "CompassDocs link icon fetcher", Accept: "*/*" },
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
