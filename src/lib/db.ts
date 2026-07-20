@@ -163,6 +163,26 @@ const SCHEMA_SQL = `
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS branch_of integer REFERENCES documents(id) ON DELETE CASCADE;
   CREATE INDEX IF NOT EXISTS idx_documents_branch ON documents(branch_of);
 
+  -- Document templates: reusable starting points for new documents. Built-ins
+  -- are seeded by key (editable, hideable, resettable); customs have no key.
+  CREATE TABLE IF NOT EXISTS doc_templates (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    builtin_key text UNIQUE,
+    name text NOT NULL,
+    description text NOT NULL DEFAULT '',
+    doc_type text NOT NULL DEFAULT 'knowledge',
+    title_pattern text NOT NULL DEFAULT '',
+    summary text NOT NULL DEFAULT '',
+    tags text NOT NULL DEFAULT '',
+    body text NOT NULL DEFAULT '',
+    hidden integer NOT NULL DEFAULT 0,
+    created_by integer,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+  );
+  -- A space can suggest a template for new documents created in it.
+  ALTER TABLE spaces ADD COLUMN IF NOT EXISTS default_template_id integer REFERENCES doc_templates(id) ON DELETE SET NULL;
+
   -- Typed links between documents (policy ↔ procedures, supersession, etc.).
   -- One row per link; symmetric/reverse display is resolved at query time.
   CREATE TABLE IF NOT EXISTS doc_relations (
@@ -934,14 +954,21 @@ export async function uniqueSpaceSlug(name: string): Promise<string> {
 
 export async function updateSpace(
   id: number,
-  patch: { name?: string; description?: string; icon?: string; color?: string; visibility?: string }
+  patch: {
+    name?: string;
+    description?: string;
+    icon?: string;
+    color?: string;
+    visibility?: string;
+    default_template_id?: number | null;
+  }
 ): Promise<Space | undefined> {
   if (patch.visibility !== undefined && !["public", "internal", "private"].includes(patch.visibility)) {
     delete patch.visibility;
   }
   const sets: string[] = [];
   const vals: any[] = [];
-  for (const key of ["name", "description", "icon", "color", "visibility"] as const) {
+  for (const key of ["name", "description", "icon", "color", "visibility", "default_template_id"] as const) {
     if (patch[key] !== undefined) {
       sets.push(`${key} = $${sets.length + 1}`);
       vals.push(patch[key]);

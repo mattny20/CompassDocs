@@ -22,6 +22,9 @@ import {
   getApprovalMode,
 } from "@/lib/db";
 import { currentVersion } from "@/lib/version";
+import { listTemplates, getTemplate, getTemplateByName, renderTemplate } from "@/lib/doc-templates";
+import { getAppSettings } from "@/lib/settings-store";
+import { formatDate } from "@/lib/format";
 import { requestOrigin } from "@/lib/oauth";
 import { notifyWebhooks } from "@/lib/webhooks";
 import { notifySpaceSubscribers } from "@/lib/subscriptions";
@@ -200,21 +203,28 @@ const TOOLS = [
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
+    name: "list_templates",
+    description:
+      "List this workspace's document templates (SOP, runbook, policy, postmortem, …) with their full body scaffolds. When the user asks for a document of a kind that matches a template — a runbook, a postmortem, meeting notes — draft it following that template's structure and pass template to create_doc so it lands in the team's standard shape.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
     name: "create_doc",
     description:
-      "Create a document from markdown (requires the editor role or higher). Documents support rich blocks far beyond plain GFM — call writing_guide for the syntax. New docs start as drafts unless publish=true — and publishing may still be downgraded to a draft when the workspace requires approval.",
+      "Create a document from markdown (requires the editor role or higher). Documents support rich blocks far beyond plain GFM — call writing_guide for the syntax. Pass template (id or name from list_templates) to inherit the team's standard structure: the template supplies the doc type, tags, title pattern, and — when you send no markdown — its body scaffold with placeholders filled in. Your markdown, when given, is used as the body (draft it following the template's structure). New docs start as drafts unless publish=true — and publishing may still be downgraded to a draft when the workspace requires approval.",
     inputSchema: {
       type: "object",
       properties: {
         title: { type: "string" },
-        markdown: { type: "string", description: "Document body, GitHub-flavored markdown." },
+        markdown: { type: "string", description: "Document body, GitHub-flavored markdown. Optional when template is given (the template's scaffold is used)." },
+        template: { type: "string", description: "Template id or name (from list_templates). Supplies type, tags, and title pattern; fills {{date}}/{{author}}/{{space}} placeholders." },
         space: { type: "string", description: "Space slug (from list_spaces). Omit for the first space." },
-        type: { type: "string", enum: TYPES, description: "Document type (default knowledge)." },
+        type: { type: "string", enum: TYPES, description: "Document type (default knowledge, or the template's type)." },
         summary: { type: "string", description: "One-sentence summary shown in lists." },
-        tags: { type: "array", items: { type: "string" } },
+        tags: { type: "array", items: { type: "string" }, description: "Merged with the template's tags when one is used." },
         publish: { type: "boolean", description: "Try to publish immediately (default false)." },
       },
-      required: ["title", "markdown"],
+      required: ["title"],
       additionalProperties: false,
     },
   },
@@ -313,6 +323,22 @@ async function callTool(user: User, name: string, args: any) {
       return toolText(header + doc.content);
     }
 
+    case "list_templates": {
+      const templates = await listTemplates(false);
+      return toolJson({
+        templates: templates.map((t) => ({
+          id: t.id,
+          name: t.name,
+          description: t.description,
+          doc_type: t.doc_type,
+          tags: t.tags,
+          title_pattern: t.title_pattern,
+          body: t.body,
+        })),
+        note: "Placeholders {{title}}, {{date}}, {{author}}, {{space}} fill automatically at creation; others (like {{owner}}) stay as prompts for the writer — fill them yourself when you know the value.",
+      });
+    }
+
     case "writing_guide":
       return toolText(WRITING_GUIDE);
 
@@ -322,35 +348,57 @@ async function callTool(user: User, name: string, args: any) {
       }
       const title = String(args?.title ?? "").trim();
       const markdown = String(args?.markdown ?? "");
-      if (!title || !markdown.trim()) return toolText("Both title and markdown are required.", true);
+      if (!title) return toolText("A title is required.", true);
+      if (!markdown.trim() && !args?.template) {
+        return toolText("Provide markdown, or a template to start from (see list_templates).", true);
+      }
 
-      let spaceId: number | undefined;
+      let spaceObj;
       if (args?.space) {
-        const space = await getSpaceBySlug(String(args.space));
-        if (!space || !scopeAllows(scope, space.id)) {
+        spaceObj = await getSpaceBySlug(String(args.space));
+        if (!spaceObj || !scopeAllows(scope, spaceObj.id)) {
           return toolText(`No space with slug "${args.space}" — call list_spaces first.`, true);
         }
-        spaceId = space.id;
       } else {
-        spaceId = (await listSpaces(scope))[0]?.id;
+        spaceObj = (await listSpaces(scope))[0];
       }
+      const spaceId = spaceObj?.id;
       if (!spaceId) return toolText("No space available to create the document in.", true);
       if (!(await canEditSpace(user, spaceId))) {
         return toolText("You don't have edit access to that space — pick another with list_spaces.", true);
+      }
+
+      // Resolve the template (by id or name) and fill its placeholders.
+      let rendered: ReturnType<typeof renderTemplate> | undefined;
+      if (args?.template) {
+        const ref = String(args.template).trim();
+        const tpl = /^\d+$/.test(ref) ? await getTemplate(Number(ref)) : await getTemplateByName(ref);
+        if (!tpl || tpl.hidden === 1) {
+          return toolText(`No template "${ref}" — call list_templates for the available ones.`, true);
+        }
+        rendered = renderTemplate(tpl, {
+          title,
+          author: user.name || user.username,
+          space: spaceObj?.name ?? "",
+          date: formatDate(new Date().toISOString(), await getAppSettings()),
+        });
       }
 
       const canPublish = roleAtLeast(user.role, "approver") || (await getApprovalMode()) === "open";
       const wantPublish = args?.publish === true;
       const status: DocStatus = wantPublish && canPublish ? "published" : "draft";
 
+      const ownTags: string[] = Array.isArray(args?.tags)
+        ? args.tags.map((t: unknown) => String(t).trim()).filter(Boolean)
+        : [];
       const doc = await createDocument({
         space_id: spaceId,
-        title,
-        type: TYPES.includes(args?.type) ? args.type : "knowledge",
+        title: rendered?.title || title,
+        type: TYPES.includes(args?.type) ? args.type : rendered?.type ?? "knowledge",
         status,
-        content: markdown,
-        summary: String(args?.summary ?? "").trim(),
-        tags: Array.isArray(args?.tags) ? args.tags.map((t: unknown) => String(t).trim()).filter(Boolean) : [],
+        content: markdown.trim() ? markdown : rendered?.content ?? "",
+        summary: String(args?.summary ?? "").trim() || rendered?.summary || "",
+        tags: [...new Set([...(rendered?.tags ?? []), ...ownTags])],
         author: user.name || user.username,
       });
       if (doc.status === "published") {
@@ -561,7 +609,7 @@ async function handleRpc(user: User, msg: any): Promise<unknown | undefined> {
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: "CompassDocs", version: currentVersion() },
         instructions:
-          "CompassDocs is this team's knowledge base. Use search_docs/read_doc to look things up, create_doc to save a drafted article as markdown, and update_doc to revise, retitle, retag, move, or publish an existing one. Call list_spaces first when creating, to pick the right space. IMPORTANT: before writing or restructuring a document, call writing_guide — CompassDocs documents support rich interactive blocks well beyond plain markdown (callouts, tabs, accordions, checklists, Mermaid/PlantUML diagrams, decision trees, video/website embeds, auto-filterable tables), and good documents use them.",
+          "CompassDocs is this team's knowledge base. Use search_docs/read_doc to look things up, create_doc to save a drafted article as markdown, and update_doc to revise, retitle, retag, move, or publish an existing one. Call list_spaces first when creating, to pick the right space. When drafting a document of a standard kind (runbook, SOP, policy, postmortem, meeting notes, decision record), call list_templates and follow the matching template's structure, passing template to create_doc. IMPORTANT: before writing or restructuring a document, call writing_guide — CompassDocs documents support rich interactive blocks well beyond plain markdown (callouts, tabs, accordions, checklists, Mermaid/PlantUML diagrams, decision trees, video/website embeds, auto-filterable tables), and good documents use them.",
       });
     }
     case "ping":

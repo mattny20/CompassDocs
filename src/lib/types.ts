@@ -129,6 +129,8 @@ export interface Space {
   created_at: string;
   /** public = anyone on the internet; internal = any signed-in user; private = granted groups. */
   visibility: "public" | "internal" | "private";
+  /** Template auto-applied when creating a doc from this space (null = blank). */
+  default_template_id: number | null;
 }
 
 export interface Document {

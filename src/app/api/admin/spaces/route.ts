@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import {
   listSpaces,
   createSpace,
+  updateSpace,
   uniqueSpaceSlug,
   listAllSpaceGroups,
   setSpaceGroups,
@@ -102,6 +103,13 @@ export async function POST(req: Request) {
   const editorGroupIds = cleanIds(body?.editorGroupIds);
   if (editorUserIds) await setSpaceEditors(space.id, editorUserIds);
   if (editorGroupIds) await setSpaceEditorGroups(space.id, editorGroupIds);
+  if (body?.default_template_id != null) {
+    const tplId = Number(body.default_template_id);
+    const { getTemplate } = await import("@/lib/doc-templates");
+    if (Number.isInteger(tplId) && (await getTemplate(tplId))) {
+      await updateSpace(space.id, { default_template_id: tplId });
+    }
+  }
   await audit({
     actor: actorFrom(gate),
     action: "space.create",
