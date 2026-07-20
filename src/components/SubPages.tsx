@@ -7,7 +7,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ChevronDown, ChevronUp, FileText, Plus } from "lucide-react";
+import { ChevronDown, ChevronUp, FileText, ListTree, Plus } from "lucide-react";
 
 export interface SubPage {
   id: number;
@@ -56,7 +56,8 @@ export function SubPages({
   return (
     <section>
       <div className="mb-2 flex items-center justify-between">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+        <h2 className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-500">
+          <ListTree className="h-3.5 w-3.5" aria-hidden />
           Sub-pages{pages.length > 0 && ` (${pages.length})`}
         </h2>
         {canEdit && canAddChild && (

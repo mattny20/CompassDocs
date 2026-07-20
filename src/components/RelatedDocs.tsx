@@ -115,8 +115,8 @@ export function RelatedDocs({
 
   return (
     <section>
-      <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-400">
-        <Link2 className="h-3.5 w-3.5" /> Related documents
+      <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-500">
+        <Link2 className="h-3.5 w-3.5" aria-hidden /> Related documents
       </h2>
 
       {groups.map((g) => (
