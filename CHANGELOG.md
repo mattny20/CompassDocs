@@ -4,6 +4,22 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.54.1] - 2026-07-20
+
+### Fixed
+- **Attachments fit the side panel.** The attachment list still used its
+  old two-column card grid from when it lived below the document, so in the
+  narrow side panel the Copy link/Delete buttons overlapped the file size
+  and forced the panel to scroll. It's now a compact single-column list —
+  thumbnail, truncating filename, size, and icon actions (with tooltips) on
+  one line.
+- **Small screens get a usable layout.** The sidebar previously kept its
+  full width on phones, crushing the content to a sliver. It now starts as
+  the icon rail on small screens, and expanding it floats the full sidebar
+  over the page with a backdrop instead of squeezing the layout. Desktop
+  behavior (and the remembered collapse preference) is unchanged.
+- The "Suggest an edit" button uses a proper icon instead of an emoji.
+
 ## [0.54.0] - 2026-07-20
 
 ### Changed

@@ -4,6 +4,10 @@
 // layout; collapsed keeps every navigation icon (with tooltips) and hides the
 // text labels, search, spaces names, theme toggle, and user menu to give the
 // content area more room. The choice persists per browser.
+//
+// On small screens the sidebar always starts as the rail (a full-width column
+// would crush the content), and expanding it floats the full sidebar over the
+// page with a backdrop instead of squeezing the layout.
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
@@ -70,27 +74,58 @@ export function SidebarClient({
   isAdmin: boolean;
 }) {
   const [collapsed, setCollapsed] = useState(false);
+  const [isSmall, setIsSmall] = useState(false);
 
   useEffect(() => {
-    try {
-      if (localStorage.getItem(LS_KEY) === "1") setCollapsed(true);
-    } catch {}
+    const mq = window.matchMedia("(max-width: 767px)");
+    const apply = () => {
+      setIsSmall(mq.matches);
+      if (mq.matches) {
+        // Phones always start from the rail, whatever the stored preference.
+        setCollapsed(true);
+      } else {
+        try {
+          setCollapsed(localStorage.getItem(LS_KEY) === "1");
+        } catch {
+          setCollapsed(false);
+        }
+      }
+    };
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
   }, []);
 
   function toggle() {
     setCollapsed((c) => {
-      try {
-        localStorage.setItem(LS_KEY, c ? "0" : "1");
-      } catch {}
+      // Only desktop toggles persist — a phone expand is a transient overlay.
+      if (!isSmall) {
+        try {
+          localStorage.setItem(LS_KEY, c ? "0" : "1");
+        } catch {}
+      }
       return !c;
     });
   }
 
+  const overlay = isSmall && !collapsed;
   return (
+    <>
+      {overlay && (
+        <div
+          className="fixed inset-0 z-30 bg-slate-900/40 print:hidden"
+          aria-hidden
+          onClick={() => setCollapsed(true)}
+        />
+      )}
     <aside
+      onClickCapture={(e) => {
+        // Navigating from the overlay should also close it.
+        if (overlay && (e.target as HTMLElement).closest("a")) setCollapsed(true);
+      }}
       className={`print:hidden flex shrink-0 flex-col border-r border-slate-200 bg-surface transition-[width] duration-200 ${
         collapsed ? "w-16" : "w-64"
-      }`}
+      } ${overlay ? "fixed inset-y-0 left-0 z-40 shadow-2xl" : ""}`}
     >
       {/* Brand + collapse toggle */}
       <div
@@ -244,6 +279,7 @@ export function SidebarClient({
 
       <UserMenu user={user} collapsed={collapsed} />
     </aside>
+    </>
   );
 }
 
