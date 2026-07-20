@@ -4,6 +4,18 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.57.1] - 2026-07-20
+
+### Fixed
+- **Side panel no longer slides under the sticky title bar.** When
+  scrolling a long document, the sticky panel's top offset now clears the
+  floating title bar, so the first section header (Sub-pages, Related
+  documents, …) stays fully visible.
+- **Consistent side-panel headers.** Sub-pages and Attachments gained
+  their icons (matching Share link, Review schedule, and Linked from), and
+  Related documents now uses the same text weight as the rest instead of
+  a lighter shade.
+
 ## [0.57.0] - 2026-07-20
 
 ### Added

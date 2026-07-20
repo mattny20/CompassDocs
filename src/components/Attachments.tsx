@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, FileText, Link2, Trash2 } from "lucide-react";
+import { Check, FileText, Link2, Paperclip, Trash2 } from "lucide-react";
 
 interface Att {
   id: number;
@@ -78,7 +78,8 @@ export function Attachments({
   return (
     <section className="mt-8 border-t border-slate-100 pt-6">
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+        <h2 className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-500">
+          <Paperclip className="h-3.5 w-3.5" aria-hidden />
           Attachments{attachments.length > 0 && ` (${attachments.length})`}
         </h2>
         {canEdit && (
