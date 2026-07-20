@@ -4,6 +4,25 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.52.0] - 2026-07-19
+
+### Added
+- **Related documents.** Link documents to each other with typed
+  relationships — **Related**, **Procedure for ↔ Procedures** (connect a
+  policy to its accompanying procedures), and **Supersedes ↔ Superseded
+  by**. Links are stored once and shown on both documents with the right
+  label for each side, respect permissions (a related document you can't
+  open isn't listed; drafts stay hidden from viewers), and anyone with edit
+  rights on the space manages them inline — search, pick a relationship,
+  done.
+
+### Changed
+- **Document pages get a right-hand panel.** Related documents,
+  attachments, and suggestions now live in a sticky side panel next to the
+  content instead of stacking below it — the reading flow stays clean, and
+  the metadata is visible without scrolling. Comments remain below the
+  document. On smaller screens the panel stacks under the content.
+
 ## [0.51.0] - 2026-07-19
 
 ### Changed

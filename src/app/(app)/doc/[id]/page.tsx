@@ -25,6 +25,8 @@ import { DocActions } from "@/components/DocActions";
 import { SuggestBox } from "@/components/SuggestBox";
 import { DocComments } from "@/components/DocComments";
 import { Attachments } from "@/components/Attachments";
+import { RelatedDocs } from "@/components/RelatedDocs";
+import { relationsFor } from "@/lib/relations";
 import { roleAtLeast } from "@/lib/types";
 import { timeAgo } from "@/lib/ui";
 
@@ -35,13 +37,15 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
   const { id } = await params;
   const doc = await getDocument(Number(id));
   if (!doc) notFound();
-  if (!scopeAllows(await spaceScopeFor(user), doc.space_id)) notFound();
+  const scope = await spaceScopeFor(user);
+  if (!scopeAllows(scope, doc.space_id)) notFound();
 
   const isStaff = roleAtLeast(user.role, "editor");
   // Viewers may not see drafts.
   if (doc.status === "draft" && !isStaff) notFound();
 
   const versionCount = (await listVersions(doc.id)).length;
+  const relations = doc.branch_of === null ? await relationsFor(doc.id, scope, isStaff) : [];
   const pending = roleAtLeast(user.role, "approver") ? await listPendingForDocument(doc.id) : [];
   const [settings, attachments, authorPerson, ackEnabled, hasEditRights] = await Promise.all([
     getAppSettings(),
@@ -182,31 +186,35 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
         </p>
       )}
 
-      <article>
-        <MarkdownView content={doc.content} docKey={`doc-${doc.id}`} />
-      </article>
+      <div className="lg:flex lg:items-start lg:gap-10">
+        <div className="min-w-0 flex-1">
+          <article>
+            <MarkdownView content={doc.content} docKey={`doc-${doc.id}`} />
+          </article>
 
-      <div className="print:hidden">
-      <Attachments
-        documentId={doc.id}
-        attachments={attachments.map((a) => ({
-          id: a.id,
-          filename: a.filename,
-          mime_type: a.mime_type,
-          size: a.size,
-        }))}
-        canEdit={isStaff && hasEditRights}
-        maxMb={settings.max_attachment_mb}
-      />
+          {settings.comments_enabled && (
+            <DocComments docId={doc.id} currentUserId={user.id} isAdmin={user.role === "admin"} />
+          )}
+        </div>
+
+        <aside className="mt-10 space-y-8 border-t border-slate-100 pt-8 print:hidden lg:sticky lg:top-6 lg:mt-0 lg:max-h-[calc(100vh-3rem)] lg:w-72 lg:shrink-0 lg:overflow-y-auto lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
+          {doc.branch_of === null && (
+            <RelatedDocs docId={doc.id} initial={relations} canEdit={isStaff && hasEditRights} />
+          )}
+          <Attachments
+            documentId={doc.id}
+            attachments={attachments.map((a) => ({
+              id: a.id,
+              filename: a.filename,
+              mime_type: a.mime_type,
+              size: a.size,
+            }))}
+            canEdit={isStaff && hasEditRights}
+            maxMb={settings.max_attachment_mb}
+          />
+          <SuggestBox documentId={doc.id} />
+        </aside>
       </div>
-
-      <div className="print:hidden">
-        <SuggestBox documentId={doc.id} />
-      </div>
-
-      {settings.comments_enabled && (
-        <DocComments docId={doc.id} currentUserId={user.id} isAdmin={user.role === "admin"} />
-      )}
     </PageWidth>
   );
 }
