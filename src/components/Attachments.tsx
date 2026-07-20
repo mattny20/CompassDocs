@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Check, FileText, Link2, Trash2 } from "lucide-react";
 
 interface Att {
   id: number;
@@ -108,22 +109,24 @@ export function Attachments({
         </p>
       )}
 
-      <div className="grid gap-2 sm:grid-cols-2">
+      {/* Compact single-column rows — this list lives in the narrow side
+          panel, so actions are icon buttons and everything stays on one line. */}
+      <ul className="space-y-1.5">
         {attachments.map((a) => (
-          <div
+          <li
             key={a.id}
-            className="flex items-center gap-3 rounded-lg border border-slate-200 bg-surface p-2"
+            className="flex items-center gap-2 rounded-lg border border-slate-200 bg-surface p-1.5"
           >
             {isImg(a.mime_type) ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={`/api/attachments/${a.id}`}
                 alt={a.filename}
-                className="h-10 w-10 shrink-0 rounded object-cover ring-1 ring-slate-200"
+                className="h-8 w-8 shrink-0 rounded object-cover ring-1 ring-slate-200"
               />
             ) : (
-              <span className="grid h-10 w-10 shrink-0 place-items-center rounded bg-slate-100 text-lg">
-                📄
+              <span className="grid h-8 w-8 shrink-0 place-items-center rounded bg-slate-100 text-slate-400">
+                <FileText className="h-4 w-4" />
               </span>
             )}
             <div className="min-w-0 flex-1">
@@ -131,31 +134,40 @@ export function Attachments({
                 href={`/api/attachments/${a.id}`}
                 target="_blank"
                 rel="noreferrer"
+                title={a.filename}
                 className="block truncate text-sm font-medium text-slate-700 hover:text-compass-600"
               >
                 {a.filename}
               </a>
               <div className="text-xs text-slate-400">{bytes(a.size)}</div>
             </div>
-            <div className="flex shrink-0 gap-1 text-xs">
+            <div className="flex shrink-0 items-center gap-0.5">
               <button
                 onClick={() => copyLink(a)}
-                className="rounded-md border border-slate-200 px-2 py-1 text-slate-600 hover:bg-slate-50"
+                title={copied === a.id ? "Copied!" : "Copy link"}
+                aria-label={`Copy link to ${a.filename}`}
+                className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
               >
-                {copied === a.id ? "Copied" : "Copy link"}
+                {copied === a.id ? (
+                  <Check className="h-4 w-4 text-emerald-600" />
+                ) : (
+                  <Link2 className="h-4 w-4" />
+                )}
               </button>
               {canEdit && (
                 <button
                   onClick={() => remove(a)}
-                  className="rounded-md border border-red-200 px-2 py-1 text-red-600 hover:bg-red-50"
+                  title="Delete"
+                  aria-label={`Delete ${a.filename}`}
+                  className="rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
                 >
-                  Delete
+                  <Trash2 className="h-4 w-4" />
                 </button>
               )}
             </div>
-          </div>
+          </li>
         ))}
-      </div>
+      </ul>
     </section>
   );
 }

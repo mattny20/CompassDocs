@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Lightbulb } from "lucide-react";
 
 export function SuggestBox({ documentId }: { documentId: number }) {
   const [open, setOpen] = useState(false);
@@ -45,9 +46,9 @@ export function SuggestBox({ documentId }: { documentId: number }) {
       {!open ? (
         <button
           onClick={() => setOpen(true)}
-          className="rounded-lg border border-slate-200 bg-surface px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-surface px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
         >
-          💡 Suggest an edit
+          <Lightbulb className="h-4 w-4 text-amber-500" /> Suggest an edit
         </button>
       ) : (
         <form onSubmit={submit} className="rounded-xl border border-slate-200 bg-surface p-4">

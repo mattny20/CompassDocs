@@ -202,7 +202,7 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
           )}
         </div>
 
-        <aside className="mt-10 space-y-8 border-t border-slate-100 pt-8 print:hidden lg:sticky lg:top-6 lg:mt-0 lg:max-h-[calc(100vh-3rem)] lg:w-72 lg:shrink-0 lg:overflow-y-auto lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
+        <aside className="mt-10 space-y-8 overflow-x-hidden border-t border-slate-100 pt-8 print:hidden lg:sticky lg:top-6 lg:mt-0 lg:max-h-[calc(100vh-3rem)] lg:w-72 lg:shrink-0 lg:overflow-y-auto lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
           {doc.branch_of === null && (
             <RelatedDocs docId={doc.id} initial={relations} canEdit={isStaff && hasEditRights} />
           )}
