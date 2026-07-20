@@ -144,7 +144,9 @@ async function deliver(hook: Webhook, event: WebhookEvent, info: WebhookInfo): P
     return;
   }
   try {
-    const res = await fetch(hook.url, {
+    // SSRF-guarded (metadata/link-local/loopback blocked; redirects re-validated).
+    const { safeFetch } = await import("./safe-fetch");
+    const res = await safeFetch(hook.url, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(buildPayload(hook.format, event, info)),

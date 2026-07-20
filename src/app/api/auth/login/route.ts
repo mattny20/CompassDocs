@@ -6,6 +6,11 @@ import { loginRetryAfter, recordLoginFailure, recordLoginSuccess } from "@/lib/l
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
+  // Login CSRF: a browser declaring a foreign Origin can't start a session.
+  const { crossOriginRejection } = await import("@/lib/api-auth");
+  const cross = await crossOriginRejection();
+  if (cross) return cross;
+
   let body: any;
   try {
     body = await req.json();

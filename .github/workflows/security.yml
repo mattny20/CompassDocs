@@ -1,0 +1,47 @@
+name: Security scan
+
+# Dependency and filesystem vulnerability scanning: on every PR touching
+# dependency or workflow files, on pushes to main, and weekly so new
+# advisories against unchanged code still get caught.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "package.json"
+      - "package-lock.json"
+      - "Dockerfile"
+      - ".github/workflows/**"
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  npm-audit:
+    name: npm audit (prod deps, high+)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      # Production dependencies only; fails on high/critical advisories.
+      - run: npm audit --omit=dev --audit-level=high
+
+  trivy:
+    name: Trivy scan (vulns + secrets)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Trivy filesystem scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true

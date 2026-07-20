@@ -4,6 +4,20 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.58.0] - 2026-07-20
+
+### Security
+- **CSRF protection** on cookie-authenticated API requests: a browser
+  presenting a cross-origin `Origin` header is rejected (a second layer on
+  top of the existing `SameSite=Lax` session cookies), including on login.
+- **SSRF protection** for server-side fetches of admin-supplied URLs (quick
+  link icons, workspace logos, outgoing webhooks): cloud metadata,
+  loopback, and link-local targets are refused and every redirect hop is
+  re-validated. Intranet (RFC1918) hosts stay reachable by default;
+  `COMPASSDOCS_FETCH_BLOCK_PRIVATE=1` locks those down too.
+- **Supply-chain scanning in CI**: npm audit (high+), Trivy
+  (vulnerabilities, secrets, misconfig), and Dependabot update PRs.
+
 ## [0.57.1] - 2026-07-20
 
 ### Fixed
