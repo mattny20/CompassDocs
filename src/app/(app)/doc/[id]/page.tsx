@@ -19,7 +19,7 @@ import { getCurrentAck, ackStatusForDocument } from "@/lib/db";
 import { DocNotices } from "@/components/DocNotices";
 import { StickyDocBar } from "@/components/StickyDocBar";
 import { getAppSettings } from "@/lib/settings-store";
-import { formatDateTime } from "@/lib/format";
+import { formatDate, formatDateTime } from "@/lib/format";
 import { MarkdownView } from "@/components/MarkdownView";
 import { TypeBadge, StatusBadge, Tag } from "@/components/Badges";
 import { DocActions } from "@/components/DocActions";
@@ -31,6 +31,8 @@ import { relationsFor } from "@/lib/relations";
 import { SubPages } from "@/components/SubPages";
 import { ancestorsOf, childrenOf, MAX_DEPTH } from "@/lib/doc-tree";
 import { backlinksFor } from "@/lib/backlinks";
+import { ReviewSchedule } from "@/components/ReviewSchedule";
+import { REVIEW_INTERVALS } from "@/lib/reviews";
 import { Link2 } from "lucide-react";
 import { roleAtLeast } from "@/lib/types";
 import { timeAgo } from "@/lib/ui";
@@ -59,6 +61,15 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
     featureEnabled("policy_ack"),
     canEditSpace(user, doc.space_id),
   ]);
+  // Content review state (staff-facing; readers never see review chrome).
+  const reviewDueAt = doc.review_due_at ?? null;
+  const reviewOverdue =
+    reviewDueAt !== null && new Date(reviewDueAt).getTime() <= Date.now() && doc.status === "published";
+  const reviewDueLabel = reviewDueAt ? formatDate(reviewDueAt, settings) : "";
+  const lastReviewedLabel = doc.last_reviewed_at
+    ? `Last reviewed ${formatDate(doc.last_reviewed_at, settings)}${doc.last_reviewed_by ? ` by ${doc.last_reviewed_by}` : ""}.`
+    : "";
+
   // Nested pages + backlinks (both admin-gated, and never on draft branches).
   const nestedOn = settings.nested_pages_enabled && doc.branch_of === null;
   const [ancestors, children, backlinks] = await Promise.all([
@@ -210,6 +221,11 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
           isDraft={doc.status === "draft" && isStaff}
           branchCount={branchCount}
           pendingCount={pending.length}
+          reviewOverdue={
+            reviewOverdue && isStaff
+              ? { dueDateLabel: reviewDueLabel, canEdit: hasEditRights }
+              : undefined
+          }
         />
       )}
 
@@ -260,6 +276,17 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
                 ))}
               </ul>
             </section>
+          )}
+          {isStaff && hasEditRights && doc.branch_of === null && (
+            <ReviewSchedule
+              docId={doc.id}
+              intervals={REVIEW_INTERVALS}
+              interval={doc.review_interval_days ?? null}
+              overdue={reviewOverdue}
+              dueDateLabel={reviewDueLabel}
+              lastReviewedLabel={lastReviewedLabel}
+              isPublished={doc.status === "published"}
+            />
           )}
           <Attachments
             documentId={doc.id}

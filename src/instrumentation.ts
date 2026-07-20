@@ -15,6 +15,14 @@ export async function register() {
     } catch (e) {
       console.error("[backup] scheduler error:", e);
     }
+    // Content review reminders: emails approvers when a review comes due.
+    // The claim is a single atomic UPDATE, so concurrent instances are safe.
+    try {
+      const { remindDueReviews } = await import("./lib/reviews");
+      await remindDueReviews();
+    } catch (e) {
+      console.error("[reviews] scheduler error:", e);
+    }
   };
 
   // First check shortly after boot, then hourly.

@@ -9,6 +9,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
+  CalendarClock,
   CircleCheckBig,
   FileCheck,
   GitBranch,
@@ -28,6 +29,7 @@ export function DocNotices({
   isDraft = false,
   branchCount = 0,
   pendingCount = 0,
+  reviewOverdue,
 }: {
   docId: number;
   /** Reader-side read confirmation (enterprise): null = not applicable. */
@@ -37,19 +39,26 @@ export function DocNotices({
   isDraft?: boolean;
   branchCount?: number;
   pendingCount?: number;
+  /** Content review overdue (staff): server-formatted due date + edit rights. */
+  reviewOverdue?: { dueDateLabel: string; canEdit: boolean } | null;
 }) {
   const router = useRouter();
   const [ackedAt, setAckedAt] = useState<string | null>(ack?.ackedAt ?? null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
+  const [reviewBusy, setReviewBusy] = useState(false);
+  const [reviewed, setReviewed] = useState(false);
+
   const hasAckRow = ack !== undefined && ack !== null;
+  const hasReviewRow = Boolean(reviewOverdue) && !reviewed;
   const rows =
     (hasAckRow ? 1 : 0) +
     (ackProgress ? 1 : 0) +
     (isDraft ? 1 : 0) +
     (branchCount > 0 ? 1 : 0) +
-    (pendingCount > 0 ? 1 : 0);
+    (pendingCount > 0 ? 1 : 0) +
+    (hasReviewRow ? 1 : 0);
   if (rows === 0) return null;
 
   return (
@@ -127,6 +136,33 @@ export function DocNotices({
           >
             View in history →
           </Link>
+        </div>
+      )}
+
+      {hasReviewRow && reviewOverdue && (
+        <div className={`${ROW} text-slate-600`}>
+          <CalendarClock className={`${ICON} text-amber-600`} />
+          <span className="min-w-0 flex-1">
+            Content review overdue — was due {reviewOverdue.dueDateLabel}. Still accurate?
+          </span>
+          {reviewOverdue.canEdit && (
+            <button
+              onClick={async () => {
+                setReviewBusy(true);
+                const res = await fetch(`/api/documents/${docId}/review`, { method: "POST" });
+                setReviewBusy(false);
+                if (res.ok) {
+                  setReviewed(true);
+                  router.refresh();
+                }
+              }}
+              disabled={reviewBusy}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+            >
+              {reviewBusy && <LoaderCircle className="h-3.5 w-3.5 animate-spin" />}
+              Mark as reviewed
+            </button>
+          )}
         </div>
       )}
 

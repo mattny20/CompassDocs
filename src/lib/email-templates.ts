@@ -113,6 +113,24 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     subject: "CompassDocs — {{event}}: {{title}}",
     body: "{{summary}}\n\n[Open in CompassDocs]({{url}})",
   },
+  {
+    key: "review_due",
+    label: "Content review due",
+    description:
+      "Sent to approvers and admins when a document with a review schedule comes due (once per due date).",
+    tags: [
+      T("doc_title", "Document title"),
+      T("space_name", "Space name"),
+      T("due_date", "Review due date"),
+      T("doc_url", "Link to the document"),
+      T("org_name", "Workspace name"),
+    ],
+    subject: '[{{org_name}}] Review due: "{{doc_title}}"',
+    body:
+      "**{{doc_title}}** (in {{space_name}}) is due for its periodic content review as of {{due_date}}.\n\n" +
+      "[Open the document]({{doc_url}}), check that it's still accurate, and mark it as reviewed — " +
+      "or update it, which resets the review clock automatically.",
+  },
 ];
 
 /** Realistic per-template values used by the admin preview pane. */
@@ -151,6 +169,12 @@ export const SAMPLE_VARS: Record<string, Record<string, string>> = {
     summary: 'Marcus Chen approved "Remote Work Policy" for publishing.',
     title: "Remote Work Policy",
     url: "/doc/42",
+  },
+  review_due: {
+    doc_title: "Incident Response Runbook",
+    space_name: "Engineering",
+    due_date: "Jul 20, 2026",
+    doc_url: "/doc/42",
   },
 };
 
