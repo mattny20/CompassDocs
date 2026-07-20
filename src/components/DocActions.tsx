@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useState } from "react";
-import { GitBranch, History, LayoutTemplate, Pencil, Trash2, LoaderCircle } from "lucide-react";
+import { GitBranch, History, LayoutTemplate, Pencil, ShieldCheck, Trash2, LoaderCircle } from "lucide-react";
 import { roleAtLeast } from "@/lib/types";
 import type { Role } from "@/lib/types";
 import { PrintButton } from "./PrintButton";
@@ -15,6 +15,7 @@ export function DocActions({
   isPublished,
   hasEditRights,
   isBranch = false,
+  ack,
 }: {
   id: number;
   spaceSlug: string;
@@ -24,11 +25,15 @@ export function DocActions({
   hasEditRights: boolean;
   /** Branches can't be branched again. */
   isBranch?: boolean;
+  /** Approver-side read-confirmation toggle (enterprise); omit to hide. */
+  ack?: { required: boolean };
 }) {
   const router = useRouter();
   const [deleting, setDeleting] = useState(false);
   const [branching, setBranching] = useState(false);
   const [templating, setTemplating] = useState(false);
+  const [ackRequired, setAckRequired] = useState(ack?.required ?? false);
+  const [ackBusy, setAckBusy] = useState(false);
 
   const canEdit = roleAtLeast(role, "editor") && hasEditRights;
   const canDelete =
@@ -45,6 +50,23 @@ export function DocActions({
     } else {
       setBranching(false);
       alert(data?.error || "Couldn't create the branch.");
+    }
+  }
+
+  async function onToggleAck() {
+    const next = !ackRequired;
+    setAckBusy(true);
+    const res = await fetch(`/api/documents/${id}/ack`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ required: next }),
+    });
+    setAckBusy(false);
+    if (res.ok) {
+      setAckRequired(next);
+      router.refresh();
+    } else {
+      alert((await res.json().catch(() => ({}))).error || "Could not update.");
     }
   }
 
@@ -82,6 +104,32 @@ export function DocActions({
     "inline-flex items-center rounded-lg border border-slate-200 bg-surface p-2 text-slate-500 hover:bg-slate-50 hover:text-slate-700";
   return (
     <div className="flex items-center gap-2 print:hidden">
+      {ack && (
+        <button
+          onClick={onToggleAck}
+          disabled={ackBusy || !isPublished}
+          title={
+            !isPublished
+              ? "Publish first to require read confirmation"
+              : ackRequired
+                ? "Read confirmation required — click to turn off"
+                : "Require read confirmation"
+          }
+          aria-label="Toggle required read confirmation"
+          aria-pressed={ackRequired}
+          className={`inline-flex items-center rounded-lg border p-2 disabled:opacity-50 ${
+            ackRequired
+              ? "border-compass-300 bg-compass-50 text-compass-600 hover:bg-compass-100 dark:bg-compass-950/40"
+              : "border-slate-200 bg-surface text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+          }`}
+        >
+          {ackBusy ? (
+            <LoaderCircle className="h-4 w-4 animate-spin" />
+          ) : (
+            <ShieldCheck className="h-4 w-4" />
+          )}
+        </button>
+      )}
       <PrintButton iconOnly />
       <Link
         href={`/doc/${id}/history`}

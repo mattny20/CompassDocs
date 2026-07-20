@@ -226,7 +226,7 @@ function GroupCard({
                 >
                   Save
                 </button>
-                <button onClick={() => setRenaming(false)} className="p-1 text-slate-400 hover:text-slate-600">
+                <button onClick={() => setRenaming(false)} title="Cancel" aria-label="Cancel renaming" className="p-1 text-slate-400 hover:text-slate-600">
                   <X className="h-3.5 w-3.5" />
                 </button>
               </span>
