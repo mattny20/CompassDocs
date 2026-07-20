@@ -338,6 +338,48 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
         </label>
       </div>
 
+      {/* Document organization */}
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+        <h3 className="mb-1 font-semibold text-slate-900">Document organization</h3>
+        <p className="mb-3 text-sm text-slate-500">
+          Optional structure features, off by default. Turning them off later
+          hides the UI but deletes nothing.
+        </p>
+        <label className="flex items-start gap-2 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            checked={s.nested_pages_enabled}
+            onChange={(e) => set("nested_pages_enabled", e.target.checked)}
+            className="mt-0.5 h-4 w-4 rounded border-slate-300 text-compass-600"
+          />
+          <span>
+            <span className="font-medium">Nested pages</span>
+            <span className="mt-0.5 block text-xs text-slate-500">
+              Documents can have sub-pages (up to 3 levels): a sub-pages panel on
+              each document, tree views on space pages and in the sidebar, and a
+              parent selector in the editor.
+            </span>
+          </span>
+        </label>
+        <label className="mt-3 flex items-start gap-2 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            checked={s.backlinks_enabled}
+            onChange={(e) => set("backlinks_enabled", e.target.checked)}
+            className="mt-0.5 h-4 w-4 rounded border-slate-300 text-compass-600"
+          />
+          <span>
+            <span className="font-medium">Backlinks &amp; link autocomplete</span>
+            <span className="mt-0.5 block text-xs text-slate-500">
+              Type <code className="rounded bg-slate-100 px-1">[[</code> in the
+              editor to search and link documents inline, and every document
+              shows a &ldquo;Linked from&rdquo; panel listing the documents that
+              link to it. Existing content is indexed when you turn this on.
+            </span>
+          </span>
+        </label>
+      </div>
+
       {/* Comments */}
       <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
         <h3 className="mb-1 font-semibold text-slate-900">Comments</h3>

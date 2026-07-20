@@ -42,6 +42,7 @@ export async function Sidebar({
       isEditor={roleAtLeast(user.role, "editor")}
       isApprover={roleAtLeast(user.role, "approver")}
       isAdmin={user.role === "admin"}
+      nestedPages={settings.nested_pages_enabled}
     />
   );
 }

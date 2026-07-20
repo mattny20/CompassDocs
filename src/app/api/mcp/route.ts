@@ -219,6 +219,7 @@ const TOOLS = [
         markdown: { type: "string", description: "Document body, GitHub-flavored markdown. Optional when template is given (the template's scaffold is used)." },
         template: { type: "string", description: "Template id or name (from list_templates). Supplies type, tags, and title pattern; fills {{date}}/{{author}}/{{space}} placeholders." },
         space: { type: "string", description: "Space slug (from list_spaces). Omit for the first space." },
+        parent: { type: "number", description: "Nest the new doc under this parent document id (same space; requires the workspace's nested-pages feature)." },
         type: { type: "string", enum: TYPES, description: "Document type (default knowledge, or the template's type)." },
         summary: { type: "string", description: "One-sentence summary shown in lists." },
         tags: { type: "array", items: { type: "string" }, description: "Merged with the template's tags when one is used." },
@@ -242,6 +243,7 @@ const TOOLS = [
         tags: { type: "array", items: { type: "string" } },
         type: { type: "string", enum: TYPES, description: "Change the document type." },
         space: { type: "string", description: "Move the document to this space (slug from list_spaces)." },
+        parent: { type: ["number", "null"], description: "Nest under this parent document id, or null for top level (requires the workspace's nested-pages feature)." },
         publish: {
           type: "boolean",
           description:
@@ -314,11 +316,35 @@ async function callTool(user: User, name: string, args: any) {
       if (!doc || !scopeAllows(scope, doc.space_id) || (doc.status === "draft" && !isEditor)) {
         return toolText(`No document with id ${args?.id}.`, true);
       }
+      // Nested pages + backlinks context (each admin-gated).
+      const appSettings = await getAppSettings();
+      let structure = "";
+      if (appSettings.nested_pages_enabled && doc.branch_of === null) {
+        const { ancestorsOf, childrenOf } = await import("@/lib/doc-tree");
+        const [ancestors, children] = await Promise.all([
+          ancestorsOf(doc.id),
+          childrenOf(doc.id, { includeDrafts: isEditor }),
+        ]);
+        if (ancestors.length) {
+          structure += `\n> path: ${[...ancestors].reverse().map((a) => `${a.title} (id ${a.id})`).join(" › ")}`;
+        }
+        if (children.length) {
+          structure += `\n> sub-pages: ${children.map((c) => `${c.title} (id ${c.id})`).join("; ")}`;
+        }
+      }
+      if (appSettings.backlinks_enabled && doc.branch_of === null) {
+        const { backlinksFor } = await import("@/lib/backlinks");
+        const links = await backlinksFor(doc.id, scope, isEditor);
+        if (links.length) {
+          structure += `\n> linked from: ${links.map((b) => `${b.title} (id ${b.id})`).join("; ")}`;
+        }
+      }
       const header =
         `# ${doc.title}\n\n` +
         `> id: ${doc.id} · space: ${doc.space_slug} · type: ${doc.type} · status: ${doc.status}` +
         (doc.tags.length ? ` · tags: ${doc.tags.join(", ")}` : "") +
         (doc.summary ? `\n> summary: ${doc.summary}` : "") +
+        structure +
         `\n\n---\n\n`;
       return toolText(header + doc.content);
     }
@@ -426,6 +452,16 @@ async function callTool(user: User, name: string, args: any) {
         targetLabel: doc.title,
         details: { via: "mcp" },
       });
+      // Nested pages: optional parent (admin-gated; bad values degrade to a note).
+      let parentNote: string | undefined;
+      if (Number.isInteger(args?.parent)) {
+        if ((await getAppSettings()).nested_pages_enabled) {
+          const { setParent } = await import("@/lib/doc-tree");
+          parentNote = await setParent(doc.id, Number(args.parent));
+        } else {
+          parentNote = "Nested pages are disabled in this workspace — the doc was created at top level.";
+        }
+      }
       return toolJson({
         ok: true,
         id: doc.id,
@@ -434,7 +470,7 @@ async function callTool(user: User, name: string, args: any) {
         note:
           wantPublish && status === "draft"
             ? "Created as a draft — this workspace requires approver review to publish."
-            : undefined,
+            : parentNote,
       });
     }
 
@@ -529,6 +565,18 @@ async function callTool(user: User, name: string, args: any) {
         author: user.name || user.username,
         versionNote: note || "Edited via Claude connector",
       });
+
+      // Nested pages: parent moves are organizational and apply directly.
+      let parentNote: string | undefined;
+      if (args?.parent === null || Number.isInteger(args?.parent)) {
+        if ((await getAppSettings()).nested_pages_enabled) {
+          const { setParent } = await import("@/lib/doc-tree");
+          parentNote = await setParent(existing.id, args.parent === null ? null : Number(args.parent));
+        } else {
+          parentNote = "Nested pages are disabled in this workspace — parent unchanged.";
+        }
+      }
+
       const justPublished = existing.status !== "published" && doc?.status === "published";
       if (doc && justPublished) {
         void notifyWebhooks("document.published", {
@@ -557,7 +605,7 @@ async function callTool(user: User, name: string, args: any) {
         targetLabel: proposed.title,
         details: { via: "mcp", ...(moving ? { moved_to: targetSpaceId } : {}) },
       });
-      return toolJson({ ok: true, id: doc!.id, status: doc!.status, url: `/doc/${doc!.id}` });
+      return toolJson({ ok: true, id: doc!.id, status: doc!.status, url: `/doc/${doc!.id}`, note: parentNote });
     }
 
     default:

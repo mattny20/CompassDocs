@@ -28,6 +28,10 @@ import { DocComments } from "@/components/DocComments";
 import { Attachments } from "@/components/Attachments";
 import { RelatedDocs } from "@/components/RelatedDocs";
 import { relationsFor } from "@/lib/relations";
+import { SubPages } from "@/components/SubPages";
+import { ancestorsOf, childrenOf, MAX_DEPTH } from "@/lib/doc-tree";
+import { backlinksFor } from "@/lib/backlinks";
+import { Link2 } from "lucide-react";
 import { roleAtLeast } from "@/lib/types";
 import { timeAgo } from "@/lib/ui";
 
@@ -54,6 +58,15 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
     resolveAuthorPerson(doc.author),
     featureEnabled("policy_ack"),
     canEditSpace(user, doc.space_id),
+  ]);
+  // Nested pages + backlinks (both admin-gated, and never on draft branches).
+  const nestedOn = settings.nested_pages_enabled && doc.branch_of === null;
+  const [ancestors, children, backlinks] = await Promise.all([
+    nestedOn ? ancestorsOf(doc.id) : Promise.resolve([]),
+    nestedOn ? childrenOf(doc.id, { includeDrafts: isStaff }) : Promise.resolve([]),
+    settings.backlinks_enabled && doc.branch_of === null
+      ? backlinksFor(doc.id, scope, isStaff)
+      : Promise.resolve([]),
   ]);
   // Draft-branch context: the source doc for the banner, live branches for the note.
   const branchSource = doc.branch_of !== null ? await getDocument(doc.branch_of) : undefined;
@@ -82,6 +95,15 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
         <Link href={`/spaces/${doc.space_slug}`} className="hover:text-slate-600">
           {doc.space_icon} {doc.space_name}
         </Link>
+        {/* Ancestor pages, outermost first (nested pages). */}
+        {[...ancestors].reverse().map((a) => (
+          <span key={a.id} className="flex min-w-0 items-center gap-1.5">
+            <span>/</span>
+            <Link href={`/doc/${a.id}`} className="max-w-48 truncate hover:text-slate-600" title={a.title}>
+              {a.title}
+            </Link>
+          </span>
+        ))}
       </nav>
 
       {/* Masthead: pure typography — badges, title, one meta line, summary as
@@ -203,8 +225,41 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
         </div>
 
         <aside className="mt-10 space-y-8 overflow-x-hidden border-t border-slate-100 pt-8 print:hidden lg:sticky lg:top-6 lg:mt-0 lg:max-h-[calc(100vh-3rem)] lg:w-72 lg:shrink-0 lg:overflow-y-auto lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
+          {nestedOn && (
+            <SubPages
+              parentId={doc.id}
+              spaceSlug={doc.space_slug}
+              initial={children.map((c) => ({ id: c.id, title: c.title, status: c.status }))}
+              canEdit={isStaff && hasEditRights}
+              canAddChild={ancestors.length + 1 < MAX_DEPTH}
+            />
+          )}
           {doc.branch_of === null && (
             <RelatedDocs docId={doc.id} initial={relations} canEdit={isStaff && hasEditRights} />
+          )}
+          {settings.backlinks_enabled && doc.branch_of === null && backlinks.length > 0 && (
+            <section>
+              <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-500">
+                <Link2 className="h-3.5 w-3.5" aria-hidden /> Linked from
+              </h2>
+              <ul className="space-y-1">
+                {backlinks.map((b) => (
+                  <li key={b.id} className="min-w-0">
+                    <Link
+                      href={`/doc/${b.id}`}
+                      className="block truncate text-sm font-medium text-slate-700 hover:text-compass-600"
+                      title={b.title}
+                    >
+                      {b.title}
+                    </Link>
+                    <span className="block truncate text-xs text-slate-400">
+                      {b.space_icon} {b.space_name}
+                      {b.status === "draft" ? " · draft" : ""}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
           )}
           <Attachments
             documentId={doc.id}

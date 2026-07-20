@@ -30,6 +30,8 @@ import {
 import { GlobalSearch } from "./GlobalSearch";
 import { UserMenu } from "./UserMenu";
 import { Brand } from "./Brand";
+import { SidebarSpaceTree } from "./SidebarSpaceTree";
+import { ChevronRight } from "lucide-react";
 import type { SessionUser } from "@/lib/types";
 
 const LS_KEY = "compass_sidebar_collapsed";
@@ -55,6 +57,7 @@ export function SidebarClient({
   isEditor,
   isApprover,
   isAdmin,
+  nestedPages = false,
 }: {
   user: SessionUser;
   spaces: SpaceLite[];
@@ -72,9 +75,13 @@ export function SidebarClient({
   isEditor: boolean;
   isApprover: boolean;
   isAdmin: boolean;
+  /** Nested pages toggle: spaces get an expandable page tree. */
+  nestedPages?: boolean;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [isSmall, setIsSmall] = useState(false);
+  // Space ids with their page tree expanded (nested pages only).
+  const [openSpaces, setOpenSpaces] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 767px)");
@@ -241,19 +248,48 @@ export function SidebarClient({
 
       <nav className={`flex-1 overflow-y-auto pb-4 text-sm ${collapsed ? "px-2" : "px-3"}`}>
         {spaces.map((s) => (
-          <Link
-            key={s.id}
-            href={`/spaces/${s.slug}`}
-            title={s.name}
-            className={`flex items-center rounded-md py-2 text-slate-600 hover:bg-slate-100 ${
-              collapsed ? "justify-center px-0" : "justify-between px-3"
-            }`}
-          >
-            <span className={`flex items-center gap-2 truncate ${collapsed ? "justify-center" : ""}`}>
-              <span>{s.icon}</span>
-              {!collapsed && <span className="truncate">{s.name}</span>}
+          <div key={s.id}>
+            <span
+              className={`flex items-center rounded-md text-slate-600 hover:bg-slate-100 ${
+                collapsed ? "justify-center px-0" : "gap-1 pr-1"
+              }`}
+            >
+              {!collapsed && nestedPages && (
+                <button
+                  onClick={() =>
+                    setOpenSpaces((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(s.id)) next.delete(s.id);
+                      else next.add(s.id);
+                      return next;
+                    })
+                  }
+                  title={openSpaces.has(s.id) ? "Collapse pages" : "Show pages"}
+                  aria-label={`${openSpaces.has(s.id) ? "Collapse" : "Expand"} pages in ${s.name}`}
+                  className="ml-1 rounded p-0.5 text-slate-400 hover:text-slate-600"
+                >
+                  <ChevronRight
+                    className={`h-3.5 w-3.5 transition-transform ${openSpaces.has(s.id) ? "rotate-90" : ""}`}
+                  />
+                </button>
+              )}
+              <Link
+                href={`/spaces/${s.slug}`}
+                title={s.name}
+                className={`flex min-w-0 flex-1 items-center py-2 ${
+                  collapsed ? "justify-center px-0" : nestedPages ? "pr-2" : "px-3"
+                }`}
+              >
+                <span className={`flex items-center gap-2 truncate ${collapsed ? "justify-center" : ""}`}>
+                  <span>{s.icon}</span>
+                  {!collapsed && <span className="truncate">{s.name}</span>}
+                </span>
+              </Link>
             </span>
-          </Link>
+            {!collapsed && nestedPages && openSpaces.has(s.id) && (
+              <SidebarSpaceTree spaceId={s.id} />
+            )}
+          </div>
         ))}
       </nav>
 

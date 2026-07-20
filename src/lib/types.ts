@@ -152,6 +152,10 @@ export interface Document {
   ack_last_reminded_at?: string | null;
   /** Non-null = this doc is a draft branch of that document. */
   branch_of: number | null;
+  /** Nested pages: the parent document (null = top level). */
+  parent_id: number | null;
+  /** Manual order among siblings under the same parent. */
+  position: number;
   created_at: string;
   updated_at: string;
   deleted_at?: string | null;
@@ -203,4 +207,6 @@ export interface SearchHit {
   updated_at: string;
   /** How the hit was found: keyword match, semantic similarity, or both. */
   match?: "keyword" | "semantic" | "both";
+  /** Ancestor page titles, outermost first (nested pages, when enabled). */
+  path?: string[];
 }

@@ -14,10 +14,10 @@ export const dynamic = "force-dynamic";
 export default async function NewDocPage({
   searchParams,
 }: {
-  searchParams: Promise<{ space?: string; template?: string }>;
+  searchParams: Promise<{ space?: string; template?: string; parent?: string }>;
 }) {
   const user = await requireRole("editor");
-  const { space, template: tplParam } = await searchParams;
+  const { space, template: tplParam, parent: parentParam } = await searchParams;
   // Only spaces the user can author in are offered (per-space edit rights).
   const spaces = await listSpaces(await editableScopeFor(user));
   if (spaces.length === 0) {
@@ -58,7 +58,9 @@ export default async function NewDocPage({
     if (!chosen && templates.length > 0) showPicker = true;
   }
 
-  const spaceQS = preselected ? `&space=${encodeURIComponent(preselected.slug)}` : "";
+  const spaceQS =
+    (preselected ? `&space=${encodeURIComponent(preselected.slug)}` : "") +
+    (parentParam && /^\d+$/.test(parentParam) ? `&parent=${parentParam}` : "");
 
   if (showPicker) {
     return (
@@ -108,6 +110,17 @@ export default async function NewDocPage({
 
   const targetSpace = preselected ?? spaces[0];
   const settings = await getAppSettings();
+
+  // Nested pages: "New sub-page" arrives with ?parent=. The parent must be a
+  // real doc in a space the user can author in; anything else is ignored.
+  let initialParentId: number | null = null;
+  if (settings.nested_pages_enabled && parentParam) {
+    const { getDocument } = await import("@/lib/db");
+    const parentDoc = await getDocument(Number(parentParam));
+    if (parentDoc && parentDoc.branch_of === null && spaces.some((s) => s.id === parentDoc.space_id)) {
+      initialParentId = parentDoc.id;
+    }
+  }
   const rendered = chosen
     ? renderTemplate(chosen, {
         author: user.name || user.username,
@@ -140,6 +153,8 @@ export default async function NewDocPage({
         canPublish={canPublish}
         spaces={spaces}
         categories={categories}
+        nestedEnabled={settings.nested_pages_enabled}
+        docLinks={settings.backlinks_enabled}
         initial={{
           space_id: targetSpace.id,
           title: rendered?.title ?? "",
@@ -149,6 +164,7 @@ export default async function NewDocPage({
           tags: rendered?.tags ?? [],
           content: rendered?.content ?? "",
           author: "",
+          parent_id: initialParentId,
         }}
       />
     </div>

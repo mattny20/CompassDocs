@@ -4,6 +4,25 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.55.0] - 2026-07-20
+
+### Added
+- **Nested pages** (off by default — Settings → Workspace → Document
+  organization). Documents can have sub-pages up to 3 levels deep: a
+  Sub-pages panel with manual ordering and a "New sub-page" shortcut, a
+  parent selector in the editor, ancestor breadcrumbs, tree views on space
+  pages and in the sidebar, and hierarchy-aware search results. Sub-pages
+  stay in their parent's space; moving a document to another space detaches
+  it and promotes its children — nothing is ever orphaned or deleted.
+- **Backlinks & `[[` link autocomplete** (off by default, same settings
+  card). Type `[[` in the rich editor to search and link any document
+  inline, and every document shows a "Linked from" panel listing the
+  documents whose content links to it — extracted automatically on every
+  save, with existing content indexed the moment the toggle turns on.
+- **Claude connector**: `create_doc`/`update_doc` accept a `parent`, and
+  `read_doc` reports a document's path, sub-pages, and backlinks — so
+  "add a sub-page under the incident runbook" lands in the right place.
+
 ## [0.54.1] - 2026-07-20
 
 ### Fixed
