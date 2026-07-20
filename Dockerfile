@@ -27,10 +27,22 @@ ENV COMPASSDOCS_UPLOAD_DIR=/uploads
 # Bind to all interfaces so the container is reachable (Next standalone
 # otherwise defaults to localhost, which is unreachable from outside).
 ENV HOSTNAME=0.0.0.0
-# Next.js standalone output bundles only the files the server actually needs.
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
 
+# Run as a non-root user (uid/gid 1001). The three writable data directories
+# — attachments, backups, and the optional custom-TLS cert dir shared with the
+# bundled proxy — are created up front and owned by that user. Existing
+# deployments with root-owned volumes need a one-time chown on upgrade; see
+# the self-hosting "Updating" guide.
+RUN addgroup -g 1001 -S nodejs \
+ && adduser -u 1001 -S nextjs -G nodejs \
+ && mkdir -p /uploads /backups /caddy-certs \
+ && chown -R nextjs:nodejs /uploads /backups /caddy-certs
+
+# Next.js standalone output bundles only the files the server actually needs.
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+USER nextjs
 EXPOSE 3000
 CMD ["node", "server.js"]

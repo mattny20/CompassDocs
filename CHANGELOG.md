@@ -4,6 +4,19 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.59.0] - 2026-07-20
+
+### Security
+- **The container now runs as a non-root user** (uid/gid 1001). The three
+  writable data directories (`/uploads`, `/backups`, and the optional
+  custom-TLS cert dir) are created and owned by that user in the image.
+
+  **Upgrading from 0.58.x or earlier requires a one-time `chown`** of your
+  existing volumes so the non-root process can write to data created by the
+  old root container — see the
+  [Updating guide](https://docs.compassdocs.io/self-hosting/updating/).
+  Fresh installs need no action.
+
 ## [0.58.0] - 2026-07-20
 
 ### Security
