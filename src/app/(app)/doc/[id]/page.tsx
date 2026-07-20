@@ -33,6 +33,8 @@ import { ancestorsOf, childrenOf, MAX_DEPTH } from "@/lib/doc-tree";
 import { backlinksFor } from "@/lib/backlinks";
 import { ReviewSchedule } from "@/components/ReviewSchedule";
 import { REVIEW_INTERVALS } from "@/lib/reviews";
+import { ShareCard } from "@/components/ShareCard";
+import { shareLinksEnabled, getActiveShare } from "@/lib/shares";
 import { Link2 } from "lucide-react";
 import { roleAtLeast } from "@/lib/types";
 import { timeAgo } from "@/lib/ui";
@@ -69,6 +71,10 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
   const lastReviewedLabel = doc.last_reviewed_at
     ? `Last reviewed ${formatDate(doc.last_reviewed_at, settings)}${doc.last_reviewed_by ? ` by ${doc.last_reviewed_by}` : ""}.`
     : "";
+
+  // Public share links (admin-gated; staff with edit rights manage them).
+  const sharesOn = isStaff && hasEditRights && doc.branch_of === null && (await shareLinksEnabled());
+  const activeShare = sharesOn ? await getActiveShare(doc.id) : undefined;
 
   // Nested pages + backlinks (both admin-gated, and never on draft branches).
   const nestedOn = settings.nested_pages_enabled && doc.branch_of === null;
@@ -276,6 +282,22 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
                 ))}
               </ul>
             </section>
+          )}
+          {sharesOn && (
+            <ShareCard
+              docId={doc.id}
+              initial={
+                activeShare
+                  ? {
+                      token: activeShare.token,
+                      url: `/share/${activeShare.token}`,
+                      expires_at: activeShare.expires_at,
+                      view_count: activeShare.view_count,
+                    }
+                  : null
+              }
+              isPublished={doc.status === "published"}
+            />
           )}
           {isStaff && hasEditRights && doc.branch_of === null && (
             <ReviewSchedule

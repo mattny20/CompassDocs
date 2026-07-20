@@ -13,14 +13,14 @@ export function PublicSitePanel({
   initial,
   publicSpaces,
 }: {
-  initial: { enabled: boolean; indexing: boolean };
+  initial: { enabled: boolean; indexing: boolean; shareLinks: boolean };
   publicSpaces: PublicSpace[];
 }) {
   const [config, setConfig] = useState(initial);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  async function save(patch: { enabled?: boolean; indexing?: boolean }) {
+  async function save(patch: { enabled?: boolean; indexing?: boolean; shareLinks?: boolean }) {
     setSaving(true);
     setError("");
     const res = await fetch("/api/admin/public-site", {
@@ -86,6 +86,28 @@ export function PublicSitePanel({
             <span className="block text-sm text-slate-500">
               When off, public pages carry a <code className="text-xs">noindex</code> directive —
               reachable by anyone with the link, but not listed in search results.
+            </span>
+          </span>
+        </label>
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+        <label className="flex cursor-pointer items-start gap-3">
+          <input
+            type="checkbox"
+            checked={config.shareLinks}
+            disabled={saving}
+            onChange={(e) => save({ shareLinks: e.target.checked })}
+            className="mt-0.5 h-4 w-4 accent-compass-600"
+          />
+          <span>
+            <span className="font-medium text-slate-900">Allow public share links</span>
+            <span className="block text-sm text-slate-500">
+              Off by default. When on, editors can create a tokenized read-only link to a
+              single published document (<code className="text-xs">/share/…</code>) — share
+              one SOP with a customer without opening a whole space. Links are unguessable,
+              never indexed by search engines, revocable, and can carry an expiry. Turning
+              this off disables every existing link immediately.
             </span>
           </span>
         </label>

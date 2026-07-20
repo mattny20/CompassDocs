@@ -198,6 +198,21 @@ const SCHEMA_SQL = `
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS last_reviewed_at timestamptz;
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS last_reviewed_by text;
 
+  -- Public share links: a tokenized read-only link to one published doc.
+  -- Revoked rows are kept for the audit trail; at most one active per doc.
+  CREATE TABLE IF NOT EXISTS doc_shares (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    document_id integer NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    token text NOT NULL UNIQUE,
+    created_by integer,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    expires_at timestamptz,
+    revoked_at timestamptz,
+    view_count integer NOT NULL DEFAULT 0,
+    last_viewed_at timestamptz
+  );
+  CREATE INDEX IF NOT EXISTS idx_doc_shares_doc ON doc_shares(document_id);
+
   -- Automatic backlinks: one row per internal /doc/N link found in a
   -- document's content, refreshed on every save.
   CREATE TABLE IF NOT EXISTS doc_links (

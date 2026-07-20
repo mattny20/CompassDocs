@@ -29,11 +29,21 @@ export async function PATCH(req: Request) {
   if (typeof body?.indexing === "boolean") patch.indexing = body.indexing;
   await setPublicSiteConfig(patch);
 
+  let shareLinks: boolean | undefined;
+  if (typeof body?.shareLinks === "boolean") {
+    const { setShareLinksEnabled } = await import("@/lib/shares");
+    await setShareLinksEnabled(body.shareLinks);
+    shareLinks = body.shareLinks;
+  }
+
   await audit({
     actor: actorFrom(gate),
     action: "settings.public_site",
-    details: patch,
+    details: { ...patch, ...(shareLinks !== undefined ? { shareLinks } : {}) },
     ip: ipFrom(req),
   });
-  return NextResponse.json({ config: await getPublicSiteConfig() });
+  const { shareLinksEnabled } = await import("@/lib/shares");
+  return NextResponse.json({
+    config: { ...(await getPublicSiteConfig()), shareLinks: await shareLinksEnabled() },
+  });
 }
