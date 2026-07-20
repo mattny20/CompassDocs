@@ -163,6 +163,21 @@ const SCHEMA_SQL = `
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS branch_of integer REFERENCES documents(id) ON DELETE CASCADE;
   CREATE INDEX IF NOT EXISTS idx_documents_branch ON documents(branch_of);
 
+  -- Typed links between documents (policy ↔ procedures, supersession, etc.).
+  -- One row per link; symmetric/reverse display is resolved at query time.
+  CREATE TABLE IF NOT EXISTS doc_relations (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    doc_id integer NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    target_id integer NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    kind text NOT NULL DEFAULT 'related',
+    created_by integer,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (doc_id, target_id, kind),
+    CHECK (doc_id <> target_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_relations_doc ON doc_relations(doc_id);
+  CREATE INDEX IF NOT EXISTS idx_relations_target ON doc_relations(target_id);
+
   CREATE TABLE IF NOT EXISTS doc_versions (
     id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     document_id integer NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
