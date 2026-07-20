@@ -1,0 +1,11 @@
+# Trivy suppressions — each entry is a deliberate, reviewed decision, not a
+# blanket mute. Vulnerability and secret findings are never suppressed here.
+
+# DS-0002: "run as a non-root USER". The runtime image intentionally starts as
+# root today because the persisted data directories (/uploads, /backups) are
+# bind/named volumes that existing self-hosted deployments created under root;
+# switching the container to a non-root UID would make those volumes
+# unwritable on upgrade until the operator ran a one-time chown. Running as
+# non-root is planned as a coordinated change shipped with an upgrade/migration
+# note, not slipped into a patch. Tracked for a future release.
+DS-0002
