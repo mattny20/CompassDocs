@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { apiGuard } from "@/lib/api-auth";
+import { apiGuard, credentialSaveError } from "@/lib/api-auth";
 import {
   embeddingsStatus,
   getEmbeddingsConfig,
@@ -51,13 +51,14 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ ok: true, started: true });
   }
 
-  await saveEmbeddingsConfig({
+  const keyErr = await credentialSaveError(() => saveEmbeddingsConfig({
     ...(body?.provider !== undefined ? { provider: String(body.provider) } : {}),
     ...(typeof body?.api_key === "string" && body.api_key !== "" ? { apiKey: body.api_key } : {}),
     ...(body?.clear_key === true ? { apiKey: "" } : {}),
     ...(body?.model !== undefined ? { model: String(body.model) } : {}),
     ...(body?.base_url !== undefined ? { baseUrl: String(body.base_url) } : {}),
-  });
+  }));
+  if (keyErr) return keyErr;
 
   // Optional round-trip test with the SAVED configuration.
   let test: { ok: boolean; dims?: number; error?: string } | undefined;

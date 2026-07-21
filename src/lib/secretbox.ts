@@ -37,6 +37,21 @@ function keyFilePath(): string {
   return process.env.COMPASSDOCS_KEY_FILE || join(uploadDir(), ".secret.key");
 }
 
+/**
+ * The master key is unusable for an operator-fixable reason (unreadable key
+ * file, bad env var). The message is written for the admin who will see it in
+ * a settings error or the container log, so it names the cause and the fix.
+ */
+export class MasterKeyError extends Error {}
+
+const CHOWN_HINT =
+  "If you recently upgraded to 0.59 or later, the uploads volume is still " +
+  "owned by root — run the one-time fix from the upgrade notes: " +
+  "docker compose stop app && " +
+  "docker compose run --rm --no-deps --user 0 app chown -R 1001:1001 /uploads /backups && " +
+  "docker compose up -d " +
+  "(https://docs.compassdocs.io/self-hosting/updating/)";
+
 /** The 32-byte master key. Env var wins; otherwise a key file is read or
  * created (0600). Throws only if the key file can't be read *or* written. */
 export function getMasterKey(): Buffer {
@@ -45,7 +60,7 @@ export function getMasterKey(): Buffer {
   if (env) {
     const parsed = parseKeyMaterial(env);
     if (!parsed) {
-      throw new Error(
+      throw new MasterKeyError(
         "COMPASSDOCS_SECRET_KEY must be 32 bytes, as 64 hex chars or 44 base64 chars."
       );
     }
@@ -59,13 +74,28 @@ export function getMasterKey(): Buffer {
       cachedKey = parsed;
       return cachedKey;
     }
-    throw new Error(`Key file ${path} exists but does not contain a valid 32-byte key.`);
+    throw new MasterKeyError(`Key file ${path} exists but does not contain a valid 32-byte key.`);
   } catch (e: any) {
+    if (e?.code === "EACCES" || e?.code === "EPERM") {
+      throw new MasterKeyError(
+        `The encryption key file (${path}) exists but is not readable by the app ` +
+          `(permission denied), so credentials can't be encrypted or decrypted. ${CHOWN_HINT}`
+      );
+    }
     if (e?.code !== "ENOENT") throw e;
   }
   const fresh = randomBytes(32);
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, fresh.toString("hex") + "\n", { mode: 0o600, flag: "wx" });
+  try {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, fresh.toString("hex") + "\n", { mode: 0o600, flag: "wx" });
+  } catch (e: any) {
+    if (e?.code === "EACCES" || e?.code === "EPERM") {
+      throw new MasterKeyError(
+        `Couldn't create the encryption key file (${path}): permission denied. ${CHOWN_HINT}`
+      );
+    }
+    throw e;
+  }
   cachedKey = fresh;
   return cachedKey;
 }
@@ -174,12 +204,18 @@ export function openSecret(stored: string): string {
     const decipher = createDecipheriv("aes-256-gcm", getMasterKey(), iv);
     decipher.setAuthTag(tag);
     return Buffer.concat([decipher.update(ct), decipher.final()]).toString("utf8");
-  } catch {
-    console.error(
-      "[secretbox] Failed to decrypt a stored secret — the master key " +
-        "(COMPASSDOCS_SECRET_KEY or the key file) does not match the one that " +
-        "encrypted it. Re-enter the affected credential in Settings."
-    );
+  } catch (e) {
+    // Distinguish "can't get at the key" (fixable, key intact) from a genuine
+    // key mismatch — conflating them sends operators down the wrong path.
+    if (e instanceof MasterKeyError) {
+      console.error(`[secretbox] Failed to decrypt a stored secret — ${e.message}`);
+    } else {
+      console.error(
+        "[secretbox] Failed to decrypt a stored secret — the master key " +
+          "(COMPASSDOCS_SECRET_KEY or the key file) does not match the one that " +
+          "encrypted it. Re-enter the affected credential in Settings."
+      );
+    }
     return "";
   }
 }

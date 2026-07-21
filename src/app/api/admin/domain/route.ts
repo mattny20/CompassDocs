@@ -8,7 +8,7 @@ import {
   hasCustomCert,
   storeCustomCert,
 } from "@/lib/caddy";
-import { apiGuard } from "@/lib/api-auth";
+import { apiGuard, credentialSaveError } from "@/lib/api-auth";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
@@ -87,7 +87,10 @@ export async function PATCH(req: Request) {
     );
   }
 
-  if (Object.keys(patch).length) await updateAppSettings(patch);
+  if (Object.keys(patch).length) {
+    const keyErr = await credentialSaveError(() => updateAppSettings(patch));
+    if (keyErr) return keyErr;
+  }
 
   // Push to the live proxy. The settings are already saved; a proxy failure is
   // surfaced as a warning rather than failing the whole save.

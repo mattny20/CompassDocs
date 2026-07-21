@@ -4,6 +4,26 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.59.2] - 2026-07-21
+
+### Fixed
+- **Actionable errors when the encryption master key is unavailable.** If the
+  key file (`/uploads/.secret.key`) can't be read — most commonly because the
+  uploads volume is still root-owned after the 0.59 non-root upgrade and the
+  one-time `chown` was missed — saving any encrypted credential (SSO client
+  secret, SMTP password, backup credentials, AI/embeddings API keys, custom
+  TLS key) used to fail with a generic "could not save", and the log blamed a
+  key *mismatch*. Now: the settings APIs return an error naming the key file,
+  the cause, and the exact fix command; the startup log prints the same
+  actionable line once at boot; and decrypt failures distinguish "key file
+  unreadable" (fixable, key intact) from a genuine key mismatch.
+- The upgrade notes' volume `chown` example targeted unprefixed volume names,
+  which on a default install silently created fresh empty volumes instead of
+  fixing the real ones (Compose prefixes volume names with the project name).
+  The [Updating guide](https://docs.compassdocs.io/self-hosting/updating/) now
+  uses `docker compose run --rm --no-deps --user 0 app chown -R 1001:1001
+  /uploads /backups`, which always operates on the service's real volumes.
+
 ## [0.59.1] - 2026-07-21
 
 ### Fixed
