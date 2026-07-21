@@ -1,8 +1,27 @@
 import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { getCurrentUser } from "./auth";
+import { MasterKeyError } from "./secretbox";
 import { roleAtLeast } from "./types";
 import type { Role, SessionUser } from "./types";
+
+/**
+ * Run a settings-save that may seal credentials, surfacing a MasterKeyError
+ * (unreadable key file, bad COMPASSDOCS_SECRET_KEY) as a 500 whose message
+ * tells the admin what to fix — instead of the generic "could not save".
+ * Returns null on success so callers can `if (err) return err;`.
+ */
+export async function credentialSaveError(save: () => Promise<unknown>): Promise<NextResponse | null> {
+  try {
+    await save();
+    return null;
+  } catch (e) {
+    if (e instanceof MasterKeyError) {
+      return NextResponse.json({ error: e.message }, { status: 500 });
+    }
+    throw e;
+  }
+}
 
 /**
  * Cross-origin check, layered on top of SameSite=Lax cookies: when a browser

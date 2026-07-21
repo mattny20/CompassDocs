@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { apiGuard } from "@/lib/api-auth";
+import { apiGuard, credentialSaveError } from "@/lib/api-auth";
 import { getSmtpConfig, updateSmtpConfig, smtpConfigured } from "@/lib/smtp-config";
 import { sendMail } from "@/lib/mailer";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
@@ -56,7 +56,7 @@ export async function PATCH(req: Request) {
     }
   }
 
-  await updateSmtpConfig({
+  const keyErr = await credentialSaveError(() => updateSmtpConfig({
     ...(body?.host !== undefined ? { host: String(body.host) } : {}),
     ...(body?.port !== undefined ? { port: Number(body.port) || 587 } : {}),
     ...(body?.secure !== undefined ? { secure: String(body.secure) } : {}),
@@ -64,7 +64,8 @@ export async function PATCH(req: Request) {
     ...(typeof body?.pass === "string" && body.pass !== "" ? { pass: body.pass } : {}),
     ...(body?.clear_pass === true ? { pass: "" } : {}),
     ...(body?.from !== undefined ? { from: String(body.from) } : {}),
-  });
+  }));
+  if (keyErr) return keyErr;
   await audit({
     actor: actorFrom(user),
     action: "settings.smtp",

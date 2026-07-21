@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { apiGuard } from "@/lib/api-auth";
+import { apiGuard, credentialSaveError } from "@/lib/api-auth";
 import { getSsoConfig, updateSsoConfig, ssoAuthority } from "@/lib/sso-config";
 import { getSetting } from "@/lib/db";
 import { featureEnabled, eePresent } from "@/lib/ee";
@@ -51,7 +51,7 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
 
-  await updateSsoConfig({
+  const keyErr = await credentialSaveError(() => updateSsoConfig({
     ...(body?.sso_enabled !== undefined ? { enabled: Boolean(body.sso_enabled) } : {}),
     ...(body?.tenant !== undefined ? { tenant: String(body.tenant) } : {}),
     ...(body?.client_id !== undefined ? { clientId: String(body.client_id) } : {}),
@@ -69,7 +69,8 @@ export async function PATCH(req: Request) {
       ? { allowedDomains: String(body.allowed_domains) }
       : {}),
     ...(body?.sso_only !== undefined ? { ssoOnly: Boolean(body.sso_only) } : {}),
-  });
+  }));
+  if (keyErr) return keyErr;
 
   await audit({
     actor: actorFrom(gate),

@@ -8,7 +8,7 @@ import {
   testS3,
   testAzure,
 } from "@/lib/backup-config";
-import { apiGuard } from "@/lib/api-auth";
+import { apiGuard, credentialSaveError } from "@/lib/api-auth";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
@@ -50,21 +50,22 @@ export async function PATCH(req: Request) {
   }
 
   // Save provided fields (secrets only overwritten when non-empty).
-  if (provider === "s3") {
-    await updateS3({
-      bucket: body.bucket,
-      region: body.region,
-      endpoint: body.endpoint,
-      prefix: body.prefix,
-      access_key_id: body.access_key_id,
-      secret_access_key: body.secret_access_key,
-    });
-  } else {
-    await updateAzure({
-      container: body.container,
-      connection_string: body.connection_string,
-    });
-  }
+  const keyErr = await credentialSaveError(() =>
+    provider === "s3"
+      ? updateS3({
+          bucket: body.bucket,
+          region: body.region,
+          endpoint: body.endpoint,
+          prefix: body.prefix,
+          access_key_id: body.access_key_id,
+          secret_access_key: body.secret_access_key,
+        })
+      : updateAzure({
+          container: body.container,
+          connection_string: body.connection_string,
+        })
+  );
+  if (keyErr) return keyErr;
 
   // Optionally verify the credentials with a test upload.
   let test: { ok: boolean; error?: string } | undefined;

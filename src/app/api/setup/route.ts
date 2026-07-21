@@ -8,6 +8,7 @@ import type { AppSettings, TlsMode } from "@/lib/settings";
 import { parseLicense } from "@/lib/license";
 import { setAnthropicKey } from "@/lib/ai-config";
 import { applyProxyConfig } from "@/lib/caddy";
+import { credentialSaveError } from "@/lib/api-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -93,7 +94,10 @@ export async function POST(req: Request) {
   // Optional Anthropic API key — same store the AI settings page uses
   // (write-only; changeable later under Settings → AI).
   const aiKey = String(body?.anthropic_api_key ?? "").trim();
-  if (aiKey) await setAnthropicKey(aiKey);
+  if (aiKey) {
+    const keyErr = await credentialSaveError(() => setAnthropicKey(aiKey));
+    if (keyErr) return keyErr;
+  }
 
   // Optional domain + HTTPS from the wizard. Stored (normalized/validated by
   // updateAppSettings) and pushed to the reverse proxy if one is attached; a

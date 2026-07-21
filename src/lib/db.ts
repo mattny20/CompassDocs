@@ -2,7 +2,7 @@ import { Pool, types } from "pg";
 import { createHash, randomBytes } from "node:crypto";
 import { SEED_SPACES, SEED_DOCS } from "./seed-data";
 import { hashPassword } from "./password";
-import { sealSecret, openSecret, isSealed } from "./secretbox";
+import { sealSecret, openSecret, isSealed, getMasterKey, MasterKeyError } from "./secretbox";
 import type {
   Document,
   DocumentWithSpace,
@@ -102,6 +102,16 @@ function ready(): Promise<void> {
 }
 
 async function initialize(): Promise<void> {
+  // Probe the master key up front so an unreadable key file (e.g. a missed
+  // volume chown after the 0.59 non-root upgrade) is one loud, actionable log
+  // line at boot — not a scatter of decrypt failures later. Non-fatal: the
+  // app still serves everything that doesn't need sealed credentials.
+  try {
+    getMasterKey();
+  } catch (e) {
+    if (e instanceof MasterKeyError) console.error(`[secretbox] ${e.message}`);
+    else throw e;
+  }
   const client = await pool().connect();
   try {
     await client.query("SELECT pg_advisory_lock(id) FROM (SELECT 728341 AS id) t");

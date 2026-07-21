@@ -8,7 +8,7 @@ import {
   validateAnthropicKey,
   DEFAULT_AI_MODEL,
 } from "@/lib/ai-config";
-import { apiGuard } from "@/lib/api-auth";
+import { apiGuard, credentialSaveError } from "@/lib/api-auth";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
@@ -68,7 +68,8 @@ export async function PATCH(req: Request) {
     if (!check.ok) {
       return NextResponse.json({ error: check.error || "Key validation failed." }, { status: 400 });
     }
-    await setAnthropicKey(apiKey);
+    const keyErr = await credentialSaveError(() => setAnthropicKey(apiKey));
+    if (keyErr) return keyErr;
     await audit({ actor: actorFrom(gate), action: "settings.ai_key_set", ip: ipFrom(req) });
   }
 
