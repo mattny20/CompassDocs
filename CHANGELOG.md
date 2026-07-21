@@ -4,6 +4,23 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.59.1] - 2026-07-21
+
+### Fixed
+- **MCP connector authorization behind a reverse proxy that doesn't forward
+  `X-Forwarded-Proto`.** The OAuth discovery documents
+  (`/.well-known/oauth-authorization-server`,
+  `/.well-known/oauth-protected-resource`) and the MCP `401` challenge now
+  build their issuer and endpoint URLs from the **configured custom domain**
+  (Settings → Domain & HTTPS) when one is set, instead of trusting the
+  request's forwarded headers. A proxy (commonly hand-rolled nginx) that
+  forgets `proxy_set_header X-Forwarded-Proto $scheme;` previously made the
+  server advertise `http://` URLs, which every OAuth client rejects — the
+  connector failed with a generic "Authorization failed" for no visible
+  reason. With a custom domain configured, the metadata is always advertised
+  over HTTPS. Installs without a custom domain (dev, or reached by IP) are
+  unaffected and still use the request headers.
+
 ## [0.59.0] - 2026-07-20
 
 ### Security
