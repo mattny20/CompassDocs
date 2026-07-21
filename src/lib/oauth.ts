@@ -5,12 +5,31 @@
 
 import "server-only";
 
-/** Request origin honoring reverse-proxy headers — used as the OAuth issuer. */
+/** Request origin honoring reverse-proxy headers — used for in-app links. */
 export function requestOrigin(req: Request): string {
   const proto = req.headers.get("x-forwarded-proto")?.split(",")[0].trim();
   const host = req.headers.get("x-forwarded-host")?.split(",")[0].trim() || req.headers.get("host");
   if (host) return `${proto || "http"}://${host}`;
   return new URL(req.url).origin;
+}
+
+/**
+ * The canonical public origin for OAuth/MCP discovery documents.
+ *
+ * When an admin has configured a custom domain (Settings → Domain & HTTPS) we
+ * trust it over the request's forwarded headers. A reverse proxy that forgets
+ * to forward `X-Forwarded-Proto: https` — a common nginx misconfiguration —
+ * would otherwise make us advertise `http://` issuer and endpoint URLs, which
+ * every OAuth client rejects, breaking the connector for no visible reason.
+ * The configured domain is always served over HTTPS, so it's the safe source
+ * of truth. Falls back to the header-derived origin when no domain is set
+ * (development, or an install reached only by IP).
+ */
+export async function publicOrigin(req: Request): Promise<string> {
+  const { getAppSettings } = await import("./settings-store");
+  const domain = (await getAppSettings()).custom_domain;
+  if (domain) return `https://${domain}`;
+  return requestOrigin(req);
 }
 
 /**

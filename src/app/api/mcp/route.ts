@@ -25,7 +25,7 @@ import { currentVersion } from "@/lib/version";
 import { listTemplates, getTemplate, getTemplateByName, renderTemplate } from "@/lib/doc-templates";
 import { getAppSettings } from "@/lib/settings-store";
 import { formatDate } from "@/lib/format";
-import { requestOrigin } from "@/lib/oauth";
+import { publicOrigin } from "@/lib/oauth";
 import { notifyWebhooks } from "@/lib/webhooks";
 import { notifySpaceSubscribers } from "@/lib/subscriptions";
 import { audit, actorFrom } from "@/lib/audit";
@@ -628,7 +628,7 @@ async function authenticate(req: Request): Promise<User | Response> {
   if (!user) {
     // Point OAuth-capable clients (Claude's custom-connector UI) at our
     // discovery document so they can start the authorization flow themselves.
-    const origin = requestOrigin(req);
+    const origin = await publicOrigin(req);
     return new Response(
       JSON.stringify({ error: "A valid API token is required (Account → API tokens)." }),
       {
