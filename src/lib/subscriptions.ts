@@ -33,7 +33,15 @@ export async function notifySpaceSubscribers(ev: SubscriberEvent): Promise<void>
     if (recipients.length === 0) return;
 
     const verb = ev.kind === "published" ? "published" : "updated";
-    const origin = ev.origin ?? "";
+    // Callers pass the request-derived origin; fall back to the configured
+    // custom domain so email links are absolute even when a caller can't
+    // provide one — a bare-path href renders as a dead link in mail clients.
+    let origin = ev.origin ?? "";
+    if (!origin) {
+      const { getAppSettings } = await import("./settings-store");
+      const domain = (await getAppSettings()).custom_domain;
+      if (domain) origin = `https://${domain}`;
+    }
     const { subject, text, html } = await renderEmail(
       "doc_update",
       {
