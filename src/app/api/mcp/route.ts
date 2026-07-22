@@ -259,7 +259,7 @@ const TOOLS = [
 
 // --- Tool implementations ---------------------------------------------------------
 
-async function callTool(user: User, name: string, args: any) {
+async function callTool(user: User, name: string, args: any, origin: string) {
   const isEditor = roleAtLeast(user.role, "editor");
   // The connector acts as the user, so it sees exactly the spaces they can:
   // public ones plus private ones granted via their groups (admins see all).
@@ -431,6 +431,7 @@ async function callTool(user: User, name: string, args: any) {
         void notifyWebhooks("document.published", {
           title: doc.title,
           actor: user.name || user.username,
+          url: `${origin}/doc/${doc.id}`,
           spaceId: doc.space_id,
           spaceName: doc.space_name,
         });
@@ -442,6 +443,7 @@ async function callTool(user: User, name: string, args: any) {
           kind: "published",
           actorUserId: user.id,
           actorName: user.name || user.username,
+          origin,
         });
       }
       await audit({
@@ -545,6 +547,7 @@ async function callTool(user: User, name: string, args: any) {
           title: proposed.title,
           kind,
           actor: user.name || user.username,
+          url: `${origin}/review`,
           spaceId: existing.space_id,
           spaceName: existing.space_name,
         });
@@ -582,6 +585,7 @@ async function callTool(user: User, name: string, args: any) {
         void notifyWebhooks("document.published", {
           title: doc.title,
           actor: user.name || user.username,
+          url: `${origin}/doc/${doc.id}`,
           spaceId: doc.space_id,
           spaceName: doc.space_name,
         });
@@ -595,6 +599,7 @@ async function callTool(user: User, name: string, args: any) {
           kind: justPublished ? "published" : "updated",
           actorUserId: user.id,
           actorName: user.name || user.username,
+          origin,
         });
       }
       await audit({
@@ -643,7 +648,7 @@ async function authenticate(req: Request): Promise<User | Response> {
   return user;
 }
 
-async function handleRpc(user: User, msg: any): Promise<unknown | undefined> {
+async function handleRpc(user: User, msg: any, origin: string): Promise<unknown | undefined> {
   const { id, method, params } = msg ?? {};
 
   // Notifications (no id) get no response body.
@@ -666,7 +671,7 @@ async function handleRpc(user: User, msg: any): Promise<unknown | undefined> {
       return rpcResult(id, { tools: TOOLS });
     case "tools/call": {
       try {
-        const result = await callTool(user, String(params?.name ?? ""), params?.arguments ?? {});
+        const result = await callTool(user, String(params?.name ?? ""), params?.arguments ?? {}, origin);
         return rpcResult(id, result);
       } catch (e) {
         return rpcResult(id, toolText(e instanceof Error ? e.message : "Tool failed.", true));
@@ -688,13 +693,14 @@ export async function POST(req: Request) {
     return json(rpcError(null, -32700, "Parse error"), 400);
   }
 
+  const origin = await publicOrigin(req);
   if (Array.isArray(body)) {
-    const replies = (await Promise.all(body.map((m) => handleRpc(user, m)))).filter(
+    const replies = (await Promise.all(body.map((m) => handleRpc(user, m, origin)))).filter(
       (r) => r !== undefined
     );
     return replies.length ? json(replies) : new Response(null, { status: 202 });
   }
-  const reply = await handleRpc(user, body);
+  const reply = await handleRpc(user, body, origin);
   return reply === undefined ? new Response(null, { status: 202 }) : json(reply);
 }
 

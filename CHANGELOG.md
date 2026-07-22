@@ -4,6 +4,19 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.59.3] - 2026-07-21
+
+### Fixed
+- **Space-subscription emails sent for MCP-connector edits had relative
+  links** (a bare `/doc/…` path, which mail clients render as a dead link)
+  instead of the full `https://your-domain/doc/…` URL. Documents created or
+  updated through the Claude connector now resolve the public origin the same
+  way the web app does — and `notifySpaceSubscribers` additionally falls back
+  to the configured custom domain whenever a caller can't supply an origin,
+  so subscriber email links are always absolute on any install with a domain
+  set. Webhook notifications for connector-driven publishes and change
+  requests now include the document/review link too, matching the web paths.
+
 ## [0.59.2] - 2026-07-21
 
 ### Fixed
