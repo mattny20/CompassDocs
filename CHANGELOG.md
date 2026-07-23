@@ -4,6 +4,19 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.59.4] - 2026-07-23
+
+### Fixed
+- **The sidebar no longer crowds out the spaces list on short screens.**
+  Everyday items (Dashboard, Ask, Directory, Links, Review queue) stay
+  visible; the less-used, role-gated items (Newsletter, Analytics,
+  Announcements, Compliance, Trash, Settings) now sit behind a **"More"**
+  fold — folded by default, one click to expand, remembered per browser.
+  The Trash count surfaces on the More row while folded so nothing hides.
+  The nav and spaces list also share one scroll region now, so on a very
+  short window everything stays reachable instead of the spaces list
+  absorbing all the squeeze.
+
 ## [0.59.3] - 2026-07-21
 
 ### Fixed

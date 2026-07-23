@@ -24,6 +24,7 @@ import {
   Trash2,
   Settings,
   Plus,
+  MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
 } from "lucide-react";
@@ -35,6 +36,7 @@ import { ChevronRight } from "lucide-react";
 import type { SessionUser } from "@/lib/types";
 
 const LS_KEY = "compass_sidebar_collapsed";
+const LS_MORE = "compass_sidebar_more";
 
 interface SpaceLite {
   id: number;
@@ -80,8 +82,17 @@ export function SidebarClient({
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [isSmall, setIsSmall] = useState(false);
+  // Less-used nav items live behind a "More" fold so the spaces list keeps
+  // room on short screens. Folded by default; the choice persists per browser.
+  const [moreOpen, setMoreOpen] = useState(false);
   // Space ids with their page tree expanded (nested pages only).
   const [openSpaces, setOpenSpaces] = useState<Set<number>>(new Set());
+
+  useEffect(() => {
+    try {
+      setMoreOpen(localStorage.getItem(LS_MORE) === "1");
+    } catch {}
+  }, []);
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 767px)");
@@ -114,6 +125,21 @@ export function SidebarClient({
       return !c;
     });
   }
+
+  function toggleMore() {
+    setMoreOpen((o) => {
+      try {
+        localStorage.setItem(LS_MORE, o ? "0" : "1");
+      } catch {}
+      return !o;
+    });
+  }
+
+  // Anything role-gated beyond the everyday items folds under "More".
+  const hasMoreItems =
+    showNewsletter || isApprover || showAnnouncements || showCompliance || isEditor || isAdmin;
+  // The only badge that can hide inside the fold — surface it on the More row.
+  const foldedBadge = moreOpen ? 0 : trashCount;
 
   const overlay = isSmall && !collapsed;
   return (
@@ -169,6 +195,9 @@ export function SidebarClient({
         </div>
       )}
 
+      {/* One shared scroll region for nav + spaces, so a short window squeezes
+          nothing out of reach — the spaces list no longer absorbs all of it. */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       <nav className={`text-sm ${collapsed ? "px-2 pt-3" : "px-3"} pb-2`}>
         <NavLink
           href="/"
@@ -180,9 +209,6 @@ export function SidebarClient({
         <NavLink href="/search" icon={<Sparkles className="h-4 w-4" />} label={`Ask ${companyName || "CompassDocs"}`} collapsed={collapsed} />
         <NavLink href="/directory" icon={<BookUser className="h-4 w-4" />} label="Directory" collapsed={collapsed} />
         <NavLink href="/links" icon={<SquareArrowOutUpRight className="h-4 w-4" />} label="Links" collapsed={collapsed} />
-        {showNewsletter && (
-          <NavLink href="/newsletter" icon={<Mail className="h-4 w-4" />} label="Newsletter" collapsed={collapsed} />
-        )}
         {isApprover && (
           <NavLink
             href="/review"
@@ -192,7 +218,34 @@ export function SidebarClient({
             badge={reviewCount}
           />
         )}
-        {isApprover && (
+        {hasMoreItems && (
+          <button
+            onClick={toggleMore}
+            aria-expanded={moreOpen}
+            title={collapsed ? (moreOpen ? "Less" : "More") : undefined}
+            className={`relative flex w-full items-center rounded-md py-2 font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-600 ${
+              collapsed ? "justify-center px-0" : "gap-2 px-3"
+            }`}
+          >
+            <span className="text-slate-400">
+              <MoreHorizontal className="h-4 w-4" />
+            </span>
+            {!collapsed && <span className="flex-1 text-left">{moreOpen ? "Less" : "More"}</span>}
+            {foldedBadge ? (
+              collapsed ? (
+                <span className="absolute right-2 top-1.5 h-2 w-2 rounded-full bg-compass-500" />
+              ) : (
+                <span className="rounded-full bg-compass-100 px-1.5 text-xs font-semibold text-compass-700">
+                  {foldedBadge}
+                </span>
+              )
+            ) : null}
+          </button>
+        )}
+        {moreOpen && showNewsletter && (
+          <NavLink href="/newsletter" icon={<Mail className="h-4 w-4" />} label="Newsletter" collapsed={collapsed} />
+        )}
+        {moreOpen && isApprover && (
           <NavLink
             href="/analytics"
             icon={<ChartColumn className="h-4 w-4" />}
@@ -200,7 +253,7 @@ export function SidebarClient({
             collapsed={collapsed}
           />
         )}
-        {showAnnouncements && (
+        {moreOpen && showAnnouncements && (
           <NavLink
             href="/announcements"
             icon={<Megaphone className="h-4 w-4" />}
@@ -208,7 +261,7 @@ export function SidebarClient({
             collapsed={collapsed}
           />
         )}
-        {showCompliance && (
+        {moreOpen && showCompliance && (
           <NavLink
             href="/compliance"
             icon={<ShieldCheck className="h-4 w-4" />}
@@ -216,7 +269,7 @@ export function SidebarClient({
             collapsed={collapsed}
           />
         )}
-        {isEditor && (
+        {moreOpen && isEditor && (
           <NavLink
             href="/trash"
             icon={<Trash2 className="h-4 w-4" />}
@@ -225,7 +278,7 @@ export function SidebarClient({
             badge={trashCount}
           />
         )}
-        {isAdmin && (
+        {moreOpen && isAdmin && (
           <NavLink href="/admin" icon={<Settings className="h-4 w-4" />} label="Settings" collapsed={collapsed} />
         )}
       </nav>
@@ -246,7 +299,7 @@ export function SidebarClient({
       )}
       {collapsed && <div className="mt-2 border-t border-slate-100 pt-2" />}
 
-      <nav className={`flex-1 overflow-y-auto pb-4 text-sm ${collapsed ? "px-2" : "px-3"}`}>
+      <nav className={`pb-4 text-sm ${collapsed ? "px-2" : "px-3"}`}>
         {spaces.map((s) => (
           <div key={s.id}>
             <span
@@ -292,6 +345,7 @@ export function SidebarClient({
           </div>
         ))}
       </nav>
+      </div>
 
       {isEditor && (
         <div className={`border-t border-slate-100 ${collapsed ? "p-2" : "p-3"}`}>
