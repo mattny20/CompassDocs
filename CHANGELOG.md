@@ -4,6 +4,18 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.59.5] - 2026-07-24
+
+### Changed
+- **Dependency refresh** (from the weekly Dependabot sweep): React 19.2.7,
+  lucide-react 1.26, AWS S3 SDK, Aileron fonts, PostCSS/Autoprefixer, and
+  CI action updates (setup-node v7, buildx v4, login-action v4,
+  build-push-action v7, download-artifact v8). Two 0.x packages where a
+  "minor" bump can break — `@anthropic-ai/sdk` and `tiptap-markdown` — are
+  deliberately held back for a planned migration, and Dependabot is now
+  configured to propose only patches for them (Tiptap v3 majors likewise
+  excluded until the editor migrates as a whole).
+
 ## [0.59.4] - 2026-07-23
 
 ### Fixed

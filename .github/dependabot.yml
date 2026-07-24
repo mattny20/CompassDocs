@@ -11,6 +11,15 @@ updates:
       minor-and-patch:
         update-types: ["minor", "patch"]
     open-pull-requests-limit: 5
+    ignore:
+      # 0.x packages where "minor" may break: upgraded deliberately, not by
+      # bot. Patches still flow. Tiptap majors (v3) are a planned migration.
+      - dependency-name: "@anthropic-ai/sdk"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      - dependency-name: "tiptap-markdown"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      - dependency-name: "@tiptap/*"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
