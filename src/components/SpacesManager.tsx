@@ -295,6 +295,7 @@ function SpaceForm({
   const [defaultTemplateId, setDefaultTemplateId] = useState<number | null>(
     space?.default_template_id ?? null
   );
+  const [defaultView, setDefaultView] = useState<string>(space?.default_view ?? "cards");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -328,6 +329,7 @@ function SpaceForm({
         editorUserIds: restrictEditing ? edUserIds : [],
         editorGroupIds: restrictEditing ? edGroupIds : [],
         default_template_id: defaultTemplateId,
+        default_view: defaultView,
       }),
     });
     setSaving(false);
@@ -595,6 +597,26 @@ function SpaceForm({
           </select>
         </div>
       )}
+
+      <div className="mt-4">
+        <span className="mb-1 block text-sm font-medium text-slate-700">Default view</span>
+        <p className="mb-2 text-xs text-slate-400">
+          The layout this space opens with. Visitors can switch views any time and their
+          choice is remembered on their browser.
+        </p>
+        <select
+          value={defaultView}
+          onChange={(e) => setDefaultView(e.target.value)}
+          className="w-64 rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-compass-400"
+        >
+          <option value="cards">Cards (default)</option>
+          <option value="table">Table</option>
+          <option value="tree">Tree &mdash; needs nested pages enabled</option>
+          <option value="board">Board</option>
+          <option value="timeline">Timeline</option>
+          <option value="tags">By tag</option>
+        </select>
+      </div>
 
       <div className="mt-4">
         <span className="mb-1 block text-xs font-medium text-slate-500">

@@ -140,6 +140,9 @@ const SCHEMA_SQL = `
   -- Space security tiers: 'public' (anyone on the internet, no sign-in),
   -- 'internal' (any signed-in user — the default), 'private' (granted groups).
   ALTER TABLE spaces ADD COLUMN IF NOT EXISTS visibility text NOT NULL DEFAULT 'internal';
+  -- Which layout a space opens with ('cards' | 'table' | 'tree' | 'board' | 'timeline' | 'tags');
+  -- visitors can switch views and their choice is remembered per browser.
+  ALTER TABLE spaces ADD COLUMN IF NOT EXISTS default_view text NOT NULL DEFAULT 'cards';
   ALTER TABLE spaces ALTER COLUMN visibility SET DEFAULT 'internal';
 
   CREATE TABLE IF NOT EXISTS documents (
@@ -1010,14 +1013,21 @@ export async function updateSpace(
     color?: string;
     visibility?: string;
     default_template_id?: number | null;
+    default_view?: string;
   }
 ): Promise<Space | undefined> {
   if (patch.visibility !== undefined && !["public", "internal", "private"].includes(patch.visibility)) {
     delete patch.visibility;
   }
+  if (
+    patch.default_view !== undefined &&
+    !["cards", "table", "tree", "board", "timeline", "tags"].includes(patch.default_view)
+  ) {
+    delete patch.default_view;
+  }
   const sets: string[] = [];
   const vals: any[] = [];
-  for (const key of ["name", "description", "icon", "color", "visibility", "default_template_id"] as const) {
+  for (const key of ["name", "description", "icon", "color", "visibility", "default_template_id", "default_view"] as const) {
     if (patch[key] !== undefined) {
       sets.push(`${key} = $${sets.length + 1}`);
       vals.push(patch[key]);

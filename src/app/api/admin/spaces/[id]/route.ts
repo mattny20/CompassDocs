@@ -37,6 +37,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     color?: string;
     visibility?: string;
     default_template_id?: number | null;
+    default_view?: string;
   } = {};
   if (body?.name !== undefined) {
     const name = String(body.name).trim();
@@ -73,6 +74,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       }
       patch.default_template_id = tplId;
     }
+  }
+  if (body?.default_view !== undefined) {
+    const { SPACE_VIEWS } = await import("@/lib/types");
+    if (!SPACE_VIEWS.includes(body.default_view)) {
+      return NextResponse.json({ error: "Unknown view." }, { status: 400 });
+    }
+    patch.default_view = body.default_view;
   }
 
   const space = await updateSpace(id, patch);

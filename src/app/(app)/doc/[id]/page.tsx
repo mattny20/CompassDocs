@@ -21,6 +21,7 @@ import { StickyDocBar } from "@/components/StickyDocBar";
 import { getAppSettings } from "@/lib/settings-store";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { MarkdownView } from "@/components/MarkdownView";
+import { DocToc } from "@/components/DocToc";
 import { TypeBadge, StatusBadge, Tag } from "@/components/Badges";
 import { DocActions } from "@/components/DocActions";
 import { SuggestBox } from "@/components/SuggestBox";
@@ -237,6 +238,7 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
 
       <div className="lg:flex lg:items-start lg:gap-10">
         <div className="min-w-0 flex-1">
+          <DocToc />
           <article>
             <MarkdownView content={doc.content} docKey={`doc-${doc.id}`} />
           </article>
