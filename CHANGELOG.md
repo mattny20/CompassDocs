@@ -19,10 +19,11 @@ All notable changes to CompassDocs are documented here. The format is based on
   get a collapsible TOC at the top (collapsed by default) whose links jump
   to the section — no markdown changes needed, heading anchors are added
   automatically.
-- **Quick print directory.** A "Quick print" action on the Directory opens a
-  print-ready phone list. Admins choose which columns it includes — built-in
-  fields and custom directory fields — and their order, under
-  Settings → Directory → Quick print directory.
+- **Quick print directory.** Press Print / PDF on the Directory (any view)
+  and what prints isn't the screen — it's a compact phone list with exactly
+  the columns an admin configured (built-in fields and custom directory
+  fields, in order) under Settings → Directory → Quick print directory.
+  Hidden entries are never printed.
 
 ## [0.59.5] - 2026-07-24
 
