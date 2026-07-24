@@ -412,3 +412,57 @@ export async function replaceGraphPeople(people: GraphPersonInput[]): Promise<nu
     client.release();
   }
 }
+
+// --- Quick print directory ----------------------------------------------------
+//
+// Admins pick which columns (built-ins and custom fields) the printable
+// directory shows, and in what order. Stored as a JSON array of keys in the
+// settings table; unknown keys are dropped on read so a deleted custom field
+// degrades silently.
+
+export const PRINT_BUILTINS: { key: string; label: string }[] = [
+  { key: "name", label: "Name" },
+  { key: "title", label: "Title" },
+  { key: "department", label: "Department" },
+  { key: "email", label: "Email" },
+  { key: "phone", label: "Phone" },
+  { key: "mobile", label: "Mobile" },
+  { key: "office", label: "Office" },
+  { key: "assistant", label: "Assistant" },
+];
+
+export const PRINT_COLUMNS_DEFAULT = ["name", "title", "department", "phone", "email"];
+
+/** The configured print columns, valid keys only, always at least Name. */
+export async function getPrintColumns(): Promise<string[]> {
+  const { getSetting } = await import("./db");
+  const raw = await getSetting("directory_print_columns");
+  let keys: string[] = PRINT_COLUMNS_DEFAULT;
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) keys = parsed.map(String);
+    } catch {}
+  }
+  const valid = new Set([
+    ...PRINT_BUILTINS.map((b) => b.key),
+    ...(await listFields()).map((f) => f.key),
+  ]);
+  const out = keys.filter((k, i) => valid.has(k) && keys.indexOf(k) === i);
+  return out.length ? out : ["name"];
+}
+
+/** The value a person shows for a print column key. */
+export function printValue(p: DirectoryPerson, key: string): string {
+  switch (key) {
+    case "name": return p.name;
+    case "title": return p.title;
+    case "department": return p.department;
+    case "email": return p.email;
+    case "phone": return p.phone;
+    case "mobile": return p.mobile;
+    case "office": return p.office;
+    case "assistant": return p.assistant_name ?? "";
+    default: return p.custom?.[key] ?? "";
+  }
+}

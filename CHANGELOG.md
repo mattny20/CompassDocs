@@ -4,6 +4,26 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.60.0] - 2026-07-24
+
+### Added
+- **Space views.** Every space page now has a view switcher: the classic
+  **Cards**, a sortable **Table** (title/type/status/author/updated, grouped
+  category column, review-overdue flags), a **Tree** outline (when nested
+  pages are enabled), a **Board** grouped by status or type (including a
+  "Review overdue" column), a **Timeline** of freshness buckets with overdue
+  reviews surfaced on top, and a **By tag** grouping. Your choice is
+  remembered per space per browser, and admins can set each space's default
+  view under Settings → Spaces.
+- **Table of contents on documents.** Docs with two or more H1–H3 headings
+  get a collapsible TOC at the top (collapsed by default) whose links jump
+  to the section — no markdown changes needed, heading anchors are added
+  automatically.
+- **Quick print directory.** A "Quick print" action on the Directory opens a
+  print-ready phone list. Admins choose which columns it includes — built-in
+  fields and custom directory fields — and their order, under
+  Settings → Directory → Quick print directory.
+
 ## [0.59.5] - 2026-07-24
 
 ### Changed

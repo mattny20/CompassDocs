@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { MsDeviceSetup } from "./MsDeviceSetup";
 import type { DirectoryPerson, DirectoryField } from "@/lib/directory";
@@ -131,6 +131,8 @@ export function DirectorySettings({
       <GraphPanel graph={graph} onSynced={refresh} />
 
       <FieldsPanel fields={fields} onChange={setFields} graphEnabled={graph.bundled} />
+
+      <PrintColumnsPanel />
 
       {/* Manual entry form */}
       <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
@@ -583,6 +585,91 @@ function FieldsPanel({
           Add field
         </button>
       </form>
+    </div>
+  );
+}
+
+// --- Quick print directory columns ---------------------------------------------
+
+function PrintColumnsPanel() {
+  const [available, setAvailable] = useState<{ key: string; label: string }[]>([]);
+  const [columns, setColumns] = useState<string[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  useEffect(() => {
+    fetch("/api/admin/directory/print-columns")
+      .then((r) => r.json())
+      .then((d) => {
+        setAvailable(d.available ?? []);
+        setColumns(d.columns ?? []);
+        setLoaded(true);
+      })
+      .catch(() => setLoaded(true));
+  }, []);
+
+  const label = (k: string) => available.find((a) => a.key === k)?.label ?? k;
+  const unused = available.filter((a) => !columns.includes(a.key));
+
+  async function save(next: string[]) {
+    setColumns(next);
+    setMsg("");
+    const r = await fetch("/api/admin/directory/print-columns", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ columns: next }),
+    });
+    setMsg(r.ok ? "Saved." : "Could not save.");
+  }
+
+  function move(i: number, dir: -1 | 1) {
+    const next = [...columns];
+    const j = i + dir;
+    if (j < 0 || j >= next.length) return;
+    [next[i], next[j]] = [next[j], next[i]];
+    void save(next);
+  }
+
+  if (!loaded) return null;
+  return (
+    <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+      <h3 className="mb-1 font-semibold text-slate-900">Quick print directory</h3>
+      <p className="mb-3 text-sm text-slate-500">
+        Anyone can print a phone directory from the Directory page. Choose which
+        columns it includes and their order — custom fields work too.
+      </p>
+      <div className="space-y-1">
+        {columns.map((k, i) => (
+          <div key={k} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-1.5 text-sm">
+            <span className="flex-1 font-medium text-slate-700">{label(k)}</span>
+            <button onClick={() => move(i, -1)} disabled={i === 0} title="Move up"
+              className="rounded px-1.5 text-slate-400 hover:text-slate-600 disabled:opacity-30">↑</button>
+            <button onClick={() => move(i, 1)} disabled={i === columns.length - 1} title="Move down"
+              className="rounded px-1.5 text-slate-400 hover:text-slate-600 disabled:opacity-30">↓</button>
+            <button
+              onClick={() => save(columns.filter((c) => c !== k))}
+              disabled={columns.length === 1}
+              title="Remove column"
+              className="rounded px-1.5 text-slate-400 hover:text-red-600 disabled:opacity-30"
+            >
+              ×
+            </button>
+          </div>
+        ))}
+      </div>
+      {unused.length > 0 && (
+        <select
+          value=""
+          onChange={(e) => e.target.value && save([...columns, e.target.value])}
+          className="mt-2 w-64 rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-compass-400"
+        >
+          <option value="">+ Add a column…</option>
+          {unused.map((a) => (
+            <option key={a.key} value={a.key}>{a.label}</option>
+          ))}
+        </select>
+      )}
+      {msg && <p className={`mt-2 text-sm ${msg === "Saved." ? "text-green-600" : "text-red-600"}`}>{msg}</p>}
     </div>
   );
 }

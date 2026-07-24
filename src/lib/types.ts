@@ -131,7 +131,12 @@ export interface Space {
   visibility: "public" | "internal" | "private";
   /** Template auto-applied when creating a doc from this space (null = blank). */
   default_template_id: number | null;
+  /** Layout the space page opens with; visitors can switch and are remembered. */
+  default_view: SpaceView;
 }
+
+export type SpaceView = "cards" | "table" | "tree" | "board" | "timeline" | "tags";
+export const SPACE_VIEWS: SpaceView[] = ["cards", "table", "tree", "board", "timeline", "tags"];
 
 export interface Document {
   id: number;
