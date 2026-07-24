@@ -55,7 +55,7 @@
     "unist-util-visit": "^5.1.0"
   },
   "devDependencies": {
-    "@types/node": "^24.7.0",
+    "@types/node": "^26.1.1",
     "@types/pg": "^8.11.10",
     "@types/react": "^19.1.16",
     "@types/react-dom": "^19.1.9",
