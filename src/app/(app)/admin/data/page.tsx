@@ -1,7 +1,21 @@
 import { ImportExport } from "@/components/ImportExport";
+import { MigrateImport } from "@/components/MigrateImport";
+import { listSpaces } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
-export default function DataPage() {
-  return <ImportExport />;
+export default async function DataPage() {
+  const spaces = await listSpaces();
+  return (
+    <div className="space-y-8">
+      <section>
+        <h2 className="mb-3 text-lg font-semibold text-slate-900">Backup &amp; transfer</h2>
+        <ImportExport />
+      </section>
+      <section>
+        <h2 className="mb-3 text-lg font-semibold text-slate-900">Migrate from another tool</h2>
+        <MigrateImport spaces={spaces.map((s) => ({ id: s.id, name: s.name }))} />
+      </section>
+    </div>
+  );
 }

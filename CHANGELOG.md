@@ -4,6 +4,50 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.61.0] - 2026-07-26
+
+### Added
+- **AI writing assist in the editor.** A new **✨ Write** menu beside
+  Proofread: **draft from the title** (a structured starter with
+  `[placeholders]` instead of invented facts), **improve**, **expand**,
+  **make shorter**, **summarize into the summary field**, and **change
+  tone** (professional, friendly, concise, confident). Every result shows
+  in a review panel first — nothing touches your document until you click
+  apply — and the helpers use the same admin-configured Anthropic key and
+  model as Ask and proofreading, degrading gracefully when no key is set.
+  Markdown structure and code blocks are preserved, and rewrites never
+  invent facts.
+- **Ask CompassDocs from Slack and Teams.** A Slack slash command (e.g.
+  `/askdocs how do we roll back a deploy?`) and a Microsoft Teams outgoing
+  webhook answer questions in-channel with the same grounded, cited answers
+  as in-app Ask — sources linked back to the knowledge base. Chat answers
+  draw **only from published documents in non-private spaces**, so private
+  content never reaches a channel. Set up under **Settings → Notifications
+  → Ask in chat**: paste each platform's verification secret (sealed at
+  rest like every credential) and flip the enable switch — requests are
+  authenticated with Slack request signing (with replay protection) and
+  Teams HMAC.
+- **Content health report.** A new **Settings → Content health** page shows
+  where the knowledge base is quietly rotting, computed live from signals
+  the app already tracks: **broken internal links** (references to deleted
+  pages), **orphaned documents** (nothing links to them), **overdue
+  reviews**, **stale documents** (published, 180+ days unedited, on no
+  review cycle), **unread documents** (no views in 90 days), **possible
+  duplicates** (near-identical openings by embedding similarity, when
+  semantic search is configured), and documents whose **author is no longer
+  an active user**. Scorecards up top; every row links to the document.
+- **Import from Confluence or Notion.** A guided migration under
+  **Settings → Data → Migrate from another tool** takes the zip you export
+  from Confluence (*Export space → HTML*) or Notion (*Export → Markdown &
+  CSV*), auto-detects the format, and imports it into a new or existing
+  space. It rebuilds the page hierarchy as **nested pages**, converts
+  Confluence's HTML (headings, lists, tables, code) to clean Markdown,
+  strips Notion's page-id suffixes, and pulls in **images and file
+  attachments** — rewriting every reference to the imported copy. Upload
+  shows a preview (detected source, page and attachment counts) before you
+  commit, and you choose whether pages land as drafts to review or are
+  published. The action is admin-only and recorded in the audit log.
+
 ## [0.60.0] - 2026-07-24
 
 ### Added

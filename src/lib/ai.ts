@@ -219,6 +219,133 @@ Strict rules:
   }
 }
 
+// --- Writing assist ----------------------------------------------------------
+
+export type WriteAction =
+  | "draft"
+  | "improve"
+  | "expand"
+  | "shorten"
+  | "summarize"
+  | "tone";
+
+export type WriteTone = "professional" | "friendly" | "concise" | "confident";
+
+export interface WriteResult {
+  /** "ai" when Claude produced it; "unavailable" when no API key is configured. */
+  mode: "ai" | "unavailable";
+  /** The generated Markdown (or, for "summarize", a plain summary). */
+  text?: string;
+  /** True when the input was too long and only the beginning was processed. */
+  truncated?: boolean;
+  /** Human-readable status (e.g. why it's unavailable). */
+  message?: string;
+}
+
+const WRITE_MAX_CHARS = 12_000;
+
+const RULES = `Strict rules:
+- Do NOT invent facts, figures, names, steps, dates, or links. Only work with what the author provided; where a specific detail is unknown, leave a short [placeholder] rather than making one up.
+- Preserve Markdown structure and syntax: headings, lists, tables, links, and especially fenced code blocks and inline code — never alter text inside code.
+- Keep the author's voice and intent. Return ONLY the resulting Markdown, with no preamble, explanation, or surrounding quotes.`;
+
+const TONE_WORDS: Record<WriteTone, string> = {
+  professional: "polished and professional",
+  friendly: "warm, friendly, and approachable",
+  concise: "concise and direct, trimming filler",
+  confident: "confident and assertive",
+};
+
+function writeSystem(action: WriteAction, tone: WriteTone, docType: string): string {
+  const kind = docType ? `The document is a ${docType}. ` : "";
+  switch (action) {
+    case "draft":
+      return `You are a writing assistant for a team's internal documentation. ${kind}From the title alone, produce a well-structured STARTER DRAFT in Markdown: sensible headings and a few bullet points or short sentences the author can fill in. Use [placeholders] for anything specific you can't know (numbers, names, systems). Do not fabricate real details.\n${RULES}`;
+    case "improve":
+      return `You are an expert editor for a team's internal documentation. ${kind}Rewrite the author's text to improve clarity, flow, and structure while preserving every fact and its meaning. Tighten wording and fix awkward phrasing; do not add new information.\n${RULES}`;
+    case "expand":
+      return `You are a writing assistant for a team's internal documentation. ${kind}Expand the author's text with more detail, useful structure, and helpful elaboration that is clearly implied by what's already there. Do not invent specifics — use [placeholders] where a real detail would be needed.\n${RULES}`;
+    case "shorten":
+      return `You are an editor for a team's internal documentation. ${kind}Make the author's text significantly shorter and punchier while keeping all essential information and meaning. Remove redundancy and filler.\n${RULES}`;
+    case "tone":
+      return `You are an editor for a team's internal documentation. ${kind}Rewrite the author's text to be ${TONE_WORDS[tone]}, keeping all facts and meaning intact.\n${RULES}`;
+    case "summarize":
+      return `You are a writing assistant for a team's internal documentation. ${kind}Write a concise 1–3 sentence summary of the document, capturing what it is and its key point. Plain prose, no Markdown headings or bullets. Return ONLY the summary text.`;
+  }
+}
+
+/**
+ * AI writing helpers for the editor: draft from a title, improve/expand/shorten,
+ * change tone, or summarize. Preserves meaning and Markdown; never invents
+ * facts. Degrades to `mode: "unavailable"` when no ANTHROPIC_API_KEY is set.
+ */
+export async function writeAssist(input: {
+  action: WriteAction;
+  tone?: WriteTone;
+  title?: string;
+  docType?: string;
+  content?: string;
+}): Promise<WriteResult> {
+  const action = input.action;
+  const tone: WriteTone = input.tone ?? "professional";
+  const title = (input.title ?? "").trim();
+  const docType = (input.docType ?? "").trim();
+  const rawContent = input.content ?? "";
+
+  if (action === "draft") {
+    if (!title) return { mode: "ai", message: "Add a title first, then draft from it." };
+  } else if (!rawContent.trim()) {
+    return { mode: "ai", message: "There's nothing to work with yet." };
+  }
+
+  const apiKey = await getAnthropicKey();
+  if (!apiKey) {
+    return {
+      mode: "unavailable",
+      message: "AI writing assist needs an Anthropic API key. An admin can add one in Settings → AI.",
+    };
+  }
+
+  const truncated = rawContent.length > WRITE_MAX_CHARS;
+  const content = truncated ? rawContent.slice(0, WRITE_MAX_CHARS) : rawContent;
+
+  const userMessage =
+    action === "draft"
+      ? `Title: ${title}\n\nWrite the starter draft.`
+      : `${title ? `Title: ${title}\n\n` : ""}Document:\n\n${content}`;
+
+  const maxTokens = action === "summarize" ? 400 : action === "shorten" ? 2048 : 4096;
+
+  try {
+    const client = new Anthropic({ apiKey });
+    const response = await client.messages.create({
+      model: await getAiModel(),
+      max_tokens: maxTokens,
+      system: writeSystem(action, tone, docType),
+      messages: [{ role: "user", content: userMessage }],
+    });
+    let text = response.content
+      .filter((b): b is Anthropic.TextBlock => b.type === "text")
+      .map((b) => b.text)
+      .join("\n")
+      .trim();
+
+    if (!text) {
+      return { mode: "unavailable", message: "The assistant returned an empty response. Try again." };
+    }
+
+    // If a whole-document rewrite was truncated, keep the untouched remainder.
+    if (truncated && action !== "summarize" && action !== "draft") {
+      text = text + rawContent.slice(WRITE_MAX_CHARS);
+    }
+
+    return { mode: "ai", text, truncated: truncated && action !== "draft" };
+  } catch (err) {
+    console.error("Writing assist failed:", err);
+    return { mode: "unavailable", message: "Writing assist failed (API error). Please try again." };
+  }
+}
+
 export async function answerQuestion(
   question: string,
   includeDrafts = false,

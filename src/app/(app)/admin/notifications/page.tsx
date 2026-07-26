@@ -3,8 +3,11 @@ import { MailPlus, ChevronRight } from "lucide-react";
 import { requireRole } from "@/lib/auth";
 import { listWebhooks, listSpaces } from "@/lib/db";
 import { WebhooksPanel, SmtpPanel } from "@/components/WebhooksPanel";
+import { ChatAskPanel } from "@/components/ChatAskPanel";
 import { getSmtpConfig, smtpConfigured } from "@/lib/smtp-config";
 import { EMAIL_TEMPLATES, templateOverride } from "@/lib/email-templates";
+import { getChatAskConfig } from "@/lib/chat-ask";
+import { getAppSettings } from "@/lib/settings-store";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +23,16 @@ function maskUrl(url: string): string {
 
 export default async function NotificationsPage() {
   await requireRole("admin");
-  const [hooks, spaces, smtp] = await Promise.all([listWebhooks(), listSpaces(), getSmtpConfig()]);
+  const [hooks, spaces, smtp, chatAsk, appSettings] = await Promise.all([
+    listWebhooks(),
+    listSpaces(),
+    getSmtpConfig(),
+    getChatAskConfig(),
+    getAppSettings(),
+  ]);
+  const chatBase = appSettings.custom_domain
+    ? `https://${appSettings.custom_domain}`
+    : "https://your-domain";
   const customized = (
     await Promise.all(EMAIL_TEMPLATES.map((t) => templateOverride(t.key)))
   ).filter(Boolean).length;
@@ -70,6 +82,9 @@ export default async function NotificationsPage() {
         configured: smtpConfigured(smtp),
       }}
     />
+    <div className="mt-6">
+      <ChatAskPanel initial={chatAsk} baseUrl={chatBase} />
+    </div>
     </div>
   );
 }

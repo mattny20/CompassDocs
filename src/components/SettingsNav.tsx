@@ -24,6 +24,7 @@ import {
   Package,
   Search,
   LayoutTemplate,
+  HeartPulse,
 } from "lucide-react";
 
 const ICON = "h-4 w-4";
@@ -47,6 +48,7 @@ const SECTIONS = [
   { href: "/admin/sso", label: "Single sign-on", icon: <Fingerprint className={ICON} />, keywords: "oidc entra azure microsoft login saml identity" },
   { href: "/admin/directory", label: "Directory", icon: <BookUser className={ICON} />, keywords: "people microsoft 365 sync attributes profiles photos" },
   { href: "/admin/notifications", label: "Notifications", icon: <BellRing className={ICON} />, keywords: "webhooks slack teams webex smtp email templates alerts channels" },
+  { href: "/admin/health", label: "Content health", icon: <HeartPulse className={ICON} />, keywords: "broken links orphans stale duplicates unread overdue review rot quality report" },
   { href: "/admin/audit", label: "Audit log", icon: <ScrollText className={ICON} />, keywords: "security events history who did what" },
   { href: "/admin/backups", label: "Backups", icon: <DatabaseBackup className={ICON} />, keywords: "restore s3 azure destination encrypted schedule" },
   { href: "/admin/data", label: "Import & export", icon: <Package className={ICON} />, keywords: "markdown zip migrate confluence notion download" },

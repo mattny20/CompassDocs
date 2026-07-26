@@ -1605,6 +1605,8 @@ const SENSITIVE_SETTINGS = new Set([
   "backup_s3_secret_access_key",
   "backup_azure_connection_string",
   "tls_key_pem",
+  "chat_slack_signing_secret",
+  "chat_teams_hmac_secret",
 ]);
 
 export async function getSetting(key: string): Promise<string | undefined> {
