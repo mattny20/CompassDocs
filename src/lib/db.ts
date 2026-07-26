@@ -1607,6 +1607,7 @@ const SENSITIVE_SETTINGS = new Set([
   "tls_key_pem",
   "chat_slack_signing_secret",
   "chat_teams_hmac_secret",
+  "ai_openai_api_key",
 ]);
 
 export async function getSetting(key: string): Promise<string | undefined> {
