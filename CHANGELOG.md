@@ -4,6 +4,39 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.63.0] - 2026-07-26
+
+### Added
+- **Weekly digest email.** An opt-in Monday-morning summary (Account →
+  Notifications → *Weekly digest*): what changed in your subscribed spaces
+  this week, reviews to handle (approvers and admins), and the week's
+  most-read documents — each scoped to what the recipient can see, and only
+  sent when there's something to report. Fired once per week no matter how
+  many app instances run.
+- **Bulk operations in the space table view.** Select documents with
+  checkboxes and publish, unpublish, set the type, move to another space,
+  or add/remove a tag in one action. Every document is checked against the
+  same rules as a single edit — space scope, edit rights, and the approval
+  workflow — and anything ineligible is skipped with a reason, never
+  forced.
+- **Scheduled publish & auto-unpublish.** Drafts can be given a *publish
+  automatically at* time and published docs an *unpublish automatically at*
+  time (visible to users with publish rights, next to Status in the
+  editor). A minute-level scheduler fires them with atomic claims (safe
+  across instances), notifies space subscribers on publish exactly like a
+  manual publish, and records `document.scheduled_publish` /
+  `document.scheduled_unpublish` in the audit log. Stale schedules on
+  hand-published or trashed docs are cleared, never re-fired.
+- **"Was this helpful?" on documents.** A thumbs-up/down at the end of
+  every document (one vote per person, revisable; a "No" invites an
+  optional note). Ratings feed a new **Poorly rated** section in
+  Settings → Content health: three or more votes and mostly "not helpful."
+- **Installable app (PWA) & accessibility.** CompassDocs now installs to
+  the home screen / dock (web app manifest, brand icons and theme color) —
+  no service worker by design, so signed-in content is never cached stale.
+  Keyboard users get a skip-to-content link past the sidebar, and the main
+  content region is a proper labeled landmark.
+
 ## [0.62.0] - 2026-07-26
 
 ### Added

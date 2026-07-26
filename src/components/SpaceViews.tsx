@@ -7,6 +7,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   LayoutGrid,
   Table2,
@@ -51,12 +52,18 @@ export function SpaceViews({
   spaceId,
   defaultView,
   nestedPages,
+  bulk = false,
+  moveTargets = [],
 }: {
   docs: DocumentWithSpace[];
   categories: Category[];
   spaceId: number;
   defaultView: SpaceView;
   nestedPages: boolean;
+  /** Show multi-select bulk actions in the table view (user can author here). */
+  bulk?: boolean;
+  /** Spaces the user may move documents into. */
+  moveTargets?: { id: number; name: string }[];
 }) {
   const storageKey = `compass_space_view_${spaceId}`;
   const [view, setView] = useState<SpaceView>(defaultView === "tree" && !nestedPages ? "cards" : defaultView);
@@ -105,7 +112,9 @@ export function SpaceViews({
       </div>
 
       {view === "cards" && <CardsView docs={docs} categories={categories} nestedPages={nestedPages} />}
-      {view === "table" && <TableView docs={docs} categories={categories} />}
+      {view === "table" && (
+        <TableView docs={docs} categories={categories} bulk={bulk} spaceId={spaceId} moveTargets={moveTargets} />
+      )}
       {view === "tree" && nestedPages && <TreeView docs={docs} />}
       {view === "board" && <BoardView docs={docs} />}
       {view === "timeline" && <TimelineView docs={docs} />}
@@ -257,8 +266,68 @@ function CardsView({
 
 type SortKey = "title" | "type" | "status" | "author" | "updated_at";
 
-function TableView({ docs, categories }: { docs: DocumentWithSpace[]; categories: Category[] }) {
+function TableView({
+  docs,
+  categories,
+  bulk = false,
+  spaceId,
+  moveTargets = [],
+}: {
+  docs: DocumentWithSpace[];
+  categories: Category[];
+  bulk?: boolean;
+  spaceId?: number;
+  moveTargets?: { id: number; name: string }[];
+}) {
+  const router = useRouter();
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "updated_at", dir: -1 });
+
+  // Multi-select for bulk actions.
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  const toggleOne = (id: number) =>
+    setSelected((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+
+  async function runBulk(payload: Record<string, unknown>) {
+    setBusy(true);
+    setNotice(null);
+    try {
+      const res = await fetch("/api/documents/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: [...selected], ...payload }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setNotice({ kind: "err", text: data?.error || "Bulk action failed." });
+      } else {
+        const skipped: { title: string; reason: string }[] = data.skipped ?? [];
+        setNotice({
+          kind: "ok",
+          text:
+            `Updated ${data.updated} document${data.updated === 1 ? "" : "s"}.` +
+            (skipped.length
+              ? ` Skipped ${skipped.length}: ${skipped
+                  .slice(0, 3)
+                  .map((s) => `${s.title} (${s.reason})`)
+                  .join(", ")}${skipped.length > 3 ? ", …" : ""}`
+              : ""),
+        });
+        setSelected(new Set());
+        // Server data changed; re-fetch it while keeping the notice visible.
+        router.refresh();
+      }
+    } catch {
+      setNotice({ kind: "err", text: "Bulk action failed." });
+    }
+    setBusy(false);
+  }
 
   function toggle(key: SortKey) {
     setSort((s) => (s.key === key ? { key, dir: s.dir === 1 ? -1 : 1 } : { key, dir: key === "updated_at" ? -1 : 1 }));
@@ -293,11 +362,48 @@ function TableView({ docs, categories }: { docs: DocumentWithSpace[]; categories
     </th>
   );
 
+  const allSelected = selected.size > 0 && selected.size === sorted.length;
+
   return (
+    <div>
+      {bulk && selected.size > 0 && (
+        <BulkBar
+          count={selected.size}
+          busy={busy}
+          spaceId={spaceId}
+          moveTargets={moveTargets}
+          onRun={runBulk}
+          onClear={() => setSelected(new Set())}
+        />
+      )}
+      {notice && (
+        <div
+          role="status"
+          className={`mb-2 rounded-lg px-3 py-2 text-sm ${
+            notice.kind === "ok"
+              ? "border border-green-200 bg-green-50 text-green-800"
+              : "border border-red-200 bg-red-50 text-red-700"
+          }`}
+        >
+          {notice.text}
+        </div>
+      )}
     <div className="overflow-x-auto rounded-xl border border-slate-200 bg-surface">
       <table className="w-full min-w-[640px] text-sm">
         <thead className="border-b border-slate-100">
           <tr>
+            {bulk && (
+              <th className="w-8 px-3 py-2">
+                <input
+                  type="checkbox"
+                  aria-label={allSelected ? "Deselect all" : "Select all"}
+                  checked={allSelected}
+                  onChange={() =>
+                    setSelected(allSelected ? new Set() : new Set(sorted.map((d) => d.id)))
+                  }
+                />
+              </th>
+            )}
             <Th k="title">Title</Th>
             <Th k="type">Type</Th>
             <Th k="status">Status</Th>
@@ -311,6 +417,16 @@ function TableView({ docs, categories }: { docs: DocumentWithSpace[]; categories
         <tbody>
           {sorted.map((d) => (
             <tr key={d.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50">
+              {bulk && (
+                <td className="px-3 py-2">
+                  <input
+                    type="checkbox"
+                    aria-label={`Select ${d.title}`}
+                    checked={selected.has(d.id)}
+                    onChange={() => toggleOne(d.id)}
+                  />
+                </td>
+              )}
               <td className="px-3 py-2">
                 <Link href={`/doc/${d.id}`} className="font-medium text-slate-700 hover:text-compass-700">
                   {d.title}
@@ -336,6 +452,107 @@ function TableView({ docs, categories }: { docs: DocumentWithSpace[]; categories
           ))}
         </tbody>
       </table>
+    </div>
+    </div>
+  );
+}
+
+/** Action bar shown while table rows are selected: move, status, type, tags. */
+function BulkBar({
+  count,
+  busy,
+  spaceId,
+  moveTargets,
+  onRun,
+  onClear,
+}: {
+  count: number;
+  busy: boolean;
+  spaceId?: number;
+  moveTargets: { id: number; name: string }[];
+  onRun: (payload: Record<string, unknown>) => void;
+  onClear: () => void;
+}) {
+  const [moveTo, setMoveTo] = useState("");
+  const [tag, setTag] = useState("");
+  const targets = moveTargets.filter((t) => t.id !== spaceId);
+  const sel =
+    "rounded-md border border-slate-300 bg-surface px-2 py-1 text-xs text-slate-700";
+  const btn =
+    "rounded-md border border-slate-300 bg-surface px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50";
+
+  return (
+    <div className="mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-compass-200 bg-compass-50/70 px-3 py-2">
+      <span className="text-sm font-semibold text-compass-800">
+        {count} selected
+      </span>
+      <button onClick={onClear} disabled={busy} className="text-xs font-medium text-slate-500 hover:underline">
+        Clear
+      </button>
+      <span className="mx-1 h-4 w-px bg-compass-200" aria-hidden />
+      <button onClick={() => onRun({ action: "status", status: "published" })} disabled={busy} className={btn}>
+        Publish
+      </button>
+      <button onClick={() => onRun({ action: "status", status: "draft" })} disabled={busy} className={btn}>
+        Unpublish
+      </button>
+      <label className="flex items-center gap-1 text-xs text-slate-600">
+        Type
+        <select
+          className={sel}
+          defaultValue=""
+          disabled={busy}
+          onChange={(e) => {
+            if (e.target.value) onRun({ action: "type", type: e.target.value });
+            e.target.value = "";
+          }}
+        >
+          <option value="" disabled>
+            set…
+          </option>
+          <option value="sop">SOP</option>
+          <option value="technical">Technical</option>
+          <option value="policy">Policy</option>
+          <option value="knowledge">Knowledge</option>
+        </select>
+      </label>
+      {targets.length > 0 && (
+        <label className="flex items-center gap-1 text-xs text-slate-600">
+          Move to
+          <select className={sel} value={moveTo} disabled={busy} onChange={(e) => setMoveTo(e.target.value)}>
+            <option value="">space…</option>
+            {targets.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+          <button
+            onClick={() => moveTo && onRun({ action: "move", space_id: Number(moveTo) })}
+            disabled={busy || !moveTo}
+            className={btn}
+          >
+            Move
+          </button>
+        </label>
+      )}
+      <label className="flex items-center gap-1 text-xs text-slate-600">
+        Tag
+        <input
+          value={tag}
+          onChange={(e) => setTag(e.target.value)}
+          disabled={busy}
+          placeholder="tag name"
+          className="w-24 rounded-md border border-slate-300 px-2 py-1 text-xs"
+        />
+        <button onClick={() => tag.trim() && onRun({ action: "add_tag", tag: tag.trim() })} disabled={busy || !tag.trim()} className={btn}>
+          Add
+        </button>
+        <button onClick={() => tag.trim() && onRun({ action: "remove_tag", tag: tag.trim() })} disabled={busy || !tag.trim()} className={btn}>
+          Remove
+        </button>
+      </label>
+      {busy && <span className="text-xs text-slate-500">Working…</span>}
     </div>
   );
 }

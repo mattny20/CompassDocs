@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getUserById, listSubscriptionsForUser, setEmailNotifications } from "@/lib/db";
+import { getUserById, listSubscriptionsForUser, setEmailNotifications, setWeeklyDigest, getWeeklyDigest } from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
 import type { SessionUser } from "@/lib/types";
 
@@ -16,6 +16,7 @@ export async function GET() {
   return NextResponse.json({
     email: me?.email ?? "",
     email_notifications: me?.email_notifications === 1,
+    weekly_digest: await getWeeklyDigest(user.id),
     subscriptions,
   });
 }
@@ -33,6 +34,9 @@ export async function PATCH(req: Request) {
   }
   if (typeof body?.email_notifications === "boolean") {
     await setEmailNotifications(user.id, body.email_notifications);
+  }
+  if (typeof body?.weekly_digest === "boolean") {
+    await setWeeklyDigest(user.id, body.weekly_digest);
   }
   return NextResponse.json({ ok: true });
 }

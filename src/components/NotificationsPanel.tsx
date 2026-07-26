@@ -18,14 +18,17 @@ type Sub = {
 
 export function NotificationsPanel({
   initialEnabled,
+  initialDigest = false,
   email,
   initialSubs,
 }: {
   initialEnabled: boolean;
+  initialDigest?: boolean;
   email: string;
   initialSubs: Sub[];
 }) {
   const [enabled, setEnabled] = useState(initialEnabled);
+  const [digest, setDigest] = useState(initialDigest);
   const [subs, setSubs] = useState<Sub[]>(initialSubs);
   const [busy, setBusy] = useState(false);
 
@@ -38,6 +41,17 @@ export function NotificationsPanel({
     });
     setBusy(false);
     if (res.ok) setEnabled(on);
+  }
+
+  async function toggleDigest(on: boolean) {
+    setBusy(true);
+    const res = await fetch("/api/account/notifications", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ weekly_digest: on }),
+    });
+    setBusy(false);
+    if (res.ok) setDigest(on);
   }
 
   async function setSub(s: Sub, action: "subscribe" | "mute" | "clear") {
@@ -73,6 +87,23 @@ export function NotificationsPanel({
               {email
                 ? `Sent to ${email} when a document in a subscribed space is published or updated.`
                 : "Your account has no email address — ask an admin to add one."}
+            </span>
+          </span>
+        </label>
+        <label className="mt-3 flex cursor-pointer items-start gap-3 border-t border-slate-100 pt-3">
+          <input
+            type="checkbox"
+            checked={digest}
+            disabled={busy || !enabled}
+            onChange={(e) => toggleDigest(e.target.checked)}
+            className="mt-0.5 h-4 w-4 accent-compass-600"
+          />
+          <span>
+            <span className="font-medium text-slate-900">Weekly digest</span>
+            <span className="block text-sm text-slate-500">
+              A Monday-morning summary: what changed in your subscribed spaces, reviews to
+              handle, and the week&apos;s most-read documents. Only sent when there&apos;s
+              something to report.
             </span>
           </span>
         </label>

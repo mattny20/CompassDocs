@@ -23,8 +23,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="flex h-screen overflow-hidden print:h-auto print:overflow-visible">
+      {/* Keyboard users: jump past the sidebar straight to the page content. */}
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded-lg focus:bg-compass-600 focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-white"
+      >
+        Skip to content
+      </a>
       <Sidebar user={user} reviewCount={reviewCount} trashCount={trashCount} />
-      <main className="flex-1 overflow-y-auto print:overflow-visible">
+      <main id="main" className="flex-1 overflow-y-auto print:overflow-visible">
         <WidthProvider initial={user.page_width}>{children}</WidthProvider>
       </main>
     </div>

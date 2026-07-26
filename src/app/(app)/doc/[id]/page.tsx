@@ -26,6 +26,7 @@ import { TypeBadge, StatusBadge, Tag } from "@/components/Badges";
 import { DocActions } from "@/components/DocActions";
 import { SuggestBox } from "@/components/SuggestBox";
 import { DocComments } from "@/components/DocComments";
+import { DocFeedback } from "@/components/DocFeedback";
 import { Attachments } from "@/components/Attachments";
 import { RelatedDocs } from "@/components/RelatedDocs";
 import { relationsFor } from "@/lib/relations";
@@ -242,6 +243,8 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
           <article>
             <MarkdownView content={doc.content} docKey={`doc-${doc.id}`} />
           </article>
+
+          <DocFeedback docId={doc.id} />
 
           {settings.comments_enabled && (
             <DocComments docId={doc.id} currentUserId={user.id} isAdmin={user.role === "admin"} />

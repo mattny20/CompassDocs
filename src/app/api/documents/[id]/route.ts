@@ -157,6 +157,36 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     versionNote: String(body?.versionNote ?? "").trim() || "Edited",
   });
 
+  // Scheduled publish / auto-unpublish. Firing a schedule bypasses the review
+  // queue by design, so setting one requires publish rights; clearing is
+  // always allowed for anyone who can edit.
+  const schedulePatch: { publishAt?: string | null; archiveAt?: string | null } = {};
+  for (const [key, field] of [
+    ["publish_at", "publishAt"],
+    ["archive_at", "archiveAt"],
+  ] as const) {
+    if (body?.[key] === undefined) continue;
+    if (body[key] === null || body[key] === "") {
+      schedulePatch[field] = null;
+      continue;
+    }
+    const when = new Date(String(body[key]));
+    if (Number.isNaN(when.getTime())) {
+      return NextResponse.json({ error: `Invalid ${key.replace("_", " ")} date.` }, { status: 400 });
+    }
+    if (!canPublish) {
+      return NextResponse.json(
+        { error: "Scheduling a publish or unpublish needs publish rights." },
+        { status: 403 }
+      );
+    }
+    schedulePatch[field] = when.toISOString();
+  }
+  if (Object.keys(schedulePatch).length > 0) {
+    const { setDocSchedule } = await import("@/lib/doc-schedule");
+    await setDocSchedule(existing.id, schedulePatch);
+  }
+
   // Nested pages: parent changes are organizational metadata and apply
   // directly (like categories), gated on the workspace toggle.
   let parentWarning: string | undefined;
