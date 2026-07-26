@@ -61,6 +61,13 @@ export default async function HealthPage() {
       empty: r.duplicates_checked ? "No near-duplicate pairs found." : "Not checked.",
     },
     {
+      key: "lowrated",
+      title: "Poorly rated",
+      blurb: "Readers voted: three or more votes and mostly \u201cnot helpful.\u201d",
+      count: r.low_rated.length,
+      empty: "Nothing is rated poorly.",
+    },
+    {
       key: "ownerless",
       title: "No active owner",
       blurb: "The author is no longer an active user — nobody obvious to ask when these need updating.",
@@ -80,7 +87,7 @@ export default async function HealthPage() {
       </div>
 
       {/* Scorecards */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
         {sections.map((s) => (
           <a
             key={s.key}
@@ -144,7 +151,26 @@ export default async function HealthPage() {
         ))}
       </Section>
 
-      <Section id="ownerless" title="No active owner" blurb={sections[6].blurb} empty={sections[6].empty} count={r.ownerless.length}>
+      <Section id="lowrated" title="Poorly rated" blurb={sections[6].blurb} empty={sections[6].empty} count={r.low_rated.length}>
+        {r.low_rated.map((d) => (
+          <div key={d.id}>
+            <Row doc={d}>
+              <span className="text-xs text-slate-500">
+                {d.up} helpful / {d.down} not
+              </span>
+            </Row>
+            {d.notes.length > 0 && (
+              <ul className="px-4 pb-2 pl-8 text-xs text-slate-500">
+                {d.notes.map((n, i) => (
+                  <li key={i} className="list-disc">&ldquo;{n}&rdquo;</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ))}
+      </Section>
+
+      <Section id="ownerless" title="No active owner" blurb={sections[7].blurb} empty={sections[7].empty} count={r.ownerless.length}>
         {r.ownerless.map((d) => (
           <Row key={d.id} doc={d}>
             <span className="text-xs text-slate-500">author: {d.author || "(none)"}</span>

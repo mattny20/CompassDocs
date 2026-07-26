@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { getAppSettings } from "@/lib/settings-store";
 import { accentCss } from "@/lib/theme";
 // Self-host the brand font (Aileron) so it renders offline / on-prem without
@@ -23,8 +23,17 @@ export async function generateMetadata(): Promise<Metadata> {
     title: isDefault ? "CompassDocs — Team Knowledge Platform" : `${companyName} — Knowledge Base`,
     description:
       "Create, organize, and search SOPs, technical docs, policies, and internal knowledge with AI-powered search.",
+    manifest: "/manifest.webmanifest",
+    appleWebApp: { capable: true, title: companyName, statusBarStyle: "default" },
   };
 }
+
+// Installable-app chrome: brand theme color and a sane mobile viewport.
+export const viewport: Viewport = {
+  themeColor: "#2e75bd",
+  width: "device-width",
+  initialScale: 1,
+};
 
 // Resolve the saved theme preference and stamp data-theme on <html> *before*
 // first paint, so there's no light/dark flash on load. `system` follows the OS.

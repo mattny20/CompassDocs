@@ -23,6 +23,13 @@ export async function register() {
     } catch (e) {
       console.error("[reviews] scheduler error:", e);
     }
+    // Weekly digest emails (Monday morning; claimed once per ISO week).
+    try {
+      const { maybeSendWeeklyDigests } = await import("./lib/digest");
+      await maybeSendWeeklyDigests();
+    } catch (e) {
+      console.error("[digest] scheduler error:", e);
+    }
   };
 
   // First check shortly after boot, then hourly.
@@ -37,6 +44,13 @@ export async function register() {
       await sendDueNewsletters();
     } catch (e) {
       console.error("[newsletter] scheduler error:", e);
+    }
+    // Scheduled document publishes / auto-unpublishes (atomic claims too).
+    try {
+      const { runDueDocSchedules } = await import("./lib/doc-schedule");
+      await runDueDocSchedules();
+    } catch (e) {
+      console.error("[doc-schedule] scheduler error:", e);
     }
   };
   setTimeout(newsletterTick, 30_000);

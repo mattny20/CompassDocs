@@ -36,6 +36,13 @@ export interface DuplicatePair {
   similarity: number;
 }
 
+export interface RatedDoc extends HealthDoc {
+  up: number;
+  down: number;
+  /** Most recent non-empty "what's missing" notes from down-voters. */
+  notes: string[];
+}
+
 export interface HealthReport {
   generated_at: string;
   totals: { documents: number; published: number };
@@ -46,6 +53,7 @@ export interface HealthReport {
   unread: HealthDoc[];
   duplicates: DuplicatePair[];
   ownerless: HealthDoc[];
+  low_rated: RatedDoc[];
   /** True when the duplicates pass actually ran (pgvector + embeddings). */
   duplicates_checked: boolean;
 }
@@ -184,6 +192,27 @@ export async function knowledgeHealthReport(): Promise<HealthReport> {
     // pgvector missing or doc_chunks empty/absent — skip the section.
   }
 
+  // --- Poorly rated: enough votes to mean something, and mostly "not
+  // helpful" — the readers themselves are flagging these.
+  const low_rated = await q<RatedDoc>(
+    `SELECT ${DOC_COLS},
+            count(*) FILTER (WHERE f.helpful = 1)::int AS up,
+            count(*) FILTER (WHERE f.helpful = 0)::int AS down,
+            COALESCE((SELECT array_agg(n.note) FROM (
+              SELECT f2.note FROM doc_feedback f2
+              WHERE f2.document_id = d.id AND f2.note <> ''
+              ORDER BY f2.created_at DESC LIMIT 3
+            ) n), '{}') AS notes
+     FROM doc_feedback f
+     JOIN documents d ON d.id = f.document_id AND d.deleted_at IS NULL AND d.branch_of IS NULL
+       AND d.status = 'published'
+     JOIN spaces s ON s.id = d.space_id
+     GROUP BY d.id, d.title, s.name, d.status, d.author, d.updated_at
+     HAVING count(*) >= 3 AND count(*) FILTER (WHERE f.helpful = 1) * 2 < count(*)
+     ORDER BY count(*) FILTER (WHERE f.helpful = 0) DESC
+     LIMIT ${LIST_CAP}`
+  );
+
   // --- Owner-less: the author string no longer matches any active user, so
   // there's no obvious person to ask when the content needs an update.
   const ownerless = await q<HealthDoc>(
@@ -208,6 +237,7 @@ export async function knowledgeHealthReport(): Promise<HealthReport> {
     unread,
     duplicates,
     ownerless,
+    low_rated,
     duplicates_checked,
   };
 }

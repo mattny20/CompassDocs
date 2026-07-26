@@ -168,6 +168,10 @@ export interface Document {
   /** Last "mark as reviewed" (null = never explicitly reviewed). */
   last_reviewed_at?: string | null;
   last_reviewed_by?: string | null;
+  /** One-shot: publish this draft at the given time (null = not scheduled). */
+  publish_at?: string | null;
+  /** One-shot: unpublish (back to draft) at the given time. */
+  archive_at?: string | null;
   created_at: string;
   updated_at: string;
   deleted_at?: string | null;

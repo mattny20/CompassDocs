@@ -211,6 +211,11 @@ const SCHEMA_SQL = `
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS last_reviewed_at timestamptz;
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS last_reviewed_by text;
 
+  -- Scheduled publish / auto-unpublish: one-shot timestamps cleared when the
+  -- minute tick fires them (claims are atomic UPDATEs, multi-instance safe).
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS publish_at timestamptz;
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS archive_at timestamptz;
+
   -- Public share links: a tokenized read-only link to one published doc.
   -- Revoked rows are kept for the audit trail; at most one active per doc.
   CREATE TABLE IF NOT EXISTS doc_shares (
@@ -432,6 +437,18 @@ const SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS idx_views_at ON doc_views(viewed_at);
   CREATE INDEX IF NOT EXISTS idx_views_user ON doc_views(user_id);
 
+  -- "Was this helpful?" votes: one per user per document, revisable.
+  CREATE TABLE IF NOT EXISTS doc_feedback (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    document_id integer NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    user_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    helpful smallint NOT NULL,
+    note text NOT NULL DEFAULT '',
+    created_at timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (document_id, user_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_feedback_doc ON doc_feedback(document_id);
+
   CREATE TABLE IF NOT EXISTS search_events (
     id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     user_id integer REFERENCES users(id) ON DELETE SET NULL,
@@ -537,6 +554,8 @@ const SCHEMA_SQL = `
     directory_person_id integer REFERENCES directory_people(id) ON DELETE SET NULL;
   -- Per-user master switch for subscription emails.
   ALTER TABLE users ADD COLUMN IF NOT EXISTS email_notifications integer NOT NULL DEFAULT 1;
+  -- Weekly digest email: opt-in (0 = off) so existing installs see no new mail.
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS weekly_digest integer NOT NULL DEFAULT 0;
 
   -- Space subscriptions. A row with state='subscribed' is a personal opt-in;
   -- state='muted' overrides a group-based subscription. No row = follow the
@@ -2334,6 +2353,18 @@ export async function setUserDirectoryPerson(userId: number, personId: number | 
 
 export async function setEmailNotifications(userId: number, on: boolean): Promise<void> {
   await q("UPDATE users SET email_notifications = $1 WHERE id = $2", [on ? 1 : 0, userId]);
+}
+
+export async function setWeeklyDigest(userId: number, on: boolean): Promise<void> {
+  await q("UPDATE users SET weekly_digest = $1 WHERE id = $2", [on ? 1 : 0, userId]);
+}
+
+export async function getWeeklyDigest(userId: number): Promise<boolean> {
+  const r = await q<{ weekly_digest: number }>(
+    "SELECT weekly_digest FROM users WHERE id = $1",
+    [userId]
+  );
+  return r[0]?.weekly_digest === 1;
 }
 
 export type SubscriptionState = "subscribed" | "muted" | null;

@@ -104,10 +104,43 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     tags: normalizeTags(body?.tags) ?? existing.tags,
   };
 
-  // A change "affects live content" if the doc is already published, or if this
-  // edit would publish it. Those are the changes that require approval.
-  const affectsLive = existing.status === "published" || proposed.status === "published";
+  // A change "affects live content" if the doc is already published, if this
+  // edit would publish it, or if the draft is armed with a scheduled publish —
+  // its content WILL go live unreviewed when the schedule fires, so the same
+  // approval rule applies. Those are the changes that require approval.
+  const affectsLive =
+    existing.status === "published" ||
+    proposed.status === "published" ||
+    (existing.status === "draft" && existing.publish_at != null);
   const canPublish = roleAtLeast(user.role, "approver") || (await getApprovalMode()) === "open";
+
+  // Scheduled publish / auto-unpublish. Validated and authorized BEFORE any
+  // write, so a bad date or missing right rejects the request while the
+  // document is still untouched. Firing a schedule bypasses the review queue
+  // by design, so setting one requires publish rights; clearing is always
+  // allowed for anyone who can edit.
+  const schedulePatch: { publishAt?: string | null; archiveAt?: string | null } = {};
+  for (const [key, field] of [
+    ["publish_at", "publishAt"],
+    ["archive_at", "archiveAt"],
+  ] as const) {
+    if (body?.[key] === undefined) continue;
+    if (body[key] === null || body[key] === "") {
+      schedulePatch[field] = null;
+      continue;
+    }
+    const when = new Date(String(body[key]));
+    if (Number.isNaN(when.getTime())) {
+      return NextResponse.json({ error: `Invalid ${key.replace("_", " ")} date.` }, { status: 400 });
+    }
+    if (!canPublish) {
+      return NextResponse.json(
+        { error: "Scheduling a publish or unpublish needs publish rights." },
+        { status: 403 }
+      );
+    }
+    schedulePatch[field] = when.toISOString();
+  }
 
   if (affectsLive && !canPublish) {
     // Editor in strict mode: queue a change request; leave the live doc untouched.
@@ -156,6 +189,12 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     author: user.name || user.username,
     versionNote: String(body?.versionNote ?? "").trim() || "Edited",
   });
+
+  // Apply the (pre-validated) schedule changes.
+  if (Object.keys(schedulePatch).length > 0) {
+    const { setDocSchedule } = await import("@/lib/doc-schedule");
+    await setDocSchedule(existing.id, schedulePatch);
+  }
 
   // Nested pages: parent changes are organizational metadata and apply
   // directly (like categories), gated on the workspace toggle.

@@ -11,6 +11,7 @@ import {
   listOAuthGrants,
   listUserSessions,
   getTotpState,
+  getWeeklyDigest,
 } from "@/lib/db";
 import { ROLE_LABEL } from "@/lib/types";
 import { NotificationsPanel } from "@/components/NotificationsPanel";
@@ -110,6 +111,7 @@ export default async function AccountPage() {
             </p>
             <NotificationsPanel
               initialEnabled={me?.email_notifications === 1}
+              initialDigest={await getWeeklyDigest(user.id)}
               email={me?.email ?? ""}
               initialSubs={subs}
             />

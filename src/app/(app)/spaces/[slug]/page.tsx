@@ -5,6 +5,7 @@ import {
   listDocumentsBySpace,
   listSpaceCategories,
   getSubscriptionState,
+  listSpaces,
 } from "@/lib/db";
 import { SubscribeButton } from "@/components/SubscribeButton";
 import { SpaceSearch } from "@/components/SpaceSearch";
@@ -14,6 +15,7 @@ import { requireUser } from "@/lib/auth";
 import { spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
 import { getAppSettings } from "@/lib/settings-store";
 import { roleAtLeast } from "@/lib/types";
+import { getApprovalMode } from "@/lib/db";
 import type { DocumentWithSpace } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -34,6 +36,12 @@ export default async function SpacePage({ params }: { params: Promise<{ slug: st
   ]);
 
   const nestedOn = (await getAppSettings()).nested_pages_enabled;
+
+  // Move targets for bulk actions: spaces this user can see (the API enforces
+  // edit rights on the chosen target).
+  const moveTargets = canAuthor
+    ? (await listSpaces(await spaceScopeFor(user))).map((s) => ({ id: s.id, name: s.name }))
+    : [];
 
   // Ship the metadata each view needs, but never the full markdown bodies —
   // they'd bloat the page payload for no reason.
@@ -91,6 +99,9 @@ export default async function SpacePage({ params }: { params: Promise<{ slug: st
             spaceId={space.id}
             defaultView={space.default_view ?? "cards"}
             nestedPages={nestedOn}
+            bulk={isEditor && canAuthor}
+            canPublish={roleAtLeast(user.role, "approver") || (await getApprovalMode()) === "open"}
+            moveTargets={moveTargets}
           />
         )}
       </SpaceSearch>

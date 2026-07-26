@@ -55,6 +55,8 @@ interface Initial {
   content: string;
   author: string;
   parent_id?: number | null;
+  publish_at?: string | null;
+  archive_at?: string | null;
 }
 
 export function DocEditor({
@@ -83,6 +85,16 @@ export function DocEditor({
   const [title, setTitle] = useState(initial.title);
   const [type, setType] = useState<DocType>(initial.type);
   const [status, setStatus] = useState<DocStatus>(initial.status);
+  // Scheduled publish / auto-unpublish (datetime-local strings, "" = off).
+  const toLocal = (iso?: string | null) => {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "";
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+  const [publishAt, setPublishAt] = useState<string>(toLocal(initial.publish_at));
+  const [archiveAt, setArchiveAt] = useState<string>(toLocal(initial.archive_at));
   const [summary, setSummary] = useState(initial.summary);
   const [tags, setTags] = useState(initial.tags.join(", "));
   const [content, setContent] = useState(initial.content);
@@ -311,6 +323,16 @@ export function DocEditor({
       tags,
       content,
       ...(nestedEnabled ? { parent_id: parentId } : {}),
+      ...(canPublish && docId
+        ? {
+            // Only the field matching the submitted status applies; the other
+            // clears, so a hidden stale value can't ride along on a status flip.
+            publish_at:
+              status === "draft" && publishAt ? new Date(publishAt).toISOString() : null,
+            archive_at:
+              status === "published" && archiveAt ? new Date(archiveAt).toISOString() : null,
+          }
+        : {}),
     };
     try {
       const res = !docId
@@ -492,6 +514,26 @@ export function DocEditor({
               <option value="published">Published</option>
             </select>
           </Field>
+          {canPublish && docId && status === "draft" && (
+            <Field label="Publish automatically at (optional)">
+              <input
+                type="datetime-local"
+                value={publishAt}
+                onChange={(e) => setPublishAt(e.target.value)}
+                className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-none focus:border-compass-400"
+              />
+            </Field>
+          )}
+          {canPublish && docId && status === "published" && (
+            <Field label="Unpublish automatically at (optional)">
+              <input
+                type="datetime-local"
+                value={archiveAt}
+                onChange={(e) => setArchiveAt(e.target.value)}
+                className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-none focus:border-compass-400"
+              />
+            </Field>
+          )}
         </div>
 
         {!canPublish && (
