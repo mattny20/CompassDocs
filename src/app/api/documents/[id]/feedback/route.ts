@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getDocument, pool } from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
 import { spaceScopeFor, scopeAllows } from "@/lib/access";
+import { roleAtLeast } from "@/lib/types";
 import type { SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +16,10 @@ async function visibleDoc(user: SessionUser, idRaw: string) {
   if (!Number.isInteger(id)) return null;
   const doc = await getDocument(id);
   if (!doc || !scopeAllows(await spaceScopeFor(user), doc.space_id)) return null;
+  // Same gate as every other reader path: drafts are invisible below editor,
+  // and draft branches are working copies — not something readers rate.
+  if (doc.status === "draft" && !roleAtLeast(user.role, "editor")) return null;
+  if (doc.branch_of) return null;
   return doc;
 }
 
@@ -66,7 +71,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     `INSERT INTO doc_feedback (document_id, user_id, helpful, note)
      VALUES ($1, $2, $3, $4)
      ON CONFLICT (document_id, user_id)
-     DO UPDATE SET helpful = EXCLUDED.helpful, note = EXCLUDED.note, created_at = now()`,
+     DO UPDATE SET helpful = EXCLUDED.helpful,
+       -- A revote without a note keeps the earlier note instead of erasing it
+       -- (the No button votes immediately; the note form submits after).
+       note = CASE WHEN EXCLUDED.note = '' THEN doc_feedback.note ELSE EXCLUDED.note END,
+       created_at = now()`,
     [doc.id, user.id, body.helpful ? 1 : 0, note]
   );
 

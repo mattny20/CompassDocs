@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { getDocument, getSpaceById, updateDocument, getApprovalMode } from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
+import { notifyWebhooks } from "@/lib/webhooks";
+import { notifySpaceSubscribers } from "@/lib/subscriptions";
+import { requestOrigin } from "@/lib/oauth";
 import { roleAtLeast } from "@/lib/types";
 import { spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
 import type { DocType, DocStatus, SessionUser } from "@/lib/types";
@@ -139,7 +142,7 @@ export async function POST(req: Request) {
       continue;
     }
 
-    await updateDocument(doc.id, {
+    const updatedDoc = await updateDocument(doc.id, {
       title: doc.title,
       content: doc.content,
       summary: doc.summary,
@@ -151,6 +154,28 @@ export async function POST(req: Request) {
       versionNote: "Bulk edit",
     });
     updated++;
+
+    // A bulk publish is still a publish: fire the same notifications as the
+    // single-document route so channels and subscribers hear about it.
+    if (action === "status" && newStatus === "published" && doc.status === "draft" && updatedDoc) {
+      void notifyWebhooks("document.published", {
+        title: updatedDoc.title,
+        actor: actorName,
+        url: `${requestOrigin(req)}/doc/${updatedDoc.id}`,
+        spaceId: updatedDoc.space_id,
+        spaceName: updatedDoc.space_name,
+      });
+      void notifySpaceSubscribers({
+        spaceId: updatedDoc.space_id,
+        spaceName: updatedDoc.space_name,
+        docId: updatedDoc.id,
+        title: updatedDoc.title,
+        kind: "published",
+        actorUserId: user.id,
+        actorName,
+        origin: requestOrigin(req),
+      });
+    }
   }
 
   await audit({

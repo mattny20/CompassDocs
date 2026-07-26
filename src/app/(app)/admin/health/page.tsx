@@ -153,11 +153,20 @@ export default async function HealthPage() {
 
       <Section id="lowrated" title="Poorly rated" blurb={sections[6].blurb} empty={sections[6].empty} count={r.low_rated.length}>
         {r.low_rated.map((d) => (
-          <Row key={d.id} doc={d}>
-            <span className="text-xs text-slate-500">
-              {d.up} helpful / {d.down} not
-            </span>
-          </Row>
+          <div key={d.id}>
+            <Row doc={d}>
+              <span className="text-xs text-slate-500">
+                {d.up} helpful / {d.down} not
+              </span>
+            </Row>
+            {d.notes.length > 0 && (
+              <ul className="px-4 pb-2 pl-8 text-xs text-slate-500">
+                {d.notes.map((n, i) => (
+                  <li key={i} className="list-disc">&ldquo;{n}&rdquo;</li>
+                ))}
+              </ul>
+            )}
+          </div>
         ))}
       </Section>
 

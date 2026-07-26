@@ -116,14 +116,27 @@ export async function maybeSendWeeklyDigests(now = new Date()): Promise<void> {
                WHERE gm.user_id = $1
              )`;
 
-      // 1) Updated this week in spaces the user subscribes to.
+      // 1) Updated this week in spaces the user subscribes to. "Subscribed"
+      // means the same thing it means for per-change emails
+      // (listSubscriberRecipients): a direct subscription, or membership in
+      // an admin-subscribed group that the user hasn't personally muted.
       const inYourSpaces = await q<DigestRow>(
         `SELECT d.id, d.title, s.name AS space_name
          FROM documents d
          JOIN spaces s ON s.id = d.space_id
-         JOIN space_subscriptions ss ON ss.space_id = d.space_id AND ss.user_id = $1 AND ss.state = 'subscribed'
          WHERE d.deleted_at IS NULL AND d.branch_of IS NULL AND d.status = 'published'
-           AND d.updated_at > now() - interval '7 days' ${scopeFilter}
+           AND d.updated_at > now() - interval '7 days'
+           AND (
+             EXISTS (SELECT 1 FROM space_subscriptions ss
+                     WHERE ss.space_id = d.space_id AND ss.user_id = $1 AND ss.state = 'subscribed')
+             OR (
+               EXISTS (SELECT 1 FROM space_subscription_groups sg
+                       JOIN group_members gm ON gm.group_id = sg.group_id
+                       WHERE sg.space_id = d.space_id AND gm.user_id = $1)
+               AND NOT EXISTS (SELECT 1 FROM space_subscriptions ss
+                               WHERE ss.space_id = d.space_id AND ss.user_id = $1 AND ss.state = 'muted')
+             )
+           ) ${scopeFilter}
          ORDER BY d.updated_at DESC
          LIMIT ${MAX_ROWS}`,
         [u.id]
