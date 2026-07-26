@@ -26,6 +26,17 @@ interface ProofResult {
   message?: string;
 }
 
+// Mirror of the writing-assist types in @/lib/ai (kept local so this client
+// component doesn't pull in the server-only AI module).
+type WriteAction = "draft" | "improve" | "expand" | "shorten" | "summarize" | "tone";
+type WriteTone = "professional" | "friendly" | "concise" | "confident";
+interface WriteResult {
+  mode: "ai" | "unavailable";
+  text?: string;
+  truncated?: boolean;
+  message?: string;
+}
+
 interface Category {
   id: number;
   space_id: number;
@@ -136,6 +147,40 @@ export function DocEditor({
   function applyProof() {
     if (proof?.revised != null) setContent(proof.revised);
     setProof(null);
+  }
+
+  // AI writing-assist state.
+  const [assistMenu, setAssistMenu] = useState(false);
+  const [assisting, setAssisting] = useState<string>("");
+  const [assist, setAssist] = useState<{ action: WriteAction; text: string; truncated?: boolean } | null>(null);
+  const [assistError, setAssistError] = useState("");
+
+  async function runAssist(action: WriteAction, tone?: WriteTone) {
+    setAssistMenu(false);
+    setAssist(null);
+    setAssistError("");
+    setAssisting(action + (tone ? `:${tone}` : ""));
+    try {
+      const res = await fetch("/api/ai/write", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, tone, title, docType: type, content }),
+      });
+      const data = (await res.json()) as WriteResult;
+      if (!res.ok) setAssistError((data as any)?.error || "Writing assist failed.");
+      else if (data.mode === "unavailable" || !data.text) setAssistError(data.message || "Writing assist is unavailable.");
+      else setAssist({ action, text: data.text, truncated: data.truncated });
+    } catch {
+      setAssistError("Writing assist failed. Please try again.");
+    }
+    setAssisting("");
+  }
+
+  function applyAssist() {
+    if (!assist) return;
+    if (assist.action === "summarize") setSummary(assist.text.slice(0, 280));
+    else setContent(assist.text);
+    setAssist(null);
   }
 
   // An editor without publish rights who marks the doc "published" is really
@@ -524,15 +569,70 @@ export function DocEditor({
                 </button>
               </span>
             )}
-            <button
-              type="button"
-              onClick={runProofread}
-              disabled={proofing || !content.trim()}
-              title="Check grammar, spelling, and clarity with AI"
-              className="ml-auto mr-1 flex items-center gap-1 rounded-md px-2.5 py-1 text-sm font-medium text-compass-700 hover:bg-compass-50 disabled:opacity-50"
-            >
-              {proofing ? "Proofreading…" : "✨ Proofread"}
-            </button>
+            <span className="relative z-30 ml-auto flex items-center gap-1">
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setAssistMenu((o) => !o)}
+                  disabled={!!assisting}
+                  aria-haspopup="menu"
+                  aria-expanded={assistMenu}
+                  title="Draft, rewrite, or summarize with AI"
+                  className="flex items-center gap-1 rounded-md px-2.5 py-1 text-sm font-medium text-compass-700 hover:bg-compass-50 disabled:opacity-50"
+                >
+                  {assisting ? "Writing…" : "✨ Write ▾"}
+                </button>
+                {assistMenu && (
+                  <>
+                    <button
+                      type="button"
+                      aria-hidden
+                      tabIndex={-1}
+                      onClick={() => setAssistMenu(false)}
+                      className="fixed inset-0 z-10 cursor-default"
+                    />
+                    <div
+                      role="menu"
+                      className="absolute right-0 z-20 mt-1 w-52 rounded-lg border border-slate-200 bg-surface py-1 text-sm shadow-lg"
+                    >
+                      <AssistItem onClick={() => runAssist("draft")} disabled={!title.trim()}>
+                        Draft from title
+                      </AssistItem>
+                      <AssistItem onClick={() => runAssist("improve")} disabled={!content.trim()}>
+                        Improve writing
+                      </AssistItem>
+                      <AssistItem onClick={() => runAssist("expand")} disabled={!content.trim()}>
+                        Expand
+                      </AssistItem>
+                      <AssistItem onClick={() => runAssist("shorten")} disabled={!content.trim()}>
+                        Make shorter
+                      </AssistItem>
+                      <AssistItem onClick={() => runAssist("summarize")} disabled={!content.trim()}>
+                        Summarize → summary field
+                      </AssistItem>
+                      <div className="my-1 border-t border-slate-100" />
+                      <div className="px-3 py-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                        Change tone
+                      </div>
+                      {(["professional", "friendly", "concise", "confident"] as WriteTone[]).map((t) => (
+                        <AssistItem key={t} onClick={() => runAssist("tone", t)} disabled={!content.trim()}>
+                          <span className="capitalize">{t}</span>
+                        </AssistItem>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={runProofread}
+                disabled={proofing || !content.trim()}
+                title="Check grammar, spelling, and clarity with AI"
+                className="mr-1 flex items-center gap-1 rounded-md px-2.5 py-1 text-sm font-medium text-compass-700 hover:bg-compass-50 disabled:opacity-50"
+              >
+                {proofing ? "Proofreading…" : "✨ Proofread"}
+              </button>
+            </span>
           </div>
 
           {tab === "rich" ? (
@@ -586,8 +686,105 @@ export function DocEditor({
         )}
 
         {proof && <ProofPanel proof={proof} onApply={applyProof} onDismiss={() => setProof(null)} />}
+
+        {assistError && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            {assistError}
+          </div>
+        )}
+        {assist && (
+          <AssistPanel
+            action={assist.action}
+            text={assist.text}
+            truncated={assist.truncated}
+            onApply={applyAssist}
+            onDismiss={() => setAssist(null)}
+          />
+        )}
       </div>
     </PageWidth>
+  );
+}
+
+function AssistItem({
+  onClick,
+  disabled,
+  children,
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onClick}
+      disabled={disabled}
+      className="block w-full px-3 py-1.5 text-left text-slate-700 hover:bg-compass-50 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-transparent"
+    >
+      {children}
+    </button>
+  );
+}
+
+const ASSIST_LABEL: Record<WriteAction, string> = {
+  draft: "Suggested draft",
+  improve: "Improved version",
+  expand: "Expanded version",
+  shorten: "Shortened version",
+  summarize: "Suggested summary",
+  tone: "Rewritten",
+};
+
+function AssistPanel({
+  action,
+  text,
+  truncated,
+  onApply,
+  onDismiss,
+}: {
+  action: WriteAction;
+  text: string;
+  truncated?: boolean;
+  onApply: () => void;
+  onDismiss: () => void;
+}) {
+  const applyLabel =
+    action === "summarize" ? "Use as summary" : action === "draft" ? "Use this draft" : "Replace document";
+  return (
+    <div className="rounded-lg border border-compass-200 bg-compass-50/60">
+      <div className="flex items-center gap-2 border-b border-compass-100 px-4 py-2">
+        <span className="text-sm font-semibold text-compass-800">✨ {ASSIST_LABEL[action]}</span>
+        <span className="ml-auto flex gap-2">
+          <button
+            type="button"
+            onClick={onApply}
+            className="rounded-md bg-compass-600 px-3 py-1 text-sm font-semibold text-white hover:bg-compass-700"
+          >
+            {applyLabel}
+          </button>
+          <button
+            type="button"
+            onClick={onDismiss}
+            className="rounded-md px-3 py-1 text-sm font-medium text-slate-600 hover:bg-slate-100"
+          >
+            Dismiss
+          </button>
+        </span>
+      </div>
+      {truncated && (
+        <p className="px-4 pt-2 text-xs text-amber-700">
+          This document is long — only the beginning was rewritten; the rest is kept unchanged.
+        </p>
+      )}
+      <pre className="max-h-80 overflow-auto whitespace-pre-wrap px-4 py-3 font-sans text-sm text-slate-700">
+        {text}
+      </pre>
+      <p className="px-4 pb-3 text-xs text-slate-500">
+        AI can make mistakes and won’t know facts you haven’t written down — review before applying.
+      </p>
+    </div>
   );
 }
 

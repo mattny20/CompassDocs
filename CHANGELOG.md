@@ -7,6 +7,16 @@ All notable changes to CompassDocs are documented here. The format is based on
 ## [0.61.0] - 2026-07-26
 
 ### Added
+- **AI writing assist in the editor.** A new **✨ Write** menu beside
+  Proofread: **draft from the title** (a structured starter with
+  `[placeholders]` instead of invented facts), **improve**, **expand**,
+  **make shorter**, **summarize into the summary field**, and **change
+  tone** (professional, friendly, concise, confident). Every result shows
+  in a review panel first — nothing touches your document until you click
+  apply — and the helpers use the same admin-configured Anthropic key and
+  model as Ask and proofreading, degrading gracefully when no key is set.
+  Markdown structure and code blocks are preserved, and rewrites never
+  invent facts.
 - **Import from Confluence or Notion.** A guided migration under
   **Settings → Data → Migrate from another tool** takes the zip you export
   from Confluence (*Export space → HTML*) or Notion (*Export → Markdown &
