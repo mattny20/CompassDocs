@@ -15,6 +15,7 @@ import { requireUser } from "@/lib/auth";
 import { spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
 import { getAppSettings } from "@/lib/settings-store";
 import { roleAtLeast } from "@/lib/types";
+import { getApprovalMode } from "@/lib/db";
 import type { DocumentWithSpace } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -99,6 +100,7 @@ export default async function SpacePage({ params }: { params: Promise<{ slug: st
             defaultView={space.default_view ?? "cards"}
             nestedPages={nestedOn}
             bulk={isEditor && canAuthor}
+            canPublish={roleAtLeast(user.role, "approver") || (await getApprovalMode()) === "open"}
             moveTargets={moveTargets}
           />
         )}

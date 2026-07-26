@@ -142,13 +142,12 @@ export async function POST(req: Request) {
       continue;
     }
 
+    // Pass ONLY the fields this action changes — never a content snapshot,
+    // so a concurrent editor save can't be clobbered by our stale read.
     const updatedDoc = await updateDocument(doc.id, {
-      title: doc.title,
-      content: doc.content,
-      summary: doc.summary,
-      type: action === "type" ? newType! : doc.type,
-      status: action === "status" ? newStatus! : doc.status,
-      tags,
+      type: action === "type" ? newType : undefined,
+      status: action === "status" ? newStatus : undefined,
+      tags: action === "add_tag" || action === "remove_tag" ? tags : undefined,
       space_id: action === "move" ? targetSpaceId : undefined,
       author: actorName,
       versionNote: "Bulk edit",

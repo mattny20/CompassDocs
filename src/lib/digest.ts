@@ -75,7 +75,11 @@ function escapeHtml(s: string): string {
 }
 
 export async function maybeSendWeeklyDigests(now = new Date()): Promise<void> {
-  if (now.getDay() !== SEND_DOW || now.getHours() < SEND_HOUR) return;
+  // Send window: any tick from Monday 08:00 through Sunday of the SAME ISO
+  // week may claim it (claimWeek dedups) — so an instance that was down on
+  // Monday still catches up instead of silently dropping the week.
+  const isoDay = (now.getDay() + 6) % 7; // 0 = Monday … 6 = Sunday
+  if (isoDay === 0 && now.getHours() < SEND_HOUR) return;
   if (!smtpConfigured(await getSmtpConfig())) return;
 
   // Anyone opted in at all? (cheap pre-check before claiming the week)
@@ -100,6 +104,7 @@ export async function maybeSendWeeklyDigests(now = new Date()): Promise<void> {
   );
 
   let sent = 0;
+  let failed = 0;
   for (const u of recipients) {
     try {
       // Spaces this user can see: admins see all, others their grant set.
@@ -193,13 +198,21 @@ export async function maybeSendWeeklyDigests(now = new Date()): Promise<void> {
       await sendMail([u.email], subject, text, html);
       sent++;
     } catch (e) {
+      failed++;
       console.error(`[digest] failed for user ${u.id}:`, e);
     }
+  }
+
+  // Nothing went out at all (e.g. the relay was down for the whole loop):
+  // release the claim so a later tick this week retries, instead of marking
+  // the week silently done.
+  if (sent === 0 && failed > 0) {
+    await q("UPDATE settings SET value = '' WHERE key = 'digest_last_week' AND value = $1", [week]);
   }
 
   await audit({
     actor: { name: "system" },
     action: "digest.sent",
-    details: { week, recipients: recipients.length, sent },
+    details: { week, recipients: recipients.length, sent, failed },
   });
 }

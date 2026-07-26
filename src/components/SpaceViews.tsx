@@ -53,6 +53,7 @@ export function SpaceViews({
   defaultView,
   nestedPages,
   bulk = false,
+  canPublish = false,
   moveTargets = [],
 }: {
   docs: DocumentWithSpace[];
@@ -62,6 +63,8 @@ export function SpaceViews({
   nestedPages: boolean;
   /** Show multi-select bulk actions in the table view (user can author here). */
   bulk?: boolean;
+  /** Whether bulk Publish/Unpublish apply (approver+, or open approval mode). */
+  canPublish?: boolean;
   /** Spaces the user may move documents into. */
   moveTargets?: { id: number; name: string }[];
 }) {
@@ -113,7 +116,14 @@ export function SpaceViews({
 
       {view === "cards" && <CardsView docs={docs} categories={categories} nestedPages={nestedPages} />}
       {view === "table" && (
-        <TableView docs={docs} categories={categories} bulk={bulk} spaceId={spaceId} moveTargets={moveTargets} />
+        <TableView
+          docs={docs}
+          categories={categories}
+          bulk={bulk}
+          canPublish={canPublish}
+          spaceId={spaceId}
+          moveTargets={moveTargets}
+        />
       )}
       {view === "tree" && nestedPages && <TreeView docs={docs} />}
       {view === "board" && <BoardView docs={docs} />}
@@ -270,12 +280,14 @@ function TableView({
   docs,
   categories,
   bulk = false,
+  canPublish = false,
   spaceId,
   moveTargets = [],
 }: {
   docs: DocumentWithSpace[];
   categories: Category[];
   bulk?: boolean;
+  canPublish?: boolean;
   spaceId?: number;
   moveTargets?: { id: number; name: string }[];
 }) {
@@ -370,6 +382,7 @@ function TableView({
         <BulkBar
           count={selected.size}
           busy={busy}
+          canPublish={canPublish}
           spaceId={spaceId}
           moveTargets={moveTargets}
           onRun={runBulk}
@@ -461,6 +474,7 @@ function TableView({
 function BulkBar({
   count,
   busy,
+  canPublish,
   spaceId,
   moveTargets,
   onRun,
@@ -468,6 +482,8 @@ function BulkBar({
 }: {
   count: number;
   busy: boolean;
+  /** Publish/Unpublish need publish rights; hidden when the user lacks them. */
+  canPublish: boolean;
   spaceId?: number;
   moveTargets: { id: number; name: string }[];
   onRun: (payload: Record<string, unknown>) => void;
@@ -490,12 +506,16 @@ function BulkBar({
         Clear
       </button>
       <span className="mx-1 h-4 w-px bg-compass-200" aria-hidden />
-      <button onClick={() => onRun({ action: "status", status: "published" })} disabled={busy} className={btn}>
-        Publish
-      </button>
-      <button onClick={() => onRun({ action: "status", status: "draft" })} disabled={busy} className={btn}>
-        Unpublish
-      </button>
+      {canPublish && (
+        <>
+          <button onClick={() => onRun({ action: "status", status: "published" })} disabled={busy} className={btn}>
+            Publish
+          </button>
+          <button onClick={() => onRun({ action: "status", status: "draft" })} disabled={busy} className={btn}>
+            Unpublish
+          </button>
+        </>
+      )}
       <label className="flex items-center gap-1 text-xs text-slate-600">
         Type
         <select

@@ -25,6 +25,10 @@ export async function setDocSchedule(
   }
 }
 
+// Known benign race: a PUT in flight while the tick publishes the same doc
+// computes its "was published" flag from a pre-tick snapshot, which can at
+// worst duplicate one subscriber notification. Fixing it means an atomic
+// prev-status capture inside updateDocument; accepted as-is for now.
 /** Fire due schedules. Driven by the instrumentation minute tick. */
 export async function runDueDocSchedules(): Promise<void> {
   // A doc published (or trashed/branched) by hand in the meantime just gets

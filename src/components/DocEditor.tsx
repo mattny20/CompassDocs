@@ -325,8 +325,12 @@ export function DocEditor({
       ...(nestedEnabled ? { parent_id: parentId } : {}),
       ...(canPublish && docId
         ? {
-            publish_at: publishAt ? new Date(publishAt).toISOString() : null,
-            archive_at: archiveAt ? new Date(archiveAt).toISOString() : null,
+            // Only the field matching the submitted status applies; the other
+            // clears, so a hidden stale value can't ride along on a status flip.
+            publish_at:
+              status === "draft" && publishAt ? new Date(publishAt).toISOString() : null,
+            archive_at:
+              status === "published" && archiveAt ? new Date(archiveAt).toISOString() : null,
           }
         : {}),
     };

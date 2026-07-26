@@ -33,8 +33,9 @@ export function DocFeedback({ docId }: { docId: number }) {
     };
   }, [docId]);
 
-  async function vote(helpful: boolean, withNote?: string) {
+  async function vote(helpful: boolean, withNote?: string): Promise<boolean> {
     setBusy(true);
+    let ok = false;
     try {
       const res = await fetch(`/api/documents/${docId}/feedback`, {
         method: "POST",
@@ -42,12 +43,14 @@ export function DocFeedback({ docId }: { docId: number }) {
         body: JSON.stringify({ helpful, ...(withNote ? { note: withNote } : {}) }),
       });
       if (res.ok) {
+        ok = true;
         setSum((await res.json()) as Summary);
         setThanks(true);
         if (helpful) setAskNote(false);
       }
     } catch {}
     setBusy(false);
+    return ok;
   }
 
   if (!sum) return null;
@@ -91,11 +94,14 @@ export function DocFeedback({ docId }: { docId: number }) {
       {askNote && (
         <form
           className="mt-3 flex flex-wrap items-center gap-2"
-          onSubmit={(e) => {
+          onSubmit={async (e) => {
             e.preventDefault();
-            void vote(false, note.trim());
-            setAskNote(false);
-            setNote("");
+            // Keep the form (and the typed note) unless the POST succeeded.
+            const ok = await vote(false, note.trim());
+            if (ok) {
+              setAskNote(false);
+              setNote("");
+            }
           }}
         >
           <label htmlFor="fb-note" className="sr-only">
