@@ -4,6 +4,21 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.61.0] - 2026-07-26
+
+### Added
+- **Import from Confluence or Notion.** A guided migration under
+  **Settings → Data → Migrate from another tool** takes the zip you export
+  from Confluence (*Export space → HTML*) or Notion (*Export → Markdown &
+  CSV*), auto-detects the format, and imports it into a new or existing
+  space. It rebuilds the page hierarchy as **nested pages**, converts
+  Confluence's HTML (headings, lists, tables, code) to clean Markdown,
+  strips Notion's page-id suffixes, and pulls in **images and file
+  attachments** — rewriting every reference to the imported copy. Upload
+  shows a preview (detected source, page and attachment counts) before you
+  commit, and you choose whether pages land as drafts to review or are
+  published. The action is admin-only and recorded in the audit log.
+
 ## [0.60.0] - 2026-07-24
 
 ### Added
