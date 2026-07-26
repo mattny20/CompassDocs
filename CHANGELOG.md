@@ -17,6 +17,16 @@ All notable changes to CompassDocs are documented here. The format is based on
   model as Ask and proofreading, degrading gracefully when no key is set.
   Markdown structure and code blocks are preserved, and rewrites never
   invent facts.
+- **Ask CompassDocs from Slack and Teams.** A Slack slash command (e.g.
+  `/askdocs how do we roll back a deploy?`) and a Microsoft Teams outgoing
+  webhook answer questions in-channel with the same grounded, cited answers
+  as in-app Ask — sources linked back to the knowledge base. Chat answers
+  draw **only from published documents in non-private spaces**, so private
+  content never reaches a channel. Set up under **Settings → Notifications
+  → Ask in chat**: paste each platform's verification secret (sealed at
+  rest like every credential) and flip the enable switch — requests are
+  authenticated with Slack request signing (with replay protection) and
+  Teams HMAC.
 - **Content health report.** A new **Settings → Content health** page shows
   where the knowledge base is quietly rotting, computed live from signals
   the app already tracks: **broken internal links** (references to deleted
