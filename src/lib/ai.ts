@@ -1,8 +1,7 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { hybridRetrieveForAnswer } from "./embeddings";
 import { searchPeopleForAnswer } from "./directory";
 import type { DirectoryPerson } from "./directory";
-import { getAnthropicKey, getAiModel } from "./ai-config";
+import { aiAvailable, chatComplete } from "./ai-config";
 import type { Document } from "./types";
 
 export interface AiSource {
@@ -92,7 +91,7 @@ function fallbackAnswer(question: string, docs: Document[], people: AiPerson[] =
     .join("\n");
   return {
     answer:
-      `AI synthesis is off (no API key configured), so here are the most relevant documents for _"${question}"_:\n\n` +
+      `AI synthesis is off (no AI provider configured), so here are the most relevant documents for _"${question}"_:\n\n` +
       bullets +
       `\n\nOpen a source below to read the full document.`,
     sources: toSources(docs),
@@ -151,12 +150,11 @@ export async function proofread(content: string): Promise<ProofResult> {
   if (!text.trim()) {
     return { mode: "ai", revised: text, changes: [], message: "Nothing to proofread yet." };
   }
-  const apiKey = await getAnthropicKey();
-  if (!apiKey) {
+  if (!(await aiAvailable())) {
     return {
       mode: "unavailable",
       message:
-        "AI proofreading needs an Anthropic API key. An admin can add one in Settings → AI.",
+        "AI proofreading needs an AI provider. An admin can configure one in Settings → AI.",
     };
   }
 
@@ -164,7 +162,6 @@ export async function proofread(content: string): Promise<ProofResult> {
   const input = truncated ? text.slice(0, PROOF_MAX_CHARS) : text;
 
   try {
-    const client = new Anthropic({ apiKey });
     const system = `You are a meticulous copy editor for a team's internal documentation.
 Fix spelling, grammar, punctuation, and awkward or unclear phrasing.
 Strict rules:
@@ -174,18 +171,11 @@ Strict rules:
 - Respond with ONLY a JSON object, no prose before or after, in this exact shape:
 {"revised": "<the full corrected Markdown>", "changes": [{"type": "spelling|grammar|punctuation|clarity", "before": "<short original snippet>", "after": "<corrected snippet>", "note": "<brief reason>"}]}`;
 
-    const response = await client.messages.create({
-      model: await getAiModel(),
-      max_tokens: 8192,
+    const raw = await chatComplete({
       system,
-      messages: [{ role: "user", content: `Proofread this document:\n\n${input}` }],
+      user: `Proofread this document:\n\n${input}`,
+      maxTokens: 8192,
     });
-
-    const raw = response.content
-      .filter((b): b is Anthropic.TextBlock => b.type === "text")
-      .map((b) => b.text)
-      .join("\n")
-      .trim();
 
     const parsed = extractJson(raw);
     if (!parsed || typeof parsed.revised !== "string") {
@@ -298,11 +288,10 @@ export async function writeAssist(input: {
     return { mode: "ai", message: "There's nothing to work with yet." };
   }
 
-  const apiKey = await getAnthropicKey();
-  if (!apiKey) {
+  if (!(await aiAvailable())) {
     return {
       mode: "unavailable",
-      message: "AI writing assist needs an Anthropic API key. An admin can add one in Settings → AI.",
+      message: "AI writing assist needs an AI provider. An admin can configure one in Settings → AI.",
     };
   }
 
@@ -317,18 +306,11 @@ export async function writeAssist(input: {
   const maxTokens = action === "summarize" ? 400 : action === "shorten" ? 2048 : 4096;
 
   try {
-    const client = new Anthropic({ apiKey });
-    const response = await client.messages.create({
-      model: await getAiModel(),
-      max_tokens: maxTokens,
+    let text = await chatComplete({
       system: writeSystem(action, tone, docType),
-      messages: [{ role: "user", content: userMessage }],
+      user: userMessage,
+      maxTokens,
     });
-    let text = response.content
-      .filter((b): b is Anthropic.TextBlock => b.type === "text")
-      .map((b) => b.text)
-      .join("\n")
-      .trim();
 
     if (!text) {
       return { mode: "unavailable", message: "The assistant returned an empty response. Try again." };
@@ -361,8 +343,7 @@ export async function answerQuestion(
     /* directory unavailable — answer from docs alone */
   }
 
-  const apiKey = await getAnthropicKey();
-  if (!apiKey) {
+  if (!(await aiAvailable())) {
     return fallbackAnswer(question, docs, people);
   }
 
@@ -377,7 +358,6 @@ export async function answerQuestion(
   }
 
   try {
-    const client = new Anthropic({ apiKey });
     const system = `You are CompassDocs, an assistant that answers questions strictly from a team's internal knowledge base.
 Rules:
 - Answer ONLY from the provided documents and the people-directory matches. If they don't contain the answer, say so plainly.
@@ -386,23 +366,11 @@ Rules:
 - For "who"-questions, prefer the people directory: give the person's name, title, and contact info from it.
 - Never invent policies, numbers, steps, names, or contact details that aren't in the sources.`;
 
-    const response = await client.messages.create({
-      model: await getAiModel(),
-      max_tokens: 1024,
+    const answer = await chatComplete({
       system,
-      messages: [
-        {
-          role: "user",
-          content: `Question: ${question}\n\nKnowledge base excerpts:\n\n${buildContext(docs) || "(no matching documents)"}${peopleContext(people)}`,
-        },
-      ],
+      user: `Question: ${question}\n\nKnowledge base excerpts:\n\n${buildContext(docs) || "(no matching documents)"}${peopleContext(people)}`,
+      maxTokens: 1024,
     });
-
-    const answer = response.content
-      .filter((b): b is Anthropic.TextBlock => b.type === "text")
-      .map((b) => b.text)
-      .join("\n")
-      .trim();
 
     return {
       answer: answer || "I wasn't able to produce an answer from the available documents.",

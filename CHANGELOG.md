@@ -4,6 +4,20 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.62.0] - 2026-07-26
+
+### Added
+- **Bring your own AI provider.** **Settings → AI** now has a provider
+  choice for Ask, ✨ Write, and ✨ Proofread: **Anthropic (Claude)** — the
+  default, unchanged — or any **OpenAI-compatible** `/v1/chat/completions`
+  endpoint: OpenAI itself, an Azure gateway, or a fully local engine
+  (Ollama, LM Studio, vLLM) via a custom URL, so answers can be generated
+  without anything leaving your network. The API key is optional for local
+  engines and sealed at rest like every credential; the endpoint is
+  validated with a tiny live request when you save, with specific messages
+  for a wrong URL, bad key, or unknown model. This matches the provider
+  flexibility [semantic search] has had since 0.49.
+
 ## [0.61.0] - 2026-07-26
 
 ### Added
