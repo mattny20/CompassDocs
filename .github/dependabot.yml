@@ -20,6 +20,18 @@ updates:
         update-types: ["version-update:semver-minor", "version-update:semver-major"]
       - dependency-name: "@tiptap/*"
         update-types: ["version-update:semver-major"]
+      # TypeScript 7 (tsgo) breaks Next 15's tsconfig-paths resolution at
+      # build time (verified 2026-07: `Module not found: Can't resolve '@/…'`).
+      # Revisit when Next declares TS 7 support.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      # Tailwind 4 is a deliberate migration (new engine, CSS-first config),
+      # not a bot bump.
+      - dependency-name: "tailwindcss"
+        update-types: ["version-update:semver-major"]
+      # Types track the runtime: the image is node:22-alpine.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
