@@ -17,6 +17,15 @@ All notable changes to CompassDocs are documented here. The format is based on
   model as Ask and proofreading, degrading gracefully when no key is set.
   Markdown structure and code blocks are preserved, and rewrites never
   invent facts.
+- **Content health report.** A new **Settings → Content health** page shows
+  where the knowledge base is quietly rotting, computed live from signals
+  the app already tracks: **broken internal links** (references to deleted
+  pages), **orphaned documents** (nothing links to them), **overdue
+  reviews**, **stale documents** (published, 180+ days unedited, on no
+  review cycle), **unread documents** (no views in 90 days), **possible
+  duplicates** (near-identical openings by embedding similarity, when
+  semantic search is configured), and documents whose **author is no longer
+  an active user**. Scorecards up top; every row links to the document.
 - **Import from Confluence or Notion.** A guided migration under
   **Settings → Data → Migrate from another tool** takes the zip you export
   from Confluence (*Export space → HTML*) or Notion (*Export → Markdown &
