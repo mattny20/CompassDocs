@@ -253,7 +253,7 @@ export function LinksAdmin({
       )}
 
       {/* Categories */}
-      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <h2 className="mb-3 font-semibold text-slate-900">Categories</h2>
         <ul className="mb-3 space-y-1.5">
           {categories.map((c, i) => (
@@ -262,16 +262,16 @@ export function LinksAdmin({
               <span className="text-xs text-slate-400">
                 {links.filter((l) => l.category_id === c.id).length} links
               </span>
-              <button onClick={() => moveCategory(c, -1)} disabled={i === 0 || busy} title="Move up" className="rounded p-1 text-slate-400 hover:bg-slate-100 disabled:opacity-30">
+              <button onClick={() => moveCategory(c, -1)} disabled={i === 0 || busy} title="Move up" className="rounded-sm p-1 text-slate-400 hover:bg-slate-100 disabled:opacity-30">
                 <ChevronUp className="h-4 w-4" />
               </button>
-              <button onClick={() => moveCategory(c, 1)} disabled={i === categories.length - 1 || busy} title="Move down" className="rounded p-1 text-slate-400 hover:bg-slate-100 disabled:opacity-30">
+              <button onClick={() => moveCategory(c, 1)} disabled={i === categories.length - 1 || busy} title="Move down" className="rounded-sm p-1 text-slate-400 hover:bg-slate-100 disabled:opacity-30">
                 <ChevronDown className="h-4 w-4" />
               </button>
-              <button onClick={() => renameCategory(c)} disabled={busy} title="Rename" className="rounded p-1 text-slate-400 hover:bg-slate-100">
+              <button onClick={() => renameCategory(c)} disabled={busy} title="Rename" className="rounded-sm p-1 text-slate-400 hover:bg-slate-100">
                 <Pencil className="h-4 w-4" />
               </button>
-              <button onClick={() => deleteCategory(c)} disabled={busy} title="Delete" className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600">
+              <button onClick={() => deleteCategory(c)} disabled={busy} title="Delete" className="rounded-sm p-1 text-slate-400 hover:bg-red-50 hover:text-red-600">
                 <Trash2 className="h-4 w-4" />
               </button>
             </li>
@@ -286,7 +286,7 @@ export function LinksAdmin({
             onChange={(e) => setNewCategory(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && addCategory()}
             placeholder="New category name"
-            className="w-64 rounded-lg border border-slate-200 px-3 py-1.5 text-sm focus:border-compass-400 focus:outline-none"
+            className="w-64 rounded-lg border border-slate-200 px-3 py-1.5 text-sm focus:border-compass-400 focus:outline-hidden"
           />
           <button
             onClick={addCategory}
@@ -299,7 +299,7 @@ export function LinksAdmin({
       </div>
 
       {/* Links */}
-      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="font-semibold text-slate-900">Links</h2>
           <button
@@ -355,14 +355,14 @@ export function LinksAdmin({
                           .join(", ")}
                   </span>
                   {l.icon_type === "favicon" && (
-                    <button onClick={() => refreshIcon(l)} disabled={busy} title="Re-fetch site icon" className="rounded p-1 text-slate-400 hover:bg-slate-100">
+                    <button onClick={() => refreshIcon(l)} disabled={busy} title="Re-fetch site icon" className="rounded-sm p-1 text-slate-400 hover:bg-slate-100">
                       <RefreshCw className="h-4 w-4" />
                     </button>
                   )}
-                  <button onClick={() => startEdit(l)} disabled={busy} title="Edit" className="rounded p-1 text-slate-400 hover:bg-slate-100">
+                  <button onClick={() => startEdit(l)} disabled={busy} title="Edit" className="rounded-sm p-1 text-slate-400 hover:bg-slate-100">
                     <Pencil className="h-4 w-4" />
                   </button>
-                  <button onClick={() => deleteLink(l)} disabled={busy} title="Delete" className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600">
+                  <button onClick={() => deleteLink(l)} disabled={busy} title="Delete" className="rounded-sm p-1 text-slate-400 hover:bg-red-50 hover:text-red-600">
                     <Trash2 className="h-4 w-4" />
                   </button>
                 </li>
@@ -447,7 +447,7 @@ function LinkForm({
   onCancel: () => void;
 }) {
   const input =
-    "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-compass-400 focus:outline-none";
+    "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-compass-400 focus:outline-hidden";
   return (
     <div className="mb-4 rounded-xl border border-compass-200 bg-compass-50/40 p-4">
       <h3 className="mb-3 font-semibold text-slate-900">

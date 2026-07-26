@@ -408,7 +408,7 @@ export function DocEditor({
           <button
             onClick={save}
             disabled={saving}
-            className="rounded-lg bg-compass-600 px-4 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-compass-700 disabled:opacity-60"
+            className="rounded-lg bg-compass-600 px-4 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-compass-700 disabled:opacity-60"
           >
             {saving
               ? "Saving…"
@@ -434,7 +434,7 @@ export function DocEditor({
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="Document title"
-          className="w-full rounded-lg border border-slate-200 bg-surface px-4 py-3 text-lg font-semibold text-slate-900 outline-none focus:border-compass-400 focus:ring-2 focus:ring-compass-100"
+          className="w-full rounded-lg border border-slate-200 bg-surface px-4 py-3 text-lg font-semibold text-slate-900 outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100"
         />
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -448,7 +448,7 @@ export function DocEditor({
                   setCategoryId(null);
                 }
               }}
-              className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-none focus:border-compass-400"
+              className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-hidden focus:border-compass-400"
             >
               {spaces.map((s) => (
                 <option key={s.id} value={s.id}>
@@ -462,7 +462,7 @@ export function DocEditor({
               <select
                 value={parentId ?? ""}
                 onChange={(e) => setParentId(e.target.value ? Number(e.target.value) : null)}
-                className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-none focus:border-compass-400"
+                className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-hidden focus:border-compass-400"
               >
                 <option value="">None — top level</option>
                 {parentOptions.map((o) => (
@@ -478,7 +478,7 @@ export function DocEditor({
               <select
                 value={categoryId ?? ""}
                 onChange={(e) => setCategoryId(e.target.value ? Number(e.target.value) : null)}
-                className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-none focus:border-compass-400"
+                className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-hidden focus:border-compass-400"
               >
                 <option value="">General</option>
                 {categories
@@ -495,7 +495,7 @@ export function DocEditor({
             <select
               value={type}
               onChange={(e) => setType(e.target.value as DocType)}
-              className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-none focus:border-compass-400"
+              className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-hidden focus:border-compass-400"
             >
               {DOC_TYPES.map((t) => (
                 <option key={t.value} value={t.value}>
@@ -508,7 +508,7 @@ export function DocEditor({
             <select
               value={status}
               onChange={(e) => setStatus(e.target.value as DocStatus)}
-              className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-none focus:border-compass-400"
+              className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-hidden focus:border-compass-400"
             >
               <option value="draft">Draft</option>
               <option value="published">Published</option>
@@ -520,7 +520,7 @@ export function DocEditor({
                 type="datetime-local"
                 value={publishAt}
                 onChange={(e) => setPublishAt(e.target.value)}
-                className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-none focus:border-compass-400"
+                className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-hidden focus:border-compass-400"
               />
             </Field>
           )}
@@ -530,7 +530,7 @@ export function DocEditor({
                 type="datetime-local"
                 value={archiveAt}
                 onChange={(e) => setArchiveAt(e.target.value)}
-                className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-none focus:border-compass-400"
+                className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-hidden focus:border-compass-400"
               />
             </Field>
           )}
@@ -549,7 +549,7 @@ export function DocEditor({
               value={summary}
               onChange={(e) => setSummary(e.target.value)}
               placeholder="One-line description for cards & search"
-              className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-none focus:border-compass-400"
+              className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-hidden focus:border-compass-400"
             />
           </Field>
           <Field label="Tags (comma separated)">
@@ -557,7 +557,7 @@ export function DocEditor({
               value={tags}
               onChange={(e) => setTags(e.target.value)}
               placeholder="deploy, ci-cd, release"
-              className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-none focus:border-compass-400"
+              className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-hidden focus:border-compass-400"
             />
           </Field>
         </div>
@@ -569,7 +569,7 @@ export function DocEditor({
               onChange={(e) => setChangeNote(e.target.value)}
               placeholder="What changed and why? e.g. Updated escalation contacts for Q3"
               maxLength={200}
-              className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-none focus:border-compass-400"
+              className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-hidden focus:border-compass-400"
             />
           </Field>
         )}
@@ -595,7 +595,7 @@ export function DocEditor({
                     onClick={() => insertSnippet(kind)}
                     title={label}
                     aria-label={`Insert ${label}`}
-                    className="rounded p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                    className="rounded-sm p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
                   >
                     <Icon className="h-4 w-4" />
                   </button>
@@ -605,7 +605,7 @@ export function DocEditor({
                   onClick={() => insertSnippet("table")}
                   title="Table"
                   aria-label="Insert table"
-                  className="rounded p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                  className="rounded-sm p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
                 >
                   <TableIcon className="h-4 w-4" />
                 </button>
@@ -699,7 +699,7 @@ export function DocEditor({
                 }
               }}
               placeholder="# Start writing…  (paste or drop a screenshot to insert it)"
-              className="h-[420px] w-full resize-y rounded-b-lg px-4 py-3 font-mono text-sm text-slate-700 outline-none"
+              className="h-[420px] w-full resize-y rounded-b-lg px-4 py-3 font-mono text-sm text-slate-700 outline-hidden"
             />
           ) : (
             <div className="min-h-[420px] px-5 py-4">
@@ -868,7 +868,7 @@ function ProofPanel({
           {hasChanges && (
             <button
               onClick={onApply}
-              className="rounded-lg bg-compass-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-compass-700"
+              className="rounded-lg bg-compass-600 px-3 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-compass-700"
             >
               Apply polished version
             </button>
@@ -901,11 +901,11 @@ function ProofPanel({
                 {c.note && <span className="text-xs text-slate-500">{c.note}</span>}
               </div>
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                <span className="rounded bg-red-50 px-1.5 py-0.5 text-red-700 line-through decoration-red-300">
+                <span className="rounded-sm bg-red-50 px-1.5 py-0.5 text-red-700 line-through decoration-red-300">
                   {c.before}
                 </span>
                 <span className="text-slate-400">→</span>
-                <span className="rounded bg-green-50 px-1.5 py-0.5 text-green-700">{c.after}</span>
+                <span className="rounded-sm bg-green-50 px-1.5 py-0.5 text-green-700">{c.after}</span>
               </div>
             </li>
           ))}

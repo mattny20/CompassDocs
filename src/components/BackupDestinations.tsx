@@ -22,7 +22,7 @@ interface DestState {
 }
 
 const field =
-  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
+  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
 
 export function BackupDestinations({ initial }: { initial: DestState }) {
   const router = useRouter();
@@ -141,7 +141,7 @@ function S3Card({
   }
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+    <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="font-semibold text-slate-900">
           S3-compatible{" "}
@@ -228,7 +228,7 @@ function AzureCard({
   }
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+    <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="font-semibold text-slate-900">Azure Blob Storage</h3>
         {azure.configured && (
@@ -295,7 +295,7 @@ function Actions({
       <button
         onClick={onSave}
         disabled={!!saving}
-        className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-compass-700 disabled:opacity-60"
+        className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-compass-700 disabled:opacity-60"
       >
         {saving === "save" ? "Saving…" : "Save"}
       </button>

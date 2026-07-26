@@ -92,7 +92,7 @@ export default async function HealthPage() {
           <a
             key={s.key}
             href={`#${s.key}`}
-            className={`rounded-xl border p-3 text-center shadow-sm ${
+            className={`rounded-xl border p-3 text-center shadow-xs ${
               s.count > 0 ? "border-amber-200 bg-amber-50" : "border-slate-200 bg-surface"
             }`}
           >
@@ -197,7 +197,7 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section id={id} className="rounded-xl border border-slate-200 bg-surface shadow-sm">
+    <section id={id} className="rounded-xl border border-slate-200 bg-surface shadow-xs">
       <div className="border-b border-slate-100 px-4 py-3">
         <h3 className="font-semibold text-slate-900">
           {title}

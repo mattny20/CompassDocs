@@ -26,7 +26,7 @@ export function StickyDocBar({ children }: { children: React.ReactNode }) {
       <div ref={sentinelRef} aria-hidden className="h-px" />
       <div className="sticky top-0 z-20 h-0 print:hidden">
         <div
-          className={`flex items-center gap-3 rounded-b-xl border-x border-b border-slate-200 bg-surface/95 px-4 py-2 shadow-sm backdrop-blur transition-all duration-200 ${
+          className={`flex items-center gap-3 rounded-b-xl border-x border-b border-slate-200 bg-surface/95 px-4 py-2 shadow-xs backdrop-blur-sm transition-all duration-200 ${
             stuck ? "translate-y-0 opacity-100" : "pointer-events-none -translate-y-2 opacity-0"
           }`}
         >

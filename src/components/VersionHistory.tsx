@@ -44,7 +44,7 @@ function Segments({ segs, text }: { segs?: DiffSegment[]; text: string }) {
     <>
       {segs.map((s, i) =>
         s.changed ? (
-          <mark key={i} className="rounded-sm bg-amber-200/80 px-0 text-inherit dark:bg-amber-500/40">
+          <mark key={i} className="rounded-xs bg-amber-200/80 px-0 text-inherit dark:bg-amber-500/40">
             {s.text}
           </mark>
         ) : (
@@ -221,7 +221,7 @@ export function VersionHistory({
 
       {/* Draft branches */}
       {canEdit && !isBranch && (
-        <section className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+        <section className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
           <div className="flex items-center justify-between gap-3">
             <div>
               <h2 className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
@@ -264,7 +264,7 @@ export function VersionHistory({
 
       {/* Compare panel */}
       {rows && oldV && newV && stats && display && (
-        <section className="overflow-hidden rounded-xl border border-slate-200 bg-surface shadow-sm">
+        <section className="overflow-hidden rounded-xl border border-slate-200 bg-surface shadow-xs">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-2.5">
             <div className="text-sm font-medium text-slate-700">
               Comparing <span className="font-semibold">v{oldV.rev}</span> →{" "}
@@ -288,11 +288,11 @@ export function VersionHistory({
           </div>
           {oldV.title !== newV.title && (
             <div className="border-b border-slate-100 px-4 py-2 font-mono text-xs">
-              <div className={`rounded px-2 py-0.5 ${CELL.del}`}>
+              <div className={`rounded-sm px-2 py-0.5 ${CELL.del}`}>
                 <span className="mr-1 select-none text-red-400">−</span>
                 {oldV.title}
               </div>
-              <div className={`mt-0.5 rounded px-2 py-0.5 ${CELL.add}`}>
+              <div className={`mt-0.5 rounded-sm px-2 py-0.5 ${CELL.add}`}>
                 <span className="mr-1 select-none text-emerald-500">+</span>
                 {newV.title}
               </div>
@@ -309,7 +309,7 @@ export function VersionHistory({
                       <tr key={i} className={CELL[r.type]}>
                         <LineNo n={r.leftNo} />
                         <LineNo n={r.rightNo} />
-                        <td className="whitespace-pre-wrap break-words px-2 py-0 leading-5 text-slate-700">
+                        <td className="whitespace-pre-wrap wrap-break-word px-2 py-0 leading-5 text-slate-700">
                           <span className="mr-1 select-none text-slate-300">
                             {r.type === "del" ? "−" : r.type === "add" ? "+" : " "}
                           </span>
@@ -335,7 +335,7 @@ export function VersionHistory({
             — select two to compare ({versions.length} total)
           </span>
         </h2>
-        <ol className="overflow-hidden rounded-xl border border-slate-200 bg-surface shadow-sm">
+        <ol className="overflow-hidden rounded-xl border border-slate-200 bg-surface shadow-xs">
           {versions.map((v, i) => {
             const isCurrent = i === 0;
             return (
@@ -441,7 +441,7 @@ function SplitView({ display, onExpand }: { display: DisplayRow[]; onExpand: () 
             <tr key={`${ci}-${pi}`}>
               <LineNo n={p.left?.leftNo} />
               <td
-                className={`w-1/2 whitespace-pre-wrap break-words border-r border-slate-100 px-2 py-0 leading-5 text-slate-700 ${
+                className={`w-1/2 whitespace-pre-wrap wrap-break-word border-r border-slate-100 px-2 py-0 leading-5 text-slate-700 ${
                   p.left ? CELL[p.left.type] : "bg-slate-50/60 dark:bg-slate-800/30"
                 }`}
               >
@@ -449,7 +449,7 @@ function SplitView({ display, onExpand }: { display: DisplayRow[]; onExpand: () 
               </td>
               <LineNo n={p.right?.rightNo} />
               <td
-                className={`w-1/2 whitespace-pre-wrap break-words px-2 py-0 leading-5 text-slate-700 ${
+                className={`w-1/2 whitespace-pre-wrap wrap-break-word px-2 py-0 leading-5 text-slate-700 ${
                   p.right ? CELL[p.right.type] : "bg-slate-50/60 dark:bg-slate-800/30"
                 }`}
               >

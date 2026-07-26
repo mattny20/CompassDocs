@@ -7,7 +7,7 @@ import type { DirectoryPerson, DirectoryField } from "@/lib/directory";
 import { TagBadges } from "./TagBadges";
 
 const field =
-  "rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
+  "rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
 
 type View = "cards" | "list" | "departments";
 const VIEWS: { id: View; label: string; icon: React.ReactNode }[] = [
@@ -205,7 +205,7 @@ export function DirectoryClient({
                 {allColumns.map((c) => (
                   <label
                     key={c.id}
-                    className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+                    className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
                   >
                     <input
                       type="checkbox"
@@ -224,7 +224,7 @@ export function DirectoryClient({
                   </label>
                 ))}
                 <button
-                  className="mt-1 w-full rounded px-2 py-1.5 text-left text-xs font-medium text-compass-600 hover:bg-slate-50"
+                  className="mt-1 w-full rounded-sm px-2 py-1.5 text-left text-xs font-medium text-compass-600 hover:bg-slate-50"
                   onClick={() => saveCols(DEFAULT_COLS)}
                 >
                   Reset to defaults
@@ -247,7 +247,7 @@ export function DirectoryClient({
         </div>
       ) : view === "list" ? (
         /* ------------------------------ LIST ------------------------------ */
-        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-surface shadow-sm">
+        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-surface shadow-xs">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400">
@@ -331,7 +331,7 @@ export function DirectoryClient({
         /* ------------------------------ CARDS ------------------------------ */
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {people.map((p) => (
-            <div key={p.id} className="flex gap-3 rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+            <div key={p.id} className="flex gap-3 rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
               <Avatar p={p} />
               <div className="min-w-0">
                 <Link

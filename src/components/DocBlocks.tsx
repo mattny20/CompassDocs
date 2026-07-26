@@ -221,7 +221,7 @@ export function DecisionTreeBlock({ code }: { code: string }) {
   }
 
   return (
-    <div className="my-4 rounded-lg border border-slate-200 bg-surface p-4 shadow-sm">
+    <div className="my-4 rounded-lg border border-slate-200 bg-surface p-4 shadow-xs">
       <div className="mb-2 flex items-center justify-between gap-2">
         <span className="text-xs font-semibold uppercase tracking-wide text-compass-600">
           Decision guide
@@ -350,7 +350,7 @@ export function FilterTable({ children }: { children: React.ReactNode }) {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Filter rows…"
-              className="w-48 rounded-md border border-slate-200 bg-surface py-1 pl-7 pr-2 text-xs text-slate-700 placeholder:text-slate-400 focus:border-compass-400 focus:outline-none"
+              className="w-48 rounded-md border border-slate-200 bg-surface py-1 pl-7 pr-2 text-xs text-slate-700 placeholder:text-slate-400 focus:border-compass-400 focus:outline-hidden"
             />
           </span>
           <span className="flex items-center gap-1 text-[11px] text-slate-400">

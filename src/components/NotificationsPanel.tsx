@@ -72,7 +72,7 @@ export function NotificationsPanel({
 
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <label className="flex cursor-pointer items-start gap-3">
           <input
             type="checkbox"
@@ -109,7 +109,7 @@ export function NotificationsPanel({
         </label>
       </div>
 
-      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <h3 className="mb-2 text-sm font-semibold text-slate-900">Subscribed spaces</h3>
         {subs.length === 0 ? (
           <p className="text-sm text-slate-400">

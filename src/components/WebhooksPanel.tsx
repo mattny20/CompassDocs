@@ -7,7 +7,7 @@
 import { useState } from "react";
 
 const field =
-  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
+  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
 
 const FORMATS = [
   { value: "webex", label: "Webex (incoming webhook)" },
@@ -121,7 +121,7 @@ export function WebhooksPanel({
         channel.
       </p>
 
-      <form onSubmit={add} className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+      <form onSubmit={add} className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-slate-500">Name</span>
@@ -200,7 +200,7 @@ export function WebhooksPanel({
       <ul className="mt-4 space-y-2">
         {hooks.length === 0 && <li className="text-sm text-slate-400">No webhooks yet.</li>}
         {hooks.map((h) => (
-          <li key={h.id} className="rounded-xl border border-slate-200 bg-surface p-3 shadow-sm">
+          <li key={h.id} className="rounded-xl border border-slate-200 bg-surface p-3 shadow-xs">
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-medium text-slate-800">{h.name || "Unnamed"}</span>
               <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">
@@ -312,7 +312,7 @@ export function SmtpPanel({ initial }: { initial: SmtpState }) {
   }
 
   return (
-    <div className="mt-6 rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+    <div className="mt-6 rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
       <div className="mb-1 flex items-center gap-2">
         <h3 className="font-semibold text-slate-900">Email (SMTP)</h3>
         {s.configured ? (

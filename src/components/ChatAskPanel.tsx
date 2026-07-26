@@ -46,12 +46,12 @@ export function ChatAskPanel({ initial, baseUrl }: { initial: Config; baseUrl: s
   }
 
   const inputCls =
-    "w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 outline-none focus:border-compass-400";
+    "w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 outline-hidden focus:border-compass-400";
   const urlCls =
     "block select-all rounded-md bg-slate-100 px-2 py-1 font-mono text-xs text-slate-700";
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+    <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
       <h3 className="mb-1 font-semibold text-slate-900">Ask in chat</h3>
       <p className="mb-4 text-sm text-slate-500">
         Let people ask the knowledge base from Slack or Microsoft Teams and get the same grounded,

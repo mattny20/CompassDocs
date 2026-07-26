@@ -57,7 +57,7 @@ export function UpdatePanel() {
 
   return (
     <div
-      className={`rounded-xl border p-4 shadow-sm ${
+      className={`rounded-xl border p-4 shadow-xs ${
         available ? "border-compass-300 bg-compass-50/60" : "border-slate-200 bg-surface"
       }`}
     >

@@ -102,7 +102,7 @@ export function MigrateImport({ spaces }: { spaces: SpaceOpt[] }) {
   }
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+    <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
       <h3 className="mb-1 font-semibold text-slate-900">Migrate from Confluence or Notion</h3>
       <p className="mb-3 text-sm text-slate-500">
         Upload the <strong>.zip</strong> you exported from Confluence (<em>Export space → HTML</em>)
@@ -205,7 +205,7 @@ export function MigrateImport({ spaces }: { spaces: SpaceOpt[] }) {
           <button
             onClick={runImport}
             disabled={busy || (dest === "new" && !newName.trim())}
-            className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-compass-700 disabled:opacity-50"
+            className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-compass-700 disabled:opacity-50"
           >
             {busy ? "Importing…" : `Import ${preview.pageCount} page${preview.pageCount === 1 ? "" : "s"}`}
           </button>

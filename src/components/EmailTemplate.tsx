@@ -65,7 +65,7 @@ export function EmailTemplate({ raw }: { raw: string }) {
   const full = raw.replace(/\n$/, "");
 
   return (
-    <div className="email-template group my-4 overflow-hidden rounded-lg border border-compass-200 shadow-sm dark:border-compass-100">
+    <div className="email-template group my-4 overflow-hidden rounded-lg border border-compass-200 shadow-xs dark:border-compass-100">
       {/* Header bar */}
       <div className="flex items-center justify-between gap-2 border-b border-compass-200 bg-compass-50 px-3 py-1.5 dark:border-compass-100 dark:bg-compass-50/60">
         <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-compass-700 dark:text-compass-300">
@@ -83,7 +83,7 @@ export function EmailTemplate({ raw }: { raw: string }) {
       {headers.length > 0 && (
         <div className="space-y-0.5 border-b border-slate-100 bg-surface px-4 py-2.5">
           {headers.map((h, i) => (
-            <p key={`${h.key}-${i}`} className="!my-0 text-sm">
+            <p key={`${h.key}-${i}`} className="my-0! text-sm">
               <span className="mr-2 inline-block w-14 text-xs font-semibold uppercase tracking-wide text-slate-400">
                 {HEADER_LABEL[h.key]}
               </span>

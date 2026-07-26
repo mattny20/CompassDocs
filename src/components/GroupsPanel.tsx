@@ -23,7 +23,7 @@ type UserOption = Member;
 type EntraGroup = { id: string; name: string; imported: boolean };
 
 const field =
-  "rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
+  "rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
 
 export function GroupsPanel({
   initial,
@@ -119,7 +119,7 @@ export function GroupsPanel({
         <button
           onClick={create}
           disabled={busy}
-          className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-compass-700 disabled:opacity-60"
+          className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-compass-700 disabled:opacity-60"
         >
           Create group
         </button>
@@ -198,7 +198,7 @@ function GroupCard({
   const available = users.filter((u) => !(members ?? []).some((m) => m.id === u.id));
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-surface shadow-sm">
+    <div className="rounded-xl border border-slate-200 bg-surface shadow-xs">
       <div className="flex items-center gap-3 p-3">
         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-compass-50 text-compass-600">
           <UsersRound className="h-4 w-4" />
@@ -398,7 +398,7 @@ function EntraSection({
   }
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+    <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
@@ -426,7 +426,7 @@ function EntraSection({
             <button
               onClick={browse}
               disabled={busy}
-              className="rounded-lg bg-compass-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-compass-700 disabled:opacity-60"
+              className="rounded-lg bg-compass-600 px-3 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-compass-700 disabled:opacity-60"
             >
               Browse groups
             </button>
@@ -490,7 +490,7 @@ function EntraSection({
             <button
               onClick={importPicked}
               disabled={busy || picked.length === 0}
-              className="rounded-lg bg-compass-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-compass-700 disabled:opacity-60"
+              className="rounded-lg bg-compass-600 px-3 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-compass-700 disabled:opacity-60"
             >
               {busy ? "Importing…" : `Import ${picked.length || ""} selected`}
             </button>

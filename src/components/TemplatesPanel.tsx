@@ -41,7 +41,7 @@ const PLACEHOLDERS = [
 ];
 
 const field =
-  "w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-none focus:border-compass-400";
+  "w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-hidden focus:border-compass-400";
 
 export function TemplatesPanel({ initial }: { initial: TemplateRow[] }) {
   const router = useRouter();
@@ -63,9 +63,9 @@ export function TemplatesPanel({ initial }: { initial: TemplateRow[] }) {
           <h2 className="text-lg font-semibold text-slate-900">Document templates</h2>
           <p className="mt-1 max-w-2xl text-sm text-slate-500">
             Starting points writers pick from when creating a document. Placeholders like{" "}
-            <code className="rounded bg-slate-100 px-1 py-0.5 text-xs">{"{{date}}"}</code> fill in
+            <code className="rounded-sm bg-slate-100 px-1 py-0.5 text-xs">{"{{date}}"}</code> fill in
             automatically; anything else (say{" "}
-            <code className="rounded bg-slate-100 px-1 py-0.5 text-xs">{"{{owner}}"}</code>) stays
+            <code className="rounded-sm bg-slate-100 px-1 py-0.5 text-xs">{"{{owner}}"}</code>) stays
             visible as a prompt for the writer. Set a per-space default under Settings → Spaces, or
             save any existing document as a template from its page actions.
           </p>
@@ -76,7 +76,7 @@ export function TemplatesPanel({ initial }: { initial: TemplateRow[] }) {
               setCreating(true);
               setOpenId(null);
             }}
-            className="shrink-0 rounded-lg bg-compass-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-compass-700"
+            className="shrink-0 rounded-lg bg-compass-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-compass-700"
           >
             ＋ New template
           </button>
@@ -106,7 +106,7 @@ export function TemplatesPanel({ initial }: { initial: TemplateRow[] }) {
           return (
             <div
               key={t.id}
-              className="overflow-hidden rounded-xl border border-slate-200 bg-surface shadow-sm"
+              className="overflow-hidden rounded-xl border border-slate-200 bg-surface shadow-xs"
             >
               <button
                 onClick={() => {
@@ -340,12 +340,12 @@ function TemplateForm({
         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
           <Braces className="h-3.5 w-3.5" />
           {PLACEHOLDERS.map((p) => (
-            <code key={p.tag} title={p.label} className="rounded bg-slate-100 px-1.5 py-0.5">
+            <code key={p.tag} title={p.label} className="rounded-sm bg-slate-100 px-1.5 py-0.5">
               {`{{${p.tag}}}`}
             </code>
           ))}
           <span>
-            fill automatically — any other <code className="rounded bg-slate-100 px-1 py-0.5">{"{{tag}}"}</code>{" "}
+            fill automatically — any other <code className="rounded-sm bg-slate-100 px-1 py-0.5">{"{{tag}}"}</code>{" "}
             stays as a prompt for the writer.
           </span>
         </div>
@@ -373,7 +373,7 @@ function TemplateForm({
         <button
           onClick={save}
           disabled={busy}
-          className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-compass-700 disabled:opacity-60"
+          className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-compass-700 disabled:opacity-60"
         >
           {busy ? (
             <span className="inline-flex items-center gap-1.5">

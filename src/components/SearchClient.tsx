@@ -105,11 +105,11 @@ export function SearchClient({
           onChange={(e) => setQuery(e.target.value)}
           autoFocus
           placeholder="e.g. How do I roll back a bad deploy?"
-          className="flex-1 rounded-lg border border-slate-200 bg-surface px-4 py-2.5 text-slate-800 outline-none focus:border-compass-400 focus:ring-2 focus:ring-compass-100"
+          className="flex-1 rounded-lg border border-slate-200 bg-surface px-4 py-2.5 text-slate-800 outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100"
         />
         <button
           type="submit"
-          className="rounded-lg bg-compass-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-compass-700"
+          className="rounded-lg bg-compass-600 px-5 py-2.5 text-sm font-semibold text-white shadow-xs hover:bg-compass-700"
         >
           Ask
         </button>
@@ -117,7 +117,7 @@ export function SearchClient({
 
       {/* AI answer */}
       {(asking || answer) && (
-        <div className="mb-8 rounded-xl border border-compass-200 bg-gradient-to-br from-compass-50/70 to-surface p-5 shadow-sm">
+        <div className="mb-8 rounded-xl border border-compass-200 bg-linear-to-br from-compass-50/70 to-surface p-5 shadow-xs">
           <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-compass-700">
             <span>✨</span> Answer
             {answer?.mode === "fallback" && (
@@ -200,7 +200,7 @@ export function SearchClient({
               <Link
                 key={h.id}
                 href={`/doc/${h.id}`}
-                className="block rounded-xl border border-slate-200 bg-surface p-4 shadow-sm transition hover:border-compass-300 hover:shadow-md"
+                className="block rounded-xl border border-slate-200 bg-surface p-4 shadow-xs transition hover:border-compass-300 hover:shadow-md"
               >
                 <div className="mb-1 flex items-center gap-2">
                   <TypeBadge type={h.type} />

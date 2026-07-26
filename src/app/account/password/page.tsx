@@ -13,7 +13,7 @@ export default async function ChangePasswordPage() {
   if (!forced) redirect("/account#password");
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-100 to-compass-50 px-4">
+    <div className="flex min-h-screen items-center justify-center bg-linear-to-br from-slate-100 to-compass-50 px-4">
       <div className="w-full max-w-sm">
         <div className="mb-6 text-center">
           <h1 className="text-xl font-bold text-slate-900">
@@ -25,7 +25,7 @@ export default async function ChangePasswordPage() {
               : `Signed in as ${user.username}`}
           </p>
         </div>
-        <div className="rounded-2xl border border-slate-200 bg-surface p-6 shadow-sm">
+        <div className="rounded-2xl border border-slate-200 bg-surface p-6 shadow-xs">
           <ChangePasswordForm forced={forced} />
         </div>
         {!forced && (

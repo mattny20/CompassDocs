@@ -12,7 +12,7 @@ export default async function SetupPage() {
   if (!(await needsSetup())) redirect("/login");
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-100 to-compass-50 px-4 py-10">
+    <div className="flex min-h-screen items-center justify-center bg-linear-to-br from-slate-100 to-compass-50 px-4 py-10">
       <div className="w-full max-w-lg">
         <div className="mb-6 flex flex-col items-center text-center">
           <Brand name="CompassDocs" size="lg" layout="col" />
@@ -21,7 +21,7 @@ export default async function SetupPage() {
             Create your admin account to finish installing CompassDocs.
           </p>
         </div>
-        <div className="rounded-2xl border border-slate-200 bg-surface p-6 shadow-sm">
+        <div className="rounded-2xl border border-slate-200 bg-surface p-6 shadow-xs">
           <SetupForm enterprise={eePresent()} proxyManaged={proxyManaged()} />
         </div>
         <p className="mt-4 text-center text-xs text-slate-400">

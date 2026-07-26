@@ -153,12 +153,12 @@ export function SpaceIconPicker({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search icons… (rocket, security, training)"
-          className="flex-1 rounded-md border border-slate-200 px-2.5 py-1.5 text-sm outline-none focus:border-compass-400"
+          className="flex-1 rounded-md border border-slate-200 px-2.5 py-1.5 text-sm outline-hidden focus:border-compass-400"
         />
         <input
           value={value}
           onChange={(e) => onChange(e.target.value.slice(0, 8))}
-          className="h-9 w-14 rounded-md border border-slate-200 px-2 text-center text-lg outline-none focus:border-compass-400"
+          className="h-9 w-14 rounded-md border border-slate-200 px-2 text-center text-lg outline-hidden focus:border-compass-400"
           aria-label="Custom emoji"
           title="Type or paste any emoji"
         />

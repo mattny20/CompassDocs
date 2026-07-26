@@ -74,7 +74,7 @@ export default async function LinksPage() {
                 href={l.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="group flex items-start gap-3 rounded-xl border border-slate-200 bg-surface p-4 shadow-sm transition hover:border-compass-300 hover:shadow"
+                className="group flex items-start gap-3 rounded-xl border border-slate-200 bg-surface p-4 shadow-xs transition hover:border-compass-300 hover:shadow-sm"
               >
                 <LinkIcon link={l} brandLogo={settings.logo_url} />
                 <span className="min-w-0 flex-1">

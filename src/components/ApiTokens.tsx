@@ -15,7 +15,7 @@ interface Connection {
 }
 
 const field =
-  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
+  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
 
 export function ApiTokens({
   initial,
@@ -106,7 +106,7 @@ export function ApiTokens({
           <li>
             Paste this URL:
             <span className="mt-1 flex items-center gap-2">
-              <code className="min-w-0 flex-1 truncate rounded bg-white px-2 py-1 font-mono text-xs ring-1 ring-compass-100">
+              <code className="min-w-0 flex-1 truncate rounded-sm bg-white px-2 py-1 font-mono text-xs ring-1 ring-compass-100">
                 {mcpUrl}
               </code>
               <button
@@ -135,7 +135,7 @@ export function ApiTokens({
             Token &ldquo;{fresh.name}&rdquo; created — copy it now, it won&rsquo;t be shown again.
           </p>
           <div className="mt-2 flex items-center gap-2">
-            <code className="min-w-0 flex-1 truncate rounded bg-white px-2 py-1 font-mono text-xs ring-1 ring-green-200">
+            <code className="min-w-0 flex-1 truncate rounded-sm bg-white px-2 py-1 font-mono text-xs ring-1 ring-green-200">
               {fresh.token}
             </code>
             <button
@@ -150,7 +150,7 @@ export function ApiTokens({
               Claude Desktop setup (mcpServers entry)
             </summary>
             <div className="mt-2">
-              <pre className="overflow-x-auto rounded bg-slate-900 p-2 text-[11px] leading-4 text-slate-200">
+              <pre className="overflow-x-auto rounded-sm bg-slate-900 p-2 text-[11px] leading-4 text-slate-200">
                 {claudeConfig}
               </pre>
               <button

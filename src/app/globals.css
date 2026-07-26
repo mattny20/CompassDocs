@@ -1,6 +1,54 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+@theme {
+  --color-surface: rgb(var(--surface));
+  --color-canvas: rgb(var(--canvas));
+
+  --color-slate-50: rgb(var(--slate-50));
+  --color-slate-100: rgb(var(--slate-100));
+  --color-slate-200: rgb(var(--slate-200));
+  --color-slate-300: rgb(var(--slate-300));
+  --color-slate-400: rgb(var(--slate-400));
+  --color-slate-500: rgb(var(--slate-500));
+  --color-slate-600: rgb(var(--slate-600));
+  --color-slate-700: rgb(var(--slate-700));
+  --color-slate-800: rgb(var(--slate-800));
+  --color-slate-900: rgb(var(--slate-900));
+  --color-slate-950: rgb(var(--slate-950));
+
+  --color-compass-50: rgb(var(--compass-50));
+  --color-compass-100: rgb(var(--compass-100));
+  --color-compass-200: rgb(var(--compass-200));
+  --color-compass-300: rgb(var(--compass-300));
+  --color-compass-400: rgb(var(--compass-400));
+  --color-compass-500: rgb(var(--compass-500));
+  --color-compass-600: rgb(var(--compass-600));
+  --color-compass-700: rgb(var(--compass-700));
+  --color-compass-800: rgb(var(--compass-800));
+  --color-compass-900: rgb(var(--compass-900));
+
+  --font-sans: var(--font-sans), system-ui, sans-serif;
+}
+
+/*
+  The default border color has changed to `currentcolor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+
+  If we ever want to remove these styles, we need to add an explicit border
+  color utility to any element that depends on these defaults.
+*/
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
+}
 
 /* --- Theme palettes -------------------------------------------------------
  * Neutral/surface colors are CSS variables in "R G B" channel form so the
@@ -67,7 +115,7 @@ body {
 
 /* Search snippet highlight — kept legible (dark-on-light) in both themes. */
 mark {
-  @apply rounded px-0.5;
+  @apply rounded-sm px-0.5;
   background: #fde68a;
   color: #78350f;
 }
@@ -108,7 +156,7 @@ mark {
   @apply my-4 border-l-4 border-compass-200 bg-compass-50/60 py-1 pl-4 text-slate-600;
 }
 .doc-prose code {
-  @apply rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[13px] text-pink-700;
+  @apply rounded-sm bg-slate-100 px-1.5 py-0.5 font-mono text-[13px] text-pink-700;
 }
 :root[data-theme="dark"] .doc-prose code {
   @apply text-pink-300;
@@ -143,7 +191,7 @@ mark {
 }
 
 .doc-prose img {
-  @apply my-4 h-auto max-w-full rounded-lg border border-slate-200 shadow-sm;
+  @apply my-4 h-auto max-w-full rounded-lg border border-slate-200 shadow-xs;
 }
 
 /* Print: clean document output for the Print / Save-as-PDF button. */

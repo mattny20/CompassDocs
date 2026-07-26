@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import type { SecureCookieMode, TlsMode } from "@/lib/settings";
 
 const field =
-  "w-full rounded-lg border border-slate-200 px-3 py-2 outline-none focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
+  "w-full rounded-lg border border-slate-200 px-3 py-2 outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
 
 export function SetupForm({
   enterprise = false,
@@ -272,7 +272,7 @@ export function SetupForm({
       <button
         type="submit"
         disabled={loading}
-        className="w-full rounded-lg bg-compass-600 px-4 py-2 font-semibold text-white shadow-sm transition hover:bg-compass-700 disabled:opacity-60"
+        className="w-full rounded-lg bg-compass-600 px-4 py-2 font-semibold text-white shadow-xs transition hover:bg-compass-700 disabled:opacity-60"
       >
         {loading ? "Creating…" : "Create account & get started"}
       </button>

@@ -25,7 +25,7 @@ function timeZones(): string[] {
 }
 
 const field =
-  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
+  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
 
 export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
   const router = useRouter();
@@ -120,7 +120,7 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
   return (
     <div className="space-y-6">
       {/* Branding */}
-      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <h3 className="mb-3 font-semibold text-slate-900">Branding</h3>
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="block">
@@ -254,7 +254,7 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
       </div>
 
       {/* Localization */}
-      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <h3 className="mb-3 font-semibold text-slate-900">Date &amp; time</h3>
         <div className="grid gap-4 sm:grid-cols-3">
           <label className="block sm:col-span-1">
@@ -296,7 +296,7 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
       </div>
 
       {/* Trash retention */}
-      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <h3 className="mb-1 font-semibold text-slate-900">Trash retention</h3>
         <p className="mb-3 text-sm text-slate-500">
           Days to keep deleted documents in the Trash before they&rsquo;re permanently
@@ -318,7 +318,7 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
       </div>
 
       {/* Attachments */}
-      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <h3 className="mb-1 font-semibold text-slate-900">Attachments</h3>
         <p className="mb-3 text-sm text-slate-500">
           Maximum size for a single file attached to a document.
@@ -339,7 +339,7 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
       </div>
 
       {/* Document organization */}
-      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <h3 className="mb-1 font-semibold text-slate-900">Document organization</h3>
         <p className="mb-3 text-sm text-slate-500">
           Optional structure features, off by default. Turning them off later
@@ -350,7 +350,7 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
             type="checkbox"
             checked={s.nested_pages_enabled}
             onChange={(e) => set("nested_pages_enabled", e.target.checked)}
-            className="mt-0.5 h-4 w-4 rounded border-slate-300 text-compass-600"
+            className="mt-0.5 h-4 w-4 rounded-sm border-slate-300 text-compass-600"
           />
           <span>
             <span className="font-medium">Nested pages</span>
@@ -366,12 +366,12 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
             type="checkbox"
             checked={s.backlinks_enabled}
             onChange={(e) => set("backlinks_enabled", e.target.checked)}
-            className="mt-0.5 h-4 w-4 rounded border-slate-300 text-compass-600"
+            className="mt-0.5 h-4 w-4 rounded-sm border-slate-300 text-compass-600"
           />
           <span>
             <span className="font-medium">Backlinks &amp; link autocomplete</span>
             <span className="mt-0.5 block text-xs text-slate-500">
-              Type <code className="rounded bg-slate-100 px-1">[[</code> in the
+              Type <code className="rounded-sm bg-slate-100 px-1">[[</code> in the
               editor to search and link documents inline, and every document
               shows a &ldquo;Linked from&rdquo; panel listing the documents that
               link to it. Existing content is indexed when you turn this on.
@@ -381,7 +381,7 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
       </div>
 
       {/* Comments */}
-      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <h3 className="mb-1 font-semibold text-slate-900">Comments</h3>
         <p className="mb-3 text-sm text-slate-500">
           Discussion threads under every document, with @mentions that notify
@@ -393,7 +393,7 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
             type="checkbox"
             checked={s.comments_enabled}
             onChange={(e) => set("comments_enabled", e.target.checked)}
-            className="h-4 w-4 rounded border-slate-300 text-compass-600"
+            className="h-4 w-4 rounded-sm border-slate-300 text-compass-600"
           />
           Allow comments on documents
         </label>
@@ -413,7 +413,7 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
       </div>
 
       {/* Outlook add-in */}
-      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <h3 className="mb-1 font-semibold text-slate-900">Outlook add-in</h3>
         <p className="mb-3 text-sm text-slate-500">
           Give your team CompassDocs in the Outlook ribbon: search, AI answers,
@@ -444,7 +444,7 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
       </div>
 
       {/* Security */}
-      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <h3 className="mb-1 font-semibold text-slate-900">Session timeout</h3>
         <p className="mb-3 text-sm text-slate-500">
           Signed-in users are logged out after this many minutes of inactivity.
@@ -468,7 +468,7 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
         <button
           onClick={save}
           disabled={saving}
-          className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-compass-700 disabled:opacity-60"
+          className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-compass-700 disabled:opacity-60"
         >
           {saving ? "Saving…" : "Save changes"}
         </button>

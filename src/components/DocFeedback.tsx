@@ -113,7 +113,7 @@ export function DocFeedback({ docId }: { docId: number }) {
             onChange={(e) => setNote(e.target.value)}
             maxLength={500}
             placeholder="What's missing or wrong? (optional)"
-            className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-sm outline-none focus:border-compass-400"
+            className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-sm outline-hidden focus:border-compass-400"
           />
           <button
             type="submit"

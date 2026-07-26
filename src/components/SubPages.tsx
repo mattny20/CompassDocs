@@ -96,7 +96,7 @@ export function SubPages({
                     disabled={busy || i === 0}
                     title="Move up"
                     aria-label={`Move ${p.title} up`}
-                    className="rounded p-0.5 text-slate-400 hover:bg-slate-100 disabled:opacity-30"
+                    className="rounded-sm p-0.5 text-slate-400 hover:bg-slate-100 disabled:opacity-30"
                   >
                     <ChevronUp className="h-3.5 w-3.5" />
                   </button>
@@ -105,7 +105,7 @@ export function SubPages({
                     disabled={busy || i === pages.length - 1}
                     title="Move down"
                     aria-label={`Move ${p.title} down`}
-                    className="rounded p-0.5 text-slate-400 hover:bg-slate-100 disabled:opacity-30"
+                    className="rounded-sm p-0.5 text-slate-400 hover:bg-slate-100 disabled:opacity-30"
                   >
                     <ChevronDown className="h-3.5 w-3.5" />
                   </button>

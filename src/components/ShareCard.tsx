@@ -136,7 +136,7 @@ export function ShareCard({
             value={expiry}
             onChange={(e) => setExpiry(e.target.value)}
             aria-label="Link expiry"
-            className="w-full rounded-lg border border-slate-200 bg-surface px-2.5 py-1.5 text-sm outline-none focus:border-compass-400"
+            className="w-full rounded-lg border border-slate-200 bg-surface px-2.5 py-1.5 text-sm outline-hidden focus:border-compass-400"
           >
             {EXPIRY_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>
@@ -147,7 +147,7 @@ export function ShareCard({
           <button
             onClick={create}
             disabled={busy}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-compass-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-compass-700 disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-compass-600 px-3 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-compass-700 disabled:opacity-60"
           >
             {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <LinkIcon className="h-4 w-4" />}
             Create share link

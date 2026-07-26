@@ -140,7 +140,7 @@ export function RelatedDocs({
                     onClick={() => unlink(d.relation_id)}
                     title="Remove link"
                     aria-label={`Remove link to ${d.title}`}
-                    className="mt-1.5 rounded p-1 text-slate-300 opacity-0 transition hover:bg-red-50 hover:text-red-600 group-hover:opacity-100"
+                    className="mt-1.5 rounded-sm p-1 text-slate-300 opacity-0 transition hover:bg-red-50 hover:text-red-600 group-hover:opacity-100"
                   >
                     <X className="h-3.5 w-3.5" />
                   </button>
@@ -172,7 +172,7 @@ export function RelatedDocs({
               value={kind}
               onChange={(e) => setKind(e.target.value)}
               aria-label="Relationship type"
-              className="rounded-md border border-slate-200 bg-surface px-1.5 py-1 text-xs outline-none focus:border-compass-400"
+              className="rounded-md border border-slate-200 bg-surface px-1.5 py-1 text-xs outline-hidden focus:border-compass-400"
             >
               {KIND_OPTIONS.map((o) => (
                 <option key={o.value} value={o.value}>
@@ -186,7 +186,7 @@ export function RelatedDocs({
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search documents…"
             autoFocus
-            className="w-full rounded-md border border-slate-200 bg-surface px-2 py-1.5 text-sm outline-none placeholder:text-slate-400 focus:border-compass-400"
+            className="w-full rounded-md border border-slate-200 bg-surface px-2 py-1.5 text-sm outline-hidden placeholder:text-slate-400 focus:border-compass-400"
           />
           {hits.length > 0 && (
             <ul className="mt-1 max-h-48 overflow-y-auto">

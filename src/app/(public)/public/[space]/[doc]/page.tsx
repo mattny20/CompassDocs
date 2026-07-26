@@ -72,12 +72,12 @@ export default async function PublicDocPage({
         {doc.tags.length > 0 && <span>· {doc.tags.join(", ")}</span>}
       </div>
 
-      <div className="prose prose-slate mt-8 max-w-none rounded-xl border border-slate-200 bg-white p-8 shadow-sm">
+      <div className="prose prose-slate mt-8 max-w-none rounded-xl border border-slate-200 bg-white p-8 shadow-xs">
         <MarkdownView content={doc.content} docKey={`pub-${doc.id}`} />
       </div>
 
       {attachments.length > 0 && (
-        <div className="mt-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm print:hidden">
+        <div className="mt-6 rounded-xl border border-slate-200 bg-white p-5 shadow-xs print:hidden">
           <h2 className="mb-2 text-sm font-semibold text-slate-700">Attachments</h2>
           <ul className="space-y-1">
             {attachments.map((a) => (

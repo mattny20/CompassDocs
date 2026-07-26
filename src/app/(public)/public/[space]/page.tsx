@@ -50,7 +50,7 @@ export default async function PublicSpacePage({
           Nothing published here yet.
         </p>
       ) : (
-        <ul className="mt-6 divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white shadow-sm">
+        <ul className="mt-6 divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white shadow-xs">
           {docs.map((d) => (
             <li key={d.id}>
               <Link

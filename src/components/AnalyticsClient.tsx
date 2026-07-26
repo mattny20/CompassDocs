@@ -118,7 +118,7 @@ function Kpi({
   delta?: React.ReactNode;
 }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+    <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
       <div className="flex items-center justify-between">
         <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-compass-50 text-compass-600 dark:bg-compass-950/50">
           {icon}
@@ -246,7 +246,7 @@ function Card({
   extra?: React.ReactNode;
 }) {
   return (
-    <section className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+    <section className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
       <div className="mb-3 flex items-center justify-between gap-2">
         <div>
           <h2 className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
@@ -437,7 +437,7 @@ export function AnalyticsClient() {
 
   const k = data?.kpis ?? {};
   const select =
-    "rounded-lg border border-slate-200 bg-surface px-2.5 py-1.5 text-sm text-slate-600 outline-none focus:border-compass-400";
+    "rounded-lg border border-slate-200 bg-surface px-2.5 py-1.5 text-sm text-slate-600 outline-hidden focus:border-compass-400";
 
   const trendRows = useMemo(
     () =>

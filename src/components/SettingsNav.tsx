@@ -71,7 +71,7 @@ export function SettingsNav() {
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search settings…"
           aria-label="Search settings"
-          className="w-full rounded-lg border border-slate-200 bg-surface py-1.5 pl-8 pr-2 text-sm outline-none placeholder:text-slate-400 focus:border-compass-400"
+          className="w-full rounded-lg border border-slate-200 bg-surface py-1.5 pl-8 pr-2 text-sm outline-hidden placeholder:text-slate-400 focus:border-compass-400"
         />
       </label>
       <nav className="flex gap-1 overflow-x-auto sm:flex-col">

@@ -153,7 +153,7 @@ export function EmailTemplatesPanel({ initial }: { initial: Template[] }) {
         <h2 className="mt-2 text-lg font-semibold text-slate-900">Email templates</h2>
         <p className="mt-1 max-w-2xl text-sm text-slate-500">
           Every alert email CompassDocs sends, editable. Dynamic tags like{" "}
-          <code className="rounded bg-slate-100 px-1 py-0.5 text-xs">{"{{doc_title}}"}</code> are
+          <code className="rounded-sm bg-slate-100 px-1 py-0.5 text-xs">{"{{doc_title}}"}</code> are
           replaced with the real value when each email goes out — use the{" "}
           <span className="font-medium">Insert tag</span> menu in the editor toolbar. Newsletters
           have their own editor under Settings → Newsletter.
@@ -166,7 +166,7 @@ export function EmailTemplatesPanel({ initial }: { initial: Template[] }) {
           return (
             <div
               key={t.key}
-              className="overflow-hidden rounded-xl border border-slate-200 bg-surface shadow-sm"
+              className="overflow-hidden rounded-xl border border-slate-200 bg-surface shadow-xs"
             >
               <button
                 onClick={() => (isOpen ? setOpenKey(null) : edit(t))}
@@ -202,7 +202,7 @@ export function EmailTemplatesPanel({ initial }: { initial: Template[] }) {
                         <input
                           value={subject}
                           onChange={(e) => setSubject(e.target.value)}
-                          className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-none focus:border-compass-400"
+                          className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-hidden focus:border-compass-400"
                         />
                       </div>
                       <div>
@@ -219,7 +219,7 @@ export function EmailTemplatesPanel({ initial }: { initial: Template[] }) {
                           <code
                             key={tag.tag}
                             title={tag.label}
-                            className="rounded bg-slate-100 px-1.5 py-0.5"
+                            className="rounded-sm bg-slate-100 px-1.5 py-0.5"
                           >
                             {`{{${tag.tag}}}`}
                           </code>
@@ -239,7 +239,7 @@ export function EmailTemplatesPanel({ initial }: { initial: Template[] }) {
                               <span className="font-medium text-slate-800">{preview.subject}</span>
                             </div>
                             <div
-                              className="rounded-lg bg-white p-4 text-sm shadow-sm"
+                              className="rounded-lg bg-white p-4 text-sm shadow-xs"
                               dangerouslySetInnerHTML={{ __html: preview.html }}
                             />
                           </>

@@ -24,7 +24,7 @@ function bytes(n: number): string {
 }
 
 const field =
-  "rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-none focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
+  "rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
 
 export function BackupsClient({
   backups,
@@ -108,7 +108,7 @@ export function BackupsClient({
     <div className="space-y-6">
       {/* Schedule + destinations */}
       <div className="grid gap-4 sm:grid-cols-2">
-        <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+        <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
           <h3 className="mb-1 font-semibold text-slate-900">Automatic backups</h3>
           <p className="mb-3 text-sm text-slate-500">
             Run a full database backup on a schedule, keeping the newest few.
@@ -138,7 +138,7 @@ export function BackupsClient({
             <button
               onClick={saveSchedule}
               disabled={savingSchedule}
-              className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-compass-700 disabled:opacity-60"
+              className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-compass-700 disabled:opacity-60"
             >
               {savingSchedule ? "Saving…" : "Save"}
             </button>
@@ -146,7 +146,7 @@ export function BackupsClient({
           </div>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+        <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
           <h3 className="mb-1 font-semibold text-slate-900">Destinations</h3>
           <p className="mb-3 text-sm text-slate-500">
             Backups are written locally and mirrored to any off-site destination configured below.
@@ -169,13 +169,13 @@ export function BackupsClient({
       </div>
 
       {/* Backups list */}
-      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <div className="mb-3 flex items-center justify-between">
           <h3 className="font-semibold text-slate-900">Backups ({backups.length})</h3>
           <button
             onClick={backupNow}
             disabled={busy === "__create__"}
-            className="rounded-lg bg-compass-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-compass-700 disabled:opacity-60"
+            className="rounded-lg bg-compass-600 px-3 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-compass-700 disabled:opacity-60"
           >
             {busy === "__create__" ? "Backing up…" : "Back up now"}
           </button>

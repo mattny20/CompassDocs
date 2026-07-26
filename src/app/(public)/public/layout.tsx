@@ -50,7 +50,7 @@ export default async function PublicLayout({ children }: { children: React.React
                 type="search"
                 name="q"
                 placeholder="Search the docs…"
-                className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm outline-none focus:border-compass-400 focus:bg-white focus:ring-2 focus:ring-compass-100"
+                className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm outline-hidden focus:border-compass-400 focus:bg-white focus:ring-2 focus:ring-compass-100"
               />
             </div>
           </form>

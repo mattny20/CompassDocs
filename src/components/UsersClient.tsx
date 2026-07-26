@@ -85,9 +85,9 @@ function UserTable({ users, currentUserId }: { users: User[]; currentUserId: num
         onChange={(e) => setQuery(e.target.value)}
         placeholder="Search by name, username, email, or role…"
         aria-label="Search users"
-        className="mb-3 w-full max-w-sm rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-none placeholder:text-slate-400 focus:border-compass-400"
+        className="mb-3 w-full max-w-sm rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-hidden placeholder:text-slate-400 focus:border-compass-400"
       />
-    <div className="overflow-hidden rounded-xl border border-slate-200 bg-surface shadow-sm">
+    <div className="overflow-hidden rounded-xl border border-slate-200 bg-surface shadow-xs">
       <table className="w-full text-sm">
         <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-400">
           <tr>
@@ -113,7 +113,7 @@ function UserTable({ users, currentUserId }: { users: User[]; currentUserId: num
                 <select
                   value={u.role}
                   onChange={(e) => changeRole(u.id, e.target.value as Role)}
-                  className="rounded-md border border-slate-200 bg-surface px-2 py-1 text-sm outline-none focus:border-compass-400"
+                  className="rounded-md border border-slate-200 bg-surface px-2 py-1 text-sm outline-hidden focus:border-compass-400"
                 >
                   {ROLE_ORDER.map((r) => (
                     <option key={r} value={r}>
@@ -217,7 +217,7 @@ function CreateUser() {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="mt-4 rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-compass-700"
+        className="mt-4 rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-compass-700"
       >
         ＋ Add user
       </button>
@@ -225,10 +225,10 @@ function CreateUser() {
   }
 
   const field =
-    "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
+    "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
 
   return (
-    <form onSubmit={submit} className="mt-4 rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+    <form onSubmit={submit} className="mt-4 rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
       <h3 className="mb-3 font-semibold text-slate-900">Add a user</h3>
       {error && <div className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
       <div className="grid gap-3 sm:grid-cols-2">

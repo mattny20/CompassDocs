@@ -20,7 +20,7 @@ interface Hit {
 function Snippet({ html }: { html: string }) {
   return (
     <p
-      className="mt-1 text-sm text-slate-500 [&_mark]:rounded [&_mark]:px-0.5"
+      className="mt-1 text-sm text-slate-500 [&_mark]:rounded-sm [&_mark]:px-0.5"
       dangerouslySetInnerHTML={{ __html: html }}
     />
   );
@@ -74,7 +74,7 @@ export function SpaceSearch({
           onChange={(e) => setQuery(e.target.value)}
           placeholder={`Search in ${spaceName}…`}
           aria-label={`Search documents in ${spaceName}`}
-          className="w-full rounded-xl border border-slate-200 bg-surface py-2.5 pl-10 pr-10 text-sm shadow-sm outline-none focus:border-compass-400 focus:ring-2 focus:ring-compass-100"
+          className="w-full rounded-xl border border-slate-200 bg-surface py-2.5 pl-10 pr-10 text-sm shadow-xs outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100"
         />
         {query && (
           <button
@@ -105,7 +105,7 @@ export function SpaceSearch({
                 <li key={h.id}>
                   <Link
                     href={`/doc/${h.id}`}
-                    className="block rounded-xl border border-slate-200 bg-surface p-4 shadow-sm transition hover:border-compass-300"
+                    className="block rounded-xl border border-slate-200 bg-surface p-4 shadow-xs transition hover:border-compass-300"
                   >
                     <span className="flex items-center gap-2">
                       <TypeBadge type={h.type as any} />

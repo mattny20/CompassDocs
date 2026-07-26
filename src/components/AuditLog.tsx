@@ -153,7 +153,7 @@ export function AuditLog({ initial, settings }: { initial: Initial; settings: Ap
               setCategory(e.target.value);
               load(0, e.target.value);
             }}
-            className="rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-none focus:border-compass-400"
+            className="rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-hidden focus:border-compass-400"
           >
             <option value="">All categories</option>
             {initial.categories.map((c) => (
@@ -172,7 +172,7 @@ export function AuditLog({ initial, settings }: { initial: Initial; settings: Ap
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-surface shadow-sm">
+      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-surface shadow-xs">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400">

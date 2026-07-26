@@ -55,7 +55,7 @@ export default async function PersonProfilePage({
         <ArrowLeft className="h-3.5 w-3.5" /> Directory
       </Link>
 
-      <div className="rounded-xl border border-slate-200 bg-surface p-6 shadow-sm">
+      <div className="rounded-xl border border-slate-200 bg-surface p-6 shadow-xs">
         <div className="flex flex-wrap items-start gap-5">
           {person.photo ? (
             // eslint-disable-next-line @next/next/no-img-element

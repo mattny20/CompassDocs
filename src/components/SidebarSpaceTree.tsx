@@ -32,7 +32,7 @@ function TreeRow({ node, depth }: { node: TreeNode; depth: number }) {
             onClick={() => setOpen((o) => !o)}
             title={open ? "Collapse" : "Expand"}
             aria-label={`${open ? "Collapse" : "Expand"} ${node.title}`}
-            className="rounded p-0.5 text-slate-400 hover:text-slate-600"
+            className="rounded-sm p-0.5 text-slate-400 hover:text-slate-600"
           >
             <ChevronRight className={`h-3 w-3 transition-transform ${open ? "rotate-90" : ""}`} />
           </button>

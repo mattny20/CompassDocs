@@ -23,7 +23,7 @@ export function StatusBadge({ status }: { status: DocStatus }) {
 
 export function Tag({ label }: { label: string }) {
   return (
-    <span className="inline-flex items-center rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">
+    <span className="inline-flex items-center rounded-sm bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">
       #{label}
     </span>
   );

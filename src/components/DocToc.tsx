@@ -78,7 +78,7 @@ export function DocToc() {
             <li key={`${it.id}-${i}`} style={{ paddingLeft: `${(it.level - 1) * 1.1}rem` }}>
               <a
                 href={`#${it.id}`}
-                className="block truncate rounded px-1.5 py-1 text-sm text-slate-600 hover:bg-slate-50 hover:text-compass-700"
+                className="block truncate rounded-sm px-1.5 py-1 text-sm text-slate-600 hover:bg-slate-50 hover:text-compass-700"
               >
                 {it.text}
               </a>

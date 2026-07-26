@@ -60,7 +60,7 @@ export function LoginForm({ next = "/" }: { next?: string }) {
               onChange={(e) => setUsername(e.target.value)}
               autoFocus
               autoComplete="username"
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 outline-none focus:border-compass-400 focus:ring-2 focus:ring-compass-100"
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100"
             />
           </label>
           <label className="block">
@@ -70,7 +70,7 @@ export function LoginForm({ next = "/" }: { next?: string }) {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="current-password"
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 outline-none focus:border-compass-400 focus:ring-2 focus:ring-compass-100"
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100"
             />
           </label>
         </>
@@ -86,7 +86,7 @@ export function LoginForm({ next = "/" }: { next?: string }) {
             inputMode="numeric"
             autoComplete="one-time-code"
             placeholder="6-digit code or recovery code"
-            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-center font-mono tracking-widest outline-none focus:border-compass-400 focus:ring-2 focus:ring-compass-100"
+            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-center font-mono tracking-widest outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100"
           />
           <span className="mt-1 block text-xs text-slate-400">
             From your authenticator app — or one of your recovery codes.
@@ -96,7 +96,7 @@ export function LoginForm({ next = "/" }: { next?: string }) {
       <button
         type="submit"
         disabled={loading || (needsTotp && !totpCode)}
-        className="w-full rounded-lg bg-compass-600 px-4 py-2 font-semibold text-white shadow-sm transition hover:bg-compass-700 disabled:opacity-60"
+        className="w-full rounded-lg bg-compass-600 px-4 py-2 font-semibold text-white shadow-xs transition hover:bg-compass-700 disabled:opacity-60"
       >
         {loading ? "Signing in…" : needsTotp ? "Verify" : "Sign in"}
       </button>

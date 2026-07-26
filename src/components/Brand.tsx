@@ -29,7 +29,7 @@ export function Brand({
     <img
       src={logoUrl}
       alt={name}
-      className={`${box} object-contain bg-white shadow-sm ring-1 ring-slate-200`}
+      className={`${box} object-contain bg-white shadow-xs ring-1 ring-slate-200`}
     />
   ) : (
     // The CompassDocs mark — a transparent PNG that sits on any background.

@@ -126,7 +126,7 @@ function CalloutNodeView({ node, updateAttributes }: NodeViewProps) {
         <select
           value={kind}
           onChange={(e) => updateAttributes({ kind: e.target.value })}
-          className="rounded border border-transparent bg-transparent text-xs font-semibold text-slate-600 hover:border-slate-300"
+          className="rounded-sm border border-transparent bg-transparent text-xs font-semibold text-slate-600 hover:border-slate-300"
         >
           {CALLOUT_KINDS.map((k) => (
             <option key={k} value={k}>
@@ -138,7 +138,7 @@ function CalloutNodeView({ node, updateAttributes }: NodeViewProps) {
           value={String(node.attrs.title ?? "")}
           onChange={(e) => updateAttributes({ title: e.target.value })}
           placeholder="Title (optional)"
-          className="min-w-0 flex-1 rounded border border-transparent bg-transparent text-sm font-semibold outline-none placeholder:font-normal placeholder:text-slate-400 hover:border-slate-300 focus:border-slate-300"
+          className="min-w-0 flex-1 rounded-sm border border-transparent bg-transparent text-sm font-semibold outline-hidden placeholder:font-normal placeholder:text-slate-400 hover:border-slate-300 focus:border-slate-300"
         />
       </div>
       <NodeViewContent className="text-[0.95em] [&>*:first-child]:mt-0 [&>*:last-child]:mb-0" />
@@ -207,7 +207,7 @@ function DetailsNodeView({ node, updateAttributes }: NodeViewProps) {
           value={String(node.attrs.title ?? "")}
           onChange={(e) => updateAttributes({ title: e.target.value })}
           placeholder="Section title"
-          className="min-w-0 flex-1 rounded border border-transparent bg-transparent text-sm font-semibold outline-none placeholder:font-normal placeholder:text-slate-400 hover:border-slate-300 focus:border-slate-300"
+          className="min-w-0 flex-1 rounded-sm border border-transparent bg-transparent text-sm font-semibold outline-hidden placeholder:font-normal placeholder:text-slate-400 hover:border-slate-300 focus:border-slate-300"
         />
       </div>
       <NodeViewContent className="px-3 py-1 [&>*:first-child]:mt-2 [&>*:last-child]:mb-2" />
@@ -280,7 +280,7 @@ function TabPanelNodeView({ node, updateAttributes }: NodeViewProps) {
           value={String(node.attrs.title ?? "")}
           onChange={(e) => updateAttributes({ title: e.target.value })}
           placeholder="Tab title"
-          className="min-w-0 flex-1 rounded border border-transparent bg-transparent text-sm font-medium outline-none placeholder:text-slate-400 hover:border-slate-300 focus:border-slate-300"
+          className="min-w-0 flex-1 rounded-sm border border-transparent bg-transparent text-sm font-medium outline-hidden placeholder:text-slate-400 hover:border-slate-300 focus:border-slate-300"
         />
       </div>
       <NodeViewContent className="px-2.5 py-1 [&>*:first-child]:mt-1.5 [&>*:last-child]:mb-1.5" />
@@ -368,7 +368,7 @@ function EmbedCardControls({
           type="button"
           onClick={onEdit}
           title="Change URL"
-          className="rounded border border-slate-200 p-1 text-slate-400 hover:text-slate-600"
+          className="rounded-sm border border-slate-200 p-1 text-slate-400 hover:text-slate-600"
         >
           <Pencil className="h-3 w-3" />
         </button>
@@ -376,7 +376,7 @@ function EmbedCardControls({
           type="button"
           onClick={onDelete}
           title="Remove"
-          className="rounded border border-slate-200 p-1 text-slate-400 hover:text-red-500"
+          className="rounded-sm border border-slate-200 p-1 text-slate-400 hover:text-red-500"
         >
           <Trash2 className="h-3 w-3" />
         </button>
