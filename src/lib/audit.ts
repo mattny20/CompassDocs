@@ -5,6 +5,7 @@
 // Server-only: uses the Postgres pool.
 
 import { pool } from "./db";
+import { logEvent } from "./log";
 import type { SessionUser } from "./types";
 
 export interface AuditActor {
@@ -86,7 +87,10 @@ export async function audit(entry: AuditEntry): Promise<void> {
       ]
     );
   } catch (e) {
-    console.error("[audit] failed to record", entry.action, e);
+    logEvent("error", "audit.write_failed", {
+      action: entry.action,
+      error: e instanceof Error ? e.message : String(e),
+    });
   }
 }
 
@@ -96,14 +100,12 @@ export interface AuditQuery {
   actorId?: number;
   action?: string; // exact match, or a "prefix." wildcard like "user."
   category?: string; // the part before the first dot (e.g. "document")
+  from?: string; // ISO timestamp — include entries at/after this instant
+  to?: string; // ISO timestamp — include entries before this instant
 }
 
-/** List audit entries, newest first, with optional filters + total count. */
-export async function listAuditLog(
-  opts: AuditQuery = {}
-): Promise<{ rows: AuditRow[]; total: number }> {
-  const limit = Math.min(200, Math.max(1, opts.limit ?? 50));
-  const offset = Math.max(0, opts.offset ?? 0);
+/** Shared WHERE-clause builder for list + export so filters can't drift. */
+function auditWhere(opts: AuditQuery): { clause: string; params: any[] } {
   const where: string[] = [];
   const params: any[] = [];
   if (opts.actorId != null) {
@@ -118,7 +120,24 @@ export async function listAuditLog(
     params.push(`${opts.category}.%`);
     where.push(`action LIKE $${params.length}`);
   }
-  const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  if (opts.from) {
+    params.push(opts.from);
+    where.push(`at >= $${params.length}::timestamptz`);
+  }
+  if (opts.to) {
+    params.push(opts.to);
+    where.push(`at < $${params.length}::timestamptz`);
+  }
+  return { clause: where.length ? `WHERE ${where.join(" AND ")}` : "", params };
+}
+
+/** List audit entries, newest first, with optional filters + total count. */
+export async function listAuditLog(
+  opts: AuditQuery = {}
+): Promise<{ rows: AuditRow[]; total: number }> {
+  const limit = Math.min(200, Math.max(1, opts.limit ?? 50));
+  const offset = Math.max(0, opts.offset ?? 0);
+  const { clause, params } = auditWhere(opts);
 
   const totalRes = await pool().query<{ n: string }>(
     `SELECT COUNT(*)::bigint AS n FROM audit_log ${clause}`,
@@ -130,11 +149,46 @@ export async function listAuditLog(
   const rowsRes = await pool().query<AuditRow>(
     `SELECT id::text, at, actor_id, actor_name, actor_role, action, target_type, target_id, target_label, details, ip
      FROM audit_log ${clause}
-     ORDER BY at DESC, id DESC
+     ORDER BY at DESC, audit_log.id DESC
      LIMIT $${params.length - 1} OFFSET $${params.length}`,
     params
   );
   return { rows: rowsRes.rows, total };
+}
+
+/**
+ * Iterate matching audit entries newest-first in fixed-size batches (keyset
+ * pagination on the identity PK, so memory stays bounded no matter how large
+ * the log is). Powers the enterprise export streamer.
+ */
+export async function* iterAuditLog(
+  opts: Omit<AuditQuery, "limit" | "offset"> = {},
+  batchSize = 1000
+): AsyncGenerator<AuditRow[]> {
+  const { clause, params } = auditWhere(opts);
+  let cursor: string | null = null;
+  for (;;) {
+    const batchParams = [...params];
+    let cursorCond = "";
+    if (cursor !== null) {
+      batchParams.push(cursor);
+      cursorCond = `${clause ? "AND" : "WHERE"} id < $${batchParams.length}`;
+    }
+    batchParams.push(batchSize);
+    const res = await pool().query<AuditRow>(
+      // NB: order by the table column, not the `id::text` output alias —
+      // ORDER BY prefers the alias, which would sort lexicographically.
+      `SELECT id::text, at, actor_id, actor_name, actor_role, action, target_type, target_id, target_label, details, ip
+       FROM audit_log ${clause} ${cursorCond}
+       ORDER BY audit_log.id DESC
+       LIMIT $${batchParams.length}`,
+      batchParams
+    );
+    if (res.rows.length === 0) return;
+    yield res.rows;
+    if (res.rows.length < batchSize) return;
+    cursor = res.rows[res.rows.length - 1].id;
+  }
 }
 
 /** Distinct action categories present in the log (for the filter dropdown). */

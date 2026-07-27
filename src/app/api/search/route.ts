@@ -4,6 +4,7 @@ import { recordSearch } from "@/lib/analytics";
 import { getCurrentUser } from "@/lib/auth";
 import { roleAtLeast } from "@/lib/types";
 import { spaceScopeFor, scopeAllows } from "@/lib/access";
+import { metric } from "@/lib/metrics";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +16,7 @@ export async function GET(req: Request) {
   const q = searchParams.get("q")?.trim() ?? "";
   const limit = Math.min(Number(searchParams.get("limit")) || 25, 50);
   if (!q) return NextResponse.json({ hits: [] });
+  metric("search_requests");
 
   const includeDrafts = roleAtLeast(user.role, "editor");
   const scope = await spaceScopeFor(user);

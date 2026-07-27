@@ -170,6 +170,9 @@ const SCHEMA_SQL = `
     ) STORED
   );
   CREATE INDEX IF NOT EXISTS idx_documents_space ON documents(space_id);
+  -- Doc pages resolve by (space, slug) — give that lookup its exact index so
+  -- it stays O(log n) in spaces with thousands of documents.
+  CREATE INDEX IF NOT EXISTS idx_documents_space_slug ON documents(space_id, slug);
   CREATE INDEX IF NOT EXISTS idx_documents_search ON documents USING gin(search);
 
   -- Soft delete: non-null deleted_at means the doc is in the Trash.
@@ -318,6 +321,8 @@ const SCHEMA_SQL = `
     expires_at timestamptz NOT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+  -- For the hourly expired-session sweep (see runDbMaintenance).
+  CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
 
   -- Single-use guard for SAML responses (replay defense, enterprise SSO). Keyed
   -- on a hash of the response; rows expire with the assertion window.
@@ -1504,6 +1509,20 @@ export async function purgeExpiredTrash(retentionDays: number): Promise<number> 
     [retentionDays]
   );
   return res.rowCount ?? 0;
+}
+
+/**
+ * Hourly housekeeping (driven from instrumentation.ts): drop rows that can
+ * never be read again so hot tables don't grow without bound. Expired sessions
+ * are dead weight after the idle timeout; expired OAuth codes were only ever
+ * valid for minutes. OAuth *tokens* are intentionally untouched — their
+ * refresh halves outlive access_expires_at.
+ */
+export async function runDbMaintenance(): Promise<{ sessions: number; oauthCodes: number }> {
+  await ready();
+  const sessions = await pool().query("DELETE FROM sessions WHERE expires_at < now()");
+  const codes = await pool().query("DELETE FROM oauth_codes WHERE expires_at < now()");
+  return { sessions: sessions.rowCount ?? 0, oauthCodes: codes.rowCount ?? 0 };
 }
 
 export async function countTrashed(): Promise<number> {

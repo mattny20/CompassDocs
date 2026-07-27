@@ -30,6 +30,14 @@ export async function register() {
     } catch (e) {
       console.error("[digest] scheduler error:", e);
     }
+    // Housekeeping: purge expired sessions / OAuth codes so they don't
+    // accumulate forever. Plain deletes — safe to run from every instance.
+    try {
+      const { runDbMaintenance } = await import("./lib/db");
+      await runDbMaintenance();
+    } catch (e) {
+      console.error("[maintenance] scheduler error:", e);
+    }
   };
 
   // First check shortly after boot, then hourly.

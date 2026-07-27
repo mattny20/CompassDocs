@@ -4,6 +4,43 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.65.0] - 2026-07-27
+
+Operations release: audit-log export for compliance teams, first-class
+monitoring endpoints, and database housekeeping.
+
+### Added
+- **Audit-log export** (Enterprise). Admins can download the audit log as CSV
+  or JSON from Settings → Audit log, filtered by category and date range. The
+  download streams in batches, so a year of events exports without straining
+  the server, and every export is itself recorded in the log. Also available
+  at `GET /api/admin/audit/export?format=csv|json&category=&from=&to=`.
+- **Date-range filters** on the audit log screen (all editions).
+- **Health probes.** `GET /healthz` (liveness — process up) and `GET /readyz`
+  (readiness — database reachable, with latency) for load balancers and
+  orchestrators. Both are unauthenticated and dependency-appropriate: a
+  struggling database fails `/readyz` without tripping `/healthz` restarts.
+- **Prometheus metrics** at `GET /metrics`: process memory/uptime, pg pool
+  state, login/search/AI/export counters, and workspace gauges (users,
+  documents, sessions, audit events). Scrapers authenticate with a bearer
+  token via `COMPASSDOCS_METRICS_TOKEN`; signed-in admins can view it in a
+  browser without one.
+- **Diagnostics panel** on Settings → System: live checks of the database,
+  upload storage, SMTP, AI provider, semantic search, license, and metrics
+  endpoint, with a re-run button.
+- **Structured logging option.** `COMPASSDOCS_LOG_FORMAT=json` switches
+  operational events to JSON lines for log shippers.
+
+### Changed
+- Expired sessions and used OAuth codes are now purged hourly instead of
+  accumulating forever; supporting index added.
+- Document lookups by slug got an exact `(space_id, slug)` index for large
+  spaces.
+
+### Fixed
+- Audit-log entries with identical timestamps could interleave out of order in
+  the admin list (text-ordered tiebreak); ordering is now strictly numeric.
+
 ## [0.64.1] - 2026-07-27
 
 Security hardening release from a full internal audit. No action required on
