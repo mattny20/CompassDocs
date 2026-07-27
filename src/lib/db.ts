@@ -523,6 +523,20 @@ const SCHEMA_SQL = `
   );
   CREATE INDEX IF NOT EXISTS idx_attachments_doc ON attachments(document_id);
 
+  -- Links to records in external document-management systems (iManage,
+  -- NetDocuments, SharePoint, …). Shown alongside attachments on the doc,
+  -- but nothing is stored locally — they're just titled deep links.
+  CREATE TABLE IF NOT EXISTS doc_dms_links (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    document_id integer NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    system text NOT NULL DEFAULT 'link',
+    title text NOT NULL,
+    url text NOT NULL,
+    added_by text NOT NULL DEFAULT '',
+    created_at timestamptz NOT NULL DEFAULT now()
+  );
+  CREATE INDEX IF NOT EXISTS idx_dms_links_doc ON doc_dms_links(document_id);
+
   -- Audit log: an append-only record of security- and content-significant
   -- actions (who did what, when). Reads are intentionally not logged.
   CREATE TABLE IF NOT EXISTS audit_log (
@@ -1004,6 +1018,59 @@ export async function getAttachment(id: number): Promise<Attachment | undefined>
 /** Delete an attachment row, returning it (so the caller can unlink the file). */
 export async function deleteAttachmentRow(id: number): Promise<Attachment | undefined> {
   return (await q<Attachment>("DELETE FROM attachments WHERE id = $1 RETURNING *", [id]))[0];
+}
+
+// --- DMS links (iManage / NetDocuments / SharePoint deep links) -----------------
+
+export interface DmsLink {
+  id: number;
+  document_id: number;
+  system: string;
+  title: string;
+  url: string;
+  added_by: string;
+  created_at: string;
+}
+
+export async function listDmsLinks(documentId: number): Promise<DmsLink[]> {
+  return q("SELECT * FROM doc_dms_links WHERE document_id = $1 ORDER BY created_at DESC", [
+    documentId,
+  ]);
+}
+
+export async function addDmsLink(input: {
+  document_id: number;
+  system: string;
+  title: string;
+  url: string;
+  added_by: string;
+}): Promise<DmsLink> {
+  return (
+    await q<DmsLink>(
+      `INSERT INTO doc_dms_links (document_id, system, title, url, added_by)
+       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+      [
+        input.document_id,
+        input.system,
+        input.title.slice(0, 200),
+        input.url.slice(0, 2000),
+        input.added_by.slice(0, 100),
+      ]
+    )
+  )[0];
+}
+
+/** Delete a link, but only from the given document (route-level ownership). */
+export async function deleteDmsLink(
+  documentId: number,
+  id: number
+): Promise<DmsLink | undefined> {
+  return (
+    await q<DmsLink>(
+      "DELETE FROM doc_dms_links WHERE id = $1 AND document_id = $2 RETURNING *",
+      [id, documentId]
+    )
+  )[0];
 }
 
 export async function attachmentsUsage(): Promise<{ count: number; bytes: number }> {
