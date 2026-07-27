@@ -4,6 +4,20 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.69.1] - 2026-07-27
+
+### Added
+- **Zoomable diagrams & images.** Mermaid and PlantUML diagrams (workflows,
+  decision trees, sequence charts) now open in a full-screen viewer on
+  click — scroll wheel or ＋/− to zoom (25%–800%), drag to pan,
+  double-click to toggle, Esc to close. Inline images use the same viewer
+  (they previously only expanded to fit the screen).
+
+### Fixed
+- Attachment and DMS-link rows show the **full file/link name in a
+  tooltip** on hover — long names truncate in the narrow side panel and
+  were unreadable.
+
 ## [0.69.0] - 2026-07-27
 
 Link out to your document-management system.

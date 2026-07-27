@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { LoaderCircle, RotateCcw, ArrowLeft, Search, ArrowUpDown } from "lucide-react";
 import { parseDecisionTree } from "@/lib/doc-blocks";
+import { Lightbox } from "./Lightbox";
 
 function isDarkTheme(): boolean {
   const t = document.documentElement.getAttribute("data-theme");
@@ -35,6 +36,7 @@ export function MermaidBlock({ code }: { code: string }) {
   const dark = useDarkTheme();
   const [svg, setSvg] = useState("");
   const [error, setError] = useState("");
+  const [zoomed, setZoomed] = useState(false);
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -75,10 +77,22 @@ export function MermaidBlock({ code }: { code: string }) {
     );
   }
   return (
-    <div
-      className="my-4 overflow-x-auto rounded-lg border border-slate-200 bg-surface p-4 [&_svg]:mx-auto [&_svg]:max-w-full"
-      dangerouslySetInnerHTML={{ __html: svg }}
-    />
+    <>
+      <div
+        className="my-4 cursor-zoom-in overflow-x-auto rounded-lg border border-slate-200 bg-surface p-4 transition hover:border-compass-300 [&_svg]:mx-auto [&_svg]:max-w-full"
+        title="Click to zoom"
+        onClick={() => setZoomed(true)}
+        dangerouslySetInnerHTML={{ __html: svg }}
+      />
+      <Lightbox open={zoomed} onClose={() => setZoomed(false)} label="Diagram">
+        {/* Mermaid SVGs size as width:100% — give them a real width to fill,
+            or the shrink-wrapped flex child collapses to its padding. */}
+        <div
+          className="w-[85vw] max-w-5xl rounded-lg bg-white p-6 shadow-2xl [&_svg]:h-auto [&_svg]:!max-w-full [&_svg]:w-full"
+          dangerouslySetInnerHTML={{ __html: svg }}
+        />
+      </Lightbox>
+    </>
   );
 }
 
@@ -88,6 +102,7 @@ export function PlantUmlBlock({ code }: { code: string }) {
   const dark = useDarkTheme();
   const [src, setSrc] = useState("");
   const [error, setError] = useState("");
+  const [zoomed, setZoomed] = useState(false);
   useEffect(() => {
     let alive = true;
     let url = "";
@@ -133,10 +148,25 @@ export function PlantUmlBlock({ code }: { code: string }) {
     );
   }
   return (
-    <div className="my-4 overflow-x-auto rounded-lg border border-slate-200 bg-white p-4 text-center dark:bg-slate-900">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={src} alt="PlantUML diagram" className="mx-auto max-w-full" />
-    </div>
+    <>
+      <div
+        className="my-4 cursor-zoom-in overflow-x-auto rounded-lg border border-slate-200 bg-white p-4 text-center transition hover:border-compass-300 dark:bg-slate-900"
+        title="Click to zoom"
+        onClick={() => setZoomed(true)}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={src} alt="PlantUML diagram" className="mx-auto max-w-full" />
+      </div>
+      <Lightbox open={zoomed} onClose={() => setZoomed(false)} label="PlantUML diagram">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={src}
+          alt="PlantUML diagram"
+          draggable={false}
+          className="max-h-[90vh] max-w-[90vw] select-none rounded-lg bg-white p-4 shadow-2xl"
+        />
+      </Lightbox>
+    </>
   );
 }
 

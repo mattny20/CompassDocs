@@ -232,6 +232,7 @@ export function Attachments({
           return (
             <li
               key={`dms-${l.id}`}
+              title={`${l.title}\n${l.url}`}
               className="flex items-center gap-2 rounded-lg border border-slate-200 bg-surface p-1.5"
             >
               {badge ? (
@@ -251,7 +252,7 @@ export function Attachments({
                   href={l.url}
                   target="_blank"
                   rel="noreferrer noopener"
-                  title={l.url}
+                  title={`${l.title}\n${l.url}`}
                   className="block truncate text-sm font-medium text-slate-700 hover:text-compass-600"
                 >
                   {l.title}
@@ -288,6 +289,7 @@ export function Attachments({
         {attachments.map((a) => (
           <li
             key={a.id}
+            title={a.filename}
             className="flex items-center gap-2 rounded-lg border border-slate-200 bg-surface p-1.5"
           >
             {isImg(a.mime_type) ? (
