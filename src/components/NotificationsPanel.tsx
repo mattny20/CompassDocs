@@ -112,7 +112,7 @@ export function NotificationsPanel({
       <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <h3 className="mb-2 text-sm font-semibold text-slate-900">Subscribed spaces</h3>
         {subs.length === 0 ? (
-          <p className="text-sm text-slate-400">
+          <p className="text-sm text-slate-500">
             You aren&apos;t subscribed to any spaces yet — open a space and click{" "}
             <strong>Subscribe</strong>.
           </p>

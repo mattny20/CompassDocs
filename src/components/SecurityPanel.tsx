@@ -128,7 +128,7 @@ function TwoFactor({ initial }: { initial: TotpState }) {
                 1. Scan the QR code with your authenticator app (1Password, Google Authenticator,
                 Microsoft Authenticator, …).
               </p>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-slate-500">
                 Can&rsquo;t scan? Enter this key manually:{" "}
                 <code className="break-all font-mono">{secret}</code>
               </p>
@@ -192,7 +192,7 @@ function TwoFactor({ initial }: { initial: TotpState }) {
 
       {totp.enabled && phase === "idle" && (
         <form onSubmit={disable} className="mt-3">
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-slate-500">
             {totp.recovery_left} recovery code{totp.recovery_left === 1 ? "" : "s"} left.
           </p>
           <div className="mt-2 flex gap-2">
@@ -292,7 +292,7 @@ function Sessions({ initial }: { initial: SessionInfo[] }) {
                   </span>
                 )}
               </div>
-              <div className="text-xs text-slate-400">
+              <div className="text-xs text-slate-500">
                 {s.ip ? `${s.ip} · ` : ""}signed in {new Date(s.created_at).toLocaleString()}
               </div>
             </div>

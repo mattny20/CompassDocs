@@ -136,7 +136,7 @@ export function SearchClient({
                 <MarkdownView content={answer.answer} />
                 {(answer.people?.length ?? 0) > 0 && (
                   <div className="mt-4 border-t border-compass-100 pt-3">
-                    <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                    <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                       From the people directory
                     </div>
                     <div className="flex flex-wrap gap-2">
@@ -167,7 +167,7 @@ export function SearchClient({
                 )}
                 {answer.sources.length > 0 && (
                   <div className="mt-4 border-t border-compass-100 pt-3">
-                    <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                    <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                       Sources
                     </div>
                     <div className="flex flex-wrap gap-2">
@@ -192,7 +192,7 @@ export function SearchClient({
       {/* Keyword results */}
       {submitted && (
         <div>
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
             {searching ? "Searching…" : `${hits.length} matching document${hits.length === 1 ? "" : "s"}`}
           </h2>
           <div className="space-y-3">
@@ -204,7 +204,7 @@ export function SearchClient({
               >
                 <div className="mb-1 flex items-center gap-2">
                   <TypeBadge type={h.type} />
-                  <span className="min-w-0 truncate text-sm text-slate-400">
+                  <span className="min-w-0 truncate text-sm text-slate-500">
                     {h.space_icon} {h.space_name}
                     {h.path && h.path.length > 0 && ` › ${h.path.join(" › ")}`} ·{" "}
                     {timeAgo(h.updated_at)}

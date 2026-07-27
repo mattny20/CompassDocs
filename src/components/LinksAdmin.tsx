@@ -259,7 +259,7 @@ export function LinksAdmin({
           {categories.map((c, i) => (
             <li key={c.id} className="flex items-center gap-2 text-sm">
               <span className="flex-1 font-medium text-slate-700">{c.name}</span>
-              <span className="text-xs text-slate-400">
+              <span className="text-xs text-slate-500">
                 {links.filter((l) => l.category_id === c.id).length} links
               </span>
               <button onClick={() => moveCategory(c, -1)} disabled={i === 0 || busy} title="Move up" className="rounded-sm p-1 text-slate-400 hover:bg-slate-100 disabled:opacity-30">
@@ -345,9 +345,9 @@ export function LinksAdmin({
                         <ExternalLink className="h-3.5 w-3.5 text-slate-300 hover:text-compass-500" />
                       </a>
                     </span>
-                    <span className="block truncate text-xs text-slate-400">{l.url}</span>
+                    <span className="block truncate text-xs text-slate-500">{l.url}</span>
                   </span>
-                  <span className="hidden shrink-0 text-xs text-slate-400 sm:block">
+                  <span className="hidden shrink-0 text-xs text-slate-500 sm:block">
                     {l.group_ids.length === 0
                       ? "Everyone"
                       : l.group_ids

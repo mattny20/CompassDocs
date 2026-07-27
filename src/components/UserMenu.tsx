@@ -65,7 +65,7 @@ export function UserMenu({ user, collapsed = false }: { user: SessionUser; colla
         >
           {user.name || user.username}
         </Link>
-        <div className="truncate text-xs text-slate-400">{ROLE_LABEL[user.role]}</div>
+        <div className="truncate text-xs text-slate-500">{ROLE_LABEL[user.role]}</div>
       </div>
       <div className="flex shrink-0 items-center">
         <ThemeToggle />

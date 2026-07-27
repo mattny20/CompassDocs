@@ -285,7 +285,7 @@ export function SidebarClient({
 
       {!collapsed && (
         <div className="mt-2 flex items-center justify-between px-5 pb-1">
-          <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Spaces</span>
+          <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Spaces</span>
           {isAdmin && (
             <Link
               href="/admin/spaces"

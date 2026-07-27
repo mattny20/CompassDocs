@@ -66,7 +66,9 @@
   --slate-200: 226 232 240;
   --slate-300: 203 213 225;
   --slate-400: 148 163 184;
-  --slate-500: 100 116 139;
+  /* Slightly darker than Tailwind's stock slate-500 (#64748b): secondary text
+   * must clear WCAG AA 4.5:1 on the canvas tint, which stock misses by a hair. */
+  --slate-500: 90 105 128;
   --slate-600: 71 85 105;
   --slate-700: 51 65 85;
   --slate-800: 30 41 59;
@@ -111,6 +113,23 @@ body {
 
 body {
   @apply bg-canvas text-slate-800 antialiased;
+}
+
+/* Dark mode: accent TEXT lightens for contrast (WCAG AA) while accent
+ * BACKGROUNDS (primary buttons, chips) keep their channel-variable values —
+ * the two can't be split at the palette level because bg-compass-* and
+ * text-compass-* share --compass-*. Hover variants included so hovering
+ * doesn't darken back. */
+:root[data-theme="dark"]
+  :is(.text-compass-600, .hover\:text-compass-600:hover, .group-hover\:text-compass-600:is(:where(.group):hover *)) {
+  color: rgb(130 180 224); /* compass-300 */
+}
+:root[data-theme="dark"]
+  :is(.text-compass-700, .hover\:text-compass-700:hover, .group-hover\:text-compass-700:is(:where(.group):hover *)) {
+  color: rgb(160 198 232);
+}
+:root[data-theme="dark"] .text-compass-600\/80 {
+  color: rgb(130 180 224 / 0.85);
 }
 
 /* Search snippet highlight — kept legible (dark-on-light) in both themes. */

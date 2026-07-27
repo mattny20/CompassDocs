@@ -653,7 +653,7 @@ export function DocEditor({
                         Summarize → summary field
                       </AssistItem>
                       <div className="my-1 border-t border-slate-100" />
-                      <div className="px-3 py-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                      <div className="px-3 py-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
                         Change tone
                       </div>
                       {(["professional", "friendly", "concise", "confident"] as WriteTone[]).map((t) => (

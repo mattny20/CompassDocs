@@ -50,7 +50,7 @@ function Meter({ used, total }: { used: number; total: number }) {
       <div className="h-2 overflow-hidden rounded-full bg-slate-100">
         <div className={`h-full ${tone}`} style={{ width: `${pct}%` }} />
       </div>
-      <div className="mt-1 text-xs text-slate-400">
+      <div className="mt-1 text-xs text-slate-500">
         {bytes(used)} of {bytes(total)} used ({pct}%)
       </div>
     </div>
@@ -66,7 +66,7 @@ export function SystemPanel({ info, settings }: { info: SystemInfo; settings: Ap
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-slate-400">
+        <p className="text-sm text-slate-500">
           As of {formatDateTime(info.generatedAt, settings)}
         </p>
         <RefreshButton />
@@ -114,7 +114,7 @@ export function SystemPanel({ info, settings }: { info: SystemInfo; settings: Ap
               <span
                 key={d.key}
                 className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                  d.configured ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-400"
+                  d.configured ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-500"
                 }`}
               >
                 {d.configured ? "✓" : "○"} {d.label}

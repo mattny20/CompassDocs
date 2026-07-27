@@ -1034,7 +1034,7 @@ function Toolbar({
       {editor.isActive("heading") && (
         <>
           <Divider />
-          <span className="inline-flex items-center gap-0.5 px-1 text-xs font-medium text-slate-400">
+          <span className="inline-flex items-center gap-0.5 px-1 text-xs font-medium text-slate-500">
             <Highlighter className="h-3.5 w-3.5" /> Highlight
           </span>
           {HEADING_COLORS.map((c) => (
@@ -1066,7 +1066,7 @@ function Toolbar({
       {editor.isActive("colorPanel") && (
         <>
           <Divider />
-          <span className="inline-flex items-center gap-0.5 px-1 text-xs font-medium text-slate-400">
+          <span className="inline-flex items-center gap-0.5 px-1 text-xs font-medium text-slate-500">
             <PaintBucket className="h-3.5 w-3.5" /> Panel
           </span>
           {PANEL_COLORS.map((c) => (
@@ -1086,7 +1086,7 @@ function Toolbar({
               style={{ backgroundColor: c.value }}
             />
           ))}
-          <span className="px-1 text-xs font-medium text-slate-400">Text</span>
+          <span className="px-1 text-xs font-medium text-slate-500">Text</span>
           {[
             { label: "Auto", value: null },
             { label: "Dark", value: "#0f172a" },
@@ -1166,7 +1166,7 @@ function Toolbar({
           >
             Alt
           </Btn>
-          <span className="px-1 text-xs font-medium text-slate-400">Size</span>
+          <span className="px-1 text-xs font-medium text-slate-500">Size</span>
           <input
             type="range"
             min={10}
@@ -1249,7 +1249,7 @@ function Toolbar({
       {editor.isActive("spacerBlock") && (
         <>
           <Divider />
-          <span className="px-1 text-xs font-medium text-slate-400">Spacer size</span>
+          <span className="px-1 text-xs font-medium text-slate-500">Spacer size</span>
           {SPACER_SIZES.map((s) => (
             <Btn
               key={s.label}

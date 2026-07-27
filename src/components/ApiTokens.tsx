@@ -122,7 +122,7 @@ export function ApiTokens({
             you approve once. Done.
           </li>
         </ol>
-        <p className="mt-2 text-xs text-slate-400">
+        <p className="mt-2 text-xs text-slate-500">
           Claude then acts as you, with your role and the approval workflow. Approved apps appear
           under &ldquo;Connected apps&rdquo; below. For MCP clients without one-click connect,
           create a personal token instead.
@@ -190,7 +190,7 @@ export function ApiTokens({
 
       <ul className="mt-4 divide-y divide-slate-100">
         {tokens.length === 0 && (
-          <li className="py-3 text-sm text-slate-400">No tokens yet.</li>
+          <li className="py-3 text-sm text-slate-500">No tokens yet.</li>
         )}
         {tokens.map((t) => (
           <TokenRow key={t.id} t={t} onRevoke={() => revoke(t.id)} />
@@ -200,18 +200,18 @@ export function ApiTokens({
       <h3 className="mt-6 border-t border-slate-100 pt-4 text-sm font-semibold text-slate-800">
         Connected apps
       </h3>
-      <p className="mt-0.5 text-xs text-slate-400">
+      <p className="mt-0.5 text-xs text-slate-500">
         Apps you approved with the one-click connect flow (e.g. Claude).
       </p>
       <ul className="mt-1 divide-y divide-slate-100">
         {connections.length === 0 && (
-          <li className="py-3 text-sm text-slate-400">No connected apps.</li>
+          <li className="py-3 text-sm text-slate-500">No connected apps.</li>
         )}
         {connections.map((c) => (
           <li key={c.client_id} className="flex items-center gap-3 py-2.5 text-sm">
             <div className="min-w-0 flex-1">
               <div className="truncate font-medium text-slate-800">{c.name || "Unnamed app"}</div>
-              <div className="text-xs text-slate-400">
+              <div className="text-xs text-slate-500">
                 connected {new Date(c.created_at).toLocaleDateString()}
                 {c.last_used_at
                   ? ` · last used ${new Date(c.last_used_at).toLocaleString()}`
@@ -243,7 +243,7 @@ function TokenRow({ t, onRevoke }: { t: ApiToken; onRevoke: () => void }) {
     <li className="flex items-center gap-3 py-2.5 text-sm">
       <div className="min-w-0 flex-1">
         <div className="truncate font-medium text-slate-800">{t.name}</div>
-        <div className="text-xs text-slate-400">
+        <div className="text-xs text-slate-500">
           <code className="font-mono">{t.prefix}</code> · created{" "}
           {new Date(t.created_at).toLocaleDateString()}
           {t.last_used_at

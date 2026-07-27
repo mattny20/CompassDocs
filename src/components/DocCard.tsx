@@ -17,7 +17,7 @@ export function DocCard({ doc }: { doc: DocumentWithSpace }) {
         {doc.title}
       </h3>
       <p className="mt-1 line-clamp-2 text-sm text-slate-500">{doc.summary}</p>
-      <div className="mt-auto flex items-center gap-2 pt-3 text-xs text-slate-400">
+      <div className="mt-auto flex items-center gap-2 pt-3 text-xs text-slate-500">
         <span>{doc.space_icon}</span>
         <span className="truncate">{doc.space_name}</span>
         <span>·</span>
