@@ -19,6 +19,21 @@ export interface EnterpriseEdition {
    */
   dispatch?(method: string, slug: string[], req: Request): Promise<Response>;
 
-  /** Enterprise audit-log export (CSV/JSON), gated by the `audit_export` entitlement. */
-  exportAuditLog?(format: "csv" | "json"): Promise<{ filename: string; body: string }>;
+  /**
+   * Enterprise audit-log export (CSV/JSON), gated by the `audit_export`
+   * entitlement. Returns a complete streaming Response (download headers set)
+   * so exports of any size stay memory-bounded.
+   */
+  exportAuditLog?(opts: AuditExportOptions): Promise<Response>;
+}
+
+export interface AuditExportOptions {
+  format: "csv" | "json";
+  /** Action-category filter — the part before the first dot (e.g. "auth"). */
+  category?: string;
+  /** Restrict to a single actor's entries. */
+  actorId?: number;
+  /** ISO timestamps: entries at/after `from` and strictly before `to`. */
+  from?: string;
+  to?: string;
 }

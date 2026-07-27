@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { login, SESSION_COOKIE, cookieOptions, SESSION_MAX_AGE, secureCookie } from "@/lib/auth";
 import { audit, ipFrom } from "@/lib/audit";
+import { metric } from "@/lib/metrics";
 import { loginRetryAfter, recordLoginFailure, recordLoginSuccess } from "@/lib/login-guard";
 
 export const dynamic = "force-dynamic";
@@ -41,6 +42,7 @@ export async function POST(req: Request) {
     userAgent: req.headers.get("user-agent"),
   });
   if (!result) {
+    metric("login_failure");
     const lockEngaged = recordLoginFailure(username, ip);
     await audit({
       actor: { name: username },
@@ -72,6 +74,7 @@ export async function POST(req: Request) {
     );
   }
 
+  metric("login_success");
   recordLoginSuccess(username, ip);
   await audit({
     actor: { id: result.user.id, name: result.user.name || result.user.username, role: result.user.role },

@@ -9,6 +9,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { getSetting, setSetting } from "./db";
+import { metric } from "./metrics";
 import { safeFetch } from "./safe-fetch";
 
 const KEY_SETTING = "anthropic_api_key";
@@ -167,6 +168,7 @@ export async function chatComplete(input: {
   user: string;
   maxTokens: number;
 }): Promise<string> {
+  metric("ai_requests");
   const provider = await getAiProvider();
 
   if (provider === "anthropic") {

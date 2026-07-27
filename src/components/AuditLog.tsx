@@ -85,6 +85,7 @@ const LABELS: Record<string, string> = {
   "backup.create": "Created backup",
   "backup.delete": "Deleted backup",
   "backup.restore": "Restored backup",
+  "audit.export": "Exported audit log",
 };
 
 // Category → chip color.
@@ -113,20 +114,39 @@ function detailText(row: AuditRow): string {
   return parts.join(" · ");
 }
 
-export function AuditLog({ initial, settings }: { initial: Initial; settings: AppSettings }) {
+export function AuditLog({
+  initial,
+  settings,
+  exportEnabled = false,
+}: {
+  initial: Initial;
+  settings: AppSettings;
+  exportEnabled?: boolean;
+}) {
   const [rows, setRows] = useState<AuditRow[]>(initial.rows);
   const [total, setTotal] = useState(initial.total);
   const [page, setPage] = useState(0);
   const [category, setCategory] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
   const [loading, setLoading] = useState(false);
 
   const limit = initial.limit;
   const pages = Math.max(1, Math.ceil(total / limit));
 
-  async function load(nextPage: number, cat: string) {
-    setLoading(true);
-    const params = new URLSearchParams({ page: String(nextPage), limit: String(limit) });
+  function filterParams(f: string, t: string, cat: string): URLSearchParams {
+    const params = new URLSearchParams();
     if (cat) params.set("category", cat);
+    if (f) params.set("from", f);
+    if (t) params.set("to", t);
+    return params;
+  }
+
+  async function load(nextPage: number, cat: string, f = from, t = to) {
+    setLoading(true);
+    const params = filterParams(f, t, cat);
+    params.set("page", String(nextPage));
+    params.set("limit", String(limit));
     const res = await fetch(`/api/admin/audit?${params}`);
     if (res.ok) {
       const data = await res.json();
@@ -135,6 +155,12 @@ export function AuditLog({ initial, settings }: { initial: Initial; settings: Ap
       setPage(data.page);
     }
     setLoading(false);
+  }
+
+  function exportHref(format: "csv" | "json"): string {
+    const params = filterParams(from, to, category);
+    params.set("format", format);
+    return `/api/admin/audit/export?${params}`;
   }
 
   return (
@@ -146,7 +172,31 @@ export function AuditLog({ initial, settings }: { initial: Initial; settings: Ap
             A record of security- and content-significant actions. {total} event{total === 1 ? "" : "s"}.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-1.5 text-xs text-slate-500">
+            From
+            <input
+              type="date"
+              value={from}
+              onChange={(e) => {
+                setFrom(e.target.value);
+                load(0, category, e.target.value, to);
+              }}
+              className="rounded-lg border border-slate-200 bg-surface px-2 py-1.5 text-sm text-slate-700 outline-hidden focus:border-compass-400"
+            />
+          </label>
+          <label className="flex items-center gap-1.5 text-xs text-slate-500">
+            To
+            <input
+              type="date"
+              value={to}
+              onChange={(e) => {
+                setTo(e.target.value);
+                load(0, category, from, e.target.value);
+              }}
+              className="rounded-lg border border-slate-200 bg-surface px-2 py-1.5 text-sm text-slate-700 outline-hidden focus:border-compass-400"
+            />
+          </label>
           <select
             value={category}
             onChange={(e) => {
@@ -169,6 +219,31 @@ export function AuditLog({ initial, settings }: { initial: Initial; settings: Ap
           >
             {loading ? "…" : "Refresh"}
           </button>
+          {exportEnabled ? (
+            <div className="flex overflow-hidden rounded-lg border border-slate-200">
+              <a
+                href={exportHref("csv")}
+                download
+                className="px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+              >
+                Export CSV
+              </a>
+              <a
+                href={exportHref("json")}
+                download
+                className="border-l border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+              >
+                JSON
+              </a>
+            </div>
+          ) : (
+            <span
+              title="Audit-log export is an enterprise feature."
+              className="cursor-not-allowed rounded-lg border border-dashed border-slate-200 px-3 py-2 text-sm font-medium text-slate-300"
+            >
+              Export · Enterprise
+            </span>
+          )}
         </div>
       </div>
 
