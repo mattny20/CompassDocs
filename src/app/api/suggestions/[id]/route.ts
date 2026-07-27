@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { resolveSuggestion } from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
+import { spaceScopeFor } from "@/lib/access";
 import type { SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -22,6 +23,12 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     return NextResponse.json({ error: "action must be 'accept' or 'dismiss'." }, { status: 400 });
   }
 
-  await resolveSuggestion(Number(id), user.id, action === "accept" ? "accepted" : "dismissed");
+  const ok = await resolveSuggestion(
+    Number(id),
+    user.id,
+    action === "accept" ? "accepted" : "dismissed",
+    await spaceScopeFor(user)
+  );
+  if (!ok) return NextResponse.json({ error: "Not found." }, { status: 404 });
   return NextResponse.json({ ok: true });
 }

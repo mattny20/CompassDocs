@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { writeAssist, type WriteAction, type WriteTone } from "@/lib/ai";
 import { apiGuard } from "@/lib/api-auth";
+import { aiRateLimited } from "@/lib/rate-limit";
+import type { SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -13,6 +15,9 @@ const TONES = new Set<WriteTone>(["professional", "friendly", "concise", "confid
 export async function POST(req: Request) {
   const gate = await apiGuard("editor");
   if (gate instanceof NextResponse) return gate;
+  if (aiRateLimited(`write:${(gate as SessionUser).id}`)) {
+    return NextResponse.json({ error: "Too many requests — slow down a moment." }, { status: 429 });
+  }
 
   let body: any;
   try {

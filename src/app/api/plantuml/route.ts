@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import { deflateRawSync } from "node:zlib";
 import { NextResponse } from "next/server";
+import { ipFrom } from "@/lib/audit";
+import { plantumlRateLimited } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -48,6 +50,11 @@ export async function POST(req: Request) {
       { error: "PlantUML rendering is disabled on this workspace." },
       { status: 503 }
     );
+  }
+  // Anonymous + does an outbound render per uncached diagram — rate-limit per
+  // client IP so a cache-busting flood can't amplify into the upstream server.
+  if (plantumlRateLimited(ipFrom(req) || "anon")) {
+    return NextResponse.json({ error: "Too many diagram renders — try again shortly." }, { status: 429 });
   }
 
   let body: any;

@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Search, X } from "lucide-react";
 import { TypeBadge } from "./Badges";
+import { safeSnippet } from "@/lib/snippet";
 
 interface Hit {
   id: number;
@@ -16,12 +17,13 @@ interface Hit {
   snippet: string;
 }
 
-// ts_headline output is escaped server-side except <mark> — safe to inject.
+// ts_headline output is raw document text — escape it (keeping only <mark>)
+// before injecting, or a doc author's HTML becomes stored XSS.
 function Snippet({ html }: { html: string }) {
   return (
     <p
       className="mt-1 text-sm text-slate-500 [&_mark]:rounded-sm [&_mark]:px-0.5"
-      dangerouslySetInnerHTML={{ __html: html }}
+      dangerouslySetInnerHTML={{ __html: safeSnippet(html) }}
     />
   );
 }

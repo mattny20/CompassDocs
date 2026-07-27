@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { approveChangeRequest, rejectChangeRequest, getChangeRequest, getDocument } from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
+import { spaceScopeFor, scopeAllows } from "@/lib/access";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
 import { notifyWebhooks } from "@/lib/webhooks";
 import { notifySpaceSubscribers } from "@/lib/subscriptions";
@@ -26,6 +27,22 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   // Snapshot the title/space before the decision mutates the row.
   const cr = await getChangeRequest(Number(id));
   const crDoc = cr ? await getDocument(cr.document_id) : undefined;
+
+  // An approver may only decide change requests for spaces within their scope —
+  // otherwise a non-admin approver could enumerate CR ids and publish/reject
+  // into a private space they can't see. Also validate the move-on-approve
+  // target space (cr.space_id), when the CR relocates the doc.
+  if (!cr || !crDoc) {
+    return NextResponse.json({ error: "Not found." }, { status: 404 });
+  }
+  const scope = await spaceScopeFor(user);
+  if (!scopeAllows(scope, crDoc.space_id)) {
+    return NextResponse.json({ error: "Not found." }, { status: 404 });
+  }
+  const targetSpace = (cr as { space_id?: number | null }).space_id;
+  if (targetSpace != null && targetSpace !== crDoc.space_id && !scopeAllows(scope, targetSpace)) {
+    return NextResponse.json({ error: "Not found." }, { status: 404 });
+  }
 
   if (action === "approve") {
     const ok = await approveChangeRequest(Number(id), user.id, user.name || user.username, note);

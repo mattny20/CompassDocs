@@ -18,6 +18,7 @@
 import "server-only";
 import { createHash } from "crypto";
 import { pool, getSetting, setSetting } from "./db";
+import { safeFetch } from "./safe-fetch";
 import type { Document, SearchHit } from "./types";
 
 async function q<T = any>(sql: string, params: any[] = []): Promise<T[]> {
@@ -143,7 +144,9 @@ async function embedTexts(
   }
   const body: Record<string, unknown> = { model: cfg.model, input: texts };
   if (cfg.provider === "voyage") body.input_type = inputType;
-  const res = await fetch(cfg.baseUrl, {
+  // safeFetch blocks SSRF targets — this endpoint is admin-set but embedding
+  // fires at query time for any authenticated user running semantic search.
+  const res = await safeFetch(cfg.baseUrl, {
     method: "POST",
     headers: {
       "content-type": "application/json",

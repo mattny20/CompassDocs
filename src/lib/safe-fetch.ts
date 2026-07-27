@@ -1,11 +1,10 @@
 // SSRF-guarded fetch for server-side requests to URLs an admin typed in
-// (link icons, workspace logos, webhooks). The default policy blocks the
-// dangerous-by-construction targets — cloud metadata endpoints, link-local
-// and loopback addresses — while still allowing RFC1918 intranet hosts,
-// because pointing quick links or webhooks at internal tools is a legitimate,
-// common setup. Set COMPASSDOCS_FETCH_BLOCK_PRIVATE=1 to also refuse private
-// ranges on hardened deployments. Redirects are followed manually so every
-// hop is re-validated. Server-only.
+// (link icons, workspace logos, webhooks) or that AI/embeddings endpoints use.
+// Secure by default: it refuses cloud-metadata endpoints, link-local and
+// loopback addresses, AND RFC1918/CGNAT/ULA private ranges. Deployments that
+// intentionally point quick links or webhooks at internal tools can opt back
+// in with COMPASSDOCS_FETCH_ALLOW_PRIVATE=1. Redirects are followed manually so
+// every hop is re-validated. Server-only.
 
 import "server-only";
 import { lookup } from "node:dns/promises";
@@ -47,7 +46,10 @@ function ipBlocked(ip: string, blockPrivate: boolean): boolean {
 }
 
 function blockPrivateRanges(): boolean {
-  return process.env.COMPASSDOCS_FETCH_BLOCK_PRIVATE === "1";
+  // Secure by default. Opt out on trusted networks that fetch internal hosts.
+  if (process.env.COMPASSDOCS_FETCH_ALLOW_PRIVATE === "1") return false;
+  if (process.env.COMPASSDOCS_FETCH_BLOCK_PRIVATE === "0") return false; // legacy opt-out
+  return true;
 }
 
 /** Throws when the URL points somewhere server-side fetches must not go. */

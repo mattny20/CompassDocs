@@ -319,6 +319,13 @@ const SCHEMA_SQL = `
   );
   CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 
+  -- Single-use guard for SAML responses (replay defense, enterprise SSO). Keyed
+  -- on a hash of the response; rows expire with the assertion window.
+  CREATE TABLE IF NOT EXISTS saml_seen_responses (
+    digest text PRIMARY KEY,
+    expires_at timestamptz NOT NULL
+  );
+
   -- Device metadata for the "active sessions" account page.
   ALTER TABLE sessions ADD COLUMN IF NOT EXISTS ip text;
   ALTER TABLE sessions ADD COLUMN IF NOT EXISTS user_agent text;
@@ -327,6 +334,8 @@ const SCHEMA_SQL = `
   ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret text;
   ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled integer NOT NULL DEFAULT 0;
   ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_recovery jsonb NOT NULL DEFAULT '[]'::jsonb;
+  -- Highest accepted TOTP time-step, to reject replay of a code within its window.
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_last_step bigint NOT NULL DEFAULT 0;
 
   -- Personal API tokens (Claude connector / MCP, integrations). Only a SHA-256
   -- hash is stored; the raw token is shown once at creation.
@@ -1741,6 +1750,10 @@ const SENSITIVE_SETTINGS = new Set([
   "chat_slack_signing_secret",
   "chat_teams_hmac_secret",
   "ai_openai_api_key",
+  // Microsoft Graph directory-sync app secret — an Entra client secret; must be
+  // sealed like sso_client_secret. Existing plaintext rows auto-seal on next
+  // boot via migrateSecuritySealing().
+  "directory_graph_client_secret",
 ]);
 
 export async function getSetting(key: string): Promise<string | undefined> {
@@ -3742,7 +3755,32 @@ export async function deleteOtherSessions(userId: number, currentToken: string):
 
 /** Stash a pending secret during enrollment (2FA not yet enforced). */
 export async function setPendingTotpSecret(userId: number, secret: string): Promise<void> {
-  await q("UPDATE users SET totp_secret = $1, totp_enabled = 0 WHERE id = $2", [secret, userId]);
+  // Seal the shared secret at rest (like every other credential); reset the
+  // replay counter for the fresh enrollment.
+  await q("UPDATE users SET totp_secret = $1, totp_enabled = 0, totp_last_step = 0 WHERE id = $2", [
+    sealSecret(secret),
+    userId,
+  ]);
+}
+
+/** Record the highest accepted TOTP step for a user (replay guard). */
+export async function recordTotpStep(userId: number, step: number): Promise<void> {
+  await q("UPDATE users SET totp_last_step = $1 WHERE id = $2", [step, userId]);
+}
+
+/**
+ * SAML replay guard: record a validated response's digest as consumed. Returns
+ * true when it was newly recorded (accept the sign-in) and false when the same
+ * response was already seen (reject as a replay). Works across app instances
+ * (unlike node-saml's in-memory cache) via a unique-insert race.
+ */
+export async function markSamlResponseSeen(digest: string, expiresAt: Date): Promise<boolean> {
+  await q("DELETE FROM saml_seen_responses WHERE expires_at < now()").catch(() => {});
+  const res = await q(
+    "INSERT INTO saml_seen_responses (digest, expires_at) VALUES ($1, $2) ON CONFLICT (digest) DO NOTHING RETURNING digest",
+    [digest, expiresAt.toISOString()]
+  );
+  return res.length > 0;
 }
 
 export async function getTotpState(
@@ -3755,7 +3793,13 @@ export async function getTotpState(
       [userId]
     )
   )[0];
-  return r ? { secret: r.totp_secret, enabled: r.totp_enabled === 1, recovery_left: r.n } : undefined;
+  return r
+    ? {
+        secret: r.totp_secret ? openSecret(r.totp_secret) : null,
+        enabled: r.totp_enabled === 1,
+        recovery_left: r.n,
+      }
+    : undefined;
 }
 
 export async function enableTotp(userId: number, recoveryHashes: string[]): Promise<void> {
@@ -3831,22 +3875,42 @@ const SUGGESTION_SELECT = `
   JOIN users u ON u.id = sg.created_by
   LEFT JOIN documents d ON d.id = sg.document_id`;
 
-export async function listSuggestions(status?: "open"): Promise<Suggestion[]> {
+export async function listSuggestions(
+  status?: "open",
+  scope?: number[] | "all"
+): Promise<Suggestion[]> {
   // Hide suggestions attached to a trashed document; keep general (doc-less) ones.
   const conds = ["(sg.document_id IS NULL OR d.deleted_at IS NULL)"];
+  const params: unknown[] = [];
   if (status) conds.push("sg.status = 'open'");
-  return q(`${SUGGESTION_SELECT} WHERE ${conds.join(" AND ")} ORDER BY sg.created_at DESC`);
+  // Scope: doc-less suggestions are general feedback (no private content) and
+  // stay visible; doc-attached ones only when the doc's space is in scope.
+  if (Array.isArray(scope)) {
+    params.push(scope);
+    conds.push(`(sg.document_id IS NULL OR d.space_id = ANY($${params.length}))`);
+  }
+  return q(`${SUGGESTION_SELECT} WHERE ${conds.join(" AND ")} ORDER BY sg.created_at DESC`, params);
 }
 
 export async function resolveSuggestion(
   id: number,
   resolverId: number,
-  status: "accepted" | "dismissed"
-): Promise<void> {
-  await q(
-    "UPDATE suggestions SET status = $1, resolved_by = $2, resolved_at = now() WHERE id = $3 AND status = 'open'",
-    [status, resolverId, id]
+  status: "accepted" | "dismissed",
+  scope?: number[] | "all"
+): Promise<boolean> {
+  // Enforce space scope in the UPDATE (race-free): an approver may only resolve
+  // a suggestion that is doc-less or attached to a doc in a space they can see.
+  const params: unknown[] = [status, resolverId, id];
+  let scopeClause = "";
+  if (Array.isArray(scope)) {
+    params.push(scope);
+    scopeClause = ` AND (document_id IS NULL OR document_id IN (SELECT id FROM documents WHERE space_id = ANY($${params.length})))`;
+  }
+  const res = await q(
+    `UPDATE suggestions SET status = $1, resolved_by = $2, resolved_at = now() WHERE id = $3 AND status = 'open'${scopeClause} RETURNING id`,
+    params
   );
+  return res.length > 0;
 }
 
 export async function countOpenSuggestions(): Promise<number> {

@@ -17,22 +17,51 @@ const nextConfig = {
       { key: "Strict-Transport-Security", value: "max-age=15552000" },
       { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
     ];
-    // Anti-clickjacking CSP. The Outlook task pane (/addin/*) must stay
-    // frameable by Outlook's webviews, so those routes allow Office origins;
-    // everything else can only be framed by the app itself. The two rules are
-    // disjoint because a browser enforces the INTERSECTION of duplicate CSPs.
-    const officeFrames =
+    // Content-Security-Policy. Two disjoint rules — /addin/* must stay frameable
+    // by Outlook and load Office.js, everything else is locked to 'self'. A
+    // browser enforces the INTERSECTION of duplicate CSP headers, so these are
+    // kept separate rather than merged.
+    //
+    // script-src keeps 'unsafe-inline' because the app ships a few inline
+    // scripts (pre-paint theme init) and has no nonce middleware yet; the real
+    // XSS fix is escaping user content at the sink. What this policy *does* add
+    // over the previous frame-ancestors-only header: default-src 'self' (no
+    // external script/object loads) and connect-src 'self' (blocks XHR/fetch/
+    // WebSocket exfiltration to attacker hosts) — meaningful blast-radius
+    // reduction. img-src/frame-src allow https: for user-embedded images and
+    // video/site embeds.
+    const commonCsp =
+      "default-src 'self'; " +
+      "style-src 'self' 'unsafe-inline'; " +
+      "img-src 'self' data: blob: https:; " +
+      "font-src 'self'; " +
+      "object-src 'none'; " +
+      "base-uri 'self'; " +
+      "form-action 'self'";
+    const mainCsp =
+      "script-src 'self' 'unsafe-inline'; " +
+      "connect-src 'self'; " +
+      "frame-src 'self' https:; " +
+      "frame-ancestors 'self'; " +
+      commonCsp;
+    // The Outlook task pane loads Office.js from Microsoft and is framed by
+    // Outlook's webviews.
+    const office = "https://appsforoffice.microsoft.com https://*.office.com";
+    const addinCsp =
+      `script-src 'self' 'unsafe-inline' ${office}; ` +
+      `connect-src 'self' ${office}; ` +
+      "frame-src 'self' https:; " +
       "frame-ancestors 'self' https://outlook.office.com https://outlook.office365.com " +
-      "https://outlook.live.com https://*.office.com; object-src 'none'; base-uri 'self'";
-    const selfFrames = "frame-ancestors 'self'; object-src 'none'; base-uri 'self'";
+      "https://outlook.live.com https://*.office.com; " +
+      commonCsp;
     return [
       {
         source: "/addin/:path*",
-        headers: [...base, { key: "Content-Security-Policy", value: officeFrames }],
+        headers: [...base, { key: "Content-Security-Policy", value: addinCsp }],
       },
       {
         source: "/((?!addin).*)",
-        headers: [...base, { key: "Content-Security-Policy", value: selfFrames }],
+        headers: [...base, { key: "Content-Security-Policy", value: mainCsp }],
       },
     ];
   },

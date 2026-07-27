@@ -9,6 +9,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { getSetting, setSetting } from "./db";
+import { safeFetch } from "./safe-fetch";
 
 const KEY_SETTING = "anthropic_api_key";
 const MODEL_SETTING = "ai_model";
@@ -189,7 +190,10 @@ export async function chatComplete(input: {
   const cfg = await getAiProviderConfig();
   if (!cfg.openaiModel) throw new Error("No model configured for the OpenAI-compatible provider.");
   const key = (await getSetting(OPENAI_KEY_SETTING))?.trim();
-  const res = await fetch(cfg.openaiBaseUrl, {
+  // safeFetch blocks SSRF targets (loopback, link-local/cloud-metadata,
+  // private ranges per policy) and re-checks redirects — the endpoint URL is
+  // admin-set but this call fires for lower-privilege users.
+  const res = await safeFetch(cfg.openaiBaseUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -203,6 +207,7 @@ export async function chatComplete(input: {
         { role: "user", content: input.user },
       ],
     }),
+    signal: AbortSignal.timeout(60_000),
   });
   if (!res.ok) {
     const detail = (await res.text().catch(() => "")).slice(0, 300);
@@ -228,7 +233,7 @@ export async function validateOpenAiEndpoint(input: {
   }
   if (!input.model.trim()) return { ok: false, error: "A model name is required." };
   try {
-    const res = await fetch(input.baseUrl, {
+    const res = await safeFetch(input.baseUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

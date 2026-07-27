@@ -67,14 +67,23 @@ export function totpCode(secretB32: string, at = Date.now()): string {
 
 /** Constant-time check of a user-supplied code, allowing ±1 time step. */
 export function verifyTotp(secretB32: string, input: string, at = Date.now()): boolean {
+  return verifyTotpStep(secretB32, input, at) !== null;
+}
+
+/**
+ * Like verifyTotp, but returns the matched absolute time-step (so callers can
+ * reject replay of a code already consumed at that step), or null on mismatch.
+ */
+export function verifyTotpStep(secretB32: string, input: string, at = Date.now()): number | null {
   const clean = input.replace(/\s+/g, "");
-  if (!/^\d{6}$/.test(clean)) return false;
+  if (!/^\d{6}$/.test(clean)) return null;
   const counter = Math.floor(at / 1000 / STEP_SECONDS);
   for (let drift = -DRIFT_STEPS; drift <= DRIFT_STEPS; drift++) {
-    const expected = hotp(secretB32, counter + drift);
-    if (timingSafeEqual(Buffer.from(expected), Buffer.from(clean))) return true;
+    const step = counter + drift;
+    const expected = hotp(secretB32, step);
+    if (timingSafeEqual(Buffer.from(expected), Buffer.from(clean))) return step;
   }
-  return false;
+  return null;
 }
 
 /** otpauth:// URI for the QR code authenticator apps scan. */
