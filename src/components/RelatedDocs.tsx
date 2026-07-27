@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Link2, Plus, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Link2, Plus, X } from "lucide-react";
+import { usePanelCollapse } from "@/lib/use-panel-collapse";
 
 // Related documents section of the doc side panel. Groups links by their
 // direction-aware label ("Procedures", "Procedure for", "Supersedes", …).
@@ -47,6 +48,7 @@ export function RelatedDocs({
   canEdit: boolean;
 }) {
   const [relations, setRelations] = useState<RelatedDoc[]>(initial);
+  const [open, toggleOpen] = usePanelCollapse("related", initial.length > 0);
   const [adding, setAdding] = useState(false);
   const [kind, setKind] = useState(KIND_OPTIONS[0].value);
   const [query, setQuery] = useState("");
@@ -115,10 +117,24 @@ export function RelatedDocs({
 
   return (
     <section>
-      <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-500">
-        <Link2 className="h-3.5 w-3.5" aria-hidden /> Related documents
+      <h2 className="mb-2">
+        <button
+          onClick={toggleOpen}
+          aria-expanded={open}
+          className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-500 hover:text-slate-700"
+        >
+          {open ? (
+            <ChevronDown className="h-3.5 w-3.5" aria-hidden />
+          ) : (
+            <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+          )}
+          <Link2 className="h-3.5 w-3.5" aria-hidden /> Related documents
+          {relations.length > 0 && ` (${relations.length})`}
+        </button>
       </h2>
 
+      {!open ? null : (
+        <>
       {groups.map((g) => (
         <div key={g.label} className="mb-3">
           <div className="mb-1 text-xs font-medium text-slate-400">{g.label}</div>
@@ -217,6 +233,8 @@ export function RelatedDocs({
             Cancel
           </button>
         </div>
+      )}
+        </>
       )}
     </section>
   );

@@ -150,6 +150,38 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
               ? { required: doc.ack_required === 1 }
               : undefined
           }
+          sharePanel={
+            sharesOn ? (
+              <ShareCard
+                docId={doc.id}
+                initial={
+                  activeShare
+                    ? {
+                        token: activeShare.token,
+                        url: `/share/${activeShare.token}`,
+                        expires_at: activeShare.expires_at,
+                        view_count: activeShare.view_count,
+                      }
+                    : null
+                }
+                isPublished={doc.status === "published"}
+              />
+            ) : undefined
+          }
+          reviewPanel={
+            isStaff && hasEditRights && doc.branch_of === null ? (
+              <ReviewSchedule
+                docId={doc.id}
+                intervals={REVIEW_INTERVALS}
+                interval={doc.review_interval_days ?? null}
+                overdue={reviewOverdue}
+                dueDateLabel={reviewDueLabel}
+                lastReviewedLabel={lastReviewedLabel}
+                isPublished={doc.status === "published"}
+              />
+            ) : undefined
+          }
+          reviewOverdue={reviewOverdue}
         />
       </div>
 
@@ -292,33 +324,6 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
                 ))}
               </ul>
             </section>
-          )}
-          {sharesOn && (
-            <ShareCard
-              docId={doc.id}
-              initial={
-                activeShare
-                  ? {
-                      token: activeShare.token,
-                      url: `/share/${activeShare.token}`,
-                      expires_at: activeShare.expires_at,
-                      view_count: activeShare.view_count,
-                    }
-                  : null
-              }
-              isPublished={doc.status === "published"}
-            />
-          )}
-          {isStaff && hasEditRights && doc.branch_of === null && (
-            <ReviewSchedule
-              docId={doc.id}
-              intervals={REVIEW_INTERVALS}
-              interval={doc.review_interval_days ?? null}
-              overdue={reviewOverdue}
-              dueDateLabel={reviewDueLabel}
-              lastReviewedLabel={lastReviewedLabel}
-              isPublished={doc.status === "published"}
-            />
           )}
           <Attachments
             documentId={doc.id}

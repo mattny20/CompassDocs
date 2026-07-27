@@ -7,7 +7,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ChevronDown, ChevronUp, FileText, ListTree, Plus } from "lucide-react";
+import { ChevronDown, ChevronRight, ChevronUp, FileText, ListTree, Plus } from "lucide-react";
+import { usePanelCollapse } from "@/lib/use-panel-collapse";
 
 export interface SubPage {
   id: number;
@@ -32,6 +33,9 @@ export function SubPages({
   const router = useRouter();
   const [pages, setPages] = useState<SubPage[]>(initial);
   const [busy, setBusy] = useState(false);
+  // Empty sections start tucked away — the header (with its + New shortcut)
+  // is all an editor needs until there's content.
+  const [open, toggleOpen] = usePanelCollapse("subpages", initial.length > 0);
 
   if (pages.length === 0 && !(canEdit && canAddChild)) return null;
 
@@ -56,10 +60,19 @@ export function SubPages({
   return (
     <section>
       <div className="mb-2 flex items-center justify-between">
-        <h2 className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-500">
+        <button
+          onClick={toggleOpen}
+          aria-expanded={open}
+          className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-500 hover:text-slate-700"
+        >
+          {open ? (
+            <ChevronDown className="h-3.5 w-3.5" aria-hidden />
+          ) : (
+            <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+          )}
           <ListTree className="h-3.5 w-3.5" aria-hidden />
           Sub-pages{pages.length > 0 && ` (${pages.length})`}
-        </h2>
+        </button>
         {canEdit && canAddChild && (
           <Link
             href={`/doc/new?space=${spaceSlug}&parent=${parentId}`}
@@ -70,7 +83,7 @@ export function SubPages({
           </Link>
         )}
       </div>
-      {pages.length === 0 ? (
+      {!open ? null : pages.length === 0 ? (
         <p className="text-sm text-slate-500">No sub-pages yet.</p>
       ) : (
         <ul className="space-y-1">

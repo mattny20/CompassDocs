@@ -4,6 +4,22 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.72.0] - 2026-07-27
+
+A calmer document page: the side panel is for content, actions moved to the
+toolbar.
+
+### Changed
+- **Share link and Review schedule moved to the toolbar.** Both are now
+  compact popovers behind icons next to Print/History/Edit (the review icon
+  turns amber when a review is overdue) instead of permanently-expanded
+  panel cards. Same controls, a click away, out of the reading path.
+- **Collapsible panel sections.** Sub-pages, Related documents, and
+  Attachments now collapse: sections with content start open, empty ones
+  start tucked to a slim header row (with their add-buttons still in
+  reach), and your choice is remembered per browser. Sections that are
+  empty stay entirely hidden for viewers, as before.
+
 ## [0.71.0] - 2026-07-27
 
 Video, upgraded end to end.
