@@ -8,7 +8,7 @@
 // changes.
 
 import { useEffect, useState } from "react";
-import { Node, Extension } from "@tiptap/core";
+import { Node, Extension, nodePasteRule } from "@tiptap/core";
 import CodeBlock from "@tiptap/extension-code-block";
 import {
   NodeViewWrapper,
@@ -399,17 +399,34 @@ function VideoNodeView({ node, updateAttributes, deleteNode }: NodeViewProps) {
         }}
         onDelete={deleteNode}
       />
-      <VideoBlock src={String(node.attrs.src ?? "")} title={String(node.attrs.title ?? "") || undefined} />
+      <VideoBlock
+        src={String(node.attrs.src ?? "")}
+        title={String(node.attrs.title ?? "") || undefined}
+        poster={String(node.attrs.poster ?? "") || undefined}
+      />
     </NodeViewWrapper>
   );
 }
+
+// Lone provider links pasted on their own line auto-convert to a video block.
+const VIDEO_PASTE_RE =
+  /^https:\/\/(?:www\.)?(?:youtube\.com\/watch\?[^\s]*v=[\w-]+|youtu\.be\/[\w-]+|vimeo\.com\/\d+|(?:www\.)?loom\.com\/share\/\w+|[\w-]+\.wistia\.com\/medias\/\w+|dailymotion\.com\/video\/\w+|dai\.ly\/\w+|web\.microsoftstream\.com\/video\/[\w-]+)[^\s]*$/g;
 
 export const VideoEmbedNode = Node.create({
   name: "videoEmbed",
   group: "block",
   atom: true,
   addAttributes() {
-    return { src: { default: "" }, title: { default: "" } };
+    return { src: { default: "" }, title: { default: "" }, poster: { default: "" } };
+  },
+  addPasteRules() {
+    return [
+      nodePasteRule({
+        find: VIDEO_PASTE_RE,
+        type: this.type,
+        getAttributes: (match) => ({ src: match[0] }),
+      }),
+    ];
   },
   parseHTML() {
     return [
@@ -418,12 +435,21 @@ export const VideoEmbedNode = Node.create({
         getAttrs: (el) => ({
           src: (el as HTMLElement).getAttribute("data-src") ?? "",
           title: (el as HTMLElement).getAttribute("data-title") ?? "",
+          poster: (el as HTMLElement).getAttribute("data-poster") ?? "",
         }),
       },
     ];
   },
   renderHTML({ node }) {
-    return ["div", { class: "md-video", "data-src": node.attrs.src, "data-title": node.attrs.title }];
+    return [
+      "div",
+      {
+        class: "md-video",
+        "data-src": node.attrs.src,
+        "data-title": node.attrs.title,
+        "data-poster": node.attrs.poster,
+      },
+    ];
   },
   addNodeView() {
     return ReactNodeViewRenderer(VideoNodeView);
@@ -433,7 +459,10 @@ export const VideoEmbedNode = Node.create({
       markdown: {
         serialize(state: any, node: any) {
           const title = String(node.attrs.title ?? "").trim();
-          state.write(`::video${title ? `[${title}]` : ""}{src="${node.attrs.src}"}`);
+          const poster = String(node.attrs.poster ?? "").trim();
+          state.write(
+            `::video${title ? `[${title}]` : ""}{src="${node.attrs.src}"${poster ? ` poster="${poster}"` : ""}}`
+          );
           state.closeBlock(node);
         },
         parse: {},

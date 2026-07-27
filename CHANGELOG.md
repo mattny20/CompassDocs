@@ -4,6 +4,29 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.71.0] - 2026-07-27
+
+Video, upgraded end to end.
+
+### Added
+- **Self-hosted video that actually streams.** The attachment endpoint now
+  serves byte ranges (`206 Partial Content`), so uploaded videos seek and
+  scrub properly — and play at all in Safari. Playable video types stream
+  inline instead of downloading.
+- **A video size limit of its own.** Settings → Attachments gains a
+  separate cap for video uploads (default 200 MB, up to 2 GB) — screen
+  recordings no longer fight the document-attachment limit.
+- **More providers.** `::video` now also embeds **SharePoint / Microsoft
+  Stream**, **Google Drive**, **Wistia**, and **Dailymotion** links, plus
+  `dai.ly` short links — joining YouTube, Vimeo, Loom, and direct files.
+- **A real insert dialog.** The editor's Video button opens a dialog with
+  live provider detection, optional caption and poster, and an
+  upload-a-video-file option (no more URL prompt). Pasting a supported
+  video link on its own line auto-converts to a video block.
+- **Theater mode & posters.** Hover any video for a theater-mode button
+  that expands it to fill the screen (Esc closes); uploaded videos accept
+  a `poster="…"` pre-play thumbnail.
+
 ## [0.70.0] - 2026-07-27
 
 Concurrent-edit safety, and a permanent end-to-end test suite.

@@ -6,7 +6,7 @@ import { spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
 import { getAttachment, getDocument, deleteAttachmentRow } from "@/lib/db";
 import { recordDownload } from "@/lib/analytics";
 import { getPublicSiteConfig } from "@/lib/public-site";
-import { uploadReadStream, deleteUpload, isInlineImage } from "@/lib/uploads";
+import { uploadReadStream, deleteUpload, isInlineImage, isInlineVideo } from "@/lib/uploads";
 import { roleAtLeast } from "@/lib/types";
 import type { SessionUser } from "@/lib/types";
 
@@ -54,22 +54,51 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     }
   }
 
+  const video = isInlineVideo(att.mime_type);
+  const inline = isInlineImage(att.mime_type) || video;
+  const filename = encodeURIComponent(att.filename);
+  const baseHeaders: Record<string, string> = {
+    "Content-Type": inline ? att.mime_type : "application/octet-stream",
+    "Content-Disposition": `${inline ? "inline" : "attachment"}; filename*=UTF-8''${filename}`,
+    "X-Content-Type-Options": "nosniff",
+    "Cache-Control": "private, max-age=3600",
+    "Accept-Ranges": "bytes",
+  };
+
+  // Byte-range support (video seeking; Safari refuses to play without it).
+  const rangeHeader = req.headers.get("range");
+  const m = rangeHeader ? /^bytes=(\d*)-(\d*)$/.exec(rangeHeader.trim()) : null;
+  if (m && (m[1] || m[2])) {
+    // "start-", "start-end", or the suffix form "-lastN".
+    const start = m[1] ? Number(m[1]) : Math.max(0, att.size - Number(m[2]));
+    const end = m[1] && m[2] ? Math.min(Number(m[2]), att.size - 1) : att.size - 1;
+    if (!Number.isFinite(start) || start >= att.size || start > end) {
+      return new Response(null, {
+        status: 416,
+        headers: { "Content-Range": `bytes */${att.size}` },
+      });
+    }
+    const partial = uploadReadStream(att.stored_name, { start, end });
+    if (!partial) return NextResponse.json({ error: "Not found." }, { status: 404 });
+    return new Response(Readable.toWeb(partial) as unknown as ReadableStream, {
+      status: 206,
+      headers: {
+        ...baseHeaders,
+        "Content-Range": `bytes ${start}-${end}/${att.size}`,
+        "Content-Length": String(end - start + 1),
+      },
+    });
+  }
+
   const stream = uploadReadStream(att.stored_name);
   if (!stream) return NextResponse.json({ error: "Not found." }, { status: 404 });
 
-  const inline = isInlineImage(att.mime_type);
   // Analytics: real file downloads only — inline images load on every page
-  // view and would swamp the download counts.
+  // view (and videos re-request constantly while seeking) and would swamp
+  // the download counts.
   if (!inline) void recordDownload(att.id, doc.id, user?.id ?? null, att.filename).catch(() => {});
-  const filename = encodeURIComponent(att.filename);
   return new Response(Readable.toWeb(stream) as unknown as ReadableStream, {
-    headers: {
-      "Content-Type": inline ? att.mime_type : "application/octet-stream",
-      "Content-Disposition": `${inline ? "inline" : "attachment"}; filename*=UTF-8''${filename}`,
-      "Content-Length": String(att.size),
-      "X-Content-Type-Options": "nosniff",
-      "Cache-Control": "private, max-age=3600",
-    },
+    headers: { ...baseHeaders, "Content-Length": String(att.size) },
   });
 }
 
