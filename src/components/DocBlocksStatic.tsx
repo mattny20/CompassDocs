@@ -11,6 +11,7 @@ import {
   Film,
 } from "lucide-react";
 import { videoEmbedUrl } from "@/lib/doc-blocks";
+import { VideoPlayer } from "./VideoPlayer";
 
 // --- Callouts -----------------------------------------------------------------
 
@@ -90,7 +91,15 @@ export function DocDetails({ title, children }: { title: string; children: React
 
 // --- Video embeds -------------------------------------------------------------
 
-export function VideoBlock({ src, title }: { src: string; title?: string }) {
+export function VideoBlock({
+  src,
+  title,
+  poster,
+}: {
+  src: string;
+  title?: string;
+  poster?: string;
+}) {
   const embed = videoEmbedUrl(src);
   if (!embed) {
     return (
@@ -99,31 +108,15 @@ export function VideoBlock({ src, title }: { src: string; title?: string }) {
         <a href={src} className="text-compass-600 underline" rel="noreferrer noopener">
           {title || src}
         </a>{" "}
-        <span className="text-slate-400">(unsupported video URL — use YouTube, Vimeo, Loom, or an uploaded file)</span>
+        <span className="text-slate-400">
+          (unsupported video URL — use YouTube, Vimeo, Loom, SharePoint/Stream, Google Drive,
+          Wistia, Dailymotion, or an uploaded file)
+        </span>
       </p>
     );
   }
-  return (
-    <figure className="my-4">
-      {embed.kind === "iframe" ? (
-        <div className="relative w-full overflow-hidden rounded-lg border border-slate-200" style={{ paddingTop: "56.25%" }}>
-          <iframe
-            src={embed.url}
-            title={title || "Embedded video"}
-            loading="lazy"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
-            allowFullScreen
-            referrerPolicy="strict-origin-when-cross-origin"
-            className="absolute inset-0 h-full w-full border-0"
-          />
-        </div>
-      ) : (
-        // eslint-disable-next-line jsx-a11y/media-has-caption
-        <video src={embed.url} controls preload="metadata" className="w-full rounded-lg border border-slate-200" />
-      )}
-      {title && <figcaption className="mt-1.5 text-center text-sm text-slate-400">{title}</figcaption>}
-    </figure>
-  );
+  // Playback + theater mode are interactive — handled by the client half.
+  return <VideoPlayer embed={embed} title={title} poster={poster} />;
 }
 
 // --- Website embeds -----------------------------------------------------------

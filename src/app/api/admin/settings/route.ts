@@ -48,6 +48,7 @@ export async function PATCH(req: Request) {
     "backup_frequency",
     "backup_keep",
     "max_attachment_mb",
+    "max_video_mb",
     "comments_enabled",
     "comments_blocked_words",
     "nested_pages_enabled",

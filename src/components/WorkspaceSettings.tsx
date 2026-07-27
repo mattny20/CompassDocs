@@ -323,19 +323,34 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
         <p className="mb-3 text-sm text-slate-500">
           Maximum size for a single file attached to a document.
         </p>
-        <label className="block max-w-xs">
-          <span className="mb-1 block text-xs font-medium text-slate-500">
-            Max size in MB ({ATTACHMENT_MB_MIN}–{ATTACHMENT_MB_MAX})
-          </span>
-          <input
-            type="number"
-            min={ATTACHMENT_MB_MIN}
-            max={ATTACHMENT_MB_MAX}
-            value={s.max_attachment_mb}
-            onChange={(e) => set("max_attachment_mb", Number(e.target.value))}
-            className={field}
-          />
-        </label>
+        <div className="flex flex-wrap gap-4">
+          <label className="block max-w-xs">
+            <span className="mb-1 block text-xs font-medium text-slate-500">
+              Max size in MB ({ATTACHMENT_MB_MIN}–{ATTACHMENT_MB_MAX})
+            </span>
+            <input
+              type="number"
+              min={ATTACHMENT_MB_MIN}
+              max={ATTACHMENT_MB_MAX}
+              value={s.max_attachment_mb}
+              onChange={(e) => set("max_attachment_mb", Number(e.target.value))}
+              className={field}
+            />
+          </label>
+          <label className="block max-w-xs">
+            <span className="mb-1 block text-xs font-medium text-slate-500">
+              Max video size in MB (1–2048)
+            </span>
+            <input
+              type="number"
+              min={1}
+              max={2048}
+              value={s.max_video_mb}
+              onChange={(e) => set("max_video_mb", Number(e.target.value))}
+              className={field}
+            />
+          </label>
+        </div>
       </div>
 
       {/* Document organization */}

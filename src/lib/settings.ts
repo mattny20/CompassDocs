@@ -49,6 +49,8 @@ export interface AppSettings {
   backup_keep: number;
   /** Maximum size of a single document attachment, in megabytes. */
   max_attachment_mb: number;
+  /** Separate (larger) cap for video uploads — screen recordings are big. */
+  max_video_mb: number;
   /** Custom domain served by the bundled reverse proxy (empty = none). */
   custom_domain: string;
   /** How the reverse proxy obtains/uses a TLS certificate for that domain. */
@@ -87,6 +89,7 @@ export const SETTINGS_DEFAULTS: AppSettings = {
   backup_frequency: "off",
   backup_keep: 7,
   max_attachment_mb: 10,
+  max_video_mb: 200,
   custom_domain: "",
   tls_mode: "auto",
   tls_email: "",
@@ -185,6 +188,9 @@ export function normalizeSettings(raw: Record<string, string>): AppSettings {
     max_attachment_mb: raw.max_attachment_mb
       ? clampAttachmentMb(Number(raw.max_attachment_mb))
       : SETTINGS_DEFAULTS.max_attachment_mb,
+    max_video_mb: raw.max_video_mb
+      ? clampVideoMb(Number(raw.max_video_mb))
+      : SETTINGS_DEFAULTS.max_video_mb,
     custom_domain: normalizeDomain(raw.custom_domain ?? ""),
     tls_mode: TLS_MODES.includes(raw.tls_mode as TlsMode)
       ? (raw.tls_mode as TlsMode)
@@ -204,4 +210,10 @@ export function clampBackupKeep(n: number): number {
 export function clampAttachmentMb(n: number): number {
   if (!Number.isFinite(n)) return SETTINGS_DEFAULTS.max_attachment_mb;
   return Math.min(ATTACHMENT_MB_MAX, Math.max(ATTACHMENT_MB_MIN, Math.round(n)));
+}
+
+/** Video cap: 1 MB – 2 GB (uploads stream to disk; the cap is a policy knob). */
+export function clampVideoMb(n: number): number {
+  if (!Number.isFinite(n)) return SETTINGS_DEFAULTS.max_video_mb;
+  return Math.min(2048, Math.max(1, Math.round(n)));
 }

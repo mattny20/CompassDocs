@@ -22,6 +22,7 @@ import { Markdown } from "tiptap-markdown";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import { EDITOR_BLOCK_EXTENSIONS, PreviewCodeBlock } from "./EditorBlocks";
+import { VideoInsertDialog } from "./VideoInsertDialog";
 import {
   Bold as BoldIcon,
   Italic as ItalicIcon,
@@ -564,6 +565,7 @@ export function RichTextEditor({
         emailBlocks={emailBlocks}
         tagMenu={tagMenu}
         onPickImage={onUploadImage ? (file) => insertUploaded(editor, file) : undefined}
+        onUploadFile={onUploadImage}
       />
       <EditorContent editor={editor} />
       {docLinks && <DocLinkSuggest editor={editor} />}
@@ -681,13 +683,17 @@ function Toolbar({
   emailBlocks,
   tagMenu,
   onPickImage,
+  onUploadFile,
 }: {
   editor: Editor;
   emailBlocks: boolean;
   tagMenu?: { tag: string; label: string }[];
   onPickImage?: (file: File) => void;
+  /** Async uploader resolving to a serving URL — powers video upload. */
+  onUploadFile?: (file: File) => Promise<string | null>;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
+  const [videoDialogOpen, setVideoDialogOpen] = useState(false);
   const [painted, setPainted] = useState<PaintedFormat | null>(null);
   // Image-size drag in progress: the live percentage, plus the image's
   // document position so it can be re-selected when the drag ends. Keeps the
@@ -1005,10 +1011,24 @@ function Toolbar({
       </Btn>
       <Divider />
       {RICH_BLOCK_BUTTONS.map(({ kind, label, Icon }) => (
-        <Btn key={kind} onClick={() => insertRichBlock(editor, kind)} label={label}>
+        <Btn
+          key={kind}
+          onClick={() =>
+            kind === "video" ? setVideoDialogOpen(true) : insertRichBlock(editor, kind)
+          }
+          label={label}
+        >
           <Icon className={TB_ICON} />
         </Btn>
       ))}
+      <VideoInsertDialog
+        open={videoDialogOpen}
+        onClose={() => setVideoDialogOpen(false)}
+        onInsert={(attrs) =>
+          editor.chain().focus().insertContent({ type: "videoEmbed", attrs }).run()
+        }
+        onUploadVideo={onUploadFile}
+      />
       {tagMenu && tagMenu.length > 0 && (
         <>
           <Divider />

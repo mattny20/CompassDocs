@@ -82,7 +82,13 @@ export function MarkdownView({ content, docKey }: { content: string; docKey?: st
               return <div className="md-tab">{children}</div>;
             }
             if (cls.includes("md-video")) {
-              return <VideoBlock src={props["data-src"] || ""} title={props["data-title"]} />;
+              return (
+                <VideoBlock
+                  src={props["data-src"] || ""}
+                  title={props["data-title"]}
+                  poster={props["data-poster"]}
+                />
+              );
             }
             if (cls.includes("md-embed")) {
               return (

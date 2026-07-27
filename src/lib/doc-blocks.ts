@@ -72,7 +72,11 @@ export function remarkDocBlocks() {
         asDiv(node, "md-tab", { title: label || attrs.title || "Tab" });
       } else if (name === "video") {
         dropLabel(node);
-        asDiv(node, "md-video", { src: attrs.src || "", title: label || attrs.title || "" });
+        asDiv(node, "md-video", {
+          src: attrs.src || "",
+          title: label || attrs.title || "",
+          poster: attrs.poster || "",
+        });
       } else if (name === "embed") {
         dropLabel(node);
         asDiv(node, "md-embed", {
@@ -120,7 +124,40 @@ export function videoEmbedUrl(
     const id = /^\/share\/([\w]+)/.exec(u.pathname)?.[1];
     if (id) return { kind: "iframe", url: `https://www.loom.com/embed/${id}` };
   }
+  // SharePoint / Microsoft Stream (on SharePoint): their /:v: share links and
+  // stream.aspx pages both accept ?embed= players; simplest robust form is the
+  // "embed.aspx" transform Microsoft documents for Stream-on-SharePoint.
+  if (host.endsWith(".sharepoint.com") || host === "sharepoint.com") {
+    if (u.pathname.includes("/stream.aspx") || u.pathname.includes("/:v:")) {
+      const embedded = new URL(u.href);
+      embedded.searchParams.set("embed", '{"af":true,"ust":true}');
+      return { kind: "iframe", url: embedded.href };
+    }
+  }
+  if (host === "web.microsoftstream.com") {
+    const id = /^\/video\/([\w-]+)/.exec(u.pathname)?.[1];
+    if (id) return { kind: "iframe", url: `https://web.microsoftstream.com/embed/video/${id}` };
+  }
+  if (host === "drive.google.com") {
+    const id = /^\/file\/d\/([\w-]+)/.exec(u.pathname)?.[1];
+    if (id) return { kind: "iframe", url: `https://drive.google.com/file/d/${id}/preview` };
+  }
+  if (host === "wistia.com" || host.endsWith(".wistia.com")) {
+    const id = /\/medias\/([\w]+)/.exec(u.pathname)?.[1];
+    if (id) return { kind: "iframe", url: `https://fast.wistia.net/embed/iframe/${id}` };
+  }
+  if (host === "dailymotion.com") {
+    const id = /^\/video\/([\w]+)/.exec(u.pathname)?.[1];
+    if (id) return { kind: "iframe", url: `https://www.dailymotion.com/embed/video/${id}` };
+  }
+  if (host === "dai.ly") {
+    const id = u.pathname.slice(1).split("/")[0];
+    if (id) return { kind: "iframe", url: `https://www.dailymotion.com/embed/video/${id}` };
+  }
   if (/\.(mp4|webm|ogg|mov)(\?.*)?$/i.test(u.pathname)) return { kind: "file", url: raw };
+  // Uploaded video attachments are linked as /api/attachments/N with no
+  // extension — recognize our own absolute URLs too.
+  if (u.pathname.startsWith("/api/attachments/")) return { kind: "file", url: u.pathname };
   return null;
 }
 

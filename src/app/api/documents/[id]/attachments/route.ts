@@ -27,8 +27,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     );
   }
 
-  const { max_attachment_mb } = await getAppSettings();
-  const maxBytes = max_attachment_mb * 1024 * 1024;
+  const { max_attachment_mb, max_video_mb } = await getAppSettings();
 
   let form: FormData;
   try {
@@ -40,9 +39,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (!(file instanceof File) || file.size === 0) {
     return NextResponse.json({ error: "No file provided." }, { status: 400 });
   }
-  if (file.size > maxBytes) {
+  // Videos get their own (larger) cap — screen recordings dwarf documents.
+  const isVideo = (file.type || "").startsWith("video/");
+  const capMb = isVideo ? Math.max(max_video_mb, max_attachment_mb) : max_attachment_mb;
+  if (file.size > capMb * 1024 * 1024) {
     return NextResponse.json(
-      { error: `File exceeds the ${max_attachment_mb} MB limit.` },
+      { error: `File exceeds the ${capMb} MB ${isVideo ? "video " : ""}limit.` },
       { status: 413 }
     );
   }

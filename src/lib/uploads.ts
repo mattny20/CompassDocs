@@ -30,9 +30,14 @@ export async function saveUpload(buf: Buffer, ext: string): Promise<string> {
   return name;
 }
 
-export function uploadReadStream(storedName: string) {
+export function uploadReadStream(storedName: string, range?: { start: number; end: number }) {
   if (!isValidStoredName(storedName)) return null;
-  return createReadStream(join(uploadDir(), storedName));
+  return createReadStream(join(uploadDir(), storedName), range);
+}
+
+/** Mime types the attachment endpoint serves inline as playable video. */
+export function isInlineVideo(mime: string): boolean {
+  return /^video\/(mp4|webm|ogg|quicktime)$/.test(mime);
 }
 
 /** Whether the stored file actually exists (streams error mid-response otherwise). */
