@@ -24,11 +24,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
 
-  const { token, record } = await createApiToken(user.id, String(body?.name ?? ""));
+  const scopes = Array.isArray(body?.scopes)
+    ? body.scopes.map(String)
+    : ["read", "write"]; // pre-scope clients (and MCP setup) keep full access
+  const { token, record } = await createApiToken(user.id, String(body?.name ?? ""), scopes);
   await audit({
     actor: actorFrom(user),
     action: "account.token_created",
-    details: { name: record.name },
+    details: { name: record.name, scopes: record.scopes },
     ip: ipFrom(req),
   });
   // The raw token appears in this response ONLY — it is never retrievable again.

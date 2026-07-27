@@ -372,6 +372,10 @@ const SCHEMA_SQL = `
     last_used_at timestamptz
   );
   CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id);
+  -- Token scopes for the public REST API. Pre-scope tokens keep full
+  -- read+write (matches their historical behavior with the MCP connector).
+  ALTER TABLE api_tokens ADD COLUMN IF NOT EXISTS
+    scopes jsonb NOT NULL DEFAULT '["read","write"]'::jsonb;
 
   -- OAuth 2.1 authorization server for the MCP connector ("Add custom
   -- connector" in Claude): dynamically registered clients, short-lived auth
@@ -1237,6 +1241,43 @@ export async function listDocumentsBySpace(
   return rows.map(mapDoc);
 }
 
+/** Paged listing for the public REST API (space/status filters, newest first). */
+export async function listDocumentsV1(opts: {
+  scope?: number[] | "all";
+  spaceId?: number;
+  status?: "published" | "draft";
+  includeDrafts: boolean;
+  limit: number;
+  offset: number;
+}): Promise<{ items: DocumentWithSpace[]; total: number }> {
+  const conds = ["d.deleted_at IS NULL", "d.branch_of IS NULL"];
+  const params: unknown[] = [];
+  if (!opts.includeDrafts) conds.push("d.status = 'published'");
+  else if (opts.status) {
+    params.push(opts.status);
+    conds.push(`d.status = $${params.length}`);
+  }
+  if (Array.isArray(opts.scope)) {
+    params.push(opts.scope);
+    conds.push(`d.space_id = ANY($${params.length})`);
+  }
+  if (opts.spaceId) {
+    params.push(opts.spaceId);
+    conds.push(`d.space_id = $${params.length}`);
+  }
+  const where = conds.join(" AND ");
+  const total = (
+    await q<{ n: number }>(`SELECT COUNT(*)::int AS n FROM documents d WHERE ${where}`, params)
+  )[0].n;
+  params.push(opts.limit, opts.offset);
+  const rows = await q(
+    `${DOC_SELECT} WHERE ${where} ORDER BY d.updated_at DESC
+     LIMIT $${params.length - 1} OFFSET $${params.length}`,
+    params
+  );
+  return { items: rows.map(mapDoc), total };
+}
+
 export async function listRecentDocuments(
   limit = 8,
   includeDrafts = false,
@@ -2080,9 +2121,12 @@ export interface ApiToken {
   id: number;
   name: string;
   prefix: string;
+  scopes: string[];
   created_at: string;
   last_used_at: string | null;
 }
+
+export const API_TOKEN_SCOPES = ["read", "write"] as const;
 
 function hashApiToken(raw: string): string {
   return createHash("sha256").update(raw).digest("hex");
@@ -2091,24 +2135,34 @@ function hashApiToken(raw: string): string {
 /** Mint a token for a user. The raw value is returned ONCE and never stored. */
 export async function createApiToken(
   userId: number,
-  name: string
+  name: string,
+  scopes: string[] = ["read", "write"]
 ): Promise<{ token: string; record: ApiToken }> {
+  const clean = [...new Set(scopes.filter((s) => (API_TOKEN_SCOPES as readonly string[]).includes(s)))];
+  const finalScopes = clean.length ? clean : ["read"];
   const raw = "cdk_" + randomBytes(24).toString("base64url");
   const prefix = raw.slice(0, 12) + "…";
   const r = await q<{ id: number; created_at: string }>(
-    `INSERT INTO api_tokens (user_id, name, token_hash, prefix)
-     VALUES ($1,$2,$3,$4) RETURNING id, created_at`,
-    [userId, name.trim().slice(0, 60) || "token", hashApiToken(raw), prefix]
+    `INSERT INTO api_tokens (user_id, name, token_hash, prefix, scopes)
+     VALUES ($1,$2,$3,$4,$5) RETURNING id, created_at`,
+    [userId, name.trim().slice(0, 60) || "token", hashApiToken(raw), prefix, JSON.stringify(finalScopes)]
   );
   return {
     token: raw,
-    record: { id: r[0].id, name, prefix, created_at: r[0].created_at, last_used_at: null },
+    record: {
+      id: r[0].id,
+      name,
+      prefix,
+      scopes: finalScopes,
+      created_at: r[0].created_at,
+      last_used_at: null,
+    },
   };
 }
 
 export async function listApiTokens(userId: number): Promise<ApiToken[]> {
   return q(
-    `SELECT id, name, prefix, created_at, last_used_at FROM api_tokens
+    `SELECT id, name, prefix, scopes, created_at, last_used_at FROM api_tokens
      WHERE user_id = $1 ORDER BY created_at DESC`,
     [userId]
   );
@@ -2123,13 +2177,15 @@ export async function deleteApiToken(userId: number, id: number): Promise<boolea
 }
 
 /** Resolve a raw bearer token to its (active) user, updating last_used_at. */
-export async function getUserByApiToken(raw: string): Promise<User | undefined> {
+export async function getUserByApiToken(
+  raw: string
+): Promise<(User & { token_scopes: string[] }) | undefined> {
   if (!raw.startsWith("cdk_")) return undefined;
-  const rows = await q<User & { token_id: number }>(
+  const rows = await q<User & { token_id: number; token_scopes: string[] }>(
     `SELECT ${USER_COLUMNS
       .split(",")
       .map((c) => "u." + c.trim())
-      .join(", ")}, t.id AS token_id
+      .join(", ")}, t.id AS token_id, t.scopes AS token_scopes
      FROM api_tokens t JOIN users u ON u.id = t.user_id
      WHERE t.token_hash = $1 AND u.status = 'active'`,
     [hashApiToken(raw)]
@@ -2139,7 +2195,7 @@ export async function getUserByApiToken(raw: string): Promise<User | undefined> 
   // Fire-and-forget freshness stamp; not worth failing the request over.
   q("UPDATE api_tokens SET last_used_at = now() WHERE id = $1", [hit.token_id]).catch(() => {});
   const { token_id: _ignored, ...user } = hit;
-  return user as User;
+  return user as User & { token_scopes: string[] };
 }
 
 // --- OAuth (MCP connector authorization server) --------------------------------

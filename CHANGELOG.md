@@ -4,6 +4,29 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.68.0] - 2026-07-27
+
+A public REST API, and token scopes to go with it.
+
+### Added
+- **REST API at `/api/v1`** for scripts and integrations, authenticated with
+  personal access tokens (`Authorization: Bearer cdk_…`):
+  - `GET /me` (introspection), `GET /spaces`
+  - `GET/POST /documents`, `GET/PATCH/DELETE /documents/:id` — with paging,
+    space/status filters, and the approval workflow honored: an editor's API
+    edit to a published doc is queued as a change request (`202`), never
+    silently published
+  - `GET /search?q=` — the app's hybrid search, operators included
+  - JSON errors, and a 120 req/min per-user rate limit
+- **Token scopes.** Personal access tokens now carry `read`/`write` scopes,
+  chosen at creation (Manage account → API tokens shows each token's scope).
+  Read-only tokens are enough for search/exports and are refused by write
+  endpoints — and by the Claude connector, which needs read + write.
+
+### Changed
+- Tokens created before 0.68 keep full read + write access (their historical
+  behavior); nothing breaks.
+
 ## [0.67.0] - 2026-07-27
 
 A notifications center: everything that happens to you in CompassDocs now

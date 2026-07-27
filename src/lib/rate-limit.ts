@@ -37,3 +37,8 @@ export function aiRateLimited(key: string): boolean {
 export function plantumlRateLimited(key: string): boolean {
   return limited(`puml:${key}`, 30, 60_000);
 }
+
+/** Public REST API (/api/v1): 120 requests per minute per token user. */
+export function apiV1RateLimited(key: string): boolean {
+  return limited(`v1:${key}`, 120, 60_000);
+}
