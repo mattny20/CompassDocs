@@ -1233,6 +1233,54 @@ export async function listRecentDocuments(
   return rows.map(mapDoc);
 }
 
+/**
+ * Documents this user opened most recently (deduped, newest view first) —
+ * the "pick up where you left off" list on the dashboard. Draft docs are
+ * included only when the caller says so (editors see their drafts; a viewer
+ * who once opened a doc that later became a draft shouldn't).
+ */
+export async function listRecentlyViewedBy(
+  userId: number,
+  scope?: number[] | "all",
+  includeDrafts = false,
+  limit = 6
+): Promise<DocumentWithSpace[]> {
+  const filter = includeDrafts ? "" : " AND d.status = 'published'";
+  const scoped = Array.isArray(scope) ? " AND d.space_id = ANY($3)" : "";
+  const rows = await q(
+    `SELECT dd.*, s.name AS space_name, s.slug AS space_slug, s.icon AS space_icon,
+            s.color AS space_color, s.visibility AS space_visibility
+     FROM (
+       SELECT d.*, MAX(v.viewed_at) AS last_viewed_at
+       FROM doc_views v
+       JOIN documents d ON d.id = v.document_id
+       WHERE v.user_id = $1 AND d.deleted_at IS NULL AND d.branch_of IS NULL${filter}${scoped}
+       GROUP BY d.id
+       ORDER BY MAX(v.viewed_at) DESC
+       LIMIT $2
+     ) dd JOIN spaces s ON s.id = dd.space_id
+     ORDER BY dd.last_viewed_at DESC`,
+    Array.isArray(scope) ? [userId, limit, scope] : [userId, limit]
+  );
+  return rows.map(mapDoc);
+}
+
+/** This author's unpublished drafts, newest first (dashboard "your drafts"). */
+export async function listDraftsByAuthor(
+  author: string,
+  scope?: number[] | "all",
+  limit = 4
+): Promise<DocumentWithSpace[]> {
+  const scoped = Array.isArray(scope) ? " AND d.space_id = ANY($3)" : "";
+  const rows = await q(
+    `${DOC_SELECT} WHERE d.deleted_at IS NULL AND d.branch_of IS NULL
+       AND d.status = 'draft' AND d.author = $1${scoped}
+     ORDER BY d.updated_at DESC LIMIT $2`,
+    Array.isArray(scope) ? [author, limit, scope] : [author, limit]
+  );
+  return rows.map(mapDoc);
+}
+
 export async function countDocuments(
   includeDrafts = false,
   scope?: number[] | "all"

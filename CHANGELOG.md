@@ -4,6 +4,29 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.66.0] - 2026-07-27
+
+The dashboard grew up: it is now a personal work hub built around what YOU
+need to do, not workspace trivia — its first significant redesign since the
+initial release.
+
+### Added
+- **Personal greeting** with your local time of day, plus a prominent
+  search / Ask bar right on the dashboard.
+- **Needs your attention.** One card that gathers everything waiting on you —
+  change requests to review, documents needing your read confirmation,
+  content reviews coming due, and open reader suggestions — with a direct
+  link for each. Only appears when something actually needs you.
+- **Pick up where you left off.** Your in-progress drafts (jump straight to
+  the editor) and the documents you most recently opened.
+- **Latest in your spaces.** Recent publishes and updates as an
+  author-attributed activity list instead of anonymous cards.
+
+### Changed
+- Spaces moved to a compact side column with document counts.
+- The static stat tiles (documents / spaces / tags) and the tag cloud are
+  gone; search covers tag discovery.
+
 ## [0.65.0] - 2026-07-27
 
 Operations release: audit-log export for compliance teams, first-class
