@@ -95,6 +95,26 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   }
   const moving = targetSpaceId !== existing.space_id;
 
+  // Optimistic-concurrency guard: the editor sends the updated_at it loaded.
+  // If the document changed underneath (someone else saved first), refuse with
+  // 409 instead of silently last-write-winning their work away. Older clients
+  // that don't send the token keep the historical behavior.
+  if (typeof body?.base_updated_at === "string" && body.base_updated_at) {
+    const base = new Date(body.base_updated_at).getTime();
+    const current = new Date(existing.updated_at).getTime();
+    if (Number.isFinite(base) && Number.isFinite(current) && current > base) {
+      return NextResponse.json(
+        {
+          conflict: true,
+          error: `This document was updated by ${existing.author} while you were editing. Review the latest version before saving again.`,
+          current_updated_at: existing.updated_at,
+          current_author: existing.author,
+        },
+        { status: 409 }
+      );
+    }
+  }
+
   // Resolve the proposed next state, falling back to the current values.
   const proposed = {
     title: typeof body?.title === "string" && body.title.trim() ? body.title.trim() : existing.title,

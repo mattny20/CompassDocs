@@ -1,0 +1,60 @@
+name: e2e
+
+# Playwright end-to-end suite against a real production build + PostgreSQL.
+# Runs on every PR so a broken login, search, approval flow, or API ships
+# nowhere.
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: compass
+          POSTGRES_PASSWORD: compass
+          POSTGRES_DB: compass_e2e
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U compass"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://compass:compass@127.0.0.1:5432/compass_e2e
+      COMPASSDOCS_DB_URL: postgresql://compass:compass@127.0.0.1:5432/compass_e2e
+      COMPASSDOCS_ADMIN_USER: e2e_admin
+      COMPASSDOCS_ADMIN_PASSWORD: E2eAdmin!12345
+      PORT: 3998
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - name: Start server
+        run: |
+          cp -r .next/static .next/standalone/.next/
+          mkdir -p .next/standalone/public && cp -r public/* .next/standalone/public/
+          COMPASSDOCS_UPLOAD_DIR="$RUNNER_TEMP/uploads" node .next/standalone/server.js &
+          for i in $(seq 1 60); do
+            curl -sf http://127.0.0.1:3998/healthz && break
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:3998/readyz
+      - name: Run e2e suite
+        run: npx playwright test
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-traces
+          path: test-results/
+          retention-days: 7

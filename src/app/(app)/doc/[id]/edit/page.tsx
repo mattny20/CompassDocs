@@ -47,6 +47,7 @@ export default async function EditDocPage({ params }: { params: Promise<{ id: st
         author: doc.author,
         publish_at: doc.publish_at ?? null,
         archive_at: doc.archive_at ?? null,
+        updated_at: doc.updated_at,
       }}
     />
   );
