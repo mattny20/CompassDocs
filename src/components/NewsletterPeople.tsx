@@ -157,7 +157,7 @@ export function NewsletterPeople({
         </Link>
       </div>
 
-      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <h2 className="font-semibold text-slate-900">Email appearance</h2>
         <p className="mt-1 text-sm text-slate-500">
           How newsletter emails look in the inbox: the content width, and an optional
@@ -176,7 +176,7 @@ export function NewsletterPeople({
                 step={10}
                 value={widthDraft}
                 onChange={(e) => setWidthDraft(e.target.value)}
-                className="w-28 rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none focus:border-compass-400"
+                className="w-28 rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-hidden focus:border-compass-400"
               />
               <button
                 onClick={() => saveAppearance({ width: Number(widthDraft) })}
@@ -266,7 +266,7 @@ export function NewsletterPeople({
                 onChange={(e) => saveAppearance({ body_texture: e.target.value })}
                 title="Outer background texture"
                 aria-label="Outer background texture"
-                className="rounded-lg border border-slate-200 bg-surface px-2 py-1.5 text-sm outline-none focus:border-compass-400"
+                className="rounded-lg border border-slate-200 bg-surface px-2 py-1.5 text-sm outline-hidden focus:border-compass-400"
               >
                 <option value="none">No texture</option>
                 <option value="dots">Dots</option>
@@ -294,7 +294,7 @@ export function NewsletterPeople({
                 onChange={(e) => saveAppearance({ header_pad: Number(e.target.value) })}
                 title="Space above the header image"
                 aria-label="Header image top padding"
-                className="rounded-lg border border-slate-200 bg-surface px-2 py-1.5 text-sm outline-none focus:border-compass-400"
+                className="rounded-lg border border-slate-200 bg-surface px-2 py-1.5 text-sm outline-hidden focus:border-compass-400"
               >
                 <option value={0}>None</option>
                 <option value={5}>5 px</option>
@@ -385,13 +385,13 @@ export function NewsletterPeople({
         )}
       </div>
 
-      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <h2 className="font-semibold text-slate-900">From addresses</h2>
         <p className="mt-1 text-sm text-slate-500">
           Senders a newsletter can go out as — composers pick one per newsletter, or leave
           the workspace default from Settings → Notifications. Use{" "}
-          <code className="rounded bg-slate-100 px-1 text-xs">address@domain</code> or{" "}
-          <code className="rounded bg-slate-100 px-1 text-xs">Name &lt;address@domain&gt;</code>.
+          <code className="rounded-sm bg-slate-100 px-1 text-xs">address@domain</code> or{" "}
+          <code className="rounded-sm bg-slate-100 px-1 text-xs">Name &lt;address@domain&gt;</code>.
         </p>
         {senders.length > 0 && (
           <ul className="mt-3 flex flex-wrap gap-2">
@@ -406,7 +406,7 @@ export function NewsletterPeople({
                   disabled={senderBusy}
                   title="Remove this sender"
                   aria-label={`Remove ${s}`}
-                  className="rounded p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-600"
+                  className="rounded-sm p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-600"
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>
@@ -422,7 +422,7 @@ export function NewsletterPeople({
               if (e.key === "Enter" && newSender.trim()) saveSenders([...senders, newSender]);
             }}
             placeholder="Team News <news@acme.com>"
-            className="w-full max-w-sm rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none focus:border-compass-400"
+            className="w-full max-w-sm rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-hidden focus:border-compass-400"
           />
           <button
             onClick={() => saveSenders([...senders, newSender])}
@@ -442,9 +442,9 @@ export function NewsletterPeople({
         onChange={(e) => setPeopleQuery(e.target.value)}
         placeholder="Search people…"
         aria-label="Search people"
-        className="w-full max-w-xs rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-none placeholder:text-slate-400 focus:border-compass-400"
+        className="w-full max-w-xs rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-hidden placeholder:text-slate-400 focus:border-compass-400"
       />
-      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-surface shadow-sm">
+      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-surface shadow-xs">
         <table className="w-full text-left text-sm">
           <thead>
             <tr className="border-b border-slate-100 text-xs uppercase tracking-wider text-slate-400">
@@ -476,7 +476,7 @@ export function NewsletterPeople({
                       value={r.newsletter_role}
                       disabled={busyId === r.id}
                       onChange={(e) => setRole(r.id, e.target.value)}
-                      className="rounded-lg border border-slate-200 bg-surface px-2 py-1.5 text-sm outline-none focus:border-compass-400"
+                      className="rounded-lg border border-slate-200 bg-surface px-2 py-1.5 text-sm outline-hidden focus:border-compass-400"
                     >
                       <option value="none">None</option>
                       <option value="contributor">Contributor</option>

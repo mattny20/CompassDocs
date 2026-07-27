@@ -65,7 +65,7 @@ export default async function PublicSearchPage({
           </p>
           <ul className="mt-6 space-y-3">
             {hits.map((h) => (
-              <li key={h.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+              <li key={h.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
                 <Link
                   href={`/public/${h.space_slug}/${h.slug}`}
                   className="font-semibold text-compass-700 hover:underline"

@@ -8,7 +8,7 @@ import { useState } from "react";
 import type { SessionInfo } from "@/lib/db";
 
 const field =
-  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
+  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
 
 interface TotpState {
   enabled: boolean;
@@ -88,7 +88,7 @@ function TwoFactor({ initial }: { initial: TotpState }) {
   }
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-surface p-6 shadow-sm">
+    <div className="rounded-2xl border border-slate-200 bg-surface p-6 shadow-xs">
       <div className="flex items-center gap-2">
         <h2 className="font-semibold text-slate-900">Two-factor authentication</h2>
         {totp.enabled ? (
@@ -170,7 +170,7 @@ function TwoFactor({ initial }: { initial: TotpState }) {
           <p className="mt-1 text-xs text-amber-700">
             Each works exactly once if you lose your authenticator.
           </p>
-          <pre className="mt-2 grid grid-cols-2 gap-x-6 rounded bg-white p-3 font-mono text-[13px] leading-6 ring-1 ring-amber-200 sm:grid-cols-4">
+          <pre className="mt-2 grid grid-cols-2 gap-x-6 rounded-sm bg-white p-3 font-mono text-[13px] leading-6 ring-1 ring-amber-200 sm:grid-cols-4">
             {recovery.join("\n")}
           </pre>
           <div className="mt-2 flex gap-2">
@@ -267,7 +267,7 @@ function Sessions({ initial }: { initial: SessionInfo[] }) {
   }
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-surface p-6 shadow-sm">
+    <div className="rounded-2xl border border-slate-200 bg-surface p-6 shadow-xs">
       <div className="flex items-center justify-between">
         <h2 className="font-semibold text-slate-900">Active sessions</h2>
         {sessions.length > 1 && (

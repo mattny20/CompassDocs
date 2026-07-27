@@ -50,13 +50,13 @@ export default async function LoginPage({
   const ssoError = params.sso_error ? SSO_ERRORS[params.sso_error] || SSO_ERRORS.internal : "";
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-100 to-compass-50 px-4">
+    <div className="flex min-h-screen items-center justify-center bg-linear-to-br from-slate-100 to-compass-50 px-4">
       <div className="w-full max-w-sm">
         <div className="mb-6 flex flex-col items-center">
           <Brand name={settings.company_name} logoUrl={settings.logo_url || undefined} size="lg" layout="col" />
           <p className="mt-1 text-sm text-slate-500">Sign in to your team&apos;s knowledge base</p>
         </div>
-        <div className="rounded-2xl border border-slate-200 bg-surface p-6 shadow-sm">
+        <div className="rounded-2xl border border-slate-200 bg-surface p-6 shadow-xs">
           {ssoError && (
             <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
               {ssoError}
@@ -66,7 +66,7 @@ export default async function LoginPage({
             <>
               <a
                 href="/api/ee/sso/login"
-                className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+                className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 font-semibold text-slate-700 shadow-xs transition hover:bg-slate-50"
               >
                 {/* Microsoft logo — four squares */}
                 <svg viewBox="0 0 21 21" className="h-4 w-4" aria-hidden>

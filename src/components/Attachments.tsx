@@ -123,10 +123,10 @@ export function Attachments({
               <img
                 src={`/api/attachments/${a.id}`}
                 alt={a.filename}
-                className="h-8 w-8 shrink-0 rounded object-cover ring-1 ring-slate-200"
+                className="h-8 w-8 shrink-0 rounded-sm object-cover ring-1 ring-slate-200"
               />
             ) : (
-              <span className="grid h-8 w-8 shrink-0 place-items-center rounded bg-slate-100 text-slate-400">
+              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-sm bg-slate-100 text-slate-400">
                 <FileText className="h-4 w-4" />
               </span>
             )}

@@ -98,7 +98,7 @@ export function NewsletterList({ initial }: { initial: NewsletterRow[] }) {
         <button
           onClick={createDraft}
           disabled={busy}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-compass-700 disabled:opacity-50"
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-compass-700 disabled:opacity-50"
         >
           <Plus className="h-4 w-4" />
           {busy ? "Creating…" : "New newsletter"}
@@ -120,7 +120,7 @@ export function NewsletterList({ initial }: { initial: NewsletterRow[] }) {
         const rows = initial.filter((r) => r.status === status);
         if (rows.length === 0) return null;
         return (
-          <div key={status} className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+          <div key={status} className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
             <h2 className="mb-3 font-semibold text-slate-900">{title}</h2>
             <ul className="divide-y divide-slate-100">
               {rows.map((r) => (

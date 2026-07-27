@@ -94,7 +94,7 @@ interface ApproverLite {
 }
 
 const field =
-  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
+  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
 
 export function NewsletterWorkspace({
   initial,
@@ -433,7 +433,7 @@ export function NewsletterWorkspace({
       )}
 
       {/* Content: editable while the workflow allows it, read-only otherwise. */}
-      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         {can.edit ? (
           <div className="space-y-3">
             <label className="block">
@@ -469,7 +469,7 @@ export function NewsletterWorkspace({
       {/* Recipients + reviewers (editable alongside the content). */}
       {showRecipients && (
         <div className="grid gap-4 md:grid-cols-2">
-          <fieldset className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+          <fieldset className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
             <legend className="px-1 text-xs font-medium text-slate-500">Recipients</legend>
             {fromAddresses.length > 0 && (
               <label className="mb-3 block">
@@ -477,7 +477,7 @@ export function NewsletterWorkspace({
                 <select
                   value={fromAddress}
                   onChange={(e) => setFromAddress(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 bg-surface px-2 py-1.5 text-sm outline-none focus:border-compass-400"
+                  className="w-full rounded-lg border border-slate-200 bg-surface px-2 py-1.5 text-sm outline-hidden focus:border-compass-400"
                 >
                   <option value="">Workspace default</option>
                   {fromAddresses.map((f) => (
@@ -496,7 +496,7 @@ export function NewsletterWorkspace({
                 <select
                   value={archiveSpaceId ?? ""}
                   onChange={(e) => setArchiveSpaceId(e.target.value ? Number(e.target.value) : null)}
-                  className="w-full rounded-lg border border-slate-200 bg-surface px-2 py-1.5 text-sm outline-none focus:border-compass-400"
+                  className="w-full rounded-lg border border-slate-200 bg-surface px-2 py-1.5 text-sm outline-hidden focus:border-compass-400"
                 >
                   <option value="">No archive</option>
                   {spaces.map((s) => (
@@ -554,7 +554,7 @@ export function NewsletterWorkspace({
             </div>
           </fieldset>
 
-          <fieldset className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+          <fieldset className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
             <legend className="px-1 text-xs font-medium text-slate-500">Approvers</legend>
             {approverPool.length === 0 ? (
               <p className="text-sm text-slate-400">
@@ -592,7 +592,7 @@ export function NewsletterWorkspace({
 
       {/* Email attachments: sent WITH the newsletter as real files. */}
       {(can.edit || files.length > 0) && (
-        <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+        <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
           <div className="flex items-center justify-between">
             <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
               <Paperclip className="h-4 w-4 text-slate-400" /> Email attachments
@@ -678,7 +678,7 @@ export function NewsletterWorkspace({
             <button
               onClick={save}
               disabled={!!busy || !dirty}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-compass-700 disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-compass-700 disabled:opacity-50"
             >
               <Save className="h-4 w-4" />
               {busy === "save" ? "Saving…" : dirty ? "Save changes" : "Saved"}
@@ -720,7 +720,7 @@ export function NewsletterWorkspace({
               onClick={() => sendIt(false)}
               disabled={!!busy || dirty || !smtpReady}
               title={dirty ? "Save your changes first" : undefined}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-green-700 disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-green-700 disabled:opacity-50"
             >
               <Mail className="h-4 w-4" />
               {busy === "send" ? "Sending…" : "Send newsletter"}
@@ -740,7 +740,7 @@ export function NewsletterWorkspace({
       )}
 
       {scheduleOpen && can.send && !n.scheduled_at && (
-        <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+        <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-slate-500">
               Send date &amp; time (your local time — delivered within a minute of it)
@@ -772,7 +772,7 @@ export function NewsletterWorkspace({
       )}
 
       {submitOpen && can.submit && (
-        <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+        <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-slate-500">
               Note for the approvers (optional)
@@ -804,7 +804,7 @@ export function NewsletterWorkspace({
       )}
 
       {decisionOpen && can.decide && (
-        <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+        <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-slate-500">
               Note to the author (required when requesting changes)
@@ -841,7 +841,7 @@ export function NewsletterWorkspace({
       {/* Activity: workflow events and discussion, oldest first. Hidden from
           readers outside the editorial crew. */}
       {hasModuleAccess && (
-      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <h2 className="mb-3 flex items-center gap-2 font-semibold text-slate-900">
           <MessageSquare className="h-4 w-4 text-slate-400" /> Activity
         </h2>

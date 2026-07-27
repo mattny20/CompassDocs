@@ -6,7 +6,7 @@ import { MsDeviceSetup } from "./MsDeviceSetup";
 import type { DirectoryPerson, DirectoryField } from "@/lib/directory";
 
 const field =
-  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
+  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
 
 interface GraphState {
   enabled: boolean; // bundled AND licensed
@@ -135,7 +135,7 @@ export function DirectorySettings({
       <PrintColumnsPanel />
 
       {/* Manual entry form */}
-      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <h3 className="mb-3 font-semibold text-slate-900">
           {editingId === null ? "Add a person" : "Edit person"}
         </h3>
@@ -181,7 +181,7 @@ export function DirectorySettings({
       </div>
 
       {/* People table */}
-      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-surface shadow-sm">
+      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-surface shadow-xs">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400">
@@ -204,7 +204,7 @@ export function DirectorySettings({
               <tr key={p.id} className={`border-b border-slate-50 ${p.hidden ? "opacity-45" : ""}`}>
                 <td className="px-4 py-2.5 font-medium text-slate-900">
                   {p.name}
-                  {p.hidden ? <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">hidden</span> : null}
+                  {p.hidden ? <span className="ml-2 rounded-sm bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">hidden</span> : null}
                 </td>
                 <td className="px-4 py-2.5 text-slate-500">
                   {p.title}
@@ -215,7 +215,7 @@ export function DirectorySettings({
                   {[p.email, p.phone || p.mobile].filter(Boolean).join(" · ")}
                 </td>
                 <td className="px-4 py-2.5">
-                  <span className={`rounded px-1.5 py-0.5 text-xs ${p.source === "graph" ? "bg-compass-50 text-compass-700" : "bg-slate-100 text-slate-500"}`}>
+                  <span className={`rounded-sm px-1.5 py-0.5 text-xs ${p.source === "graph" ? "bg-compass-50 text-compass-700" : "bg-slate-100 text-slate-500"}`}>
                     {p.source === "graph" ? "Microsoft 365" : "manual"}
                   </span>
                 </td>
@@ -323,7 +323,7 @@ function GraphPanel({ graph, onSynced }: { graph: GraphState; onSynced: () => vo
   }
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+    <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
       <div className="mb-1 flex items-center gap-2">
         <h3 className="font-semibold text-slate-900">Microsoft 365 sync</h3>
         <span className="rounded-full bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-700 dark:bg-violet-900/50 dark:text-violet-300">Enterprise</span>
@@ -472,7 +472,7 @@ function FieldsPanel({
   }
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+    <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
       <h3 className="mb-1 font-semibold text-slate-900">Custom fields</h3>
       <p className="mb-3 text-sm text-slate-500">
         Extra directory attributes (e.g. cost center, pronouns, extension). Display each as a
@@ -632,7 +632,7 @@ function PrintColumnsPanel() {
 
   if (!loaded) return null;
   return (
-    <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+    <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
       <h3 className="mb-1 font-semibold text-slate-900">Quick print directory</h3>
       <p className="mb-3 text-sm text-slate-500">
         Anyone can print a phone directory from the Directory page. Choose which
@@ -643,14 +643,14 @@ function PrintColumnsPanel() {
           <div key={k} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-1.5 text-sm">
             <span className="flex-1 font-medium text-slate-700">{label(k)}</span>
             <button onClick={() => move(i, -1)} disabled={i === 0} title="Move up"
-              className="rounded px-1.5 text-slate-400 hover:text-slate-600 disabled:opacity-30">↑</button>
+              className="rounded-sm px-1.5 text-slate-400 hover:text-slate-600 disabled:opacity-30">↑</button>
             <button onClick={() => move(i, 1)} disabled={i === columns.length - 1} title="Move down"
-              className="rounded px-1.5 text-slate-400 hover:text-slate-600 disabled:opacity-30">↓</button>
+              className="rounded-sm px-1.5 text-slate-400 hover:text-slate-600 disabled:opacity-30">↓</button>
             <button
               onClick={() => save(columns.filter((c) => c !== k))}
               disabled={columns.length === 1}
               title="Remove column"
-              className="rounded px-1.5 text-slate-400 hover:text-red-600 disabled:opacity-30"
+              className="rounded-sm px-1.5 text-slate-400 hover:text-red-600 disabled:opacity-30"
             >
               ×
             </button>
@@ -661,7 +661,7 @@ function PrintColumnsPanel() {
         <select
           value=""
           onChange={(e) => e.target.value && save([...columns, e.target.value])}
-          className="mt-2 w-64 rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-compass-400"
+          className="mt-2 w-64 rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400"
         >
           <option value="">+ Add a column…</option>
           {unused.map((a) => (

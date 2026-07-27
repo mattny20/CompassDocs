@@ -19,7 +19,7 @@ interface DomainState {
 }
 
 const field =
-  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
+  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
 
 const TLS_OPTIONS: { value: TlsMode; label: string; hint: string }[] = [
   {
@@ -151,7 +151,7 @@ export function DomainSettings({ initial }: { initial: DomainState }) {
       )}
 
       {/* Domain */}
-      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <h3 className="mb-1 font-semibold text-slate-900">Custom domain</h3>
         <p className="mb-3 text-sm text-slate-500">
           Point an A/AAAA DNS record for this hostname at your server, then enter it here. Leave
@@ -175,7 +175,7 @@ export function DomainSettings({ initial }: { initial: DomainState }) {
       </div>
 
       {/* TLS mode */}
-      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <h3 className="mb-3 font-semibold text-slate-900">HTTPS / TLS</h3>
         <div className="space-y-2">
           {TLS_OPTIONS.map((opt) => (
@@ -268,7 +268,7 @@ export function DomainSettings({ initial }: { initial: DomainState }) {
       </div>
 
       {/* Cookie security */}
-      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <h3 className="mb-1 font-semibold text-slate-900">Session cookie security</h3>
         <p className="mb-3 text-sm text-slate-500">
           Controls when the login cookie is marked <code className="font-mono">Secure</code>.
@@ -309,7 +309,7 @@ export function DomainSettings({ initial }: { initial: DomainState }) {
         <button
           onClick={save}
           disabled={saving}
-          className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-compass-700 disabled:opacity-60"
+          className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-compass-700 disabled:opacity-60"
         >
           {saving ? "Saving…" : "Save & apply"}
         </button>

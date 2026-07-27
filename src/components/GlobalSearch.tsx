@@ -71,7 +71,7 @@ export function GlobalSearch() {
           onChange={(e) => setQ(e.target.value)}
           onFocus={() => hits.length && setOpen(true)}
           placeholder="Search docs…  (⌘K)"
-          className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 outline-none placeholder:text-slate-400 focus:border-compass-400 focus:bg-surface focus:ring-2 focus:ring-compass-100"
+          className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 outline-hidden placeholder:text-slate-400 focus:border-compass-400 focus:bg-surface focus:ring-2 focus:ring-compass-100"
         />
       </form>
 

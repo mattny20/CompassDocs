@@ -40,7 +40,7 @@ export default async function NotificationsPage() {
     <div>
     <Link
       href="/admin/notifications/templates"
-      className="mb-6 flex items-center gap-3 rounded-xl border border-slate-200 bg-surface px-4 py-3 shadow-sm transition hover:border-compass-300 hover:bg-compass-50/40"
+      className="mb-6 flex items-center gap-3 rounded-xl border border-slate-200 bg-surface px-4 py-3 shadow-xs transition hover:border-compass-300 hover:bg-compass-50/40"
     >
       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-compass-50 text-compass-600">
         <MailPlus className="h-5 w-5" />

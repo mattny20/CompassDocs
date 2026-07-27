@@ -27,7 +27,7 @@ interface GroupLite {
 }
 
 const field =
-  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
+  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
 
 const LEVELS = [
   { value: "info", label: "Info", icon: <Megaphone className="h-3.5 w-3.5" />, cls: "border-compass-400 bg-compass-50 text-compass-700 dark:text-compass-300" },
@@ -138,7 +138,7 @@ export function AnnouncementsAdmin({
       </div>
 
       {/* Compose */}
-      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <h2 className="mb-3 font-semibold text-slate-900">New announcement</h2>
         <div className="space-y-3">
           <label className="block">
@@ -243,7 +243,7 @@ export function AnnouncementsAdmin({
           <button
             onClick={post}
             disabled={busy || !title.trim() || !message.trim()}
-            className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-compass-700 disabled:opacity-50"
+            className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-compass-700 disabled:opacity-50"
           >
             {busy ? "Posting…" : "Post announcement"}
           </button>
@@ -251,7 +251,7 @@ export function AnnouncementsAdmin({
       </div>
 
       {/* History */}
-      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <h2 className="mb-3 font-semibold text-slate-900">Posted</h2>
         {rows.length === 0 ? (
           <p className="text-sm text-slate-400">Nothing posted yet.</p>
@@ -274,15 +274,15 @@ export function AnnouncementsAdmin({
                     </p>
                   </div>
                   {r.archived_at ? (
-                    <button onClick={() => setArchived(r, false)} title="Restore to dashboards" className="rounded p-1 text-slate-400 hover:bg-slate-100">
+                    <button onClick={() => setArchived(r, false)} title="Restore to dashboards" className="rounded-sm p-1 text-slate-400 hover:bg-slate-100">
                       <ArchiveRestore className="h-4 w-4" />
                     </button>
                   ) : (
-                    <button onClick={() => setArchived(r, true)} title="Archive (hide from all dashboards)" className="rounded p-1 text-slate-400 hover:bg-slate-100">
+                    <button onClick={() => setArchived(r, true)} title="Archive (hide from all dashboards)" className="rounded-sm p-1 text-slate-400 hover:bg-slate-100">
                       <Archive className="h-4 w-4" />
                     </button>
                   )}
-                  <button onClick={() => remove(r)} title="Delete" className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600">
+                  <button onClick={() => remove(r)} title="Delete" className="rounded-sm p-1 text-slate-400 hover:bg-red-50 hover:text-red-600">
                     <Trash2 className="h-4 w-4" />
                   </button>
                 </li>

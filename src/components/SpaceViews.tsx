@@ -103,7 +103,7 @@ export function SpaceViews({
               onClick={() => pick(v.key)}
               className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition ${
                 view === v.key
-                  ? "bg-compass-600 text-white shadow-sm"
+                  ? "bg-compass-600 text-white shadow-xs"
                   : "text-slate-500 hover:bg-slate-100 hover:text-slate-700"
               }`}
             >
@@ -212,7 +212,7 @@ function ChildList({
         <li key={k.id}>
           <Link
             href={`/doc/${k.id}`}
-            className="flex items-center gap-1.5 rounded px-1 py-0.5 text-sm text-slate-600 hover:bg-slate-50 hover:text-compass-700"
+            className="flex items-center gap-1.5 rounded-sm px-1 py-0.5 text-sm text-slate-600 hover:bg-slate-50 hover:text-compass-700"
           >
             <CornerDownRight className="h-3 w-3 shrink-0 text-slate-300" aria-hidden />
             <span className="min-w-0 truncate" title={k.title}>
@@ -602,7 +602,7 @@ function TreeNode({
             onClick={() => onToggle(d.id)}
             title={expanded ? "Collapse" : "Expand"}
             aria-label={`${expanded ? "Collapse" : "Expand"} ${d.title}`}
-            className="rounded p-0.5 text-slate-400 hover:text-slate-600"
+            className="rounded-sm p-0.5 text-slate-400 hover:text-slate-600"
           >
             <ChevronRight className={`h-3.5 w-3.5 transition-transform ${expanded ? "rotate-90" : ""}`} />
           </button>

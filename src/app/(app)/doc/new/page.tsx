@@ -72,7 +72,7 @@ export default async function NewDocPage({
         <div className="mt-6 grid gap-3 sm:grid-cols-2">
           <Link
             href={`/doc/new?template=blank${spaceQS}`}
-            className="group rounded-xl border border-slate-200 bg-white p-4 transition hover:border-compass-300 hover:shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:hover:border-compass-600"
+            className="group rounded-xl border border-slate-200 bg-white p-4 transition hover:border-compass-300 hover:shadow-xs dark:border-slate-700 dark:bg-slate-900 dark:hover:border-compass-600"
           >
             <div className="flex items-center gap-2 font-semibold text-slate-900 dark:text-slate-100">
               <FileText className="h-4 w-4 text-slate-400 group-hover:text-compass-600" aria-hidden />
@@ -86,7 +86,7 @@ export default async function NewDocPage({
             <Link
               key={t.id}
               href={`/doc/new?template=${t.id}${spaceQS}`}
-              className="group rounded-xl border border-slate-200 bg-white p-4 transition hover:border-compass-300 hover:shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:hover:border-compass-600"
+              className="group rounded-xl border border-slate-200 bg-white p-4 transition hover:border-compass-300 hover:shadow-xs dark:border-slate-700 dark:bg-slate-900 dark:hover:border-compass-600"
             >
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 font-semibold text-slate-900 dark:text-slate-100">

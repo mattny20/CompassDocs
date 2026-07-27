@@ -50,7 +50,7 @@ function BodyWithMentions({ body, mentions }: { body: string; mentions: Mention[
         i % 2 === 1 ? (
           <span
             key={i}
-            className="rounded bg-compass-50 px-1 font-medium text-compass-700 dark:bg-compass-100 dark:text-compass-300"
+            className="rounded-sm bg-compass-50 px-1 font-medium text-compass-700 dark:bg-compass-100 dark:text-compass-300"
           >
             @{part}
           </span>
@@ -243,7 +243,7 @@ export function DocComments({
           rows={3}
           maxLength={4000}
           placeholder="Add a comment… type @ to mention someone (they'll be notified)"
-          className="w-full rounded-xl border border-slate-200 bg-surface px-3 py-2 text-sm text-slate-800 focus:border-compass-400 focus:outline-none"
+          className="w-full rounded-xl border border-slate-200 bg-surface px-3 py-2 text-sm text-slate-800 focus:border-compass-400 focus:outline-hidden"
         />
         {picker && suggestions.length > 0 && (
           <ul className="absolute bottom-full left-0 z-20 mb-1 w-72 overflow-hidden rounded-lg border border-slate-200 bg-surface shadow-lg">

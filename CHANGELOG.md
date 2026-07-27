@@ -4,6 +4,14 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.63.1] - 2026-07-27
+
+### Changed
+- **Tailwind CSS 4.** The UI build moved from Tailwind 3.4 to 4.3 (CSS-first
+  configuration, faster builds). No visual or behavioral changes: the
+  themeable palette, dark mode, and the workspace accent color work exactly
+  as before — verified page-by-page in both themes.
+
 ## [0.63.0] - 2026-07-26
 
 ### Added

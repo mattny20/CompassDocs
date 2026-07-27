@@ -90,7 +90,7 @@ export function DocNotices({
                 }
               }}
               disabled={busy}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-amber-600 px-3.5 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-amber-700 disabled:opacity-60"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-amber-600 px-3.5 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-amber-700 disabled:opacity-60"
             >
               {busy && <LoaderCircle className="h-3.5 w-3.5 animate-spin" />}
               I&apos;ve read and understood this

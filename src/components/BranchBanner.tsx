@@ -91,7 +91,7 @@ export function BranchBanner({
             onChange={(e) => setNote(e.target.value)}
             placeholder="Describe this change (optional)"
             maxLength={200}
-            className="w-64 max-w-full rounded-md border border-violet-200 bg-surface px-2.5 py-1.5 text-xs text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-violet-400 dark:border-violet-800/60"
+            className="w-64 max-w-full rounded-md border border-violet-200 bg-surface px-2.5 py-1.5 text-xs text-slate-700 placeholder:text-slate-400 focus:outline-hidden focus:ring-1 focus:ring-violet-400 dark:border-violet-800/60"
           />
           <button
             onClick={merge}

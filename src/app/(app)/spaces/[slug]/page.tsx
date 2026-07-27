@@ -71,7 +71,7 @@ export default async function SpacePage({ params }: { params: Promise<{ slug: st
           {isEditor && canAuthor && (
             <Link
               href={`/doc/new?space=${space.slug}`}
-              className="whitespace-nowrap rounded-lg bg-compass-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-compass-700"
+              className="whitespace-nowrap rounded-lg bg-compass-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-compass-700"
             >
               ＋ New in {space.name}
             </Link>

@@ -48,12 +48,12 @@ export default async function AuthorizePage({
   } catch {}
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-100 to-compass-50 px-4">
+    <div className="flex min-h-screen items-center justify-center bg-linear-to-br from-slate-100 to-compass-50 px-4">
       <div className="w-full max-w-sm">
         <div className="mb-6 flex flex-col items-center">
           <Brand name={settings.company_name} logoUrl={settings.logo_url || undefined} size="lg" layout="col" />
         </div>
-        <div className="rounded-2xl border border-slate-200 bg-surface p-6 shadow-sm">
+        <div className="rounded-2xl border border-slate-200 bg-surface p-6 shadow-xs">
           {problem ? (
             <p className="text-sm text-red-600">{problem}</p>
           ) : (
@@ -82,7 +82,7 @@ export default async function AuthorizePage({
                 <button
                   name="decision"
                   value="approve"
-                  className="w-full rounded-lg bg-compass-600 px-4 py-2 font-semibold text-white shadow-sm transition hover:bg-compass-700"
+                  className="w-full rounded-lg bg-compass-600 px-4 py-2 font-semibold text-white shadow-xs transition hover:bg-compass-700"
                 >
                   Approve
                 </button>

@@ -243,7 +243,7 @@ export function OutlookPane() {
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Search or ask a question…"
-              className="min-w-0 flex-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm focus:border-compass-400 focus:outline-none"
+              className="min-w-0 flex-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm focus:border-compass-400 focus:outline-hidden"
             />
             <button type="submit" title="Search" disabled={!!busy} className="rounded-lg border border-slate-200 px-2 hover:bg-slate-50">
               <Search className="h-4 w-4 text-slate-500" />
@@ -253,7 +253,7 @@ export function OutlookPane() {
             </button>
           </form>
 
-          {flash && <p className="mt-2 rounded bg-green-50 px-2 py-1 text-xs text-green-700">{flash}</p>}
+          {flash && <p className="mt-2 rounded-sm bg-green-50 px-2 py-1 text-xs text-green-700">{flash}</p>}
           {busy && <p className="mt-3 text-sm text-slate-400">{busy === "ask" ? "Thinking…" : "Searching…"}</p>}
 
           {answer && (
@@ -269,7 +269,7 @@ export function OutlookPane() {
                       href={docUrl(s.id)}
                       target="_blank"
                       rel="noreferrer"
-                      className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-xs text-slate-600 hover:border-compass-400"
+                      className="rounded-sm border border-slate-200 bg-white px-1.5 py-0.5 text-xs text-slate-600 hover:border-compass-400"
                     >
                       {s.title}
                     </a>
@@ -425,7 +425,7 @@ export function AddinAuthClient({ authed }: { authed: boolean }) {
               onChange={(e) => setUsername(e.target.value)}
               placeholder="Username"
               autoComplete="username"
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-compass-400 focus:outline-none"
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-compass-400 focus:outline-hidden"
             />
             <input
               type="password"
@@ -433,7 +433,7 @@ export function AddinAuthClient({ authed }: { authed: boolean }) {
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Password"
               autoComplete="current-password"
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-compass-400 focus:outline-none"
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-compass-400 focus:outline-hidden"
             />
             <button
               disabled={busy || !username || !password}

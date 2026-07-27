@@ -15,7 +15,7 @@ type EditorGrants = { users: Record<number, number[]>; groups: Record<number, nu
 export type TemplateOption = { id: number; name: string; hidden: boolean };
 
 const field =
-  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
+  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
 
 export function SpacesManager({
   initial,
@@ -100,7 +100,7 @@ export function SpacesManager({
         {!creating && editing === null && (
           <button
             onClick={() => setCreating(true)}
-            className="shrink-0 rounded-lg bg-compass-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-compass-700"
+            className="shrink-0 rounded-lg bg-compass-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-compass-700"
           >
             ＋ New space
           </button>
@@ -114,7 +114,7 @@ export function SpacesManager({
       )}
 
       {/* Org-level edit-rights switch */}
-      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <label className="flex cursor-pointer items-start gap-3">
           <input
             type="checkbox"
@@ -180,7 +180,7 @@ export function SpacesManager({
           ) : (
             <div
               key={s.id}
-              className="flex items-center gap-3 rounded-xl border border-slate-200 bg-surface p-3 shadow-sm"
+              className="flex items-center gap-3 rounded-xl border border-slate-200 bg-surface p-3 shadow-xs"
             >
               <span
                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-lg"
@@ -430,7 +430,7 @@ function SpaceForm({
             <p className="text-xs text-emerald-800">
               Published documents in this space will be readable by <strong>anyone on the
               internet</strong> — no account needed — at{" "}
-              <code className="rounded bg-white/70 px-1">/public</code>. Drafts stay hidden.
+              <code className="rounded-sm bg-white/70 px-1">/public</code>. Drafts stay hidden.
               The public site itself is switched on under{" "}
               <a href="/admin/public-site" className="font-medium underline">
                 Settings → Public site
@@ -585,7 +585,7 @@ function SpaceForm({
           <select
             value={defaultTemplateId ?? ""}
             onChange={(e) => setDefaultTemplateId(e.target.value ? Number(e.target.value) : null)}
-            className="w-64 rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-compass-400"
+            className="w-64 rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400"
           >
             <option value="">None — start blank</option>
             {templates.map((t) => (
@@ -607,7 +607,7 @@ function SpaceForm({
         <select
           value={defaultView}
           onChange={(e) => setDefaultView(e.target.value)}
-          className="w-64 rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-compass-400"
+          className="w-64 rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400"
         >
           <option value="cards">Cards (default)</option>
           <option value="table">Table</option>
@@ -650,7 +650,7 @@ function SpaceForm({
         <button
           onClick={save}
           disabled={saving}
-          className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-compass-700 disabled:opacity-60"
+          className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-compass-700 disabled:opacity-60"
         >
           {saving ? "Saving…" : space ? "Save changes" : "Create space"}
         </button>
@@ -734,16 +734,16 @@ function CategoryEditor({ spaceId, initial }: { spaceId: number; initial: Catego
         {cats.map((c, i) => (
           <li key={c.id} className="flex items-center gap-1.5 text-sm">
             <span className="flex-1 text-slate-700">{c.name}</span>
-            <button type="button" onClick={() => move(c, -1)} disabled={busy || i === 0} title="Move up" className="rounded p-1 text-slate-400 hover:bg-slate-100 disabled:opacity-30">
+            <button type="button" onClick={() => move(c, -1)} disabled={busy || i === 0} title="Move up" className="rounded-sm p-1 text-slate-400 hover:bg-slate-100 disabled:opacity-30">
               <ChevronUp className="h-3.5 w-3.5" />
             </button>
-            <button type="button" onClick={() => move(c, 1)} disabled={busy || i === cats.length - 1} title="Move down" className="rounded p-1 text-slate-400 hover:bg-slate-100 disabled:opacity-30">
+            <button type="button" onClick={() => move(c, 1)} disabled={busy || i === cats.length - 1} title="Move down" className="rounded-sm p-1 text-slate-400 hover:bg-slate-100 disabled:opacity-30">
               <ChevronDown className="h-3.5 w-3.5" />
             </button>
-            <button type="button" onClick={() => rename(c)} disabled={busy} title="Rename" className="rounded p-1 text-slate-400 hover:bg-slate-100">
+            <button type="button" onClick={() => rename(c)} disabled={busy} title="Rename" className="rounded-sm p-1 text-slate-400 hover:bg-slate-100">
               <Pencil className="h-3.5 w-3.5" />
             </button>
-            <button type="button" onClick={() => remove(c)} disabled={busy} title="Delete" className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600">
+            <button type="button" onClick={() => remove(c)} disabled={busy} title="Delete" className="rounded-sm p-1 text-slate-400 hover:bg-red-50 hover:text-red-600">
               <Trash2 className="h-3.5 w-3.5" />
             </button>
           </li>
@@ -756,7 +756,7 @@ function CategoryEditor({ spaceId, initial }: { spaceId: number; initial: Catego
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), add())}
           placeholder="New category name"
-          className="w-56 rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none focus:border-compass-400"
+          className="w-56 rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-hidden focus:border-compass-400"
         />
         <button
           type="button"

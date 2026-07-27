@@ -54,7 +54,7 @@ export default async function AccountPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-100 to-compass-50 px-4 py-10">
+    <div className="min-h-screen bg-linear-to-br from-slate-100 to-compass-50 px-4 py-10">
       <div className="mx-auto w-full max-w-2xl">
         <Link
           href="/"
@@ -64,7 +64,7 @@ export default async function AccountPage() {
         </Link>
 
         {/* Who you are */}
-        <div className="mb-6 flex items-center gap-4 rounded-2xl border border-slate-200 bg-surface p-5 shadow-sm">
+        <div className="mb-6 flex items-center gap-4 rounded-2xl border border-slate-200 bg-surface p-5 shadow-xs">
           <span className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-compass-100 text-lg font-bold text-compass-700">
             {initials}
           </span>
@@ -84,7 +84,7 @@ export default async function AccountPage() {
             <a
               key={n.href}
               href={n.href}
-              className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-surface px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm hover:border-compass-300 hover:text-compass-700"
+              className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-surface px-3 py-1.5 text-xs font-medium text-slate-600 shadow-xs hover:border-compass-300 hover:text-compass-700"
             >
               {n.icon}
               {n.label}
@@ -98,7 +98,7 @@ export default async function AccountPage() {
             <p className="mb-3 text-sm text-slate-500">
               How wide pages render across the whole app (documents, dashboard, settings).
             </p>
-            <div className="rounded-2xl border border-slate-200 bg-surface p-5 shadow-sm">
+            <div className="rounded-2xl border border-slate-200 bg-surface p-5 shadow-xs">
               <span className="mb-2 block text-xs font-medium text-slate-500">Page width</span>
               <WidthPreference initial={user.page_width} />
             </div>
@@ -136,7 +136,7 @@ export default async function AccountPage() {
             <p className="mb-3 text-sm text-slate-500">
               Choose a strong password you don&apos;t use anywhere else.
             </p>
-            <div className="rounded-2xl border border-slate-200 bg-surface p-6 shadow-sm">
+            <div className="rounded-2xl border border-slate-200 bg-surface p-6 shadow-xs">
               <ChangePasswordForm forced={false} />
             </div>
           </section>
@@ -147,7 +147,7 @@ export default async function AccountPage() {
               Personal tokens for the Claude connector and other integrations. They act as you,
               with your role ({ROLE_LABEL[user.role]}).
             </p>
-            <div className="rounded-2xl border border-slate-200 bg-surface p-6 shadow-sm">
+            <div className="rounded-2xl border border-slate-200 bg-surface p-6 shadow-xs">
               <ApiTokens initial={tokens} initialConnections={connections} />
             </div>
           </section>

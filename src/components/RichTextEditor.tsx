@@ -515,7 +515,7 @@ export function RichTextEditor({
     editorProps: {
       attributes: {
         // Reuse the app's document styling so editing looks like the rendered doc.
-        class: "doc-prose min-h-[420px] px-5 py-4 focus:outline-none",
+        class: "doc-prose min-h-[420px] px-5 py-4 focus:outline-hidden",
       },
       // Pasted or dropped screenshots upload as attachments and insert inline.
       handlePaste: (view, event) => {
@@ -831,7 +831,7 @@ function Toolbar({
         }}
         title="Font — email-safe choices that render everywhere"
         aria-label="Font"
-        className="mx-0.5 h-8 rounded-md border border-slate-200 bg-surface px-1 text-xs text-slate-600 outline-none hover:bg-slate-50"
+        className="mx-0.5 h-8 rounded-md border border-slate-200 bg-surface px-1 text-xs text-slate-600 outline-hidden hover:bg-slate-50"
       >
         {FONTS.map((f) => (
           <option key={f.label} value={f.value ?? ""}>
@@ -1020,7 +1020,7 @@ function Toolbar({
             }}
             title="Insert a dynamic tag — replaced with the real value when each email is sent"
             aria-label="Insert tag"
-            className="mx-0.5 h-8 rounded-md border border-slate-200 bg-surface px-1 text-xs text-slate-600 outline-none hover:bg-slate-50"
+            className="mx-0.5 h-8 rounded-md border border-slate-200 bg-surface px-1 text-xs text-slate-600 outline-hidden hover:bg-slate-50"
           >
             <option value="">Insert tag…</option>
             {tagMenu.map((t) => (

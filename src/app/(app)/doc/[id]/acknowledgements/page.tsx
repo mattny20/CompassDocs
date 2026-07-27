@@ -60,7 +60,7 @@ export default async function AcknowledgementsPage({
         />
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-surface shadow-sm">
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-surface shadow-xs">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400">

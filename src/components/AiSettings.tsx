@@ -27,7 +27,7 @@ const MODEL_OPTIONS: { value: string; label: string }[] = [
 ];
 
 const field =
-  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
+  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
 
 export function AiSettings({ initial }: { initial: AiState }) {
   const router = useRouter();
@@ -132,7 +132,7 @@ export function AiSettings({ initial }: { initial: AiState }) {
       )}
 
       {/* Provider */}
-      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <h3 className="mb-1 font-semibold text-slate-900">Provider</h3>
         <p className="mb-3 text-sm text-slate-500">
           Who answers: Anthropic&rsquo;s Claude, or any OpenAI-compatible chat endpoint — OpenAI
@@ -182,7 +182,7 @@ export function AiSettings({ initial }: { initial: AiState }) {
       {provider === "anthropic" ? (
         <>
           {/* Anthropic API key */}
-          <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+          <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
             <h3 className="mb-1 font-semibold text-slate-900">Anthropic API key</h3>
             <p className="mb-3 text-sm text-slate-500">
               Get a key from{" "}
@@ -236,7 +236,7 @@ export function AiSettings({ initial }: { initial: AiState }) {
           </div>
 
           {/* Model */}
-          <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+          <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
             <h3 className="mb-1 font-semibold text-slate-900">Model</h3>
             <p className="mb-3 text-sm text-slate-500">
               Which Claude model answers questions and proofreads. Opus is the most capable; Haiku is
@@ -263,7 +263,7 @@ export function AiSettings({ initial }: { initial: AiState }) {
         </>
       ) : (
         /* OpenAI-compatible endpoint */
-        <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+        <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
           <h3 className="mb-1 font-semibold text-slate-900">OpenAI-compatible endpoint</h3>
           <p className="mb-3 text-sm text-slate-500">
             The full URL of a chat-completions endpoint. Examples:{" "}
@@ -327,7 +327,7 @@ export function AiSettings({ initial }: { initial: AiState }) {
         <button
           onClick={save}
           disabled={saving}
-          className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-compass-700 disabled:opacity-60"
+          className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-compass-700 disabled:opacity-60"
         >
           {saving ? "Saving…" : "Save"}
         </button>

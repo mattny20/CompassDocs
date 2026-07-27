@@ -70,7 +70,7 @@ export function TrashClient({
   }
 
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-200 bg-surface shadow-sm">
+    <div className="overflow-hidden rounded-xl border border-slate-200 bg-surface shadow-xs">
       <table className="w-full text-sm">
         <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-400">
           <tr>

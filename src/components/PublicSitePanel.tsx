@@ -43,7 +43,7 @@ export function PublicSitePanel({
         <p className="mt-1 text-sm text-slate-500">
           Serve the published documents of <strong>Public</strong> spaces to anyone on the
           internet — no sign-in — at{" "}
-          <code className="rounded bg-slate-100 px-1 text-xs">/public</code>. Useful for a
+          <code className="rounded-sm bg-slate-100 px-1 text-xs">/public</code>. Useful for a
           customer help center or public policies. Drafts, suggestions, and every other space
           stay behind the login.
         </p>
@@ -55,7 +55,7 @@ export function PublicSitePanel({
         </div>
       )}
 
-      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <label className="flex cursor-pointer items-start gap-3">
           <input
             type="checkbox"
@@ -91,7 +91,7 @@ export function PublicSitePanel({
         </label>
       </div>
 
-      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <label className="flex cursor-pointer items-start gap-3">
           <input
             type="checkbox"
@@ -113,7 +113,7 @@ export function PublicSitePanel({
         </label>
       </div>
 
-      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
           <Globe className="h-4 w-4 text-emerald-600" />
           Public spaces

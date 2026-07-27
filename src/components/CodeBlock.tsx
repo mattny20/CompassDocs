@@ -72,7 +72,7 @@ export function CodeBlock({ language, code }: { language: string; code: string }
                 <span className="h-2 w-2 rounded-full bg-amber-400/80" />
                 <span className="h-2 w-2 rounded-full bg-green-400/80" />
               </span>
-              <span className="rounded bg-compass-500/20 px-1.5 py-0.5 font-semibold uppercase tracking-wider text-compass-300">
+              <span className="rounded-sm bg-compass-500/20 px-1.5 py-0.5 font-semibold uppercase tracking-wider text-compass-300">
                 Run
               </span>
             </>
@@ -88,7 +88,7 @@ export function CodeBlock({ language, code }: { language: string; code: string }
           {copied ? "Copied ✓" : isRun ? "Copy commands" : "Copy"}
         </button>
       </div>
-      <pre className="!my-0 !rounded-none">
+      <pre className="my-0! rounded-none!">
         <code>{code}</code>
       </pre>
     </div>

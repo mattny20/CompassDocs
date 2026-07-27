@@ -124,7 +124,7 @@ export function WidthPreference({ initial }: { initial: Width }) {
             onClick={() => pick(o.value)}
             className={`rounded-md px-3 py-1 text-sm font-medium transition ${
               width === o.value
-                ? "bg-compass-600 text-white shadow-sm"
+                ? "bg-compass-600 text-white shadow-xs"
                 : "text-slate-500 hover:bg-slate-100 hover:text-slate-700"
             }`}
           >

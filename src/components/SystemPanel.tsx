@@ -26,7 +26,7 @@ function duration(sec: number): string {
 
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+    <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
       <h3 className="mb-3 font-semibold text-slate-900">{title}</h3>
       {children}
     </div>

@@ -21,7 +21,7 @@ export default async function PublicHome() {
             <Link
               key={s.id}
               href={`/public/${s.slug}`}
-              className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-compass-300 hover:shadow"
+              className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs transition hover:border-compass-300 hover:shadow-sm"
             >
               <div className="flex items-center gap-3">
                 <span

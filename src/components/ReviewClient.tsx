@@ -69,7 +69,7 @@ export function ReviewClient({
           </h2>
           <div className="space-y-3">
             {crs.map((cr) => (
-              <div key={cr.id} className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+              <div key={cr.id} className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <div className="mb-1 flex items-center gap-2">
@@ -146,7 +146,7 @@ export function ReviewClient({
           </h2>
           <div className="space-y-3">
             {sugs.map((sg) => (
-              <div key={sg.id} className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+              <div key={sg.id} className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <p className="text-sm text-slate-700">{sg.body}</p>

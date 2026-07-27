@@ -319,7 +319,7 @@ export function SidebarClient({
                   }
                   title={openSpaces.has(s.id) ? "Collapse pages" : "Show pages"}
                   aria-label={`${openSpaces.has(s.id) ? "Collapse" : "Expand"} pages in ${s.name}`}
-                  className="ml-1 rounded p-0.5 text-slate-400 hover:text-slate-600"
+                  className="ml-1 rounded-sm p-0.5 text-slate-400 hover:text-slate-600"
                 >
                   <ChevronRight
                     className={`h-3.5 w-3.5 transition-transform ${openSpaces.has(s.id) ? "rotate-90" : ""}`}
@@ -352,7 +352,7 @@ export function SidebarClient({
           <Link
             href="/doc/new"
             title="New document"
-            className={`flex w-full items-center justify-center gap-1.5 rounded-lg bg-compass-600 text-sm font-semibold text-white shadow-sm transition hover:bg-compass-700 ${
+            className={`flex w-full items-center justify-center gap-1.5 rounded-lg bg-compass-600 text-sm font-semibold text-white shadow-xs transition hover:bg-compass-700 ${
               collapsed ? "px-0 py-2" : "px-3 py-2"
             }`}
           >

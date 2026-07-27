@@ -85,7 +85,7 @@ export function SectionAccessPanel({
       {sections.map((s) => {
         const msg = message?.key === s.key ? message : null;
         return (
-          <div key={s.key} className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+          <div key={s.key} className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
             <div className="mb-1 flex items-center gap-2">
               <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-compass-50 text-compass-600">
                 {ICONS[s.key]}

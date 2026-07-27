@@ -149,7 +149,7 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
               { icon: <Users className="h-4 w-4" />, label: "Fully compliant people", value: `${k.users_compliant}/${k.users_total}` },
               { icon: <CircleAlert className="h-4 w-4" />, label: "Outstanding acknowledgements", value: k.outstanding },
             ].map((c) => (
-              <div key={c.label} className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+              <div key={c.label} className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
                 <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-compass-50 text-compass-600 dark:bg-compass-950/50">
                   {c.icon}
                 </span>
@@ -160,7 +160,7 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
           </div>
 
           {/* Request acknowledgement */}
-          <section className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+          <section className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
             <h2 className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
               <Send className="h-4 w-4 text-compass-600" /> Request acknowledgement
             </h2>
@@ -173,7 +173,7 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
               <select
                 value={candidate}
                 onChange={(e) => setCandidate(e.target.value)}
-                className="min-w-64 rounded-lg border border-slate-200 bg-surface px-2.5 py-1.5 text-sm text-slate-600 outline-none focus:border-compass-400"
+                className="min-w-64 rounded-lg border border-slate-200 bg-surface px-2.5 py-1.5 text-sm text-slate-600 outline-hidden focus:border-compass-400"
               >
                 <option value="">Choose a document…</option>
                 {data.candidates.map((c: any) => (
@@ -198,7 +198,7 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
           </section>
 
           {/* Per-policy progress */}
-          <section className="overflow-hidden rounded-xl border border-slate-200 bg-surface shadow-sm">
+          <section className="overflow-hidden rounded-xl border border-slate-200 bg-surface shadow-xs">
             <div className="border-b border-slate-100 px-4 py-3">
               <h2 className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
                 <FileCheck className="h-4 w-4 text-compass-600" /> Policy progress
@@ -309,7 +309,7 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
           </section>
 
           {/* Per-user standing */}
-          <section className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+          <section className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
             <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-slate-800">
               <Users className="h-4 w-4 text-compass-600" /> People
             </h2>

@@ -8,7 +8,7 @@ import { useState } from "react";
 import { MsDeviceSetup } from "./MsDeviceSetup";
 
 const field =
-  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
+  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
 
 export interface SsoState {
   enabled: boolean; // bundled AND licensed
@@ -123,7 +123,7 @@ export function SsoSettings({ initial }: { initial: SsoState }) {
     <div className="max-w-3xl">
       {header}
 
-      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <div className="mb-1 flex items-center gap-2">
           <h3 className="font-semibold text-slate-900">Microsoft Entra ID (OIDC)</h3>
           <span className="rounded-full bg-compass-600 px-2 py-0.5 text-xs font-semibold text-white">
@@ -132,7 +132,7 @@ export function SsoSettings({ initial }: { initial: SsoState }) {
         </div>
         <p className="mb-3 text-sm text-slate-500">
           Register an app in Microsoft Entra (single-tenant, web platform) with redirect URI{" "}
-          <code className="rounded bg-slate-100 px-1 font-mono text-xs">{redirectUri}</code>, create
+          <code className="rounded-sm bg-slate-100 px-1 font-mono text-xs">{redirectUri}</code>, create
           a client secret, then enter the details here. No API permissions are needed — sign-in
           uses only OpenID Connect.
         </p>

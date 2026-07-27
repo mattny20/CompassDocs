@@ -70,7 +70,7 @@ export function ReviewSchedule({
         }
         disabled={busy}
         aria-label="Review cadence"
-        className="w-full rounded-lg border border-slate-200 bg-surface px-2.5 py-1.5 text-sm outline-none focus:border-compass-400 disabled:opacity-60"
+        className="w-full rounded-lg border border-slate-200 bg-surface px-2.5 py-1.5 text-sm outline-hidden focus:border-compass-400 disabled:opacity-60"
       >
         <option value="">No review schedule</option>
         {intervals.map((d) => (

@@ -37,7 +37,7 @@ export function ImportExport() {
   return (
     <div className="grid gap-4 sm:grid-cols-2">
       {/* Export */}
-      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <h3 className="mb-1 font-semibold text-slate-900">Export</h3>
         <p className="mb-3 text-sm text-slate-500">
           Download every document (including drafts) as a zip of Markdown files with
@@ -45,14 +45,14 @@ export function ImportExport() {
         </p>
         <a
           href="/api/export"
-          className="inline-flex items-center gap-1.5 rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-compass-700"
+          className="inline-flex items-center gap-1.5 rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-compass-700"
         >
           ⬇ Export all docs (.zip)
         </a>
       </div>
 
       {/* Import */}
-      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <h3 className="mb-1 font-semibold text-slate-900">Import</h3>
         <p className="mb-3 text-sm text-slate-500">
           Upload a CompassDocs export (or any zip of front-matter Markdown). Matching
@@ -73,7 +73,7 @@ export function ImportExport() {
           <button
             onClick={runImport}
             disabled={importing || !fileName}
-            className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-compass-700 disabled:opacity-50"
+            className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-compass-700 disabled:opacity-50"
           >
             {importing ? "Importing…" : "Import"}
           </button>

@@ -96,7 +96,7 @@ export function MsDeviceSetup({
               {uri.replace(/^https?:\/\//, "")}
             </a>{" "}
             and enter the code{" "}
-            <code className="rounded bg-white px-2 py-0.5 font-mono text-base font-bold tracking-widest ring-1 ring-slate-200">
+            <code className="rounded-sm bg-white px-2 py-0.5 font-mono text-base font-bold tracking-widest ring-1 ring-slate-200">
               {code}
             </code>
             , signing in as a tenant admin.

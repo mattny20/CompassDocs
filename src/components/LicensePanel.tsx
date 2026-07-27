@@ -21,7 +21,7 @@ interface LicenseView {
 }
 
 const field =
-  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
+  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
 
 const STATUS_TONE: Record<string, string> = {
   active: "bg-green-100 text-green-700",
@@ -141,7 +141,7 @@ export function LicensePanel() {
 
           {/* License details */}
           {v.license && (
-            <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+            <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
               <h3 className="mb-3 font-semibold text-slate-900">Details</h3>
               <dl className="grid gap-x-8 gap-y-1.5 text-sm sm:grid-cols-2">
                 <Row label="Customer" value={v.license.customer} />
@@ -161,7 +161,7 @@ export function LicensePanel() {
           )}
 
           {/* Entitlements */}
-          <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+          <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
             <h3 className="mb-3 font-semibold text-slate-900">Enterprise features</h3>
             <ul className="space-y-2">
               {v.features.map((f) => (
@@ -191,7 +191,7 @@ export function LicensePanel() {
           </div>
 
           {/* Key entry */}
-          <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+          <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="font-semibold text-slate-900">
                 {v.status === "none" ? "Add a license" : "Replace license"}
@@ -220,7 +220,7 @@ export function LicensePanel() {
               <button
                 onClick={save}
                 disabled={saving || !key.trim()}
-                className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-compass-700 disabled:opacity-60"
+                className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-compass-700 disabled:opacity-60"
               >
                 {saving ? "Saving…" : "Activate"}
               </button>

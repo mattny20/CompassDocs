@@ -25,7 +25,7 @@ const DEFAULTS = {
 };
 
 const field =
-  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
+  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
 
 export function SemanticSearchPanel({ initial }: { initial: Status }) {
   const [status, setStatus] = useState<Status>(initial);
@@ -100,7 +100,7 @@ export function SemanticSearchPanel({ initial }: { initial: Status }) {
   const pct = status.total_docs ? Math.round((status.indexed_docs / status.total_docs) * 100) : 0;
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-sm">
+    <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
       <h3 className="mb-1 flex items-center gap-2 font-semibold text-slate-900">
         <Sparkles className="h-4 w-4 text-compass-600" /> Semantic search
       </h3>
@@ -108,7 +108,7 @@ export function SemanticSearchPanel({ initial }: { initial: Status }) {
         Understands meaning, not just keywords — &ldquo;how do we handle refunds?&rdquo; finds the
         billing policy even when no words match. Works alongside keyword search in the app and in
         Ask answers; the public site stays keyword-only. Requires the{" "}
-        <code className="rounded bg-slate-100 px-1 text-xs">pgvector</code> Postgres extension and
+        <code className="rounded-sm bg-slate-100 px-1 text-xs">pgvector</code> Postgres extension and
         an embeddings provider.
       </p>
 
@@ -216,7 +216,7 @@ export function SemanticSearchPanel({ initial }: { initial: Status }) {
         <button
           onClick={() => send(payload(), "Saved.").then(() => setApiKey(""))}
           disabled={busy}
-          className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-compass-700 disabled:opacity-60"
+          className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-compass-700 disabled:opacity-60"
         >
           {busy ? "Working…" : "Save"}
         </button>

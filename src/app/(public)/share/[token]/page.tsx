@@ -72,12 +72,12 @@ export default async function SharedDocPage({ params }: { params: Promise<{ toke
 
         {doc.summary && <p className="mb-6 max-w-3xl text-lg leading-relaxed text-slate-600">{doc.summary}</p>}
 
-        <div className="rounded-xl border border-slate-200 bg-white p-8 shadow-sm">
+        <div className="rounded-xl border border-slate-200 bg-white p-8 shadow-xs">
           <MarkdownView content={content} docKey={`share-${doc.id}`} />
         </div>
 
         {attachments.length > 0 && (
-          <div className="mt-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm print:hidden">
+          <div className="mt-6 rounded-xl border border-slate-200 bg-white p-5 shadow-xs print:hidden">
             <h2 className="mb-3 flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-500">
               <Paperclip className="h-3.5 w-3.5" aria-hidden /> Attachments
             </h2>
