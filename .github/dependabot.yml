@@ -20,9 +20,9 @@ updates:
         update-types: ["version-update:semver-minor", "version-update:semver-major"]
       - dependency-name: "@tiptap/*"
         update-types: ["version-update:semver-major"]
-      # TypeScript 7 (tsgo) breaks Next 15's tsconfig-paths resolution at
-      # build time (verified 2026-07: `Module not found: Can't resolve '@/…'`).
-      # Revisit when Next declares TS 7 support.
+      # TypeScript 7 (tsgo) doesn't provide the compiler API Next's build-time
+      # check needs (verified 2026-07 on Next 16 — requires the experimental
+      # useTypeScriptCli flag). Revisit when that path is stable.
       - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
       # Types track the runtime: the image is node:22-alpine.

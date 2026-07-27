@@ -105,8 +105,11 @@ export function Attachments({
       {error && <div className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
       {canEdit && attachments.length === 0 && (
         <p className="text-sm text-slate-400">
+          {/* Literal curly quotes, not &ldquo;-entities: Turbopack (Next 16)
+              splits text nodes at entities and eats the leading space after
+              {maxMb} when the node also wraps a line. */}
           No attachments yet. Files up to {maxMb} MB. Images can be embedded in the doc via
-          &ldquo;Copy link&rdquo;.
+          “Copy link”.
         </p>
       )}
 
