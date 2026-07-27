@@ -2,8 +2,18 @@
 
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { useState } from "react";
-import { GitBranch, History, LayoutTemplate, Pencil, ShieldCheck, Trash2, LoaderCircle } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import {
+  CalendarClock,
+  GitBranch,
+  History,
+  LayoutTemplate,
+  Pencil,
+  Share2,
+  ShieldCheck,
+  Trash2,
+  LoaderCircle,
+} from "lucide-react";
 import { roleAtLeast } from "@/lib/types";
 import type { Role } from "@/lib/types";
 import { PrintButton } from "./PrintButton";
@@ -16,6 +26,9 @@ export function DocActions({
   hasEditRights,
   isBranch = false,
   ack,
+  sharePanel,
+  reviewPanel,
+  reviewOverdue = false,
 }: {
   id: number;
   spaceSlug: string;
@@ -27,6 +40,12 @@ export function DocActions({
   isBranch?: boolean;
   /** Approver-side read-confirmation toggle (enterprise); omit to hide. */
   ack?: { required: boolean };
+  /** Share-link controls, shown in a toolbar popover; omit to hide. */
+  sharePanel?: React.ReactNode;
+  /** Review-schedule controls, shown in a toolbar popover; omit to hide. */
+  reviewPanel?: React.ReactNode;
+  /** Tints the review icon when the doc is overdue. */
+  reviewOverdue?: boolean;
 }) {
   const router = useRouter();
   const [deleting, setDeleting] = useState(false);
@@ -34,6 +53,23 @@ export function DocActions({
   const [templating, setTemplating] = useState(false);
   const [ackRequired, setAckRequired] = useState(ack?.required ?? false);
   const [ackBusy, setAckBusy] = useState(false);
+  const [popover, setPopover] = useState<null | "share" | "review">(null);
+  const rowRef = useRef<HTMLDivElement>(null);
+
+  // Popovers close on outside click or Escape.
+  useEffect(() => {
+    if (!popover) return;
+    const onClick = (e: MouseEvent) => {
+      if (rowRef.current && !rowRef.current.contains(e.target as Node)) setPopover(null);
+    };
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setPopover(null);
+    document.addEventListener("mousedown", onClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [popover]);
 
   const canEdit = roleAtLeast(role, "editor") && hasEditRights;
   const canDelete =
@@ -102,8 +138,49 @@ export function DocActions({
   // Icon-only actions with tooltips + accessible labels for a cleaner header.
   const iconBtn =
     "inline-flex items-center rounded-lg border border-slate-200 bg-surface p-2 text-slate-500 hover:bg-slate-50 hover:text-slate-700";
+  const popoverBox =
+    "absolute right-0 top-full z-40 mt-2 w-80 rounded-xl border border-slate-200 bg-surface p-4 text-left shadow-xl";
+
   return (
-    <div className="flex items-center gap-2 print:hidden">
+    <div ref={rowRef} className="relative flex items-center gap-2 print:hidden">
+      {sharePanel && (
+        <>
+          <button
+            onClick={() => setPopover((p) => (p === "share" ? null : "share"))}
+            title="Share link"
+            aria-label="Share link"
+            aria-expanded={popover === "share"}
+            className={
+              popover === "share"
+                ? "inline-flex items-center rounded-lg border border-compass-300 bg-compass-50 p-2 text-compass-600 dark:bg-compass-950/40"
+                : iconBtn
+            }
+          >
+            <Share2 className="h-4 w-4" />
+          </button>
+          {popover === "share" && <div className={popoverBox}>{sharePanel}</div>}
+        </>
+      )}
+      {reviewPanel && (
+        <>
+          <button
+            onClick={() => setPopover((p) => (p === "review" ? null : "review"))}
+            title={reviewOverdue ? "Review schedule — overdue" : "Review schedule"}
+            aria-label="Review schedule"
+            aria-expanded={popover === "review"}
+            className={
+              popover === "review"
+                ? "inline-flex items-center rounded-lg border border-compass-300 bg-compass-50 p-2 text-compass-600 dark:bg-compass-950/40"
+                : reviewOverdue
+                  ? "inline-flex items-center rounded-lg border border-amber-300 bg-amber-50 p-2 text-amber-700 hover:bg-amber-100 dark:bg-amber-950/40"
+                  : iconBtn
+            }
+          >
+            <CalendarClock className="h-4 w-4" />
+          </button>
+          {popover === "review" && <div className={popoverBox}>{reviewPanel}</div>}
+        </>
+      )}
       {ack && (
         <button
           onClick={onToggleAck}

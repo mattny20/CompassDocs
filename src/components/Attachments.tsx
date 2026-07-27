@@ -2,7 +2,17 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, ExternalLink, FileText, Link2, Paperclip, Trash2 } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  ExternalLink,
+  FileText,
+  Link2,
+  Paperclip,
+  Trash2,
+} from "lucide-react";
+import { usePanelCollapse } from "@/lib/use-panel-collapse";
 
 interface Att {
   id: number;
@@ -65,8 +75,13 @@ export function Attachments({
   const [linkUrl, setLinkUrl] = useState("");
   const [linkTitle, setLinkTitle] = useState("");
   const [linkBusy, setLinkBusy] = useState(false);
+  const [open, toggleOpen] = usePanelCollapse(
+    "attachments",
+    attachments.length + dmsLinks.length > 0
+  );
 
   if (attachments.length === 0 && dmsLinks.length === 0 && !canEdit) return null;
+  const itemCount = attachments.length + dmsLinks.length;
 
   async function addLink(e: React.FormEvent) {
     e.preventDefault();
@@ -137,9 +152,20 @@ export function Attachments({
   return (
     <section className="mt-8 border-t border-slate-100 pt-6">
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-500">
-          <Paperclip className="h-3.5 w-3.5" aria-hidden />
-          Attachments{attachments.length > 0 && ` (${attachments.length})`}
+        <h2>
+          <button
+            onClick={toggleOpen}
+            aria-expanded={open}
+            className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-500 hover:text-slate-700"
+          >
+            {open ? (
+              <ChevronDown className="h-3.5 w-3.5" aria-hidden />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+            )}
+            <Paperclip className="h-3.5 w-3.5" aria-hidden />
+            Attachments{itemCount > 0 && ` (${itemCount})`}
+          </button>
         </h2>
         {canEdit && (
           <div className="flex items-center gap-1.5">
@@ -153,14 +179,14 @@ export function Attachments({
             <button
               onClick={() => setLinkFormOpen((v) => !v)}
               title="Add a link to iManage, NetDocuments, SharePoint, or any https URL"
-              className="whitespace-nowrap rounded-lg border border-slate-200 bg-surface px-2.5 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+              className="shrink-0 whitespace-nowrap rounded-lg border border-slate-200 bg-surface px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
             >
               {"＋ Link"}
             </button>
             <button
               onClick={() => fileInput.current?.click()}
               disabled={uploading}
-              className="whitespace-nowrap rounded-lg border border-slate-200 bg-surface px-2.5 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+              className="shrink-0 whitespace-nowrap rounded-lg border border-slate-200 bg-surface px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60"
             >
               {uploading ? "Uploading…" : "＋ File"}
             </button>
@@ -212,7 +238,7 @@ export function Attachments({
       )}
 
       {error && <div className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
-      {canEdit && attachments.length === 0 && dmsLinks.length === 0 && !linkFormOpen && (
+      {open && canEdit && attachments.length === 0 && dmsLinks.length === 0 && !linkFormOpen && (
         <p className="text-sm text-slate-500">
           {/* Literal curly quotes, not &ldquo;-entities: Turbopack (Next 16)
               splits text nodes at entities and eats the leading space after
@@ -225,8 +251,9 @@ export function Attachments({
       {/* Compact single-column rows — this list lives in the narrow side
           panel, so actions are icon buttons and everything stays on one line.
           DMS links render first: same chrome as files, branded system badge,
-          nothing stored locally. */}
-      <ul className="space-y-1.5">
+          nothing stored locally. An in-progress add keeps the list visible
+          even when the section is collapsed. */}
+      <ul className={`space-y-1.5 ${open || linkFormOpen || uploading ? "" : "hidden"}`}>
         {dmsLinks.map((l) => {
           const badge = DMS_BADGE[l.system];
           return (
