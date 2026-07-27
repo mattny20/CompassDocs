@@ -27,6 +27,7 @@ import { getAppSettings } from "@/lib/settings-store";
 import { formatDate } from "@/lib/format";
 import { publicOrigin } from "@/lib/oauth";
 import { notifyWebhooks } from "@/lib/webhooks";
+import { notifyCrSubmitted } from "@/lib/notifications";
 import { notifySpaceSubscribers } from "@/lib/subscriptions";
 import { audit, actorFrom } from "@/lib/audit";
 import { spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
@@ -542,6 +543,13 @@ async function callTool(user: User, name: string, args: any, origin: string) {
           targetId: existing.id,
           targetLabel: proposed.title,
           details: { kind, via: "mcp" },
+        });
+        void notifyCrSubmitted({
+          spaceId: existing.space_id,
+          title: proposed.title,
+          actorId: user.id,
+          actorName: user.name || user.username,
+          origin,
         });
         void notifyWebhooks("change_request.submitted", {
           title: proposed.title,

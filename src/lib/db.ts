@@ -341,6 +341,24 @@ const SCHEMA_SQL = `
   ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_recovery jsonb NOT NULL DEFAULT '[]'::jsonb;
   -- Highest accepted TOTP time-step, to reject replay of a code within its window.
   ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_last_step bigint NOT NULL DEFAULT 0;
+  -- Personal incoming-webhook URL (Slack/Teams); notifications POST there too.
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_webhook_url text NOT NULL DEFAULT '';
+
+  -- Per-user notification inbox (the bell). Rows are cheap and pruned by the
+  -- hourly maintenance sweep once read and older than 90 days.
+  CREATE TABLE IF NOT EXISTS notifications (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    kind text NOT NULL,
+    title text NOT NULL,
+    body text NOT NULL DEFAULT '',
+    link text NOT NULL DEFAULT '',
+    actor_name text NOT NULL DEFAULT '',
+    created_at timestamptz NOT NULL DEFAULT now(),
+    read_at timestamptz
+  );
+  CREATE INDEX IF NOT EXISTS idx_notifications_user
+    ON notifications(user_id, created_at DESC);
 
   -- Personal API tokens (Claude connector / MCP, integrations). Only a SHA-256
   -- hash is stored; the raw token is shown once at creation.
@@ -1570,6 +1588,10 @@ export async function runDbMaintenance(): Promise<{ sessions: number; oauthCodes
   await ready();
   const sessions = await pool().query("DELETE FROM sessions WHERE expires_at < now()");
   const codes = await pool().query("DELETE FROM oauth_codes WHERE expires_at < now()");
+  // Read notifications older than 90 days are noise nobody revisits.
+  await pool().query(
+    "DELETE FROM notifications WHERE read_at IS NOT NULL AND created_at < now() - interval '90 days'"
+  );
   return { sessions: sessions.rowCount ?? 0, oauthCodes: codes.rowCount ?? 0 };
 }
 
@@ -1853,7 +1875,7 @@ export async function getAllSettings(): Promise<Record<string, string>> {
 
 const USER_COLUMNS = `id, username, email, name, role, status, auth_provider, external_id,
   must_change_password, totp_enabled, directory_person_id, email_notifications,
-  page_width, newsletter_role, created_at, last_login_at`;
+  notify_webhook_url, page_width, newsletter_role, created_at, last_login_at`;
 
 export async function getUserById(id: number): Promise<User | undefined> {
   return (await q<User>(`SELECT ${USER_COLUMNS} FROM users WHERE id = $1`, [id]))[0];
@@ -2547,6 +2569,136 @@ export async function setUserDirectoryPerson(userId: number, personId: number | 
 
 export async function setEmailNotifications(userId: number, on: boolean): Promise<void> {
   await q("UPDATE users SET email_notifications = $1 WHERE id = $2", [on ? 1 : 0, userId]);
+}
+
+export async function setNotifyWebhookUrl(userId: number, url: string): Promise<void> {
+  await q("UPDATE users SET notify_webhook_url = $1 WHERE id = $2", [url, userId]);
+}
+
+// --- Notification inbox (the bell) -----------------------------------------
+
+export interface Notification {
+  id: number;
+  kind: string;
+  title: string;
+  body: string;
+  link: string;
+  actor_name: string;
+  created_at: string;
+  read_at: string | null;
+}
+
+/** Bulk-insert one notification row per recipient. */
+export async function insertNotifications(
+  userIds: number[],
+  n: { kind: string; title: string; body?: string; link?: string; actor_name?: string }
+): Promise<void> {
+  if (userIds.length === 0) return;
+  await q(
+    `INSERT INTO notifications (user_id, kind, title, body, link, actor_name)
+     SELECT uid, $2, $3, $4, $5, $6 FROM unnest($1::int[]) AS uid`,
+    [userIds, n.kind, n.title.slice(0, 300), (n.body || "").slice(0, 1000), n.link || "", n.actor_name || ""]
+  );
+}
+
+export async function listNotificationsFor(userId: number, limit = 30): Promise<Notification[]> {
+  return q(
+    `SELECT id, kind, title, body, link, actor_name, created_at, read_at
+     FROM notifications WHERE user_id = $1
+     ORDER BY created_at DESC, id DESC LIMIT $2`,
+    [userId, limit]
+  );
+}
+
+export async function unreadNotificationCount(userId: number): Promise<number> {
+  return (
+    await q<{ n: number }>(
+      "SELECT COUNT(*)::int AS n FROM notifications WHERE user_id = $1 AND read_at IS NULL",
+      [userId]
+    )
+  )[0].n;
+}
+
+/** Mark one of the user's notifications read; no-op on others' rows. */
+export async function markNotificationRead(userId: number, id: number): Promise<void> {
+  await q(
+    "UPDATE notifications SET read_at = now() WHERE id = $1 AND user_id = $2 AND read_at IS NULL",
+    [id, userId]
+  );
+}
+
+export async function markAllNotificationsRead(userId: number): Promise<void> {
+  await q("UPDATE notifications SET read_at = now() WHERE user_id = $1 AND read_at IS NULL", [
+    userId,
+  ]);
+}
+
+/**
+ * Space subscribers as bare user ids — same audience as
+ * listSubscriberRecipients minus the email-specific filters (the in-app
+ * inbox doesn't care about email_notifications or a missing address).
+ */
+export async function listSubscriberIds(
+  spaceId: number,
+  excludeUserId: number
+): Promise<number[]> {
+  const rows = await q<{ id: number }>(
+    `SELECT u.id FROM users u
+     JOIN spaces s ON s.id = $1
+     WHERE u.status = 'active' AND u.id <> $2
+       AND (
+         EXISTS (SELECT 1 FROM space_subscriptions ss
+                 WHERE ss.space_id = $1 AND ss.user_id = u.id AND ss.state = 'subscribed')
+         OR (
+           EXISTS (SELECT 1 FROM space_subscription_groups sg
+                   JOIN group_members gm ON gm.group_id = sg.group_id
+                   WHERE sg.space_id = $1 AND gm.user_id = u.id)
+           AND NOT EXISTS (SELECT 1 FROM space_subscriptions ss
+                           WHERE ss.space_id = $1 AND ss.user_id = u.id AND ss.state = 'muted')
+         )
+       )
+       AND (
+         s.visibility IN ('public', 'internal')
+         OR u.role = 'admin'
+         OR EXISTS (SELECT 1 FROM space_groups spg
+                    JOIN group_members gm2 ON gm2.group_id = spg.group_id
+                    WHERE spg.space_id = $1 AND gm2.user_id = u.id)
+       )`,
+    [spaceId, excludeUserId]
+  );
+  return rows.map((r) => r.id);
+}
+
+/** Everyone (besides the author) who commented on a doc — reply audience. */
+export async function listCommenterIds(docId: number, excludeUserId: number): Promise<number[]> {
+  const rows = await q<{ user_id: number }>(
+    `SELECT DISTINCT c.user_id FROM doc_comments c
+     JOIN users u ON u.id = c.user_id AND u.status = 'active'
+     WHERE c.document_id = $1 AND c.deleted_at IS NULL AND c.user_id <> $2`,
+    [docId, excludeUserId]
+  );
+  return rows.map((r) => r.user_id);
+}
+
+/** Active approvers/admins who can see the given space (review audience). */
+export async function listApproverIdsForSpace(
+  spaceId: number,
+  excludeUserId: number
+): Promise<number[]> {
+  const rows = await q<{ id: number }>(
+    `SELECT u.id FROM users u
+     JOIN spaces s ON s.id = $1
+     WHERE u.status = 'active' AND u.role IN ('approver', 'admin') AND u.id <> $2
+       AND (
+         u.role = 'admin'
+         OR s.visibility <> 'private'
+         OR EXISTS (SELECT 1 FROM space_groups sg
+                    JOIN group_members gm ON gm.group_id = sg.group_id
+                    WHERE sg.space_id = s.id AND gm.user_id = u.id)
+       )`,
+    [spaceId, excludeUserId]
+  );
+  return rows.map((r) => r.id);
 }
 
 export async function setWeeklyDigest(userId: number, on: boolean): Promise<void> {

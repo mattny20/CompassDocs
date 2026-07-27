@@ -4,6 +4,38 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.67.0] - 2026-07-27
+
+A notifications center: everything that happens to you in CompassDocs now
+lands in one inbox behind a bell in the sidebar.
+
+### Added
+- **Notification inbox.** A bell in the sidebar with an unread badge, a
+  dropdown of recent notifications, one-click mark-read (or mark-all), and
+  deep links into the right document. Notifications cover:
+  - **@mentions** and **new comments** on threads you've participated in
+  - **Publishes and updates** in spaces you subscribe to
+  - **Change requests** — approvers hear when one is submitted; authors
+    hear when theirs is approved or declined (with the reviewer's note)
+  - **Content reviews coming due** (approvers) and **read-confirmation
+    requests** (enterprise)
+- **Personal chat webhook.** Paste a Slack or Teams incoming-webhook URL in
+  Manage account → Notifications and your notifications are also posted
+  there. Server-side the delivery goes through the SSRF-safe fetch layer,
+  and only `https://` URLs are accepted.
+- `GET/POST /api/notifications` for the inbox (list, unread count,
+  mark-read).
+
+### Changed
+- Mention and read-confirmation notices moved from targeted dashboard
+  announcements into the notification inbox — the dashboard announcement
+  board is now purely for org-wide posts. Existing targeted announcements
+  still display until dismissed or expired.
+- In-app notifications are delivered even when SMTP isn't configured
+  (emails remain optional on top).
+- Read notifications older than 90 days are pruned by the hourly
+  maintenance sweep.
+
 ## [0.66.0] - 2026-07-27
 
 The dashboard grew up: it is now a personal work hub built around what YOU

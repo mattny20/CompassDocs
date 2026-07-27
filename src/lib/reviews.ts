@@ -78,20 +78,45 @@ export async function listReviewsDue(scope: number[] | "all", limit = 20): Promi
  * document, sent once per due-cycle). Driven by the hourly scheduler tick.
  */
 export async function remindDueReviews(): Promise<void> {
-  const { getSmtpConfig, smtpConfigured } = await import("./smtp-config");
-  if (!smtpConfigured(await getSmtpConfig())) return;
-
   // Claim atomically so concurrent instances can't double-send.
-  const due = await q<{ id: number; title: string; space_name: string; review_due_at: string }>(
+  const due = await q<{
+    id: number;
+    title: string;
+    space_id: number;
+    space_name: string;
+    review_due_at: string;
+  }>(
     `UPDATE documents d SET review_reminded_at = now()
      FROM spaces s
      WHERE s.id = d.space_id
        AND d.review_due_at IS NOT NULL AND d.review_due_at <= now()
        AND (d.review_reminded_at IS NULL OR d.review_reminded_at < d.review_due_at)
        AND d.deleted_at IS NULL AND d.branch_of IS NULL AND d.status = 'published'
-     RETURNING d.id, d.title, s.name AS space_name, d.review_due_at`
+     RETURNING d.id, d.title, d.space_id, s.name AS space_name, d.review_due_at`
   );
   if (due.length === 0) return;
+
+  // Inbox notifications for approvers who can see the space — independent of
+  // SMTP being configured.
+  {
+    const { listApproverIdsForSpace } = await import("./db");
+    const { notify } = await import("./notifications");
+    for (const doc of due) {
+      try {
+        await notify(await listApproverIdsForSpace(doc.space_id, 0), {
+          kind: "review_due",
+          title: `"${doc.title}" is due for content review`,
+          body: `In ${doc.space_name}`,
+          link: `/doc/${doc.id}`,
+        });
+      } catch (e) {
+        console.error(`[reviews] inbox reminder for doc ${doc.id} failed:`, e);
+      }
+    }
+  }
+
+  const { getSmtpConfig, smtpConfigured } = await import("./smtp-config");
+  if (!smtpConfigured(await getSmtpConfig())) return;
 
   const recipients = await q<{ email: string }>(
     `SELECT email FROM users

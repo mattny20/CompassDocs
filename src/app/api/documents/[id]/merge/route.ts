@@ -9,6 +9,7 @@ import {
 import { apiGuard } from "@/lib/api-auth";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
 import { notifySpaceSubscribers } from "@/lib/subscriptions";
+import { notifyCrSubmitted } from "@/lib/notifications";
 import { requestOrigin } from "@/lib/oauth";
 import { roleAtLeast } from "@/lib/types";
 import { spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
@@ -81,6 +82,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       targetLabel: branch.title,
       details: { kind: "merge", branchId: branch.id },
       ip: ipFrom(req),
+    });
+    void notifyCrSubmitted({
+      spaceId: source.space_id,
+      title: branch.title,
+      actorId: user.id,
+      actorName: user.name || user.username,
+      origin: requestOrigin(req),
     });
     return NextResponse.json({ pending: true, changeRequestId: crId, docId: source.id });
   }

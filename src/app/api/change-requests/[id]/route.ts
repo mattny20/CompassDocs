@@ -4,6 +4,7 @@ import { apiGuard } from "@/lib/api-auth";
 import { spaceScopeFor, scopeAllows } from "@/lib/access";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
 import { notifyWebhooks } from "@/lib/webhooks";
+import { notify } from "@/lib/notifications";
 import { notifySpaceSubscribers } from "@/lib/subscriptions";
 import { requestOrigin } from "@/lib/oauth";
 import type { SessionUser } from "@/lib/types";
@@ -62,6 +63,15 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       spaceId: crDoc?.space_id,
       spaceName: crDoc?.space_name,
     });
+    // The author hears their change was approved.
+    void notify([cr.created_by], {
+      kind: "cr_resolved",
+      title: `${user.name || user.username} approved "${cr.title}"`,
+      body: note || undefined,
+      link: `/doc/${cr.document_id}`,
+      actorName: user.name || user.username,
+      origin: requestOrigin(req),
+    });
     // Subscribers hear about the change landing (the doc may have moved
     // spaces as part of the approval — notify its current space).
     const after = cr ? await getDocument(cr.document_id) : undefined;
@@ -96,6 +106,14 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       url: `${requestOrigin(req)}/review`,
       spaceId: crDoc?.space_id,
       spaceName: crDoc?.space_name,
+    });
+    void notify([cr.created_by], {
+      kind: "cr_resolved",
+      title: `${user.name || user.username} declined "${cr.title}"`,
+      body: note || undefined,
+      link: `/doc/${cr.document_id}`,
+      actorName: user.name || user.username,
+      origin: requestOrigin(req),
     });
     return NextResponse.json({ ok: true, result: "rejected" });
   }

@@ -21,16 +21,33 @@ export function NotificationsPanel({
   initialDigest = false,
   email,
   initialSubs,
+  initialWebhook = "",
 }: {
   initialEnabled: boolean;
   initialDigest?: boolean;
   email: string;
   initialSubs: Sub[];
+  initialWebhook?: string;
 }) {
   const [enabled, setEnabled] = useState(initialEnabled);
   const [digest, setDigest] = useState(initialDigest);
   const [subs, setSubs] = useState<Sub[]>(initialSubs);
   const [busy, setBusy] = useState(false);
+  const [webhook, setWebhook] = useState(initialWebhook);
+  const [webhookSaved, setWebhookSaved] = useState<null | "ok" | string>(null);
+
+  async function saveWebhook() {
+    setBusy(true);
+    setWebhookSaved(null);
+    const res = await fetch("/api/account/notifications", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ notify_webhook_url: webhook.trim() }),
+    });
+    setBusy(false);
+    if (res.ok) setWebhookSaved("ok");
+    else setWebhookSaved((await res.json().catch(() => null))?.error || "Couldn't save.");
+  }
 
   async function toggleMaster(on: boolean) {
     setBusy(true);
@@ -107,6 +124,39 @@ export function NotificationsPanel({
             </span>
           </span>
         </label>
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
+        <h3 className="mb-1 text-sm font-semibold text-slate-900">Chat webhook</h3>
+        <p className="mb-2 text-sm text-slate-500">
+          Paste a Slack or Teams incoming-webhook URL and your notifications are also posted
+          there — handy for a personal DM channel. Leave empty to turn off.
+        </p>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <input
+            type="url"
+            value={webhook}
+            onChange={(e) => {
+              setWebhook(e.target.value);
+              setWebhookSaved(null);
+            }}
+            placeholder="https://hooks.slack.com/services/…"
+            className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-surface px-3 py-1.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-compass-400 focus:outline-none"
+          />
+          <button
+            onClick={saveWebhook}
+            disabled={busy}
+            className="rounded-lg bg-compass-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-compass-700 disabled:opacity-50"
+          >
+            Save
+          </button>
+        </div>
+        {webhookSaved === "ok" && (
+          <p className="mt-1.5 text-xs text-green-600">Saved.</p>
+        )}
+        {webhookSaved && webhookSaved !== "ok" && (
+          <p className="mt-1.5 text-xs text-red-600">{webhookSaved}</p>
+        )}
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">

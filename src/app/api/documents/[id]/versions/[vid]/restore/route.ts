@@ -8,6 +8,8 @@ import {
 } from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
+import { notifyCrSubmitted } from "@/lib/notifications";
+import { requestOrigin } from "@/lib/oauth";
 import { roleAtLeast } from "@/lib/types";
 import { spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
 import type { SessionUser } from "@/lib/types";
@@ -80,6 +82,13 @@ export async function POST(
       targetLabel: version.title,
       details: { kind: "restore", versionId: version.id },
       ip: ipFrom(req),
+    });
+    void notifyCrSubmitted({
+      spaceId: doc.space_id,
+      title: version.title,
+      actorId: user.id,
+      actorName: user.name || user.username,
+      origin: requestOrigin(req),
     });
     return NextResponse.json({ pending: true, changeRequestId: crId, docId: doc.id });
   }

@@ -29,6 +29,7 @@ import {
   PanelLeftOpen,
 } from "lucide-react";
 import { GlobalSearch } from "./GlobalSearch";
+import { NotificationsBell } from "./NotificationsBell";
 import { UserMenu } from "./UserMenu";
 import { Brand } from "./Brand";
 import { SidebarSpaceTree } from "./SidebarSpaceTree";
@@ -53,6 +54,7 @@ export function SidebarClient({
   reviewCount,
   trashCount,
   announcementCount,
+  unreadNotifications = 0,
   showNewsletter,
   showAnnouncements,
   showCompliance,
@@ -69,6 +71,8 @@ export function SidebarClient({
   trashCount: number;
   /** Active announcements the user hasn't dismissed — badged on Dashboard. */
   announcementCount: number;
+  /** Unread inbox notifications — the bell's initial badge. */
+  unreadNotifications?: number;
   /** Whether this user has newsletter access (contributor/approver/admin). */
   showNewsletter: boolean;
   /** Delegated sections (admins or granted via Settings → Section access). */
@@ -171,21 +175,25 @@ export function SidebarClient({
             <Brand name={companyName} logoUrl={logoUrl} />
           </Link>
         )}
-        <button
-          onClick={toggle}
-          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          className="rounded-md p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
-        >
-          {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-        </button>
+        <div className={`flex items-center ${collapsed ? "flex-col gap-1" : "gap-0.5"}`}>
+          {!collapsed && <NotificationsBell initialUnread={unreadNotifications} />}
+          <button
+            onClick={toggle}
+            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            className="rounded-md p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+          >
+            {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+          </button>
+        </div>
       </div>
 
       {collapsed && (
-        <div className="flex justify-center border-b border-slate-100 py-3">
+        <div className="flex flex-col items-center gap-2 border-b border-slate-100 py-3">
           <Link href="/" title={companyName}>
             <Brand name={companyName} logoUrl={logoUrl} showName={false} />
           </Link>
+          <NotificationsBell initialUnread={unreadNotifications} />
         </div>
       )}
 
