@@ -4,6 +4,22 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.69.0] - 2026-07-27
+
+Link out to your document-management system.
+
+### Added
+- **DMS links.** Documents can now carry links into **iManage**,
+  **NetDocuments**, and **SharePoint** (or any https URL) — shown alongside
+  attachments with a branded badge per system, but nothing is stored in
+  CompassDocs: they're titled deep links that open in the source system,
+  which keeps enforcing its own permissions. Editors add them with **＋
+  Link** in the Attachments panel (URL + optional display name — the system
+  is auto-detected from the host, including iManage `iwl:` desktop links);
+  anyone who can see the document can follow them. Adds and removals are
+  audited. Up to 50 links per document; only `https://` (and `iwl:`) URLs
+  are accepted.
+
 ## [0.68.0] - 2026-07-27
 
 A public REST API, and token scopes to go with it.

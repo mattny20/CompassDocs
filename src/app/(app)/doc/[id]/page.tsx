@@ -7,6 +7,7 @@ import {
   listBranches,
   listPendingForDocument,
   listAttachments,
+  listDmsLinks,
   getApprovalMode,
 } from "@/lib/db";
 import { BranchBanner } from "@/components/BranchBanner";
@@ -58,13 +59,15 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
   const versionCount = (await listVersions(doc.id)).length;
   const relations = doc.branch_of === null ? await relationsFor(doc.id, scope, isStaff) : [];
   const pending = roleAtLeast(user.role, "approver") ? await listPendingForDocument(doc.id) : [];
-  const [settings, attachments, authorPerson, ackEnabled, hasEditRights] = await Promise.all([
-    getAppSettings(),
-    listAttachments(doc.id),
-    resolveAuthorPerson(doc.author),
-    featureEnabled("policy_ack"),
-    canEditSpace(user, doc.space_id),
-  ]);
+  const [settings, attachments, dmsLinks, authorPerson, ackEnabled, hasEditRights] =
+    await Promise.all([
+      getAppSettings(),
+      listAttachments(doc.id),
+      listDmsLinks(doc.id),
+      resolveAuthorPerson(doc.author),
+      featureEnabled("policy_ack"),
+      canEditSpace(user, doc.space_id),
+    ]);
   // Content review state (staff-facing; readers never see review chrome).
   const reviewDueAt = doc.review_due_at ?? null;
   const reviewOverdue =
@@ -324,6 +327,12 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
               filename: a.filename,
               mime_type: a.mime_type,
               size: a.size,
+            }))}
+            dmsLinks={dmsLinks.map((l) => ({
+              id: l.id,
+              system: l.system,
+              title: l.title,
+              url: l.url,
             }))}
             canEdit={isStaff && hasEditRights}
             maxMb={settings.max_attachment_mb}
