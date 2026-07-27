@@ -43,10 +43,26 @@ export function actorFrom(user: Pick<SessionUser, "id" | "name" | "username" | "
   return { id: user.id, name: user.name || user.username, role: user.role };
 }
 
-/** Best-effort client IP from proxy headers. */
+/**
+ * Client IP from proxy headers. X-Forwarded-For is a client-appendable list;
+ * the LEFTMOST entry is attacker-controlled, so trusting it lets an attacker
+ * rotate a spoofed IP to defeat the login throttle. We instead take the entry
+ * added by our own trusted proxy: the Nth-from-the-right, where N is the number
+ * of trusted proxies in front of the app (COMPASSDOCS_TRUSTED_PROXY_HOPS,
+ * default 1 for the bundled Caddy). Set it higher when another proxy
+ * (Cloudflare, a load balancer) sits in front of Caddy.
+ */
 export function ipFrom(req: Request): string | null {
   const xff = req.headers.get("x-forwarded-for");
-  if (xff) return xff.split(",")[0].trim();
+  if (xff) {
+    const parts = xff.split(",").map((s) => s.trim()).filter(Boolean);
+    if (parts.length) {
+      const hops = Math.max(1, Number(process.env.COMPASSDOCS_TRUSTED_PROXY_HOPS) || 1);
+      // Rightmost is the proxy's own peer; step left by (hops-1) trusted hops.
+      const idx = Math.max(0, parts.length - hops);
+      return parts[idx];
+    }
+  }
   return req.headers.get("x-real-ip");
 }
 

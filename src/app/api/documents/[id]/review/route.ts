@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getDocument } from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
-import { canEditSpace } from "@/lib/access";
+import { canEditSpace, spaceScopeFor, scopeAllows } from "@/lib/access";
 import { setReviewSchedule, markReviewed, REVIEW_INTERVALS } from "@/lib/reviews";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
 import type { SessionUser } from "@/lib/types";
@@ -14,6 +14,11 @@ async function guard(id: string) {
   const user = gate as SessionUser;
   const doc = await getDocument(Number(id));
   if (!doc || doc.branch_of !== null) {
+    return { gate: NextResponse.json({ error: "Not found." }, { status: 404 }) };
+  }
+  // canEditSpace is visibility-blind (see access.ts), so check space scope first
+  // or an editor could tamper with docs in a private space outside their scope.
+  if (!scopeAllows(await spaceScopeFor(user), doc.space_id)) {
     return { gate: NextResponse.json({ error: "Not found." }, { status: 404 }) };
   }
   if (!(await canEditSpace(user, doc.space_id))) {

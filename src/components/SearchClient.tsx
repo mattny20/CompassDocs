@@ -9,17 +9,7 @@ import { timeAgo } from "@/lib/ui";
 import { parseSearchQuery } from "@/lib/search-query";
 import type { SearchHit } from "@/lib/types";
 import type { AiAnswer } from "@/lib/ai";
-
-// ts_headline copies document text verbatim (no HTML escaping) — escape it and
-// restore only our own <mark> highlight tokens before injecting.
-function safeSnippet(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/&lt;mark&gt;/g, "<mark>")
-    .replace(/&lt;\/mark&gt;/g, "</mark>");
-}
+import { safeSnippet } from "@/lib/snippet";
 
 export function SearchClient({
   initialQuery,

@@ -4,22 +4,9 @@ import type { Metadata } from "next";
 import { searchDocuments, publicSpaceIds } from "@/lib/db";
 import { recordSearch } from "@/lib/analytics";
 import { searchRateLimited } from "@/lib/public-site";
+import { safeSnippet } from "@/lib/snippet";
 
 export const dynamic = "force-dynamic";
-
-/**
- * ts_headline copies document text verbatim (it doesn't HTML-escape), so a doc
- * containing raw HTML would otherwise be injected into this anonymous page.
- * Escape everything, then restore only our own <mark> highlight tokens.
- */
-function safeSnippet(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/&lt;mark&gt;/g, "<mark>")
-    .replace(/&lt;\/mark&gt;/g, "</mark>");
-}
 
 export const metadata: Metadata = {
   title: "Search",

@@ -9,8 +9,10 @@ import {
   touchSession,
   markLogin,
   consumeRecoveryCode,
+  recordTotpStep,
 } from "./db";
-import { verifyTotp } from "./totp";
+import { verifyTotpStep } from "./totp";
+import { openSecret } from "./secretbox";
 import { verifyPassword, newToken } from "./password";
 import { getSessionTimeoutMinutes, getSecureCookieMode } from "./settings-store";
 import { SESSION_TIMEOUT_MAX } from "./settings";
@@ -131,8 +133,15 @@ export async function login(
   if (record.totp_enabled === 1 && record.totp_secret) {
     const code = (totpCode || "").trim();
     if (!code) return { totp_required: true };
-    if (!verifyTotp(record.totp_secret, code)) {
-      // Fall back to one-time recovery codes (xxxx-xxxx, consumed on use).
+    const secret = openSecret(record.totp_secret);
+    const step = verifyTotpStep(secret, code);
+    const lastStep = Number((record as { totp_last_step?: number }).totp_last_step) || 0;
+    if (step !== null && step > lastStep) {
+      // Valid, not-yet-used code — record its step so it can't be replayed.
+      await recordTotpStep(record.id, step);
+    } else {
+      // Wrong code, or a replay of a code already consumed this window — fall
+      // back to one-time recovery codes (xxxx-xxxx, consumed on use).
       const normalized = code.toLowerCase().replace(/[^a-z0-9]/g, "");
       const pretty = `${normalized.slice(0, 4)}-${normalized.slice(4, 8)}`;
       const hash = createHash("sha256").update(pretty).digest("hex");

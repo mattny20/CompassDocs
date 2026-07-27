@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Script from "next/script";
 import ReactMarkdown from "react-markdown";
 import { Search, Sparkles, ExternalLink, CornerDownLeft, LogOut } from "lucide-react";
+import { safeSnippet } from "@/lib/snippet";
 
 /* global Office */
 declare const Office: any;
@@ -336,7 +337,7 @@ function DocRow({
       {snippet && (
         <p
           className="mt-1 text-xs leading-snug text-slate-500 [&_mark]:bg-amber-100 [&_mark]:px-0.5"
-          dangerouslySetInnerHTML={{ __html: snippet }}
+          dangerouslySetInnerHTML={{ __html: safeSnippet(snippet) }}
         />
       )}
       <div className="mt-1.5 flex gap-2">

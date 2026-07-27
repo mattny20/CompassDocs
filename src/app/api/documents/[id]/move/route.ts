@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getDocument } from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
-import { canEditSpace } from "@/lib/access";
+import { canEditSpace, spaceScopeFor, scopeAllows } from "@/lib/access";
 import { getAppSettings } from "@/lib/settings-store";
 import { moveSibling } from "@/lib/doc-tree";
 import type { SessionUser } from "@/lib/types";
@@ -20,6 +20,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const { id } = await params;
   const doc = await getDocument(Number(id));
   if (!doc) return NextResponse.json({ error: "Not found." }, { status: 404 });
+  // Scope before canEditSpace (which is visibility-blind) — otherwise an editor
+  // could reorder pages in a private space outside their scope.
+  if (!scopeAllows(await spaceScopeFor(user), doc.space_id)) {
+    return NextResponse.json({ error: "Not found." }, { status: 404 });
+  }
   if (!(await canEditSpace(user, doc.space_id))) {
     return NextResponse.json({ error: "You don't have edit access to this space." }, { status: 403 });
   }

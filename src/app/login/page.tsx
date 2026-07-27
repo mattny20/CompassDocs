@@ -21,6 +21,8 @@ const SSO_ERRORS: Record<string, string> = {
   no_email: "Your identity provider didn't share an email address.",
   domain: "Your email domain isn't allowed to sign in here.",
   no_account: "No account exists for you, and automatic account creation is off.",
+  link_denied:
+    "An account with your email already exists and can't be linked to SSO automatically. Ask your administrator to link it.",
   disabled: "Your account is disabled. Ask your administrator.",
   internal: "Something went wrong during sign-in. Please try again.",
 };

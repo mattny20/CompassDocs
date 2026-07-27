@@ -11,7 +11,7 @@ export default async function ReviewPage() {
   const scope = await spaceScopeFor(user);
   const [changeRequests, suggestions] = await Promise.all([
     listChangeRequests("pending", scope),
-    listSuggestions("open"),
+    listSuggestions("open", scope),
   ]);
 
   return (

@@ -2,15 +2,22 @@ import { NextResponse } from "next/server";
 import { answerQuestion } from "@/lib/ai";
 import { recordSearch } from "@/lib/analytics";
 import { spaceScopeFor } from "@/lib/access";
+import { crossOriginRejection } from "@/lib/api-auth";
 import { getCurrentUser } from "@/lib/auth";
+import { aiRateLimited } from "@/lib/rate-limit";
 import { roleAtLeast } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
+  const xo = await crossOriginRejection();
+  if (xo) return xo;
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+  if (aiRateLimited(`ai-search:${user.id}`)) {
+    return NextResponse.json({ error: "Too many requests — slow down a moment." }, { status: 429 });
+  }
 
   let question = "";
   try {

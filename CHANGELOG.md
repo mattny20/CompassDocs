@@ -4,6 +4,41 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.64.1] - 2026-07-27
+
+Security hardening release from a full internal audit. No action required on
+upgrade; two settings auto-migrate (see notes).
+
+### Security
+- **Stored XSS in search snippets fixed.** The in-space search box and the
+  Outlook add-in rendered `ts_headline` output without escaping; document text
+  containing HTML could execute in a viewer's browser. All snippet renderers
+  now share one escape helper.
+- **SSRF hardening on outbound fetches.** The AI (OpenAI-compatible) and
+  embeddings endpoints now go through the SSRF-guarded fetch, and that guard
+  now **blocks private/RFC1918 ranges by default** (cloud-metadata and loopback
+  were already blocked). Deployments that intentionally fetch internal hosts
+  can opt back in with `COMPASSDOCS_FETCH_ALLOW_PRIVATE=1`.
+- **Access-control scope checks** added to change-request approve/reject and to
+  the review-schedule, page-move, and suggestion-resolve endpoints, so an
+  approver/editor can't act on documents in a private space outside their
+  scope.
+- **SSO account-linking hardened** (Enterprise). SSO no longer silently links
+  to an admin account or one already bound to a different provider; OIDC now
+  ignores an explicitly-unverified email and never treats the mutable
+  `preferred_username` as an identity; multi-tenant Entra requires an
+  email-domain allowlist. SAML gained a single-use replay guard.
+- **Login throttle** now derives the client IP from the trusted proxy hop
+  (`COMPASSDOCS_TRUSTED_PROXY_HOPS`, default 1) instead of a spoofable
+  `X-Forwarded-For`, so the lockout can't be bypassed.
+- **Secrets & 2FA at rest.** The Microsoft 365 directory-sync client secret and
+  the TOTP secret are now sealed like every other credential (both auto-seal on
+  next boot / next enrollment). TOTP codes can no longer be replayed within
+  their validity window.
+- **Content-Security-Policy** tightened from frame-only to a full policy
+  (`default-src`/`script-src`/`connect-src` locked to `self`), and per-user
+  rate limits added to the AI and PlantUML endpoints.
+
 ## [0.64.0] - 2026-07-27
 
 ### Added
