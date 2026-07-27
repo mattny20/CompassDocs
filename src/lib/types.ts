@@ -43,6 +43,8 @@ export interface User {
   directory_person_id: number | null;
   /** Master switch for subscription emails (1 = on). */
   email_notifications: number;
+  /** Personal Slack/Teams incoming-webhook URL; empty = off. */
+  notify_webhook_url: string;
   /** App-wide page width preference: normal | wide | full. */
   page_width: string;
   /** Newsletter capability: none | contributor | approver. */

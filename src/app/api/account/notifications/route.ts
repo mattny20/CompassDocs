@@ -1,5 +1,12 @@
 import { NextResponse } from "next/server";
-import { getUserById, listSubscriptionsForUser, setEmailNotifications, setWeeklyDigest, getWeeklyDigest } from "@/lib/db";
+import {
+  getUserById,
+  listSubscriptionsForUser,
+  setEmailNotifications,
+  setNotifyWebhookUrl,
+  setWeeklyDigest,
+  getWeeklyDigest,
+} from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
 import type { SessionUser } from "@/lib/types";
 
@@ -16,6 +23,7 @@ export async function GET() {
   return NextResponse.json({
     email: me?.email ?? "",
     email_notifications: me?.email_notifications === 1,
+    notify_webhook_url: me?.notify_webhook_url ?? "",
     weekly_digest: await getWeeklyDigest(user.id),
     subscriptions,
   });
@@ -37,6 +45,16 @@ export async function PATCH(req: Request) {
   }
   if (typeof body?.weekly_digest === "boolean") {
     await setWeeklyDigest(user.id, body.weekly_digest);
+  }
+  if (typeof body?.notify_webhook_url === "string") {
+    const url = body.notify_webhook_url.trim().slice(0, 500);
+    if (url && !/^https:\/\//.test(url)) {
+      return NextResponse.json(
+        { error: "Webhook URL must start with https://." },
+        { status: 400 }
+      );
+    }
+    await setNotifyWebhookUrl(user.id, url);
   }
   return NextResponse.json({ ok: true });
 }

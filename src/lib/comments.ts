@@ -3,10 +3,11 @@
 //   - comments can be disabled workspace-wide (admin setting),
 //   - bodies are checked against the admin's restricted-word list,
 //   - @mentions notify the mentioned user by email (comment + doc link) AND
-//     by a dashboard announcement targeted at just them, with a doc link.
+//     in the notification inbox (the sidebar bell), with a doc link.
 
 import "server-only";
-import { createAnnouncement, type DocComment } from "./db";
+import { type DocComment } from "./db";
+import { notify } from "./notifications";
 import { getSmtpConfig, smtpConfigured } from "./smtp-config";
 import { sendMail } from "./mailer";
 import { renderEmail } from "./email-templates";
@@ -87,25 +88,21 @@ export async function notifyMentions(input: {
     }
   }
 
+  // Inbox notification (the bell) for everyone mentioned, in one shot.
+  await notify(
+    input.targets.filter((t) => t.id !== input.authorId).map((t) => t.id),
+    {
+      kind: "mention",
+      title: `${input.authorName} mentioned you`,
+      body: `In "${input.docTitle}": ${excerpt}`,
+      link: `/doc/${input.docId}#comments`,
+      actorName: input.authorName,
+      origin: input.origin,
+    }
+  );
+
   for (const target of input.targets) {
     if (target.id === input.authorId) continue; // self-mentions don't notify
-
-    // Dashboard announcement, targeted at just this user; auto-expires so
-    // old mention notices don't pile up. Dismissible like any announcement.
-    try {
-      await createAnnouncement({
-        title: `💬 ${input.authorName} mentioned you`,
-        body: `In "${input.docTitle}": ${excerpt}`,
-        level: "info",
-        author_name: input.authorName,
-        created_by: input.authorId,
-        expires_days: 14,
-        target_user_id: target.id,
-        link: `/doc/${input.docId}#comments`,
-      });
-    } catch (e) {
-      console.error(`Mention announcement for user ${target.id} failed:`, e);
-    }
 
     // Email (respects the user's notification master switch).
     if (!mail || !target.email || target.email_notifications !== 1) continue;

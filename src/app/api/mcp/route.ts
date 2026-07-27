@@ -27,6 +27,7 @@ import { getAppSettings } from "@/lib/settings-store";
 import { formatDate } from "@/lib/format";
 import { publicOrigin } from "@/lib/oauth";
 import { notifyWebhooks } from "@/lib/webhooks";
+import { notifyCrSubmitted } from "@/lib/notifications";
 import { notifySpaceSubscribers } from "@/lib/subscriptions";
 import { audit, actorFrom } from "@/lib/audit";
 import { spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
@@ -543,6 +544,13 @@ async function callTool(user: User, name: string, args: any, origin: string) {
           targetLabel: proposed.title,
           details: { kind, via: "mcp" },
         });
+        void notifyCrSubmitted({
+          spaceId: existing.space_id,
+          title: proposed.title,
+          actorId: user.id,
+          actorName: user.name || user.username,
+          origin,
+        });
         void notifyWebhooks("change_request.submitted", {
           title: proposed.title,
           kind,
@@ -630,6 +638,17 @@ async function authenticate(req: Request): Promise<User | Response> {
       ? await getUserByOAuthToken(token)
       : await getUserByApiToken(token)
     : undefined;
+  // The connector edits as the user, so a read-only token isn't enough —
+  // refuse up front with a clear reason instead of failing on the first write.
+  const scopes = (user as { token_scopes?: string[] } | undefined)?.token_scopes;
+  if (user && Array.isArray(scopes) && !scopes.includes("write")) {
+    return new Response(
+      JSON.stringify({
+        error: "This token is read-only. The Claude connector needs a read + write token.",
+      }),
+      { status: 403, headers: { "content-type": "application/json" } }
+    );
+  }
   if (!user) {
     // Point OAuth-capable clients (Claude's custom-connector UI) at our
     // discovery document so they can start the authorization flow themselves.

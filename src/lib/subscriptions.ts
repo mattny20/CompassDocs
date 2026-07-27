@@ -4,7 +4,8 @@
 // write paths, silently a no-op when SMTP isn't configured. Server-only.
 
 import "server-only";
-import { listSubscriberRecipients } from "./db";
+import { listSubscriberRecipients, listSubscriberIds } from "./db";
+import { notify } from "./notifications";
 import { getSmtpConfig, smtpConfigured } from "./smtp-config";
 import { sendMail } from "./mailer";
 import { renderEmail } from "./email-templates";
@@ -24,6 +25,20 @@ export interface SubscriberEvent {
 }
 
 export async function notifySpaceSubscribers(ev: SubscriberEvent): Promise<void> {
+  // Inbox notification first — it doesn't depend on SMTP being set up.
+  try {
+    await notify(await listSubscriberIds(ev.spaceId, ev.actorUserId), {
+      kind: "doc_update",
+      title: `${ev.actorName} ${ev.kind === "published" ? "published" : "updated"} "${ev.title}"`,
+      body: `In ${ev.spaceName}`,
+      link: `/doc/${ev.docId}`,
+      actorName: ev.actorName,
+      origin: ev.origin,
+    });
+  } catch (e) {
+    console.error("notifySpaceSubscribers inbox failed:", e);
+  }
+
   try {
     if (!smtpConfigured(await getSmtpConfig())) return;
     const recipients = (await listSubscriberRecipients(ev.spaceId, ev.actorUserId)).slice(

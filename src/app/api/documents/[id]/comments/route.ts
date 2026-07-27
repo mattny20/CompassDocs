@@ -5,7 +5,9 @@ import {
   listDocComments,
   createDocComment,
   getMentionTargets,
+  listCommenterIds,
 } from "@/lib/db";
+import { notify } from "@/lib/notifications";
 import { spaceScopeFor, scopeAllows } from "@/lib/access";
 import { getAppSettings } from "@/lib/settings-store";
 import { findBlockedWord, notifyMentions, COMMENT_MAX_LEN } from "@/lib/comments";
@@ -109,6 +111,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     ip: ipFrom(req),
   });
 
+  const origin = requestOrigin(req);
   if (comment.mentions.length > 0) {
     const targets = await getMentionTargets(comment.mentions.map((m) => m.id));
     void notifyMentions({
@@ -119,9 +122,23 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       docId: doc.id,
       docTitle: doc.title,
       orgName: settings.company_name,
-      origin: requestOrigin(req),
+      origin,
     });
   }
+
+  // Everyone else in the thread hears about the new comment (mentioned users
+  // already got the more specific mention notification above).
+  const mentioned = new Set(comment.mentions.map((m) => m.id));
+  const thread = (await listCommenterIds(doc.id, gate.id)).filter((uid) => !mentioned.has(uid));
+  const excerpt = body.length > 200 ? body.slice(0, 200) + "…" : body;
+  void notify(thread, {
+    kind: "comment",
+    title: `${gate.name || gate.username} commented on "${doc.title}"`,
+    body: excerpt,
+    link: `/doc/${doc.id}#comments`,
+    actorName: gate.name || gate.username,
+    origin,
+  });
 
   return NextResponse.json({ comment }, { status: 201 });
 }

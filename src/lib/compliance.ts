@@ -1,12 +1,13 @@
 import "server-only";
-import { createAnnouncement } from "./db";
+import { notify } from "./notifications";
 import { getSmtpConfig, smtpConfigured } from "./smtp-config";
 import { sendMail } from "./mailer";
 import { renderEmail } from "./email-templates";
 
 // Notifications for the central compliance portal: when an admin requests
 // acknowledgement of a document (or sends a reminder), every affected user
-// gets a targeted dashboard notice and an email with a direct link.
+// gets an inbox notification (the sidebar bell) and an email with a direct
+// link.
 //
 // Compliance emails deliberately do NOT honor the personal notification-email
 // switch — an acknowledgement request is a workplace requirement, not a
@@ -47,26 +48,27 @@ export async function notifyAckRequest(input: {
 
   let emailed = 0;
   let noticed = 0;
-  for (const target of input.users) {
-    try {
-      await createAnnouncement({
+  try {
+    await notify(
+      input.users.map((u) => u.id),
+      {
+        kind: "ack_requested",
         title: `${verb}: acknowledge "${input.docTitle}"`,
         body:
           input.mode === "reminder"
             ? `You still need to read and acknowledge "${input.docTitle}".`
             : `Please read and acknowledge "${input.docTitle}".`,
-        level: "warning",
-        author_name: input.requesterName,
-        created_by: input.requesterId,
-        expires_days: 30,
-        target_user_id: target.id,
         link: `/doc/${input.docId}`,
-      });
-      noticed++;
-    } catch (e) {
-      console.error(`Ack announcement for user ${target.id} failed:`, e);
-    }
+        actorName: input.requesterName,
+        origin: input.origin,
+      }
+    );
+    noticed = input.users.length;
+  } catch (e) {
+    console.error("Ack inbox notifications failed:", e);
+  }
 
+  for (const target of input.users) {
     if (!mail || !target.email) continue;
     try {
       await sendMail([target.email], mail.subject, mail.text, mail.html);

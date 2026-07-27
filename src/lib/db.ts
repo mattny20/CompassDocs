@@ -341,6 +341,24 @@ const SCHEMA_SQL = `
   ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_recovery jsonb NOT NULL DEFAULT '[]'::jsonb;
   -- Highest accepted TOTP time-step, to reject replay of a code within its window.
   ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_last_step bigint NOT NULL DEFAULT 0;
+  -- Personal incoming-webhook URL (Slack/Teams); notifications POST there too.
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_webhook_url text NOT NULL DEFAULT '';
+
+  -- Per-user notification inbox (the bell). Rows are cheap and pruned by the
+  -- hourly maintenance sweep once read and older than 90 days.
+  CREATE TABLE IF NOT EXISTS notifications (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    kind text NOT NULL,
+    title text NOT NULL,
+    body text NOT NULL DEFAULT '',
+    link text NOT NULL DEFAULT '',
+    actor_name text NOT NULL DEFAULT '',
+    created_at timestamptz NOT NULL DEFAULT now(),
+    read_at timestamptz
+  );
+  CREATE INDEX IF NOT EXISTS idx_notifications_user
+    ON notifications(user_id, created_at DESC);
 
   -- Personal API tokens (Claude connector / MCP, integrations). Only a SHA-256
   -- hash is stored; the raw token is shown once at creation.
@@ -354,6 +372,10 @@ const SCHEMA_SQL = `
     last_used_at timestamptz
   );
   CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id);
+  -- Token scopes for the public REST API. Pre-scope tokens keep full
+  -- read+write (matches their historical behavior with the MCP connector).
+  ALTER TABLE api_tokens ADD COLUMN IF NOT EXISTS
+    scopes jsonb NOT NULL DEFAULT '["read","write"]'::jsonb;
 
   -- OAuth 2.1 authorization server for the MCP connector ("Add custom
   -- connector" in Claude): dynamically registered clients, short-lived auth
@@ -1219,6 +1241,43 @@ export async function listDocumentsBySpace(
   return rows.map(mapDoc);
 }
 
+/** Paged listing for the public REST API (space/status filters, newest first). */
+export async function listDocumentsV1(opts: {
+  scope?: number[] | "all";
+  spaceId?: number;
+  status?: "published" | "draft";
+  includeDrafts: boolean;
+  limit: number;
+  offset: number;
+}): Promise<{ items: DocumentWithSpace[]; total: number }> {
+  const conds = ["d.deleted_at IS NULL", "d.branch_of IS NULL"];
+  const params: unknown[] = [];
+  if (!opts.includeDrafts) conds.push("d.status = 'published'");
+  else if (opts.status) {
+    params.push(opts.status);
+    conds.push(`d.status = $${params.length}`);
+  }
+  if (Array.isArray(opts.scope)) {
+    params.push(opts.scope);
+    conds.push(`d.space_id = ANY($${params.length})`);
+  }
+  if (opts.spaceId) {
+    params.push(opts.spaceId);
+    conds.push(`d.space_id = $${params.length}`);
+  }
+  const where = conds.join(" AND ");
+  const total = (
+    await q<{ n: number }>(`SELECT COUNT(*)::int AS n FROM documents d WHERE ${where}`, params)
+  )[0].n;
+  params.push(opts.limit, opts.offset);
+  const rows = await q(
+    `${DOC_SELECT} WHERE ${where} ORDER BY d.updated_at DESC
+     LIMIT $${params.length - 1} OFFSET $${params.length}`,
+    params
+  );
+  return { items: rows.map(mapDoc), total };
+}
+
 export async function listRecentDocuments(
   limit = 8,
   includeDrafts = false,
@@ -1570,6 +1629,10 @@ export async function runDbMaintenance(): Promise<{ sessions: number; oauthCodes
   await ready();
   const sessions = await pool().query("DELETE FROM sessions WHERE expires_at < now()");
   const codes = await pool().query("DELETE FROM oauth_codes WHERE expires_at < now()");
+  // Read notifications older than 90 days are noise nobody revisits.
+  await pool().query(
+    "DELETE FROM notifications WHERE read_at IS NOT NULL AND created_at < now() - interval '90 days'"
+  );
   return { sessions: sessions.rowCount ?? 0, oauthCodes: codes.rowCount ?? 0 };
 }
 
@@ -1853,7 +1916,7 @@ export async function getAllSettings(): Promise<Record<string, string>> {
 
 const USER_COLUMNS = `id, username, email, name, role, status, auth_provider, external_id,
   must_change_password, totp_enabled, directory_person_id, email_notifications,
-  page_width, newsletter_role, created_at, last_login_at`;
+  notify_webhook_url, page_width, newsletter_role, created_at, last_login_at`;
 
 export async function getUserById(id: number): Promise<User | undefined> {
   return (await q<User>(`SELECT ${USER_COLUMNS} FROM users WHERE id = $1`, [id]))[0];
@@ -2058,9 +2121,12 @@ export interface ApiToken {
   id: number;
   name: string;
   prefix: string;
+  scopes: string[];
   created_at: string;
   last_used_at: string | null;
 }
+
+export const API_TOKEN_SCOPES = ["read", "write"] as const;
 
 function hashApiToken(raw: string): string {
   return createHash("sha256").update(raw).digest("hex");
@@ -2069,24 +2135,34 @@ function hashApiToken(raw: string): string {
 /** Mint a token for a user. The raw value is returned ONCE and never stored. */
 export async function createApiToken(
   userId: number,
-  name: string
+  name: string,
+  scopes: string[] = ["read", "write"]
 ): Promise<{ token: string; record: ApiToken }> {
+  const clean = [...new Set(scopes.filter((s) => (API_TOKEN_SCOPES as readonly string[]).includes(s)))];
+  const finalScopes = clean.length ? clean : ["read"];
   const raw = "cdk_" + randomBytes(24).toString("base64url");
   const prefix = raw.slice(0, 12) + "…";
   const r = await q<{ id: number; created_at: string }>(
-    `INSERT INTO api_tokens (user_id, name, token_hash, prefix)
-     VALUES ($1,$2,$3,$4) RETURNING id, created_at`,
-    [userId, name.trim().slice(0, 60) || "token", hashApiToken(raw), prefix]
+    `INSERT INTO api_tokens (user_id, name, token_hash, prefix, scopes)
+     VALUES ($1,$2,$3,$4,$5) RETURNING id, created_at`,
+    [userId, name.trim().slice(0, 60) || "token", hashApiToken(raw), prefix, JSON.stringify(finalScopes)]
   );
   return {
     token: raw,
-    record: { id: r[0].id, name, prefix, created_at: r[0].created_at, last_used_at: null },
+    record: {
+      id: r[0].id,
+      name,
+      prefix,
+      scopes: finalScopes,
+      created_at: r[0].created_at,
+      last_used_at: null,
+    },
   };
 }
 
 export async function listApiTokens(userId: number): Promise<ApiToken[]> {
   return q(
-    `SELECT id, name, prefix, created_at, last_used_at FROM api_tokens
+    `SELECT id, name, prefix, scopes, created_at, last_used_at FROM api_tokens
      WHERE user_id = $1 ORDER BY created_at DESC`,
     [userId]
   );
@@ -2101,13 +2177,15 @@ export async function deleteApiToken(userId: number, id: number): Promise<boolea
 }
 
 /** Resolve a raw bearer token to its (active) user, updating last_used_at. */
-export async function getUserByApiToken(raw: string): Promise<User | undefined> {
+export async function getUserByApiToken(
+  raw: string
+): Promise<(User & { token_scopes: string[] }) | undefined> {
   if (!raw.startsWith("cdk_")) return undefined;
-  const rows = await q<User & { token_id: number }>(
+  const rows = await q<User & { token_id: number; token_scopes: string[] }>(
     `SELECT ${USER_COLUMNS
       .split(",")
       .map((c) => "u." + c.trim())
-      .join(", ")}, t.id AS token_id
+      .join(", ")}, t.id AS token_id, t.scopes AS token_scopes
      FROM api_tokens t JOIN users u ON u.id = t.user_id
      WHERE t.token_hash = $1 AND u.status = 'active'`,
     [hashApiToken(raw)]
@@ -2117,7 +2195,7 @@ export async function getUserByApiToken(raw: string): Promise<User | undefined> 
   // Fire-and-forget freshness stamp; not worth failing the request over.
   q("UPDATE api_tokens SET last_used_at = now() WHERE id = $1", [hit.token_id]).catch(() => {});
   const { token_id: _ignored, ...user } = hit;
-  return user as User;
+  return user as User & { token_scopes: string[] };
 }
 
 // --- OAuth (MCP connector authorization server) --------------------------------
@@ -2547,6 +2625,136 @@ export async function setUserDirectoryPerson(userId: number, personId: number | 
 
 export async function setEmailNotifications(userId: number, on: boolean): Promise<void> {
   await q("UPDATE users SET email_notifications = $1 WHERE id = $2", [on ? 1 : 0, userId]);
+}
+
+export async function setNotifyWebhookUrl(userId: number, url: string): Promise<void> {
+  await q("UPDATE users SET notify_webhook_url = $1 WHERE id = $2", [url, userId]);
+}
+
+// --- Notification inbox (the bell) -----------------------------------------
+
+export interface Notification {
+  id: number;
+  kind: string;
+  title: string;
+  body: string;
+  link: string;
+  actor_name: string;
+  created_at: string;
+  read_at: string | null;
+}
+
+/** Bulk-insert one notification row per recipient. */
+export async function insertNotifications(
+  userIds: number[],
+  n: { kind: string; title: string; body?: string; link?: string; actor_name?: string }
+): Promise<void> {
+  if (userIds.length === 0) return;
+  await q(
+    `INSERT INTO notifications (user_id, kind, title, body, link, actor_name)
+     SELECT uid, $2, $3, $4, $5, $6 FROM unnest($1::int[]) AS uid`,
+    [userIds, n.kind, n.title.slice(0, 300), (n.body || "").slice(0, 1000), n.link || "", n.actor_name || ""]
+  );
+}
+
+export async function listNotificationsFor(userId: number, limit = 30): Promise<Notification[]> {
+  return q(
+    `SELECT id, kind, title, body, link, actor_name, created_at, read_at
+     FROM notifications WHERE user_id = $1
+     ORDER BY created_at DESC, id DESC LIMIT $2`,
+    [userId, limit]
+  );
+}
+
+export async function unreadNotificationCount(userId: number): Promise<number> {
+  return (
+    await q<{ n: number }>(
+      "SELECT COUNT(*)::int AS n FROM notifications WHERE user_id = $1 AND read_at IS NULL",
+      [userId]
+    )
+  )[0].n;
+}
+
+/** Mark one of the user's notifications read; no-op on others' rows. */
+export async function markNotificationRead(userId: number, id: number): Promise<void> {
+  await q(
+    "UPDATE notifications SET read_at = now() WHERE id = $1 AND user_id = $2 AND read_at IS NULL",
+    [id, userId]
+  );
+}
+
+export async function markAllNotificationsRead(userId: number): Promise<void> {
+  await q("UPDATE notifications SET read_at = now() WHERE user_id = $1 AND read_at IS NULL", [
+    userId,
+  ]);
+}
+
+/**
+ * Space subscribers as bare user ids — same audience as
+ * listSubscriberRecipients minus the email-specific filters (the in-app
+ * inbox doesn't care about email_notifications or a missing address).
+ */
+export async function listSubscriberIds(
+  spaceId: number,
+  excludeUserId: number
+): Promise<number[]> {
+  const rows = await q<{ id: number }>(
+    `SELECT u.id FROM users u
+     JOIN spaces s ON s.id = $1
+     WHERE u.status = 'active' AND u.id <> $2
+       AND (
+         EXISTS (SELECT 1 FROM space_subscriptions ss
+                 WHERE ss.space_id = $1 AND ss.user_id = u.id AND ss.state = 'subscribed')
+         OR (
+           EXISTS (SELECT 1 FROM space_subscription_groups sg
+                   JOIN group_members gm ON gm.group_id = sg.group_id
+                   WHERE sg.space_id = $1 AND gm.user_id = u.id)
+           AND NOT EXISTS (SELECT 1 FROM space_subscriptions ss
+                           WHERE ss.space_id = $1 AND ss.user_id = u.id AND ss.state = 'muted')
+         )
+       )
+       AND (
+         s.visibility IN ('public', 'internal')
+         OR u.role = 'admin'
+         OR EXISTS (SELECT 1 FROM space_groups spg
+                    JOIN group_members gm2 ON gm2.group_id = spg.group_id
+                    WHERE spg.space_id = $1 AND gm2.user_id = u.id)
+       )`,
+    [spaceId, excludeUserId]
+  );
+  return rows.map((r) => r.id);
+}
+
+/** Everyone (besides the author) who commented on a doc — reply audience. */
+export async function listCommenterIds(docId: number, excludeUserId: number): Promise<number[]> {
+  const rows = await q<{ user_id: number }>(
+    `SELECT DISTINCT c.user_id FROM doc_comments c
+     JOIN users u ON u.id = c.user_id AND u.status = 'active'
+     WHERE c.document_id = $1 AND c.deleted_at IS NULL AND c.user_id <> $2`,
+    [docId, excludeUserId]
+  );
+  return rows.map((r) => r.user_id);
+}
+
+/** Active approvers/admins who can see the given space (review audience). */
+export async function listApproverIdsForSpace(
+  spaceId: number,
+  excludeUserId: number
+): Promise<number[]> {
+  const rows = await q<{ id: number }>(
+    `SELECT u.id FROM users u
+     JOIN spaces s ON s.id = $1
+     WHERE u.status = 'active' AND u.role IN ('approver', 'admin') AND u.id <> $2
+       AND (
+         u.role = 'admin'
+         OR s.visibility <> 'private'
+         OR EXISTS (SELECT 1 FROM space_groups sg
+                    JOIN group_members gm ON gm.group_id = sg.group_id
+                    WHERE sg.space_id = s.id AND gm.user_id = u.id)
+       )`,
+    [spaceId, excludeUserId]
+  );
+  return rows.map((r) => r.id);
 }
 
 export async function setWeeklyDigest(userId: number, on: boolean): Promise<void> {

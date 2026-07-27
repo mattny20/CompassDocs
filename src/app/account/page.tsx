@@ -107,13 +107,15 @@ export default async function AccountPage() {
           <section id="notifications" className="scroll-mt-6">
             <h2 className="mb-1 font-semibold text-slate-900">Notifications</h2>
             <p className="mb-3 text-sm text-slate-500">
-              Email alerts for the spaces you subscribe to.
+              Email alerts for the spaces you subscribe to, and an optional chat webhook
+              for your inbox notifications.
             </p>
             <NotificationsPanel
               initialEnabled={me?.email_notifications === 1}
               initialDigest={await getWeeklyDigest(user.id)}
               email={me?.email ?? ""}
               initialSubs={subs}
+              initialWebhook={me?.notify_webhook_url ?? ""}
             />
           </section>
 

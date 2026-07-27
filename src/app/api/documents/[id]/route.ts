@@ -10,6 +10,7 @@ import {
 import { apiGuard } from "@/lib/api-auth";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
 import { notifyWebhooks } from "@/lib/webhooks";
+import { notifyCrSubmitted } from "@/lib/notifications";
 import { notifySpaceSubscribers } from "@/lib/subscriptions";
 import { requestOrigin } from "@/lib/oauth";
 import { roleAtLeast } from "@/lib/types";
@@ -166,6 +167,13 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       targetLabel: proposed.title,
       details: { kind },
       ip: ipFrom(req),
+    });
+    void notifyCrSubmitted({
+      spaceId: existing.space_id,
+      title: proposed.title,
+      actorId: user.id,
+      actorName: user.name || user.username,
+      origin: requestOrigin(req),
     });
     void notifyWebhooks("change_request.submitted", {
       title: proposed.title,
