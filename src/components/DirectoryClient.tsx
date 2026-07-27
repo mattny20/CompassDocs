@@ -164,7 +164,7 @@ export function DirectoryClient({
           autoFocus
         />
         {departments.length > 0 && (
-          <select value={dept} onChange={(e) => setDept(e.target.value)} className={field}>
+          <select aria-label="Filter by department" value={dept} onChange={(e) => setDept(e.target.value)} className={field}>
             <option value="">All departments</option>
             {departments.map((d) => (
               <option key={d} value={d}>
@@ -234,7 +234,7 @@ export function DirectoryClient({
           </div>
         )}
 
-        <span className="ml-auto text-sm text-slate-400">
+        <span className="ml-auto text-sm text-slate-500">
           {people.length} {people.length === 1 ? "person" : "people"}
         </span>
       </div>
@@ -250,7 +250,7 @@ export function DirectoryClient({
         <div className="overflow-x-auto rounded-xl border border-slate-200 bg-surface shadow-xs">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400">
+              <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-500">
                 {activeColumns.map((c) => (
                   <th
                     key={c.id}
@@ -364,13 +364,13 @@ export function DirectoryClient({
                     </a>
                   )}
                   {p.office && (
-                    <p className="flex items-center gap-1.5 text-slate-400">
+                    <p className="flex items-center gap-1.5 text-slate-500">
                       <MapPin className="h-3.5 w-3.5" /> {p.office}
                     </p>
                   )}
                   {p.assistant_name && (
                     <p className="text-slate-500">
-                      <span className="text-slate-400">Assistant:</span> {p.assistant_name}
+                      <span className="text-slate-500">Assistant:</span> {p.assistant_name}
                     </p>
                   )}
                   {cardFields.map((f) =>

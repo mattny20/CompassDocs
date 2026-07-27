@@ -315,7 +315,7 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
             </h2>
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-xs uppercase tracking-wide text-slate-400">
+                <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
                   <th className="pb-2 font-medium">Person</th>
                   <th className="pb-2 text-right font-medium">Required</th>
                   <th className="pb-2 text-right font-medium">Acknowledged</th>

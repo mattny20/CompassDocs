@@ -36,10 +36,19 @@ const nextConfig = {
       },
     ];
   },
+  // Open-core edition switch. `@ee` resolves to the community stub by default,
+  // or to an overlaid `./ee` package when COMPASSDOCS_EE=1 (the enterprise
+  // build). Core imports `@ee` only through src/lib/ee.ts. Declared for both
+  // bundlers: Turbopack builds (the Next 16 default) read `turbopack`, and a
+  // `next build --webpack` fallback still works via the webpack hook.
+  turbopack: {
+    // Turbopack aliases are project-root-relative strings (absolute paths get
+    // "./" prepended and break), unlike the webpack hook's absolute paths.
+    resolveAlias: {
+      "@ee": process.env.COMPASSDOCS_EE === "1" ? "./ee" : "./src/ee-stub",
+    },
+  },
   webpack(config) {
-    // Open-core edition switch. `@ee` resolves to the community stub by default,
-    // or to an overlaid `./ee` package when COMPASSDOCS_EE=1 (the enterprise
-    // build). Core imports `@ee` only through src/lib/ee.ts.
     config.resolve.alias["@ee"] =
       process.env.COMPASSDOCS_EE === "1"
         ? path.resolve(__dirname, "ee")

@@ -188,7 +188,7 @@ function DocRowLink({ d, indent = 0 }: { d: DocumentWithSpace; indent?: number }
       <span className="min-w-0 truncate font-medium text-slate-700">{d.title}</span>
       <TypeBadge type={d.type} />
       {d.status === "draft" && <StatusBadge status="draft" />}
-      <span className="ml-auto shrink-0 text-xs text-slate-400">{timeAgo(d.updated_at)}</span>
+      <span className="ml-auto shrink-0 text-xs text-slate-500">{timeAgo(d.updated_at)}</span>
     </Link>
   );
 }
@@ -698,7 +698,7 @@ function BoardView({ docs }: { docs: DocumentWithSpace[] }) {
               </span>
             </div>
             <div className="space-y-1">
-              {c.docs.length === 0 && <p className="px-2 py-1 text-sm text-slate-400">None</p>}
+              {c.docs.length === 0 && <p className="px-2 py-1 text-sm text-slate-500">None</p>}
               {c.docs.map((d) => (
                 <DocRowLink key={d.id} d={d} />
               ))}

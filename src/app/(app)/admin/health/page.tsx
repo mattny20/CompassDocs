@@ -99,7 +99,15 @@ export default async function HealthPage() {
             <div className={`text-2xl font-bold ${s.count > 0 ? "text-amber-700" : "text-slate-400"}`}>
               {s.key === "dups" && !r.duplicates_checked ? "—" : s.count}
             </div>
-            <div className="mt-1 text-[11px] font-medium leading-tight text-slate-600">{s.title}</div>
+            {/* Amber tiles keep light backgrounds in dark mode, so the label
+                must use a static amber ink there rather than themed slate. */}
+            <div
+              className={`mt-1 text-[11px] font-medium leading-tight ${
+                s.count > 0 ? "text-amber-800" : "text-slate-600"
+              }`}
+            >
+              {s.title}
+            </div>
           </a>
         ))}
       </div>
@@ -210,7 +218,7 @@ function Section({
         <p className="mt-0.5 text-xs text-slate-500">{blurb}</p>
       </div>
       {count === 0 ? (
-        <p className="px-4 py-3 text-sm text-slate-400">{empty}</p>
+        <p className="px-4 py-3 text-sm text-slate-500">{empty}</p>
       ) : (
         <div className="divide-y divide-slate-50">{children}</div>
       )}
@@ -237,7 +245,7 @@ function Row({ doc, children }: { doc: HealthDoc; children?: React.ReactNode }) 
         <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">{doc.status}</span>
       )}
       {children}
-      <span className="ml-auto text-xs text-slate-400">updated {doc.updated_at}</span>
+      <span className="ml-auto text-xs text-slate-500">updated {doc.updated_at}</span>
     </div>
   );
 }

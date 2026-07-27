@@ -94,7 +94,7 @@ export function GlobalSearch() {
                 <span className="text-sm">{h.space_icon}</span>
                 <span className="truncate text-sm font-medium text-slate-800">{h.title}</span>
               </div>
-              <div className="mt-0.5 truncate text-xs text-slate-400">
+              <div className="mt-0.5 truncate text-xs text-slate-500">
                 {TYPE_LABEL[h.type]} · {h.space_name}
               </div>
             </Link>

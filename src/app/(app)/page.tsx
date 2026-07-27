@@ -111,7 +111,7 @@ export default async function DashboardPage() {
                 className="rounded-lg border border-amber-200 bg-white px-3 py-1.5 text-sm font-medium text-amber-900 hover:border-amber-400 dark:border-amber-800/70 dark:bg-surface dark:text-amber-200 dark:hover:border-amber-600"
               >
                 {d.space_icon} {d.title}
-                <span className="ml-1.5 text-xs font-normal text-amber-700/80 dark:text-amber-300/80">
+                <span className="ml-1.5 text-xs font-normal text-amber-700 dark:text-amber-300">
                   due {formatDate(d.review_due_at, appSettings)}
                 </span>
               </Link>
@@ -130,7 +130,7 @@ export default async function DashboardPage() {
           className="flex flex-col justify-center rounded-xl border border-compass-200 bg-compass-50 p-4 transition hover:border-compass-300"
         >
           <span className="text-sm font-semibold text-compass-700">✨ Ask {settingsName}</span>
-          <span className="mt-0.5 text-xs text-compass-600/80">AI-powered answers</span>
+          <span className="mt-0.5 text-xs text-compass-700">AI-powered answers</span>
         </Link>
       </div>
 
@@ -156,7 +156,7 @@ export default async function DashboardPage() {
                 {s.name}
               </h3>
               <p className="mt-1 line-clamp-2 text-sm text-slate-500">{s.description}</p>
-              <p className="mt-3 text-xs text-slate-400">{s.doc_count} documents</p>
+              <p className="mt-3 text-xs text-slate-500">{s.doc_count} documents</p>
             </Link>
           ))}
         </div>

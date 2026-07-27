@@ -82,10 +82,10 @@ export function WidthToggle() {
           key={o.value}
           onClick={() => setWidth(o.value)}
           title={`${o.label} width (applies everywhere)`}
-          className={`rounded-md px-2 py-0.5 text-xs font-medium transition ${
+          className={`rounded-md px-2 py-1 text-xs font-medium transition ${
             width === o.value
               ? "bg-compass-50 text-compass-700"
-              : "text-slate-400 hover:bg-slate-50 hover:text-slate-600"
+              : "text-slate-500 hover:bg-slate-50 hover:text-slate-600"
           }`}
         >
           {o.label}

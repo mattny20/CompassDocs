@@ -74,7 +74,7 @@ export function DocFeedback({ docId }: { docId: number }) {
           className={btn(sum.mine === true)}
         >
           <ThumbsUp className="h-4 w-4" aria-hidden /> Yes
-          {sum.up > 0 && <span className="text-xs text-slate-400">{sum.up}</span>}
+          {sum.up > 0 && <span className="text-xs text-slate-500">{sum.up}</span>}
         </button>
         <button
           type="button"
@@ -87,7 +87,7 @@ export function DocFeedback({ docId }: { docId: number }) {
           className={btn(sum.mine === false)}
         >
           <ThumbsDown className="h-4 w-4" aria-hidden /> No
-          {sum.down > 0 && <span className="text-xs text-slate-400">{sum.down}</span>}
+          {sum.down > 0 && <span className="text-xs text-slate-500">{sum.down}</span>}
         </button>
         {thanks && !askNote && <span className="text-sm text-green-600">Thanks!</span>}
       </div>

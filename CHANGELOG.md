@@ -4,6 +4,36 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.64.0] - 2026-07-27
+
+### Added
+- **SAML 2.0 single sign-on (Enterprise).** Connect any SAML identity
+  provider — Okta, OneLogin, Google Workspace, ADFS, Entra SAML apps —
+  alongside (or instead of) Microsoft OIDC sign-in, under Settings → Single
+  sign-on. Paste the IdP metadata XML to auto-fill the endpoints and signing
+  certificate, hand the IdP admin the shown SP entity/ACS URLs, and choose
+  just-in-time provisioning and default role. Uses the same `sso` license
+  entitlement as OIDC. Each sign-in is bound to its own request (replay- and
+  CSRF-resistant), and assertion signatures are verified against the
+  configured certificate.
+- **Search operators.** Narrow results with `type:`, `tag:`, `space:`,
+  `author:"name"`, and `status:` (draft/published, for people who can see
+  drafts) — mixed freely with keywords. Active filters show as removable
+  chips, and an operator-only query browses the newest matching documents.
+
+### Changed
+- **Better search ranking.** Titles now outrank body text, an exact title
+  match gets a boost, and recently-updated documents win ties — so the most
+  relevant, freshest document tends to come first. A no-results search now
+  suggests what to try instead.
+- **Accessibility & readability.** A full pass brings text contrast to WCAG
+  AA across every screen in both light and dark themes, adds larger touch
+  targets and clearer labels, and confirms no page overflows horizontally on
+  a phone.
+- **Next.js 16.** The application now runs on Next.js 16 with the Turbopack
+  build — faster builds and up-to-date dependencies, with no change to how
+  the app works.
+
 ## [0.63.1] - 2026-07-27
 
 ### Changed

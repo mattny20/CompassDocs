@@ -408,10 +408,32 @@ export async function hybridSearchDocuments(
   spaceId?: number
 ): Promise<SearchHit[]> {
   const { searchDocuments, searchCardsByIds } = await import("./db");
-  const [keyword, semantic] = await Promise.all([
-    searchDocuments(raw, limit, includeDrafts, scope, spaceId),
-    semanticSearch(raw, limit, includeDrafts, scope, spaceId),
+  const { parseSearchQuery } = await import("./search-query");
+  const { text, filters, hasFilters } = parseSearchQuery(raw);
+  const [keyword, semanticRaw] = await Promise.all([
+    searchDocuments(text, limit, includeDrafts, scope, spaceId, filters),
+    // Semantic side embeds only the free text; operator filters are applied
+    // to its hits below via the card fields (author isn't on cards, so
+    // author-filtered queries stay keyword-only).
+    text.trim() ? semanticSearch(text, limit, includeDrafts, scope, spaceId) : Promise.resolve([]),
   ]);
+  let semantic = semanticRaw;
+  if (hasFilters && semantic.length) {
+    if (filters.author) semantic = [];
+    else {
+      const cardMap = new Map((await searchCardsByIds(semantic.map((h) => h.id))).map((c) => [c.id, c]));
+      semantic = semantic.filter((h) => {
+        const c = cardMap.get(h.id);
+        if (!c) return false;
+        if (filters.space && c.space_slug !== filters.space.toLowerCase() &&
+            c.space_name.toLowerCase() !== filters.space.toLowerCase()) return false;
+        if (filters.type && c.type !== filters.type) return false;
+        if (filters.tag && !c.tags.map((t) => t.toLowerCase()).includes(filters.tag)) return false;
+        if (filters.status && c.status !== filters.status) return false;
+        return true;
+      });
+    }
+  }
   if (semantic.length === 0) return keyword;
 
   const K = 60; // standard RRF constant

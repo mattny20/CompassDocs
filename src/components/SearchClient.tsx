@@ -2,10 +2,11 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
-import { Sparkles } from "lucide-react";
+import { Sparkles, X } from "lucide-react";
 import { MarkdownView } from "./MarkdownView";
 import { TypeBadge } from "./Badges";
 import { timeAgo } from "@/lib/ui";
+import { parseSearchQuery } from "@/lib/search-query";
 import type { SearchHit } from "@/lib/types";
 import type { AiAnswer } from "@/lib/ai";
 
@@ -49,8 +50,13 @@ export function SearchClient({
     }
   }, []);
 
-  const runAsk = useCallback(async (q: string) => {
-    if (!q.trim()) return;
+  const runAsk = useCallback(async (raw: string) => {
+    // Operators are for the keyword search — the AI gets the plain question.
+    const q = parseSearchQuery(raw).text;
+    if (!q.trim()) {
+      setAnswer(null);
+      return;
+    }
     setAsking(true);
     setAnswer(null);
     try {
@@ -115,6 +121,37 @@ export function SearchClient({
         </button>
       </form>
 
+      {/* Active operator filters as removable chips */}
+      {(() => {
+        const parsed = parseSearchQuery(submitted);
+        if (!parsed.hasFilters) return null;
+        const remove = (key: string) => {
+          const next = submitted
+            .replace(new RegExp(`${key}:(?:"[^"]*"|\\S+)\\s*`, "i"), "")
+            .replace(/\s+/g, " ")
+            .trim();
+          setQuery(next);
+          setSubmitted(next);
+          runSearch(next);
+          window.history.replaceState(null, "", `/search?q=${encodeURIComponent(next)}`);
+        };
+        return (
+          <div className="-mt-3 mb-5 flex flex-wrap items-center gap-1.5 text-xs">
+            <span className="text-slate-500">Filters:</span>
+            {Object.entries(parsed.filters).map(([k, v]) => (
+              <button
+                key={k}
+                onClick={() => remove(k)}
+                title={`Remove ${k} filter`}
+                className="inline-flex items-center gap-1 rounded-full bg-compass-50 px-2 py-0.5 font-medium text-compass-700 hover:bg-compass-100"
+              >
+                {k}: {v} <X className="h-3 w-3" aria-hidden />
+              </button>
+            ))}
+          </div>
+        );
+      })()}
+
       {/* AI answer */}
       {(asking || answer) && (
         <div className="mb-8 rounded-xl border border-compass-200 bg-linear-to-br from-compass-50/70 to-surface p-5 shadow-xs">
@@ -136,7 +173,7 @@ export function SearchClient({
                 <MarkdownView content={answer.answer} />
                 {(answer.people?.length ?? 0) > 0 && (
                   <div className="mt-4 border-t border-compass-100 pt-3">
-                    <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                    <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                       From the people directory
                     </div>
                     <div className="flex flex-wrap gap-2">
@@ -167,7 +204,7 @@ export function SearchClient({
                 )}
                 {answer.sources.length > 0 && (
                   <div className="mt-4 border-t border-compass-100 pt-3">
-                    <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                    <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                       Sources
                     </div>
                     <div className="flex flex-wrap gap-2">
@@ -192,7 +229,7 @@ export function SearchClient({
       {/* Keyword results */}
       {submitted && (
         <div>
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
             {searching ? "Searching…" : `${hits.length} matching document${hits.length === 1 ? "" : "s"}`}
           </h2>
           <div className="space-y-3">
@@ -204,7 +241,7 @@ export function SearchClient({
               >
                 <div className="mb-1 flex items-center gap-2">
                   <TypeBadge type={h.type} />
-                  <span className="min-w-0 truncate text-sm text-slate-400">
+                  <span className="min-w-0 truncate text-sm text-slate-500">
                     {h.space_icon} {h.space_name}
                     {h.path && h.path.length > 0 && ` › ${h.path.join(" › ")}`} ·{" "}
                     {timeAgo(h.updated_at)}
@@ -226,9 +263,25 @@ export function SearchClient({
               </Link>
             ))}
             {!searching && hits.length === 0 && (
-              <p className="rounded-xl border border-dashed border-slate-300 bg-surface p-8 text-center text-slate-400">
-                No documents matched. Try different keywords.
-              </p>
+              <div className="rounded-xl border border-dashed border-slate-300 bg-surface p-8 text-center">
+                <p className="font-medium text-slate-600">
+                  No documents matched &ldquo;{submitted}&rdquo;.
+                </p>
+                <ul className="mx-auto mt-3 max-w-md space-y-1 text-left text-sm text-slate-500">
+                  <li>· Try fewer or more general words — search also matches by meaning.</li>
+                  {parseSearchQuery(submitted).hasFilters && (
+                    <li>· Remove a filter chip above — operators narrow results.</li>
+                  )}
+                  <li>
+                    · Narrow with operators:{" "}
+                    <code className="rounded-sm bg-slate-100 px-1 font-mono text-xs">type:sop</code>{" "}
+                    <code className="rounded-sm bg-slate-100 px-1 font-mono text-xs">tag:release</code>{" "}
+                    <code className="rounded-sm bg-slate-100 px-1 font-mono text-xs">space:engineering</code>{" "}
+                    <code className="rounded-sm bg-slate-100 px-1 font-mono text-xs">author:&quot;maya&quot;</code>
+                  </li>
+                  <li>· The ✨ answer above may still help — it reads across all your docs.</li>
+                </ul>
+              </div>
             )}
           </div>
         </div>

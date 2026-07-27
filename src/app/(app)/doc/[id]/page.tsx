@@ -106,7 +106,7 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
   return (
     <PageWidth>
       <ViewTracker docId={doc.id} />
-      <nav className="mb-4 flex items-center gap-1.5 text-sm text-slate-400 print:hidden">
+      <nav className="mb-4 flex items-center gap-1.5 text-sm text-slate-500 print:hidden">
         <Link href="/" className="hover:text-slate-600">
           Home
         </Link>

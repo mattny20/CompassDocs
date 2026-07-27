@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { getAppSettings } from "@/lib/settings-store";
 import { needsSetup } from "@/lib/db";
 import { getSsoConfig, ssoConfigured } from "@/lib/sso-config";
+import { getSamlConfig, samlConfigured } from "@/lib/saml-config";
 import { featureEnabled } from "@/lib/ee";
 import { LoginForm } from "@/components/LoginForm";
 import { Brand } from "@/components/Brand";
@@ -40,13 +41,16 @@ export default async function LoginPage({
   const user = await getCurrentUser();
   const paramsEarly = await searchParams;
   if (user) redirect(safeNext(paramsEarly.next));
-  const [settings, ssoCfg, ssoLicensed, params] = await Promise.all([
+  const [settings, ssoCfg, samlCfg, ssoLicensed, params] = await Promise.all([
     getAppSettings(),
     getSsoConfig(),
+    getSamlConfig(),
     featureEnabled("sso"),
     searchParams,
   ]);
   const ssoActive = ssoLicensed && ssoConfigured(ssoCfg);
+  const samlActive = ssoLicensed && samlConfigured(samlCfg);
+  const anySso = ssoActive || samlActive;
   const ssoError = params.sso_error ? SSO_ERRORS[params.sso_error] || SSO_ERRORS.internal : "";
 
   return (
@@ -62,21 +66,37 @@ export default async function LoginPage({
               {ssoError}
             </div>
           )}
-          {ssoActive && (
+          {anySso && (
             <>
-              <a
-                href="/api/ee/sso/login"
-                className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 font-semibold text-slate-700 shadow-xs transition hover:bg-slate-50"
-              >
-                {/* Microsoft logo — four squares */}
-                <svg viewBox="0 0 21 21" className="h-4 w-4" aria-hidden>
-                  <rect x="1" y="1" width="9" height="9" fill="#f25022" />
-                  <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
-                  <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
-                  <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
-                </svg>
-                Sign in with Microsoft
-              </a>
+              <div className="space-y-2">
+                {ssoActive && (
+                  <a
+                    href="/api/ee/sso/login"
+                    className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 font-semibold text-slate-700 shadow-xs transition hover:bg-slate-50"
+                  >
+                    {/* Microsoft logo — four squares */}
+                    <svg viewBox="0 0 21 21" className="h-4 w-4" aria-hidden>
+                      <rect x="1" y="1" width="9" height="9" fill="#f25022" />
+                      <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
+                      <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
+                      <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
+                    </svg>
+                    Sign in with Microsoft
+                  </a>
+                )}
+                {samlActive && (
+                  <a
+                    href="/api/ee/saml/login"
+                    className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 font-semibold text-slate-700 shadow-xs transition hover:bg-slate-50"
+                  >
+                    <svg viewBox="0 0 24 24" className="h-4 w-4 text-compass-600" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                      <path d="M12 2a10 10 0 100 20 10 10 0 000-20z" />
+                      <path d="M8 12l3 3 5-6" />
+                    </svg>
+                    {samlCfg.buttonLabel}
+                  </a>
+                )}
+              </div>
               {!ssoCfg.ssoOnly && (
                 <div className="my-4 flex items-center gap-3 text-xs uppercase tracking-wider text-slate-400">
                   <span className="h-px flex-1 bg-slate-200" />
@@ -86,7 +106,7 @@ export default async function LoginPage({
               )}
             </>
           )}
-          {!(ssoActive && ssoCfg.ssoOnly) && <LoginForm next={safeNext(params.next)} />}
+          {!(anySso && ssoCfg.ssoOnly) && <LoginForm next={safeNext(params.next)} />}
         </div>
       </div>
     </div>

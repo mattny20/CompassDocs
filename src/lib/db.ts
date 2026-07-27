@@ -118,6 +118,7 @@ async function initialize(): Promise<void> {
     await client.query(SCHEMA_SQL);
     await migrateVisibilityTiers(client);
     await migrateSecuritySealing(client);
+    await migrateWeightedSearch(client);
     await seedIfEmpty(client);
     await bootstrapAuth(client);
   } finally {
@@ -158,10 +159,14 @@ const SCHEMA_SQL = `
     author text NOT NULL DEFAULT 'Unknown',
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
+    -- Weighted: title (A) outranks summary/tags (B) outranks body (C), so a
+    -- doc TITLED "deploy" beats one that merely mentions it. Existing installs
+    -- are rewritten by migrateWeightedSearch().
     search tsvector GENERATED ALWAYS AS (
-      to_tsvector('english',
-        coalesce(title,'') || ' ' || coalesce(summary,'') || ' ' ||
-        coalesce(content,'') || ' ' || coalesce(replace(tags, ',', ' '), ''))
+      setweight(to_tsvector('english', coalesce(title,'')), 'A') ||
+      setweight(to_tsvector('english', coalesce(summary,'')), 'B') ||
+      setweight(to_tsvector('english', coalesce(replace(tags, ',', ' '), '')), 'B') ||
+      setweight(to_tsvector('english', coalesce(content,'')), 'C')
     ) STORED
   );
   CREATE INDEX IF NOT EXISTS idx_documents_space ON documents(space_id);
@@ -784,6 +789,34 @@ const SCHEMA_SQL = `
  * anonymous internet access — so existing rows must flip exactly once (never
  * again, or an admin's deliberate 'public' choice would be reverted on boot).
  */
+/**
+ * Rebuild documents.search with per-field weights (title A, summary/tags B,
+ * body C). Generated columns can't be altered in place, so drop + re-add +
+ * reindex — a one-time table rewrite, guarded by inspecting the current
+ * generation expression rather than a flag (fresh installs are already
+ * weighted and skip the rewrite).
+ */
+async function migrateWeightedSearch(client: import("pg").PoolClient) {
+  const expr = await client.query(
+    `SELECT pg_get_expr(d.adbin, d.adrelid) AS expr
+     FROM pg_attrdef d
+     JOIN pg_attribute a ON a.attrelid = d.adrelid AND a.attnum = d.adnum
+     WHERE d.adrelid = 'documents'::regclass AND a.attname = 'search'`
+  );
+  if (!expr.rowCount || /setweight/.test(expr.rows[0].expr)) return;
+  console.log("[db] rebuilding documents.search with field weights (one-time)…");
+  await client.query(`
+    ALTER TABLE documents DROP COLUMN search;
+    ALTER TABLE documents ADD COLUMN search tsvector GENERATED ALWAYS AS (
+      setweight(to_tsvector('english', coalesce(title,'')), 'A') ||
+      setweight(to_tsvector('english', coalesce(summary,'')), 'B') ||
+      setweight(to_tsvector('english', coalesce(replace(tags, ',', ' '), '')), 'B') ||
+      setweight(to_tsvector('english', coalesce(content,'')), 'C')
+    ) STORED;
+    CREATE INDEX idx_documents_search ON documents USING gin(search);
+  `);
+}
+
 async function migrateVisibilityTiers(client: import("pg").PoolClient) {
   const done = await client.query("SELECT 1 FROM settings WHERE key = 'migrated_visibility_tiers'");
   if (done.rowCount) return;
@@ -1518,19 +1551,96 @@ export async function listBranches(documentId: number): Promise<DocumentWithSpac
 // keeping the safe parsing. Empty input yields an empty tsquery (matches none).
 const OR_TSQUERY = `replace(websearch_to_tsquery('english', $1)::text, '&', '|')::tsquery`;
 
+export interface SearchSqlFilters {
+  space?: string; // slug or name, case-insensitive
+  type?: string;
+  tag?: string;
+  author?: string;
+  status?: "draft" | "published";
+}
+
+/** Operator-only search (no words): newest matching docs, summary as snippet. */
+async function browseDocuments(
+  limit: number,
+  includeDrafts: boolean,
+  scope: number[] | "all" | undefined,
+  spaceId: number | undefined,
+  f: SearchSqlFilters
+): Promise<SearchHit[]> {
+  const params: unknown[] = [limit];
+  const p = (v: unknown) => {
+    params.push(v);
+    return `$${params.length}`;
+  };
+  let filter =
+    (includeDrafts ? "" : " AND d.status = 'published'") +
+    (Array.isArray(scope) ? ` AND d.space_id = ANY(${p(scope)})` : "") +
+    (spaceId ? ` AND d.space_id = ${Number(spaceId)}` : "");
+  if (f.space) filter += ` AND (s.slug = lower(${p(f.space)}) OR lower(s.name) = lower(${p(f.space)}))`;
+  if (f.type) filter += ` AND d.type = ${p(f.type)}`;
+  if (f.tag) filter += ` AND (',' || lower(d.tags) || ',') LIKE ${p(`%,${f.tag.toLowerCase()},%`)}`;
+  if (f.author) filter += ` AND d.author ILIKE ${p(`%${f.author}%`)}`;
+  if (f.status && includeDrafts) filter += ` AND d.status = ${p(f.status)}`;
+  const rows = await q(
+    `SELECT d.id, d.title, d.slug, d.type, d.status, d.tags, d.updated_at,
+            s.name AS space_name, s.slug AS space_slug, s.icon AS space_icon, s.color AS space_color,
+            left(d.summary, 160) AS snippet
+     FROM documents d
+     JOIN spaces s ON s.id = d.space_id
+     WHERE d.deleted_at IS NULL AND d.branch_of IS NULL${filter}
+     ORDER BY d.updated_at DESC
+     LIMIT $1`,
+    params
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    title: r.title,
+    slug: r.slug,
+    type: r.type,
+    status: r.status,
+    space_name: r.space_name,
+    space_slug: r.space_slug,
+    space_icon: r.space_icon,
+    space_color: r.space_color,
+    tags: parseTags(r.tags),
+    snippet: r.snippet,
+    updated_at: r.updated_at,
+  }));
+}
+
 export async function searchDocuments(
   raw: string,
   limit = 25,
   includeDrafts = false,
   scope?: number[] | "all",
   /** Restrict hits to one space (the in-space search box). */
-  spaceId?: number
+  spaceId?: number,
+  /** Parsed `type:`/`tag:`/… operators from the query. */
+  f?: SearchSqlFilters
 ): Promise<SearchHit[]> {
-  if (!raw.trim()) return [];
-  const filter =
+  // Filter-only queries ("type:sop" with no words) browse by recency instead.
+  if (!raw.trim()) {
+    if (!f || Object.keys(f).length === 0) return [];
+    return browseDocuments(limit, includeDrafts, scope, spaceId, f);
+  }
+  const params: unknown[] = [raw, limit];
+  const p = (v: unknown) => {
+    params.push(v);
+    return `$${params.length}`;
+  };
+  let filter =
     (includeDrafts ? "" : " AND d.status = 'published'") +
-    (Array.isArray(scope) ? " AND d.space_id = ANY($3)" : "") +
+    (Array.isArray(scope) ? ` AND d.space_id = ANY(${p(scope)})` : "") +
     (spaceId ? ` AND d.space_id = ${Number(spaceId)}` : "");
+  if (f?.space) filter += ` AND (s.slug = lower(${p(f.space)}) OR lower(s.name) = lower(${p(f.space)}))`;
+  if (f?.type) filter += ` AND d.type = ${p(f.type)}`;
+  if (f?.tag) filter += ` AND (',' || lower(d.tags) || ',') LIKE ${p(`%,${f.tag.toLowerCase()},%`)}`;
+  if (f?.author) filter += ` AND d.author ILIKE ${p(`%${f.author}%`)}`;
+  if (f?.status && includeDrafts) filter += ` AND d.status = ${p(f.status)}`;
+  // Rank = weighted full-text score (normalized to 0..1 with flag 32) plus a
+  // bonus when the query appears verbatim in the title, scaled by a gentle
+  // freshness factor so recently-updated docs win ties against stale ones.
+  const titleParam = p(raw);
   const rows = await q(
     `SELECT d.id, d.title, d.slug, d.type, d.status, d.tags, d.updated_at,
             s.name AS space_name, s.slug AS space_slug, s.icon AS space_icon, s.color AS space_color,
@@ -1540,9 +1650,13 @@ export async function searchDocuments(
      JOIN spaces s ON s.id = d.space_id
      CROSS JOIN LATERAL (SELECT ${OR_TSQUERY} AS query) tq
      WHERE d.search @@ tq.query AND d.deleted_at IS NULL AND d.branch_of IS NULL${filter}
-     ORDER BY ts_rank(d.search, tq.query) DESC
+     ORDER BY
+       (ts_rank(d.search, tq.query, 32)
+         + CASE WHEN d.title ILIKE '%' || ${titleParam} || '%' THEN 0.2 ELSE 0 END)
+       * (1 + 0.3 * exp(-GREATEST(extract(epoch FROM now() - d.updated_at), 0) / (86400.0 * 180)))
+       DESC
      LIMIT $2`,
-    Array.isArray(scope) ? [raw, limit, scope] : [raw, limit]
+    params
   );
   return rows.map((r) => ({
     id: r.id,

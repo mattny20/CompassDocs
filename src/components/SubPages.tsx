@@ -71,7 +71,7 @@ export function SubPages({
         )}
       </div>
       {pages.length === 0 ? (
-        <p className="text-sm text-slate-400">No sub-pages yet.</p>
+        <p className="text-sm text-slate-500">No sub-pages yet.</p>
       ) : (
         <ul className="space-y-1">
           {pages.map((p, i) => (

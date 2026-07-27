@@ -152,7 +152,7 @@ export function RelatedDocs({
       ))}
 
       {relations.length === 0 && (
-        <p className="mb-2 text-sm text-slate-400">No linked documents yet.</p>
+        <p className="mb-2 text-sm text-slate-500">No linked documents yet.</p>
       )}
 
       {canEdit && !adding && (
@@ -197,7 +197,7 @@ export function RelatedDocs({
                     className="w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-compass-50"
                   >
                     <span className="block truncate font-medium text-slate-700">{h.title}</span>
-                    <span className="block truncate text-xs text-slate-400">
+                    <span className="block truncate text-xs text-slate-500">
                       {h.space_icon} {h.space_name}
                     </span>
                   </button>
