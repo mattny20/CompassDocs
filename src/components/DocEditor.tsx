@@ -57,6 +57,8 @@ interface Initial {
   parent_id?: number | null;
   publish_at?: string | null;
   archive_at?: string | null;
+  /** Concurrency token: the updated_at this editor session loaded. */
+  updated_at?: string;
 }
 
 export function DocEditor({
@@ -108,6 +110,40 @@ export function DocEditor({
   // first image upload triggers (images need a document row to belong to).
   const [docId, setDocId] = useState<number | undefined>(initial.id);
   const [autoDrafted, setAutoDrafted] = useState(false);
+  const [conflict, setConflict] = useState(false);
+  const [otherEditors, setOtherEditors] = useState<string[]>([]);
+
+  // Editing presence: heartbeat every 30s while an existing doc is open, so
+  // anyone else opening the same editor sees a "also editing" banner. Best
+  // effort — a closed tab stops heartbeating and ages out server-side.
+  useEffect(() => {
+    if (!initial.id) return;
+    const id = initial.id;
+    let alive = true;
+    const beat = async () => {
+      try {
+        const res = await fetch(`/api/documents/${id}/editing`, { method: "POST" });
+        if (!res.ok || !alive) return;
+        const data = await res.json();
+        setOtherEditors((data.others || []).map((o: { user_name: string }) => o.user_name));
+      } catch {
+        // Offline blip — next beat catches up.
+      }
+    };
+    void beat();
+    const t = setInterval(beat, 30_000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+      // keepalive lets the goodbye survive tab close/navigation.
+      void fetch(`/api/documents/${id}/editing`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ leaving: true }),
+        keepalive: true,
+      }).catch(() => {});
+    };
+  }, [initial.id]);
   // Nested pages: optional parent within the selected space.
   const [parentId, setParentId] = useState<number | null>(initial.parent_id ?? null);
   const [parentOptions, setParentOptions] = useState<{ id: number; title: string }[]>([]);
@@ -346,11 +382,16 @@ export function DocEditor({
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               ...payload,
+              base_updated_at: initial.updated_at,
               versionNote:
                 changeNote.trim() || (mode === "create" ? "Created" : "Edited via editor"),
             }),
           });
       const data = await res.json();
+      if (res.status === 409 && data?.conflict) {
+        setConflict(true);
+        throw new Error(data.error);
+      }
       if (!res.ok) throw new Error(data?.error || "Save failed.");
       if (data.pending) {
         // Editor's change to live content went to the review queue.
@@ -423,9 +464,31 @@ export function DocEditor({
         </div>
       </div>
 
+      {otherEditors.length > 0 && (
+        <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-800 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-200">
+          <strong>{otherEditors.join(", ")}</strong>
+          {otherEditors.length === 1 ? " is" : " are"} also editing this document right now —
+          coordinate to avoid overwriting each other.
+        </div>
+      )}
+
       {error && (
         <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
           {error}
+          {conflict && docId && (
+            <span className="mt-1 block">
+              <a
+                href={`/doc/${docId}`}
+                target="_blank"
+                rel="noreferrer"
+                className="font-medium underline"
+              >
+                Open the latest version in a new tab
+              </a>{" "}
+              to review what changed, copy your edits over, then reload this editor. Your text
+              here is untouched.
+            </span>
+          )}
         </div>
       )}
 

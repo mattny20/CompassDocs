@@ -537,6 +537,16 @@ const SCHEMA_SQL = `
   );
   CREATE INDEX IF NOT EXISTS idx_dms_links_doc ON doc_dms_links(document_id);
 
+  -- Who has a document open in the editor right now (heartbeat rows). Rows
+  -- older than ~2 minutes are dead sessions; the hourly sweep clears them.
+  CREATE TABLE IF NOT EXISTS doc_editing_presence (
+    document_id integer NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    user_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_name text NOT NULL DEFAULT '',
+    last_seen timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (document_id, user_id)
+  );
+
   -- Audit log: an append-only record of security- and content-significant
   -- actions (who did what, when). Reads are intentionally not logged.
   CREATE TABLE IF NOT EXISTS audit_log (
@@ -1058,6 +1068,40 @@ export async function addDmsLink(input: {
       ]
     )
   )[0];
+}
+
+/** Editing-presence heartbeat: upsert "this user has the editor open now". */
+export async function touchEditingPresence(
+  documentId: number,
+  userId: number,
+  userName: string
+): Promise<void> {
+  await q(
+    `INSERT INTO doc_editing_presence (document_id, user_id, user_name, last_seen)
+     VALUES ($1,$2,$3,now())
+     ON CONFLICT (document_id, user_id) DO UPDATE SET last_seen = now(), user_name = $3`,
+    [documentId, userId, userName.slice(0, 100)]
+  );
+}
+
+export async function clearEditingPresence(documentId: number, userId: number): Promise<void> {
+  await q("DELETE FROM doc_editing_presence WHERE document_id = $1 AND user_id = $2", [
+    documentId,
+    userId,
+  ]);
+}
+
+/** Others (not `userId`) editing this doc, heartbeat within the last 90s. */
+export async function listOtherEditors(
+  documentId: number,
+  userId: number
+): Promise<{ user_id: number; user_name: string }[]> {
+  return q(
+    `SELECT user_id, user_name FROM doc_editing_presence
+     WHERE document_id = $1 AND user_id <> $2 AND last_seen > now() - interval '90 seconds'
+     ORDER BY user_name`,
+    [documentId, userId]
+  );
 }
 
 /** Delete a link, but only from the given document (route-level ownership). */
@@ -1699,6 +1743,10 @@ export async function runDbMaintenance(): Promise<{ sessions: number; oauthCodes
   // Read notifications older than 90 days are noise nobody revisits.
   await pool().query(
     "DELETE FROM notifications WHERE read_at IS NOT NULL AND created_at < now() - interval '90 days'"
+  );
+  // Editing-presence heartbeats go stale within seconds of a closed tab.
+  await pool().query(
+    "DELETE FROM doc_editing_presence WHERE last_seen < now() - interval '10 minutes'"
   );
   return { sessions: sessions.rowCount ?? 0, oauthCodes: codes.rowCount ?? 0 };
 }

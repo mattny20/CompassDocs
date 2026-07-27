@@ -4,6 +4,23 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.70.0] - 2026-07-27
+
+Concurrent-edit safety, and a permanent end-to-end test suite.
+
+### Added
+- **Edit-conflict protection.** Saving a document that someone else changed
+  while you were editing is now refused with a clear message (and a link to
+  the latest version) instead of silently overwriting their work. The editor
+  sends the version it loaded; the server compares before applying.
+- **Editing presence.** Open a document another editor already has open and
+  both of you see a banner naming who else is in — lightweight awareness,
+  no locking. Heartbeats age out server-side within seconds of a closed tab.
+- **End-to-end test suite in CI.** A Playwright suite (login, dashboard,
+  create/search, the strict-mode approval loop with its inbox notification,
+  the REST API scope matrix, and the new conflict + presence behavior) runs
+  against a real production build + PostgreSQL on every pull request.
+
 ## [0.69.1] - 2026-07-27
 
 ### Added
