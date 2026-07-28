@@ -7,7 +7,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ChevronDown, ChevronRight, ChevronUp, FileText, ListTree, Plus } from "lucide-react";
+import { ChevronDown, ChevronRight, ChevronUp, FileText, ListTree } from "lucide-react";
 import { usePanelCollapse } from "@/lib/use-panel-collapse";
 
 export interface SubPage {
@@ -77,9 +77,9 @@ export function SubPages({
           <Link
             href={`/doc/new?space=${spaceSlug}&parent=${parentId}`}
             title="New sub-page"
-            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm font-medium text-compass-700 hover:bg-compass-50"
+            className="shrink-0 whitespace-nowrap rounded-lg border border-slate-200 bg-surface px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
           >
-            <Plus className="h-3.5 w-3.5" /> New
+            {"＋ New"}
           </Link>
         )}
       </div>
