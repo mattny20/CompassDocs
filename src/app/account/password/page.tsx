@@ -8,9 +8,9 @@ export const dynamic = "force-dynamic";
 export default async function ChangePasswordPage() {
   const user = await requireUser();
   const forced = user.must_change_password;
-  // Routine password changes live on the unified account page; this focused
-  // page remains for the forced first-login / admin-reset flow.
-  if (!forced) redirect("/account#password");
+  // Routine password changes live in Account → Security; this focused page
+  // remains for the forced first-login / admin-reset flow.
+  if (!forced) redirect("/account/security");
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-linear-to-br from-slate-100 to-compass-50 px-4">

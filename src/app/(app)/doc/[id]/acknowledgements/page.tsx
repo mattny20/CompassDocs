@@ -6,7 +6,7 @@ import { getDocument, ackStatusForDocument } from "@/lib/db";
 import { spaceScopeFor, scopeAllows } from "@/lib/access";
 import { featureEnabled } from "@/lib/ee";
 import { getAppSettings } from "@/lib/settings-store";
-import { formatDateTime } from "@/lib/format";
+import { formatDateTime, settingsForUser } from "@/lib/format";
 import { PageContainer } from "@/components/PageWidth";
 
 export const dynamic = "force-dynamic";
@@ -41,7 +41,7 @@ export default async function AcknowledgementsPage({
           <h1 className="text-2xl font-bold text-slate-900">Read confirmations</h1>
           <p className="mt-1 text-sm text-slate-500">
             {acked.length} of {rows.length} people have confirmed the current revision
-            (as of {formatDateTime(doc.updated_at, settings)}). Editing the document asks
+            (as of {formatDateTime(doc.updated_at, settingsForUser(settings, user))}). Editing the document asks
             everyone again.
           </p>
         </div>
@@ -90,7 +90,7 @@ export default async function AcknowledgementsPage({
                   )}
                 </td>
                 <td className="px-4 py-2.5 text-slate-500">
-                  {r.acknowledged_at ? formatDateTime(r.acknowledged_at, settings) : "—"}
+                  {r.acknowledged_at ? formatDateTime(r.acknowledged_at, settingsForUser(settings, user)) : "—"}
                 </td>
               </tr>
             ))}

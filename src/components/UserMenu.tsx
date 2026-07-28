@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { LogOut, UserCog } from "lucide-react";
 import { ThemeToggle } from "./ThemeToggle";
+import { UserAvatar } from "./UserAvatar";
 import { ROLE_LABEL } from "@/lib/types";
 import type { SessionUser } from "@/lib/types";
 
@@ -20,20 +21,13 @@ export function UserMenu({ user, collapsed = false }: { user: SessionUser; colla
     router.refresh();
   }
 
-  const initials = (user.name || user.username)
-    .split(" ")
-    .map((p) => p[0])
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
-
   const avatar = (
     <Link
       href="/account"
       title={`${user.name || user.username} — manage account`}
-      className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-compass-100 text-xs font-bold text-compass-700 transition hover:ring-2 hover:ring-compass-300"
+      className="shrink-0 rounded-full transition hover:ring-2 hover:ring-compass-300"
     >
-      {initials}
+      <UserAvatar name={user.name || user.username} avatar={user.avatar} size="sm" />
     </Link>
   );
 
@@ -44,7 +38,7 @@ export function UserMenu({ user, collapsed = false }: { user: SessionUser; colla
     return (
       <div className="flex flex-col items-center gap-1 border-t border-slate-100 py-3">
         {avatar}
-        <ThemeToggle />
+        <ThemeToggle accountPref={user.theme} />
         <Link href="/account" title="Manage account" className={iconBtn}>
           <UserCog className="h-4 w-4" />
         </Link>
@@ -68,7 +62,7 @@ export function UserMenu({ user, collapsed = false }: { user: SessionUser; colla
         <div className="truncate text-xs text-slate-500">{ROLE_LABEL[user.role]}</div>
       </div>
       <div className="flex shrink-0 items-center">
-        <ThemeToggle />
+        <ThemeToggle accountPref={user.theme} />
         <Link href="/account" title="Manage account" className={iconBtn}>
           <UserCog className="h-4 w-4" />
         </Link>

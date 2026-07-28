@@ -118,11 +118,16 @@ export async function remindDueReviews(): Promise<void> {
   const { getSmtpConfig, smtpConfigured } = await import("./smtp-config");
   if (!smtpConfigured(await getSmtpConfig())) return;
 
-  const recipients = await q<{ email: string }>(
-    `SELECT email FROM users
-     WHERE status = 'active' AND role IN ('approver', 'admin')
-       AND email IS NOT NULL AND email <> ''`
-  );
+  // Per-user routing: approvers can turn review-reminder emails off
+  // (Account → Notifications) while keeping the inbox nudge.
+  const { notifyPrefAllows } = await import("./notifications");
+  const recipients = (
+    await q<{ id: number; email: string; notify_prefs: Record<string, Record<string, boolean>> }>(
+      `SELECT id, email, notify_prefs FROM users
+       WHERE status = 'active' AND role IN ('approver', 'admin')
+         AND email IS NOT NULL AND email <> ''`
+    )
+  ).filter((r) => notifyPrefAllows(r.notify_prefs, "review_due", "email"));
   if (recipients.length === 0) return;
 
   const { renderEmail } = await import("./email-templates");

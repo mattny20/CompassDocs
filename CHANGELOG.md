@@ -4,6 +4,33 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.73.0] - 2026-07-28
+
+Your account, properly. The account page is now a real settings area — and it
+learned some long-requested tricks.
+
+### Added
+- **A settings shell that scales.** Account settings now use a left-rail
+  layout with focused sections — Profile, Preferences, Notifications,
+  Security, API tokens — each with its own URL. Password changes moved into
+  Security (the forced first-login reset keeps its focused page).
+- **Profile editing.** Set your display name, email, and a profile photo
+  (resized in the browser, shown in the sidebar and account header; initials
+  remain the fallback). Single sign-on and SCIM accounts see name and email
+  read-only — the identity provider stays the source of truth.
+- **Theme that follows you.** Light/dark/auto is now saved on your account
+  and applied on any browser you sign in from. The sidebar toggle still
+  works — it writes through to your account.
+- **Per-event notification routing.** A delivery grid in Account →
+  Notifications: for each event type (mentions, comments, subscribed spaces,
+  change requests, review decisions, review reminders, read confirmations)
+  choose whether it reaches your in-app inbox, your chat webhook, and — where
+  an email exists — your email. Defaults preserve existing behavior exactly.
+- **Your time zone, your dates.** Pick a personal time zone and date format;
+  timestamps on documents, history, the dashboard, and acknowledgements
+  render in them (workspace settings remain the default). The weekly digest
+  now arrives Monday morning in each recipient's own time zone.
+
 ## [0.72.0] - 2026-07-27
 
 A calmer document page: the side panel is for content, actions moved to the

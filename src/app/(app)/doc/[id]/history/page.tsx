@@ -4,7 +4,7 @@ import { getDocument, listVersions, listBranches, getApprovalMode } from "@/lib/
 import { requireUser } from "@/lib/auth";
 import { spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
 import { getAppSettings } from "@/lib/settings-store";
-import { formatDateTime } from "@/lib/format";
+import { formatDateTime, settingsForUser } from "@/lib/format";
 import { roleAtLeast } from "@/lib/types";
 import { timeAgo } from "@/lib/ui";
 import { PageContainer } from "@/components/PageWidth";
@@ -40,7 +40,7 @@ export default async function HistoryPage({ params }: { params: Promise<{ id: st
     note: v.note,
     restored_from: v.restored_from,
     when: timeAgo(v.created_at),
-    whenExact: formatDateTime(v.created_at, settings),
+    whenExact: formatDateTime(v.created_at, settingsForUser(settings, user)),
   }));
 
   return (

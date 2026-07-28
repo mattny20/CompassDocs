@@ -38,6 +38,24 @@ function build(iso: string | null | undefined, opts: Intl.DateTimeFormatOptions,
   }
 }
 
+/** Workspace settings with a user's personal time zone / date format applied
+ * on top ("auto"/empty keeps the workspace default). Pass the result to
+ * formatDate/formatDateTime on user-facing pages. */
+export function settingsForUser(
+  settings: AppSettings,
+  user?: { timezone?: string; date_format?: string } | null
+): AppSettings {
+  if (!user) return settings;
+  const tz = (user.timezone ?? "").trim();
+  const df = user.date_format ?? "auto";
+  if (!tz && df === "auto") return settings;
+  return {
+    ...settings,
+    timezone: tz || settings.timezone,
+    date_format: df !== "auto" && df in LOCALE_FOR ? (df as DateFormat) : settings.date_format,
+  };
+}
+
 /** Format a date only, e.g. "Jul 12, 2026" (per the workspace settings). */
 export function formatDate(iso: string | null | undefined, settings: AppSettings): string {
   return build(

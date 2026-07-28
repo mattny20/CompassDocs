@@ -49,6 +49,16 @@ export interface User {
   page_width: string;
   /** Newsletter capability: none | contributor | approver. */
   newsletter_role: string;
+  /** Color theme preference: light | dark | system. */
+  theme: string;
+  /** IANA time zone for rendered timestamps; empty = browser/server default. */
+  timezone: string;
+  /** Date rendering: auto | us | iso | eu. */
+  date_format: string;
+  /** Small data: URL avatar; empty = initials. */
+  avatar: string;
+  /** Per-event notification routing: kind -> {inapp?, webhook?, email?}. */
+  notify_prefs: Record<string, Record<string, boolean>>;
   created_at: string;
   last_login_at: string | null;
 }
@@ -65,6 +75,14 @@ export interface SessionUser {
   page_width: "normal" | "wide" | "full";
   /** Newsletter capability: none | contributor | approver (admins: full). */
   newsletter_role: "none" | "contributor" | "approver";
+  /** Color theme preference: light | dark | system. */
+  theme: "light" | "dark" | "system";
+  /** IANA time zone for rendered timestamps; empty = workspace default. */
+  timezone: string;
+  /** Date rendering; auto = workspace default. */
+  date_format: "auto" | "medium" | "long" | "iso" | "us" | "eu";
+  /** Small data: URL avatar; empty = initials. */
+  avatar: string;
 }
 
 export interface Suggestion {

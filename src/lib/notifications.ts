@@ -5,7 +5,7 @@
 // failures are logged and never block the triggering action. Server-only.
 
 import "server-only";
-import { insertNotifications, getUserById } from "./db";
+import { insertNotifications, getUserById, getNotifyPrefsFor } from "./db";
 import { safeFetch } from "./safe-fetch";
 
 export interface NotificationEvent {
@@ -44,23 +44,45 @@ export async function notifyCrSubmitted(input: {
   });
 }
 
+/** True unless the user has explicitly switched this kind+channel off. */
+export function notifyPrefAllows(
+  prefs: Record<string, Record<string, boolean>> | null | undefined,
+  kind: string,
+  channel: "inapp" | "webhook" | "email"
+): boolean {
+  return prefs?.[kind]?.[channel] !== false;
+}
+
 export async function notify(userIds: number[], ev: NotificationEvent): Promise<void> {
-  const ids = [...new Set(userIds)];
-  if (ids.length === 0) return;
+  const all = [...new Set(userIds)];
+  if (all.length === 0) return;
+
+  // Per-event routing (Account → Notifications): a missing pref means "on".
+  let prefs: Awaited<ReturnType<typeof getNotifyPrefsFor>>;
   try {
-    await insertNotifications(ids, {
-      kind: ev.kind,
-      title: ev.title,
-      body: ev.body,
-      link: ev.link,
-      actor_name: ev.actorName,
-    });
+    prefs = await getNotifyPrefsFor(all);
   } catch (e) {
-    console.error("notify: insert failed:", e);
-    return; // no rows -> nothing to mirror to webhooks either
+    console.error("notify: prefs lookup failed:", e);
+    prefs = new Map();
+  }
+  const inboxIds = all.filter((id) => notifyPrefAllows(prefs.get(id), ev.kind, "inapp"));
+  const webhookIds = all.filter((id) => notifyPrefAllows(prefs.get(id), ev.kind, "webhook"));
+
+  if (inboxIds.length > 0) {
+    try {
+      await insertNotifications(inboxIds, {
+        kind: ev.kind,
+        title: ev.title,
+        body: ev.body,
+        link: ev.link,
+        actor_name: ev.actorName,
+      });
+    } catch (e) {
+      console.error("notify: insert failed:", e);
+    }
   }
 
-  for (const id of ids) {
+  for (const id of webhookIds) {
     try {
       const user = await getUserById(id);
       const hook = user?.notify_webhook_url?.trim();
