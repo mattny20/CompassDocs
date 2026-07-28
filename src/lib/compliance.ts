@@ -68,8 +68,15 @@ export async function notifyAckRequest(input: {
     console.error("Ack inbox notifications failed:", e);
   }
 
+  // Per-user routing: skip anyone who turned the ack email channel off.
+  const { getNotifyPrefsFor } = await import("./db");
+  const { notifyPrefAllows } = await import("./notifications");
+  const prefs = await getNotifyPrefsFor(input.users.map((u) => u.id)).catch(
+    () => new Map<number, Record<string, Record<string, boolean>>>()
+  );
   for (const target of input.users) {
     if (!mail || !target.email) continue;
+    if (!notifyPrefAllows(prefs.get(target.id), "ack_requested", "email")) continue;
     try {
       await sendMail([target.email], mail.subject, mail.text, mail.html);
       emailed++;

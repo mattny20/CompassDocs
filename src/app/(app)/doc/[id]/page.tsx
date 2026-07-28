@@ -20,7 +20,7 @@ import { getCurrentAck, ackStatusForDocument } from "@/lib/db";
 import { DocNotices } from "@/components/DocNotices";
 import { StickyDocBar } from "@/components/StickyDocBar";
 import { getAppSettings } from "@/lib/settings-store";
-import { formatDate, formatDateTime } from "@/lib/format";
+import { formatDate, formatDateTime, settingsForUser } from "@/lib/format";
 import { MarkdownView } from "@/components/MarkdownView";
 import { DocToc } from "@/components/DocToc";
 import { TypeBadge, StatusBadge, Tag } from "@/components/Badges";
@@ -72,9 +72,9 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
   const reviewDueAt = doc.review_due_at ?? null;
   const reviewOverdue =
     reviewDueAt !== null && new Date(reviewDueAt).getTime() <= Date.now() && doc.status === "published";
-  const reviewDueLabel = reviewDueAt ? formatDate(reviewDueAt, settings) : "";
+  const reviewDueLabel = reviewDueAt ? formatDate(reviewDueAt, settingsForUser(settings, user)) : "";
   const lastReviewedLabel = doc.last_reviewed_at
-    ? `Last reviewed ${formatDate(doc.last_reviewed_at, settings)}${doc.last_reviewed_by ? ` by ${doc.last_reviewed_by}` : ""}.`
+    ? `Last reviewed ${formatDate(doc.last_reviewed_at, settingsForUser(settings, user))}${doc.last_reviewed_by ? ` by ${doc.last_reviewed_by}` : ""}.`
     : "";
 
   // Public share links (admin-gated; staff with edit rights manage them).
@@ -201,7 +201,7 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
           )}
         </span>
         <span>·</span>
-        <span title={formatDateTime(doc.updated_at, settings)}>Updated {timeAgo(doc.updated_at)}</span>
+        <span title={formatDateTime(doc.updated_at, settingsForUser(settings, user))}>Updated {timeAgo(doc.updated_at)}</span>
         <span>·</span>
         <Link href={`/doc/${doc.id}/history`} className="hover:text-compass-600">
           {versionCount} version{versionCount === 1 ? "" : "s"}

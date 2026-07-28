@@ -22,7 +22,7 @@ import { NewsletterBoard } from "@/components/NewsletterBoard";
 import { DashboardGreeting } from "@/components/DashboardGreeting";
 import { StatusBadge } from "@/components/Badges";
 import { listReviewsDue } from "@/lib/reviews";
-import { formatDate } from "@/lib/format";
+import { formatDate, settingsForUser } from "@/lib/format";
 import {
   Search,
   Sparkles,
@@ -153,7 +153,7 @@ export default async function DashboardPage() {
                 label={`${reviewsDue.length} document${reviewsDue.length === 1 ? "" : "s"} due for content review`}
                 detail={reviewsDue
                   .slice(0, 3)
-                  .map((d) => `${d.title} (due ${formatDate(d.review_due_at, appSettings)})`)
+                  .map((d) => `${d.title} (due ${formatDate(d.review_due_at, settingsForUser(appSettings, user))})`)
                   .join(" · ")}
               />
             )}

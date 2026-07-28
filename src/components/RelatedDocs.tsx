@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ChevronDown, ChevronRight, Link2, Plus, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Link2, X } from "lucide-react";
 import { usePanelCollapse } from "@/lib/use-panel-collapse";
 
 // Related documents section of the doc side panel. Groups links by their
@@ -117,21 +117,35 @@ export function RelatedDocs({
 
   return (
     <section>
-      <h2 className="mb-2">
-        <button
-          onClick={toggleOpen}
-          aria-expanded={open}
-          className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-500 hover:text-slate-700"
-        >
-          {open ? (
-            <ChevronDown className="h-3.5 w-3.5" aria-hidden />
-          ) : (
-            <ChevronRight className="h-3.5 w-3.5" aria-hidden />
-          )}
-          <Link2 className="h-3.5 w-3.5" aria-hidden /> Related documents
-          {relations.length > 0 && ` (${relations.length})`}
-        </button>
-      </h2>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <h2>
+          <button
+            onClick={toggleOpen}
+            aria-expanded={open}
+            className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-500 hover:text-slate-700"
+          >
+            {open ? (
+              <ChevronDown className="h-3.5 w-3.5" aria-hidden />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+            )}
+            <Link2 className="h-3.5 w-3.5" aria-hidden /> Related documents
+            {relations.length > 0 && ` (${relations.length})`}
+          </button>
+        </h2>
+        {canEdit && !adding && (
+          <button
+            onClick={() => {
+              setAdding(true);
+              if (!open) toggleOpen();
+            }}
+            title="Link another document"
+            className="shrink-0 whitespace-nowrap rounded-lg border border-slate-200 bg-surface px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+          >
+            {"＋ Link"}
+          </button>
+        )}
+      </div>
 
       {!open ? null : (
         <>
@@ -169,15 +183,6 @@ export function RelatedDocs({
 
       {relations.length === 0 && (
         <p className="mb-2 text-sm text-slate-500">No linked documents yet.</p>
-      )}
-
-      {canEdit && !adding && (
-        <button
-          onClick={() => setAdding(true)}
-          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm font-medium text-compass-600 hover:bg-compass-50"
-        >
-          <Plus className="h-3.5 w-3.5" /> Link a document
-        </button>
       )}
 
       {canEdit && adding && (

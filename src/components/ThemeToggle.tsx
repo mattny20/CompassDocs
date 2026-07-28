@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Sun, Moon, Monitor } from "lucide-react";
 
-type Pref = "light" | "dark" | "system";
+export type Pref = "light" | "dark" | "system";
 
 const KEY = "compass-theme";
 const ORDER: Pref[] = ["light", "dark", "system"];
@@ -13,17 +13,35 @@ function systemPrefersDark(): boolean {
   return typeof matchMedia !== "undefined" && matchMedia("(prefers-color-scheme: dark)").matches;
 }
 
-/** Compute and apply the effective theme (`data-theme`) for a preference. */
-function apply(pref: Pref) {
+/** Compute and apply the effective theme (`data-theme`) for a preference.
+ * Exported for the account Preferences page, which sets the theme directly. */
+export function applyThemePref(pref: Pref) {
   const dark = pref === "dark" || (pref === "system" && systemPrefersDark());
   document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
 }
 
+/** Persist a preference locally (the no-flash boot script reads this key). */
+export function storeThemePref(pref: Pref) {
+  try {
+    localStorage.setItem(KEY, pref);
+  } catch {}
+}
+const apply = applyThemePref;
+
 /**
  * Compact theme control: one icon button that cycles Light → Dark → Auto.
  * The icon shows the current preference; the tooltip says what's next.
+ * With `accountPref` (signed-in surfaces) the account is the source of truth:
+ * it wins over this browser's stored value on mount, and changes write back
+ * so the theme follows the user across devices.
  */
-export function ThemeToggle({ className = "" }: { className?: string }) {
+export function ThemeToggle({
+  className = "",
+  accountPref,
+}: {
+  className?: string;
+  accountPref?: Pref;
+}) {
   // Start from a stable value to keep SSR/first-client render identical, then
   // sync to the stored preference after mount (the inline script already set
   // the actual data-theme, so there's no visual flash).
@@ -32,9 +50,18 @@ export function ThemeToggle({ className = "" }: { className?: string }) {
 
   useEffect(() => {
     const stored = (localStorage.getItem(KEY) as Pref | null) ?? "system";
-    setPref(ORDER.includes(stored) ? stored : "system");
+    const local = ORDER.includes(stored) ? stored : "system";
+    const effective = accountPref && ORDER.includes(accountPref) ? accountPref : local;
+    setPref(effective);
+    if (effective !== local) {
+      try {
+        localStorage.setItem(KEY, effective);
+      } catch {}
+      apply(effective);
+    }
     setMounted(true);
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountPref]);
 
   // While on "system", follow live OS theme changes.
   useEffect(() => {
@@ -52,6 +79,13 @@ export function ThemeToggle({ className = "" }: { className?: string }) {
       localStorage.setItem(KEY, next);
     } catch {}
     apply(next);
+    if (accountPref !== undefined) {
+      void fetch("/api/account/preferences", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ theme: next }),
+      }).catch(() => {});
+    }
   }
 
   const next = ORDER[(ORDER.indexOf(pref) + 1) % ORDER.length];

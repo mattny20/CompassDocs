@@ -145,6 +145,31 @@ export function SidebarClient({
   // The only badge that can hide inside the fold — surface it on the More row.
   const foldedBadge = moreOpen ? 0 : trashCount;
 
+  const moreToggle = (
+    <button
+      onClick={toggleMore}
+      aria-expanded={moreOpen}
+      title={collapsed ? (moreOpen ? "Less" : "More") : undefined}
+      className={`relative flex w-full items-center rounded-md py-2 font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-600 ${
+        collapsed ? "justify-center px-0" : "gap-2 px-3"
+      }`}
+    >
+      <span className="text-slate-400">
+        <MoreHorizontal className="h-4 w-4" />
+      </span>
+      {!collapsed && <span className="flex-1 text-left">{moreOpen ? "Less" : "More"}</span>}
+      {foldedBadge ? (
+        collapsed ? (
+          <span className="absolute right-2 top-1.5 h-2 w-2 rounded-full bg-compass-500" />
+        ) : (
+          <span className="rounded-full bg-compass-100 px-1.5 text-xs font-semibold text-compass-700">
+            {foldedBadge}
+          </span>
+        )
+      ) : null}
+    </button>
+  );
+
   const overlay = isSmall && !collapsed;
   return (
     <>
@@ -226,30 +251,9 @@ export function SidebarClient({
             badge={reviewCount}
           />
         )}
-        {hasMoreItems && (
-          <button
-            onClick={toggleMore}
-            aria-expanded={moreOpen}
-            title={collapsed ? (moreOpen ? "Less" : "More") : undefined}
-            className={`relative flex w-full items-center rounded-md py-2 font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-600 ${
-              collapsed ? "justify-center px-0" : "gap-2 px-3"
-            }`}
-          >
-            <span className="text-slate-400">
-              <MoreHorizontal className="h-4 w-4" />
-            </span>
-            {!collapsed && <span className="flex-1 text-left">{moreOpen ? "Less" : "More"}</span>}
-            {foldedBadge ? (
-              collapsed ? (
-                <span className="absolute right-2 top-1.5 h-2 w-2 rounded-full bg-compass-500" />
-              ) : (
-                <span className="rounded-full bg-compass-100 px-1.5 text-xs font-semibold text-compass-700">
-                  {foldedBadge}
-                </span>
-              )
-            ) : null}
-          </button>
-        )}
+        {/* The toggle sits where "More" was when folded, but drops below the
+            expanded items when open — so "Less" ends the list it controls. */}
+        {hasMoreItems && !moreOpen && moreToggle}
         {moreOpen && showNewsletter && (
           <NavLink href="/newsletter" icon={<Mail className="h-4 w-4" />} label="Newsletter" collapsed={collapsed} />
         )}
@@ -289,6 +293,7 @@ export function SidebarClient({
         {moreOpen && isAdmin && (
           <NavLink href="/admin" icon={<Settings className="h-4 w-4" />} label="Settings" collapsed={collapsed} />
         )}
+        {hasMoreItems && moreOpen && moreToggle}
       </nav>
 
       {!collapsed && (

@@ -79,6 +79,12 @@ export function toSessionUser(u: User): SessionUser {
       u.newsletter_role === "contributor" || u.newsletter_role === "approver"
         ? u.newsletter_role
         : "none",
+    theme: u.theme === "light" || u.theme === "dark" ? u.theme : "system",
+    timezone: u.timezone ?? "",
+    date_format: (["medium", "long", "iso", "us", "eu"] as const).includes(u.date_format as never)
+      ? (u.date_format as "medium" | "long" | "iso" | "us" | "eu")
+      : "auto",
+    avatar: u.avatar ?? "",
   };
 }
 

@@ -4,6 +4,7 @@ import {
   listSubscriptionsForUser,
   setEmailNotifications,
   setNotifyWebhookUrl,
+  setNotifyPrefs,
   setWeeklyDigest,
   getWeeklyDigest,
 } from "@/lib/db";
@@ -24,6 +25,7 @@ export async function GET() {
     email: me?.email ?? "",
     email_notifications: me?.email_notifications === 1,
     notify_webhook_url: me?.notify_webhook_url ?? "",
+    notify_prefs: me?.notify_prefs ?? {},
     weekly_digest: await getWeeklyDigest(user.id),
     subscriptions,
   });
@@ -56,5 +58,39 @@ export async function PATCH(req: Request) {
     }
     await setNotifyWebhookUrl(user.id, url);
   }
+  if (body?.notify_prefs !== undefined) {
+    const cleaned = cleanNotifyPrefs(body.notify_prefs);
+    if (cleaned === null) {
+      return NextResponse.json({ error: "Invalid notification preferences." }, { status: 400 });
+    }
+    await setNotifyPrefs(user.id, cleaned);
+  }
   return NextResponse.json({ ok: true });
+}
+
+const PREF_KINDS = [
+  "mention",
+  "comment",
+  "doc_update",
+  "cr_submitted",
+  "cr_resolved",
+  "review_due",
+  "ack_requested",
+];
+const PREF_CHANNELS = ["inapp", "webhook", "email"];
+
+/** Keep only known kind/channel keys with explicit `false` values — "on" is
+ * the default, so the stored object stays a sparse list of opt-outs. */
+function cleanNotifyPrefs(raw: unknown): Record<string, Record<string, boolean>> | null {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
+  const out: Record<string, Record<string, boolean>> = {};
+  for (const [kind, channels] of Object.entries(raw)) {
+    if (!PREF_KINDS.includes(kind)) return null;
+    if (typeof channels !== "object" || channels === null || Array.isArray(channels)) return null;
+    for (const [ch, val] of Object.entries(channels as object)) {
+      if (!PREF_CHANNELS.includes(ch) || typeof val !== "boolean") return null;
+      if (val === false) (out[kind] ??= {})[ch] = false;
+    }
+  }
+  return out;
 }

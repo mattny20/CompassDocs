@@ -344,6 +344,19 @@ const SCHEMA_SQL = `
   -- Personal incoming-webhook URL (Slack/Teams); notifications POST there too.
   ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_webhook_url text NOT NULL DEFAULT '';
 
+  -- Personal account settings (0.73.0): appearance, locale, avatar, and
+  -- per-event notification routing. notify_prefs maps kind -> channel booleans
+  -- ({"mention":{"inapp":false}}); a missing kind/channel means "on", so an
+  -- empty object preserves pre-0.73 behavior exactly.
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS theme text NOT NULL DEFAULT 'system';
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS timezone text NOT NULL DEFAULT '';
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS date_format text NOT NULL DEFAULT 'auto';
+  -- Small data: URL (client-resized to ~128px); empty = initials.
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar text NOT NULL DEFAULT '';
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_prefs jsonb NOT NULL DEFAULT '{}'::jsonb;
+  -- ISO week ("2026-W31") of the user's last weekly digest, for per-timezone sends.
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS digest_last_week text NOT NULL DEFAULT '';
+
   -- Per-user notification inbox (the bell). Rows are cheap and pruned by the
   -- hourly maintenance sweep once read and older than 90 days.
   CREATE TABLE IF NOT EXISTS notifications (
@@ -1542,6 +1555,60 @@ export async function setPageWidth(userId: number, width: string): Promise<void>
   await q("UPDATE users SET page_width = $1 WHERE id = $2", [width, userId]);
 }
 
+/** Per-user appearance / locale preferences; only provided keys change. */
+export async function setUserPrefs(
+  userId: number,
+  prefs: { theme?: string; timezone?: string; date_format?: string }
+): Promise<void> {
+  const sets: string[] = [];
+  const vals: unknown[] = [];
+  for (const key of ["theme", "timezone", "date_format"] as const) {
+    if (prefs[key] !== undefined) {
+      vals.push(prefs[key]);
+      sets.push(`${key} = $${vals.length}`);
+    }
+  }
+  if (sets.length === 0) return;
+  vals.push(userId);
+  await q(`UPDATE users SET ${sets.join(", ")} WHERE id = $${vals.length}`, vals);
+}
+
+/** Self-service profile edit (local accounts): display name and email. */
+export async function setUserProfile(
+  userId: number,
+  profile: { name: string; email: string }
+): Promise<void> {
+  await q("UPDATE users SET name = $1, email = $2 WHERE id = $3", [
+    profile.name,
+    profile.email,
+    userId,
+  ]);
+}
+
+/** Avatar as a small data: URL; empty string removes it. */
+export async function setUserAvatar(userId: number, avatar: string): Promise<void> {
+  await q("UPDATE users SET avatar = $1 WHERE id = $2", [avatar, userId]);
+}
+
+/** Per-event notification routing map (kind -> {inapp?, webhook?, email?}). */
+export async function setNotifyPrefs(userId: number, prefs: object): Promise<void> {
+  await q("UPDATE users SET notify_prefs = $1 WHERE id = $2", [JSON.stringify(prefs), userId]);
+}
+
+/** notify_prefs for a set of users in one query (notification fan-out). */
+export async function getNotifyPrefsFor(
+  ids: number[]
+): Promise<Map<number, Record<string, Record<string, boolean>>>> {
+  const map = new Map<number, Record<string, Record<string, boolean>>>();
+  if (ids.length === 0) return map;
+  const rows = await q<{ id: number; notify_prefs: Record<string, Record<string, boolean>> }>(
+    "SELECT id, notify_prefs FROM users WHERE id = ANY($1)",
+    [ids]
+  );
+  for (const r of rows) map.set(r.id, r.notify_prefs ?? {});
+  return map;
+}
+
 export interface DocInput {
   space_id: number;
   title: string;
@@ -2031,7 +2098,8 @@ export async function getAllSettings(): Promise<Record<string, string>> {
 
 const USER_COLUMNS = `id, username, email, name, role, status, auth_provider, external_id,
   must_change_password, totp_enabled, directory_person_id, email_notifications,
-  notify_webhook_url, page_width, newsletter_role, created_at, last_login_at`;
+  notify_webhook_url, page_width, newsletter_role, theme, timezone, date_format,
+  avatar, notify_prefs, created_at, last_login_at`;
 
 export async function getUserById(id: number): Promise<User | undefined> {
   return (await q<User>(`SELECT ${USER_COLUMNS} FROM users WHERE id = $1`, [id]))[0];
