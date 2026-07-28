@@ -31,6 +31,15 @@ learned some long-requested tricks.
   render in them (workspace settings remain the default). The weekly digest
   now arrives Monday morning in each recipient's own time zone.
 
+### Changed
+- **One style of add button in the doc panel.** Sub-pages' "+ New" link and
+  Related documents' "Link a document" button now use the same compact
+  bordered chips as Attachments, right-aligned in each section header — the
+  Related-documents chip also pops a collapsed section open.
+- **"Less" moved to the bottom of the sidebar fold.** After clicking "More",
+  the toggle now sits below the expanded items (Newsletter … Settings), so
+  "Less" closes the list it ends instead of hiding above it.
+
 ## [0.72.0] - 2026-07-27
 
 A calmer document page: the side panel is for content, actions moved to the
