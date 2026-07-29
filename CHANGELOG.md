@@ -4,6 +4,17 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.73.4] - 2026-07-29
+
+### Fixed
+- **The Claude connector's Approve button works again in Chromium browsers.**
+  The 0.64.1 Content-Security-Policy sent `form-action 'self'` on the OAuth
+  consent page, and Chrome/Edge enforce that directive against the redirect
+  that follows approval — so clicking **Approve** silently did nothing and the
+  page never advanced. The consent page now allows exactly the redirect
+  targets registration accepts (https and loopback); every other page keeps
+  the strict policy.
+
 ## [0.73.3] - 2026-07-29
 
 ### Added

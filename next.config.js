@@ -54,6 +54,16 @@ const nextConfig = {
       "frame-ancestors 'self' https://outlook.office.com https://outlook.office365.com " +
       "https://outlook.live.com https://*.office.com; " +
       commonCsp;
+    // The OAuth consent page's Approve form POSTs to /api/oauth/approve, which
+    // answers with a redirect to the client's registered redirect_uri (Claude,
+    // or a loopback address for local MCP clients). Chromium enforces
+    // form-action against that redirect chain, so 'self' alone silently blocks
+    // the Approve click. Registration only accepts https or loopback redirect
+    // URIs, so allow exactly those here — and only on this page.
+    const authorizeCsp = mainCsp.replace(
+      "form-action 'self'",
+      "form-action 'self' https: http://localhost:* http://127.0.0.1:*"
+    );
     return [
       {
         source: "/addin/:path*",
@@ -62,6 +72,11 @@ const nextConfig = {
       {
         source: "/((?!addin).*)",
         headers: [...base, { key: "Content-Security-Policy", value: mainCsp }],
+      },
+      // Last so its Content-Security-Policy overrides the general rule above.
+      {
+        source: "/oauth/authorize",
+        headers: [...base, { key: "Content-Security-Policy", value: authorizeCsp }],
       },
     ];
   },
