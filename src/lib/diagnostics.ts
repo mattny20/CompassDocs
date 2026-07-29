@@ -174,8 +174,101 @@ function checkMetrics(): DiagnosticCheck {
   };
 }
 
+/** The Claude/MCP connector is only as healthy as the OAuth endpoints the
+ * discovery document advertises — and a bad advertisement (plain-http issuer,
+ * stale custom domain, proxy that forgot X-Forwarded-Proto) is invisible from
+ * inside the app: everything works in the browser while every OAuth client
+ * gets "unable to connect". This check surfaces exactly what we advertise
+ * and probes it from the server. */
+async function checkMcpConnector(req: Request): Promise<DiagnosticCheck> {
+  const key = "mcp";
+  const label = "Claude connector (MCP)";
+  try {
+    const { publicOrigin, requestOrigin } = await import("./oauth");
+    const { getAppSettings } = await import("./settings-store");
+    const customDomain = (await getAppSettings()).custom_domain?.trim() ?? "";
+    const issuer = await publicOrigin(req);
+    const fromRequest = requestOrigin(req);
+    const isLocal = /^https?:\/\/(localhost|127\.0\.0\.1)(:|$)/.test(issuer);
+    const problems: string[] = [];
+    let status: CheckStatus = "pass";
+
+    if (issuer.startsWith("http://") && !isLocal) {
+      status = "fail";
+      problems.push(
+        customDomain
+          ? "The custom domain resolves to a plain-http issuer — that shouldn't happen; re-save Settings → Domain & HTTPS."
+          : "Endpoints are advertised as plain http:// — OAuth clients refuse them. Set the custom domain under Settings → Domain & HTTPS, or make the reverse proxy forward X-Forwarded-Proto: https."
+      );
+    }
+
+    if (customDomain) {
+      let reqHost = "";
+      try {
+        reqHost = new URL(fromRequest).host;
+      } catch {}
+      if (reqHost && reqHost !== customDomain && !/^(localhost|127\.0\.0\.1)(:|$)/.test(reqHost)) {
+        if (status === "pass") status = "warn";
+        problems.push(
+          `You're browsing on ${reqHost} but the connector advertises ${customDomain} — if that domain is stale, Claude can't reach the sign-in service. Update Settings → Domain & HTTPS.`
+        );
+      }
+    } else if (!isLocal && !req.headers.get("x-forwarded-proto")) {
+      if (status === "pass") status = "warn";
+      problems.push(
+        "No custom domain is set and the proxy isn't sending X-Forwarded-Proto, so advertised URLs depend on request headers. Setting the custom domain makes the connector immune to proxy misconfiguration."
+      );
+    }
+
+    // Probe the advertised discovery URL from the server. Reachability from
+    // here isn't proof Claude can reach it — but unreachable from here (DNS,
+    // TLS, wrong host) almost always means unreachable from everywhere.
+    if (!isLocal && issuer.startsWith("https://")) {
+      try {
+        const { safeFetch } = await import("./safe-fetch");
+        const res = await safeFetch(`${issuer}/.well-known/oauth-authorization-server`, {
+          signal: AbortSignal.timeout(5_000),
+        });
+        if (!res.ok) {
+          status = "fail";
+          problems.push(
+            `The advertised discovery URL returned HTTP ${res.status} — the sign-in service isn't being served at ${issuer}.`
+          );
+        } else {
+          const body = (await res.json().catch(() => null)) as { issuer?: string } | null;
+          if (body?.issuer && body.issuer !== issuer) {
+            if (status === "pass") status = "warn";
+            problems.push(
+              `${issuer} answers, but advertises a different issuer (${body.issuer}) — two installs or a proxy rewrite?`
+            );
+          }
+        }
+      } catch (e) {
+        status = "fail";
+        problems.push(
+          `Couldn't reach the advertised discovery URL from the server (${
+            e instanceof Error ? e.message : String(e)
+          }) — check DNS and the TLS certificate for ${issuer}.`
+        );
+      }
+    }
+
+    const summary = `Sign-in advertised at ${issuer}/oauth/authorize${
+      customDomain ? " (from the custom domain setting)" : " (derived from request headers)"
+    }.`;
+    return {
+      key,
+      label,
+      status,
+      detail: problems.length ? `${summary} ${problems.join(" ")}` : `${summary} Discovery, authorize, and token endpoints all line up.`,
+    };
+  } catch (e) {
+    return { key, label, status: "fail", detail: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 /** Run every check in parallel. Never throws. */
-export async function runDiagnostics(): Promise<DiagnosticCheck[]> {
+export async function runDiagnostics(req?: Request): Promise<DiagnosticCheck[]> {
   return Promise.all([
     checkDatabase(),
     checkUploads(),
@@ -184,5 +277,6 @@ export async function runDiagnostics(): Promise<DiagnosticCheck[]> {
     checkSemantic(),
     checkLicense(),
     Promise.resolve(checkMetrics()),
+    ...(req ? [checkMcpConnector(req)] : []),
   ]);
 }
