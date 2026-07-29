@@ -4,6 +4,19 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.73.2] - 2026-07-29
+
+### Fixed
+- **The doc page always shows what you just saved.** Saving in the editor
+  navigated to the document before flushing the client-side page cache, so
+  the page could show the pre-save copy — a freshly applied heading
+  highlight looked lost even though it saved fine, until a hard reload.
+  The cache now flushes before the redirect.
+
+### Changed
+- **Version compare pickers read "Original" and "Modified"** (instead of
+  A / B), and the compare header says "Original vN → modified vM".
+
 ## [0.73.1] - 2026-07-28
 
 ### Changed
