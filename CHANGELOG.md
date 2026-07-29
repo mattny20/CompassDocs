@@ -4,6 +4,17 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.73.3] - 2026-07-29
+
+### Added
+- **Claude connector check in Diagnostics.** Settings → System → Diagnostics
+  now verifies the MCP connector's sign-in advertisement: it shows the OAuth
+  origin your install advertises (and whether it came from the custom-domain
+  setting or the proxy's forwarded headers), flags plain-`http://` issuers,
+  host mismatches, and missing `X-Forwarded-Proto`, and probes the advertised
+  discovery URL from the server — so "unable to connect to the sign-in
+  service" in Claude turns into a named cause and fix on your own System page.
+
 ## [0.73.2] - 2026-07-29
 
 ### Fixed
