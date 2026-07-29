@@ -187,3 +187,93 @@ export function withFolds(rows: DiffRow[], context = 3): DisplayRow[] {
   if (hidden > 0) out.push({ type: "fold", hidden });
   return out;
 }
+
+// --- Block-level diff (rendered compare view) --------------------------------
+
+export type BlockDiffRow = { type: "same" | "del" | "add"; text: string };
+
+/** Split markdown into display blocks on blank lines, keeping fenced code
+ * (``` / ~~~) and ::: directive containers whole so each block renders
+ * standalone. */
+export function splitBlocks(s: string): string[] {
+  const lines = s.replace(/\r\n/g, "\n").split("\n");
+  const blocks: string[] = [];
+  let buf: string[] = [];
+  let fence: string | null = null;
+  let directiveDepth = 0;
+  const flush = () => {
+    const text = buf.join("\n").trim();
+    if (text) blocks.push(text);
+    buf = [];
+  };
+  for (const line of lines) {
+    const fenceMatch = line.match(/^\s*(`{3,}|~{3,})/);
+    if (fence) {
+      buf.push(line);
+      if (fenceMatch && fenceMatch[1][0] === fence[0] && fenceMatch[1].length >= fence.length) {
+        fence = null;
+      }
+      continue;
+    }
+    if (fenceMatch && directiveDepth === 0) {
+      buf.push(line);
+      fence = fenceMatch[1];
+      continue;
+    }
+    if (/^:{3,}\s*\S/.test(line)) {
+      directiveDepth++;
+      buf.push(line);
+      continue;
+    }
+    if (/^:{3,}\s*$/.test(line) && directiveDepth > 0) {
+      directiveDepth--;
+      buf.push(line);
+      continue;
+    }
+    if (line.trim() === "" && directiveDepth === 0) {
+      flush();
+      continue;
+    }
+    buf.push(line);
+  }
+  flush();
+  return blocks;
+}
+
+/** Block-level LCS diff for the rendered compare view. Same trimming +
+ * size-guard approach as diffLines, over blocks instead of lines. */
+export function diffBlocks(oldText: string, newText: string): BlockDiffRow[] {
+  const a = splitBlocks(oldText);
+  const b = splitBlocks(newText);
+  let start = 0;
+  while (start < a.length && start < b.length && a[start] === b[start]) start++;
+  let endA = a.length;
+  let endB = b.length;
+  while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) {
+    endA--;
+    endB--;
+  }
+  const rows: BlockDiffRow[] = [];
+  for (let i = 0; i < start; i++) rows.push({ type: "same", text: a[i] });
+  const midA = a.slice(start, endA);
+  const midB = b.slice(start, endB);
+  if (midA.length > MAX_LCS_LINES || midB.length > MAX_LCS_LINES) {
+    for (const t of midA) rows.push({ type: "del", text: t });
+    for (const t of midB) rows.push({ type: "add", text: t });
+  } else {
+    const pairs = lcsPairs(midA, midB);
+    let i = 0;
+    let j = 0;
+    for (const [pi, pj] of [...pairs, [midA.length, midB.length] as [number, number]]) {
+      while (i < pi) rows.push({ type: "del", text: midA[i++] });
+      while (j < pj) rows.push({ type: "add", text: midB[j++] });
+      if (pi < midA.length) {
+        rows.push({ type: "same", text: midA[pi] });
+        i = pi + 1;
+        j = pj + 1;
+      }
+    }
+  }
+  for (let i = endA; i < a.length; i++) rows.push({ type: "same", text: a[i] });
+  return rows;
+}
