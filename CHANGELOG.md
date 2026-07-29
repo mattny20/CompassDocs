@@ -4,6 +4,19 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.75.0] - 2026-07-30
+
+### Added
+- **One-click updates from the admin console.** Deploy the optional updater
+  companion from the docs' compose block (Watchtower with its HTTP API — the
+  Docker socket never touches the web app, and the updater has no published
+  ports) and **Settings → System → Version & updates** gains an
+  **Update now** button: pull the new image, restart, and watch the console
+  confirm the new version, usually in under a minute. Triggers are
+  admin-only and audited; without the companion, nothing changes.
+- Release images now also carry the **`:latest`** tag, so installs (and the
+  updater) can follow releases without editing tags.
+
 ## [0.74.1] - 2026-07-30
 
 ### Added

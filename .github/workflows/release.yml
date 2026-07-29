@@ -89,5 +89,7 @@ jobs:
           SRC="$IMAGE:main-$(git rev-parse --short=7 HEAD)"
           VERSION="${{ steps.v.outputs.version }}"
           MM="${VERSION%.*}"
-          echo "Retagging $SRC -> :$VERSION, :$MM"
-          docker buildx imagetools create -t "$IMAGE:$VERSION" -t "$IMAGE:$MM" "$SRC"
+          echo "Retagging $SRC -> :$VERSION, :$MM, :latest"
+          # :latest lets installs follow releases across minors — the compose
+          # default, and what the admin console's one-click update relies on.
+          docker buildx imagetools create -t "$IMAGE:$VERSION" -t "$IMAGE:$MM" -t "$IMAGE:latest" "$SRC"
