@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
+  BookOpenText,
   GitBranch,
   History,
   LoaderCircle,
@@ -11,8 +12,9 @@ import {
   Columns2,
   AlignJustify,
 } from "lucide-react";
-import { diffLines, diffStats, withFolds } from "@/lib/diff";
-import type { DiffRow, DiffSegment, DisplayRow } from "@/lib/diff";
+import { diffBlocks, diffLines, diffStats, withFolds } from "@/lib/diff";
+import type { BlockDiffRow, DiffRow, DiffSegment, DisplayRow } from "@/lib/diff";
+import { MarkdownView } from "./MarkdownView";
 
 // Version-history explorer: pick any two versions to compare (side-by-side or
 // inline), restore an older version, and manage draft branches. The diff is
@@ -132,7 +134,9 @@ export function VersionHistory({
   // Default compare: previous vs current (when there are at least two).
   const [oldId, setOldId] = useState<number | null>(versions[1]?.id ?? null);
   const [newId, setNewId] = useState<number | null>(versions[0]?.id ?? null);
-  const [mode, setMode] = useState<"split" | "inline">("split");
+  // Rendered (doc-layout) compare is the default; the source-level views
+  // remain a click away for people who want the exact markdown changes.
+  const [mode, setMode] = useState<"rendered" | "split" | "inline">("rendered");
   const [expanded, setExpanded] = useState(false);
   const [restoring, setRestoring] = useState<number | null>(null);
   const [branching, setBranching] = useState(false);
@@ -151,6 +155,10 @@ export function VersionHistory({
     if (!rows) return null;
     return expanded ? rows : withFolds(rows);
   }, [rows, expanded]);
+  const blockRows = useMemo(() => {
+    if (!oldV || !newV || oldV.id === newV.id || mode !== "rendered") return null;
+    return diffBlocks(oldV.content, newV.content);
+  }, [oldV, newV, mode]);
 
   async function restore(v: VersionItem) {
     const applies = docStatus !== "published" || canPublishDirect;
@@ -278,8 +286,11 @@ export function VersionHistory({
               </span>
             </div>
             <div className="flex items-center gap-1 rounded-lg border border-slate-200 p-0.5">
+              <button className={pillBtn(mode === "rendered")} onClick={() => setMode("rendered")}>
+                <BookOpenText className="h-3.5 w-3.5" /> Rendered
+              </button>
               <button className={pillBtn(mode === "split")} onClick={() => setMode("split")}>
-                <Columns2 className="h-3.5 w-3.5" /> Side by side
+                <Columns2 className="h-3.5 w-3.5" /> Markdown
               </button>
               <button className={pillBtn(mode === "inline")} onClick={() => setMode("inline")}>
                 <AlignJustify className="h-3.5 w-3.5" /> Inline
@@ -299,7 +310,14 @@ export function VersionHistory({
             </div>
           )}
           <div className="max-h-[540px] overflow-auto">
-            {mode === "inline" ? (
+            {mode === "rendered" && blockRows ? (
+              <RenderedDiff
+                blocks={blockRows}
+                docId={docId}
+                expanded={expanded}
+                onExpand={() => setExpanded(true)}
+              />
+            ) : mode === "inline" ? (
               <table className="w-full border-collapse font-mono text-xs">
                 <tbody>
                   {display.map((r, i) =>
@@ -411,6 +429,106 @@ export function VersionHistory({
         </ol>
       </section>
     </div>
+  );
+}
+
+/** Doc-layout compare: blocks render through the real markdown pipeline.
+ * Removed blocks are tinted red (with a strike-through label), added blocks
+ * green; long unchanged runs fold to keep the changes in view. */
+function RenderedDiff({
+  blocks,
+  docId,
+  expanded,
+  onExpand,
+}: {
+  blocks: BlockDiffRow[];
+  docId: number;
+  expanded: boolean;
+  onExpand: () => void;
+}) {
+  // Zip each changed run pairwise (old block directly above its replacement)
+  // so a rewritten section reads Removed → Added, not all-removed-then-all-added.
+  const zipped: BlockDiffRow[] = [];
+  let i = 0;
+  while (i < blocks.length) {
+    if (blocks[i].type === "same") {
+      zipped.push(blocks[i++]);
+      continue;
+    }
+    const dels: BlockDiffRow[] = [];
+    const adds: BlockDiffRow[] = [];
+    while (i < blocks.length && blocks[i].type !== "same") {
+      (blocks[i].type === "del" ? dels : adds).push(blocks[i]);
+      i++;
+    }
+    for (let k = 0; k < Math.max(dels.length, adds.length); k++) {
+      if (dels[k]) zipped.push(dels[k]);
+      if (adds[k]) zipped.push(adds[k]);
+    }
+  }
+
+  // Fold unchanged runs (keep one block of context around each change).
+  type Chunk = { fold?: number; rows?: Array<BlockDiffRow & { key: number }> };
+  const keyed = zipped.map((b, i) => ({ ...b, key: i }));
+  const chunks: Chunk[] = [];
+  if (expanded) {
+    chunks.push({ rows: keyed });
+  } else {
+    const keep = new Array<boolean>(keyed.length).fill(false);
+    keyed.forEach((b, i) => {
+      if (b.type !== "same") {
+        for (let k = Math.max(0, i - 1); k <= Math.min(keyed.length - 1, i + 1); k++) keep[k] = true;
+      }
+    });
+    let hidden = 0;
+    let buf: Array<BlockDiffRow & { key: number }> = [];
+    const flush = () => {
+      if (buf.length) chunks.push({ rows: buf });
+      buf = [];
+    };
+    keyed.forEach((b, i) => {
+      if (keep[i]) {
+        if (hidden > 0) {
+          flush();
+          chunks.push({ fold: hidden });
+          hidden = 0;
+        }
+        buf.push(b);
+      } else hidden++;
+    });
+    flush();
+    if (hidden > 0) chunks.push({ fold: hidden });
+  }
+
+  const tint: Record<BlockDiffRow["type"], string> = {
+    same: "",
+    del: "rounded-lg border-l-2 border-red-300 bg-red-50/70 px-3 py-1 opacity-75 dark:border-red-800 dark:bg-red-950/30",
+    add: "rounded-lg border-l-2 border-emerald-300 bg-emerald-50/70 px-3 py-1 dark:border-emerald-800 dark:bg-emerald-950/30",
+  };
+
+  return (
+    <article className="space-y-3 px-5 py-4">
+      {chunks.map((c, ci) =>
+        c.fold !== undefined ? (
+          <div key={`f${ci}`} className="rounded-md bg-slate-50/80 py-1 text-center dark:bg-slate-800/40">
+            <button onClick={onExpand} className="text-[11px] font-medium text-compass-600 hover:underline">
+              ⋯ {c.fold} unchanged section{c.fold === 1 ? "" : "s"} — show
+            </button>
+          </div>
+        ) : (
+          (c.rows ?? []).map((b) => (
+            <div key={b.key} className={tint[b.type]}>
+              {b.type === "del" && (
+                <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-red-500">
+                  Removed
+                </div>
+              )}
+              <MarkdownView content={b.text} docKey={`vh-${docId}-${b.key}`} />
+            </div>
+          ))
+        )
+      )}
+    </article>
   );
 }
 
