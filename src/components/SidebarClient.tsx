@@ -12,6 +12,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
+  Activity,
   Home,
   Sparkles,
   Megaphone,
@@ -55,6 +56,7 @@ export function SidebarClient({
   trashCount,
   announcementCount,
   unreadNotifications = 0,
+  statusProblemCount = 0,
   showNewsletter,
   showAnnouncements,
   showCompliance,
@@ -73,6 +75,7 @@ export function SidebarClient({
   announcementCount: number;
   /** Unread inbox notifications — the bell's initial badge. */
   unreadNotifications?: number;
+  statusProblemCount?: number;
   /** Whether this user has newsletter access (contributor/approver/admin). */
   showNewsletter: boolean;
   /** Delegated sections (admins or granted via Settings → Section access). */
@@ -242,6 +245,13 @@ export function SidebarClient({
         <NavLink href="/search" icon={<Sparkles className="h-4 w-4" />} label={`Ask ${companyName || "CompassDocs"}`} collapsed={collapsed} />
         <NavLink href="/directory" icon={<BookUser className="h-4 w-4" />} label="Directory" collapsed={collapsed} />
         <NavLink href="/links" icon={<SquareArrowOutUpRight className="h-4 w-4" />} label="Links" collapsed={collapsed} />
+        <NavLink
+          href="/status"
+          icon={<Activity className="h-4 w-4" />}
+          label="Status"
+          collapsed={collapsed}
+          badge={statusProblemCount}
+        />
         {isApprover && (
           <NavLink
             href="/review"

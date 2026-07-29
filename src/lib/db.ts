@@ -550,6 +550,42 @@ const SCHEMA_SQL = `
   );
   CREATE INDEX IF NOT EXISTS idx_dms_links_doc ON doc_dms_links(document_id);
 
+  -- SaaS status board (0.74.0): the third-party tools an org tracks, polled
+  -- from their public status pages (or Graph for M365), plus manual incidents
+  -- for internal systems that have no status page. status is the normalized
+  -- vendor state: operational | degraded | outage | maintenance | unknown.
+  CREATE TABLE IF NOT EXISTS status_services (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    name text NOT NULL,
+    provider text NOT NULL DEFAULT 'statuspage',
+    source_url text NOT NULL DEFAULT '',
+    status text NOT NULL DEFAULT 'unknown',
+    status_detail text NOT NULL DEFAULT '',
+    status_url text NOT NULL DEFAULT '',
+    last_checked_at timestamptz,
+    last_changed_at timestamptz,
+    created_at timestamptz NOT NULL DEFAULT now()
+  );
+  CREATE TABLE IF NOT EXISTS status_incidents (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    service_id integer NOT NULL REFERENCES status_services(id) ON DELETE CASCADE,
+    title text NOT NULL,
+    severity text NOT NULL DEFAULT 'outage',
+    state text NOT NULL DEFAULT 'open',
+    created_by text NOT NULL DEFAULT '',
+    created_at timestamptz NOT NULL DEFAULT now(),
+    resolved_at timestamptz
+  );
+  CREATE TABLE IF NOT EXISTS status_incident_updates (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    incident_id integer NOT NULL REFERENCES status_incidents(id) ON DELETE CASCADE,
+    body text NOT NULL,
+    author text NOT NULL DEFAULT '',
+    created_at timestamptz NOT NULL DEFAULT now()
+  );
+  CREATE INDEX IF NOT EXISTS idx_status_incidents_service ON status_incidents(service_id);
+  CREATE INDEX IF NOT EXISTS idx_status_inc_updates ON status_incident_updates(incident_id);
+
   -- Who has a document open in the editor right now (heartbeat rows). Rows
   -- older than ~2 minutes are dead sessions; the hourly sweep clears them.
   CREATE TABLE IF NOT EXISTS doc_editing_presence (
@@ -1128,6 +1164,203 @@ export async function deleteDmsLink(
       [id, documentId]
     )
   )[0];
+}
+
+// --- SaaS status board ---------------------------------------------------------
+
+import type { ServiceStatus } from "./status-parsers";
+export type { ServiceStatus };
+
+export interface StatusService {
+  id: number;
+  name: string;
+  provider: string;
+  source_url: string;
+  status: ServiceStatus;
+  status_detail: string;
+  status_url: string;
+  last_checked_at: string | null;
+  last_changed_at: string | null;
+  created_at: string;
+}
+
+export interface StatusIncident {
+  id: number;
+  service_id: number;
+  title: string;
+  severity: "outage" | "degraded" | "maintenance";
+  state: "open" | "resolved";
+  created_by: string;
+  created_at: string;
+  resolved_at: string | null;
+  updates: { id: number; body: string; author: string; created_at: string }[];
+}
+
+export async function listStatusServices(): Promise<StatusService[]> {
+  return q("SELECT * FROM status_services ORDER BY name");
+}
+
+export async function addStatusService(input: {
+  name: string;
+  provider: string;
+  source_url: string;
+}): Promise<StatusService> {
+  // Internal (manual) systems are healthy until someone declares otherwise;
+  // polled ones stay unknown until the first check lands.
+  return (
+    await q<StatusService>(
+      `INSERT INTO status_services (name, provider, source_url, status)
+       VALUES ($1,$2,$3,$4) RETURNING *`,
+      [input.name, input.provider, input.source_url, input.provider === "manual" ? "operational" : "unknown"]
+    )
+  )[0];
+}
+
+export async function deleteStatusService(id: number): Promise<boolean> {
+  const res = await pool().query("DELETE FROM status_services WHERE id = $1", [id]);
+  return (res.rowCount ?? 0) > 0;
+}
+
+/** Atomically claim a service for polling. True at most once per interval
+ * across instances — the UPDATE only wins if the row is stale. */
+export async function claimStatusPoll(id: number, intervalMinutes: number): Promise<boolean> {
+  const rows = await q(
+    `UPDATE status_services SET last_checked_at = now()
+     WHERE id = $1 AND (last_checked_at IS NULL
+       OR last_checked_at < now() - make_interval(mins => $2))
+     RETURNING id`,
+    [id, intervalMinutes]
+  );
+  return rows.length > 0;
+}
+
+/** Record a poll result; returns the previous status for transition alerts. */
+export async function setServiceStatus(
+  id: number,
+  next: { status: ServiceStatus; detail: string; url: string }
+): Promise<ServiceStatus | undefined> {
+  const rows = await q<{ prev: ServiceStatus }>(
+    `UPDATE status_services s SET
+       status = $2,
+       status_detail = $3,
+       status_url = $4,
+       last_changed_at = CASE WHEN s.status <> $2 THEN now() ELSE s.last_changed_at END
+     FROM (SELECT status AS prev FROM status_services WHERE id = $1) old
+     WHERE s.id = $1
+     RETURNING old.prev`,
+    [id, next.status, next.detail.slice(0, 500), next.url.slice(0, 500)]
+  );
+  return rows[0]?.prev;
+}
+
+export async function createStatusIncident(input: {
+  serviceId: number;
+  title: string;
+  severity: string;
+  body: string;
+  author: string;
+}): Promise<number> {
+  const [row] = await q<{ id: number }>(
+    `INSERT INTO status_incidents (service_id, title, severity, created_by)
+     VALUES ($1,$2,$3,$4) RETURNING id`,
+    [input.serviceId, input.title.slice(0, 200), input.severity, input.author]
+  );
+  if (input.body.trim()) {
+    await q(
+      "INSERT INTO status_incident_updates (incident_id, body, author) VALUES ($1,$2,$3)",
+      [row.id, input.body.slice(0, 2000), input.author]
+    );
+  }
+  return row.id;
+}
+
+export async function addStatusIncidentUpdate(
+  incidentId: number,
+  body: string,
+  author: string
+): Promise<boolean> {
+  const rows = await q(
+    `INSERT INTO status_incident_updates (incident_id, body, author)
+     SELECT $1, $2, $3 WHERE EXISTS (SELECT 1 FROM status_incidents WHERE id = $1)
+     RETURNING id`,
+    [incidentId, body.slice(0, 2000), author]
+  );
+  return rows.length > 0;
+}
+
+export async function resolveStatusIncident(id: number, author: string): Promise<
+  { service_id: number; title: string } | undefined
+> {
+  const rows = await q<{ service_id: number; title: string }>(
+    `UPDATE status_incidents SET state = 'resolved', resolved_at = now()
+     WHERE id = $1 AND state = 'open' RETURNING service_id, title`,
+    [id]
+  );
+  if (rows[0]) {
+    await q(
+      "INSERT INTO status_incident_updates (incident_id, body, author) VALUES ($1,'Resolved.',$2)",
+      [id, author]
+    );
+  }
+  return rows[0];
+}
+
+export async function getStatusIncident(
+  id: number
+): Promise<{ id: number; service_id: number; title: string; state: string } | undefined> {
+  return (
+    await q("SELECT id, service_id, title, state FROM status_incidents WHERE id = $1", [id])
+  )[0];
+}
+
+/** Incidents (open first, then recent resolved) with their update timelines. */
+export async function listStatusIncidents(limit = 50): Promise<StatusIncident[]> {
+  const incidents = await q<StatusIncident>(
+    `SELECT * FROM status_incidents
+     ORDER BY (state = 'open') DESC, created_at DESC LIMIT $1`,
+    [limit]
+  );
+  if (incidents.length === 0) return [];
+  const updates = await q<{ id: number; incident_id: number; body: string; author: string; created_at: string }>(
+    `SELECT id, incident_id, body, author, created_at FROM status_incident_updates
+     WHERE incident_id = ANY($1) ORDER BY created_at ASC`,
+    [incidents.map((i) => i.id)]
+  );
+  const byIncident = new Map<number, StatusIncident["updates"]>();
+  for (const u of updates) {
+    const list = byIncident.get(u.incident_id) ?? [];
+    list.push({ id: u.id, body: u.body, author: u.author, created_at: u.created_at });
+    byIncident.set(u.incident_id, list);
+  }
+  return incidents.map((i) => ({ ...i, updates: byIncident.get(i.id) ?? [] }));
+}
+
+/** Everything currently wrong: non-operational tracked services + open incidents. */
+export async function listStatusProblems(): Promise<
+  { name: string; status: string; detail: string }[]
+> {
+  // Manual systems surface through their open incidents (below), not here —
+  // listing both would double-count the same outage.
+  const services = await q<{ name: string; status: string; status_detail: string }>(
+    `SELECT name, status, status_detail FROM status_services
+     WHERE status IN ('degraded','outage','maintenance') AND provider <> 'manual'
+     ORDER BY name`
+  );
+  const incidents = await q<{ title: string; severity: string; name: string }>(
+    `SELECT i.title, i.severity, s.name FROM status_incidents i
+     JOIN status_services s ON s.id = i.service_id
+     WHERE i.state = 'open' ORDER BY i.created_at DESC`
+  );
+  return [
+    ...incidents.map((i) => ({ name: i.name, status: i.severity, detail: i.title })),
+    ...services.map((s) => ({ name: s.name, status: s.status, detail: s.status_detail })),
+  ];
+}
+
+/** Every active user id — status-change alerts fan out to the whole org. */
+export async function listActiveUserIds(): Promise<number[]> {
+  const rows = await q<{ id: number }>("SELECT id FROM users WHERE status = 'active'");
+  return rows.map((r) => r.id);
 }
 
 export async function attachmentsUsage(): Promise<{ count: number; bytes: number }> {

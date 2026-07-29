@@ -11,6 +11,7 @@ import {
   listDashboardNewslettersFor,
   listChangeRequests,
   listSuggestions,
+  listStatusProblems,
 } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { spaceScopeFor } from "@/lib/access";
@@ -26,6 +27,7 @@ import { formatDate, settingsForUser } from "@/lib/format";
 import {
   Search,
   Sparkles,
+  TriangleAlert,
   CalendarClock,
   ClipboardCheck,
   GitPullRequest,
@@ -56,6 +58,7 @@ export default async function DashboardPage() {
     reviewsDue,
     pendingCrs,
     openSuggestions,
+    statusProblems,
   ] = await Promise.all([
     listSpaces(scope),
     listRecentDocuments(8, isEditor, scope),
@@ -66,6 +69,7 @@ export default async function DashboardPage() {
     isEditor ? listReviewsDue(scope, 12) : Promise.resolve([]),
     isApprover ? listChangeRequests("pending", scope) : Promise.resolve([]),
     isEditor ? listSuggestions("open", scope) : Promise.resolve([]),
+    listStatusProblems().catch(() => []),
   ]);
 
   // Drafts also appear in "recently viewed" — don't show them twice.
@@ -94,6 +98,39 @@ export default async function DashboardPage() {
           </kbd>
         </Link>
       </header>
+
+      {statusProblems.length > 0 && (
+        <Link
+          href="/status"
+          className={`mb-6 flex items-start gap-3 rounded-xl border p-4 shadow-xs transition hover:shadow-md ${
+            statusProblems.some((p) => p.status === "outage")
+              ? "border-red-200 bg-red-50 dark:border-red-900/60 dark:bg-red-950/30"
+              : "border-amber-200 bg-amber-50 dark:border-amber-900/60 dark:bg-amber-950/30"
+          }`}
+        >
+          <TriangleAlert
+            className={`mt-0.5 h-5 w-5 shrink-0 ${
+              statusProblems.some((p) => p.status === "outage") ? "text-red-500" : "text-amber-500"
+            }`}
+            aria-hidden
+          />
+          <span className="min-w-0">
+            <span className="block font-semibold text-slate-900">
+              {statusProblems.length === 1
+                ? `${statusProblems[0].name}: ${statusProblems[0].status}`
+                : `${statusProblems.length} services are having problems`}
+            </span>
+            <span className="block truncate text-sm text-slate-600">
+              {statusProblems
+                .slice(0, 3)
+                .map((p) => `${p.name}${p.detail ? ` — ${p.detail}` : ""}`)
+                .join(" · ")}
+              {statusProblems.length > 3 ? " · …" : ""}
+              <span className="ml-1 font-medium text-compass-700">View status →</span>
+            </span>
+          </span>
+        </Link>
+      )}
 
       <AnnouncementBoard
         initial={announcements.map((a) => ({

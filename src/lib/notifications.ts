@@ -16,7 +16,8 @@ export interface NotificationEvent {
     | "cr_submitted"
     | "cr_resolved"
     | "review_due"
-    | "ack_requested";
+    | "ack_requested"
+    | "service_status";
   title: string;
   body?: string;
   /** In-app path, e.g. `/doc/12#comments`. */
