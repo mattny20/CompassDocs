@@ -399,8 +399,12 @@ export function DocEditor({
         setSaving(false);
         return;
       }
-      router.push(`/doc/${data.doc.id}`);
+      // Refresh BEFORE navigating: it invalidates the client router cache, so
+      // the doc page fetches the just-saved content instead of briefly (or,
+      // if the refresh races the navigation, persistently) showing the stale
+      // cached copy from before the edit.
       router.refresh();
+      router.push(`/doc/${data.doc.id}`);
     } catch (e: any) {
       setError(e.message || "Something went wrong.");
       setSaving(false);

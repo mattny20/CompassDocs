@@ -275,7 +275,7 @@ export function VersionHistory({
         <section className="overflow-hidden rounded-xl border border-slate-200 bg-surface shadow-xs">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-2.5">
             <div className="text-sm font-medium text-slate-700">
-              Comparing <span className="font-semibold">v{oldV.rev}</span> →{" "}
+              Original <span className="font-semibold">v{oldV.rev}</span> → modified{" "}
               <span className="font-semibold">v{newV.rev}</span>
               <span className="ml-3 text-xs font-normal">
                 <span className="text-emerald-600">+{stats.added}</span>{" "}
@@ -363,8 +363,11 @@ export function VersionHistory({
                   v.id === oldId || v.id === newId ? "bg-compass-50/60 dark:bg-compass-950/30" : ""
                 }`}
               >
-                <span className="flex items-center gap-2 text-xs text-slate-400">
-                  <label className="flex cursor-pointer items-center gap-1" title="Compare from (older)">
+                <span className="flex items-center gap-2.5 text-xs text-slate-400">
+                  <label
+                    className="flex cursor-pointer items-center gap-1"
+                    title="Compare from this version (the older side)"
+                  >
                     <input
                       type="radio"
                       name="cmp-old"
@@ -372,9 +375,12 @@ export function VersionHistory({
                       onChange={() => setOldId(v.id)}
                       className="accent-compass-600"
                     />
-                    A
+                    Original
                   </label>
-                  <label className="flex cursor-pointer items-center gap-1" title="Compare to (newer)">
+                  <label
+                    className="flex cursor-pointer items-center gap-1"
+                    title="Compare to this version (the newer side)"
+                  >
                     <input
                       type="radio"
                       name="cmp-new"
@@ -382,7 +388,7 @@ export function VersionHistory({
                       onChange={() => setNewId(v.id)}
                       className="accent-compass-600"
                     />
-                    B
+                    Modified
                   </label>
                 </span>
                 <span className="font-medium text-slate-800">
