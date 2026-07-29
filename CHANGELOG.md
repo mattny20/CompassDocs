@@ -4,6 +4,16 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.73.1] - 2026-07-28
+
+### Changed
+- **Version compare now opens in a rendered, doc-layout view.** The history
+  page diffs versions section-by-section and renders each section through
+  the real document pipeline — callouts, lists, and tables look like the
+  page, removed sections sit red-tinted directly above their green-tinted
+  replacements, and long unchanged runs fold away. The exact source diffs
+  are still there as **Markdown** (side-by-side) and **Inline** views.
+
 ## [0.73.0] - 2026-07-28
 
 Your account, properly. The account page is now a real settings area — and it
