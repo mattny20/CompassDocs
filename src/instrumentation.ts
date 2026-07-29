@@ -60,6 +60,16 @@ export async function register() {
     } catch (e) {
       console.error("[doc-schedule] scheduler error:", e);
     }
+    // SaaS status polling: the per-service claim limits real work to one poll
+    // per service per POLL_INTERVAL, so a minutely call here is cheap.
+    try {
+      const { refreshDueStatuses } = await import("./lib/status");
+      const { getSetting } = await import("./lib/db");
+      const domain = (await getSetting("custom_domain"))?.trim();
+      await refreshDueStatuses(domain ? `https://${domain}` : "");
+    } catch (e) {
+      console.error("[status] scheduler error:", e);
+    }
   };
   setTimeout(newsletterTick, 30_000);
   setInterval(newsletterTick, 60_000);

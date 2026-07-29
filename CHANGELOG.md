@@ -4,6 +4,35 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.74.0] - 2026-07-30
+
+Is it just me, or is Zoom down? CompassDocs now answers that — and tells
+everyone.
+
+### Added
+- **A Status page for the tools your org relies on.** Admins pick services
+  from a catalog (GitHub, Zoom, Slack, Cloudflare, Dropbox, OpenAI,
+  DocuSign, Box, NetDocuments, iManage Cloud, Google Workspace, Salesforce,
+  AWS, Microsoft 365, …) or point at any custom status page. CompassDocs
+  polls each vendor's own status page about every five minutes — the
+  Atlassian Statuspage JSON format covers most of SaaS, with dedicated
+  adapters for Slack, Google, Salesforce, and AWS, and an RSS/Atom fallback
+  for everything else. A fetch hiccup never flips a state.
+- **Outage alerts, everywhere people already look.** When a tracked service
+  goes down — and when it recovers — everyone gets a bell notification and
+  a personal chat-webhook post (with its own row in the notification routing
+  grid), a banner appears at the top of the dashboard, and the sidebar's
+  Status entry shows a count.
+- **Manual incidents for internal systems.** Phones, on-prem servers,
+  anything without a status page: approvers declare an incident (severity,
+  title, first update), post updates that build a timeline, and resolve it
+  when it's over — with notifications at both ends. Incidents can also
+  annotate a vendor outage with org-specific guidance.
+- **Microsoft 365 tenant health (enterprise).** The M365 catalog entry reads
+  real service health (Exchange, Teams, SharePoint…) from Microsoft Graph
+  using the same Entra app registration as the directory sync — grant it
+  `ServiceHealth.Read.All` and it lights up.
+
 ## [0.73.4] - 2026-07-29
 
 ### Fixed

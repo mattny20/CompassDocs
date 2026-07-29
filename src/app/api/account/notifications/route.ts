@@ -76,6 +76,7 @@ const PREF_KINDS = [
   "cr_resolved",
   "review_due",
   "ack_requested",
+  "service_status",
 ];
 const PREF_CHANNELS = ["inapp", "webhook", "email"];
 

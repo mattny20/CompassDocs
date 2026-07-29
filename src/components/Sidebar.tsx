@@ -6,6 +6,7 @@ import {
   listActiveAnnouncementsFor,
   listDashboardNewslettersFor,
   unreadNotificationCount,
+  listStatusProblems,
 } from "@/lib/db";
 import { spaceScopeFor } from "@/lib/access";
 import { canUseNewsletter } from "@/lib/newsletter-access";
@@ -25,13 +26,14 @@ export async function Sidebar({
   trashCount: number;
 }) {
   const scope = await spaceScopeFor(user);
-  const [spaces, settings, announcements, freshNewsletters, unreadNotifications] =
+  const [spaces, settings, announcements, freshNewsletters, unreadNotifications, statusProblems] =
     await Promise.all([
       listSpaces(scope),
       getAppSettings(),
       listActiveAnnouncementsFor(user.id),
       listDashboardNewslettersFor(user.id),
       unreadNotificationCount(user.id),
+      listStatusProblems().catch(() => []),
     ]);
 
   return (
@@ -44,6 +46,7 @@ export async function Sidebar({
       trashCount={trashCount}
       announcementCount={announcements.length + freshNewsletters.length}
       unreadNotifications={unreadNotifications}
+      statusProblemCount={statusProblems.length}
       showNewsletter={canUseNewsletter(user)}
       showAnnouncements={await canAccessSection(user, "announcements")}
       showCompliance={await canAccessSection(user, "compliance")}

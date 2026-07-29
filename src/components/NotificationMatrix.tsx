@@ -19,6 +19,7 @@ const ROWS: { kind: string; label: string; hint: string; email: boolean }[] = [
   { kind: "cr_resolved", label: "Review decisions", hint: "Your change request is approved or rejected", email: false },
   { kind: "review_due", label: "Review reminders", hint: "A document you steward is due for review", email: true },
   { kind: "ack_requested", label: "Read confirmations", hint: "You're asked to read and acknowledge a document", email: true },
+  { kind: "service_status", label: "Service status", hint: "A tracked SaaS tool goes down or recovers", email: false },
 ];
 
 const COLS: { key: Channel; label: string }[] = [
