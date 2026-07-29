@@ -4,13 +4,56 @@
 // loopback addresses, AND RFC1918/CGNAT/ULA private ranges. Deployments that
 // intentionally point quick links or webhooks at internal tools can opt back
 // in with COMPASSDOCS_FETCH_ALLOW_PRIVATE=1. Redirects are followed manually so
-// every hop is re-validated. Server-only.
+// every hop is re-validated.
+//
+// Locked-down networks: when HTTPS_PROXY/HTTP_PROXY is set, outbound requests
+// go through that proxy (NO_PROXY exclusions honored). Proxied requests skip
+// the local DNS/IP resolution check — the server often *can't* resolve
+// external names on such networks, and the proxy is the egress policy —
+// while hostname-level blocks (localhost, metadata endpoints, literal
+// private IPs) still apply. Server-only.
 
 import "server-only";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
+import { EnvHttpProxyAgent, fetch as undiciFetch } from "undici";
 
 const MAX_REDIRECTS = 4;
+
+// --- Outbound proxy (HTTPS_PROXY / HTTP_PROXY / NO_PROXY) ------------------------
+
+function proxyEnv(): string {
+  return (
+    process.env.HTTPS_PROXY ||
+    process.env.https_proxy ||
+    process.env.HTTP_PROXY ||
+    process.env.http_proxy ||
+    ""
+  ).trim();
+}
+
+let envAgent: EnvHttpProxyAgent | null | undefined;
+function proxyAgent(): EnvHttpProxyAgent | null {
+  if (envAgent === undefined) {
+    envAgent = proxyEnv() ? new EnvHttpProxyAgent() : null;
+  }
+  return envAgent;
+}
+
+/** True when this host's request will be routed through the configured proxy
+ * (mirrors EnvHttpProxyAgent's NO_PROXY semantics for the SSRF-check skip). */
+function willProxy(host: string): boolean {
+  if (!proxyEnv()) return false;
+  const noProxy = (process.env.NO_PROXY || process.env.no_proxy || "").trim();
+  if (noProxy === "*") return false;
+  const h = host.toLowerCase();
+  for (const raw of noProxy.split(",")) {
+    const entry = raw.trim().toLowerCase().replace(/^\./, "").replace(/:\d+$/, "");
+    if (!entry) continue;
+    if (h === entry || h.endsWith(`.${entry}`)) return false;
+  }
+  return true;
+}
 
 const BLOCKED_HOSTNAMES = new Set([
   "metadata.google.internal",
@@ -67,6 +110,10 @@ export async function assertPublicTarget(rawUrl: string): Promise<URL> {
     if (ipBlocked(host, blockPrivate)) throw new Error(`Blocked address: ${host}`);
     return url;
   }
+  // A proxied request never touches an address this server resolves — the
+  // proxy resolves and connects. Skip local resolution (which may not even
+  // work on egress-locked networks); the hostname checks above still apply.
+  if (willProxy(host)) return url;
   let addrs;
   try {
     addrs = await lookup(host, { all: true, verbatim: true });
@@ -83,12 +130,21 @@ export async function assertPublicTarget(rawUrl: string): Promise<URL> {
 
 /**
  * fetch() with SSRF validation on the initial URL and on every redirect hop.
- * Pass init as usual; `redirect` is managed internally.
+ * Pass init as usual; `redirect` is managed internally. With HTTPS_PROXY set,
+ * requests route through the proxy (undici's fetch + EnvHttpProxyAgent — the
+ * dispatcher must come from the same undici build as the fetch that uses it).
  */
 export async function safeFetch(rawUrl: string, init: RequestInit = {}): Promise<Response> {
   let url = await assertPublicTarget(rawUrl);
+  const agent = proxyAgent();
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-    const res = await fetch(url, { ...init, redirect: "manual" });
+    const res = agent
+      ? ((await undiciFetch(url.toString(), {
+          ...(init as any),
+          redirect: "manual",
+          dispatcher: agent,
+        })) as unknown as Response)
+      : await fetch(url, { ...init, redirect: "manual" });
     if (res.status >= 300 && res.status < 400) {
       const loc = res.headers.get("location");
       if (!loc) return res;

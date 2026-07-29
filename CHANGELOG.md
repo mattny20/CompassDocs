@@ -4,6 +4,19 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.74.1] - 2026-07-30
+
+### Added
+- **Outbound proxy support.** On egress-locked networks (Azure NSGs,
+  corporate firewalls) set `HTTPS_PROXY` / `NO_PROXY` on the container and
+  every server-side fetch — status polls, outgoing webhooks, AI and
+  embeddings calls — routes through the proxy. Pair with
+  `NODE_EXTRA_CA_CERTS` when the proxy re-signs TLS.
+- **An "Outbound HTTPS" diagnostics check.** Settings → System → Diagnostics
+  now probes a public status page from the server (direct or via the
+  configured proxy) and, on failure, names the actual blocker — DNS, a
+  refused tunnel, TLS — instead of a silent status board stuck on "Unknown".
+
 ## [0.74.0] - 2026-07-30
 
 Is it just me, or is Zoom down? CompassDocs now answers that — and tells

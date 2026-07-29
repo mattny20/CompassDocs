@@ -268,6 +268,54 @@ async function checkMcpConnector(req: Request): Promise<DiagnosticCheck> {
 }
 
 /** Run every check in parallel. Never throws. */
+/** Outbound HTTPS: can this server reach vendor status pages (and webhooks,
+ * AI providers, …)? Locked-down VMs — Azure NSGs, forced proxies — fail here
+ * while everything inbound works, which is otherwise invisible. */
+async function checkOutboundHttps(): Promise<DiagnosticCheck> {
+  const proxy = (
+    process.env.HTTPS_PROXY ||
+    process.env.https_proxy ||
+    process.env.HTTP_PROXY ||
+    process.env.http_proxy ||
+    ""
+  ).trim();
+  const via = proxy ? " via the configured proxy (HTTPS_PROXY)" : "";
+  const started = Date.now();
+  try {
+    const { safeFetch } = await import("./safe-fetch");
+    const res = await safeFetch("https://www.githubstatus.com/api/v2/status.json", {
+      signal: AbortSignal.timeout(8_000),
+      headers: { accept: "application/json" },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    await res.json();
+    return {
+      key: "outbound",
+      label: "Outbound HTTPS (status polls, webhooks, AI)",
+      status: "pass",
+      detail: `Vendor status pages reachable${via}, ${Date.now() - started} ms.`,
+    };
+  } catch (e) {
+    // "fetch failed" hides the real reason (DNS, tunnel refused, TLS) in the
+    // cause chain — walk it so the admin sees something actionable.
+    const parts: string[] = [];
+    for (let err: unknown = e; err instanceof Error && parts.length < 4; err = err.cause) {
+      if (err.message && err.message !== parts[parts.length - 1]) parts.push(err.message);
+    }
+    const msg = parts.join(" — ") || String(e);
+    return {
+      key: "outbound",
+      label: "Outbound HTTPS (status polls, webhooks, AI)",
+      status: "fail",
+      detail:
+        `Could not reach a public status page${via}: ${msg}. ` +
+        (proxy
+          ? "Check the proxy address and that it allows this destination."
+          : "If this network blocks direct egress, allow outbound 443 — or set HTTPS_PROXY (and NO_PROXY) on the container; CompassDocs routes its outbound requests through it."),
+    };
+  }
+}
+
 export async function runDiagnostics(req?: Request): Promise<DiagnosticCheck[]> {
   return Promise.all([
     checkDatabase(),
@@ -277,6 +325,7 @@ export async function runDiagnostics(req?: Request): Promise<DiagnosticCheck[]> 
     checkSemantic(),
     checkLicense(),
     Promise.resolve(checkMetrics()),
+    checkOutboundHttps(),
     ...(req ? [checkMcpConnector(req)] : []),
   ]);
 }
