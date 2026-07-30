@@ -12,6 +12,7 @@ interface ReleaseInfo {
 interface UpdateStatus {
   current: string;
   imageTag: string | null;
+  oneClick: boolean;
   latest: ReleaseInfo | null;
   updateAvailable: boolean;
   upgradeCommand: string;
@@ -27,6 +28,49 @@ export function UpdatePanel() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
+  // idle → updating (poked the updater; app may vanish) → done (came back newer)
+  const [updating, setUpdating] = useState<"idle" | "updating" | "done" | "timeout">("idle");
+  const [updatedTo, setUpdatedTo] = useState("");
+
+  async function updateNow() {
+    if (!status?.latest) return;
+    if (
+      !confirm(
+        `Update to ${status.latest.tag}? The app pulls the new image and restarts — usually under a minute. Everyone's work is saved continuously, but in-flight edits should be saved first.`
+      )
+    )
+      return;
+    setError("");
+    const res = await fetch("/api/admin/update", { method: "POST" });
+    if (!res.ok) {
+      setError((await res.json().catch(() => null))?.error || "Couldn't start the update.");
+      return;
+    }
+    setUpdating("updating");
+    const fromVersion = status.current;
+    const deadline = Date.now() + 6 * 60_000;
+    // Poll until the app answers with a NEW version (it goes dark while the
+    // container restarts — fetch failures along the way are expected).
+    const poll = async () => {
+      if (Date.now() > deadline) return setUpdating("timeout");
+      try {
+        const r = await fetch("/api/admin/version", { cache: "no-store" });
+        if (r.ok) {
+          const s: UpdateStatus = await r.json();
+          if (s.current !== fromVersion) {
+            setStatus(s);
+            setUpdatedTo(s.current);
+            setUpdating("done");
+            return;
+          }
+        }
+      } catch {
+        /* restarting */
+      }
+      setTimeout(poll, 5_000);
+    };
+    setTimeout(poll, 8_000);
+  }
 
   async function load(refresh = false) {
     setLoading(true);
@@ -93,12 +137,39 @@ export function UpdatePanel() {
 
       {status && !error && (
         <div className="mt-3 space-y-3 text-sm">
-          {available && status.latest ? (
+          {updating === "updating" && (
+            <div className="flex items-center gap-2 rounded-lg bg-compass-50 px-3 py-2.5 text-sm text-compass-800 dark:bg-compass-950/40">
+              <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-compass-500 border-t-transparent" aria-hidden />
+              Updating — pulling the new image and restarting. This page will confirm when the
+              app is back (usually under a minute).
+            </div>
+          )}
+          {updating === "done" && (
+            <div className="rounded-lg bg-emerald-50 px-3 py-2.5 text-sm font-medium text-emerald-800 dark:bg-emerald-950/40">
+              ✓ Updated to v{updatedTo}. Reload the page to pick up the new interface.
+            </div>
+          )}
+          {updating === "timeout" && (
+            <div className="rounded-lg bg-amber-50 px-3 py-2.5 text-sm text-amber-800 dark:bg-amber-950/40">
+              The update was triggered but the app hasn&rsquo;t come back newer after several
+              minutes. Check <code className="font-mono">docker compose logs updater</code> on the
+              server — the image may still be downloading, or the container tag may be pinned.
+            </div>
+          )}
+          {available && status.latest && updating === "idle" ? (
             <>
               <p className="text-slate-700">
                 <span className="font-semibold text-compass-700">{status.latest.tag}</span> is
                 available — you&rsquo;re on <span className="font-medium">v{status.current}</span>.
               </p>
+              {status.oneClick && (
+                <button
+                  onClick={updateNow}
+                  className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-xs transition hover:bg-compass-700"
+                >
+                  Update to {status.latest.tag} now
+                </button>
+              )}
               <div>
                 <div className="mb-1 flex items-center justify-between">
                   <span className="text-xs font-medium text-slate-500">
@@ -153,7 +224,7 @@ export function UpdatePanel() {
                 Read the release notes →
               </a>
             </>
-          ) : (
+          ) : updating !== "idle" ? null : (
             <p className="text-slate-600">
               {status.note
                 ? status.note

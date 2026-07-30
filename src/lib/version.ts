@@ -26,6 +26,8 @@ export interface UpdateStatus {
   current: string;
   /** The pinned image tag (COMPASSDOCS_VERSION), if any. */
   imageTag: string | null;
+  /** True when a companion updater is configured (one-click updates). */
+  oneClick: boolean;
   /** The latest published release, or null if none / unreachable. */
   latest: ReleaseInfo | null;
   /** True when `latest` is strictly newer than `current`. */
@@ -132,6 +134,9 @@ export async function getUpdateStatus(force = false): Promise<UpdateStatus> {
   return {
     current,
     imageTag: process.env.COMPASSDOCS_VERSION || null,
+    oneClick: Boolean(
+      process.env.COMPASSDOCS_UPDATER_URL && process.env.COMPASSDOCS_UPDATER_TOKEN
+    ),
     latest: release,
     updateAvailable,
     upgradeCommand: "docker compose pull && docker compose up -d",
