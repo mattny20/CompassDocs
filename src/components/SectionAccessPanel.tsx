@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Megaphone, ShieldCheck } from "lucide-react";
+import { GraduationCap, Megaphone, ShieldCheck } from "lucide-react";
 import { EntityPicker } from "@/components/EntityPicker";
 
 // Settings → Section access: grant non-admins the operational sections that
@@ -29,6 +29,7 @@ interface PickGroup {
 const ICONS: Record<string, React.ReactNode> = {
   announcements: <Megaphone className="h-4 w-4" />,
   compliance: <ShieldCheck className="h-4 w-4" />,
+  training: <GraduationCap className="h-4 w-4" />,
 };
 
 export function SectionAccessPanel({

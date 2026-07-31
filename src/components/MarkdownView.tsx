@@ -72,6 +72,13 @@ export function MarkdownView({ content, docKey }: { content: string; docKey?: st
                 </Callout>
               );
             }
+            if (cls.includes("md-compliance")) {
+              return (
+                <Callout kind="info" title={props["data-title"] || "Compliance confirmation"}>
+                  {children}
+                </Callout>
+              );
+            }
             if (cls.includes("md-details")) {
               return <DocDetails title={props["data-title"] || "Details"}>{children}</DocDetails>;
             }

@@ -9,7 +9,7 @@ import "server-only";
 import { pool, getSetting, setSetting } from "./db";
 import type { Role } from "./types";
 
-export type Section = "announcements" | "compliance";
+export type Section = "announcements" | "compliance" | "training";
 export const SECTIONS: { key: Section; label: string; description: string }[] = [
   {
     key: "announcements",
@@ -21,6 +21,12 @@ export const SECTIONS: { key: Section; label: string; description: string }[] = 
     label: "Compliance",
     description:
       "Run the policy-acknowledgement program: progress, requests, reminders, exports.",
+  },
+  {
+    key: "training",
+    label: "Training",
+    description:
+      "Create training decks, assign them, and track completion (everyone always sees their own assignments).",
   },
 ];
 

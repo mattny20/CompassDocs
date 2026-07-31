@@ -705,6 +705,35 @@ const SCHEMA_SQL = `
   );
   CREATE INDEX IF NOT EXISTS idx_ack_doc ON acknowledgements(document_id, user_id, acknowledged_at DESC);
 
+  -- Training decks (enterprise "training" entitlement): a published document
+  -- becomes a slide deck (split on ---) that can be assigned to users with a
+  -- due date and a final compliance confirmation. Completion records the doc
+  -- version confirmed, so a later edit is visible in the audit trail.
+  CREATE TABLE IF NOT EXISTS training_decks (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    document_id integer NOT NULL UNIQUE REFERENCES documents(id) ON DELETE CASCADE,
+    active integer NOT NULL DEFAULT 1,
+    due_days integer,
+    assign_new_members integer NOT NULL DEFAULT 0,
+    created_by integer REFERENCES users(id) ON DELETE SET NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+  );
+  CREATE TABLE IF NOT EXISTS training_assignments (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    deck_id integer NOT NULL REFERENCES training_decks(id) ON DELETE CASCADE,
+    user_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    assigned_by text NOT NULL DEFAULT '',
+    source text NOT NULL DEFAULT 'manual',
+    assigned_at timestamptz NOT NULL DEFAULT now(),
+    due_at timestamptz,
+    last_slide integer NOT NULL DEFAULT 0,
+    completed_at timestamptz,
+    confirmed_version integer,
+    reminded_at timestamptz,
+    UNIQUE (deck_id, user_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_training_user ON training_assignments(user_id, completed_at);
+
   -- Quick links: an admin-curated launchpad of external shortcuts (Duo
   -- Central-style bookmarks). A link with no link_groups rows is visible to
   -- every signed-in user; with rows, only to members of those groups (admins
@@ -2408,6 +2437,9 @@ export async function createSsoUser(input: {
      VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
     [input.username, input.email, input.name, input.role, input.provider, input.externalId]
   );
+  // New members inherit any auto-assign training decks (best effort —
+  // a failure here must never block account creation).
+  await autoAssignTraining(r[0].id).catch(() => {});
   return (await getUserById(r[0].id))!;
 }
 
@@ -2433,6 +2465,9 @@ export async function scimCreateUser(input: {
      VALUES ($1,$2,$3,'viewer',$4,'oidc',$5) RETURNING id`,
     [input.username, input.email, input.name, input.active ? "active" : "disabled", input.externalId]
   );
+  // New members inherit any auto-assign training decks (best effort —
+  // a failure here must never block account creation).
+  await autoAssignTraining(r[0].id).catch(() => {});
   return (await getUserById(r[0].id))!;
 }
 
@@ -2485,6 +2520,9 @@ export async function createUser(input: {
       input.mustChange ? 1 : 0,
     ]
   );
+  // New members inherit any auto-assign training decks (best effort —
+  // a failure here must never block account creation).
+  await autoAssignTraining(r[0].id).catch(() => {});
   return (await getUserById(r[0].id))!;
 }
 
@@ -3513,6 +3551,305 @@ export async function listPendingAcksFor(
      ORDER BY d.updated_at DESC
      LIMIT 20`,
     Array.isArray(scope) ? [userId, scope] : [userId]
+  );
+}
+
+// --- Training decks (enterprise "training") ---------------------------------------
+
+export interface TrainingDeck {
+  id: number;
+  document_id: number;
+  active: number;
+  due_days: number | null;
+  assign_new_members: number;
+  created_by: number | null;
+  created_at: string;
+  title: string;
+  space_name: string;
+  space_icon: string;
+  doc_status: string;
+  assigned: number;
+  completed: number;
+}
+
+export async function createTrainingDeck(
+  documentId: number,
+  opts: { due_days: number | null; assign_new_members: boolean },
+  createdBy: number
+): Promise<{ id: number } | null> {
+  const r = await q<{ id: number }>(
+    `INSERT INTO training_decks (document_id, due_days, assign_new_members, created_by)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (document_id) DO NOTHING
+     RETURNING id`,
+    [documentId, opts.due_days, opts.assign_new_members ? 1 : 0, createdBy]
+  );
+  return r[0] ?? null;
+}
+
+export async function updateTrainingDeck(
+  id: number,
+  patch: { active?: boolean; due_days?: number | null; assign_new_members?: boolean }
+): Promise<void> {
+  const sets: string[] = [];
+  const vals: unknown[] = [id];
+  if (patch.active !== undefined) sets.push(`active = ${patch.active ? 1 : 0}`);
+  if (patch.due_days !== undefined) {
+    vals.push(patch.due_days);
+    sets.push(`due_days = $${vals.length}`);
+  }
+  if (patch.assign_new_members !== undefined)
+    sets.push(`assign_new_members = ${patch.assign_new_members ? 1 : 0}`);
+  if (!sets.length) return;
+  await q(`UPDATE training_decks SET ${sets.join(", ")} WHERE id = $1`, vals);
+}
+
+export async function listTrainingDecks(): Promise<TrainingDeck[]> {
+  return q(
+    `SELECT t.*, d.title, d.status AS doc_status, s.name AS space_name, s.icon AS space_icon,
+            (SELECT COUNT(*)::int FROM training_assignments a WHERE a.deck_id = t.id) AS assigned,
+            (SELECT COUNT(*)::int FROM training_assignments a
+             WHERE a.deck_id = t.id AND a.completed_at IS NOT NULL) AS completed
+     FROM training_decks t
+     JOIN documents d ON d.id = t.document_id
+     JOIN spaces s ON s.id = d.space_id
+     WHERE d.deleted_at IS NULL
+     ORDER BY t.created_at DESC`
+  );
+}
+
+export async function getTrainingDeck(id: number): Promise<TrainingDeck | undefined> {
+  return (
+    await q<TrainingDeck>(
+      `SELECT t.*, d.title, d.status AS doc_status, s.name AS space_name, s.icon AS space_icon,
+              0 AS assigned, 0 AS completed
+       FROM training_decks t
+       JOIN documents d ON d.id = t.document_id
+       JOIN spaces s ON s.id = d.space_id
+       WHERE t.id = $1 AND d.deleted_at IS NULL`,
+      [id]
+    )
+  )[0];
+}
+
+/** Published docs eligible to become decks (not already one). */
+export async function trainingCandidateDocs(): Promise<
+  { id: number; title: string; space_name: string }[]
+> {
+  return q(
+    `SELECT d.id, d.title, s.name AS space_name
+     FROM documents d JOIN spaces s ON s.id = d.space_id
+     WHERE d.status = 'published' AND d.deleted_at IS NULL AND d.branch_of IS NULL
+       AND NOT EXISTS (SELECT 1 FROM training_decks t WHERE t.document_id = d.id)
+     ORDER BY d.title`
+  );
+}
+
+/** Assign a deck to users; returns the ids actually newly assigned. */
+export async function assignTraining(
+  deckId: number,
+  userIds: number[],
+  assignedBy: string,
+  source: string,
+  dueAt: string | null
+): Promise<number[]> {
+  if (!userIds.length) return [];
+  const r = await q<{ user_id: number }>(
+    `INSERT INTO training_assignments (deck_id, user_id, assigned_by, source, due_at)
+     SELECT $1, u.id, $2, $3, $4 FROM users u
+     WHERE u.id = ANY($5) AND u.status = 'active'
+     ON CONFLICT (deck_id, user_id) DO NOTHING
+     RETURNING user_id`,
+    [deckId, assignedBy.slice(0, 200), source, dueAt, userIds]
+  );
+  return r.map((x) => x.user_id);
+}
+
+export interface MyTraining {
+  assignment_id: number;
+  deck_id: number;
+  document_id: number;
+  title: string;
+  space_name: string;
+  space_icon: string;
+  content: string;
+  assigned_at: string;
+  due_at: string | null;
+  last_slide: number;
+  completed_at: string | null;
+}
+
+export async function listMyTraining(userId: number): Promise<MyTraining[]> {
+  return q(
+    `SELECT a.id AS assignment_id, t.id AS deck_id, d.id AS document_id, d.title,
+            s.name AS space_name, s.icon AS space_icon, d.content,
+            a.assigned_at, a.due_at, a.last_slide, a.completed_at
+     FROM training_assignments a
+     JOIN training_decks t ON t.id = a.deck_id
+     JOIN documents d ON d.id = t.document_id
+     JOIN spaces s ON s.id = d.space_id
+     WHERE a.user_id = $1 AND t.active = 1 AND d.status = 'published' AND d.deleted_at IS NULL
+     ORDER BY (a.completed_at IS NULL) DESC, a.due_at NULLS LAST, a.assigned_at DESC
+     LIMIT 100`,
+    [userId]
+  );
+}
+
+export async function getMyTrainingAssignment(
+  assignmentId: number,
+  userId: number
+): Promise<MyTraining | undefined> {
+  return (
+    await q<MyTraining>(
+      `SELECT a.id AS assignment_id, t.id AS deck_id, d.id AS document_id, d.title,
+              s.name AS space_name, s.icon AS space_icon, d.content,
+              a.assigned_at, a.due_at, a.last_slide, a.completed_at
+       FROM training_assignments a
+       JOIN training_decks t ON t.id = a.deck_id
+       JOIN documents d ON d.id = t.document_id
+       JOIN spaces s ON s.id = d.space_id
+       WHERE a.id = $1 AND a.user_id = $2 AND t.active = 1
+         AND d.status = 'published' AND d.deleted_at IS NULL`,
+      [assignmentId, userId]
+    )
+  )[0];
+}
+
+export async function setTrainingProgress(
+  assignmentId: number,
+  userId: number,
+  slide: number
+): Promise<void> {
+  await q(
+    `UPDATE training_assignments SET last_slide = GREATEST(last_slide, $3)
+     WHERE id = $1 AND user_id = $2 AND completed_at IS NULL`,
+    [assignmentId, userId, Math.max(0, Math.floor(slide))]
+  );
+}
+
+/** Confirm completion once; records the doc version being confirmed. */
+export async function completeTraining(
+  assignmentId: number,
+  userId: number
+): Promise<{ deck_id: number; confirmed_version: number | null } | undefined> {
+  return (
+    await q<{ deck_id: number; confirmed_version: number | null }>(
+      `UPDATE training_assignments a
+       SET completed_at = now(),
+           confirmed_version = (
+             SELECT MAX(v.id) FROM doc_versions v
+             JOIN training_decks t ON t.id = a.deck_id
+             WHERE v.document_id = t.document_id
+           )
+       WHERE a.id = $1 AND a.user_id = $2 AND a.completed_at IS NULL
+       RETURNING a.deck_id, a.confirmed_version`,
+      [assignmentId, userId]
+    )
+  )[0];
+}
+
+export interface TrainingStatusRow {
+  user_id: number;
+  name: string;
+  username: string;
+  email: string;
+  assigned_at: string;
+  due_at: string | null;
+  last_slide: number;
+  completed_at: string | null;
+  confirmed_version: number | null;
+}
+
+export async function trainingDeckStatus(deckId: number): Promise<TrainingStatusRow[]> {
+  return q(
+    `SELECT a.user_id, u.name, u.username, u.email, a.assigned_at, a.due_at,
+            a.last_slide, a.completed_at, a.confirmed_version
+     FROM training_assignments a JOIN users u ON u.id = a.user_id
+     WHERE a.deck_id = $1 AND u.status = 'active'
+     ORDER BY (a.completed_at IS NULL) DESC, a.due_at NULLS LAST, u.name`,
+    [deckId]
+  );
+}
+
+/** The user's count of open assignments (sidebar badge). */
+export async function countMyOpenTraining(userId: number): Promise<number> {
+  const r = await q<{ n: number }>(
+    `SELECT COUNT(*)::int AS n
+     FROM training_assignments a
+     JOIN training_decks t ON t.id = a.deck_id
+     JOIN documents d ON d.id = t.document_id
+     WHERE a.user_id = $1 AND a.completed_at IS NULL AND t.active = 1
+       AND d.status = 'published' AND d.deleted_at IS NULL`,
+    [userId]
+  );
+  return r[0]?.n ?? 0;
+}
+
+/**
+ * Atomically claim due/overdue incomplete assignments for a reminder pass
+ * (once per 3 days per assignment; due within 3 days or already overdue).
+ */
+export async function claimTrainingReminders(): Promise<
+  {
+    assignment_id: number;
+    user_id: number;
+    name: string;
+    email: string;
+    notify_prefs: Record<string, Record<string, boolean>> | null;
+    title: string;
+    due_at: string;
+  }[]
+> {
+  return q(
+    `UPDATE training_assignments a
+     SET reminded_at = now()
+     FROM training_decks t, documents d, users u
+     WHERE t.id = a.deck_id AND d.id = t.document_id AND u.id = a.user_id
+       AND a.completed_at IS NULL AND t.active = 1 AND u.status = 'active'
+       AND d.status = 'published' AND d.deleted_at IS NULL
+       AND a.due_at IS NOT NULL AND a.due_at < now() + interval '3 days'
+       AND (a.reminded_at IS NULL OR a.reminded_at < now() - interval '3 days')
+     RETURNING a.id AS assignment_id, a.user_id, u.name, u.email, u.notify_prefs,
+               d.title, a.due_at`
+  );
+}
+
+/** Resolve an assignment audience (users + groups + everyone) to user ids. */
+export async function expandTrainingAudience(
+  userIds: number[],
+  groupIds: number[],
+  everyone: boolean
+): Promise<number[]> {
+  if (everyone) {
+    const r = await q<{ id: number }>(`SELECT id FROM users WHERE status = 'active'`);
+    return r.map((x) => x.id);
+  }
+  const ids = new Set<number>(userIds);
+  if (groupIds.length) {
+    const r = await q<{ user_id: number }>(
+      `SELECT DISTINCT gm.user_id FROM group_members gm
+       JOIN users u ON u.id = gm.user_id
+       WHERE gm.group_id = ANY($1) AND u.status = 'active'`,
+      [groupIds]
+    );
+    for (const x of r) ids.add(x.user_id);
+  }
+  return [...ids];
+}
+
+/** Auto-assign all active new-member decks to a just-created user. */
+export async function autoAssignTraining(userId: number): Promise<void> {
+  await q(
+    `INSERT INTO training_assignments (deck_id, user_id, assigned_by, source, due_at)
+     SELECT t.id, $1, 'auto', 'new_member',
+            CASE WHEN t.due_days IS NULL THEN NULL
+                 ELSE now() + make_interval(days => t.due_days) END
+     FROM training_decks t
+     JOIN documents d ON d.id = t.document_id
+     WHERE t.active = 1 AND t.assign_new_members = 1
+       AND d.status = 'published' AND d.deleted_at IS NULL
+     ON CONFLICT (deck_id, user_id) DO NOTHING`,
+    [userId]
   );
 }
 

@@ -30,6 +30,13 @@ export async function register() {
     } catch (e) {
       console.error("[digest] scheduler error:", e);
     }
+    // Training due/overdue reminders (entitlement-gated inside; atomic claim).
+    try {
+      const { remindDueTraining } = await import("./lib/training");
+      await remindDueTraining();
+    } catch (e) {
+      console.error("[training] scheduler error:", e);
+    }
     // Housekeeping: purge expired sessions / OAuth codes so they don't
     // accumulate forever. Plain deletes — safe to run from every instance.
     try {

@@ -17,6 +17,8 @@ export interface NotificationEvent {
     | "cr_resolved"
     | "review_due"
     | "ack_requested"
+    | "training_assigned"
+    | "training_due"
     | "service_status";
   title: string;
   body?: string;

@@ -58,7 +58,10 @@ export function remarkDocBlocks() {
       const attrs = node.attributes ?? {};
       const label = directiveLabel(node);
 
-      if (CALLOUTS.has(name) && isContainer) {
+      if (name === "compliance" && isContainer) {
+        dropLabel(node);
+        asDiv(node, "md-compliance", { title: label || attrs.title || "Compliance confirmation" });
+      } else if (CALLOUTS.has(name) && isContainer) {
         dropLabel(node);
         asDiv(node, `md-callout md-callout-${name}`, { title: label || attrs.title || "" });
       } else if (name === "details" && isContainer) {

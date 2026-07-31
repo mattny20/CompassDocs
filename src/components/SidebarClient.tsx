@@ -28,6 +28,7 @@ import {
   MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
+  GraduationCap,
 } from "lucide-react";
 import { GlobalSearch } from "./GlobalSearch";
 import { NotificationsBell } from "./NotificationsBell";
@@ -60,6 +61,8 @@ export function SidebarClient({
   showNewsletter,
   showAnnouncements,
   showCompliance,
+  showTraining = false,
+  trainingCount = 0,
   isEditor,
   isApprover,
   isAdmin,
@@ -81,6 +84,9 @@ export function SidebarClient({
   /** Delegated sections (admins or granted via Settings → Section access). */
   showAnnouncements: boolean;
   showCompliance: boolean;
+  /** Training entitlement present: everyone gets the tab (badge = open assignments). */
+  showTraining?: boolean;
+  trainingCount?: number;
   isEditor: boolean;
   isApprover: boolean;
   isAdmin: boolean;
@@ -252,6 +258,15 @@ export function SidebarClient({
           collapsed={collapsed}
           badge={statusProblemCount}
         />
+        {showTraining && (
+          <NavLink
+            href="/training"
+            icon={<GraduationCap className="h-4 w-4" />}
+            label="Training"
+            collapsed={collapsed}
+            badge={trainingCount}
+          />
+        )}
         {isApprover && (
           <NavLink
             href="/review"
