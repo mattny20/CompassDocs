@@ -19,6 +19,7 @@ import {
   createDocument,
   updateDocument,
   createChangeRequest,
+  createAttachment,
   getApprovalMode,
 } from "@/lib/db";
 import { currentVersion } from "@/lib/version";
@@ -30,6 +31,7 @@ import { notifyWebhooks } from "@/lib/webhooks";
 import { notifyCrSubmitted } from "@/lib/notifications";
 import { notifySpaceSubscribers } from "@/lib/subscriptions";
 import { audit, actorFrom } from "@/lib/audit";
+import { saveUpload, sniffImage } from "@/lib/uploads";
 import { spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
 import { roleAtLeast } from "@/lib/types";
 import type { DocStatus, DocType, User } from "@/lib/types";
@@ -123,8 +125,10 @@ Accepts YouTube, Vimeo, Loom, or a direct video-file URL.
 ## Images
 Standard markdown images work: ![alt text](https://example.com/image.png).
 To reference an image already uploaded to this workspace, use its
-/api/attachments/… URL from the existing document markdown. (New binary
-uploads happen in the app editor, not through this connector.)
+/api/attachments/… URL from the existing document markdown. To upload a NEW
+image (a screenshot, a diagram export), call the add_image tool with the
+document id and base64 data — it stores the file and returns the exact
+markdown snippet to place in the body.
 
 ## Notes
 - Callout/details/tabs bodies nest full markdown, including other blocks.
@@ -253,6 +257,25 @@ const TOOLS = [
         note: { type: "string", description: "Short change note for the version history." },
       },
       required: ["id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "add_image",
+    description:
+      "Upload an image (screenshot, diagram export, photo) to a document as an attachment (requires editor or higher). Send the raw bytes base64-encoded; PNG, JPEG, GIF, and WebP are accepted — the type is detected from the bytes. Returns the attachment URL and the exact markdown snippet to place in the document body (the image is NOT inserted automatically — include the snippet where it belongs via create_doc/update_doc). Size is capped by the workspace's attachment limit.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        doc_id: { type: "number", description: "Document the image belongs to (from list_docs / create_doc)." },
+        data: {
+          type: "string",
+          description: "The image bytes, base64-encoded. A data: URI is also accepted.",
+        },
+        filename: { type: "string", description: "Display name, e.g. dashboard-screenshot.png. Optional." },
+        alt: { type: "string", description: "Alt text for the returned markdown snippet. Optional but recommended." },
+      },
+      required: ["doc_id", "data"],
       additionalProperties: false,
     },
   },
@@ -621,6 +644,78 @@ async function callTool(user: User, name: string, args: any, origin: string) {
       return toolJson({ ok: true, id: doc!.id, status: doc!.status, url: `/doc/${doc!.id}`, note: parentNote });
     }
 
+    case "add_image": {
+      if (!isEditor) {
+        return toolText("Your role (viewer) can't upload images — ask an admin for editor access.", true);
+      }
+      const doc = await getDocument(Number(args?.doc_id));
+      if (!doc || !scopeAllows(scope, doc.space_id)) {
+        return toolText(`No document with id ${args?.doc_id}.`, true);
+      }
+      if (!(await canEditSpace(user, doc.space_id))) {
+        return toolText("You don't have edit access to this document's space.", true);
+      }
+
+      // Accept plain base64 or a data: URI; whitespace (line wraps) is fine.
+      let b64 = String(args?.data ?? "").trim();
+      const dataUri = b64.match(/^data:[^;,]*;base64,(.*)$/s);
+      if (dataUri) b64 = dataUri[1];
+      b64 = b64.replace(/\s+/g, "");
+      if (!b64 || !/^[A-Za-z0-9+/=_-]+$/.test(b64)) {
+        return toolText("data must be the image bytes, base64-encoded (a data: URI also works).", true);
+      }
+      let buf: Buffer;
+      try {
+        buf = Buffer.from(b64, "base64");
+      } catch {
+        return toolText("data is not valid base64.", true);
+      }
+
+      // The bytes decide the type — filenames and headers lie. Image-only on
+      // purpose: this is the screenshot path, not a general file uploader,
+      // and only these four types are served inline by /api/attachments.
+      const kind = sniffImage(buf);
+      if (!kind) {
+        return toolText(
+          "That doesn't look like a supported image. PNG, JPEG, GIF, and WebP are accepted (SVG is not).",
+          true
+        );
+      }
+      const { max_attachment_mb } = await getAppSettings();
+      if (buf.length > max_attachment_mb * 1024 * 1024) {
+        return toolText(`Image exceeds the ${max_attachment_mb} MB attachment limit.`, true);
+      }
+
+      const requested = String(args?.filename ?? "").trim();
+      const filename = (
+        requested ? (requested.toLowerCase().endsWith(kind.ext) ? requested : requested + kind.ext) : `image${kind.ext}`
+      ).slice(0, 255);
+      const stored = await saveUpload(buf, kind.ext);
+      const att = await createAttachment({
+        document_id: doc.id,
+        filename,
+        stored_name: stored,
+        mime_type: kind.mime,
+        size: buf.length,
+        created_by: user.id,
+      });
+      await audit({
+        actor: actorFrom(user),
+        action: "attachment.upload",
+        targetType: "document",
+        targetId: doc.id,
+        targetLabel: doc.title,
+        details: { via: "mcp", filename, size: buf.length, mime: kind.mime },
+      });
+      return toolJson({
+        ok: true,
+        attachment_id: att.id,
+        url: `/api/attachments/${att.id}`,
+        markdown: `![${String(args?.alt ?? "").trim() || filename}](/api/attachments/${att.id})`,
+        note: "Place the markdown snippet in the document body (update_doc) where the image belongs — uploading alone does not display it.",
+      });
+    }
+
     default:
       return toolText(`Unknown tool: ${name}`, true);
   }
@@ -681,7 +776,7 @@ async function handleRpc(user: User, msg: any, origin: string): Promise<unknown 
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: "CompassDocs", version: currentVersion() },
         instructions:
-          "CompassDocs is this team's knowledge base. Use search_docs/read_doc to look things up, create_doc to save a drafted article as markdown, and update_doc to revise, retitle, retag, move, or publish an existing one. Call list_spaces first when creating, to pick the right space. When drafting a document of a standard kind (runbook, SOP, policy, postmortem, meeting notes, decision record), call list_templates and follow the matching template's structure, passing template to create_doc. IMPORTANT: before writing or restructuring a document, call writing_guide — CompassDocs documents support rich interactive blocks well beyond plain markdown (callouts, tabs, accordions, checklists, Mermaid/PlantUML diagrams, decision trees, video/website embeds, auto-filterable tables), and good documents use them.",
+          "CompassDocs is this team's knowledge base. Use search_docs/read_doc to look things up, create_doc to save a drafted article as markdown, and update_doc to revise, retitle, retag, move, or publish an existing one. Call list_spaces first when creating, to pick the right space. When drafting a document of a standard kind (runbook, SOP, policy, postmortem, meeting notes, decision record), call list_templates and follow the matching template's structure, passing template to create_doc. To put a screenshot or other image into a document, call add_image with the base64 bytes, then place the returned markdown snippet in the body. IMPORTANT: before writing or restructuring a document, call writing_guide — CompassDocs documents support rich interactive blocks well beyond plain markdown (callouts, tabs, accordions, checklists, Mermaid/PlantUML diagrams, decision trees, video/website embeds, auto-filterable tables), and good documents use them.",
       });
     }
     case "ping":

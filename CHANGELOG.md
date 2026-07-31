@@ -4,6 +4,18 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.76.0] - 2026-07-31
+
+### Added
+- **Image uploads through the Claude (MCP) connector.** The new `add_image`
+  tool takes a screenshot or any image as base64 (a `data:` URI works too),
+  stores it as a normal document attachment, and returns the exact markdown
+  snippet to place in the body. The file type is detected from the bytes —
+  PNG, JPEG, GIF, and WebP are accepted (SVG deliberately not); the
+  workspace's attachment size limit applies, uploads respect space edit
+  rights, and every upload is audited. The connector's writing guide and
+  instructions now cover the image workflow end to end.
+
 ## [0.75.0] - 2026-07-30
 
 ### Added
