@@ -65,3 +65,29 @@ const INLINE_MIME = new Set(["image/png", "image/jpeg", "image/gif", "image/webp
 export function isInlineImage(mime: string): boolean {
   return INLINE_MIME.has(mime);
 }
+
+/**
+ * Identify an image by its magic bytes — never by a client-supplied mime or
+ * filename. Returns the mime + canonical extension for exactly the four
+ * inline-servable types above, or null for anything else (SVG deliberately
+ * excluded: it can carry script, so it is never accepted as an "image").
+ */
+export function sniffImage(buf: Buffer): { mime: string; ext: string } | null {
+  if (buf.length >= 8 && buf.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47]))) {
+    return { mime: "image/png", ext: ".png" };
+  }
+  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) {
+    return { mime: "image/jpeg", ext: ".jpg" };
+  }
+  if (buf.length >= 4 && buf.subarray(0, 4).toString("latin1") === "GIF8") {
+    return { mime: "image/gif", ext: ".gif" };
+  }
+  if (
+    buf.length >= 12 &&
+    buf.subarray(0, 4).toString("latin1") === "RIFF" &&
+    buf.subarray(8, 12).toString("latin1") === "WEBP"
+  ) {
+    return { mime: "image/webp", ext: ".webp" };
+  }
+  return null;
+}
