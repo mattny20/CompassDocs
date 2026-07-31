@@ -4,6 +4,23 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.78.0] - 2026-07-31
+
+### Added
+- **Training & onboarding** (enterprise `training` entitlement). Any
+  published document becomes a training deck: slides split on `---` lines
+  (new editor buttons insert slide breaks), and an optional
+  `:::compliance` block at the end sets the wording of the final
+  confirmation gate. Assign decks to people, groups, or everyone — or
+  auto-assign to every new member — with a due-in-N-days deadline. The
+  new **Training** tab shows everyone their assignments with progress and
+  due dates; the slide player (next/back, arrow keys, resume) ends in a
+  recorded confirmation that captures the document version confirmed.
+  Managers (admins or Training-section grantees via Settings → Section
+  access) get the deck builder, a per-deck progress dashboard, and CSV
+  export for audit evidence. Assignment and due/overdue reminders flow
+  through the notification center and two new editable email templates.
+
 ## [0.77.0] - 2026-07-31
 
 ### Changed

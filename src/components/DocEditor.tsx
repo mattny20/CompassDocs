@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Table as TableIcon } from "lucide-react";
+import { ShieldCheck, SquareSplitVertical, Table as TableIcon } from "lucide-react";
 import { MarkdownView } from "./MarkdownView";
 import { PageWidth } from "./PageWidth";
 import { RichTextEditor, RICH_BLOCK_BUTTONS } from "./RichTextEditor";
@@ -312,6 +312,9 @@ export function DocEditor({
     video: '::video[Optional caption]{src="https://www.youtube.com/watch?v=VIDEO_ID"}',
     embed: '::embed{src="https://example.com/status" height="500"}',
     checklist: "- [ ] First step\n- [ ] Second step\n- [ ] Third step",
+  slideBreak: "---",
+  compliance:
+    ":::compliance\nI confirm that I have completed this training and understood the material.\n:::",
     table: "| Name | Team | Status |\n| --- | --- | --- |\n| Alice | Platform | Active |\n| Bob | Support | Active |",
   };
 
@@ -675,6 +678,24 @@ export function DocEditor({
                   className="rounded-sm p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
                 >
                   <TableIcon className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => insertSnippet("slideBreak")}
+                  title="Slide break (training decks)"
+                  aria-label="Insert slide break"
+                  className="rounded-sm p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                >
+                  <SquareSplitVertical className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => insertSnippet("compliance")}
+                  title="Compliance confirmation (training decks)"
+                  aria-label="Insert compliance block"
+                  className="rounded-sm p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                >
+                  <ShieldCheck className="h-4 w-4" />
                 </button>
               </span>
             )}

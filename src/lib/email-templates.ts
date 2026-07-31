@@ -99,6 +99,39 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
       "This acknowledgement is recorded for compliance.",
   },
   {
+    key: "training_assigned",
+    label: "Training assigned",
+    description:
+      "Sent when a training deck is assigned to someone (manually or automatically for new members).",
+    tags: [
+      T("assigner_name", "Who assigned it"),
+      T("deck_title", "Training title"),
+      T("due_line", "Due date sentence (or empty)"),
+      T("training_url", "Link to My Training"),
+      T("org_name", "Workspace name"),
+    ],
+    subject: '[{{org_name}}] Training assigned: "{{deck_title}}"',
+    body:
+      "**{{assigner_name}}** assigned you the training **{{deck_title}}**.{{due_line}}\n\n" +
+      "[Open your training]({{training_url}}) — work through the slides and confirm at the end.",
+  },
+  {
+    key: "training_due",
+    label: "Training due reminder",
+    description:
+      "Sent when an assigned training is due within 3 days or overdue (at most every 3 days per assignment).",
+    tags: [
+      T("deck_title", "Training title"),
+      T("due_date", "Due date"),
+      T("training_url", "Link to My Training"),
+      T("org_name", "Workspace name"),
+    ],
+    subject: '[{{org_name}}] Training due: "{{deck_title}}"',
+    body:
+      "Your assigned training **{{deck_title}}** is due by **{{due_date}}**.\n\n" +
+      "[Open your training]({{training_url}}) to finish the remaining slides and confirm completion.",
+  },
+  {
     key: "workflow_event",
     label: "Workflow event (email channel)",
     description:
@@ -135,6 +168,17 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
 
 /** Realistic per-template values used by the admin preview pane. */
 export const SAMPLE_VARS: Record<string, Record<string, string>> = {
+  training_assigned: {
+    assigner_name: "Jordan Admin",
+    deck_title: "Security awareness onboarding",
+    due_line: " It's due by Aug 14, 2026.",
+    training_url: "https://docs.example.com/training",
+  },
+  training_due: {
+    deck_title: "Security awareness onboarding",
+    due_date: "Aug 14, 2026",
+    training_url: "https://docs.example.com/training",
+  },
   doc_update: {
     doc_title: "Remote Work Policy",
     space_name: "HR & People",

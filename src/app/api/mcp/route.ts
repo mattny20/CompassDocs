@@ -130,6 +130,15 @@ image (a screenshot, a diagram export), call the add_image tool with the
 document id and base64 data — it stores the file and returns the exact
 markdown snippet to place in the body.
 
+## Training decks
+A published document can be assigned as a training deck (Training tab).
+Slides split on \`---\` lines; an optional terminal block sets the wording of
+the final confirmation gate:
+
+:::compliance
+I confirm that I have completed this training and understood the material.
+:::
+
 ## Notes
 - Callout/details/tabs bodies nest full markdown, including other blocks.
 - Unknown directives render as literal text — stick to the forms above.
