@@ -4,6 +4,16 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.77.0] - 2026-07-31
+
+### Changed
+- **Cards view handles sub-page-heavy spaces gracefully.** Sections now use
+  masonry packing (cards fill columns top-to-bottom), so one document with
+  a long sub-page list no longer opens a block of dead space beside its
+  neighbors. Sub-page lists under a card cap at 4 rows and fold the rest
+  behind "N more sub-pages…" — expandable in place, with the cap spanning
+  the whole nested subtree.
+
 ## [0.76.0] - 2026-07-31
 
 ### Added
