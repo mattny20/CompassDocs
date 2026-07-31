@@ -195,21 +195,37 @@ function DocRowLink({ d, indent = 0 }: { d: DocumentWithSpace; indent?: number }
 
 // --- Cards (the original layout) ----------------------------------------------
 
-function ChildList({
-  parentId,
-  map,
-  depth,
-}: {
-  parentId: number;
-  map: Map<number, DocumentWithSpace[]>;
-  depth: number;
-}) {
-  const kids = map.get(parentId);
-  if (!kids?.length || depth > 3) return null;
+/** The sub-page tree under a card, flattened to (doc, depth) rows so the
+ *  visible-count cap spans the whole subtree, not just one level. */
+function flattenSubtree(
+  parentId: number,
+  map: Map<number, DocumentWithSpace[]>,
+  depth = 1,
+  out: { doc: DocumentWithSpace; depth: number }[] = []
+): { doc: DocumentWithSpace; depth: number }[] {
+  if (depth > 3) return out;
+  for (const k of map.get(parentId) ?? []) {
+    out.push({ doc: k, depth });
+    flattenSubtree(k.id, map, depth + 1, out);
+  }
+  return out;
+}
+
+/** How many sub-page rows a card shows before folding into "+ N more". */
+const CARD_SUBS_CAP = 4;
+
+function CardSubs({ parentId, map }: { parentId: number; map: Map<number, DocumentWithSpace[]> }) {
+  const [expanded, setExpanded] = useState(false);
+  const rows = useMemo(() => flattenSubtree(parentId, map), [parentId, map]);
+  if (!rows.length) return null;
+  // Folding a single row behind a "+ 1 more" button would be pure friction —
+  // only fold when at least two rows are hidden.
+  const fold = !expanded && rows.length > CARD_SUBS_CAP + 1;
+  const visible = fold ? rows.slice(0, CARD_SUBS_CAP) : rows;
   return (
-    <ul className={`mt-1.5 space-y-0.5 border-l-2 border-slate-100 pl-3 ${depth > 1 ? "ml-1" : "ml-2"}`}>
-      {kids.map((k) => (
-        <li key={k.id}>
+    <ul className="ml-2 mt-1.5 space-y-0.5 border-l-2 border-slate-100 pl-3">
+      {visible.map(({ doc: k, depth }) => (
+        <li key={k.id} style={depth > 1 ? { paddingLeft: (depth - 1) * 16 } : undefined}>
           <Link
             href={`/doc/${k.id}`}
             className="flex items-center gap-1.5 rounded-sm px-1 py-0.5 text-sm text-slate-600 hover:bg-slate-50 hover:text-compass-700"
@@ -224,11 +240,31 @@ function ChildList({
               </span>
             )}
           </Link>
-          <div className="pl-4">
-            <ChildList parentId={k.id} map={map} depth={depth + 1} />
-          </div>
         </li>
       ))}
+      {fold && (
+        <li>
+          <button
+            type="button"
+            onClick={() => setExpanded(true)}
+            className="flex items-center gap-1.5 rounded-sm px-1 py-0.5 text-sm font-medium text-compass-700 hover:bg-slate-50"
+          >
+            <CornerDownRight className="h-3 w-3 shrink-0 text-slate-300" aria-hidden />
+            {rows.length - CARD_SUBS_CAP} more sub-pages…
+          </button>
+        </li>
+      )}
+      {expanded && rows.length > CARD_SUBS_CAP + 1 && (
+        <li>
+          <button
+            type="button"
+            onClick={() => setExpanded(false)}
+            className="flex items-center gap-1.5 rounded-sm px-1 py-0.5 text-xs font-medium text-slate-400 hover:bg-slate-50 hover:text-slate-600"
+          >
+            show fewer
+          </button>
+        </li>
+      )}
     </ul>
   );
 }
@@ -258,11 +294,13 @@ function CardsView({
           {s.name && (
             <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">{s.name}</h2>
           )}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {/* CSS-column masonry: cards pack top-to-bottom, so one sub-heavy
+              card can't open a row-height hole beside its neighbors. */}
+          <div className="columns-1 gap-4 sm:columns-2 lg:columns-3">
             {s.docs.map((d) => (
-              <div key={d.id}>
+              <div key={d.id} className="mb-4 break-inside-avoid">
                 <DocCard doc={d} />
-                {nestedPages && <ChildList parentId={d.id} map={map} depth={1} />}
+                {nestedPages && <CardSubs parentId={d.id} map={map} />}
               </div>
             ))}
           </div>
