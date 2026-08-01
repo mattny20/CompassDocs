@@ -9,31 +9,51 @@ import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   ArrowRight,
+  Award,
   CircleCheck,
   GraduationCap,
+  ListChecks,
   LoaderCircle,
   ShieldCheck,
   X,
 } from "lucide-react";
 import { MarkdownView } from "@/components/MarkdownView";
 
+export interface PlayerQuizQuestion {
+  text: string;
+  options: string[];
+  multi: boolean;
+}
+
 export function TrainingPlayer({
   assignmentId,
   title,
   spaceName,
   slides,
+  quizzes,
+  passPct,
+  quizScore,
+  quizTotal,
   complianceText,
   initialSlide,
   completedAt,
+  waived = false,
   dueAt,
 }: {
   assignmentId: number;
   title: string;
   spaceName: string;
   slides: string[];
+  /** Per-slide quiz questions (answer key stays server-side). */
+  quizzes: PlayerQuizQuestion[][];
+  passPct: number;
+  quizScore: number | null;
+  quizTotal: number | null;
   complianceText: string;
   initialSlide: number;
   completedAt: string | null;
+  /** Waived completions don't earn a certificate. */
+  waived?: boolean;
   dueAt: string | null;
 }) {
   const router = useRouter();
@@ -43,6 +63,75 @@ export function TrainingPlayer({
   const [done, setDone] = useState(Boolean(completedAt));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+
+  // Quiz state: answers[qi] = selected option indexes, in deck-wide question
+  // order. Result comes back from the server (graded there).
+  const totalQuestions = quizzes.reduce((n, qs) => n + qs.length, 0);
+  const [answers, setAnswers] = useState<number[][]>(() =>
+    Array.from({ length: totalQuestions }, () => [])
+  );
+  const [quizResult, setQuizResult] = useState<{
+    score: number;
+    total: number;
+    passed: boolean;
+    results: boolean[];
+  } | null>(
+    quizScore !== null && quizTotal
+      ? {
+          score: quizScore,
+          total: quizTotal,
+          passed: quizScore / quizTotal >= passPct / 100,
+          results: [],
+        }
+      : null
+  );
+  const [quizBusy, setQuizBusy] = useState(false);
+  // First question index of each slide (deck-wide numbering).
+  const questionBase: number[] = [];
+  for (let i = 0, acc = 0; i < quizzes.length; i++) {
+    questionBase.push(acc);
+    acc += quizzes[i].length;
+  }
+  const quizGateBlocked = totalQuestions > 0 && !done && !(quizResult?.passed ?? false);
+
+  function toggleAnswer(qi: number, oi: number, multi: boolean) {
+    setAnswers((prev) => {
+      const next = prev.map((a) => [...a]);
+      if (multi) {
+        next[qi] = next[qi].includes(oi) ? next[qi].filter((x) => x !== oi) : [...next[qi], oi];
+      } else {
+        next[qi] = [oi];
+      }
+      return next;
+    });
+    setQuizResult((r) => (r && r.results.length ? null : r));
+  }
+
+  async function submitQuiz() {
+    setQuizBusy(true);
+    setError("");
+    const res = await fetch(`/api/training/assignments/${assignmentId}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "quiz", answers }),
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      score?: number;
+      total?: number;
+      passed?: boolean;
+      results?: boolean[];
+    };
+    if (!res.ok) setError(data.error || "Could not grade the quiz — try again.");
+    else
+      setQuizResult({
+        score: data.score ?? 0,
+        total: data.total ?? 0,
+        passed: data.passed === true,
+        results: data.results ?? [],
+      });
+    setQuizBusy(false);
+  }
 
   const go = useCallback(
     (next: number) => {
@@ -136,15 +225,52 @@ export function TrainingPlayer({
             <div className="prose prose-sm mt-2 max-w-md text-slate-600 dark:prose-invert">
               <MarkdownView content={complianceText} />
             </div>
+            {totalQuestions > 0 && !done && (
+              <div className="mt-4 w-full max-w-md rounded-lg border border-slate-200 bg-canvas px-4 py-3 text-sm">
+                {quizResult ? (
+                  <p className={quizResult.passed ? "text-emerald-600" : "text-red-600"}>
+                    Quiz: {quizResult.score}/{quizResult.total} correct
+                    {quizResult.passed
+                      ? " — passed."
+                      : ` — ${passPct}% needed. Review the slides and try again.`}
+                  </p>
+                ) : (
+                  <p className="text-slate-500">
+                    This deck has a {totalQuestions}-question quiz — answer on the slides, then
+                    submit here. {passPct}% or better unlocks the confirmation.
+                  </p>
+                )}
+                <button
+                  onClick={() => void submitQuiz()}
+                  disabled={quizBusy}
+                  className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+                >
+                  {quizBusy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ListChecks className="h-4 w-4" />}
+                  {quizResult ? "Resubmit answers" : "Submit answers"}
+                </button>
+              </div>
+            )}
             {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
             {done ? (
-              <p className="mt-4 text-sm text-slate-400">
-                Your confirmation is recorded{completedAt ? ` (${new Date(completedAt).toLocaleDateString()})` : ""}.
-              </p>
+              <div className="mt-4 text-sm text-slate-400">
+                <p>
+                  Your confirmation is recorded
+                  {completedAt ? ` (${new Date(completedAt).toLocaleDateString()})` : ""}.
+                </p>
+                {!waived && (
+                  <a
+                    href={`/training/certificate/${assignmentId}`}
+                    className="mt-2 inline-flex items-center gap-1.5 font-medium text-compass-600 hover:underline"
+                  >
+                    <Award className="h-4 w-4" /> View certificate
+                  </a>
+                )}
+              </div>
             ) : (
               <button
                 onClick={() => void confirm()}
-                disabled={busy}
+                disabled={busy || quizGateBlocked}
+                title={quizGateBlocked ? `Pass the quiz first (${passPct}% or better)` : undefined}
                 className="mt-5 inline-flex items-center gap-2 rounded-lg bg-compass-600 px-5 py-2 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60"
               >
                 {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
@@ -153,7 +279,51 @@ export function TrainingPlayer({
             )}
           </div>
         ) : (
-          <MarkdownView content={slides[idx]} docKey={`training-${assignmentId}-${idx}`} />
+          <>
+            <MarkdownView content={slides[idx]} docKey={`training-${assignmentId}-${idx}`} />
+            {quizzes[idx]?.length > 0 && (
+              <div className="mt-6 rounded-xl border border-compass-200 bg-compass-50/60 p-4 dark:bg-compass-100/20">
+                <h3 className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
+                  <ListChecks className="h-4 w-4 text-compass-600" /> Check your understanding
+                </h3>
+                <div className="mt-3 space-y-4">
+                  {quizzes[idx].map((q, si) => {
+                    const qi = questionBase[idx] + si;
+                    const graded = quizResult?.results.length ? quizResult.results[qi] : undefined;
+                    return (
+                      <fieldset key={qi}>
+                        <legend className="text-sm font-medium text-slate-800">
+                          {q.text}
+                          {graded !== undefined && (
+                            <span className={`ml-2 text-xs font-semibold ${graded ? "text-emerald-600" : "text-red-600"}`}>
+                              {graded ? "Correct" : "Incorrect"}
+                            </span>
+                          )}
+                        </legend>
+                        <div className="mt-1.5 space-y-1">
+                          {q.options.map((opt, oi) => (
+                            <label
+                              key={oi}
+                              className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-sm text-slate-700 hover:bg-compass-100/60"
+                            >
+                              <input
+                                type={q.multi ? "checkbox" : "radio"}
+                                name={`q-${qi}`}
+                                checked={answers[qi]?.includes(oi) ?? false}
+                                onChange={() => toggleAnswer(qi, oi, q.multi)}
+                                disabled={done}
+                              />
+                              {opt}
+                            </label>
+                          ))}
+                        </div>
+                      </fieldset>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
 

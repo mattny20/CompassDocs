@@ -753,6 +753,28 @@ const SCHEMA_SQL = `
     PRIMARY KEY (program_id, deck_id)
   );
 
+  -- 0.80: quizzes (server-graded score gates the confirmation), recurring
+  -- recertification, overdue escalation, and a history table that keeps each
+  -- prior completion when an assignment reopens for a new cycle.
+  ALTER TABLE training_decks ADD COLUMN IF NOT EXISTS pass_pct integer NOT NULL DEFAULT 80;
+  ALTER TABLE training_decks ADD COLUMN IF NOT EXISTS recert_months integer;
+  ALTER TABLE training_assignments ADD COLUMN IF NOT EXISTS quiz_score integer;
+  ALTER TABLE training_assignments ADD COLUMN IF NOT EXISTS quiz_total integer;
+  ALTER TABLE training_assignments ADD COLUMN IF NOT EXISTS escalated_at timestamptz;
+  CREATE TABLE IF NOT EXISTS training_completion_history (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    deck_id integer NOT NULL REFERENCES training_decks(id) ON DELETE CASCADE,
+    user_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    assigned_at timestamptz NOT NULL,
+    completed_at timestamptz,
+    confirmed_version integer,
+    quiz_score integer,
+    quiz_total integer,
+    source text NOT NULL DEFAULT '',
+    closed_at timestamptz NOT NULL DEFAULT now()
+  );
+  CREATE INDEX IF NOT EXISTS idx_training_history ON training_completion_history(deck_id, user_id);
+
   -- Quick links: an admin-curated launchpad of external shortcuts (Duo
   -- Central-style bookmarks). A link with no link_groups rows is visible to
   -- every signed-in user; with rows, only to members of those groups (admins
@@ -3584,6 +3606,8 @@ export interface TrainingDeck {
   created_by: number | null;
   created_at: string;
   archived_at: string | null;
+  pass_pct: number;
+  recert_months: number | null;
   title: string;
   space_name: string;
   space_icon: string;
@@ -3614,6 +3638,8 @@ export async function updateTrainingDeck(
     due_days?: number | null;
     assign_new_members?: boolean;
     archived?: boolean;
+    pass_pct?: number;
+    recert_months?: number | null;
   }
 ): Promise<void> {
   const sets: string[] = [];
@@ -3627,6 +3653,14 @@ export async function updateTrainingDeck(
   }
   if (patch.assign_new_members !== undefined)
     sets.push(`assign_new_members = ${patch.assign_new_members ? 1 : 0}`);
+  if (patch.pass_pct !== undefined) {
+    vals.push(Math.min(100, Math.max(1, Math.floor(patch.pass_pct))));
+    sets.push(`pass_pct = $${vals.length}`);
+  }
+  if (patch.recert_months !== undefined) {
+    vals.push(patch.recert_months);
+    sets.push(`recert_months = $${vals.length}`);
+  }
   if (!sets.length) return;
   await q(`UPDATE training_decks SET ${sets.join(", ")} WHERE id = $1`, vals);
 }
@@ -3741,13 +3775,18 @@ export interface MyTraining {
   due_at: string | null;
   last_slide: number;
   completed_at: string | null;
+  quiz_score: number | null;
+  quiz_total: number | null;
+  pass_pct: number;
+  source: string;
 }
 
 export async function listMyTraining(userId: number): Promise<MyTraining[]> {
   return q(
     `SELECT a.id AS assignment_id, t.id AS deck_id, d.id AS document_id, d.title,
             s.name AS space_name, s.icon AS space_icon, d.content,
-            a.assigned_at, a.due_at, a.last_slide, a.completed_at
+            a.assigned_at, a.due_at, a.last_slide, a.completed_at,
+            a.quiz_score, a.quiz_total, t.pass_pct, a.source
      FROM training_assignments a
      JOIN training_decks t ON t.id = a.deck_id
      JOIN documents d ON d.id = t.document_id
@@ -3768,7 +3807,8 @@ export async function getMyTrainingAssignment(
     await q<MyTraining>(
       `SELECT a.id AS assignment_id, t.id AS deck_id, d.id AS document_id, d.title,
               s.name AS space_name, s.icon AS space_icon, d.content,
-              a.assigned_at, a.due_at, a.last_slide, a.completed_at
+              a.assigned_at, a.due_at, a.last_slide, a.completed_at,
+            a.quiz_score, a.quiz_total, t.pass_pct, a.source
        FROM training_assignments a
        JOIN training_decks t ON t.id = a.deck_id
        JOIN documents d ON d.id = t.document_id
@@ -3814,6 +3854,7 @@ export async function completeTraining(
 }
 
 export interface TrainingStatusRow {
+  assignment_id: number;
   user_id: number;
   name: string;
   username: string;
@@ -3824,12 +3865,18 @@ export interface TrainingStatusRow {
   completed_at: string | null;
   confirmed_version: number | null;
   source: string;
+  quiz_score: number | null;
+  quiz_total: number | null;
+  prior_completions: number;
 }
 
 export async function trainingDeckStatus(deckId: number): Promise<TrainingStatusRow[]> {
   return q(
-    `SELECT a.user_id, u.name, u.username, u.email, a.assigned_at, a.due_at,
-            a.last_slide, a.completed_at, a.confirmed_version, a.source
+    `SELECT a.id AS assignment_id, a.user_id, u.name, u.username, u.email, a.assigned_at, a.due_at,
+            a.last_slide, a.completed_at, a.confirmed_version, a.source,
+            a.quiz_score, a.quiz_total,
+            (SELECT COUNT(*)::int FROM training_completion_history h
+             WHERE h.deck_id = a.deck_id AND h.user_id = a.user_id) AS prior_completions
      FROM training_assignments a JOIN users u ON u.id = a.user_id
      WHERE a.deck_id = $1 AND u.status = 'active'
      ORDER BY (a.completed_at IS NULL) DESC, a.due_at NULLS LAST, u.name`,
@@ -3879,6 +3926,201 @@ export async function claimTrainingReminders(): Promise<
      RETURNING a.id AS assignment_id, a.user_id, u.name, u.email, u.notify_prefs,
                d.title, a.due_at`
   );
+}
+
+/** Store a quiz result (latest attempt wins; only before completion). */
+export async function setTrainingQuizScore(
+  assignmentId: number,
+  userId: number,
+  score: number,
+  total: number
+): Promise<void> {
+  await q(
+    `UPDATE training_assignments SET quiz_score = $3, quiz_total = $4
+     WHERE id = $1 AND user_id = $2 AND completed_at IS NULL`,
+    [assignmentId, userId, score, total]
+  );
+}
+
+/**
+ * Reopen completed assignments: archive each completion to history, then
+ * reset the assignment for a new cycle. Used by the recert sweep (interval
+ * elapsed) and the manager's "reopen completed" action (doc changed).
+ */
+async function reopenAssignments(where: string, params: unknown[]): Promise<
+  { assignment_id: number; user_id: number; title: string; due_at: string | null }[]
+> {
+  return q(
+    `WITH due AS (
+       SELECT a.id FROM training_assignments a
+       JOIN training_decks t ON t.id = a.deck_id
+       JOIN documents d ON d.id = t.document_id
+       WHERE a.completed_at IS NOT NULL AND t.active = 1 AND t.archived_at IS NULL
+         AND d.status = 'published' AND d.deleted_at IS NULL
+         AND ${where}
+       FOR UPDATE OF a SKIP LOCKED
+     ),
+     hist AS (
+       INSERT INTO training_completion_history
+         (deck_id, user_id, assigned_at, completed_at, confirmed_version, quiz_score, quiz_total, source)
+       SELECT a.deck_id, a.user_id, a.assigned_at, a.completed_at, a.confirmed_version,
+              a.quiz_score, a.quiz_total, a.source
+       FROM training_assignments a JOIN due ON due.id = a.id
+     )
+     UPDATE training_assignments a
+     SET completed_at = NULL, confirmed_version = NULL, last_slide = 0,
+         quiz_score = NULL, quiz_total = NULL, reminded_at = NULL, escalated_at = NULL,
+         assigned_at = now(), source = 'recert',
+         due_at = (SELECT CASE WHEN t.due_days IS NULL THEN NULL
+                               ELSE now() + make_interval(days => t.due_days) END
+                   FROM training_decks t WHERE t.id = a.deck_id)
+     FROM due
+     WHERE a.id = due.id
+     RETURNING a.id AS assignment_id, a.user_id,
+               (SELECT d.title FROM training_decks t JOIN documents d ON d.id = t.document_id
+                WHERE t.id = a.deck_id) AS title,
+               a.due_at`,
+    params
+  );
+}
+
+/** Recert sweep: reopen completions older than the deck's recert interval. */
+export async function claimRecertifications(): Promise<
+  { assignment_id: number; user_id: number; title: string; due_at: string | null }[]
+> {
+  return reopenAssignments(
+    `t.recert_months IS NOT NULL
+       AND a.completed_at < now() - make_interval(months => t.recert_months)`,
+    []
+  );
+}
+
+/** Manager action: reopen every completed assignment on one deck now. */
+export async function reopenCompletedForDeck(deckId: number): Promise<
+  { assignment_id: number; user_id: number; title: string; due_at: string | null }[]
+> {
+  return reopenAssignments(`a.deck_id = $1`, [deckId]);
+}
+
+/**
+ * Escalation claim: incomplete assignments more than 7 days overdue whose
+ * deck has a creator, not yet escalated. Marks them so each fires once.
+ */
+export async function claimTrainingEscalations(): Promise<
+  { deck_id: number; creator_id: number; title: string }[]
+> {
+  return q(
+    `UPDATE training_assignments a
+     SET escalated_at = now()
+     FROM training_decks t, documents d
+     WHERE t.id = a.deck_id AND d.id = t.document_id
+       AND a.completed_at IS NULL AND a.escalated_at IS NULL
+       AND a.due_at IS NOT NULL AND a.due_at < now() - interval '7 days'
+       AND t.active = 1 AND t.archived_at IS NULL AND t.created_by IS NOT NULL
+       AND d.status = 'published' AND d.deleted_at IS NULL
+     RETURNING a.deck_id, t.created_by AS creator_id, d.title`
+  );
+}
+
+/** Where incomplete trainees stopped, per slide (drop-off insight). */
+export async function trainingDropoff(deckId: number): Promise<{ slide: number; n: number }[]> {
+  return q(
+    `SELECT last_slide AS slide, COUNT(*)::int AS n
+     FROM training_assignments
+     WHERE deck_id = $1 AND completed_at IS NULL AND last_slide > 0
+     GROUP BY last_slide ORDER BY last_slide`,
+    [deckId]
+  );
+}
+
+export interface TrainingOverview {
+  decks: number;
+  people_assigned: number;
+  open: number;
+  overdue: number;
+  completed: number;
+  waived: number;
+  overdue_people: { name: string; username: string; deck: string; due_at: string }[];
+}
+
+/** Org-wide rollup for the Overview tab. */
+export async function trainingOverview(): Promise<TrainingOverview> {
+  const base = `FROM training_assignments a
+     JOIN training_decks t ON t.id = a.deck_id
+     JOIN documents d ON d.id = t.document_id
+     JOIN users u ON u.id = a.user_id
+     WHERE t.archived_at IS NULL AND d.deleted_at IS NULL AND u.status = 'active'`;
+  const totals = await q<{
+    decks: number; people_assigned: number; open: number; overdue: number;
+    completed: number; waived: number;
+  }>(
+    `SELECT (SELECT COUNT(*)::int FROM training_decks WHERE archived_at IS NULL) AS decks,
+            COUNT(DISTINCT a.user_id)::int AS people_assigned,
+            COUNT(*) FILTER (WHERE a.completed_at IS NULL)::int AS open,
+            COUNT(*) FILTER (WHERE a.completed_at IS NULL AND a.due_at < now())::int AS overdue,
+            COUNT(*) FILTER (WHERE a.completed_at IS NOT NULL AND a.source <> 'waived')::int AS completed,
+            COUNT(*) FILTER (WHERE a.completed_at IS NOT NULL AND a.source = 'waived')::int AS waived
+     ${base}`
+  );
+  const overdue_people = await q<{ name: string; username: string; deck: string; due_at: string }>(
+    `SELECT u.name, u.username, d.title AS deck, a.due_at
+     ${base} AND a.completed_at IS NULL AND a.due_at < now()
+     ORDER BY a.due_at ASC LIMIT 50`
+  );
+  return { ...totals[0], overdue_people };
+}
+
+/** Every assignment row across unarchived decks (org CSV). */
+export async function trainingOrgRows(): Promise<
+  (TrainingStatusRow & { deck: string })[]
+> {
+  return q(
+    `SELECT d.title AS deck, a.id AS assignment_id, a.user_id, u.name, u.username, u.email, a.assigned_at, a.due_at,
+            a.last_slide, a.completed_at, a.confirmed_version, a.source,
+            a.quiz_score, a.quiz_total,
+            (SELECT COUNT(*)::int FROM training_completion_history h
+             WHERE h.deck_id = a.deck_id AND h.user_id = a.user_id) AS prior_completions
+     FROM training_assignments a
+     JOIN training_decks t ON t.id = a.deck_id
+     JOIN documents d ON d.id = t.document_id
+     JOIN users u ON u.id = a.user_id
+     WHERE t.archived_at IS NULL AND d.deleted_at IS NULL AND u.status = 'active'
+     ORDER BY d.title, (a.completed_at IS NULL) DESC, u.name`
+  );
+}
+
+/** One assignment with user + deck context (certificates, manager remind). */
+export async function getTrainingAssignment(assignmentId: number): Promise<
+  | (MyTraining & {
+      user_id: number;
+      user_name: string;
+      username: string;
+      confirmed_version: number | null;
+    })
+  | undefined
+> {
+  const r = await q<
+    MyTraining & {
+      user_id: number;
+      user_name: string;
+      username: string;
+      confirmed_version: number | null;
+    }
+  >(
+    `SELECT a.id AS assignment_id, t.id AS deck_id, d.id AS document_id, d.title,
+            s.name AS space_name, s.icon AS space_icon, d.content,
+            a.assigned_at, a.due_at, a.last_slide, a.completed_at,
+            a.quiz_score, a.quiz_total, t.pass_pct, a.source,
+            a.user_id, u.name AS user_name, u.username, a.confirmed_version
+     FROM training_assignments a
+     JOIN training_decks t ON t.id = a.deck_id
+     JOIN documents d ON d.id = t.document_id
+     JOIN spaces s ON s.id = d.space_id
+     JOIN users u ON u.id = a.user_id
+     WHERE a.id = $1 AND d.deleted_at IS NULL`,
+    [assignmentId]
+  );
+  return r[0];
 }
 
 /** Resolve an assignment audience (users + groups + everyone) to user ids. */

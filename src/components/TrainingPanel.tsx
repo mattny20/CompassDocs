@@ -8,6 +8,10 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
   Archive,
+  Award,
+  BellRing,
+  ChevronDown,
+  ChevronRight,
   CircleAlert,
   CircleCheck,
   Download,
@@ -16,6 +20,7 @@ import {
   LoaderCircle,
   Play,
   Plus,
+  RotateCcw,
   Send,
   Settings2,
   Trash2,
@@ -34,6 +39,7 @@ interface MyItem {
   completed_at: string | null;
   last_slide: number;
   slide_count: number;
+  waived: boolean;
 }
 
 interface Deck {
@@ -46,6 +52,8 @@ interface Deck {
   due_days: number | null;
   assign_new_members: number;
   archived_at: string | null;
+  pass_pct: number;
+  recert_months: number | null;
   assigned: number;
   completed: number;
 }
@@ -58,12 +66,24 @@ interface Program {
   decks: { id: number; title: string }[];
 }
 
+interface PersonRow {
+  assignment_id: number;
+  name: string;
+  username: string;
+  due_at: string | null;
+  completed_at: string | null;
+  source: string;
+  quiz_score: number | null;
+  quiz_total: number | null;
+  prior_completions: number;
+}
+
 const fmtDay = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString() : null);
 const overdue = (it: MyItem) =>
   !it.completed_at && it.due_at !== null && new Date(it.due_at).getTime() < Date.now();
 
 export function TrainingPanel({ licensed, manager }: { licensed: boolean; manager: boolean }) {
-  const [tab, setTab] = useState<"mine" | "decks">("mine");
+  const [tab, setTab] = useState<"mine" | "overview" | "decks">("mine");
   const [mine, setMine] = useState<MyItem[] | null>(null);
   const [decks, setDecks] = useState<Deck[] | null>(null);
   const [programs, setPrograms] = useState<Program[]>([]);
@@ -128,6 +148,7 @@ export function TrainingPanel({ licensed, manager }: { licensed: boolean; manage
               {(
                 [
                   ["mine", "My training"],
+                  ["overview", "Overview"],
                   ["decks", "Manage decks"],
                 ] as const
               ).map(([key, label]) => (
@@ -157,6 +178,8 @@ export function TrainingPanel({ licensed, manager }: { licensed: boolean; manage
 
       {tab === "mine" || !manager ? (
         <MyTraining mine={mine} />
+      ) : tab === "overview" ? (
+        <Overview />
       ) : (
         <ManageDecks
           decks={decks}
@@ -170,6 +193,111 @@ export function TrainingPanel({ licensed, manager }: { licensed: boolean; manage
           reload={load}
         />
       )}
+    </div>
+  );
+}
+
+// --- Org-wide overview: KPIs, overdue list, whole-program CSV --------------
+
+interface OverviewData {
+  overview: {
+    decks: number;
+    people_assigned: number;
+    open: number;
+    overdue: number;
+    completed: number;
+    waived: number;
+    overdue_people: { name: string; username: string; deck: string; due_at: string }[];
+  };
+  decks: Deck[];
+}
+
+function Overview() {
+  const [data, setData] = useState<OverviewData | null>(null);
+  useEffect(() => {
+    void fetch("/api/training/overview")
+      .then((r) => (r.ok ? r.json() : null))
+      .then(setData)
+      .catch(() => {});
+  }, []);
+  if (!data) {
+    return (
+      <div className="flex items-center gap-2 py-10 text-sm text-slate-400">
+        <LoaderCircle className="h-4 w-4 animate-spin" /> Loading…
+      </div>
+    );
+  }
+  const o = data.overview;
+  const doneAll = o.completed + o.waived;
+  const totalAll = doneAll + o.open;
+  const pct = totalAll ? Math.round((doneAll / totalAll) * 100) : 0;
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {[
+          { label: "Active decks", value: o.decks },
+          { label: "People with assignments", value: o.people_assigned },
+          { label: "Overall completion", value: `${pct}%` },
+          { label: "Overdue", value: o.overdue },
+        ].map((c) => (
+          <div key={c.label} className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
+            <div className="text-2xl font-bold tracking-tight text-slate-900">{c.value}</div>
+            <div className="text-xs text-slate-400">{c.label}</div>
+          </div>
+        ))}
+      </div>
+
+      <section className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-slate-800">Decks</h2>
+          <a
+            href="/api/training/overview?format=csv"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+          >
+            <Download className="h-4 w-4" /> All records (CSV)
+          </a>
+        </div>
+        <ul className="mt-3 space-y-2">
+          {data.decks.map((d) => {
+            const p = d.assigned ? Math.round((d.completed / d.assigned) * 100) : 0;
+            return (
+              <li key={d.id} className="flex items-center gap-3 text-sm">
+                <span className="w-56 truncate font-medium text-slate-700">{d.title}</span>
+                <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100">
+                  <div className="h-full rounded-full bg-compass-500" style={{ width: `${p}%` }} />
+                </div>
+                <span className="w-24 text-right text-xs text-slate-400">
+                  {d.completed}/{d.assigned} done
+                </span>
+              </li>
+            );
+          })}
+          {data.decks.length === 0 && (
+            <li className="text-sm text-slate-400">No decks yet — create one under Manage decks.</li>
+          )}
+        </ul>
+      </section>
+
+      <section className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
+        <h2 className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
+          <CircleAlert className="h-4 w-4 text-red-500" /> Overdue
+        </h2>
+        {o.overdue_people.length === 0 ? (
+          <p className="mt-2 text-sm text-slate-400">Nobody is overdue.</p>
+        ) : (
+          <ul className="mt-2 divide-y divide-slate-100">
+            {o.overdue_people.map((p, i) => (
+              <li key={i} className="flex items-center justify-between gap-3 py-1.5 text-sm">
+                <span className="font-medium text-slate-700">{p.name}</span>
+                <span className="min-w-0 flex-1 truncate text-slate-500">{p.deck}</span>
+                <span className="shrink-0 text-xs font-medium text-red-600">
+                  due {fmtDay(p.due_at)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </div>
   );
 }
@@ -221,17 +349,29 @@ function MyTraining({ mine }: { mine: MyItem[] | null }) {
                 </span>
               ) : null}
             </div>
-            <Link
-              href={`/training/take/${it.assignment_id}`}
-              className={`mt-3 inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold ${
-                it.completed_at
-                  ? "border border-slate-200 text-slate-600 hover:bg-slate-50"
-                  : "bg-compass-600 text-white hover:bg-compass-700"
-              }`}
-            >
-              <Play className="h-4 w-4" />
-              {it.completed_at ? "Review" : it.last_slide > 0 ? "Continue" : "Start"}
-            </Link>
+            <div className="mt-3 flex items-center gap-2">
+              <Link
+                href={`/training/take/${it.assignment_id}`}
+                className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold ${
+                  it.completed_at
+                    ? "border border-slate-200 text-slate-600 hover:bg-slate-50"
+                    : "bg-compass-600 text-white hover:bg-compass-700"
+                }`}
+              >
+                <Play className="h-4 w-4" />
+                {it.completed_at ? "Review" : it.last_slide > 0 ? "Continue" : "Start"}
+              </Link>
+              {it.completed_at && !it.waived && (
+                <a
+                  href={`/training/certificate/${it.assignment_id}`}
+                  title="View certificate"
+                  aria-label={`Certificate for ${it.title}`}
+                  className="inline-flex items-center rounded-lg border border-slate-200 p-2 text-slate-500 hover:bg-slate-50"
+                >
+                  <Award className="h-4 w-4" />
+                </a>
+              )}
+            </div>
           </div>
         );
       })}
@@ -677,9 +817,28 @@ function DeckCard({
   const [userIds, setUserIds] = useState<number[]>([]);
   const [groupIds, setGroupIds] = useState<number[]>([]);
   const [busy, setBusy] = useState(false);
+  const [showPeople, setShowPeople] = useState(false);
+  const [people, setPeople] = useState<PersonRow[] | null>(null);
+  const [dropoff, setDropoff] = useState<{ slide: number; n: number }[]>([]);
+  const [passPct, setPassPct] = useState(String(deck.pass_pct));
+  const [recert, setRecert] = useState(deck.recert_months ? String(deck.recert_months) : "");
   const pct = deck.assigned ? Math.round((deck.completed / deck.assigned) * 100) : 0;
 
-  async function assign(body: { waive?: boolean } & Record<string, unknown>) {
+  async function loadPeople() {
+    const res = await fetch(`/api/training/decks/${deck.id}`).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    if (res) {
+      setPeople(res.rows);
+      setDropoff(res.dropoff ?? []);
+    }
+  }
+
+  async function assign(
+    body: {
+      waive?: boolean;
+      remind_assignment_id?: number;
+      reopen_completed?: boolean;
+    } & Record<string, unknown>
+  ) {
     setBusy(true);
     onError("");
     onNotice("");
@@ -693,8 +852,12 @@ function DeckCard({
       assigned?: number;
       waived?: number;
       already?: number;
+      reopened?: number;
     };
     if (!res.ok) onError(data.error || "Assignment failed.");
+    else if (body.remind_assignment_id) onNotice("Reminder sent.");
+    else if (body.reopen_completed)
+      onNotice(`Reopened for ${data.reopened} ${data.reopened === 1 ? "person" : "people"} — prior completions kept in history.`);
     else if (body.waive)
       onNotice(
         `Waived for ${data.waived} ${data.waived === 1 ? "person" : "people"}${
@@ -711,6 +874,7 @@ function DeckCard({
     setGroupIds([]);
     setBusy(false);
     await reload();
+    if (people) await loadPeople();
   }
 
   async function patch(body: unknown) {
@@ -740,6 +904,8 @@ function DeckCard({
             {deck.space_icon} {deck.space_name}
             {deck.due_days ? ` · due within ${deck.due_days} days` : ""}
             {deck.assign_new_members === 1 ? " · auto-assigns to new members" : ""}
+            {deck.recert_months ? ` · recertifies every ${deck.recert_months} mo` : ""}
+            {` · quiz pass ${deck.pass_pct}%`}
           </div>
         </div>
         <div className="flex items-center gap-2 text-sm">
@@ -783,6 +949,146 @@ function DeckCard({
           <Users className="h-3.5 w-3.5" /> {deck.completed}/{deck.assigned} complete
         </span>
       </div>
+
+      {/* Quiz threshold + recertification cadence */}
+      <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-slate-600">
+        <label className="flex items-center gap-1.5">
+          Quiz pass
+          <input
+            type="number"
+            min={1}
+            max={100}
+            value={passPct}
+            onChange={(e) => setPassPct(e.target.value)}
+            onBlur={() => {
+              const v = Math.min(100, Math.max(1, Number(passPct) || deck.pass_pct));
+              if (v !== deck.pass_pct) void patch({ pass_pct: v });
+            }}
+            className="w-16 rounded-lg border border-slate-200 bg-surface px-2 py-1 text-sm outline-hidden focus:border-compass-400"
+          />
+          %
+        </label>
+        <label className="flex items-center gap-1.5">
+          Recertify every
+          <input
+            type="number"
+            min={1}
+            max={60}
+            value={recert}
+            placeholder="—"
+            onChange={(e) => setRecert(e.target.value)}
+            onBlur={() => {
+              const v = recert.trim() === "" ? null : Math.min(60, Math.max(1, Number(recert) || 0)) || null;
+              if (v !== deck.recert_months) void patch({ recert_months: v });
+            }}
+            className="w-16 rounded-lg border border-slate-200 bg-surface px-2 py-1 text-sm outline-hidden focus:border-compass-400"
+          />
+          months
+        </label>
+        <button
+          onClick={() => {
+            if (
+              confirm(
+                `Reopen "${deck.title}" for everyone who completed it? Use this after a material update — prior completions stay in the history, and everyone is asked to retake it.`
+              )
+            )
+              void assign({ reopen_completed: true } as never);
+          }}
+          disabled={busy}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1 text-sm font-medium text-slate-600 hover:bg-slate-50"
+        >
+          <RotateCcw className="h-3.5 w-3.5" /> Reopen completed
+        </button>
+        {dropoff.length > 0 && (
+          <span className="text-xs text-slate-400">
+            Most in-progress stop at slide{" "}
+            {dropoff.reduce((a, b) => (b.n > a.n ? b : a), dropoff[0]).slide}
+          </span>
+        )}
+      </div>
+
+      {/* Per-person status */}
+      <button
+        onClick={() => {
+          setShowPeople((s) => !s);
+          if (!people) void loadPeople();
+        }}
+        className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-compass-600 hover:underline"
+      >
+        {showPeople ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+        People ({deck.assigned})
+      </button>
+      {showPeople && (
+        <div className="mt-2 overflow-x-auto rounded-lg border border-slate-100">
+          {!people ? (
+            <p className="flex items-center gap-2 px-3 py-3 text-sm text-slate-400">
+              <LoaderCircle className="h-4 w-4 animate-spin" /> Loading…
+            </p>
+          ) : people.length === 0 ? (
+            <p className="px-3 py-3 text-sm text-slate-400">Nobody assigned yet.</p>
+          ) : (
+            <table className="w-full text-sm">
+              <tbody className="divide-y divide-slate-100">
+                {people.map((p) => {
+                  const status = p.completed_at
+                    ? p.source === "waived"
+                      ? "Waived"
+                      : "Completed"
+                    : p.due_at && new Date(p.due_at).getTime() < Date.now()
+                      ? "Overdue"
+                      : "Open";
+                  return (
+                    <tr key={p.assignment_id}>
+                      <td className="px-3 py-1.5 font-medium text-slate-700">{p.name}</td>
+                      <td className="px-2 py-1.5">
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                            status === "Completed"
+                              ? "bg-emerald-100 text-emerald-700"
+                              : status === "Waived"
+                                ? "bg-slate-100 text-slate-500"
+                                : status === "Overdue"
+                                  ? "bg-red-100 text-red-700"
+                                  : "bg-compass-50 text-compass-700"
+                          }`}
+                        >
+                          {status}
+                        </span>
+                      </td>
+                      <td className="px-2 py-1.5 text-xs text-slate-400">
+                        {p.quiz_total ? `quiz ${p.quiz_score}/${p.quiz_total}` : ""}
+                        {p.prior_completions > 0 ? ` · ${p.prior_completions} prior` : ""}
+                      </td>
+                      <td className="px-2 py-1.5 text-right">
+                        {!p.completed_at ? (
+                          <button
+                            onClick={() =>
+                              void assign({ remind_assignment_id: p.assignment_id } as never)
+                            }
+                            disabled={busy}
+                            title="Send a reminder now"
+                            className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                          >
+                            <BellRing className="h-3 w-3" /> Remind
+                          </button>
+                        ) : p.source !== "waived" ? (
+                          <a
+                            href={`/training/certificate/${p.assignment_id}`}
+                            title="Certificate"
+                            className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                          >
+                            <Award className="h-3 w-3" /> Certificate
+                          </a>
+                        ) : null}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
 
       <div className="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-2">
         <EntityPicker options={userOpts} value={userIds} onChange={setUserIds} placeholder="Add people…" />

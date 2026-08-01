@@ -110,6 +110,20 @@ export function MarkdownView({
                 </Callout>
               );
             }
+            if (cls.includes("md-quiz")) {
+              // Training scaffolding: invisible on published deck pages; a
+              // labeled callout in the editor preview and everywhere else so
+              // authors can see (and proofread) the questions.
+              if (slideBreaks === "hidden") return null;
+              return (
+                <Callout
+                  kind="note"
+                  title={`${props["data-title"] || "Quiz"} — graded in the training player`}
+                >
+                  {children}
+                </Callout>
+              );
+            }
             if (cls.includes("md-details")) {
               return <DocDetails title={props["data-title"] || "Details"}>{children}</DocDetails>;
             }

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ShieldCheck, SquareSplitVertical, Table as TableIcon, X } from "lucide-react";
+import { ListChecks, ShieldCheck, SquareSplitVertical, Table as TableIcon, X } from "lucide-react";
 import { EntityPicker } from "./EntityPicker";
 import { MarkdownView } from "./MarkdownView";
 import { PageWidth } from "./PageWidth";
@@ -319,6 +319,8 @@ export function DocEditor({
   slideBreak: "---",
   compliance:
     ":::compliance\nI confirm that I have completed this training and understood the material.\n:::",
+  quiz:
+    ":::quiz\nQ: Which statement is correct?\n- [ ] A wrong answer\n- [x] The right answer\n- [ ] Another wrong answer\n:::",
     table: "| Name | Team | Status |\n| --- | --- | --- |\n| Alice | Platform | Active |\n| Bob | Support | Active |",
   };
 
@@ -711,6 +713,15 @@ export function DocEditor({
                   className="rounded-sm p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
                 >
                   <ShieldCheck className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => insertSnippet("quiz")}
+                  title="Quiz questions (training decks) — graded in the player, answers stay server-side"
+                  aria-label="Insert quiz block"
+                  className="rounded-sm p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                >
+                  <ListChecks className="h-4 w-4" />
                 </button>
               </span>
             )}
