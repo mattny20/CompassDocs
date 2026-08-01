@@ -4,6 +4,26 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.85.0] - 2026-08-01
+
+### Added
+- **Settings console, phase 2.** Building on 0.84's structure:
+  - **Shared form controls.** Every settings form now uses one set of
+    primitives — labeled fields with help text and error states, selects,
+    textareas, and proper toggle switches for boolean options — so every
+    page looks and behaves the same.
+  - **Readable width.** Settings content sits in a comfortable reading
+    column instead of stretching across ultra-wide screens; table-heavy
+    sections (users, audit log, spaces, content health, directory,
+    templates) keep the full width.
+  - **Danger zones.** Destructive actions get a clearly separated
+    red-bordered card — starting with license removal.
+
+### Changed
+- Boolean options across Workspace, Public site, SSO/SAML/SCIM, Directory
+  sync, Spaces, Templates, and Chat panels render as toggle switches with
+  their explanations attached.
+
 ## [0.84.0] - 2026-08-01
 
 ### Added
