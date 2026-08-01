@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
 import { MsDeviceSetup } from "./MsDeviceSetup";
 import { EntityPicker } from "./EntityPicker";
+import { toast } from "@/components/Toasts";
 import type { DirectoryPerson, DirectoryField } from "@/lib/directory";
 
 const field =
@@ -52,7 +53,6 @@ export function DirectorySettings({
   const [formAssistant, setFormAssistant] = useState<string>("");
   const [formCustom, setFormCustom] = useState<Record<string, string>>({});
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
   async function refresh() {
@@ -64,7 +64,6 @@ export function DirectorySettings({
   async function savePerson(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
-    setError("");
     const res = await fetch(
       editingId === null ? "/api/admin/directory/people" : `/api/admin/directory/people/${editingId}`,
       {
@@ -79,7 +78,7 @@ export function DirectorySettings({
     );
     setBusy(false);
     if (!res.ok) {
-      setError((await res.json().catch(() => ({})))?.error || "Could not save.");
+      toast("error", (await res.json().catch(() => ({})))?.error || "Could not save.");
       return;
     }
     setForm({ ...EMPTY_FORM });
@@ -141,7 +140,6 @@ export function DirectorySettings({
         <h3 className="mb-3 font-semibold text-slate-900">
           {editingId === null ? "Add a person" : "Edit person"}
         </h3>
-        {error && <p className="mb-2 text-sm text-red-600">{error}</p>}
         <form onSubmit={savePerson} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <input className={field} placeholder="Name *" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
           <input className={field} placeholder="Title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
@@ -263,8 +261,6 @@ function GraphPanel({ graph, onSynced }: { graph: GraphState; onSynced: () => vo
   const [secret, setSecret] = useState("");
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
-  const [msg, setMsg] = useState("");
-  const [error, setError] = useState("");
 
   if (!g.bundled) {
     return (
@@ -297,8 +293,6 @@ function GraphPanel({ graph, onSynced }: { graph: GraphState; onSynced: () => vo
 
   async function save() {
     setSaving(true);
-    setError("");
-    setMsg("");
     const res = await fetch("/api/admin/directory/graph", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -316,26 +310,24 @@ function GraphPanel({ graph, onSynced }: { graph: GraphState; onSynced: () => vo
     setSaving(false);
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      setError(data?.error || "Could not save.");
+      toast("error", data?.error || "Could not save.");
       return;
     }
     if (data?.state) setG(data.state);
     setSecret("");
-    setMsg("Saved.");
+    toast("ok", "Microsoft 365 sync settings saved.");
   }
 
   async function syncNow() {
     setSyncing(true);
-    setError("");
-    setMsg("");
     const res = await fetch("/api/ee/directory/sync", { method: "POST" });
     const data = await res.json().catch(() => ({}));
     setSyncing(false);
     if (!res.ok) {
-      setError(data?.error || "Sync failed.");
+      toast("error", data?.error || "Sync failed.");
       return;
     }
-    setMsg(`Synced ${data?.count ?? "?"} people from Microsoft 365.`);
+    toast("ok", `Synced ${data?.count ?? "?"} people from Microsoft 365.`);
     onSynced();
   }
 
@@ -417,8 +409,6 @@ function GraphPanel({ graph, onSynced }: { graph: GraphState; onSynced: () => vo
         <button onClick={syncNow} disabled={syncing || !g.tenant || !g.client_id || !(g.has_secret || secret)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50" data-tt={!g.tenant || !g.client_id ? "Save the tenant, client ID, and secret first" : ""} aria-label={!g.tenant || !g.client_id ? "Save the tenant, client ID, and secret first" : ""}>
           {syncing ? "Syncing…" : "Sync now"}
         </button>
-        {msg && <span className="text-sm text-green-600">{msg}</span>}
-        {error && <span className="text-sm text-red-600">{error}</span>}
       </div>
 
       {g.last_sync && (
@@ -445,7 +435,6 @@ function FieldsPanel({
   const [showInCard, setShowInCard] = useState(false);
   const [display, setDisplay] = useState<"field" | "tag">("field");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
 
   async function reload() {
     const res = await fetch("/api/admin/directory/fields");
@@ -455,7 +444,6 @@ function FieldsPanel({
   async function add(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
-    setError("");
     const res = await fetch("/api/admin/directory/fields", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -463,7 +451,7 @@ function FieldsPanel({
     });
     setBusy(false);
     if (!res.ok) {
-      setError((await res.json().catch(() => ({})))?.error || "Could not add the field.");
+      toast("error", (await res.json().catch(() => ({})))?.error || "Could not add the field.");
       return;
     }
     setLabel("");
@@ -563,7 +551,6 @@ function FieldsPanel({
         </div>
       )}
 
-      {error && <p className="mb-2 text-sm text-red-600">{error}</p>}
       <form onSubmit={add} className="flex flex-wrap items-center gap-2">
         <input
           className={`${field} w-44`}
@@ -612,7 +599,6 @@ function PrintColumnsPanel() {
   const [available, setAvailable] = useState<{ key: string; label: string }[]>([]);
   const [columns, setColumns] = useState<string[]>([]);
   const [loaded, setLoaded] = useState(false);
-  const [msg, setMsg] = useState("");
 
   useEffect(() => {
     fetch("/api/admin/directory/print-columns")
@@ -630,13 +616,13 @@ function PrintColumnsPanel() {
 
   async function save(next: string[]) {
     setColumns(next);
-    setMsg("");
     const r = await fetch("/api/admin/directory/print-columns", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ columns: next }),
     });
-    setMsg(r.ok ? "Saved." : "Could not save.");
+    if (r.ok) toast("ok", "Print directory columns saved.");
+    else toast("error", "Could not save.");
   }
 
   function move(i: number, dir: -1 | 1) {
@@ -686,7 +672,6 @@ function PrintColumnsPanel() {
           ))}
         </select>
       )}
-      {msg && <p className={`mt-2 text-sm ${msg === "Saved." ? "text-green-600" : "text-red-600"}`}>{msg}</p>}
     </div>
   );
 }

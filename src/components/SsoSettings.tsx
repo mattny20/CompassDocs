@@ -6,6 +6,7 @@
 
 import { useState } from "react";
 import { MsDeviceSetup } from "./MsDeviceSetup";
+import { toast } from "@/components/Toasts";
 
 const field =
   "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
@@ -30,8 +31,6 @@ export function SsoSettings({ initial }: { initial: SsoState }) {
   const [s, setS] = useState(initial);
   const [secret, setSecret] = useState("");
   const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState("");
-  const [error, setError] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(Boolean(initial.authority));
 
   const header = (
@@ -87,8 +86,6 @@ export function SsoSettings({ initial }: { initial: SsoState }) {
 
   async function save() {
     setSaving(true);
-    setError("");
-    setMsg("");
     const res = await fetch("/api/admin/sso", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -107,12 +104,12 @@ export function SsoSettings({ initial }: { initial: SsoState }) {
     setSaving(false);
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      setError(data?.error || "Could not save.");
+      toast("error", data?.error || "Could not save.");
       return;
     }
     if (data?.state) setS(data.state);
     setSecret("");
-    setMsg("Saved.");
+    toast("ok", "Single sign-on settings saved.");
   }
 
   const redirectUri =
@@ -309,8 +306,6 @@ export function SsoSettings({ initial }: { initial: SsoState }) {
               Test sign-in
             </a>
           )}
-          {msg && <span className="text-sm text-green-600">{msg}</span>}
-          {error && <span className="text-sm text-red-600">{error}</span>}
         </div>
       </div>
     </div>
