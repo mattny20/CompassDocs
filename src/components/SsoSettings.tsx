@@ -35,7 +35,7 @@ export function SsoSettings({ initial }: { initial: SsoState }) {
 
   const header = (
     <div>
-      <h2 className="text-lg font-semibold text-slate-900">Single sign-on</h2>
+      <h2 className="text-lg font-semibold text-slate-900">OpenID Connect (OIDC)</h2>
       <p className="mb-4 text-sm text-slate-500">
         Let your team sign in with Microsoft Entra ID (or any OIDC provider) instead of a
         CompassDocs password.

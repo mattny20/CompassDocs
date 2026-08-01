@@ -91,7 +91,6 @@ export function GroupsPanel({
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-lg font-semibold text-slate-900">Groups</h2>
         <p className="mt-1 text-sm text-slate-500">
           Groups control who can see private spaces (Settings → Spaces). Add users by hand, or
           import groups from Microsoft Entra to keep membership synced with your directory.

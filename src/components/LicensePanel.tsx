@@ -85,7 +85,6 @@ export function LicensePanel() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-lg font-semibold text-slate-900">License</h2>
         <p className="mt-1 text-sm text-slate-500">
           Activate CompassDocs Enterprise features with your license key. The core app is free and
           open-source and never requires one.

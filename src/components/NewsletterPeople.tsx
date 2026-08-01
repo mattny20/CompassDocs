@@ -6,7 +6,7 @@
 
 import { useRef, useState } from "react";
 import Link from "next/link";
-import { Mail, Plus, X, Image as ImageIcon, Newspaper } from "lucide-react";
+import { Mail, Plus, X, Image as ImageIcon } from "lucide-react";
 
 interface PersonRow {
   id: number;
@@ -136,9 +136,6 @@ export function NewsletterPeople({
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900">
-          <Newspaper className="h-6 w-6 text-compass-600" /> Newsletter
-        </h1>
         <p className="mt-1 text-sm text-slate-500">
           Grant people access to the newsletter module without a new org role.
           Contributors write drafts and submit them for review; approvers also review,

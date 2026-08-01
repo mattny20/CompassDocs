@@ -121,7 +121,6 @@ export function DirectorySettings({
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-lg font-semibold text-slate-900">Directory</h2>
         <p className="mt-1 text-sm text-slate-500">
           Manage the people directory that every signed-in user sees under{" "}
           <span className="font-medium">Directory</span>. Add entries by hand, or connect

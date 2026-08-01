@@ -72,7 +72,6 @@ export function SectionAccessPanel({
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="text-lg font-semibold text-slate-900">Section access</h2>
         <p className="mt-1 max-w-2xl text-sm text-slate-500">
           Announcements and Compliance live in the main navigation. Admins always have access;
           grant them here to individual people or groups so a comms lead or HR manager can run

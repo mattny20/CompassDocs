@@ -119,7 +119,6 @@ export function DomainSettings({ initial }: { initial: DomainState }) {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-lg font-semibold text-slate-900">Domain &amp; HTTPS</h2>
         <p className="mt-1 text-sm text-slate-500">
           Serve CompassDocs on your own domain with HTTPS. Changes are applied to the bundled
           reverse proxy immediately — no restart needed.

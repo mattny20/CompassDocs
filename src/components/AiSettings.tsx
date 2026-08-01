@@ -104,7 +104,6 @@ export function AiSettings({ initial }: { initial: AiState }) {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-lg font-semibold text-slate-900">AI</h2>
         <p className="mt-1 text-sm text-slate-500">
           Connect an AI provider to enable <strong>Ask CompassDocs</strong> answers,
           <strong> ✨ Write</strong>, and <strong>✨ Proofread</strong>. Search and everything else

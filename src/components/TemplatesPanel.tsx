@@ -60,7 +60,6 @@ export function TemplatesPanel({ initial }: { initial: TemplateRow[] }) {
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-lg font-semibold text-slate-900">Document templates</h2>
           <p className="mt-1 max-w-2xl text-sm text-slate-500">
             Starting points writers pick from when creating a document. Placeholders like{" "}
             <code className="rounded-sm bg-slate-100 px-1 py-0.5 text-xs">{"{{date}}"}</code> fill in

@@ -93,7 +93,6 @@ export function SpacesManager({
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-lg font-semibold text-slate-900">Spaces</h2>
           <p className="mt-1 text-sm text-slate-500">
             Spaces group related documents — one per team, product, or topic. Public spaces are
             visible to everyone who signs in; private spaces only to admins and the groups you

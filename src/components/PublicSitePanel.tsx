@@ -42,7 +42,6 @@ export function PublicSitePanel({
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-lg font-semibold text-slate-900">Public site</h2>
         <p className="mt-1 text-sm text-slate-500">
           Serve the published documents of <strong>Public</strong> spaces to anyone on the
           internet — no sign-in — at{" "}
