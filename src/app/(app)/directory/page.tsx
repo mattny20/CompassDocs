@@ -1,3 +1,4 @@
+import { BookUser } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import {
   listPeople,
@@ -37,7 +38,9 @@ export default async function DirectoryPage() {
       <div className="print:hidden">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-slate-900">Directory</h1>
+            <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900">
+              <BookUser className="h-6 w-6 text-compass-600" /> Directory
+            </h1>
             <p className="mb-6 mt-1 text-slate-500">
               Find a colleague — search by name, title, department, or email.
             </p>

@@ -1,3 +1,4 @@
+import { Trash2 } from "lucide-react";
 import { requireRole } from "@/lib/auth";
 import { listTrashedDocuments, purgeExpiredTrash } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings-store";
@@ -20,7 +21,9 @@ export default async function TrashPage() {
 
   return (
     <PageContainer>
-      <h1 className="text-2xl font-bold text-slate-900">Trash</h1>
+      <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900">
+        <Trash2 className="h-6 w-6 text-compass-600" /> Trash
+      </h1>
       <p className="mb-6 mt-1 text-slate-500">
         {retention > 0 ? (
           <>

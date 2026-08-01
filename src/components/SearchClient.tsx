@@ -89,7 +89,9 @@ export function SearchClient({
 
   return (
     <div className="mx-auto max-w-3xl px-8 py-8">
-      <h1 className="mb-1 text-2xl font-bold text-slate-900">Ask {companyName}</h1>
+      <h1 className="mb-1 flex items-center gap-2 text-2xl font-bold text-slate-900">
+        <Sparkles className="h-6 w-6 text-compass-600" /> Ask {companyName}
+      </h1>
       <p className="mb-5 text-slate-500">
         Ask a question in plain English, or search by keyword. Answers are grounded in your
         knowledge base.

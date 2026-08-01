@@ -4,6 +4,18 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.82.1] - 2026-08-01
+
+### Fixed
+- **Service status follows your page-width preference.** The Status page was
+  hard-coded to a narrow column and ignored the Normal / Wide / Full setting;
+  it now uses the standard page container like every other page.
+- **Consistent page-title icons.** Newsletter, Review queue, Links,
+  Directory, Ask, Settings, Trash, and Service status now carry the same
+  accent-colored icon beside the page title that Analytics, Announcements,
+  Compliance, and Training already had — and Training's title now matches
+  the standard size.
+
 ## [0.82.0] - 2026-08-01
 
 ### Added

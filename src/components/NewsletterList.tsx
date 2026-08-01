@@ -7,7 +7,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Plus, Mail, CalendarClock } from "lucide-react";
+import { Plus, Mail, CalendarClock, Newspaper } from "lucide-react";
 
 export interface NewsletterRow {
   id: number;
@@ -89,7 +89,9 @@ export function NewsletterList({ initial }: { initial: NewsletterRow[] }) {
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Newsletter</h1>
+          <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900">
+            <Newspaper className="h-6 w-6 text-compass-600" /> Newsletter
+          </h1>
           <p className="mt-1 text-slate-500">
             Draft with the document editor, hand it to an approver for review, then send it
             as a branded email.

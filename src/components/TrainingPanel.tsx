@@ -183,8 +183,8 @@ export function TrainingPanel({
   const Header = ({ extra }: { extra?: React.ReactNode }) => (
     <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
       <div>
-        <h1 className="flex items-center gap-2 text-xl font-bold tracking-tight text-slate-900">
-          <GraduationCap className="h-5 w-5 text-compass-600" /> Training
+        <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900">
+          <GraduationCap className="h-6 w-6 text-compass-600" /> Training
         </h1>
         <p className="mt-0.5 text-sm text-slate-400">
           Assigned decks to work through, with a confirmation recorded at the end.

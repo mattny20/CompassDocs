@@ -14,6 +14,7 @@ import {
   ChevronDown,
   RefreshCw,
   ExternalLink,
+  Link2,
 } from "lucide-react";
 
 interface Category {
@@ -238,7 +239,9 @@ export function LinksAdmin({
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">Links</h1>
+        <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900">
+          <Link2 className="h-6 w-6 text-compass-600" /> Links
+        </h1>
         <p className="mt-1 text-sm text-slate-500">
           Curate the shortcuts shown on the <a href="/links" className="text-compass-700 hover:underline">Links page</a> —
           your team&apos;s launchpad for external tools. Restrict any link to specific groups,
