@@ -806,6 +806,35 @@ const SCHEMA_SQL = `
     FROM training_decks t JOIN documents d ON d.id = t.document_id
     WHERE t.id = h.deck_id AND h.deck_title = '';
 
+  -- 0.82: auditor-grade evidence + team leads. E-signature completions record
+  -- the typed name and a SHA-256 of the exact content confirmed; quiz answers
+  -- persist per question for analytics; point-in-time snapshots store the
+  -- canonical JSON text they were hashed over (text, not jsonb, so the hash
+  -- stays verifiable byte-for-byte); group leads get a scoped team view.
+  ALTER TABLE training_decks ADD COLUMN IF NOT EXISTS require_signature integer NOT NULL DEFAULT 0;
+  ALTER TABLE training_assignments ADD COLUMN IF NOT EXISTS signed_name text;
+  ALTER TABLE training_assignments ADD COLUMN IF NOT EXISTS content_sha256 text;
+  ALTER TABLE training_assignments ADD COLUMN IF NOT EXISTS quiz_answers jsonb;
+  ALTER TABLE training_completion_history ADD COLUMN IF NOT EXISTS signed_name text;
+  ALTER TABLE training_completion_history ADD COLUMN IF NOT EXISTS content_sha256 text;
+  ALTER TABLE training_completion_history ADD COLUMN IF NOT EXISTS quiz_answers jsonb;
+  CREATE TABLE IF NOT EXISTS training_snapshots (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    taken_at timestamptz NOT NULL DEFAULT now(),
+    kind text NOT NULL DEFAULT 'manual',
+    period text NOT NULL DEFAULT '',
+    taken_by text NOT NULL DEFAULT '',
+    sha256 text NOT NULL,
+    data text NOT NULL
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_training_snapshots_monthly
+    ON training_snapshots(period) WHERE kind = 'monthly';
+  CREATE TABLE IF NOT EXISTS group_leads (
+    group_id integer NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+    user_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    PRIMARY KEY (group_id, user_id)
+  );
+
   -- Quick links: an admin-curated launchpad of external shortcuts (Duo
   -- Central-style bookmarks). A link with no link_groups rows is visible to
   -- every signed-in user; with rows, only to members of those groups (admins
@@ -2634,9 +2663,10 @@ export async function deleteUser(id: number): Promise<boolean> {
   await q(
     `INSERT INTO training_completion_history
        (deck_id, user_id, assigned_at, completed_at, confirmed_version, quiz_score, quiz_total,
-        source, user_name, user_email, deck_title)
+        source, user_name, user_email, deck_title, signed_name, content_sha256, quiz_answers)
      SELECT a.deck_id, a.user_id, a.assigned_at, a.completed_at, a.confirmed_version,
-            a.quiz_score, a.quiz_total, a.source, u.name, u.email, d.title
+            a.quiz_score, a.quiz_total, a.source, u.name, u.email, d.title,
+            a.signed_name, a.content_sha256, a.quiz_answers
      FROM training_assignments a
      JOIN users u ON u.id = a.user_id
      JOIN training_decks t ON t.id = a.deck_id
@@ -3655,6 +3685,7 @@ export interface TrainingDeck {
   pass_pct: number;
   recert_months: number | null;
   tag: string;
+  require_signature: number;
   title: string;
   space_name: string;
   space_icon: string;
@@ -3692,6 +3723,7 @@ export async function updateTrainingDeck(
     pass_pct?: number;
     recert_months?: number | null;
     tag?: string;
+    require_signature?: boolean;
   }
 ): Promise<void> {
   const sets: string[] = [];
@@ -3717,6 +3749,8 @@ export async function updateTrainingDeck(
     vals.push(patch.tag.slice(0, 60));
     sets.push(`tag = $${vals.length}`);
   }
+  if (patch.require_signature !== undefined)
+    sets.push(`require_signature = ${patch.require_signature ? 1 : 0}`);
   if (!sets.length) return;
   await q(`UPDATE training_decks SET ${sets.join(", ")} WHERE id = $1`, vals);
 }
@@ -3755,9 +3789,10 @@ export async function deleteTrainingDeck(id: number): Promise<void> {
   await q(
     `INSERT INTO training_completion_history
        (deck_id, user_id, assigned_at, completed_at, confirmed_version, quiz_score, quiz_total,
-        source, user_name, user_email, deck_title)
+        source, user_name, user_email, deck_title, signed_name, content_sha256, quiz_answers)
      SELECT a.deck_id, a.user_id, a.assigned_at, a.completed_at, a.confirmed_version,
-            a.quiz_score, a.quiz_total, a.source, u.name, u.email, d.title
+            a.quiz_score, a.quiz_total, a.source, u.name, u.email, d.title,
+            a.signed_name, a.content_sha256, a.quiz_answers
      FROM training_assignments a
      JOIN users u ON u.id = a.user_id
      JOIN training_decks t ON t.id = a.deck_id
@@ -3864,6 +3899,7 @@ export interface MyTraining {
   quiz_total: number | null;
   pass_pct: number;
   source: string;
+  require_signature: number;
 }
 
 export async function listMyTraining(userId: number): Promise<MyTraining[]> {
@@ -3871,7 +3907,7 @@ export async function listMyTraining(userId: number): Promise<MyTraining[]> {
     `SELECT a.id AS assignment_id, t.id AS deck_id, d.id AS document_id, d.title,
             s.name AS space_name, s.icon AS space_icon, d.content,
             a.assigned_at, a.due_at, a.last_slide, a.completed_at,
-            a.quiz_score, a.quiz_total, t.pass_pct, a.source
+            a.quiz_score, a.quiz_total, t.pass_pct, a.source, t.require_signature
      FROM training_assignments a
      JOIN training_decks t ON t.id = a.deck_id
      JOIN documents d ON d.id = t.document_id
@@ -3893,7 +3929,7 @@ export async function getMyTrainingAssignment(
       `SELECT a.id AS assignment_id, t.id AS deck_id, d.id AS document_id, d.title,
               s.name AS space_name, s.icon AS space_icon, d.content,
               a.assigned_at, a.due_at, a.last_slide, a.completed_at,
-            a.quiz_score, a.quiz_total, t.pass_pct, a.source
+            a.quiz_score, a.quiz_total, t.pass_pct, a.source, t.require_signature
        FROM training_assignments a
        JOIN training_decks t ON t.id = a.deck_id
        JOIN documents d ON d.id = t.document_id
@@ -3917,15 +3953,22 @@ export async function setTrainingProgress(
   );
 }
 
-/** Confirm completion once; records the doc version being confirmed. */
+/**
+ * Confirm completion once; records the doc version being confirmed, a
+ * SHA-256 of the exact content confirmed, and (when the deck demands an
+ * e-signature) the name the trainee typed.
+ */
 export async function completeTraining(
   assignmentId: number,
-  userId: number
+  userId: number,
+  evidence: { contentSha256: string; signedName: string | null }
 ): Promise<{ deck_id: number; confirmed_version: number | null } | undefined> {
   return (
     await q<{ deck_id: number; confirmed_version: number | null }>(
       `UPDATE training_assignments a
        SET completed_at = now(),
+           content_sha256 = $3,
+           signed_name = $4,
            confirmed_version = (
              SELECT MAX(v.id) FROM doc_versions v
              JOIN training_decks t ON t.id = a.deck_id
@@ -3933,7 +3976,7 @@ export async function completeTraining(
            )
        WHERE a.id = $1 AND a.user_id = $2 AND a.completed_at IS NULL
        RETURNING a.deck_id, a.confirmed_version`,
-      [assignmentId, userId]
+      [assignmentId, userId, evidence.contentSha256, evidence.signedName]
     )
   )[0];
 }
@@ -3953,13 +3996,15 @@ export interface TrainingStatusRow {
   quiz_score: number | null;
   quiz_total: number | null;
   prior_completions: number;
+  signed_name: string | null;
+  content_sha256: string | null;
 }
 
 export async function trainingDeckStatus(deckId: number): Promise<TrainingStatusRow[]> {
   return q(
     `SELECT a.id AS assignment_id, a.user_id, u.name, u.username, u.email, a.assigned_at, a.due_at,
             a.last_slide, a.completed_at, a.confirmed_version, a.source,
-            a.quiz_score, a.quiz_total,
+            a.quiz_score, a.quiz_total, a.signed_name, a.content_sha256,
             (SELECT COUNT(*)::int FROM training_completion_history h
              WHERE h.deck_id = a.deck_id AND h.user_id = a.user_id) AS prior_completions
      FROM training_assignments a JOIN users u ON u.id = a.user_id
@@ -4013,18 +4058,37 @@ export async function claimTrainingReminders(): Promise<
   );
 }
 
-/** Store a quiz result (latest attempt wins; only before completion). */
+/**
+ * Store a quiz result (latest attempt wins; only before completion). The
+ * per-question outcome array feeds the deck's question analytics.
+ */
 export async function setTrainingQuizScore(
   assignmentId: number,
   userId: number,
   score: number,
-  total: number
+  total: number,
+  results: boolean[]
 ): Promise<void> {
   await q(
-    `UPDATE training_assignments SET quiz_score = $3, quiz_total = $4
+    `UPDATE training_assignments SET quiz_score = $3, quiz_total = $4, quiz_answers = $5
      WHERE id = $1 AND user_id = $2 AND completed_at IS NULL`,
-    [assignmentId, userId, score, total]
+    [assignmentId, userId, score, total, JSON.stringify(results)]
   );
+}
+
+/** Per-question outcome arrays for a deck — live attempts plus prior cycles. */
+export async function trainingQuizResultRows(deckId: number): Promise<boolean[][]> {
+  const rows = await q<{ quiz_answers: unknown }>(
+    `SELECT quiz_answers FROM training_assignments
+     WHERE deck_id = $1 AND quiz_answers IS NOT NULL
+     UNION ALL
+     SELECT quiz_answers FROM training_completion_history
+     WHERE deck_id = $1 AND quiz_answers IS NOT NULL`,
+    [deckId]
+  );
+  return rows
+    .map((r) => r.quiz_answers)
+    .filter((a): a is boolean[] => Array.isArray(a) && a.every((x) => typeof x === "boolean"));
 }
 
 /**
@@ -4048,9 +4112,10 @@ async function reopenAssignments(where: string, params: unknown[]): Promise<
      hist AS (
        INSERT INTO training_completion_history
          (deck_id, user_id, assigned_at, completed_at, confirmed_version, quiz_score, quiz_total,
-          source, user_name, user_email, deck_title)
+          source, user_name, user_email, deck_title, signed_name, content_sha256, quiz_answers)
        SELECT a.deck_id, a.user_id, a.assigned_at, a.completed_at, a.confirmed_version,
-              a.quiz_score, a.quiz_total, a.source, u.name, u.email, d2.title
+              a.quiz_score, a.quiz_total, a.source, u.name, u.email, d2.title,
+              a.signed_name, a.content_sha256, a.quiz_answers
        FROM training_assignments a
        JOIN due ON due.id = a.id
        JOIN users u ON u.id = a.user_id
@@ -4059,7 +4124,8 @@ async function reopenAssignments(where: string, params: unknown[]): Promise<
      )
      UPDATE training_assignments a
      SET completed_at = NULL, confirmed_version = NULL, last_slide = 0,
-         quiz_score = NULL, quiz_total = NULL, reminded_at = NULL, escalated_at = NULL,
+         quiz_score = NULL, quiz_total = NULL, quiz_answers = NULL,
+         signed_name = NULL, content_sha256 = NULL, reminded_at = NULL, escalated_at = NULL,
          assigned_at = now(), source = 'recert',
          due_at = (SELECT CASE WHEN t.due_days IS NULL THEN NULL
                                ELSE now() + make_interval(days => t.due_days) END
@@ -4174,7 +4240,7 @@ export async function trainingOrgRows(): Promise<
   return q(
     `SELECT d.title AS deck, a.id AS assignment_id, a.user_id, u.name, u.username, u.email, a.assigned_at, a.due_at,
             a.last_slide, a.completed_at, a.confirmed_version, a.source,
-            a.quiz_score, a.quiz_total,
+            a.quiz_score, a.quiz_total, a.signed_name, a.content_sha256,
             (SELECT COUNT(*)::int FROM training_completion_history h
              WHERE h.deck_id = a.deck_id AND h.user_id = a.user_id) AS prior_completions
      FROM training_assignments a
@@ -4193,6 +4259,8 @@ export async function getTrainingAssignment(assignmentId: number): Promise<
       user_name: string;
       username: string;
       confirmed_version: number | null;
+      signed_name: string | null;
+      content_sha256: string | null;
     })
   | undefined
 > {
@@ -4202,13 +4270,16 @@ export async function getTrainingAssignment(assignmentId: number): Promise<
       user_name: string;
       username: string;
       confirmed_version: number | null;
+      signed_name: string | null;
+      content_sha256: string | null;
     }
   >(
     `SELECT a.id AS assignment_id, t.id AS deck_id, d.id AS document_id, d.title,
             s.name AS space_name, s.icon AS space_icon, d.content,
             a.assigned_at, a.due_at, a.last_slide, a.completed_at,
-            a.quiz_score, a.quiz_total, t.pass_pct, a.source,
-            a.user_id, u.name AS user_name, u.username, a.confirmed_version
+            a.quiz_score, a.quiz_total, t.pass_pct, a.source, t.require_signature,
+            a.user_id, u.name AS user_name, u.username, a.confirmed_version,
+            a.signed_name, a.content_sha256
      FROM training_assignments a
      JOIN training_decks t ON t.id = a.deck_id
      JOIN documents d ON d.id = t.document_id
@@ -4541,6 +4612,195 @@ export async function isTrainingDeckDoc(documentId: number): Promise<boolean> {
     [documentId]
   );
   return r.length > 0;
+}
+
+// --- Training snapshots, history export, team leads (0.82) -------------------------
+
+export interface TrainingSnapshotMeta {
+  id: number;
+  taken_at: string;
+  kind: string;
+  period: string;
+  taken_by: string;
+  sha256: string;
+}
+
+/**
+ * Store a point-in-time snapshot. `data` is the canonical JSON TEXT the
+ * sha256 was computed over — stored verbatim so auditors can re-hash the
+ * download byte-for-byte. Monthly snapshots are unique per period (the
+ * partial index makes the claim atomic across instances); returns null when
+ * this period was already taken.
+ */
+export async function insertTrainingSnapshot(input: {
+  kind: "manual" | "monthly";
+  period: string;
+  takenBy: string;
+  sha256: string;
+  data: string;
+}): Promise<number | null> {
+  const r = await q<{ id: number }>(
+    input.kind === "monthly"
+      ? `INSERT INTO training_snapshots (kind, period, taken_by, sha256, data)
+         VALUES ('monthly', $1, $2, $3, $4)
+         ON CONFLICT (period) WHERE kind = 'monthly' DO NOTHING
+         RETURNING id`
+      : `INSERT INTO training_snapshots (kind, period, taken_by, sha256, data)
+         VALUES ('manual', $1, $2, $3, $4)
+         RETURNING id`,
+    [input.period, input.takenBy.slice(0, 200), input.sha256, input.data]
+  );
+  return r[0]?.id ?? null;
+}
+
+export async function listTrainingSnapshots(): Promise<TrainingSnapshotMeta[]> {
+  return q(
+    `SELECT id, taken_at, kind, period, taken_by, sha256
+     FROM training_snapshots ORDER BY taken_at DESC LIMIT 100`
+  );
+}
+
+export async function getTrainingSnapshot(
+  id: number
+): Promise<(TrainingSnapshotMeta & { data: string }) | undefined> {
+  return (await q(`SELECT * FROM training_snapshots WHERE id = $1`, [id]))[0] as
+    | (TrainingSnapshotMeta & { data: string })
+    | undefined;
+}
+
+export interface TrainingHistoryRow {
+  deck_title: string;
+  user_name: string;
+  user_email: string;
+  assigned_at: string;
+  completed_at: string | null;
+  confirmed_version: number | null;
+  quiz_score: number | null;
+  quiz_total: number | null;
+  source: string;
+  signed_name: string | null;
+  content_sha256: string | null;
+  closed_at: string;
+}
+
+/** Every closed training cycle (audit package + history CSV). */
+export async function listTrainingHistory(): Promise<TrainingHistoryRow[]> {
+  return q(
+    `SELECT COALESCE(NULLIF(h.deck_title, ''),
+                     (SELECT d.title FROM training_decks t JOIN documents d ON d.id = t.document_id
+                      WHERE t.id = h.deck_id), '') AS deck_title,
+            h.user_name, h.user_email, h.assigned_at, h.completed_at, h.confirmed_version,
+            h.quiz_score, h.quiz_total, h.source, h.signed_name, h.content_sha256, h.closed_at
+     FROM training_completion_history h
+     ORDER BY h.closed_at DESC`
+  );
+}
+
+/**
+ * Atomic once-per-period claim backed by the settings table (weekly team
+ * digests). True exactly once per distinct value, across instances.
+ */
+export async function claimTrainingPeriod(key: string, period: string): Promise<boolean> {
+  const r = await q<{ key: string }>(
+    `INSERT INTO settings (key, value) VALUES ($1, $2)
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+     WHERE settings.value <> EXCLUDED.value
+     RETURNING key`,
+    [key, period]
+  );
+  return r.length > 0;
+}
+
+export interface GroupLeadRow {
+  group_id: number;
+  group_name: string;
+  user_id: number;
+  name: string;
+  username: string;
+}
+
+/** All lead grants, joined for display (managers' Team leads block). */
+export async function listGroupLeads(): Promise<GroupLeadRow[]> {
+  return q(
+    `SELECT gl.group_id, g.name AS group_name, gl.user_id, u.name, u.username
+     FROM group_leads gl
+     JOIN groups g ON g.id = gl.group_id
+     JOIN users u ON u.id = gl.user_id AND u.status = 'active'
+     ORDER BY g.name, u.name`
+  );
+}
+
+export async function setGroupLeads(groupId: number, userIds: number[]): Promise<void> {
+  await q(`DELETE FROM group_leads WHERE group_id = $1`, [groupId]);
+  if (userIds.length) {
+    await q(
+      `INSERT INTO group_leads (group_id, user_id)
+       SELECT $1, u.id FROM users u WHERE u.id = ANY($2) AND u.status = 'active'
+       ON CONFLICT DO NOTHING`,
+      [groupId, userIds]
+    );
+  }
+}
+
+/** Groups this user leads (empty = no team view). */
+export async function userLeadGroups(userId: number): Promise<{ id: number; name: string }[]> {
+  return q(
+    `SELECT g.id, g.name FROM group_leads gl JOIN groups g ON g.id = gl.group_id
+     WHERE gl.user_id = $1 ORDER BY g.name`,
+    [userId]
+  );
+}
+
+export interface TeamTrainingRow {
+  group_id: number;
+  group_name: string;
+  user_id: number;
+  name: string;
+  username: string;
+  deck: string;
+  due_at: string | null;
+  completed_at: string | null;
+  source: string;
+  last_slide: number;
+}
+
+/**
+ * Training status for every member of the given groups (the lead's scoped
+ * view): one row per member × live assignment on an active deck. Members
+ * with no assignments still appear (deck = '').
+ */
+export async function teamTrainingRows(groupIds: number[]): Promise<TeamTrainingRow[]> {
+  if (!groupIds.length) return [];
+  return q(
+    `SELECT g.id AS group_id, g.name AS group_name, u.id AS user_id, u.name, u.username,
+            COALESCE(x.deck, '') AS deck, x.due_at, x.completed_at,
+            COALESCE(x.source, '') AS source, COALESCE(x.last_slide, 0) AS last_slide
+     FROM groups g
+     JOIN group_members gm ON gm.group_id = g.id
+     JOIN users u ON u.id = gm.user_id AND u.status = 'active'
+     LEFT JOIN (
+       SELECT a.user_id, a.due_at, a.completed_at, a.source, a.last_slide, d.title AS deck
+       FROM training_assignments a
+       JOIN training_decks t ON t.id = a.deck_id AND t.active = 1 AND t.archived_at IS NULL
+       JOIN documents d ON d.id = t.document_id AND d.status = 'published' AND d.deleted_at IS NULL
+     ) x ON x.user_id = u.id
+     WHERE g.id = ANY($1)
+     ORDER BY g.name, u.name, (x.completed_at IS NULL) DESC, x.due_at NULLS LAST, x.deck`,
+    [groupIds]
+  );
+}
+
+/** Every lead (deduped) with email + the groups they lead — weekly digest. */
+export async function listTrainingDigestLeads(): Promise<
+  { user_id: number; name: string; email: string; group_ids: number[] }[]
+> {
+  return q(
+    `SELECT u.id AS user_id, u.name, u.email, array_agg(gl.group_id) AS group_ids
+     FROM group_leads gl
+     JOIN users u ON u.id = gl.user_id AND u.status = 'active' AND u.email <> ''
+     GROUP BY u.id, u.name, u.email
+     ORDER BY u.name`
+  );
 }
 
 // --- Quick links (external shortcuts launchpad) ----------------------------------

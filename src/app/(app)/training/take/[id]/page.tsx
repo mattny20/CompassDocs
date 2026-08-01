@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/auth";
 import { featureEnabled } from "@/lib/ee";
-import { getMyTrainingAssignment } from "@/lib/db";
+import { getMyTrainingAssignment, getUserByUsername } from "@/lib/db";
 import { parseDeck, publicQuiz, defaultComplianceText } from "@/lib/training";
 import { TrainingPlayer } from "@/components/TrainingPlayer";
 
@@ -18,6 +18,10 @@ export default async function TrainingTakePage({ params }: { params: Promise<{ i
   if (!assignment) notFound();
 
   const { slides, quizzes, complianceText } = parseDeck(assignment.content);
+  // E-signature: local accounts also re-enter their password; SSO accounts
+  // (no local password) sign by typed name alone.
+  const record =
+    assignment.require_signature === 1 ? await getUserByUsername(user.username) : undefined;
   return (
     <TrainingPlayer
       assignmentId={assignment.assignment_id}
@@ -34,6 +38,15 @@ export default async function TrainingTakePage({ params }: { params: Promise<{ i
       completedAt={assignment.completed_at}
       waived={assignment.source === "waived"}
       dueAt={assignment.due_at}
+      signature={
+        assignment.require_signature === 1
+          ? {
+              required: true,
+              passwordRequired: Boolean(record?.password_hash && record?.password_salt),
+              expectedName: user.name || user.username,
+            }
+          : undefined
+      }
     />
   );
 }

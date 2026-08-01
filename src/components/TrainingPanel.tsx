@@ -10,7 +10,9 @@ import Link from "next/link";
 import {
   Archive,
   Award,
+  BarChart3,
   BellRing,
+  Camera,
   ChevronDown,
   ChevronRight,
   CircleAlert,
@@ -20,7 +22,10 @@ import {
   GraduationCap,
   Layers,
   LoaderCircle,
+  Mail,
+  Package,
   Pencil,
+  PenLine,
   Play,
   Plus,
   RotateCcw,
@@ -60,6 +65,7 @@ interface Deck {
   pass_pct: number;
   recert_months: number | null;
   tag: string;
+  require_signature: number;
   assigned: number;
   completed: number;
   waived: number;
@@ -125,8 +131,16 @@ function Toasts({ toasts, dismiss }: { toasts: Toast[]; dismiss: (id: number) =>
   );
 }
 
-export function TrainingPanel({ licensed, manager }: { licensed: boolean; manager: boolean }) {
-  const [tab, setTab] = useState<"mine" | "overview" | "decks">("mine");
+export function TrainingPanel({
+  licensed,
+  manager,
+  teamLead = false,
+}: {
+  licensed: boolean;
+  manager: boolean;
+  teamLead?: boolean;
+}) {
+  const [tab, setTab] = useState<"mine" | "overview" | "matrix" | "decks">("mine");
   const [mine, setMine] = useState<MyItem[] | null>(null);
   const [decks, setDecks] = useState<Deck[] | null>(null);
   const [programs, setPrograms] = useState<Program[]>([]);
@@ -201,6 +215,7 @@ export function TrainingPanel({ licensed, manager }: { licensed: boolean; manage
                 [
                   ["mine", "My training"],
                   ["overview", "Overview"],
+                  ["matrix", "Matrix"],
                   ["decks", "Manage decks"],
                 ] as const
               ).map(([key, label]) => (
@@ -222,9 +237,11 @@ export function TrainingPanel({ licensed, manager }: { licensed: boolean; manage
       <Toasts toasts={toasts} dismiss={dismissToast} />
 
       {tab === "mine" || !manager ? (
-        <MyTraining mine={mine} />
+        <MyTraining mine={mine} teamLead={teamLead} />
       ) : tab === "overview" ? (
-        <Overview onError={onError} onNotice={onNotice} />
+        <Overview onError={onError} onNotice={onNotice} userOpts={userOpts} />
+      ) : tab === "matrix" ? (
+        <MatrixView />
       ) : (
         <ManageDecks
           decks={decks}
@@ -244,22 +261,39 @@ export function TrainingPanel({ licensed, manager }: { licensed: boolean; manage
 
 // --- My training ------------------------------------------------------------
 
-function MyTraining({ mine }: { mine: MyItem[] | null }) {
+function MyTraining({ mine, teamLead = false }: { mine: MyItem[] | null; teamLead?: boolean }) {
+  const teamLink = teamLead ? (
+    <p className="mb-4 flex items-center gap-2 rounded-xl border border-compass-200 bg-compass-50/60 px-4 py-2.5 text-sm text-compass-800 dark:bg-compass-100/20">
+      <Users className="h-4 w-4 shrink-0" />
+      You lead a team —{" "}
+      <Link href="/training/team" className="font-semibold underline underline-offset-2">
+        see your team&apos;s training
+      </Link>
+    </p>
+  ) : null;
   if (!mine) {
     return (
-      <div className="flex items-center gap-2 py-10 text-sm text-slate-400">
-        <LoaderCircle className="h-4 w-4 animate-spin" /> Loading…
+      <div>
+        {teamLink}
+        <div className="flex items-center gap-2 py-10 text-sm text-slate-400">
+          <LoaderCircle className="h-4 w-4 animate-spin" /> Loading…
+        </div>
       </div>
     );
   }
   if (!mine.length) {
     return (
-      <p className="rounded-xl border border-slate-200 bg-surface px-4 py-10 text-center text-sm text-slate-400 shadow-xs">
-        Nothing assigned — when training lands here, you&apos;ll also get a notification.
-      </p>
+      <div>
+        {teamLink}
+        <p className="rounded-xl border border-slate-200 bg-surface px-4 py-10 text-center text-sm text-slate-400 shadow-xs">
+          Nothing assigned — when training lands here, you&apos;ll also get a notification.
+        </p>
+      </div>
     );
   }
   return (
+    <div>
+      {teamLink}
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {mine.map((it) => {
         const pct = it.completed_at
@@ -317,6 +351,7 @@ function MyTraining({ mine }: { mine: MyItem[] | null }) {
           </div>
         );
       })}
+      </div>
     </div>
   );
 }
@@ -356,7 +391,15 @@ const REASON_LABEL: Record<AttentionRow["reason"], { text: string; cls: string }
   stalled: { text: "Stalled 14d+", cls: "bg-slate-100 text-slate-500" },
 };
 
-function Overview({ onError, onNotice }: { onError: (s: string) => void; onNotice: (s: string) => void }) {
+function Overview({
+  onError,
+  onNotice,
+  userOpts,
+}: {
+  onError: (s: string) => void;
+  onNotice: (s: string) => void;
+  userOpts: PickerOption[];
+}) {
   const [data, setData] = useState<OverviewData | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
   const refresh = useCallback(async () => {
@@ -518,7 +561,403 @@ function Overview({ onError, onNotice }: { onError: (s: string) => void; onNotic
           )}
         </ul>
       </section>
+
+      <Evidence onError={onError} onNotice={onNotice} />
+      <ReportSettings onError={onError} onNotice={onNotice} userOpts={userOpts} />
+      <TeamLeads onError={onError} onNotice={onNotice} userOpts={userOpts} />
     </div>
+  );
+}
+
+// --- Evidence: point-in-time snapshots + the one-click audit package --------
+
+interface SnapshotMeta {
+  id: number;
+  taken_at: string;
+  kind: string;
+  period: string;
+  taken_by: string;
+  sha256: string;
+}
+
+function Evidence({ onError, onNotice }: { onError: (s: string) => void; onNotice: (s: string) => void }) {
+  const [snapshots, setSnapshots] = useState<SnapshotMeta[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(async () => {
+    const d = await fetch("/api/training/snapshots").then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    if (d) setSnapshots(d.snapshots);
+  }, []);
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function take() {
+    setBusy(true);
+    const res = await fetch("/api/training/snapshots", { method: "POST" });
+    const d = (await res.json().catch(() => ({}))) as { error?: string; sha256?: string };
+    if (!res.ok) onError(d.error || "Could not take the snapshot.");
+    else onNotice(`Snapshot stored — SHA-256 ${String(d.sha256 ?? "").slice(0, 12)}…`);
+    setBusy(false);
+    await load();
+  }
+
+  return (
+    <section className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
+            <Camera className="h-4 w-4 text-compass-600" /> Evidence
+          </h2>
+          <p className="mt-0.5 text-xs text-slate-400">
+            A snapshot is taken automatically every month; each stores the exact records with a
+            SHA-256 an auditor can verify. The audit package bundles everything as one ZIP.
+          </p>
+        </div>
+        <div className="flex items-center gap-2 text-sm">
+          <button
+            onClick={() => void take()}
+            disabled={busy}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+          >
+            {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
+            Take snapshot now
+          </button>
+          <a
+            href="/api/training/audit-package"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-compass-600 px-3 py-1.5 font-semibold text-white hover:bg-compass-700"
+          >
+            <Package className="h-4 w-4" /> Audit package (ZIP)
+          </a>
+        </div>
+      </div>
+      {snapshots && snapshots.length > 0 && (
+        <ul className="mt-3 divide-y divide-slate-100 rounded-lg border border-slate-100">
+          {snapshots.slice(0, 8).map((s) => (
+            <li key={s.id} className="flex flex-wrap items-center gap-2 px-3 py-1.5 text-sm">
+              <span
+                className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                  s.kind === "monthly" ? "bg-compass-50 text-compass-700" : "bg-slate-100 text-slate-500"
+                }`}
+              >
+                {s.kind === "monthly" ? s.period : "manual"}
+              </span>
+              <span className="text-xs text-slate-500">{fmtDay(s.taken_at)}</span>
+              {s.taken_by && s.taken_by !== "scheduled" && (
+                <span className="text-xs text-slate-400">by {s.taken_by}</span>
+              )}
+              <code className="min-w-0 flex-1 truncate text-right text-[11px] text-slate-400" title={s.sha256}>
+                {s.sha256.slice(0, 16)}…
+              </code>
+              <a
+                href={`/api/training/snapshots/${s.id}`}
+                title="Download snapshot JSON"
+                aria-label={`Download snapshot ${s.id}`}
+                className="inline-flex items-center rounded-md border border-slate-200 p-1 text-slate-500 hover:bg-slate-50"
+              >
+                <Download className="h-3.5 w-3.5" />
+              </a>
+            </li>
+          ))}
+          {snapshots.length > 8 && (
+            <li className="px-3 py-1.5 text-xs text-slate-400">
+              {snapshots.length - 8} older snapshots are included in the audit package.
+            </li>
+          )}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+// --- Monthly report email settings ------------------------------------------
+
+function ReportSettings({
+  onError,
+  onNotice,
+  userOpts,
+}: {
+  onError: (s: string) => void;
+  onNotice: (s: string) => void;
+  userOpts: PickerOption[];
+}) {
+  const [enabled, setEnabled] = useState(false);
+  const [userIds, setUserIds] = useState<number[]>([]);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    void fetch("/api/training/report")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d) {
+          setEnabled(d.enabled === true);
+          setUserIds(Array.isArray(d.user_ids) ? d.user_ids : []);
+        }
+        setLoaded(true);
+      })
+      .catch(() => setLoaded(true));
+  }, []);
+
+  async function save(next: { enabled: boolean; user_ids: number[] }) {
+    const res = await fetch("/api/training/report", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(next),
+    });
+    if (!res.ok) {
+      const d = (await res.json().catch(() => ({}))) as { error?: string };
+      onError(d.error || "Could not save the report settings.");
+    } else onNotice("Report settings saved.");
+  }
+
+  return (
+    <section className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
+      <h2 className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
+        <Mail className="h-4 w-4 text-compass-600" /> Monthly report email
+      </h2>
+      <p className="mt-0.5 text-xs text-slate-400">
+        Sent with each monthly snapshot: completion, overdue counts, and the decks that need
+        attention.
+      </p>
+      {loaded && (
+        <div className="mt-3 space-y-2">
+          <label className="flex items-center gap-1.5 text-sm text-slate-600">
+            <input
+              type="checkbox"
+              checked={enabled}
+              onChange={(e) => {
+                setEnabled(e.target.checked);
+                void save({ enabled: e.target.checked, user_ids: userIds });
+              }}
+            />
+            Send the monthly training report
+          </label>
+          {enabled && (
+            <div className="max-w-lg">
+              <EntityPicker
+                options={userOpts}
+                value={userIds}
+                onChange={(ids) => {
+                  setUserIds(ids);
+                  void save({ enabled, user_ids: ids });
+                }}
+                placeholder="Add recipients…"
+              />
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+// --- Team leads: who gets the scoped team view + weekly digest --------------
+
+interface LeadRow {
+  group_id: number;
+  group_name: string;
+  user_id: number;
+}
+
+function TeamLeads({
+  onError,
+  onNotice,
+  userOpts,
+}: {
+  onError: (s: string) => void;
+  onNotice: (s: string) => void;
+  userOpts: PickerOption[];
+}) {
+  const [groups, setGroups] = useState<{ id: number; name: string }[]>([]);
+  const [leads, setLeads] = useState<Map<number, number[]>>(new Map());
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    void fetch("/api/training/leads")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { groups?: { id: number; name: string }[]; leads?: LeadRow[] } | null) => {
+        if (d) {
+          setGroups(d.groups ?? []);
+          const m = new Map<number, number[]>();
+          for (const l of d.leads ?? []) m.set(l.group_id, [...(m.get(l.group_id) ?? []), l.user_id]);
+          setLeads(m);
+        }
+        setLoaded(true);
+      })
+      .catch(() => setLoaded(true));
+  }, []);
+
+  async function save(groupId: number, userIds: number[]) {
+    setLeads((m) => new Map(m).set(groupId, userIds));
+    const res = await fetch("/api/training/leads", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ group_id: groupId, user_ids: userIds }),
+    });
+    if (!res.ok) {
+      const d = (await res.json().catch(() => ({}))) as { error?: string };
+      onError(d.error || "Could not save the team leads.");
+    } else onNotice("Team leads saved.");
+  }
+
+  return (
+    <section className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
+      <h2 className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
+        <Users className="h-4 w-4 text-compass-600" /> Team leads
+      </h2>
+      <p className="mt-0.5 text-xs text-slate-400">
+        Leads see a scoped view of their own group&apos;s training (no manager access needed) and
+        get a weekly email summary.
+      </p>
+      {loaded &&
+        (groups.length === 0 ? (
+          <p className="mt-2 text-sm text-slate-400">
+            No groups yet — create them under Settings → Groups.
+          </p>
+        ) : (
+          <div className="mt-3 space-y-2">
+            {groups.map((g) => (
+              <div key={g.id} className="flex flex-wrap items-center gap-2">
+                <span className="w-44 truncate text-sm font-medium text-slate-700" title={g.name}>
+                  {g.name}
+                </span>
+                <div className="min-w-64 flex-1 sm:max-w-lg">
+                  <EntityPicker
+                    options={userOpts}
+                    value={leads.get(g.id) ?? []}
+                    onChange={(ids) => void save(g.id, ids)}
+                    placeholder="Add leads…"
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        ))}
+    </section>
+  );
+}
+
+// --- Compliance matrix: people × decks --------------------------------------
+
+type MatrixCell = "completed" | "waived" | "overdue" | "open" | null;
+
+interface MatrixData {
+  decks: { id: number; title: string; tag: string }[];
+  people: { user_id: number; name: string; username: string; cells: MatrixCell[] }[];
+}
+
+const CELL_STYLE: Record<Exclude<MatrixCell, null>, string> = {
+  completed: "bg-emerald-100 text-emerald-700",
+  waived: "bg-slate-100 text-slate-500",
+  overdue: "bg-red-100 text-red-700",
+  open: "bg-compass-50 text-compass-700",
+};
+const CELL_SHORT: Record<Exclude<MatrixCell, null>, string> = {
+  completed: "Done",
+  waived: "Waived",
+  overdue: "Overdue",
+  open: "Open",
+};
+
+function MatrixView() {
+  const [data, setData] = useState<MatrixData | null>(null);
+  const [query, setQuery] = useState("");
+  useEffect(() => {
+    void fetch("/api/training/matrix")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && setData(d))
+      .catch(() => {});
+  }, []);
+
+  if (!data) {
+    return (
+      <div className="flex items-center gap-2 py-10 text-sm text-slate-400">
+        <LoaderCircle className="h-4 w-4 animate-spin" /> Loading…
+      </div>
+    );
+  }
+  const needle = query.trim().toLowerCase();
+  const people = needle
+    ? data.people.filter((p) => `${p.name} ${p.username}`.toLowerCase().includes(needle))
+    : data.people;
+
+  return (
+    <section className="rounded-xl border border-slate-200 bg-surface shadow-xs">
+      <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-4 py-3">
+        <div>
+          <h2 className="text-sm font-semibold text-slate-800">Compliance matrix</h2>
+          <p className="text-xs text-slate-400">
+            Everyone with at least one assignment, across every deck.
+          </p>
+        </div>
+        <div className="relative ml-auto min-w-44">
+          <Search className="pointer-events-none absolute left-2.5 top-2 h-4 w-4 text-slate-400" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Find a person…"
+            className="w-full rounded-lg border border-slate-200 bg-surface py-1.5 pl-8 pr-3 text-sm outline-hidden placeholder:text-slate-400 focus:border-compass-400"
+          />
+        </div>
+        <a
+          href="/api/training/matrix?format=csv"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+        >
+          <Download className="h-4 w-4" /> CSV
+        </a>
+      </div>
+      {data.decks.length === 0 || data.people.length === 0 ? (
+        <p className="px-4 py-8 text-center text-sm text-slate-400">
+          Nothing to show yet — assign a deck first.
+        </p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-100 text-left text-[11px] uppercase tracking-wide text-slate-400">
+                <th className="sticky left-0 bg-surface px-4 py-2">Person</th>
+                {data.decks.map((d) => (
+                  <th key={d.id} className="max-w-40 truncate px-2 py-2" title={d.title}>
+                    {d.title}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {people.map((p) => (
+                <tr key={p.user_id}>
+                  <td className="sticky left-0 bg-surface px-4 py-1.5">
+                    <Link
+                      href={`/training/person/${p.user_id}`}
+                      className="font-medium text-slate-700 hover:text-compass-600 hover:underline"
+                    >
+                      {p.name}
+                    </Link>
+                  </td>
+                  {p.cells.map((c, i) => (
+                    <td key={i} className="px-2 py-1.5">
+                      {c ? (
+                        <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${CELL_STYLE[c]}`}>
+                          {CELL_SHORT[c]}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-slate-300">—</span>
+                      )}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+              {people.length === 0 && (
+                <tr>
+                  <td colSpan={1 + data.decks.length} className="px-4 py-6 text-center text-sm text-slate-400">
+                    Nobody matches.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -1134,10 +1573,14 @@ function DeckCard({
   const [recert, setRecert] = useState(deck.recert_months ? String(deck.recert_months) : "");
   const [due, setDue] = useState(deck.due_days ? String(deck.due_days) : "");
   const [tag, setTag] = useState(deck.tag);
+  const [stats, setStats] = useState<{ question: string; attempts: number; correct: number; pct: number }[]>([]);
 
   async function loadPeople() {
     const res = await fetch(`/api/training/decks/${deck.id}`).then((r) => (r.ok ? r.json() : null)).catch(() => null);
-    if (res) setPeople(res.rows);
+    if (res) {
+      setPeople(res.rows);
+      setStats(res.question_stats ?? []);
+    }
   }
   useEffect(() => {
     void loadPeople();
@@ -1309,6 +1752,21 @@ function DeckCard({
           />
           Auto-assign to new members
         </label>
+        <label className="flex items-center gap-1.5" title="Trainees type their full name (and local accounts re-enter their password) to confirm — recorded on the completion.">
+          <input
+            type="checkbox"
+            checked={deck.require_signature === 1}
+            onChange={(e) =>
+              void patch(
+                { require_signature: e.target.checked },
+                e.target.checked
+                  ? "E-signature required — trainees sign by typed name to confirm."
+                  : "E-signature no longer required."
+              )
+            }
+          />
+          <PenLine className="h-3.5 w-3.5 text-slate-400" /> Require e-signature
+        </label>
         <button
           onClick={() => {
             if (
@@ -1324,6 +1782,39 @@ function DeckCard({
           <RotateCcw className="h-3.5 w-3.5" /> Reopen completed
         </button>
       </div>
+
+      {stats.length > 0 && (
+        <div className="mt-3 rounded-lg border border-slate-100 p-3">
+          <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <BarChart3 className="h-3.5 w-3.5 text-compass-600" /> Quiz insights
+            <span className="font-normal normal-case text-slate-400">
+              — % answered correctly ({stats[0].attempts} {stats[0].attempts === 1 ? "attempt" : "attempts"})
+            </span>
+          </h3>
+          <ul className="mt-2 space-y-1.5">
+            {stats.map((s, i) => (
+              <li key={i} className="flex items-center gap-3 text-sm">
+                <span className="min-w-0 flex-1 truncate text-slate-600" title={s.question}>
+                  {i + 1}. {s.question}
+                </span>
+                <div className="h-1.5 w-32 shrink-0 overflow-hidden rounded-full bg-slate-100">
+                  <div
+                    className={`h-full rounded-full ${s.pct < 60 ? "bg-red-400" : s.pct < 85 ? "bg-amber-400" : "bg-emerald-500"}`}
+                    style={{ width: `${s.pct}%` }}
+                  />
+                </div>
+                <span
+                  className={`w-12 shrink-0 text-right text-xs font-medium ${
+                    s.pct < 60 ? "text-red-600" : s.pct < 85 ? "text-amber-600" : "text-emerald-600"
+                  }`}
+                >
+                  {s.attempts ? `${s.pct}%` : "—"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <PeopleTable deck={deck} people={people} busy={busy} post={post} />
 

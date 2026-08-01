@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { apiGuard } from "@/lib/api-auth";
 import { featureEnabled } from "@/lib/ee";
@@ -6,10 +7,15 @@ import {
   setTrainingProgress,
   setTrainingQuizScore,
   completeTraining,
+  getUserByUsername,
 } from "@/lib/db";
 import { gradeQuiz, deckQuestions } from "@/lib/training";
+import { verifyPassword } from "@/lib/password";
 import { audit, actorFrom } from "@/lib/audit";
 import type { SessionUser } from "@/lib/types";
+
+/** Whitespace-collapsed, case-insensitive name comparison for e-signatures. */
+const nameKey = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase();
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +40,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     action?: string;
     slide?: number;
     answers?: number[][];
+    typed_name?: string;
+    password?: string;
   };
   if (body.action === "progress") {
     await setTrainingProgress(assignment.assignment_id, user.id, Number(body.slide) || 0);
@@ -50,7 +58,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (graded.total === 0) {
       return NextResponse.json({ error: "This deck has no quiz." }, { status: 400 });
     }
-    await setTrainingQuizScore(assignment.assignment_id, user.id, graded.score, graded.total);
+    await setTrainingQuizScore(
+      assignment.assignment_id,
+      user.id,
+      graded.score,
+      graded.total,
+      graded.results
+    );
     const passed = graded.score / graded.total >= assignment.pass_pct / 100;
     return NextResponse.json({
       ok: true,
@@ -77,7 +91,36 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         );
       }
     }
-    const done = await completeTraining(assignment.assignment_id, user.id);
+    // E-signature gate: the deck can demand a typed full name and (for local
+    // accounts) the account password before the confirmation is recorded.
+    let signedName: string | null = null;
+    if (assignment.require_signature === 1) {
+      const typed = String(body.typed_name ?? "").trim();
+      const expected = user.name || user.username;
+      if (!typed || nameKey(typed) !== nameKey(expected)) {
+        return NextResponse.json(
+          { error: `Type your full name exactly as it appears on your account (${expected}).` },
+          { status: 409 }
+        );
+      }
+      const record = await getUserByUsername(user.username);
+      if (record?.password_hash && record.password_salt) {
+        if (!verifyPassword(String(body.password ?? ""), record.password_hash, record.password_salt)) {
+          return NextResponse.json(
+            { error: "Password check failed — re-enter your account password to sign." },
+            { status: 409 }
+          );
+        }
+      }
+      signedName = typed.slice(0, 200);
+    }
+    // The SHA-256 of the exact content confirmed is stored on every
+    // completion — cheap, and it lets an auditor tie the record to the text.
+    const contentSha256 = createHash("sha256").update(assignment.content).digest("hex");
+    const done = await completeTraining(assignment.assignment_id, user.id, {
+      contentSha256,
+      signedName,
+    });
     if (!done) return NextResponse.json({ ok: true, already: true });
     await audit({
       actor: actorFrom(user),
@@ -89,6 +132,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         confirmed_version: done.confirmed_version,
         quiz_score: assignment.quiz_score,
         quiz_total: assignment.quiz_total,
+        content_sha256: contentSha256,
+        ...(signedName ? { signed_name: signedName } : {}),
       },
     });
     return NextResponse.json({ ok: true });
