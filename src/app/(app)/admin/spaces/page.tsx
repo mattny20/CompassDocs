@@ -31,7 +31,7 @@ export default async function SpacesPage() {
   const categoriesBySpace: Record<number, { id: number; name: string; position: number }[]> = {};
   for (const c of cats) (categoriesBySpace[c.space_id] ??= []).push({ id: c.id, name: c.name, position: c.position });
   return (
-    <SettingsPage href="/admin/spaces">
+    <SettingsPage href="/admin/spaces" wide>
     <SpacesManager
       initial={spaces}
       groups={groups.map((g) => ({

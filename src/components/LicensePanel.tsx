@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { toast } from "@/components/Toasts";
+import { DangerZone, DangerAction } from "@/components/form";
 
 interface FeatureRow {
   key: string;
@@ -192,15 +193,6 @@ export function LicensePanel() {
               <h3 className="font-semibold text-slate-900">
                 {v.status === "none" ? "Add a license" : "Replace license"}
               </h3>
-              {v.source === "settings" && (
-                <button
-                  onClick={remove}
-                  disabled={saving}
-                  className="text-xs font-medium text-red-600 hover:underline disabled:opacity-60"
-                >
-                  Remove
-                </button>
-              )}
             </div>
             <textarea
               value={key}
@@ -219,6 +211,23 @@ export function LicensePanel() {
               </button>
             </div>
           </div>
+
+          {v.source === "settings" && (
+            <DangerZone>
+              <DangerAction
+                label="Remove license"
+                description="Enterprise features (SSO, SCIM, audit export, training) turn off immediately. The workspace keeps running on the community edition."
+              >
+                <button
+                  onClick={remove}
+                  disabled={saving}
+                  className="rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-60"
+                >
+                  Remove license
+                </button>
+              </DangerAction>
+            </DangerZone>
+          )}
         </>
       )}
     </div>
