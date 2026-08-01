@@ -4,6 +4,7 @@ import { recordSearch } from "@/lib/analytics";
 import { getCurrentUser } from "@/lib/auth";
 import { roleAtLeast } from "@/lib/types";
 import { spaceScopeFor, scopeAllows } from "@/lib/access";
+import { searchRateLimited } from "@/lib/rate-limit";
 import { metric } from "@/lib/metrics";
 
 export const dynamic = "force-dynamic";
@@ -11,10 +12,15 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+  // The one endpoint that can bill an uncached embeddings call per request.
+  if (searchRateLimited(String(user.id))) {
+    return NextResponse.json({ error: "Too many requests — slow down a moment." }, { status: 429 });
+  }
 
   const { searchParams } = new URL(req.url);
   const q = searchParams.get("q")?.trim() ?? "";
-  const limit = Math.min(Number(searchParams.get("limit")) || 25, 50);
+  // Clamped at BOTH ends: ?limit=-1 used to reach Postgres as LIMIT -1 and 500.
+  const limit = Math.min(50, Math.max(1, Number(searchParams.get("limit")) || 25));
   if (!q) return NextResponse.json({ hits: [] });
   metric("search_requests");
 

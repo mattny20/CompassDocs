@@ -636,6 +636,13 @@ const SCHEMA_SQL = `
   CREATE UNIQUE INDEX IF NOT EXISTS idx_directory_external
     ON directory_people(external_id) WHERE external_id IS NOT NULL;
   CREATE INDEX IF NOT EXISTS idx_directory_name ON directory_people(name);
+  -- Palette typeahead: lower(name) LIKE 'maya%'. text_pattern_ops is required —
+  -- a plain btree on lower(name) will NOT serve a LIKE prefix under a non-C
+  -- collation.
+  CREATE INDEX IF NOT EXISTS idx_directory_name_lower
+    ON directory_people(lower(name) text_pattern_ops);
+  CREATE INDEX IF NOT EXISTS idx_directory_email_lower
+    ON directory_people(lower(email) text_pattern_ops);
 
   -- Directory v2: assistant link + admin-defined custom fields.
   ALTER TABLE directory_people
