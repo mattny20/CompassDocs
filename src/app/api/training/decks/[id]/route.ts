@@ -11,10 +11,12 @@ import {
   getTrainingAssignment,
   assignTraining,
   waiveTraining,
+  unassignTraining,
+  extendTrainingDue,
+  setTrainingReminded,
   expandTrainingAudience,
 } from "@/lib/db";
-import { notify } from "@/lib/notifications";
-import { notifyTrainingAssigned } from "@/lib/training";
+import { notifyTrainingAssigned, remindAssignmentsNow } from "@/lib/training";
 import { publicOrigin } from "@/lib/oauth";
 import { audit, actorFrom } from "@/lib/audit";
 import type { SessionUser } from "@/lib/types";
@@ -50,12 +52,12 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   if (url.searchParams.get("format") === "csv") {
     const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
     const lines = [
-      "training,name,username,email,assigned_at,due_at,completed_at,confirmed_version,status",
+      "training,name,username,email,assigned_at,due_at,completed_at,confirmed_version,quiz_score,quiz_total,prior_completions,status",
     ];
     for (const r of rows) {
       const status = r.completed_at ? (r.source === "waived" ? "waived" : "completed") : "open";
       lines.push(
-        [deck.title, r.name, r.username, r.email, r.assigned_at, r.due_at ?? "", r.completed_at ?? "", r.confirmed_version ?? "", status]
+        [deck.title, r.name, r.username, r.email, r.assigned_at, r.due_at ?? "", r.completed_at ?? "", r.confirmed_version ?? "", r.quiz_score ?? "", r.quiz_total ?? "", r.prior_completions, status]
           .map(esc)
           .join(",")
       );
@@ -82,11 +84,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     archived?: boolean;
     pass_pct?: number;
     recert_months?: number | null;
+    tag?: string;
   };
   await updateTrainingDeck(deck.id, {
     active: typeof body.active === "boolean" ? body.active : undefined,
     archived: typeof body.archived === "boolean" ? body.archived : undefined,
     pass_pct: typeof body.pass_pct === "number" ? body.pass_pct : undefined,
+    tag: typeof body.tag === "string" ? body.tag.trim() : undefined,
     recert_months:
       body.recert_months === undefined
         ? undefined
@@ -138,32 +142,110 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     group_ids?: number[];
     everyone?: boolean;
     waive?: boolean;
+    waive_assignment_ids?: number[];
     remind_assignment_id?: number;
+    remind_assignment_ids?: number[];
+    unassign_assignment_ids?: number[];
+    extend_assignment_ids?: number[];
+    extend_days?: number;
+    reopen_assignment_id?: number;
     reopen_completed?: boolean;
   };
+  const idList = (v: unknown): number[] =>
+    Array.isArray(v) ? v.map(Number).filter(Number.isInteger) : [];
 
-  // Instant nudge: one person, right now, regardless of the 3-day cadence.
-  if (body.remind_assignment_id) {
-    const a = await getTrainingAssignment(Number(body.remind_assignment_id));
-    if (!a || a.deck_id !== deck.id || a.completed_at) {
-      return NextResponse.json({ error: "No open assignment to remind." }, { status: 400 });
-    }
-    void notify([a.user_id], {
-      kind: "training_due",
-      title: `Reminder: ${deck.title}`,
-      body: a.due_at ? `Due ${new Date(a.due_at).toLocaleDateString()}.` : "Please complete this training.",
-      link: "/training",
-      actorName: user.name || user.username,
-    });
+  // Instant nudge (single or bulk): in-app + pref-gated email, right now,
+  // and the cadence clock resets so the sweep doesn't double-nudge.
+  const remindIds = body.remind_assignment_id
+    ? [Number(body.remind_assignment_id)]
+    : idList(body.remind_assignment_ids);
+  if (remindIds.length) {
+    const reminded = await remindAssignmentsNow(deck, remindIds, user.name || user.username);
+    if (reminded.length) await setTrainingReminded(reminded);
     await audit({
       actor: actorFrom(user),
       action: "training.reminded",
       targetType: "document",
       targetId: deck.document_id,
       targetLabel: deck.title,
-      details: { user_id: a.user_id },
+      details: { reminded: reminded.length },
     });
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, reminded: reminded.length });
+  }
+
+  // Remove open assignments (mis-assignment, leavers). Completed = records.
+  if (idList(body.unassign_assignment_ids).length) {
+    const n = await unassignTraining(deck.id, idList(body.unassign_assignment_ids));
+    await audit({
+      actor: actorFrom(user),
+      action: "training.unassigned",
+      targetType: "document",
+      targetId: deck.document_id,
+      targetLabel: deck.title,
+      details: { removed: n },
+    });
+    return NextResponse.json({ ok: true, removed: n });
+  }
+
+  // Push due dates out (leave, workload) — re-arms escalation.
+  if (idList(body.extend_assignment_ids).length) {
+    const days = Math.min(365, Math.max(1, Math.floor(Number(body.extend_days) || 7)));
+    const n = await extendTrainingDue(deck.id, idList(body.extend_assignment_ids), days);
+    await audit({
+      actor: actorFrom(user),
+      action: "training.due_extended",
+      targetType: "document",
+      targetId: deck.document_id,
+      targetLabel: deck.title,
+      details: { extended: n, days },
+    });
+    return NextResponse.json({ ok: true, extended: n, days });
+  }
+
+  // Waive specific assignments (bulk bar in the people table).
+  if (idList(body.waive_assignment_ids).length) {
+    const rows = await trainingDeckStatus(deck.id);
+    const wanted = new Set(idList(body.waive_assignment_ids));
+    const userIdsToWaive = rows
+      .filter((r) => wanted.has(r.assignment_id) && !r.completed_at)
+      .map((r) => r.user_id);
+    const waived = await waiveTraining(deck.id, userIdsToWaive, user.name || user.username);
+    await audit({
+      actor: actorFrom(user),
+      action: "training.waived",
+      targetType: "document",
+      targetId: deck.document_id,
+      targetLabel: deck.title,
+      details: { waived: waived.length },
+    });
+    return NextResponse.json({ ok: true, waived: waived.length });
+  }
+
+  // Reopen ONE person's completion (individual retraining).
+  if (body.reopen_assignment_id) {
+    const a = await getTrainingAssignment(Number(body.reopen_assignment_id));
+    if (!a || a.deck_id !== deck.id || !a.completed_at) {
+      return NextResponse.json({ error: "No completed assignment to reopen." }, { status: 400 });
+    }
+    const reopened = await reopenCompletedForDeck(deck.id, [a.assignment_id]);
+    if (reopened.length) {
+      void notifyTrainingAssigned({
+        userIds: reopened.map((r) => r.user_id),
+        deckTitle: `${deck.title} (please retake)`,
+        dueAt: reopened[0]?.due_at ?? null,
+        assignerName: user.name || user.username,
+        origin: await publicOrigin(req),
+      });
+    }
+    await audit({
+      actor: actorFrom(user),
+      action: "training.reopened",
+      targetType: "document",
+      targetId: deck.document_id,
+      targetLabel: deck.title,
+      details: { reopened: reopened.length, user_id: a.user_id },
+    });
+    return NextResponse.json({ ok: true, reopened: reopened.length });
   }
 
   // The document changed materially — everyone who completed it goes again.
