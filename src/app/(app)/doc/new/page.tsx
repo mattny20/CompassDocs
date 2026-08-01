@@ -1,5 +1,7 @@
 import Link from "next/link";
+
 import { FileText, LayoutTemplate } from "lucide-react";
+import { PageContainer } from "@/components/PageWidth";
 import { listSpaces, getSpaceBySlug, getApprovalMode, listAllSpaceCategories } from "@/lib/db";
 import { requireRole } from "@/lib/auth";
 import { editableScopeFor } from "@/lib/access";
@@ -64,7 +66,7 @@ export default async function NewDocPage({
 
   if (showPicker) {
     return (
-      <div className="mx-auto max-w-3xl px-6 py-10 sm:px-8">
+      <PageContainer>
         <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">New document</h1>
         <p className="mt-1 text-slate-500 dark:text-slate-400">
           Start from a template, or begin with a blank page.
@@ -104,7 +106,7 @@ export default async function NewDocPage({
             </Link>
           ))}
         </div>
-      </div>
+      </PageContainer>
     );
   }
 

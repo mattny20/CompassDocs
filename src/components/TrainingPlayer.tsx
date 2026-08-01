@@ -5,6 +5,7 @@
 // confirmation is recorded server-side with the doc version.
 
 import { useCallback, useEffect, useState } from "react";
+import { PageContainer } from "@/components/PageWidth";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -203,7 +204,7 @@ export function TrainingPlayer({
   const onGate = idx === slides.length;
 
   return (
-    <div className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-3xl flex-col px-4 py-6">
+    <PageContainer className="flex min-h-[calc(100vh-4rem)] flex-col">
       {/* Header */}
       <div className="mb-4 flex items-center justify-between gap-3">
         <div className="min-w-0">
@@ -409,6 +410,6 @@ export function TrainingPlayer({
           Next <ArrowRight className="h-4 w-4" />
         </button>
       </div>
-    </div>
+    </PageContainer>
   );
 }
