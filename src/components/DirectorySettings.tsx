@@ -5,11 +5,9 @@ import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
 import { MsDeviceSetup } from "./MsDeviceSetup";
 import { EntityPicker } from "./EntityPicker";
+import { Field, Select, TextInput, Toggle } from "@/components/form";
 import { toast } from "@/components/Toasts";
 import type { DirectoryPerson, DirectoryField } from "@/lib/directory";
-
-const field =
-  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
 
 interface GraphState {
   enabled: boolean; // bundled AND licensed
@@ -140,13 +138,13 @@ export function DirectorySettings({
           {editingId === null ? "Add a person" : "Edit person"}
         </h3>
         <form onSubmit={savePerson} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <input className={field} placeholder="Name *" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
-          <input className={field} placeholder="Title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
-          <input className={field} placeholder="Department" value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })} />
-          <input className={field} placeholder="Email" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-          <input className={field} placeholder="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
-          <input className={field} placeholder="Mobile" value={form.mobile} onChange={(e) => setForm({ ...form, mobile: e.target.value })} />
-          <input className={field} placeholder="Office / location" value={form.office} onChange={(e) => setForm({ ...form, office: e.target.value })} />
+          <TextInput placeholder="Name *" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
+          <TextInput placeholder="Title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+          <TextInput placeholder="Department" value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })} />
+          <TextInput placeholder="Email" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+          <TextInput placeholder="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+          <TextInput placeholder="Mobile" value={form.mobile} onChange={(e) => setForm({ ...form, mobile: e.target.value })} />
+          <TextInput placeholder="Office / location" value={form.office} onChange={(e) => setForm({ ...form, office: e.target.value })} />
           {formAssistant ? (
             <span className="inline-flex items-center gap-1.5 self-center rounded-lg border border-compass-200 bg-compass-50 px-3 py-2 text-sm font-medium text-compass-800">
               <span className="truncate">
@@ -173,9 +171,8 @@ export function DirectorySettings({
             />
           )}
           {fields.map((f) => (
-            <input
+            <TextInput
               key={f.key}
-              className={field}
               placeholder={f.label}
               value={formCustom[f.key] ?? ""}
               onChange={(e) => setFormCustom({ ...formCustom, [f.key]: e.target.value })}
@@ -354,51 +351,61 @@ function GraphPanel({ graph, onSynced }: { graph: GraphState; onSynced: () => vo
       />
 
       <div className="grid gap-3 sm:grid-cols-3">
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-slate-500">Tenant ID</span>
-          <input className={field} value={g.tenant} onChange={(e) => setG({ ...g, tenant: e.target.value })} placeholder="00000000-0000-…" spellCheck={false} />
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-slate-500">Client ID</span>
-          <input className={field} value={g.client_id} onChange={(e) => setG({ ...g, client_id: e.target.value })} placeholder="app registration id" spellCheck={false} />
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-slate-500">
-            Client secret {g.has_secret && !secret ? <span className="text-green-600">(stored ✓ — paste to replace)</span> : ""}
-          </span>
-          <input className={field} type="password" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder={g.has_secret ? "••••••••" : "secret value"} autoComplete="off" />
-          {g.secret_expires && g.has_secret && !secret && (
-            <span className="mt-1 block text-xs text-slate-400">
-              Expires {g.secret_expires} — set a reminder to rotate it.
-            </span>
-          )}
-        </label>
+        <Field label="Tenant ID">
+          <TextInput value={g.tenant} onChange={(e) => setG({ ...g, tenant: e.target.value })} placeholder="00000000-0000-…" spellCheck={false} />
+        </Field>
+        <Field label="Client ID">
+          <TextInput value={g.client_id} onChange={(e) => setG({ ...g, client_id: e.target.value })} placeholder="app registration id" spellCheck={false} />
+        </Field>
+        <Field
+          label={
+            <>
+              Client secret {g.has_secret && !secret ? <span className="text-green-600">(stored ✓ — paste to replace)</span> : ""}
+            </>
+          }
+          help={
+            g.secret_expires && g.has_secret && !secret
+              ? `Expires ${g.secret_expires} — set a reminder to rotate it.`
+              : undefined
+          }
+        >
+          <TextInput type="password" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder={g.has_secret ? "••••••••" : "secret value"} autoComplete="off" />
+        </Field>
       </div>
 
-      <label className="mt-3 block max-w-md">
-        <span className="mb-1 block text-xs font-medium text-slate-500">
-          Limit to an Entra group <span className="text-slate-400">(optional — group object ID)</span>
-        </span>
-        <input className={field} value={g.group} onChange={(e) => setG({ ...g, group: e.target.value })} placeholder="leave blank to sync the whole tenant" spellCheck={false} />
-      </label>
+      <div className="mt-3 max-w-md">
+        <Field
+          label={
+            <>
+              Limit to an Entra group <span className="text-slate-400">(optional — group object ID)</span>
+            </>
+          }
+        >
+          <TextInput value={g.group} onChange={(e) => setG({ ...g, group: e.target.value })} placeholder="leave blank to sync the whole tenant" spellCheck={false} />
+        </Field>
+      </div>
 
       <div className="mt-3 flex flex-wrap gap-4 text-sm text-slate-600">
-        <label className="flex items-center gap-2">
-          <input type="checkbox" checked={!g.include_guests} onChange={(e) => setG({ ...g, include_guests: !e.target.checked })} />
-          Exclude guest accounts
-        </label>
-        <label className="flex items-center gap-2">
-          <input type="checkbox" checked={g.require_title} onChange={(e) => setG({ ...g, require_title: e.target.checked })} />
-          Require a job title
-        </label>
-        <label className="flex items-center gap-2">
-          <input type="checkbox" checked={g.require_phone} onChange={(e) => setG({ ...g, require_phone: e.target.checked })} />
-          Require a phone number
-        </label>
-        <label className="flex items-center gap-2">
-          <input type="checkbox" checked={g.photos} onChange={(e) => setG({ ...g, photos: e.target.checked })} />
-          Sync profile photos
-        </label>
+        <Toggle
+          label="Exclude guest accounts"
+          checked={!g.include_guests}
+          onChange={(next) => setG({ ...g, include_guests: !next })}
+        />
+        <Toggle
+          label="Require a job title"
+          checked={g.require_title}
+          onChange={(next) => setG({ ...g, require_title: next })}
+        />
+        <Toggle
+          label="Require a phone number"
+          checked={g.require_phone}
+          onChange={(next) => setG({ ...g, require_phone: next })}
+        />
+        <Toggle
+          label="Sync profile photos"
+          checked={g.photos}
+          onChange={(next) => setG({ ...g, photos: next })}
+        />
       </div>
 
       <div className="mt-4 flex items-center gap-3">
@@ -509,8 +516,8 @@ function FieldsPanel({
                   <td className="px-3 py-2 font-medium text-slate-900">{f.label}</td>
                   <td className="px-3 py-2 font-mono text-xs text-slate-500">{f.key}</td>
                   <td className="px-3 py-2">
-                    <input
-                      className={`${field} max-w-xs font-mono text-xs`}
+                    <TextInput
+                      className="max-w-xs font-mono text-xs"
                       defaultValue={f.graph_path}
                       list="graph-paths"
                       placeholder="not mapped (manual only)"
@@ -522,14 +529,14 @@ function FieldsPanel({
                     />
                   </td>
                   <td className="px-3 py-2">
-                    <select
-                      className={`${field} w-32 text-xs`}
+                    <Select
+                      className="w-32 text-xs"
                       value={f.display}
                       onChange={(e) => patch(f, { display: e.target.value })}
                     >
                       <option value="field">Field</option>
                       <option value="tag">Tags</option>
-                    </select>
+                    </Select>
                   </td>
                   <td className="px-3 py-2">
                     <input
@@ -551,15 +558,15 @@ function FieldsPanel({
       )}
 
       <form onSubmit={add} className="flex flex-wrap items-center gap-2">
-        <input
-          className={`${field} w-44`}
+        <TextInput
+          className="w-44"
           placeholder="New field label"
           value={label}
           onChange={(e) => setLabel(e.target.value)}
           required
         />
-        <input
-          className={`${field} w-72 font-mono text-xs`}
+        <TextInput
+          className="w-72 font-mono text-xs"
           placeholder="Graph property (optional)"
           value={graphPath}
           onChange={(e) => setGraphPath(e.target.value)}
@@ -571,15 +578,15 @@ function FieldsPanel({
             <option key={g} value={g} />
           ))}
         </datalist>
-        <select
-          className={`${field} w-40`}
+        <Select
+          className="w-40"
           value={display}
           onChange={(e) => setDisplay(e.target.value as "field" | "tag")}
-          title="Field shows as label + text; Tag splits comma-separated values into badges"
+          data-tt="Field shows as label + text; Tag splits comma-separated values into badges"
         >
           <option value="field">Field (text value)</option>
           <option value="tag">Tags (badges)</option>
-        </select>
+        </Select>
         <label className="flex items-center gap-1.5 text-sm text-slate-600">
           <input type="checkbox" checked={showInCard} onChange={(e) => setShowInCard(e.target.checked)} />
           Show on cards
@@ -660,16 +667,16 @@ function PrintColumnsPanel() {
         ))}
       </div>
       {unused.length > 0 && (
-        <select
+        <Select
           value=""
           onChange={(e) => e.target.value && save([...columns, e.target.value])}
-          className="mt-2 w-64 rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400"
+          className="mt-2 w-64"
         >
           <option value="">+ Add a column…</option>
           {unused.map((a) => (
             <option key={a.key} value={a.key}>{a.label}</option>
           ))}
-        </select>
+        </Select>
       )}
     </div>
   );

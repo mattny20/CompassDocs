@@ -6,10 +6,8 @@
 
 import { useState } from "react";
 import { MsDeviceSetup } from "./MsDeviceSetup";
+import { Field, TextInput, Toggle } from "@/components/form";
 import { toast } from "@/components/Toasts";
-
-const field =
-  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
 
 export interface SsoState {
   enabled: boolean; // bundled AND licensed
@@ -147,60 +145,55 @@ export function SsoSettings({ initial }: { initial: SsoState }) {
         />
 
         <div className="grid gap-3 sm:grid-cols-3">
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-500">Tenant ID</span>
-            <input
-              className={field}
+          <Field label="Tenant ID">
+            <TextInput
               value={s.tenant}
               onChange={(e) => setS({ ...s, tenant: e.target.value })}
               placeholder="00000000-0000-…"
               spellCheck={false}
             />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-500">Client ID</span>
-            <input
-              className={field}
+          </Field>
+          <Field label="Client ID">
+            <TextInput
               value={s.client_id}
               onChange={(e) => setS({ ...s, client_id: e.target.value })}
               placeholder="app registration id"
               spellCheck={false}
             />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-500">
-              Client secret{" "}
-              {s.has_secret && !secret ? (
-                <span className="text-green-600">(stored ✓ — paste to replace)</span>
-              ) : (
-                ""
-              )}
-            </span>
-            <input
-              className={field}
+          </Field>
+          <Field
+            label={
+              <>
+                Client secret{" "}
+                {s.has_secret && !secret ? (
+                  <span className="text-green-600">(stored ✓ — paste to replace)</span>
+                ) : (
+                  ""
+                )}
+              </>
+            }
+            help={
+              s.secret_expires && s.has_secret && !secret
+                ? `Expires ${s.secret_expires} — set a reminder to rotate it.`
+                : undefined
+            }
+          >
+            <TextInput
               type="password"
               value={secret}
               onChange={(e) => setSecret(e.target.value)}
               placeholder={s.has_secret ? "••••••••" : "secret value"}
               autoComplete="off"
             />
-            {s.secret_expires && s.has_secret && !secret && (
-              <span className="mt-1 block text-xs text-slate-400">
-                Expires {s.secret_expires} — set a reminder to rotate it.
-              </span>
-            )}
-          </label>
+          </Field>
         </div>
 
         <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-slate-600">
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={s.auto_provision}
-              onChange={(e) => setS({ ...s, auto_provision: e.target.checked })}
-            />
-            Create accounts on first sign-in
-          </label>
+          <Toggle
+            label="Create accounts on first sign-in"
+            checked={s.auto_provision}
+            onChange={(next) => setS({ ...s, auto_provision: next })}
+          />
           <label className="flex items-center gap-2">
             New accounts get role
             <select
@@ -216,18 +209,23 @@ export function SsoSettings({ initial }: { initial: SsoState }) {
           </label>
         </div>
 
-        <label className="mt-3 block max-w-md">
-          <span className="mb-1 block text-xs font-medium text-slate-500">
-            Allowed email domains <span className="text-slate-400">(optional, comma-separated)</span>
-          </span>
-          <input
-            className={field}
-            value={s.allowed_domains}
-            onChange={(e) => setS({ ...s, allowed_domains: e.target.value })}
-            placeholder="acme.com, acme.co.uk — blank allows any"
-            spellCheck={false}
-          />
-        </label>
+        <div className="mt-3 max-w-md">
+          <Field
+            label={
+              <>
+                Allowed email domains{" "}
+                <span className="text-slate-400">(optional, comma-separated)</span>
+              </>
+            }
+          >
+            <TextInput
+              value={s.allowed_domains}
+              onChange={(e) => setS({ ...s, allowed_domains: e.target.value })}
+              placeholder="acme.com, acme.co.uk — blank allows any"
+              spellCheck={false}
+            />
+          </Field>
+        </div>
 
         <button
           type="button"
@@ -237,47 +235,45 @@ export function SsoSettings({ initial }: { initial: SsoState }) {
           {showAdvanced ? "▾" : "▸"} Advanced
         </button>
         {showAdvanced && (
-          <label className="mt-2 block max-w-xl">
-            <span className="mb-1 block text-xs font-medium text-slate-500">
-              Custom OIDC authority{" "}
-              <span className="text-slate-400">(overrides the tenant — for Okta, Auth0, …)</span>
-            </span>
-            <input
-              className={field}
-              value={s.authority}
-              onChange={(e) => setS({ ...s, authority: e.target.value })}
-              placeholder="https://your-idp.example.com"
-              spellCheck={false}
-            />
-            {s.effective_authority && (
-              <span className="mt-1 block text-xs text-slate-400">
-                In effect: <code className="font-mono">{s.effective_authority}</code>
-              </span>
-            )}
-          </label>
+          <div className="mt-2 max-w-xl">
+            <Field
+              label={
+                <>
+                  Custom OIDC authority{" "}
+                  <span className="text-slate-400">(overrides the tenant — for Okta, Auth0, …)</span>
+                </>
+              }
+              help={
+                s.effective_authority ? (
+                  <>
+                    In effect: <code className="font-mono">{s.effective_authority}</code>
+                  </>
+                ) : undefined
+              }
+            >
+              <TextInput
+                value={s.authority}
+                onChange={(e) => setS({ ...s, authority: e.target.value })}
+                placeholder="https://your-idp.example.com"
+                spellCheck={false}
+              />
+            </Field>
+          </div>
         )}
 
         <div className="mt-4 space-y-2 border-t border-slate-100 pt-4 text-sm text-slate-600">
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={s.sso_enabled}
-              onChange={(e) => setS({ ...s, sso_enabled: e.target.checked })}
-              disabled={!configured && !s.sso_enabled}
-            />
-            <span className="font-medium">
-              Enable &ldquo;Sign in with Microsoft&rdquo; on the login page
-            </span>
-          </label>
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={s.sso_only}
-              onChange={(e) => setS({ ...s, sso_only: e.target.checked })}
-              disabled={!s.sso_enabled}
-            />
-            Hide the username/password form (SSO only)
-          </label>
+          <Toggle
+            label="Enable “Sign in with Microsoft” on the login page"
+            checked={s.sso_enabled}
+            onChange={(next) => setS({ ...s, sso_enabled: next })}
+            disabled={!configured && !s.sso_enabled}
+          />
+          <Toggle
+            label="Hide the username/password form (SSO only)"
+            checked={s.sso_only}
+            onChange={(next) => setS({ ...s, sso_only: next })}
+            disabled={!s.sso_enabled}
+          />
           {s.sso_only && (
             <p className="text-xs text-amber-600">
               Break-glass: local sign-in still works by POSTing to /api/auth/login — an admin

@@ -6,6 +6,7 @@
 
 import { useState } from "react";
 import type { Role } from "@/lib/types";
+import { Field, Select, TextInput, Textarea, Toggle } from "@/components/form";
 import { toast } from "@/components/Toasts";
 
 export interface SamlState {
@@ -25,8 +26,6 @@ export interface SamlState {
   sp_metadata_url: string;
 }
 
-const field =
-  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
 const urlCls = "block select-all rounded-md bg-slate-100 px-2 py-1 font-mono text-xs text-slate-700";
 
 export function SamlPanel({ initial }: { initial: SamlState }) {
@@ -99,67 +98,61 @@ export function SamlPanel({ initial }: { initial: SamlState }) {
       </div>
 
       {/* Quick fill from IdP metadata */}
-      <label className="mb-4 block">
-        <span className="mb-1 block text-xs font-medium text-slate-500">
-          Paste your IdP&rsquo;s metadata XML to fill the fields below
-        </span>
-        <div className="flex gap-2">
-          <textarea
-            value={metaXml}
-            onChange={(e) => setMetaXml(e.target.value)}
-            rows={2}
-            placeholder="<EntityDescriptor …>"
-            className={`${field} font-mono text-xs`}
-            spellCheck={false}
-          />
-          <button
-            onClick={() => save({ idp_metadata_xml: metaXml })}
-            disabled={saving || !metaXml.trim()}
-            className="shrink-0 self-start rounded-lg bg-slate-700 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
-          >
-            Import
-          </button>
-        </div>
-      </label>
+      <div className="mb-4">
+        <Field label="Paste your IdP’s metadata XML to fill the fields below">
+          <div className="flex gap-2">
+            <Textarea
+              value={metaXml}
+              onChange={(e) => setMetaXml(e.target.value)}
+              rows={2}
+              placeholder="<EntityDescriptor …>"
+              className="font-mono text-xs"
+              spellCheck={false}
+            />
+            <button
+              onClick={() => save({ idp_metadata_xml: metaXml })}
+              disabled={saving || !metaXml.trim()}
+              className="shrink-0 self-start rounded-lg bg-slate-700 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+            >
+              Import
+            </button>
+          </div>
+        </Field>
+      </div>
 
       <div className="space-y-3">
         <div className="grid gap-3 sm:grid-cols-2">
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-500">IdP sign-on URL</span>
-            <input
+          <Field label="IdP sign-on URL">
+            <TextInput
               type="url"
               value={s.idp_sso_url}
               onChange={(e) => setS({ ...s, idp_sso_url: e.target.value })}
               placeholder="https://idp.example.com/app/…/sso/saml"
-              className={`${field} font-mono`}
+              className="font-mono"
               spellCheck={false}
             />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-500">IdP issuer (entity ID)</span>
-            <input
+          </Field>
+          <Field label="IdP issuer (entity ID)">
+            <TextInput
               type="text"
               value={s.idp_issuer}
               onChange={(e) => setS({ ...s, idp_issuer: e.target.value })}
               placeholder="http://www.okta.com/exk…"
-              className={`${field} font-mono`}
+              className="font-mono"
               spellCheck={false}
             />
-          </label>
+          </Field>
         </div>
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-slate-500">
-            IdP signing certificate (PEM or base64)
-          </span>
-          <textarea
+        <Field label="IdP signing certificate (PEM or base64)">
+          <Textarea
             value={s.idp_cert}
             onChange={(e) => setS({ ...s, idp_cert: e.target.value })}
             rows={3}
             placeholder="-----BEGIN CERTIFICATE-----"
-            className={`${field} font-mono text-xs`}
+            className="font-mono text-xs"
             spellCheck={false}
           />
-        </label>
+        </Field>
 
         <button
           onClick={() => setShowAdvanced(!showAdvanced)}
@@ -169,51 +162,44 @@ export function SamlPanel({ initial }: { initial: SamlState }) {
         </button>
         {showAdvanced && (
           <div className="space-y-3 rounded-lg border border-slate-200 p-3">
-            <label className="flex items-center gap-2 text-sm text-slate-600">
-              <input
-                type="checkbox"
-                checked={s.auto_provision}
-                onChange={(e) => setS({ ...s, auto_provision: e.target.checked })}
-              />
-              Create an account on first sign-in (JIT provisioning)
-            </label>
+            <Toggle
+              label="Create an account on first sign-in (JIT provisioning)"
+              checked={s.auto_provision}
+              onChange={(next) => setS({ ...s, auto_provision: next })}
+            />
             <div className="grid gap-3 sm:grid-cols-3">
-              <label className="block">
-                <span className="mb-1 block text-xs font-medium text-slate-500">Default role</span>
-                <select
+              <Field label="Default role">
+                <Select
                   value={s.default_role}
                   onChange={(e) => setS({ ...s, default_role: e.target.value as Role })}
-                  className={field}
                 >
                   <option value="viewer">Viewer</option>
                   <option value="editor">Editor</option>
                   <option value="approver">Approver</option>
                   <option value="admin">Admin</option>
-                </select>
-              </label>
-              <label className="block sm:col-span-2">
-                <span className="mb-1 block text-xs font-medium text-slate-500">
-                  Allowed email domains (comma-separated, empty = any)
-                </span>
-                <input
-                  type="text"
-                  value={s.allowed_domains}
-                  onChange={(e) => setS({ ...s, allowed_domains: e.target.value })}
-                  placeholder="example.com, example.org"
-                  className={field}
-                />
-              </label>
+                </Select>
+              </Field>
+              <div className="sm:col-span-2">
+                <Field label="Allowed email domains (comma-separated, empty = any)">
+                  <TextInput
+                    type="text"
+                    value={s.allowed_domains}
+                    onChange={(e) => setS({ ...s, allowed_domains: e.target.value })}
+                    placeholder="example.com, example.org"
+                  />
+                </Field>
+              </div>
             </div>
-            <label className="block sm:max-w-xs">
-              <span className="mb-1 block text-xs font-medium text-slate-500">Login button label</span>
-              <input
-                type="text"
-                value={s.button_label}
-                onChange={(e) => setS({ ...s, button_label: e.target.value })}
-                maxLength={40}
-                className={field}
-              />
-            </label>
+            <div className="sm:max-w-xs">
+              <Field label="Login button label">
+                <TextInput
+                  type="text"
+                  value={s.button_label}
+                  onChange={(e) => setS({ ...s, button_label: e.target.value })}
+                  maxLength={40}
+                />
+              </Field>
+            </div>
           </div>
         )}
       </div>
@@ -226,15 +212,12 @@ export function SamlPanel({ initial }: { initial: SamlState }) {
         >
           {saving ? "Saving…" : "Save"}
         </button>
-        <label className="flex items-center gap-2 text-sm text-slate-600">
-          <input
-            type="checkbox"
-            checked={s.saml_enabled}
-            disabled={saving || (!configured && !s.saml_enabled)}
-            onChange={(e) => save({ saml_enabled: e.target.checked })}
-          />
-          Enabled on the login page
-        </label>
+        <Toggle
+          label="Enabled on the login page"
+          checked={s.saml_enabled}
+          disabled={saving || (!configured && !s.saml_enabled)}
+          onChange={(next) => void save({ saml_enabled: next })}
+        />
         {s.saml_enabled && configured && (
           <a
             href="/api/ee/saml/login"
