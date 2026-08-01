@@ -8,5 +8,5 @@ export const dynamic = "force-dynamic";
 export default async function TemplatesPage() {
   await requireRole("admin");
   const templates = await listTemplates(true);
-  return <SettingsPage href="/admin/templates" wide><TemplatesPanel initial={templates} /></SettingsPage>;
+  return <SettingsPage href="/admin/templates"><TemplatesPanel initial={templates} /></SettingsPage>;
 }

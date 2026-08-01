@@ -43,7 +43,7 @@ export function SsoSettings({ initial }: { initial: SsoState }) {
 
   if (!s.bundled) {
     return (
-      <div className="max-w-3xl">
+      <div>
         {header}
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
           <p className="font-semibold text-slate-800">SSO is an Enterprise feature.</p>
@@ -65,7 +65,7 @@ export function SsoSettings({ initial }: { initial: SsoState }) {
 
   if (!s.enabled) {
     return (
-      <div className="max-w-3xl">
+      <div>
         {header}
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
           <p className="font-semibold">SSO isn&rsquo;t licensed.</p>
@@ -115,7 +115,7 @@ export function SsoSettings({ initial }: { initial: SsoState }) {
   const configured = Boolean(s.client_id && (s.has_secret || secret) && (s.tenant || s.authority));
 
   return (
-    <div className="max-w-3xl">
+    <div>
       {header}
 
       <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">

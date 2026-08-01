@@ -106,8 +106,10 @@ focus):
   style is `w-full`). Keep raw-but-`controlClass()`-styled inputs only for
   compact placeholder-only add-forms and table-row controls. Checkbox
   *lists*, radio groups, and composite pickers stay as they are.
-- Settings content renders in a readable ~48rem column by default
-  (`SettingsPage`); table-heavy sections opt out with the `wide` prop.
+- Settings pages honor the account width preference like every other page —
+  `SettingsPage` adds **no** width cap of its own. A readable column here
+  would silently override Normal/Wide/Full (this shipped once, in 0.85.0);
+  the "never hard-code a page width" rule has no settings exception.
 - Destructive page-level actions live in a **danger zone** —
   `<DangerZone><DangerAction label description>…</DangerAction></DangerZone>`
   (red-bordered card, one per page, at the bottom). Per-row destructive
