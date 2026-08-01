@@ -79,6 +79,7 @@ export function CommandPaletteClient({
 
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const chordRef = useRef<{ key: string; at: number } | null>(null);
   const bootstrapped = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -102,7 +103,7 @@ export function CommandPaletteClient({
     abortRef.current?.abort();
   }, []);
 
-  useModalOverlay(open, close);
+  useModalOverlay(panelRef, { open, onClose: close });
 
   // --- data ---------------------------------------------------------------
 
@@ -431,6 +432,7 @@ export function CommandPaletteClient({
       onMouseDown={close}
     >
       <div
+        ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-label="Command palette"

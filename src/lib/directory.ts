@@ -132,8 +132,6 @@ export interface PersonTypeaheadRow {
   department: string;
   email: string;
   has_photo: boolean;
-  /** ISO string — used only to build the photo URL's cache-buster. */
-  updated_at: string;
 }
 
 /** Beyond this, extra words cost query time without sharpening the result. */
@@ -180,7 +178,7 @@ export async function searchPeopleTypeahead(
 
   const res = await pool().query<PersonTypeaheadRow & { score: number }>(
     `SELECT p.id, p.name, p.title, p.department, p.email,
-            (p.photo <> '') AS has_photo, p.updated_at,
+            (p.photo <> '') AS has_photo,
             (${perToken.join(" + ")}) AS score
      FROM directory_people p
      WHERE p.hidden = 0

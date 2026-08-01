@@ -322,7 +322,12 @@ function DocDrilldown({ docId, days, onClose }: { docId: number; days: number; o
   }, [docId, days]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onClick={onClose}>
+    <div
+      role="dialog"
+      aria-modal="true"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+      onClick={onClose}
+    >
       <div
         className="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-slate-200 bg-surface p-5 shadow-xl"
         onClick={(e) => e.stopPropagation()}

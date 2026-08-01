@@ -30,7 +30,7 @@ import {
   PanelLeftOpen,
   GraduationCap,
 } from "lucide-react";
-import { GlobalSearch } from "./GlobalSearch";
+import { PaletteTrigger } from "./palette/PaletteTrigger";
 import { NotificationsBell } from "./NotificationsBell";
 import { UserMenu } from "./UserMenu";
 import { Brand } from "./Brand";
@@ -190,6 +190,7 @@ export function SidebarClient({
         />
       )}
     <aside
+      data-app-sidebar
       onClickCapture={(e) => {
         // Navigating from the overlay should also close it.
         if (overlay && (e.target as HTMLElement).closest("a")) setCollapsed(true);
@@ -231,11 +232,9 @@ export function SidebarClient({
         </div>
       )}
 
-      {!collapsed && (
-        <div className="px-3 py-3">
-          <GlobalSearch />
-        </div>
-      )}
+      <div className={collapsed ? "px-2 py-3" : "px-3 py-3"}>
+        <PaletteTrigger collapsed={collapsed} />
+      </div>
 
       {/* One shared scroll region for nav + spaces, so a short window squeezes
           nothing out of reach — the spaces list no longer absorbs all of it. */}

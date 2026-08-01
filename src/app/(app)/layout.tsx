@@ -5,6 +5,10 @@ import { WidthProvider } from "@/components/PageWidth";
 import { countOpenSuggestions, countPendingChangeRequests, countTrashed } from "@/lib/db";
 import { roleAtLeast } from "@/lib/types";
 import { ToastHost } from "@/components/Toasts";
+import { CommandPalette } from "@/components/palette/CommandPalette";
+import { navCapabilities } from "@/lib/nav-capabilities";
+import { spaceScopeFor } from "@/lib/access";
+import { listSpaces } from "@/lib/db";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
@@ -13,13 +17,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   if (user.must_change_password) redirect("/account/password");
 
   const isEditor = roleAtLeast(user.role, "editor");
-  const [reviewCount, trashCount] = await Promise.all([
+  const [reviewCount, trashCount, caps, paletteSpaces] = await Promise.all([
     roleAtLeast(user.role, "approver")
       ? Promise.all([countOpenSuggestions(), countPendingChangeRequests()]).then(
           ([a, b]) => a + b
         )
       : Promise.resolve(0),
     isEditor ? countTrashed() : Promise.resolve(0),
+    navCapabilities(user),
+    spaceScopeFor(user).then((scope) => listSpaces(scope)),
   ]);
 
   return (
@@ -36,6 +42,17 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <WidthProvider initial={user.page_width}>{children}
         <ToastHost /></WidthProvider>
       </main>
+      <CommandPalette
+        userId={user.id}
+        caps={caps}
+        spaces={paletteSpaces.map((s) => ({
+          id: s.id,
+          name: s.name,
+          slug: s.slug,
+          icon: s.icon,
+          category: s.description || null,
+        }))}
+      />
     </div>
   );
 }
