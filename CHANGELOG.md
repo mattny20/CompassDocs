@@ -4,6 +4,29 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.84.0] - 2026-08-01
+
+### Added
+- **Settings console, phase 1.** The admin settings got a full structural
+  refresh:
+  - The settings rail is now **grouped by area** — Platform, Content,
+    People & access, AI, and Operations — with a search box that filters
+    across every section by name and keywords.
+  - Every settings page has a **unified header** (icon, title, one-line
+    description) driven by a single registry, so the nav and the page can
+    never disagree about what a section is called.
+  - **Toast notifications.** Saving anything in settings now confirms with
+    a toast in the corner (and failures show a red one) instead of
+    transient inline "Saved." flashes that varied page to page. Persistent
+    status — license expiry, TLS state, import summaries — stays inline.
+
+### Changed
+- Duplicate panel titles removed across settings: pages no longer repeat
+  their own name above the content, and multi-panel pages use clear
+  sub-headings ("OpenID Connect (OIDC)", "Webhooks", "All links").
+- Several previously silent actions (adding a webhook, saving a document
+  template, switching the approval workflow) now confirm with a toast.
+
 ## [0.83.0] - 2026-08-01
 
 ### Added
