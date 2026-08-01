@@ -208,9 +208,10 @@ function TemplateForm({
     );
     setBusy(false);
     if (!res.ok) {
-      onError((await res.json().catch(() => ({}))).error || "Could not save the template.");
+      toast("error", (await res.json().catch(() => ({}))).error || "Could not save the template.");
       return;
     }
+    toast("ok", template ? "Template saved." : "Template created.");
     onSaved();
   }
 
@@ -225,9 +226,10 @@ function TemplateForm({
     });
     setBusy(false);
     if (!res.ok) {
-      onError((await res.json().catch(() => ({}))).error || "Reset failed.");
+      toast("error", (await res.json().catch(() => ({}))).error || "Reset failed.");
       return;
     }
+    toast("ok", "Template restored to shipped content.");
     onSaved();
   }
 
@@ -238,9 +240,10 @@ function TemplateForm({
     const res = await fetch(`/api/admin/templates/${template.id}`, { method: "DELETE" });
     setBusy(false);
     if (!res.ok) {
-      onError((await res.json().catch(() => ({}))).error || "Delete failed.");
+      toast("error", (await res.json().catch(() => ({}))).error || "Delete failed.");
       return;
     }
+    toast("ok", "Template deleted.");
     onSaved();
   }
 

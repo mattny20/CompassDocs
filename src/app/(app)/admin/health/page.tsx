@@ -187,6 +187,7 @@ export default async function HealthPage() {
         ))}
       </Section>
     </div>
+    </SettingsPage>
   );
 }
 
@@ -248,6 +249,5 @@ function Row({ doc, children }: { doc: HealthDoc; children?: React.ReactNode }) 
       {children}
       <span className="ml-auto text-xs text-slate-500">updated {doc.updated_at}</span>
     </div>
-    </SettingsPage>
   );
 }

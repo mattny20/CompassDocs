@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "@/components/Toasts";
 import type { ApprovalMode } from "@/lib/types";
 
 export function ApprovalWorkflow({ initial }: { initial: ApprovalMode }) {
@@ -18,6 +19,7 @@ export function ApprovalWorkflow({ initial }: { initial: ApprovalMode }) {
       body: JSON.stringify({ approval_mode: next }),
     });
     setSaving(false);
+    toast("ok", next === "strict" ? "Approval workflow set to strict." : "Approval workflow set to open.");
     router.refresh();
   }
 
