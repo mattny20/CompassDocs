@@ -15,6 +15,7 @@ import {
   RefreshCw,
   ExternalLink,
 } from "lucide-react";
+import { Field, Select, TextInput } from "@/components/form";
 
 interface Category {
   id: number;
@@ -280,13 +281,14 @@ export function LinksAdmin({
           )}
         </ul>
         <div className="flex gap-2">
-          <input
-            value={newCategory}
-            onChange={(e) => setNewCategory(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && addCategory()}
-            placeholder="New category name"
-            className="w-64 rounded-lg border border-slate-200 px-3 py-1.5 text-sm focus:border-compass-400 focus:outline-hidden"
-          />
+          <div className="w-64">
+            <TextInput
+              value={newCategory}
+              onChange={(e) => setNewCategory(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && addCategory()}
+              placeholder="New category name"
+            />
+          </div>
           <button
             onClick={addCategory}
             disabled={busy || !newCategory.trim()}
@@ -445,39 +447,34 @@ function LinkForm({
   onSave: () => void;
   onCancel: () => void;
 }) {
-  const input =
-    "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-compass-400 focus:outline-hidden";
   return (
     <div className="mb-4 rounded-xl border border-compass-200 bg-compass-50/40 p-4">
       <h3 className="mb-3 font-semibold text-slate-900">
         {editingLink ? `Edit “${editingLink.title}”` : "New link"}
       </h3>
       <div className="grid gap-3 sm:grid-cols-2">
-        <label className="text-sm">
-          <span className="mb-1 block font-medium text-slate-600">Title</span>
-          <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Duo Central" className={input} />
-        </label>
-        <label className="text-sm">
-          <span className="mb-1 block font-medium text-slate-600">URL</span>
-          <input value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} placeholder="https://…" className={input} />
-        </label>
-        <label className="text-sm sm:col-span-2">
-          <span className="mb-1 block font-medium text-slate-600">Description (optional)</span>
-          <input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Shown under the title on the Links page" className={input} />
-        </label>
-        <label className="text-sm">
-          <span className="mb-1 block font-medium text-slate-600">Category</span>
-          <select
+        <Field label="Title">
+          <TextInput value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Duo Central" />
+        </Field>
+        <Field label="URL">
+          <TextInput value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} placeholder="https://…" />
+        </Field>
+        <div className="sm:col-span-2">
+          <Field label="Description (optional)">
+            <TextInput value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Shown under the title on the Links page" />
+          </Field>
+        </div>
+        <Field label="Category">
+          <Select
             value={form.category_id ?? ""}
             onChange={(e) => setForm({ ...form, category_id: e.target.value ? Number(e.target.value) : null })}
-            className={input}
           >
             <option value="">General</option>
             {categories.map((c) => (
               <option key={c.id} value={c.id}>{c.name}</option>
             ))}
-          </select>
-        </label>
+          </Select>
+        </Field>
       </div>
 
       {/* Icon source */}

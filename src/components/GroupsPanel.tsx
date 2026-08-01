@@ -8,6 +8,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { UsersRound, RefreshCw, CloudDownload, Trash2, Pencil, X } from "lucide-react";
 import { EntityPicker } from "@/components/EntityPicker";
+import { controlClass, TextInput } from "@/components/form";
 import { toast } from "@/components/Toasts";
 
 type GroupRow = {
@@ -22,9 +23,6 @@ type GroupRow = {
 type Member = { id: number; username: string; name: string; email: string; role: string };
 type UserOption = Member;
 type EntraGroup = { id: string; name: string; imported: boolean };
-
-const field =
-  "rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
 
 export function GroupsPanel({
   initial,
@@ -103,11 +101,11 @@ export function GroupsPanel({
         </div>
       )}
       <div className="flex gap-2">
-        <input
+        <TextInput
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && create()}
-          className={`${field} flex-1`}
+          className="flex-1"
           placeholder="New group name — e.g. Engineering, HR, Leadership"
           maxLength={80}
         />
@@ -204,7 +202,7 @@ function GroupCard({
                 <input
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className={`${field} py-1`}
+                  className={controlClass(false, "py-1")}
                   maxLength={80}
                   autoFocus
                   onKeyDown={async (e) => {

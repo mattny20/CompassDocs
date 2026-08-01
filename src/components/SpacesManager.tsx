@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Lock, Globe, Building2, PencilRuler, ChevronUp, ChevronDown, Pencil, Trash2, X } from "lucide-react";
 import { EntityPicker } from "@/components/EntityPicker";
+import { Field, Select, TextInput, Toggle } from "@/components/form";
 import { toast } from "@/components/Toasts";
 import { SpaceIconPicker } from "./SpaceIconPicker";
 import type { Space } from "@/lib/types";
@@ -14,9 +15,6 @@ export type EditorUserOption = { id: number; name: string; role: string };
 export type CategoryOption = { id: number; name: string; position: number };
 type EditorGrants = { users: Record<number, number[]>; groups: Record<number, number[]> };
 export type TemplateOption = { id: number; name: string; hidden: boolean };
-
-const field =
-  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
 
 export function SpacesManager({
   initial,
@@ -111,26 +109,20 @@ export function SpacesManager({
 
       {/* Org-level edit-rights switch */}
       <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
-        <label className="flex cursor-pointer items-start gap-3">
-          <input
-            type="checkbox"
-            checked={editAll}
-            disabled={togglingEditAll}
-            onChange={(e) => toggleEditAll(e.target.checked)}
-            className="mt-0.5 h-4 w-4 accent-compass-600"
-          />
-          <span>
-            <span className="font-medium text-slate-800">
-              All editors can edit all spaces
-            </span>
-            <span className="mt-0.5 block text-xs text-slate-500">
+        <Toggle
+          label="All editors can edit all spaces"
+          help={
+            <>
               On (default): anyone with the editor role can author in every space they can
               see, and per-space editor lists below are ignored. Off: each space&apos;s
               &ldquo;Who can edit&rdquo; list applies — a space with no list stays open to
               all editors. Admins can always edit everything.
-            </span>
-          </span>
-        </label>
+            </>
+          }
+          checked={editAll}
+          disabled={togglingEditAll}
+          onChange={toggleEditAll}
+        />
       </div>
 
       {creating && (
@@ -340,29 +332,30 @@ function SpaceForm({
   return (
     <div className="rounded-xl border border-compass-200 bg-compass-50/40 p-4">
       <div className="grid gap-4 sm:grid-cols-2">
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-slate-500">Name</span>
-          <input
+        <Field label="Name" error={error || undefined}>
+          <TextInput
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className={field}
+            hasError={Boolean(error)}
             placeholder="Engineering"
             maxLength={60}
             autoFocus
           />
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-slate-500">
-            Description <span className="text-slate-400">(optional)</span>
-          </span>
-          <input
+        </Field>
+        <Field
+          label={
+            <>
+              Description <span className="text-slate-400">(optional)</span>
+            </>
+          }
+        >
+          <TextInput
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            className={field}
             placeholder="Runbooks, architecture, and on-call docs"
             maxLength={280}
           />
-        </label>
+        </Field>
       </div>
 
       <div className="mt-4 grid gap-4 sm:grid-cols-[1fr_auto]">
@@ -370,15 +363,14 @@ function SpaceForm({
           <span className="mb-1 block text-xs font-medium text-slate-500">Icon</span>
           <SpaceIconPicker value={icon} onChange={setIcon} />
         </div>
-        <div>
-          <span className="mb-1 block text-xs font-medium text-slate-500">Color</span>
+        <Field label="Color">
           <input
             type="color"
             value={color}
             onChange={(e) => setColor(e.target.value)}
             className="h-9 w-16 cursor-pointer rounded-md border border-slate-200"
           />
-        </div>
+        </Field>
       </div>
 
       <div className="mt-4">
@@ -612,23 +604,21 @@ function SpaceForm({
       )}
 
       <div className="mt-4">
-        <span className="mb-1 block text-sm font-medium text-slate-700">Default view</span>
-        <p className="mb-2 text-xs text-slate-400">
-          The layout this space opens with. Visitors can switch views any time and their
-          choice is remembered on their browser.
-        </p>
-        <select
-          value={defaultView}
-          onChange={(e) => setDefaultView(e.target.value)}
-          className="w-64 rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400"
+        <Field
+          label="Default view"
+          help="The layout this space opens with. Visitors can switch views any time and their choice is remembered on their browser."
         >
-          <option value="cards">Cards (default)</option>
-          <option value="table">Table</option>
-          <option value="tree">Tree &mdash; needs nested pages enabled</option>
-          <option value="board">Board</option>
-          <option value="timeline">Timeline</option>
-          <option value="tags">By tag</option>
-        </select>
+          <div className="w-64">
+            <Select value={defaultView} onChange={(e) => setDefaultView(e.target.value)}>
+              <option value="cards">Cards (default)</option>
+              <option value="table">Table</option>
+              <option value="tree">Tree &mdash; needs nested pages enabled</option>
+              <option value="board">Board</option>
+              <option value="timeline">Timeline</option>
+              <option value="tags">By tag</option>
+            </Select>
+          </div>
+        </Field>
       </div>
 
       <div className="mt-4">
@@ -656,8 +646,6 @@ function SpaceForm({
           />
         )}
       </div>
-
-      {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
 
       <div className="mt-4 flex items-center gap-2">
         <button
@@ -767,13 +755,14 @@ function CategoryEditor({ spaceId, initial }: { spaceId: number; initial: Catego
         {cats.length === 0 && <li className="text-sm text-slate-400">No categories yet.</li>}
       </ul>
       <div className="flex gap-2">
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), add())}
-          placeholder="New category name"
-          className="w-56 rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-hidden focus:border-compass-400"
-        />
+        <div className="w-56">
+          <TextInput
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), add())}
+            placeholder="New category name"
+          />
+        </div>
         <button
           type="button"
           onClick={add}

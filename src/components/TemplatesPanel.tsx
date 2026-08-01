@@ -11,6 +11,7 @@ import {
   SquarePen,
   Trash2,
 } from "lucide-react";
+import { Field, Select, TextInput, Toggle } from "@/components/form";
 import { RichTextEditor } from "@/components/RichTextEditor";
 import { toast } from "@/components/Toasts";
 import { DOC_TYPES, DOC_TYPE_LABEL } from "@/lib/types";
@@ -40,9 +41,6 @@ const PLACEHOLDERS = [
   { tag: "author", label: "Author's name" },
   { tag: "space", label: "Space name" },
 ];
-
-const field =
-  "w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-hidden focus:border-compass-400";
 
 export function TemplatesPanel({ initial }: { initial: TemplateRow[] }) {
   const router = useRouter();
@@ -249,79 +247,84 @@ function TemplateForm({
   return (
     <div className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2">
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-slate-500">Name</span>
-          <input
+        <Field label="Name">
+          <TextInput
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className={field}
             placeholder="Runbook"
             maxLength={80}
           />
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-slate-500">
-            Description <span className="text-slate-400">(shown in the picker)</span>
-          </span>
-          <input
+        </Field>
+        <Field
+          label={
+            <>
+              Description <span className="text-slate-400">(shown in the picker)</span>
+            </>
+          }
+        >
+          <TextInput
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            className={field}
             placeholder="Operational response guide with triage flow and escalation."
             maxLength={200}
           />
-        </label>
+        </Field>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-slate-500">Document type</span>
-          <select value={docType} onChange={(e) => setDocType(e.target.value as DocType)} className={field}>
+        <Field label="Document type">
+          <Select value={docType} onChange={(e) => setDocType(e.target.value as DocType)}>
             {DOC_TYPES.map((t) => (
               <option key={t.value} value={t.value}>
                 {t.label}
               </option>
             ))}
-          </select>
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-slate-500">
-            Title pattern <span className="text-slate-400">(e.g. Runbook — {"{{title}}"})</span>
-          </span>
-          <input
+          </Select>
+        </Field>
+        <Field
+          label={
+            <>
+              Title pattern <span className="text-slate-400">(e.g. Runbook — {"{{title}}"})</span>
+            </>
+          }
+        >
+          <TextInput
             value={titlePattern}
             onChange={(e) => setTitlePattern(e.target.value)}
-            className={field}
             placeholder="{{title}}"
             maxLength={120}
           />
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-slate-500">
-            Tags <span className="text-slate-400">(comma-separated)</span>
-          </span>
-          <input
+        </Field>
+        <Field
+          label={
+            <>
+              Tags <span className="text-slate-400">(comma-separated)</span>
+            </>
+          }
+        >
+          <TextInput
             value={tags}
             onChange={(e) => setTags(e.target.value)}
-            className={field}
             placeholder="runbook, on-call"
             maxLength={200}
           />
-        </label>
+        </Field>
       </div>
 
-      <label className="block">
-        <span className="mb-1 block text-xs font-medium text-slate-500">
-          Summary <span className="text-slate-400">(pre-filled; placeholders work here too)</span>
-        </span>
-        <input
+      <Field
+        label={
+          <>
+            Summary <span className="text-slate-400">(pre-filled; placeholders work here too)</span>
+          </>
+        }
+      >
+        <TextInput
           value={summary}
           onChange={(e) => setSummary(e.target.value)}
-          className={field}
           placeholder="How to respond when {{title}} misbehaves."
           maxLength={300}
         />
-      </label>
+      </Field>
 
       <div>
         <span className="mb-1 block text-xs font-medium text-slate-500">Body</span>
@@ -343,21 +346,17 @@ function TemplateForm({
       </div>
 
       {template && (
-        <label className="flex cursor-pointer items-start gap-3">
-          <input
-            type="checkbox"
-            checked={hidden}
-            onChange={(e) => setHidden(e.target.checked)}
-            className="mt-0.5 h-4 w-4 accent-compass-600"
-          />
-          <span>
-            <span className="text-sm font-medium text-slate-800">Hide from the picker</span>
-            <span className="mt-0.5 block text-xs text-slate-500">
+        <Toggle
+          label="Hide from the picker"
+          help={
+            <>
               Hidden templates aren&apos;t offered to writers (or over the Claude connector) but
               keep their content here.
-            </span>
-          </span>
-        </label>
+            </>
+          }
+          checked={hidden}
+          onChange={setHidden}
+        />
       )}
 
       <div className="flex flex-wrap items-center gap-2">
