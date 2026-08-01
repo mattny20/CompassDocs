@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "@/components/Toasts";
+import { Field, TextInput } from "@/components/form";
 
 interface DestState {
   s3: {
@@ -22,8 +23,6 @@ interface DestState {
   env_present: boolean;
 }
 
-const field =
-  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
 
 export function BackupDestinations({ initial }: { initial: DestState }) {
   const router = useRouter();
@@ -153,31 +152,31 @@ function S3Card({
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
-        <Labeled label="Bucket">
-          <input value={bucket} onChange={(e) => setBucket(e.target.value)} className={field} placeholder="my-compassdocs-backups" />
-        </Labeled>
-        <Labeled label="Region">
-          <input value={region} onChange={(e) => setRegion(e.target.value)} className={field} placeholder="us-east-1" />
-        </Labeled>
-        <Labeled label="Endpoint (optional — for R2 / MinIO)">
-          <input value={endpoint} onChange={(e) => setEndpoint(e.target.value)} className={field} placeholder="https://<account>.r2.cloudflarestorage.com" />
-        </Labeled>
-        <Labeled label="Key prefix (optional)">
-          <input value={prefix} onChange={(e) => setPrefix(e.target.value)} className={field} placeholder="compassdocs" />
-        </Labeled>
-        <Labeled label="Access key ID">
-          <input value={accessKeyId} onChange={(e) => setAccessKeyId(e.target.value)} className={`${field} font-mono`} autoComplete="off" />
-        </Labeled>
-        <Labeled label={s3.has_secret ? "Secret access key (leave blank to keep)" : "Secret access key"}>
-          <input
+        <Field label="Bucket">
+          <TextInput value={bucket} onChange={(e) => setBucket(e.target.value)} placeholder="my-compassdocs-backups" />
+        </Field>
+        <Field label="Region">
+          <TextInput value={region} onChange={(e) => setRegion(e.target.value)} placeholder="us-east-1" />
+        </Field>
+        <Field label="Endpoint (optional — for R2 / MinIO)">
+          <TextInput value={endpoint} onChange={(e) => setEndpoint(e.target.value)} placeholder="https://<account>.r2.cloudflarestorage.com" />
+        </Field>
+        <Field label="Key prefix (optional)">
+          <TextInput value={prefix} onChange={(e) => setPrefix(e.target.value)} placeholder="compassdocs" />
+        </Field>
+        <Field label="Access key ID">
+          <TextInput value={accessKeyId} onChange={(e) => setAccessKeyId(e.target.value)} className="font-mono" autoComplete="off" />
+        </Field>
+        <Field label={s3.has_secret ? "Secret access key (leave blank to keep)" : "Secret access key"}>
+          <TextInput
             type="password"
             value={secret}
             onChange={(e) => setSecret(e.target.value)}
-            className={`${field} font-mono`}
+            className="font-mono"
             placeholder={s3.has_secret ? "•••••••• saved" : "secret access key"}
             autoComplete="off"
           />
-        </Labeled>
+        </Field>
       </div>
 
       <Actions
@@ -236,19 +235,19 @@ function AzureCard({
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
-        <Labeled label="Container">
-          <input value={container} onChange={(e) => setContainer(e.target.value)} className={field} placeholder="compassdocs-backups" />
-        </Labeled>
-        <Labeled label={azure.has_connection_string ? "Connection string (leave blank to keep)" : "Connection string"}>
-          <input
+        <Field label="Container">
+          <TextInput value={container} onChange={(e) => setContainer(e.target.value)} placeholder="compassdocs-backups" />
+        </Field>
+        <Field label={azure.has_connection_string ? "Connection string (leave blank to keep)" : "Connection string"}>
+          <TextInput
             type="password"
             value={conn}
             onChange={(e) => setConn(e.target.value)}
-            className={`${field} font-mono`}
+            className="font-mono"
             placeholder={azure.has_connection_string ? "•••••••• saved" : "DefaultEndpointsProtocol=https;AccountName=…"}
             autoComplete="off"
           />
-        </Labeled>
+        </Field>
       </div>
 
       <Actions
@@ -258,15 +257,6 @@ function AzureCard({
         onRemove={azure.configured ? remove : undefined}
       />
     </div>
-  );
-}
-
-function Labeled({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="block">
-      <span className="mb-1 block text-xs font-medium text-slate-500">{label}</span>
-      {children}
-    </label>
   );
 }
 

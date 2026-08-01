@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, CircleAlert, LoaderCircle, RefreshCw, Sparkles } from "lucide-react";
 import { toast } from "@/components/Toasts";
+import { Field, TextInput, Select } from "@/components/form";
 
 // Semantic-search configuration (Settings → AI): provider, key, model, base
 // URL, index status, and a background rebuild with live progress.
@@ -24,9 +25,6 @@ const DEFAULTS = {
   voyage: { model: "voyage-3.5-lite", baseUrl: "https://api.voyageai.com/v1/embeddings" },
   openai: { model: "text-embedding-3-small", baseUrl: "https://api.openai.com/v1/embeddings" },
 };
-
-const field =
-  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
 
 export function SemanticSearchPanel({ initial }: { initial: Status }) {
   const [status, setStatus] = useState<Status>(initial);
@@ -149,9 +147,8 @@ export function SemanticSearchPanel({ initial }: { initial: Status }) {
       )}
 
       <div className="grid gap-3 sm:grid-cols-2">
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-slate-500">Provider</span>
-          <select
+        <Field label="Provider">
+          <Select
             value={provider}
             onChange={(e) => {
               const p = e.target.value;
@@ -161,50 +158,52 @@ export function SemanticSearchPanel({ initial }: { initial: Status }) {
                 setBaseUrl(DEFAULTS[p].baseUrl);
               }
             }}
-            className={field}
           >
             <option value="off">Off</option>
             <option value="voyage">Voyage AI</option>
             <option value="openai">OpenAI-compatible (OpenAI, Ollama, LM Studio…)</option>
-          </select>
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-slate-500">
-            API key {status.has_key && <span className="text-slate-400">(saved — enter to replace)</span>}
-          </span>
-          <input
+          </Select>
+        </Field>
+        <Field
+          label={
+            <>
+              API key {status.has_key && <span className="text-slate-400">(saved — enter to replace)</span>}
+            </>
+          }
+        >
+          <TextInput
             type="password"
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
-            className={`${field} font-mono`}
+            className="font-mono"
             placeholder={provider === "voyage" ? "pa-…" : "sk-… (any value for local engines)"}
             autoComplete="off"
             spellCheck={false}
             disabled={provider === "off"}
           />
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-slate-500">Embedding model</span>
-          <input
+        </Field>
+        <Field label="Embedding model">
+          <TextInput
             value={model}
             onChange={(e) => setModel(e.target.value)}
-            className={field}
             placeholder={defaults?.model ?? ""}
             disabled={provider === "off"}
           />
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-slate-500">
-            Endpoint URL <span className="text-slate-400">(change for Ollama or a gateway)</span>
-          </span>
-          <input
+        </Field>
+        <Field
+          label={
+            <>
+              Endpoint URL <span className="text-slate-400">(change for Ollama or a gateway)</span>
+            </>
+          }
+        >
+          <TextInput
             value={baseUrl}
             onChange={(e) => setBaseUrl(e.target.value)}
-            className={field}
             placeholder={defaults?.baseUrl ?? ""}
             disabled={provider === "off"}
           />
-        </label>
+        </Field>
       </div>
       <p className="mt-2 text-xs text-slate-400">
         Changing the model re-embeds everything on the next rebuild. Documents embed automatically

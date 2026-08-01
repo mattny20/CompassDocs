@@ -8,5 +8,5 @@ export const dynamic = "force-dynamic";
 export default async function UsersPage() {
   const admin = await requireRole("admin");
   const users = await listUsers();
-  return <SettingsPage href="/admin/users"><UsersClient users={users} currentUserId={admin.id} /></SettingsPage>;
+  return <SettingsPage href="/admin/users" wide><UsersClient users={users} currentUserId={admin.id} /></SettingsPage>;
 }

@@ -16,7 +16,7 @@ export default async function AuditPage() {
     featureEnabled("audit_export"),
   ]);
   return (
-    <SettingsPage href="/admin/audit">
+    <SettingsPage href="/admin/audit" wide>
     <AuditLog
       initial={{ rows, total, categories, limit: PAGE_SIZE }}
       settings={settings}

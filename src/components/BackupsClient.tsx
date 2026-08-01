@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "@/components/Toasts";
+import { Field, Select, TextInput } from "@/components/form";
 import { formatDateTime } from "@/lib/format";
 import type { AppSettings, BackupFrequency } from "@/lib/settings";
 import { BACKUP_KEEP_MIN, BACKUP_KEEP_MAX } from "@/lib/settings";
@@ -23,9 +24,6 @@ function bytes(n: number): string {
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
-
-const field =
-  "rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
 
 export function BackupsClient({
   backups,
@@ -111,27 +109,23 @@ export function BackupsClient({
             Run a full database backup on a schedule, keeping the newest few.
           </p>
           <div className="flex flex-wrap items-end gap-3">
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium text-slate-500">Frequency</span>
-              <select value={freq} onChange={(e) => setFreq(e.target.value as BackupFrequency)} className={field}>
+            <Field label="Frequency">
+              <Select value={freq} onChange={(e) => setFreq(e.target.value as BackupFrequency)}>
                 <option value="off">Off</option>
                 <option value="daily">Daily</option>
                 <option value="weekly">Weekly</option>
-              </select>
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium text-slate-500">
-                Keep ({BACKUP_KEEP_MIN}–{BACKUP_KEEP_MAX})
-              </span>
-              <input
+              </Select>
+            </Field>
+            <Field label={<>Keep ({BACKUP_KEEP_MIN}–{BACKUP_KEEP_MAX})</>}>
+              <TextInput
                 type="number"
                 min={BACKUP_KEEP_MIN}
                 max={BACKUP_KEEP_MAX}
                 value={keep}
                 onChange={(e) => setKeep(Number(e.target.value))}
-                className={`${field} w-24`}
+                className="max-w-24"
               />
-            </label>
+            </Field>
             <button
               onClick={saveSchedule}
               disabled={savingSchedule}

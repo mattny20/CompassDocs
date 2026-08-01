@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "@/components/Toasts";
+import { Field, TextInput, Select } from "@/components/form";
 
 type AiKeySource = "settings" | "env" | "none";
 type AiProvider = "anthropic" | "openai";
@@ -26,9 +27,6 @@ const MODEL_OPTIONS: { value: string; label: string }[] = [
   { value: "claude-sonnet-5", label: "Claude Sonnet 5 — balanced" },
   { value: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5 — fastest" },
 ];
-
-const field =
-  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
 
 export function AiSettings({ initial }: { initial: AiState }) {
   const router = useRouter();
@@ -206,20 +204,19 @@ export function AiSettings({ initial }: { initial: AiState }) {
               </div>
             )}
 
-            <label className="block max-w-md">
-              <span className="mb-1 block text-xs font-medium text-slate-500">
-                {hasKey ? "Replace key" : "API key"}
-              </span>
-              <input
-                type="password"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                className={`${field} font-mono`}
-                placeholder="sk-ant-…"
-                autoComplete="off"
-                spellCheck={false}
-              />
-            </label>
+            <div className="max-w-md">
+              <Field label={hasKey ? "Replace key" : "API key"}>
+                <TextInput
+                  type="password"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  className="font-mono"
+                  placeholder="sk-ant-…"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              </Field>
+            </div>
           </div>
 
           {/* Model */}
@@ -229,20 +226,17 @@ export function AiSettings({ initial }: { initial: AiState }) {
               Which Claude model answers questions and proofreads. Opus is the most capable; Haiku is
               the fastest and cheapest.
             </p>
-            <label className="block max-w-md">
-              <span className="mb-1 block text-xs font-medium text-slate-500">Model</span>
-              <select
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                className={field}
-              >
-                {modelOptions.map((m) => (
-                  <option key={m.value} value={m.value}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <div className="max-w-md">
+              <Field label="Model">
+                <Select value={model} onChange={(e) => setModel(e.target.value)}>
+                  {modelOptions.map((m) => (
+                    <option key={m.value} value={m.value}>
+                      {m.label}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            </div>
           </div>
         </>
       ) : (
@@ -256,44 +250,45 @@ export function AiSettings({ initial }: { initial: AiState }) {
             (Ollama). The endpoint is tested with a tiny request when you save.
           </p>
           <div className="max-w-md space-y-3">
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium text-slate-500">Endpoint URL</span>
-              <input
+            <Field label="Endpoint URL">
+              <TextInput
                 type="url"
                 value={oaUrl}
                 onChange={(e) => setOaUrl(e.target.value)}
-                className={`${field} font-mono`}
+                className="font-mono"
                 placeholder="https://api.openai.com/v1/chat/completions"
                 autoComplete="off"
                 spellCheck={false}
               />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium text-slate-500">Model name</span>
-              <input
+            </Field>
+            <Field label="Model name">
+              <TextInput
                 type="text"
                 value={oaModel}
                 onChange={(e) => setOaModel(e.target.value)}
-                className={`${field} font-mono`}
+                className="font-mono"
                 placeholder="gpt-4o-mini, llama3.1, …"
                 autoComplete="off"
                 spellCheck={false}
               />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium text-slate-500">
-                API key {oaKeySet ? "(saved — leave blank to keep)" : "(optional for local engines)"}
-              </span>
-              <input
+            </Field>
+            <Field
+              label={
+                <>
+                  API key {oaKeySet ? "(saved — leave blank to keep)" : "(optional for local engines)"}
+                </>
+              }
+            >
+              <TextInput
                 type="password"
                 value={oaKey}
                 onChange={(e) => setOaKey(e.target.value)}
-                className={`${field} font-mono`}
+                className="font-mono"
                 placeholder={oaKeySet ? "••••••••" : "sk-…"}
                 autoComplete="off"
                 spellCheck={false}
               />
-            </label>
+            </Field>
           </div>
         </div>
       )}

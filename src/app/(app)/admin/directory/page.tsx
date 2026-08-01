@@ -24,7 +24,7 @@ export default async function DirectoryAdminPage() {
   ]);
 
   return (
-    <SettingsPage href="/admin/directory">
+    <SettingsPage href="/admin/directory" wide>
     <DirectorySettings
       initialPeople={people}
       initialFields={fields}

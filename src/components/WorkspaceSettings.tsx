@@ -15,6 +15,7 @@ import {
 } from "@/lib/settings";
 import type { AppSettings } from "@/lib/settings";
 import { toast } from "@/components/Toasts";
+import { Field, TextInput, Select, Textarea, Toggle } from "@/components/form";
 
 // IANA zones the runtime knows about, with a couple of common ones pinned first.
 function timeZones(): string[] {
@@ -24,9 +25,6 @@ function timeZones(): string[] {
       : ["UTC", "America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles", "Europe/London"];
   return all.includes("UTC") ? all : ["UTC", ...all];
 }
-
-const field =
-  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
 
 export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
   const router = useRouter();
@@ -119,27 +117,27 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
       <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <h3 className="mb-3 font-semibold text-slate-900">Branding</h3>
         <div className="grid gap-4 sm:grid-cols-2">
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-500">Company name</span>
-            <input
+          <Field label="Company name">
+            <TextInput
               value={s.company_name}
               onChange={(e) => set("company_name", e.target.value)}
-              className={field}
               placeholder="CompassDocs"
               maxLength={80}
             />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-500">
-              Logo URL <span className="text-slate-400">(optional — or use the options below)</span>
-            </span>
-            <input
+          </Field>
+          <Field
+            label={
+              <>
+                Logo URL <span className="text-slate-400">(optional — or use the options below)</span>
+              </>
+            }
+          >
+            <TextInput
               value={s.logo_url}
               onChange={(e) => set("logo_url", e.target.value)}
-              className={field}
               placeholder="https://…/logo.png or leave blank for the compass mark"
             />
-          </label>
+          </Field>
         </div>
 
         {/* Logo from a website or an upload — these apply immediately. */}
@@ -152,11 +150,10 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
               Enter your company site — we&apos;ll fetch its favicon and use it as the logo.
             </p>
             <div className="flex gap-2">
-              <input
+              <TextInput
                 value={siteUrl}
                 onChange={(e) => setSiteUrl(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && fetchSiteIcon()}
-                className={field}
                 placeholder="yourcompany.com"
               />
               <button
@@ -253,41 +250,42 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
       <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <h3 className="mb-3 font-semibold text-slate-900">Date &amp; time</h3>
         <div className="grid gap-4 sm:grid-cols-3">
-          <label className="block sm:col-span-1">
-            <span className="mb-1 block text-xs font-medium text-slate-500">Timezone</span>
-            <select value={s.timezone} onChange={(e) => set("timezone", e.target.value)} className={field}>
-              {zones.map((z) => (
-                <option key={z} value={z}>
-                  {z}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block sm:col-span-1">
-            <span className="mb-1 block text-xs font-medium text-slate-500">Date format</span>
-            <select
-              value={s.date_format}
-              onChange={(e) => set("date_format", e.target.value as AppSettings["date_format"])}
-              className={field}
-            >
-              {DATE_FORMATS.map((f) => (
-                <option key={f} value={f}>
-                  {DATE_FORMAT_LABEL[f]}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block sm:col-span-1">
-            <span className="mb-1 block text-xs font-medium text-slate-500">Time format</span>
-            <select
-              value={s.time_format}
-              onChange={(e) => set("time_format", e.target.value as AppSettings["time_format"])}
-              className={field}
-            >
-              <option value="24h">24-hour (14:05)</option>
-              <option value="12h">12-hour (2:05 PM)</option>
-            </select>
-          </label>
+          <div className="sm:col-span-1">
+            <Field label="Timezone">
+              <Select value={s.timezone} onChange={(e) => set("timezone", e.target.value)}>
+                {zones.map((z) => (
+                  <option key={z} value={z}>
+                    {z}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </div>
+          <div className="sm:col-span-1">
+            <Field label="Date format">
+              <Select
+                value={s.date_format}
+                onChange={(e) => set("date_format", e.target.value as AppSettings["date_format"])}
+              >
+                {DATE_FORMATS.map((f) => (
+                  <option key={f} value={f}>
+                    {DATE_FORMAT_LABEL[f]}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </div>
+          <div className="sm:col-span-1">
+            <Field label="Time format">
+              <Select
+                value={s.time_format}
+                onChange={(e) => set("time_format", e.target.value as AppSettings["time_format"])}
+              >
+                <option value="24h">24-hour (14:05)</option>
+                <option value="12h">12-hour (2:05 PM)</option>
+              </Select>
+            </Field>
+          </div>
         </div>
       </div>
 
@@ -298,19 +296,23 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
           Days to keep deleted documents in the Trash before they&rsquo;re permanently
           removed. Set to 0 to keep them until deleted by hand.
         </p>
-        <label className="block max-w-xs">
-          <span className="mb-1 block text-xs font-medium text-slate-500">
-            Days ({TRASH_RETENTION_MIN}–{TRASH_RETENTION_MAX})
-          </span>
-          <input
-            type="number"
-            min={TRASH_RETENTION_MIN}
-            max={TRASH_RETENTION_MAX}
-            value={s.trash_retention_days}
-            onChange={(e) => set("trash_retention_days", Number(e.target.value))}
-            className={field}
-          />
-        </label>
+        <div className="max-w-xs">
+          <Field
+            label={
+              <>
+                Days ({TRASH_RETENTION_MIN}–{TRASH_RETENTION_MAX})
+              </>
+            }
+          >
+            <TextInput
+              type="number"
+              min={TRASH_RETENTION_MIN}
+              max={TRASH_RETENTION_MAX}
+              value={s.trash_retention_days}
+              onChange={(e) => set("trash_retention_days", Number(e.target.value))}
+            />
+          </Field>
+        </div>
       </div>
 
       {/* Attachments */}
@@ -320,32 +322,34 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
           Maximum size for a single file attached to a document.
         </p>
         <div className="flex flex-wrap gap-4">
-          <label className="block max-w-xs">
-            <span className="mb-1 block text-xs font-medium text-slate-500">
-              Max size in MB ({ATTACHMENT_MB_MIN}–{ATTACHMENT_MB_MAX})
-            </span>
-            <input
-              type="number"
-              min={ATTACHMENT_MB_MIN}
-              max={ATTACHMENT_MB_MAX}
-              value={s.max_attachment_mb}
-              onChange={(e) => set("max_attachment_mb", Number(e.target.value))}
-              className={field}
-            />
-          </label>
-          <label className="block max-w-xs">
-            <span className="mb-1 block text-xs font-medium text-slate-500">
-              Max video size in MB (1–2048)
-            </span>
-            <input
-              type="number"
-              min={1}
-              max={2048}
-              value={s.max_video_mb}
-              onChange={(e) => set("max_video_mb", Number(e.target.value))}
-              className={field}
-            />
-          </label>
+          <div className="max-w-xs">
+            <Field
+              label={
+                <>
+                  Max size in MB ({ATTACHMENT_MB_MIN}–{ATTACHMENT_MB_MAX})
+                </>
+              }
+            >
+              <TextInput
+                type="number"
+                min={ATTACHMENT_MB_MIN}
+                max={ATTACHMENT_MB_MAX}
+                value={s.max_attachment_mb}
+                onChange={(e) => set("max_attachment_mb", Number(e.target.value))}
+              />
+            </Field>
+          </div>
+          <div className="max-w-xs">
+            <Field label="Max video size in MB (1–2048)">
+              <TextInput
+                type="number"
+                min={1}
+                max={2048}
+                value={s.max_video_mb}
+                onChange={(e) => set("max_video_mb", Number(e.target.value))}
+              />
+            </Field>
+          </div>
         </div>
       </div>
 
@@ -356,39 +360,27 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
           Optional structure features, off by default. Turning them off later
           hides the UI but deletes nothing.
         </p>
-        <label className="flex items-start gap-2 text-sm text-slate-700">
-          <input
-            type="checkbox"
+        <div className="space-y-3">
+          <Toggle
+            label="Nested pages"
+            help="Documents can have sub-pages (up to 3 levels): a sub-pages panel on each document, tree views on space pages and in the sidebar, and a parent selector in the editor."
             checked={s.nested_pages_enabled}
-            onChange={(e) => set("nested_pages_enabled", e.target.checked)}
-            className="mt-0.5 h-4 w-4 rounded-sm border-slate-300 text-compass-600"
+            onChange={(next) => set("nested_pages_enabled", next)}
           />
-          <span>
-            <span className="font-medium">Nested pages</span>
-            <span className="mt-0.5 block text-xs text-slate-500">
-              Documents can have sub-pages (up to 3 levels): a sub-pages panel on
-              each document, tree views on space pages and in the sidebar, and a
-              parent selector in the editor.
-            </span>
-          </span>
-        </label>
-        <label className="mt-3 flex items-start gap-2 text-sm text-slate-700">
-          <input
-            type="checkbox"
+          <Toggle
+            label={<>Backlinks &amp; link autocomplete</>}
+            help={
+              <>
+                Type <code className="rounded-sm bg-slate-100 px-1">[[</code> in the
+                editor to search and link documents inline, and every document
+                shows a &ldquo;Linked from&rdquo; panel listing the documents that
+                link to it. Existing content is indexed when you turn this on.
+              </>
+            }
             checked={s.backlinks_enabled}
-            onChange={(e) => set("backlinks_enabled", e.target.checked)}
-            className="mt-0.5 h-4 w-4 rounded-sm border-slate-300 text-compass-600"
+            onChange={(next) => set("backlinks_enabled", next)}
           />
-          <span>
-            <span className="font-medium">Backlinks &amp; link autocomplete</span>
-            <span className="mt-0.5 block text-xs text-slate-500">
-              Type <code className="rounded-sm bg-slate-100 px-1">[[</code> in the
-              editor to search and link documents inline, and every document
-              shows a &ldquo;Linked from&rdquo; panel listing the documents that
-              link to it. Existing content is indexed when you turn this on.
-            </span>
-          </span>
-        </label>
+        </div>
       </div>
 
       {/* Comments */}
@@ -399,28 +391,24 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
           people by email and on their dashboard. Turning comments off hides
           all existing comments immediately (nothing is deleted).
         </p>
-        <label className="flex items-center gap-2 text-sm text-slate-700">
-          <input
-            type="checkbox"
-            checked={s.comments_enabled}
-            onChange={(e) => set("comments_enabled", e.target.checked)}
-            className="h-4 w-4 rounded-sm border-slate-300 text-compass-600"
-          />
-          Allow comments on documents
-        </label>
-        <label className="mt-4 block">
-          <span className="mb-1 block text-xs font-medium text-slate-500">
-            Restricted words (comments containing these are rejected — one per
-            line or comma-separated, case-insensitive)
-          </span>
-          <textarea
-            value={s.comments_blocked_words}
-            onChange={(e) => set("comments_blocked_words", e.target.value)}
-            rows={3}
-            placeholder={"confidential\nproject blue"}
-            className={field}
-          />
-        </label>
+        <Toggle
+          label="Allow comments on documents"
+          checked={s.comments_enabled}
+          onChange={(next) => set("comments_enabled", next)}
+        />
+        <div className="mt-4">
+          <Field
+            label="Restricted words (comments containing these are rejected — one per
+            line or comma-separated, case-insensitive)"
+          >
+            <Textarea
+              value={s.comments_blocked_words}
+              onChange={(e) => set("comments_blocked_words", e.target.value)}
+              rows={3}
+              placeholder={"confidential\nproject blue"}
+            />
+          </Field>
+        </div>
       </div>
 
       {/* Outlook add-in */}
@@ -460,19 +448,23 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
         <p className="mb-3 text-sm text-slate-500">
           Signed-in users are logged out after this many minutes of inactivity.
         </p>
-        <label className="block max-w-xs">
-          <span className="mb-1 block text-xs font-medium text-slate-500">
-            Minutes ({SESSION_TIMEOUT_MIN}–{SESSION_TIMEOUT_MAX})
-          </span>
-          <input
-            type="number"
-            min={SESSION_TIMEOUT_MIN}
-            max={SESSION_TIMEOUT_MAX}
-            value={s.session_timeout_minutes}
-            onChange={(e) => set("session_timeout_minutes", Number(e.target.value))}
-            className={field}
-          />
-        </label>
+        <div className="max-w-xs">
+          <Field
+            label={
+              <>
+                Minutes ({SESSION_TIMEOUT_MIN}–{SESSION_TIMEOUT_MAX})
+              </>
+            }
+          >
+            <TextInput
+              type="number"
+              min={SESSION_TIMEOUT_MIN}
+              max={SESSION_TIMEOUT_MAX}
+              value={s.session_timeout_minutes}
+              onChange={(e) => set("session_timeout_minutes", Number(e.target.value))}
+            />
+          </Field>
+        </div>
       </div>
 
       <div className="flex items-center gap-3">

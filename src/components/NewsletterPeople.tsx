@@ -7,6 +7,7 @@
 import { useRef, useState } from "react";
 import Link from "next/link";
 import { Mail, Plus, X, Image as ImageIcon } from "lucide-react";
+import { Field, TextInput } from "@/components/form";
 
 interface PersonRow {
   id: number;
@@ -163,20 +164,18 @@ export function NewsletterPeople({
           header banner that replaces the default logo bar.
         </p>
         <div className="mt-3 flex flex-wrap items-end gap-6">
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-500">
-              Email width (480–900 px)
-            </span>
+          <Field label="Email width (480–900 px)">
             <div className="flex items-center gap-2">
-              <input
-                type="number"
-                min={480}
-                max={900}
-                step={10}
-                value={widthDraft}
-                onChange={(e) => setWidthDraft(e.target.value)}
-                className="w-28 rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-hidden focus:border-compass-400"
-              />
+              <div className="w-28">
+                <TextInput
+                  type="number"
+                  min={480}
+                  max={900}
+                  step={10}
+                  value={widthDraft}
+                  onChange={(e) => setWidthDraft(e.target.value)}
+                />
+              </div>
               <button
                 onClick={() => saveAppearance({ width: Number(widthDraft) })}
                 disabled={appearanceBusy || Number(widthDraft) === appearance.width}
@@ -185,7 +184,7 @@ export function NewsletterPeople({
                 Save
               </button>
             </div>
-          </label>
+          </Field>
           <div>
             <span className="mb-1 block text-xs font-medium text-slate-500">Header image</span>
             <div className="flex items-center gap-2">
@@ -414,14 +413,14 @@ export function NewsletterPeople({
           </ul>
         )}
         <div className="mt-3 flex items-center gap-2">
-          <input
+          <TextInput
             value={newSender}
             onChange={(e) => setNewSender(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter" && newSender.trim()) saveSenders([...senders, newSender]);
             }}
             placeholder="Team News <news@acme.com>"
-            className="w-full max-w-sm rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-hidden focus:border-compass-400"
+            className="max-w-sm"
           />
           <button
             onClick={() => saveSenders([...senders, newSender])}
@@ -436,12 +435,12 @@ export function NewsletterPeople({
 
       {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 
-      <input
+      <TextInput
         value={peopleQuery}
         onChange={(e) => setPeopleQuery(e.target.value)}
         placeholder="Search people…"
         aria-label="Search people"
-        className="w-full max-w-xs rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-hidden placeholder:text-slate-400 focus:border-compass-400"
+        className="max-w-xs"
       />
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-surface shadow-xs">
         <table className="w-full text-left text-sm">

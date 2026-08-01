@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Copy, KeyRound, LoaderCircle, RefreshCw } from "lucide-react";
 import { timeAgo } from "@/lib/ui";
+import { Toggle } from "@/components/form";
 import { toast } from "@/components/Toasts";
 
 // Admin card for SCIM provisioning (enterprise): shows the tenant/base URL to
@@ -71,16 +72,14 @@ export function ScimPanel({ initial }: { initial: ScimStatus }) {
           </p>
         </div>
         {status.licensed && status.token_set && (
-          <label className="flex shrink-0 cursor-pointer items-center gap-2 text-sm text-slate-600">
-            <input
-              type="checkbox"
+          <div className="shrink-0">
+            <Toggle
+              label="Enabled"
               checked={status.enabled}
               disabled={busy}
-              onChange={(e) => call("PATCH", { enabled: e.target.checked })}
-              className="h-4 w-4 accent-compass-600"
+              onChange={(next) => void call("PATCH", { enabled: next })}
             />
-            Enabled
-          </label>
+          </div>
         )}
       </div>
 

@@ -98,6 +98,20 @@ focus):
   red text stays only for field-level validation; persistent status banners
   (license expiry, TLS state, import results) stay inline — they're state,
   not feedback.
+- **Form controls come from `components/form`**: `<Field label help error>`
+  wrapping `<TextInput/>`, `<Select/>`, or `<Textarea/>`; boolean settings
+  use `<Toggle label help checked onChange/>`. Don't hand-roll input
+  classes — pass per-instance extras (`font-mono`, heights) via
+  `className`, and cap a control's width with a wrapper div (the shared
+  style is `w-full`). Keep raw-but-`controlClass()`-styled inputs only for
+  compact placeholder-only add-forms and table-row controls. Checkbox
+  *lists*, radio groups, and composite pickers stay as they are.
+- Settings content renders in a readable ~48rem column by default
+  (`SettingsPage`); table-heavy sections opt out with the `wide` prop.
+- Destructive page-level actions live in a **danger zone** —
+  `<DangerZone><DangerAction label description>…</DangerAction></DangerZone>`
+  (red-bordered card, one per page, at the bottom). Per-row destructive
+  buttons in lists keep their strong `confirm()` instead.
 
 ## Color and theming
 

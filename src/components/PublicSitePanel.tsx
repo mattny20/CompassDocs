@@ -7,6 +7,7 @@
 import { useState } from "react";
 import { Globe, ExternalLink } from "lucide-react";
 import { toast } from "@/components/Toasts";
+import { Toggle } from "@/components/form";
 
 type PublicSpace = { id: number; name: string; slug: string; doc_count: number };
 
@@ -52,76 +53,66 @@ export function PublicSitePanel({
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
-        <label className="flex cursor-pointer items-start gap-3">
-          <input
-            type="checkbox"
-            checked={config.enabled}
-            disabled={saving}
-            onChange={(e) =>
-              save(
-                { enabled: e.target.checked },
-                e.target.checked ? "Public site enabled." : "Public site disabled."
-              )
-            }
-            className="mt-0.5 h-4 w-4 accent-compass-600"
-          />
-          <span>
-            <span className="font-medium text-slate-900">Enable the public site</span>
-            <span className="block text-sm text-slate-500">
+        <Toggle
+          label="Enable the public site"
+          help={
+            <>
               Off by default. When off, every <code className="text-xs">/public</code> page
               returns 404 regardless of space settings — nothing is exposed.
-            </span>
-          </span>
-        </label>
+            </>
+          }
+          checked={config.enabled}
+          disabled={saving}
+          onChange={(next) =>
+            save(
+              { enabled: next },
+              next ? "Public site enabled." : "Public site disabled."
+            )
+          }
+        />
 
-        <label className={`mt-4 flex items-start gap-3 ${config.enabled ? "cursor-pointer" : "opacity-50"}`}>
-          <input
-            type="checkbox"
+        <div className={`mt-4 ${config.enabled ? "" : "opacity-50"}`}>
+          <Toggle
+            label="Allow search engines"
+            help={
+              <>
+                When off, public pages carry a <code className="text-xs">noindex</code> directive —
+                reachable by anyone with the link, but not listed in search results.
+              </>
+            }
             checked={config.indexing}
             disabled={saving || !config.enabled}
-            onChange={(e) =>
+            onChange={(next) =>
               save(
-                { indexing: e.target.checked },
-                e.target.checked ? "Search engines allowed." : "Search engines disallowed."
+                { indexing: next },
+                next ? "Search engines allowed." : "Search engines disallowed."
               )
             }
-            className="mt-0.5 h-4 w-4 accent-compass-600"
           />
-          <span>
-            <span className="font-medium text-slate-900">Allow search engines</span>
-            <span className="block text-sm text-slate-500">
-              When off, public pages carry a <code className="text-xs">noindex</code> directive —
-              reachable by anyone with the link, but not listed in search results.
-            </span>
-          </span>
-        </label>
+        </div>
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
-        <label className="flex cursor-pointer items-start gap-3">
-          <input
-            type="checkbox"
-            checked={config.shareLinks}
-            disabled={saving}
-            onChange={(e) =>
-              save(
-                { shareLinks: e.target.checked },
-                e.target.checked ? "Public share links enabled." : "Public share links disabled."
-              )
-            }
-            className="mt-0.5 h-4 w-4 accent-compass-600"
-          />
-          <span>
-            <span className="font-medium text-slate-900">Allow public share links</span>
-            <span className="block text-sm text-slate-500">
+        <Toggle
+          label="Allow public share links"
+          help={
+            <>
               Off by default. When on, editors can create a tokenized read-only link to a
               single published document (<code className="text-xs">/share/…</code>) — share
               one SOP with a customer without opening a whole space. Links are unguessable,
               never indexed by search engines, revocable, and can carry an expiry. Turning
               this off disables every existing link immediately.
-            </span>
-          </span>
-        </label>
+            </>
+          }
+          checked={config.shareLinks}
+          disabled={saving}
+          onChange={(next) =>
+            save(
+              { shareLinks: next },
+              next ? "Public share links enabled." : "Public share links disabled."
+            )
+          }
+        />
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
