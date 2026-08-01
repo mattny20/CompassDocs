@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { RichTextEditor } from "@/components/RichTextEditor";
 import { toast } from "@/components/Toasts";
+import { TextInput } from "@/components/form";
 
 // Admin editor for the emails CompassDocs sends (Settings → Notifications →
 // Email templates). One template open at a time: subject line, doc-editor
@@ -196,11 +197,7 @@ export function EmailTemplatesPanel({ initial }: { initial: Template[] }) {
                         <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-400">
                           Subject
                         </label>
-                        <input
-                          value={subject}
-                          onChange={(e) => setSubject(e.target.value)}
-                          className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-hidden focus:border-compass-400"
-                        />
+                        <TextInput value={subject} onChange={(e) => setSubject(e.target.value)} />
                       </div>
                       <div>
                         <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-400">

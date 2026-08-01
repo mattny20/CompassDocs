@@ -6,9 +6,7 @@
 
 import { useState } from "react";
 import { toast } from "@/components/Toasts";
-
-const field =
-  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
+import { Field, Select, TextInput } from "@/components/form";
 
 const FORMATS = [
   { value: "webex", label: "Webex (incoming webhook)" },
@@ -123,35 +121,35 @@ export function WebhooksPanel({
 
       <form onSubmit={add} className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <div className="grid gap-3 sm:grid-cols-2">
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-500">Name</span>
-            <input className={field} value={name} onChange={(e) => setName(e.target.value)} placeholder="#doc-reviews channel" maxLength={80} />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-500">Platform</span>
-            <select className={field} value={format} onChange={(e) => setFormat(e.target.value)}>
+          <Field label="Name">
+            <TextInput value={name} onChange={(e) => setName(e.target.value)} placeholder="#doc-reviews channel" maxLength={80} />
+          </Field>
+          <Field label="Platform">
+            <Select value={format} onChange={(e) => setFormat(e.target.value)}>
               {FORMATS.map((f) => (
                 <option key={f.value} value={f.value}>{f.label}</option>
               ))}
-            </select>
-          </label>
+            </Select>
+          </Field>
         </div>
-        <label className="mt-3 block">
-          <span className="mb-1 block text-xs font-medium text-slate-500">
-            {format === "email" ? (
-              <>Recipients <span className="text-slate-400">(comma-separated addresses)</span></>
-            ) : (
-              <>Webhook URL <span className="text-slate-400">(stored write-only — shown masked afterwards)</span></>
-            )}
-          </span>
-          <input
-            className={field}
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder={format === "email" ? "approvers@acme.com, docs-team@acme.com" : "https://…"}
-            spellCheck={false}
-          />
-        </label>
+        <div className="mt-3">
+          <Field
+            label={
+              format === "email" ? (
+                <>Recipients <span className="text-slate-400">(comma-separated addresses)</span></>
+              ) : (
+                <>Webhook URL <span className="text-slate-400">(stored write-only — shown masked afterwards)</span></>
+              )
+            }
+          >
+            <TextInput
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder={format === "email" ? "approvers@acme.com, docs-team@acme.com" : "https://…"}
+              spellCheck={false}
+            />
+          </Field>
+        </div>
         <div className="mt-3 flex flex-wrap gap-4 text-sm text-slate-600">
           {EVENTS.map((ev) => (
             <label key={ev.value} className="flex items-center gap-2">
@@ -323,44 +321,42 @@ export function SmtpPanel({ initial }: { initial: SmtpState }) {
         Postmark, or your own server.
       </p>
       <div className="grid gap-3 sm:grid-cols-4">
-        <label className="block sm:col-span-2">
-          <span className="mb-1 block text-xs font-medium text-slate-500">SMTP host</span>
-          <input className={field} value={s.host} onChange={(e) => setS({ ...s, host: e.target.value })} placeholder="smtp.office365.com" spellCheck={false} />
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-slate-500">Port</span>
-          <input className={field} type="number" value={s.port} onChange={(e) => setS({ ...s, port: Number(e.target.value) })} />
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-slate-500">Encryption</span>
-          <select className={field} value={s.secure} onChange={(e) => setS({ ...s, secure: e.target.value })}>
+        <div className="sm:col-span-2">
+          <Field label="SMTP host">
+            <TextInput value={s.host} onChange={(e) => setS({ ...s, host: e.target.value })} placeholder="smtp.office365.com" spellCheck={false} />
+          </Field>
+        </div>
+        <Field label="Port">
+          <TextInput type="number" value={s.port} onChange={(e) => setS({ ...s, port: Number(e.target.value) })} />
+        </Field>
+        <Field label="Encryption">
+          <Select value={s.secure} onChange={(e) => setS({ ...s, secure: e.target.value })}>
             <option value="starttls">STARTTLS (587)</option>
             <option value="tls">TLS (465)</option>
             <option value="none">None</option>
-          </select>
-        </label>
+          </Select>
+        </Field>
       </div>
       <div className="mt-3 grid gap-3 sm:grid-cols-3">
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-slate-500">Username <span className="text-slate-400">(optional)</span></span>
-          <input className={field} value={s.user} onChange={(e) => setS({ ...s, user: e.target.value })} spellCheck={false} />
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-slate-500">
-            Password {s.has_pass && !pass ? <span className="text-green-600">(stored ✓)</span> : ""}
-          </span>
-          <input className={field} type="password" value={pass} onChange={(e) => setPass(e.target.value)} placeholder={s.has_pass ? "••••••••" : ""} autoComplete="off" />
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-slate-500">From address</span>
-          <input className={field} value={s.from} onChange={(e) => setS({ ...s, from: e.target.value })} placeholder="compassdocs@acme.com" spellCheck={false} />
-        </label>
+        <Field label={<>Username <span className="text-slate-400">(optional)</span></>}>
+          <TextInput value={s.user} onChange={(e) => setS({ ...s, user: e.target.value })} spellCheck={false} />
+        </Field>
+        <Field
+          label={
+            <>Password {s.has_pass && !pass ? <span className="text-green-600">(stored ✓)</span> : ""}</>
+          }
+        >
+          <TextInput type="password" value={pass} onChange={(e) => setPass(e.target.value)} placeholder={s.has_pass ? "••••••••" : ""} autoComplete="off" />
+        </Field>
+        <Field label="From address">
+          <TextInput value={s.from} onChange={(e) => setS({ ...s, from: e.target.value })} placeholder="compassdocs@acme.com" spellCheck={false} />
+        </Field>
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <button onClick={save} disabled={busy} className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60">
           {busy ? "Working…" : "Save"}
         </button>
-        <input className={`${field} max-w-[220px]`} value={testTo} onChange={(e) => setTestTo(e.target.value)} placeholder="you@acme.com" spellCheck={false} />
+        <TextInput className="max-w-[220px]" value={testTo} onChange={(e) => setTestTo(e.target.value)} placeholder="you@acme.com" spellCheck={false} />
         <button onClick={test} disabled={busy || !testTo || !s.configured} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">
           Send test email
         </button>
