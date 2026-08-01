@@ -2,7 +2,9 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { X } from "lucide-react";
 import { MsDeviceSetup } from "./MsDeviceSetup";
+import { EntityPicker } from "./EntityPicker";
 import type { DirectoryPerson, DirectoryField } from "@/lib/directory";
 
 const field =
@@ -148,16 +150,31 @@ export function DirectorySettings({
           <input className={field} placeholder="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
           <input className={field} placeholder="Mobile" value={form.mobile} onChange={(e) => setForm({ ...form, mobile: e.target.value })} />
           <input className={field} placeholder="Office / location" value={form.office} onChange={(e) => setForm({ ...form, office: e.target.value })} />
-          <select className={field} value={formAssistant} onChange={(e) => setFormAssistant(e.target.value)}>
-            <option value="">No assistant</option>
-            {people
-              .filter((pp) => pp.id !== editingId)
-              .map((pp) => (
-                <option key={pp.id} value={pp.id}>
-                  Assistant: {pp.name}
-                </option>
-              ))}
-          </select>
+          {formAssistant ? (
+            <span className="inline-flex items-center gap-1.5 self-center rounded-lg border border-compass-200 bg-compass-50 px-3 py-2 text-sm font-medium text-compass-800">
+              <span className="truncate">
+                Assistant: {people.find((pp) => String(pp.id) === formAssistant)?.name ?? `#${formAssistant}`}
+              </span>
+              <button
+                type="button"
+                onClick={() => setFormAssistant("")}
+                aria-label="Clear assistant"
+                className="shrink-0 opacity-60 hover:opacity-100"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </span>
+          ) : (
+            <EntityPicker
+              options={people
+                .filter((pp) => pp.id !== editingId)
+                .map((pp) => ({ id: pp.id, label: pp.name, sublabel: pp.title || pp.department || undefined }))}
+              onPick={(id) => setFormAssistant(String(id))}
+              placeholder="Assistant — search people…"
+              emptyText="No people match."
+              maxVisible={10}
+            />
+          )}
           {fields.map((f) => (
             <input
               key={f.key}

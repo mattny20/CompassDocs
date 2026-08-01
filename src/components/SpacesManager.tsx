@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Lock, Globe, Building2, PencilRuler, ChevronUp, ChevronDown, Pencil, Trash2 } from "lucide-react";
+import { Lock, Globe, Building2, PencilRuler, ChevronUp, ChevronDown, Pencil, Trash2, X } from "lucide-react";
 import { EntityPicker } from "@/components/EntityPicker";
 import { SpaceIconPicker } from "./SpaceIconPicker";
 import type { Space } from "@/lib/types";
@@ -582,19 +582,35 @@ function SpaceForm({
             </a>
             .
           </p>
-          <select
-            value={defaultTemplateId ?? ""}
-            onChange={(e) => setDefaultTemplateId(e.target.value ? Number(e.target.value) : null)}
-            className="w-64 rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400"
-          >
-            <option value="">None — start blank</option>
-            {templates.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-                {t.hidden ? " (hidden)" : ""}
-              </option>
-            ))}
-          </select>
+          <div className="w-72">
+            {defaultTemplateId !== null ? (
+              <span className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-compass-200 bg-compass-50 px-3 py-2 text-sm font-medium text-compass-800">
+                <span className="truncate">
+                  {templates.find((t) => t.id === defaultTemplateId)?.name ?? `#${defaultTemplateId}`}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setDefaultTemplateId(null)}
+                  aria-label="Clear default template (start blank)"
+                  className="shrink-0 opacity-60 hover:opacity-100"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </span>
+            ) : (
+              <EntityPicker
+                options={templates.map((t) => ({
+                  id: t.id,
+                  label: t.name,
+                  sublabel: t.hidden ? "hidden" : undefined,
+                }))}
+                onPick={(id) => setDefaultTemplateId(id)}
+                placeholder="None — search templates…"
+                emptyText="No templates match."
+                maxVisible={10}
+              />
+            )}
+          </div>
         </div>
       )}
 

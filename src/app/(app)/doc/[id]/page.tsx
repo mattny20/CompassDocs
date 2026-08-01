@@ -9,6 +9,7 @@ import {
   listAttachments,
   listDmsLinks,
   getApprovalMode,
+  isTrainingDeckDoc,
 } from "@/lib/db";
 import { BranchBanner } from "@/components/BranchBanner";
 import { ViewTracker } from "@/components/ViewTracker";
@@ -276,7 +277,13 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
         <div className="min-w-0 flex-1">
           <DocToc />
           <article>
-            <MarkdownView content={doc.content} docKey={`doc-${doc.id}`} />
+            <MarkdownView
+              content={doc.content}
+              docKey={`doc-${doc.id}`}
+              // Training decks use --- as slide breaks: invisible when the doc
+              // is read as a page, meaningful only in the deck player.
+              slideBreaks={(await isTrainingDeckDoc(doc.id)) ? "hidden" : undefined}
+            />
           </article>
 
           <DocFeedback docId={doc.id} />

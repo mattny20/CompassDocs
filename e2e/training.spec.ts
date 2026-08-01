@@ -28,6 +28,15 @@ test("training: entitlement gate holds in the community build", async ({ page })
   });
   expect(act.status).toBe(402);
 
+  const programs = await api(page, "/api/training/programs");
+  expect(programs.status).toBe(402);
+
+  const programAssign = await api(page, "/api/training/programs/1", {
+    method: "POST",
+    body: { everyone: true },
+  });
+  expect(programAssign.status).toBe(402);
+
   await page.goto("/training");
   await expect(page.locator("h1")).toContainText("Training");
   await expect(page.locator("code", { hasText: "training" })).toBeVisible();

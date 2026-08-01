@@ -20,7 +20,9 @@ import {
   LoaderCircle,
   Check,
   CircleDashed,
+  X,
 } from "lucide-react";
+import { EntityPicker } from "@/components/EntityPicker";
 import { timeAgo } from "@/lib/ui";
 
 interface DocRow {
@@ -170,18 +172,32 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
               of personal notification settings.
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              <select
-                value={candidate}
-                onChange={(e) => setCandidate(e.target.value)}
-                className="min-w-64 rounded-lg border border-slate-200 bg-surface px-2.5 py-1.5 text-sm text-slate-600 outline-hidden focus:border-compass-400"
-              >
-                <option value="">Choose a document…</option>
-                {data.candidates.map((c: any) => (
-                  <option key={c.id} value={c.id}>
-                    {c.space_icon} {c.space_name} — {c.title}
-                  </option>
-                ))}
-              </select>
+              <div className="min-w-72 flex-1 sm:max-w-md">
+                {candidate ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-lg border border-compass-200 bg-compass-50 px-3 py-1.5 text-sm font-medium text-compass-800">
+                    {(data.candidates as any[]).find((c) => String(c.id) === candidate)?.title ?? `#${candidate}`}
+                    <button
+                      onClick={() => setCandidate("")}
+                      aria-label="Clear document choice"
+                      className="opacity-60 hover:opacity-100"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </span>
+                ) : (
+                  <EntityPicker
+                    options={(data.candidates as any[]).map((c) => ({
+                      id: c.id,
+                      label: c.title,
+                      sublabel: `${c.space_icon} ${c.space_name}`,
+                    }))}
+                    onPick={(id) => setCandidate(String(id))}
+                    placeholder="Find a published document…"
+                    emptyText="No published documents match."
+                    maxVisible={10}
+                  />
+                )}
+              </div>
               <button
                 onClick={() => candidate && act(Number(candidate), "request", "Acknowledgement requested")}
                 disabled={!candidate || busy !== null}

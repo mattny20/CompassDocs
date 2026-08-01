@@ -1,5 +1,11 @@
 import { notFound } from "next/navigation";
-import { getDocument, listSpaces, getApprovalMode, listAllSpaceCategories } from "@/lib/db";
+import {
+  getDocument,
+  listSpaces,
+  getApprovalMode,
+  listAllSpaceCategories,
+  isTrainingDeckDoc,
+} from "@/lib/db";
 import { requireRole } from "@/lib/auth";
 import { spaceScopeFor, scopeAllows, canEditSpace, editableScopeFor } from "@/lib/access";
 import { roleAtLeast } from "@/lib/types";
@@ -33,6 +39,7 @@ export default async function EditDocPage({ params }: { params: Promise<{ id: st
       categories={categories}
       nestedEnabled={settings.nested_pages_enabled && doc.branch_of === null}
       docLinks={settings.backlinks_enabled}
+      trainingDeck={await isTrainingDeckDoc(doc.id)}
       initial={{
         id: doc.id,
         space_id: doc.space_id,

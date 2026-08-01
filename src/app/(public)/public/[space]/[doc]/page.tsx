@@ -1,7 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { getSpaceBySlug, getDocumentBySpaceAndSlug, listAttachments } from "@/lib/db";
+import {
+  getSpaceBySlug,
+  getDocumentBySpaceAndSlug,
+  listAttachments,
+  isTrainingDeckDoc,
+} from "@/lib/db";
 import { DOC_TYPE_LABEL } from "@/lib/types";
 import { MarkdownView } from "@/components/MarkdownView";
 import { ViewTracker } from "@/components/ViewTracker";
@@ -73,7 +78,11 @@ export default async function PublicDocPage({
       </div>
 
       <div className="prose prose-slate mt-8 max-w-none rounded-xl border border-slate-200 bg-white p-8 shadow-xs">
-        <MarkdownView content={doc.content} docKey={`pub-${doc.id}`} />
+        <MarkdownView
+          content={doc.content}
+          docKey={`pub-${doc.id}`}
+          slideBreaks={(await isTrainingDeckDoc(doc.id)) ? "hidden" : undefined}
+        />
       </div>
 
       {attachments.length > 0 && (

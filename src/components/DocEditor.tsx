@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ShieldCheck, SquareSplitVertical, Table as TableIcon } from "lucide-react";
+import { ShieldCheck, SquareSplitVertical, Table as TableIcon, X } from "lucide-react";
+import { EntityPicker } from "./EntityPicker";
 import { MarkdownView } from "./MarkdownView";
 import { PageWidth } from "./PageWidth";
 import { RichTextEditor, RICH_BLOCK_BUTTONS } from "./RichTextEditor";
@@ -69,6 +70,7 @@ export function DocEditor({
   canPublish,
   nestedEnabled = false,
   docLinks = false,
+  trainingDeck = false,
 }: {
   spaces: Pick<Space, "id" | "name" | "icon">[];
   /** Categories across the offered spaces; filtered by the selected space. */
@@ -80,6 +82,8 @@ export function DocEditor({
   nestedEnabled?: boolean;
   /** Backlinks toggle (admin-gated): [[ link autocomplete in the editor. */
   docLinks?: boolean;
+  /** This document is a training deck — preview `---` as slide-break markers. */
+  trainingDeck?: boolean;
 }) {
   const router = useRouter();
   const [spaceId, setSpaceId] = useState(initial.space_id ?? spaces[0]?.id);
@@ -529,18 +533,29 @@ export function DocEditor({
           </Field>
           {nestedEnabled && parentOptions.length > 0 && (
             <Field label="Parent page">
-              <select
-                value={parentId ?? ""}
-                onChange={(e) => setParentId(e.target.value ? Number(e.target.value) : null)}
-                className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-hidden focus:border-compass-400"
-              >
-                <option value="">None — top level</option>
-                {parentOptions.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.title}
-                  </option>
-                ))}
-              </select>
+              {parentId !== null && parentId !== undefined ? (
+                <span className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-compass-200 bg-compass-50 px-3 py-2 text-sm font-medium text-compass-800">
+                  <span className="truncate">
+                    {parentOptions.find((o) => o.id === parentId)?.title ?? `#${parentId}`}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setParentId(null)}
+                    aria-label="Clear parent page (top level)"
+                    className="shrink-0 opacity-60 hover:opacity-100"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </span>
+              ) : (
+                <EntityPicker
+                  options={parentOptions.map((o) => ({ id: o.id, label: o.title }))}
+                  onPick={(id) => setParentId(id)}
+                  placeholder="None — search to nest under a page…"
+                  emptyText="No pages match."
+                  maxVisible={10}
+                />
+              )}
             </Field>
           )}
           {categories.some((c) => c.space_id === spaceId) && (
@@ -682,8 +697,8 @@ export function DocEditor({
                 <button
                   type="button"
                   onClick={() => insertSnippet("slideBreak")}
-                  title="Slide break (training decks)"
-                  aria-label="Insert slide break"
+                  title="Training page break — starts a new slide (invisible on the published page)"
+                  aria-label="Insert training page break"
                   className="rounded-sm p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
                 >
                   <SquareSplitVertical className="h-4 w-4" />
@@ -792,7 +807,14 @@ export function DocEditor({
           ) : (
             <div className="min-h-[420px] px-5 py-4">
               {content.trim() ? (
-                <MarkdownView content={content} />
+                // Training docs (an existing deck, or a doc being authored with a
+                // compliance block) preview --- as labeled slide-break markers.
+                <MarkdownView
+                  content={content}
+                  slideBreaks={
+                    trainingDeck || /^:::compliance\s*$/m.test(content) ? "indicator" : undefined
+                  }
+                />
               ) : (
                 <p className="text-sm text-slate-400">Nothing to preview yet.</p>
               )}

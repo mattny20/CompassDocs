@@ -733,6 +733,25 @@ const SCHEMA_SQL = `
     UNIQUE (deck_id, user_id)
   );
   CREATE INDEX IF NOT EXISTS idx_training_user ON training_assignments(user_id, completed_at);
+  ALTER TABLE training_decks ADD COLUMN IF NOT EXISTS archived_at timestamptz;
+
+  -- Onboarding programs: a named bundle of decks. Active programs with
+  -- assign_new_members auto-assign every deck to just-created users, and a
+  -- program can be assigned to people/groups/everyone as one unit.
+  CREATE TABLE IF NOT EXISTS training_programs (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    name text NOT NULL,
+    active integer NOT NULL DEFAULT 1,
+    assign_new_members integer NOT NULL DEFAULT 1,
+    created_by integer REFERENCES users(id) ON DELETE SET NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+  );
+  CREATE TABLE IF NOT EXISTS training_program_decks (
+    program_id integer NOT NULL REFERENCES training_programs(id) ON DELETE CASCADE,
+    deck_id integer NOT NULL REFERENCES training_decks(id) ON DELETE CASCADE,
+    position integer NOT NULL DEFAULT 0,
+    PRIMARY KEY (program_id, deck_id)
+  );
 
   -- Quick links: an admin-curated launchpad of external shortcuts (Duo
   -- Central-style bookmarks). A link with no link_groups rows is visible to
@@ -3564,6 +3583,7 @@ export interface TrainingDeck {
   assign_new_members: number;
   created_by: number | null;
   created_at: string;
+  archived_at: string | null;
   title: string;
   space_name: string;
   space_icon: string;
@@ -3589,11 +3609,18 @@ export async function createTrainingDeck(
 
 export async function updateTrainingDeck(
   id: number,
-  patch: { active?: boolean; due_days?: number | null; assign_new_members?: boolean }
+  patch: {
+    active?: boolean;
+    due_days?: number | null;
+    assign_new_members?: boolean;
+    archived?: boolean;
+  }
 ): Promise<void> {
   const sets: string[] = [];
   const vals: unknown[] = [id];
   if (patch.active !== undefined) sets.push(`active = ${patch.active ? 1 : 0}`);
+  if (patch.archived !== undefined)
+    sets.push(`archived_at = ${patch.archived ? "now()" : "NULL"}`);
   if (patch.due_days !== undefined) {
     vals.push(patch.due_days);
     sets.push(`due_days = $${vals.length}`);
@@ -3604,7 +3631,7 @@ export async function updateTrainingDeck(
   await q(`UPDATE training_decks SET ${sets.join(", ")} WHERE id = $1`, vals);
 }
 
-export async function listTrainingDecks(): Promise<TrainingDeck[]> {
+export async function listTrainingDecks(archived = false): Promise<TrainingDeck[]> {
   return q(
     `SELECT t.*, d.title, d.status AS doc_status, s.name AS space_name, s.icon AS space_icon,
             (SELECT COUNT(*)::int FROM training_assignments a WHERE a.deck_id = t.id) AS assigned,
@@ -3613,9 +3640,21 @@ export async function listTrainingDecks(): Promise<TrainingDeck[]> {
      FROM training_decks t
      JOIN documents d ON d.id = t.document_id
      JOIN spaces s ON s.id = d.space_id
-     WHERE d.deleted_at IS NULL
+     WHERE d.deleted_at IS NULL AND t.archived_at IS ${archived ? "NOT NULL" : "NULL"}
      ORDER BY t.created_at DESC`
   );
+}
+
+/** Hard-delete a deck (assignments and program links cascade). */
+export async function deleteTrainingDeck(id: number): Promise<void> {
+  await q(`DELETE FROM training_decks WHERE id = $1`, [id]);
+}
+
+export async function countArchivedTrainingDecks(): Promise<number> {
+  const r = await q<{ n: number }>(
+    `SELECT COUNT(*)::int AS n FROM training_decks WHERE archived_at IS NOT NULL`
+  );
+  return r[0]?.n ?? 0;
 }
 
 export async function getTrainingDeck(id: number): Promise<TrainingDeck | undefined> {
@@ -3641,7 +3680,7 @@ export async function trainingCandidateDocs(): Promise<
      FROM documents d JOIN spaces s ON s.id = d.space_id
      WHERE d.status = 'published' AND d.deleted_at IS NULL AND d.branch_of IS NULL
        AND NOT EXISTS (SELECT 1 FROM training_decks t WHERE t.document_id = d.id)
-     ORDER BY d.title`
+     ORDER BY d.updated_at DESC`
   );
 }
 
@@ -3661,6 +3700,31 @@ export async function assignTraining(
      ON CONFLICT (deck_id, user_id) DO NOTHING
      RETURNING user_id`,
     [deckId, assignedBy.slice(0, 200), source, dueAt, userIds]
+  );
+  return r.map((x) => x.user_id);
+}
+
+/**
+ * Waive a deck for users: mark it complete without them taking it — for
+ * organizations rolling CompassDocs out to staff who already did the
+ * training elsewhere. Waived rows keep source='waived' and no confirmed
+ * version, so reporting stays honest about what was actually completed.
+ * Returns the user ids newly waived (already-completed rows are untouched).
+ */
+export async function waiveTraining(
+  deckId: number,
+  userIds: number[],
+  waivedBy: string
+): Promise<number[]> {
+  if (!userIds.length) return [];
+  const r = await q<{ user_id: number }>(
+    `INSERT INTO training_assignments (deck_id, user_id, assigned_by, source, completed_at)
+     SELECT $1, u.id, $2, 'waived', now() FROM users u
+     WHERE u.id = ANY($3) AND u.status = 'active'
+     ON CONFLICT (deck_id, user_id) DO UPDATE SET completed_at = now(), source = 'waived'
+     WHERE training_assignments.completed_at IS NULL
+     RETURNING user_id`,
+    [deckId, waivedBy.slice(0, 200), userIds]
   );
   return r.map((x) => x.user_id);
 }
@@ -3688,7 +3752,8 @@ export async function listMyTraining(userId: number): Promise<MyTraining[]> {
      JOIN training_decks t ON t.id = a.deck_id
      JOIN documents d ON d.id = t.document_id
      JOIN spaces s ON s.id = d.space_id
-     WHERE a.user_id = $1 AND t.active = 1 AND d.status = 'published' AND d.deleted_at IS NULL
+     WHERE a.user_id = $1 AND t.active = 1 AND t.archived_at IS NULL
+       AND d.status = 'published' AND d.deleted_at IS NULL
      ORDER BY (a.completed_at IS NULL) DESC, a.due_at NULLS LAST, a.assigned_at DESC
      LIMIT 100`,
     [userId]
@@ -3708,7 +3773,7 @@ export async function getMyTrainingAssignment(
        JOIN training_decks t ON t.id = a.deck_id
        JOIN documents d ON d.id = t.document_id
        JOIN spaces s ON s.id = d.space_id
-       WHERE a.id = $1 AND a.user_id = $2 AND t.active = 1
+       WHERE a.id = $1 AND a.user_id = $2 AND t.active = 1 AND t.archived_at IS NULL
          AND d.status = 'published' AND d.deleted_at IS NULL`,
       [assignmentId, userId]
     )
@@ -3758,12 +3823,13 @@ export interface TrainingStatusRow {
   last_slide: number;
   completed_at: string | null;
   confirmed_version: number | null;
+  source: string;
 }
 
 export async function trainingDeckStatus(deckId: number): Promise<TrainingStatusRow[]> {
   return q(
     `SELECT a.user_id, u.name, u.username, u.email, a.assigned_at, a.due_at,
-            a.last_slide, a.completed_at, a.confirmed_version
+            a.last_slide, a.completed_at, a.confirmed_version, a.source
      FROM training_assignments a JOIN users u ON u.id = a.user_id
      WHERE a.deck_id = $1 AND u.status = 'active'
      ORDER BY (a.completed_at IS NULL) DESC, a.due_at NULLS LAST, u.name`,
@@ -3779,7 +3845,7 @@ export async function countMyOpenTraining(userId: number): Promise<number> {
      JOIN training_decks t ON t.id = a.deck_id
      JOIN documents d ON d.id = t.document_id
      WHERE a.user_id = $1 AND a.completed_at IS NULL AND t.active = 1
-       AND d.status = 'published' AND d.deleted_at IS NULL`,
+       AND t.archived_at IS NULL AND d.status = 'published' AND d.deleted_at IS NULL`,
     [userId]
   );
   return r[0]?.n ?? 0;
@@ -3805,7 +3871,8 @@ export async function claimTrainingReminders(): Promise<
      SET reminded_at = now()
      FROM training_decks t, documents d, users u
      WHERE t.id = a.deck_id AND d.id = t.document_id AND u.id = a.user_id
-       AND a.completed_at IS NULL AND t.active = 1 AND u.status = 'active'
+       AND a.completed_at IS NULL AND t.active = 1 AND t.archived_at IS NULL
+       AND u.status = 'active'
        AND d.status = 'published' AND d.deleted_at IS NULL
        AND a.due_at IS NOT NULL AND a.due_at < now() + interval '3 days'
        AND (a.reminded_at IS NULL OR a.reminded_at < now() - interval '3 days')
@@ -3837,20 +3904,131 @@ export async function expandTrainingAudience(
   return [...ids];
 }
 
-/** Auto-assign all active new-member decks to a just-created user. */
+/**
+ * Auto-assign training to a just-created user: every active new-member deck,
+ * plus every deck of an active onboarding program with assign_new_members on.
+ */
 export async function autoAssignTraining(userId: number): Promise<void> {
   await q(
     `INSERT INTO training_assignments (deck_id, user_id, assigned_by, source, due_at)
-     SELECT t.id, $1, 'auto', 'new_member',
+     SELECT DISTINCT ON (t.id) t.id, $1, 'auto',
+            CASE WHEN pd.deck_id IS NULL THEN 'new_member' ELSE 'onboarding' END,
             CASE WHEN t.due_days IS NULL THEN NULL
                  ELSE now() + make_interval(days => t.due_days) END
      FROM training_decks t
      JOIN documents d ON d.id = t.document_id
-     WHERE t.active = 1 AND t.assign_new_members = 1
+     LEFT JOIN training_program_decks pd
+       ON pd.deck_id = t.id
+      AND pd.program_id IN
+          (SELECT id FROM training_programs WHERE active = 1 AND assign_new_members = 1)
+     WHERE t.active = 1 AND t.archived_at IS NULL
+       AND (t.assign_new_members = 1 OR pd.deck_id IS NOT NULL)
        AND d.status = 'published' AND d.deleted_at IS NULL
+     ORDER BY t.id
      ON CONFLICT (deck_id, user_id) DO NOTHING`,
     [userId]
   );
+}
+
+// --- Onboarding programs (bundles of decks) ---------------------------------------
+
+export interface TrainingProgram {
+  id: number;
+  name: string;
+  active: number;
+  assign_new_members: number;
+  created_at: string;
+  decks: { id: number; title: string }[];
+}
+
+export async function createTrainingProgram(
+  name: string,
+  deckIds: number[],
+  createdBy: number
+): Promise<number> {
+  const r = await q<{ id: number }>(
+    `INSERT INTO training_programs (name, created_by) VALUES ($1, $2) RETURNING id`,
+    [name.slice(0, 200), createdBy]
+  );
+  await setProgramDecks(r[0].id, deckIds);
+  return r[0].id;
+}
+
+async function setProgramDecks(programId: number, deckIds: number[]): Promise<void> {
+  await q(`DELETE FROM training_program_decks WHERE program_id = $1`, [programId]);
+  for (let i = 0; i < deckIds.length; i++) {
+    await q(
+      `INSERT INTO training_program_decks (program_id, deck_id, position)
+       SELECT $1, $2, $3 WHERE EXISTS (SELECT 1 FROM training_decks WHERE id = $2)
+       ON CONFLICT DO NOTHING`,
+      [programId, deckIds[i], i]
+    );
+  }
+}
+
+export async function updateTrainingProgram(
+  id: number,
+  patch: { name?: string; active?: boolean; assign_new_members?: boolean; deck_ids?: number[] }
+): Promise<void> {
+  const sets: string[] = [];
+  const vals: unknown[] = [id];
+  if (patch.name !== undefined) {
+    vals.push(patch.name.slice(0, 200));
+    sets.push(`name = $${vals.length}`);
+  }
+  if (patch.active !== undefined) sets.push(`active = ${patch.active ? 1 : 0}`);
+  if (patch.assign_new_members !== undefined)
+    sets.push(`assign_new_members = ${patch.assign_new_members ? 1 : 0}`);
+  if (sets.length) await q(`UPDATE training_programs SET ${sets.join(", ")} WHERE id = $1`, vals);
+  if (patch.deck_ids) await setProgramDecks(id, patch.deck_ids);
+}
+
+export async function deleteTrainingProgram(id: number): Promise<void> {
+  await q(`DELETE FROM training_programs WHERE id = $1`, [id]);
+}
+
+export async function listTrainingPrograms(): Promise<TrainingProgram[]> {
+  return q(
+    `SELECT p.id, p.name, p.active, p.assign_new_members, p.created_at,
+            COALESCE(
+              (SELECT json_agg(json_build_object('id', t.id, 'title', d.title)
+                               ORDER BY pd.position)
+               FROM training_program_decks pd
+               JOIN training_decks t ON t.id = pd.deck_id
+               JOIN documents d ON d.id = t.document_id
+               WHERE pd.program_id = p.id AND t.archived_at IS NULL
+                 AND d.deleted_at IS NULL),
+              '[]'::json) AS decks
+     FROM training_programs p
+     ORDER BY p.created_at DESC`
+  );
+}
+
+export async function getTrainingProgram(id: number): Promise<TrainingProgram | undefined> {
+  const r = await q<TrainingProgram>(
+    `SELECT p.id, p.name, p.active, p.assign_new_members, p.created_at,
+            COALESCE(
+              (SELECT json_agg(json_build_object('id', t.id, 'title', d.title)
+                               ORDER BY pd.position)
+               FROM training_program_decks pd
+               JOIN training_decks t ON t.id = pd.deck_id
+               JOIN documents d ON d.id = t.document_id
+               WHERE pd.program_id = p.id AND t.archived_at IS NULL
+                 AND d.deleted_at IS NULL),
+              '[]'::json) AS decks
+     FROM training_programs p WHERE p.id = $1`,
+    [id]
+  );
+  return r[0];
+}
+
+/** True when the (published) document is an unarchived training deck. */
+export async function isTrainingDeckDoc(documentId: number): Promise<boolean> {
+  const r = await q<{ id: number }>(
+    `SELECT id FROM training_decks WHERE document_id = $1 AND archived_at IS NULL`,
+    [documentId]
+  );
+  return r.length > 0;
 }
 
 // --- Quick links (external shortcuts launchpad) ----------------------------------

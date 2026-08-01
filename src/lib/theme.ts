@@ -36,6 +36,12 @@ export function accentCss(accent: string): string {
   const hex = accent.toLowerCase();
   if (!isHexColor(hex) || hex === DEFAULT_ACCENT) return "";
   const a = hexToRgb(hex);
+  // The last two rules mirror globals.css's dark-mode text lightening (which
+  // hardcodes the default-blue 300/250 steps): without them a custom accent
+  // gets accent buttons but stock-blue text and icons in dark mode.
   return `:root{--compass-50:${mix(a, WHITE, 0.93)};--compass-100:${mix(a, WHITE, 0.84)};--compass-200:${mix(a, WHITE, 0.7)};--compass-300:${mix(a, WHITE, 0.5)};--compass-400:${mix(a, WHITE, 0.28)};--compass-500:${mix(a, WHITE, 0.12)};--compass-600:${a.join(" ")};--compass-700:${mix(a, BLACK, 0.18)};--compass-800:${mix(a, BLACK, 0.32)};--compass-900:${mix(a, BLACK, 0.45)}}
-:root[data-theme="dark"]{--compass-50:${mix(DARK_CANVAS, a, 0.2)};--compass-100:${mix(DARK_CANVAS, a, 0.3)}}`;
+:root[data-theme="dark"]{--compass-50:${mix(DARK_CANVAS, a, 0.2)};--compass-100:${mix(DARK_CANVAS, a, 0.3)}}
+:root[data-theme="dark"] :is(.text-compass-600,.hover\\:text-compass-600:hover,.group-hover\\:text-compass-600:is(:where(.group):hover *)){color:rgb(${mix(a, WHITE, 0.5)})}
+:root[data-theme="dark"] :is(.text-compass-700,.hover\\:text-compass-700:hover,.group-hover\\:text-compass-700:is(:where(.group):hover *)){color:rgb(${mix(a, WHITE, 0.62)})}
+:root[data-theme="dark"] .text-compass-600\\/80{color:rgb(${mix(a, WHITE, 0.5)} / 0.85)}`;
 }
