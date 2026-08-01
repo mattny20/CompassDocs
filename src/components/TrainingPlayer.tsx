@@ -5,7 +5,7 @@
 // confirmation is recorded server-side with the doc version.
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   ArrowRight,
@@ -13,6 +13,7 @@ import {
   GraduationCap,
   LoaderCircle,
   ShieldCheck,
+  X,
 } from "lucide-react";
 import { MarkdownView } from "@/components/MarkdownView";
 
@@ -35,6 +36,7 @@ export function TrainingPlayer({
   completedAt: string | null;
   dueAt: string | null;
 }) {
+  const router = useRouter();
   // Index slides.length is the compliance gate.
   const total = slides.length + 1;
   const [idx, setIdx] = useState(Math.min(initialSlide, slides.length));
@@ -62,6 +64,7 @@ export function TrainingPlayer({
       if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
       if (e.key === "ArrowRight") go(idx + 1);
       if (e.key === "ArrowLeft") go(idx - 1);
+      if (e.key === "Escape") router.push("/training");
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -97,9 +100,13 @@ export function TrainingPlayer({
           </div>
           <h1 className="truncate text-lg font-bold tracking-tight text-slate-900">{title}</h1>
         </div>
-        <Link href="/training" className="shrink-0 text-sm font-medium text-compass-600 hover:underline">
-          My training
-        </Link>
+        <button
+          onClick={() => router.push("/training")}
+          title="Your place is saved — pick up where you left off any time (Esc)"
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+        >
+          <X className="h-4 w-4" /> {done ? "Exit" : "Save & exit"}
+        </button>
       </div>
 
       {/* Progress dots */}
@@ -120,7 +127,7 @@ export function TrainingPlayer({
       <div className="flex-1 rounded-xl border border-slate-200 bg-surface p-6 shadow-xs sm:p-8">
         {onGate ? (
           <div className="flex h-full flex-col items-center justify-center py-8 text-center">
-            <span className="flex h-12 w-12 items-center justify-center rounded-full bg-compass-50 text-compass-600 dark:bg-compass-950/50">
+            <span className="flex h-12 w-12 items-center justify-center rounded-full bg-compass-50 text-compass-600">
               {done ? <CircleCheck className="h-6 w-6 text-emerald-500" /> : <ShieldCheck className="h-6 w-6" />}
             </span>
             <h2 className="mt-3 text-lg font-bold text-slate-900">

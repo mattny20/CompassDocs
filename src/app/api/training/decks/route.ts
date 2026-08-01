@@ -4,6 +4,8 @@ import { featureEnabled } from "@/lib/ee";
 import {
   createTrainingDeck,
   listTrainingDecks,
+  listTrainingPrograms,
+  countArchivedTrainingDecks,
   trainingCandidateDocs,
   getDocument,
   listUsers,
@@ -28,18 +30,23 @@ async function gated() {
   return { user: gate as SessionUser };
 }
 
-// Manager view: decks with stats, candidate docs, and assignment audiences.
-export async function GET() {
+// Manager view: decks with stats, programs, candidate docs, and audiences.
+export async function GET(req: Request) {
   const { denied } = await gated();
   if (denied) return denied;
-  const [decks, candidates, users, groups] = await Promise.all([
-    listTrainingDecks(),
+  const archived = new URL(req.url).searchParams.get("archived") === "1";
+  const [decks, programs, archivedCount, candidates, users, groups] = await Promise.all([
+    listTrainingDecks(archived),
+    listTrainingPrograms(),
+    countArchivedTrainingDecks(),
     trainingCandidateDocs(),
     listUsers(),
     listGroups(),
   ]);
   return NextResponse.json({
     decks,
+    programs,
+    archived_count: archivedCount,
     candidates,
     users: users
       .filter((u) => u.status === "active")

@@ -30,6 +30,7 @@ export function EntityPicker({
   emptyText = "Nothing matches.",
   accent = "compass",
   disabled = false,
+  maxVisible = MAX_VISIBLE,
 }: {
   options: PickerOption[];
   /** Selected ids (multi mode). */
@@ -42,6 +43,8 @@ export function EntityPicker({
   /** Tailwind color family for chips/highlights (compass | violet). */
   accent?: "compass" | "violet";
   disabled?: boolean;
+  /** Cap on visible matches before "keep typing" (pass options most-recent-first). */
+  maxVisible?: number;
 }) {
   const multi = Array.isArray(value) && !!onChange;
   const [query, setQuery] = useState("");
@@ -59,7 +62,7 @@ export function EntityPicker({
     return pool.filter((o) => `${o.label} ${o.sublabel ?? ""}`.toLowerCase().includes(needle));
   }, [options, selected, query]);
 
-  const visible = matches.slice(0, MAX_VISIBLE);
+  const visible = matches.slice(0, maxVisible);
 
   useEffect(() => {
     setCursor(0);
@@ -174,9 +177,9 @@ export function EntityPicker({
               )}
             </button>
           ))}
-          {matches.length > MAX_VISIBLE && (
+          {matches.length > maxVisible && (
             <p className="px-3 py-1.5 text-xs text-slate-400">
-              {matches.length - MAX_VISIBLE} more — keep typing to narrow down.
+              {matches.length - maxVisible} more — keep typing to narrow down.
             </p>
           )}
           {visible.length === 0 && <p className="px-3 py-1.5 text-sm text-slate-400">{emptyText}</p>}

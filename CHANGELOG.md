@@ -4,6 +4,41 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.79.0] - 2026-08-01
+
+### Added
+- **Onboarding programs.** Bundle training decks into a named package (e.g.
+  "New starter onboarding"): active programs auto-assign every deck to each
+  new member, and a program can be assigned to people, groups, or everyone
+  as one unit — with a single notification instead of one per deck.
+- **Waivers for existing staff.** Rolling CompassDocs out to a team that
+  already did the training elsewhere? Waive a deck for selected people or
+  for everyone: it's marked done without anyone being nagged, recorded as
+  *waived* (not completed, no confirmed version) in the dashboard and CSV
+  so the audit trail stays honest.
+- **Archive & delete decks.** Retire a deck to the new Archived decks page
+  (hidden from everyone's Training tab, history kept, restorable any time)
+  or delete it permanently along with its assignment history.
+- **Training page breaks you can see while editing.** The editor button now
+  inserts a break that previews as a labeled "slide break" marker — and on
+  the published document page the break renders as nothing at all, so a
+  deck doc reads as one clean page outside the player.
+- **Save & exit in the player.** Leave a deck mid-way from the header button
+  (or Esc) — progress is saved continuously, so Continue picks up where you
+  left off.
+
+### Changed
+- **Searchable pickers replace long dropdowns.** Creating a deck now opens a
+  search-as-you-type picker showing the ten most recently updated published
+  docs; the same combobox pattern replaces entity dropdowns elsewhere that
+  got clunky with many items.
+
+### Fixed
+- **Custom accent color in dark mode.** Accent-colored text and icons no
+  longer fall back to the stock blue when a workspace accent is set — text,
+  buttons, and tints now derive from the same accent everywhere (the
+  Training screens made the mismatch obvious).
+
 ## [0.78.0] - 2026-07-31
 
 ### Added

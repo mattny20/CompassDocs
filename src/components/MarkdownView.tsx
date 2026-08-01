@@ -34,7 +34,20 @@ function tabTitles(node: any): string[] {
   return titles;
 }
 
-export function MarkdownView({ content, docKey }: { content: string; docKey?: string }) {
+export function MarkdownView({
+  content,
+  docKey,
+  slideBreaks,
+}: {
+  content: string;
+  docKey?: string;
+  /**
+   * How `---` thematic breaks render. Training decks split slides on them, so
+   * the editor preview shows a labeled indicator ("indicator") while the
+   * published document hides them entirely ("hidden"). Default: a normal rule.
+   */
+  slideBreaks?: "indicator" | "hidden";
+}) {
   return (
     <div className="doc-prose">
       <ReactMarkdown
@@ -44,6 +57,24 @@ export function MarkdownView({ content, docKey }: { content: string; docKey?: st
         // allowlist schema, and inline styles filtered to safe properties.
         rehypePlugins={[rehypeRaw, [rehypeSanitize, MD_SANITIZE_SCHEMA], rehypeFilterStyles]}
         components={{
+          // Slide breaks (training decks): indicator in the editor preview,
+          // invisible on the published page, a plain rule everywhere else.
+          hr() {
+            if (slideBreaks === "hidden") return null;
+            if (slideBreaks === "indicator") {
+              return (
+                <div
+                  aria-hidden
+                  className="my-5 flex select-none items-center gap-3 text-[11px] font-semibold uppercase tracking-widest text-compass-600"
+                >
+                  <span className="h-0 flex-1 border-t-2 border-dashed border-compass-300" />
+                  Slide break
+                  <span className="h-0 flex-1 border-t-2 border-dashed border-compass-300" />
+                </div>
+              );
+            }
+            return <hr />;
+          },
           // Images zoom on click and honor the "w=NN%" title width token.
           img({ src, alt, title }) {
             return <DocImage src={String(src ?? "")} alt={alt} title={title ?? undefined} />;

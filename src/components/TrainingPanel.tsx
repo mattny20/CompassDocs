@@ -7,16 +7,20 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
+  Archive,
   CircleAlert,
   CircleCheck,
   Download,
   GraduationCap,
+  Layers,
   LoaderCircle,
   Play,
   Plus,
   Send,
   Settings2,
+  Trash2,
   Users,
+  X,
 } from "lucide-react";
 import { EntityPicker, type PickerOption } from "@/components/EntityPicker";
 
@@ -41,8 +45,17 @@ interface Deck {
   active: number;
   due_days: number | null;
   assign_new_members: number;
+  archived_at: string | null;
   assigned: number;
   completed: number;
+}
+
+interface Program {
+  id: number;
+  name: string;
+  active: number;
+  assign_new_members: number;
+  decks: { id: number; title: string }[];
 }
 
 const fmtDay = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString() : null);
@@ -53,6 +66,8 @@ export function TrainingPanel({ licensed, manager }: { licensed: boolean; manage
   const [tab, setTab] = useState<"mine" | "decks">("mine");
   const [mine, setMine] = useState<MyItem[] | null>(null);
   const [decks, setDecks] = useState<Deck[] | null>(null);
+  const [programs, setPrograms] = useState<Program[]>([]);
+  const [archivedCount, setArchivedCount] = useState(0);
   const [candidates, setCandidates] = useState<{ id: number; title: string; space_name: string }[]>([]);
   const [userOpts, setUserOpts] = useState<PickerOption[]>([]);
   const [groupOpts, setGroupOpts] = useState<PickerOption[]>([]);
@@ -67,6 +82,8 @@ export function TrainingPanel({ licensed, manager }: { licensed: boolean; manage
       const d = await fetch("/api/training/decks").then((r) => (r.ok ? r.json() : null)).catch(() => null);
       if (d) {
         setDecks(d.decks);
+        setPrograms(d.programs ?? []);
+        setArchivedCount(d.archived_count ?? 0);
         setCandidates(d.candidates);
         setUserOpts(d.users);
         setGroupOpts(d.groups);
@@ -143,6 +160,8 @@ export function TrainingPanel({ licensed, manager }: { licensed: boolean; manage
       ) : (
         <ManageDecks
           decks={decks}
+          programs={programs}
+          archivedCount={archivedCount}
           candidates={candidates}
           userOpts={userOpts}
           groupOpts={groupOpts}
@@ -222,6 +241,8 @@ function MyTraining({ mine }: { mine: MyItem[] | null }) {
 
 function ManageDecks({
   decks,
+  programs,
+  archivedCount,
   candidates,
   userOpts,
   groupOpts,
@@ -230,6 +251,8 @@ function ManageDecks({
   reload,
 }: {
   decks: Deck[] | null;
+  programs: Program[];
+  archivedCount: number;
   candidates: { id: number; title: string; space_name: string }[];
   userOpts: PickerOption[];
   groupOpts: PickerOption[];
@@ -237,17 +260,26 @@ function ManageDecks({
   onNotice: (s: string) => void;
   reload: () => Promise<void>;
 }) {
-  const [candidate, setCandidate] = useState("");
+  const [candidate, setCandidate] = useState<number | null>(null);
   const [dueDays, setDueDays] = useState("14");
   const [autoNew, setAutoNew] = useState(true);
   const [busy, setBusy] = useState(false);
+
+  // Most-recently-updated first (the API returns them that way); the picker
+  // shows the top 10 on focus and filters as you type.
+  const candidateOpts: PickerOption[] = candidates.map((c) => ({
+    id: c.id,
+    label: c.title,
+    sublabel: c.space_name,
+  }));
+  const chosen = candidates.find((c) => c.id === candidate);
 
   async function post(path: string, body: unknown, done: string) {
     setBusy(true);
     onError("");
     onNotice("");
     const res = await fetch(path, {
-      method: path.includes("?patch") ? "PATCH" : "POST",
+      method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     });
@@ -270,18 +302,29 @@ function ManageDecks({
           <code>:::compliance</code> block at the end sets the confirmation wording.
         </p>
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <select
-            value={candidate}
-            onChange={(e) => setCandidate(e.target.value)}
-            className="min-w-64 rounded-lg border border-slate-200 bg-surface px-2.5 py-1.5 text-sm text-slate-600 outline-hidden focus:border-compass-400"
-          >
-            <option value="">Choose a document…</option>
-            {candidates.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.space_name} — {c.title}
-              </option>
-            ))}
-          </select>
+          <div className="min-w-72 flex-1 sm:max-w-md">
+            {chosen ? (
+              <span className="inline-flex items-center gap-1.5 rounded-lg border border-compass-200 bg-compass-50 px-3 py-1.5 text-sm font-medium text-compass-800">
+                {chosen.title}
+                <span className="text-xs font-normal text-compass-600">{chosen.space_name}</span>
+                <button
+                  onClick={() => setCandidate(null)}
+                  aria-label="Clear document choice"
+                  className="opacity-60 hover:opacity-100"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </span>
+            ) : (
+              <EntityPicker
+                options={candidateOpts}
+                onPick={(id) => setCandidate(id)}
+                placeholder="Find a published document…"
+                emptyText="No published documents match."
+                maxVisible={10}
+              />
+            )}
+          </div>
           <label className="flex items-center gap-1.5 text-sm text-slate-600">
             Due within
             <input
@@ -304,12 +347,12 @@ function ManageDecks({
               void post(
                 "/api/training/decks",
                 {
-                  document_id: Number(candidate),
+                  document_id: candidate,
                   due_days: dueDays ? Number(dueDays) : null,
                   assign_new_members: autoNew,
                 },
                 "Deck created — assign it below."
-              )
+              ).then(() => setCandidate(null))
             }
             disabled={!candidate || busy}
             className="inline-flex items-center gap-1.5 rounded-lg bg-compass-600 px-3.5 py-1.5 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60"
@@ -319,6 +362,17 @@ function ManageDecks({
           </button>
         </div>
       </section>
+
+      {/* Onboarding programs */}
+      <Programs
+        programs={programs}
+        decks={decks ?? []}
+        userOpts={userOpts}
+        groupOpts={groupOpts}
+        onError={onError}
+        onNotice={onNotice}
+        reload={reload}
+      />
 
       {/* Decks */}
       {!decks ? (
@@ -333,6 +387,273 @@ function ManageDecks({
         decks.map((d) => (
           <DeckCard key={d.id} deck={d} userOpts={userOpts} groupOpts={groupOpts} onError={onError} onNotice={onNotice} reload={reload} />
         ))
+      )}
+
+      {archivedCount > 0 && (
+        <p className="text-right text-sm">
+          <Link href="/training/archived" className="font-medium text-compass-600 hover:underline">
+            Archived decks ({archivedCount}) →
+          </Link>
+        </p>
+      )}
+    </div>
+  );
+}
+
+// --- Onboarding programs: named bundles of decks -----------------------------
+
+function Programs({
+  programs,
+  decks,
+  userOpts,
+  groupOpts,
+  onError,
+  onNotice,
+  reload,
+}: {
+  programs: Program[];
+  decks: Deck[];
+  userOpts: PickerOption[];
+  groupOpts: PickerOption[];
+  onError: (s: string) => void;
+  onNotice: (s: string) => void;
+  reload: () => Promise<void>;
+}) {
+  const [creating, setCreating] = useState(false);
+  const [name, setName] = useState("");
+  const [deckIds, setDeckIds] = useState<number[]>([]);
+  const [busy, setBusy] = useState(false);
+  const deckOpts: PickerOption[] = decks.map((d) => ({
+    id: d.id,
+    label: d.title,
+    sublabel: d.space_name,
+  }));
+
+  async function create() {
+    setBusy(true);
+    onError("");
+    onNotice("");
+    const res = await fetch("/api/training/programs", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name, deck_ids: deckIds }),
+    });
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    if (!res.ok) onError(data.error || "Could not create the program.");
+    else {
+      onNotice("Program created — new members will get every deck in it.");
+      setName("");
+      setDeckIds([]);
+      setCreating(false);
+    }
+    setBusy(false);
+    await reload();
+  }
+
+  return (
+    <section className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
+            <Layers className="h-4 w-4 text-compass-600" /> Onboarding programs
+          </h2>
+          <p className="mt-0.5 text-xs text-slate-400">
+            Bundle decks into a package — active programs are auto-assigned to every new member,
+            and can be assigned to people or groups as one unit.
+          </p>
+        </div>
+        {!creating && (
+          <button
+            onClick={() => setCreating(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+          >
+            <Plus className="h-4 w-4" /> New program
+          </button>
+        )}
+      </div>
+
+      {creating && (
+        <div className="mt-3 space-y-2 rounded-lg border border-slate-200 p-3">
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Program name (e.g. New starter onboarding)"
+            className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-1.5 text-sm outline-hidden focus:border-compass-400"
+          />
+          <EntityPicker
+            options={deckOpts}
+            value={deckIds}
+            onChange={setDeckIds}
+            placeholder="Add decks in order…"
+            emptyText="No decks — create one first."
+            maxVisible={10}
+          />
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => void create()}
+              disabled={busy || !name.trim() || !deckIds.length}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-compass-600 px-3.5 py-1.5 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60"
+            >
+              {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+              Create program
+            </button>
+            <button
+              onClick={() => setCreating(false)}
+              className="rounded-lg px-3 py-1.5 text-sm font-medium text-slate-500 hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {programs.length > 0 && (
+        <div className="mt-3 space-y-3">
+          {programs.map((p) => (
+            <ProgramRow
+              key={p.id}
+              program={p}
+              userOpts={userOpts}
+              groupOpts={groupOpts}
+              onError={onError}
+              onNotice={onNotice}
+              reload={reload}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ProgramRow({
+  program,
+  userOpts,
+  groupOpts,
+  onError,
+  onNotice,
+  reload,
+}: {
+  program: Program;
+  userOpts: PickerOption[];
+  groupOpts: PickerOption[];
+  onError: (s: string) => void;
+  onNotice: (s: string) => void;
+  reload: () => Promise<void>;
+}) {
+  const [assigning, setAssigning] = useState(false);
+  const [userIds, setUserIds] = useState<number[]>([]);
+  const [groupIds, setGroupIds] = useState<number[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  async function call(method: string, body?: unknown, done?: string) {
+    setBusy(true);
+    onError("");
+    onNotice("");
+    const res = await fetch(`/api/training/programs/${program.id}`, {
+      method,
+      headers: { "content-type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      assigned?: number;
+      people?: number;
+    };
+    if (!res.ok) onError(data.error || "Something went wrong.");
+    else if (done) onNotice(done);
+    else if (data.people !== undefined)
+      onNotice(
+        `Program assigned — ${data.assigned} new assignment${data.assigned === 1 ? "" : "s"} across ${data.people} ${
+          data.people === 1 ? "person" : "people"
+        }.`
+      );
+    setBusy(false);
+    setUserIds([]);
+    setGroupIds([]);
+    setAssigning(false);
+    await reload();
+  }
+
+  return (
+    <div className="rounded-lg border border-slate-200 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 font-medium text-slate-800">
+            {program.name}
+            {program.active === 0 && (
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium uppercase text-slate-500">
+                inactive
+              </span>
+            )}
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
+            {program.decks.map((d, i) => (
+              <span key={d.id} className="rounded-full bg-slate-100 px-2 py-0.5 dark:bg-slate-800/60">
+                {i + 1}. {d.title}
+              </span>
+            ))}
+            {program.assign_new_members === 1 && program.active === 1 && (
+              <span className="text-slate-400">· auto-assigns to new members</span>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5 text-sm">
+          <button
+            onClick={() => setAssigning((a) => !a)}
+            disabled={busy}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-compass-600 px-3 py-1.5 font-semibold text-white hover:bg-compass-700"
+          >
+            <Send className="h-3.5 w-3.5" /> Assign
+          </button>
+          <button
+            onClick={() => void call("PATCH", { active: program.active === 0 }, program.active === 0 ? "Program activated." : "Program deactivated — it will no longer auto-assign.")}
+            disabled={busy}
+            className="rounded-lg border border-slate-200 px-3 py-1.5 font-medium text-slate-600 hover:bg-slate-50"
+          >
+            {program.active === 0 ? "Activate" : "Deactivate"}
+          </button>
+          <button
+            onClick={() => {
+              if (confirm(`Delete the "${program.name}" program? Decks and completions stay; only the bundle goes.`))
+                void call("DELETE", undefined, "Program deleted.");
+            }}
+            disabled={busy}
+            aria-label={`Delete ${program.name}`}
+            className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:bg-red-50 hover:text-red-600"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+
+      {assigning && (
+        <div className="mt-3 space-y-2">
+          <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
+            <EntityPicker options={userOpts} value={userIds} onChange={setUserIds} placeholder="Add people…" />
+            <EntityPicker options={groupOpts} value={groupIds} onChange={setGroupIds} placeholder="Add groups…" />
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => void call("POST", { user_ids: userIds, group_ids: groupIds })}
+              disabled={busy || (!userIds.length && !groupIds.length)}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-compass-600 px-3.5 py-1.5 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60"
+            >
+              {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              Assign program
+            </button>
+            <button
+              onClick={() => {
+                if (confirm(`Assign "${program.name}" (${program.decks.length} decks) to every active member?`))
+                  void call("POST", { everyone: true });
+              }}
+              disabled={busy}
+              className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+            >
+              Assign to everyone
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -358,7 +679,7 @@ function DeckCard({
   const [busy, setBusy] = useState(false);
   const pct = deck.assigned ? Math.round((deck.completed / deck.assigned) * 100) : 0;
 
-  async function assign(body: unknown) {
+  async function assign(body: { waive?: boolean } & Record<string, unknown>) {
     setBusy(true);
     onError("");
     onNotice("");
@@ -367,8 +688,19 @@ function DeckCard({
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     });
-    const data = (await res.json().catch(() => ({}))) as { error?: string; assigned?: number; already?: number };
+    const data = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      assigned?: number;
+      waived?: number;
+      already?: number;
+    };
     if (!res.ok) onError(data.error || "Assignment failed.");
+    else if (body.waive)
+      onNotice(
+        `Waived for ${data.waived} ${data.waived === 1 ? "person" : "people"}${
+          data.already ? ` (${data.already} already completed)` : ""
+        } — recorded as waived, not completed.`
+      );
     else
       onNotice(
         `Assigned to ${data.assigned} ${data.assigned === 1 ? "person" : "people"}${
@@ -424,6 +756,22 @@ function DeckCard({
           >
             <Settings2 className="h-4 w-4" /> {deck.active === 0 ? "Activate" : "Deactivate"}
           </button>
+          <button
+            onClick={() => {
+              if (
+                confirm(
+                  `Archive "${deck.title}"? It disappears from everyone's Training tab (history kept) — restore it any time from Archived decks.`
+                )
+              )
+                void patch({ archived: true });
+            }}
+            disabled={busy}
+            title="Archive deck"
+            aria-label={`Archive ${deck.title}`}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 font-medium text-slate-600 hover:bg-slate-50"
+          >
+            <Archive className="h-4 w-4" /> Archive
+          </button>
         </div>
       </div>
 
@@ -457,6 +805,29 @@ function DeckCard({
           className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
         >
           Assign to everyone
+        </button>
+        <span className="mx-1 h-4 border-l border-slate-200" aria-hidden />
+        <button
+          onClick={() => void assign({ user_ids: userIds, group_ids: groupIds, waive: true })}
+          disabled={busy || (!userIds.length && !groupIds.length)}
+          title="Mark as already done elsewhere — recorded as waived, no notification sent"
+          className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+        >
+          Waive selected
+        </button>
+        <button
+          onClick={() => {
+            if (
+              confirm(
+                `Waive "${deck.title}" for every current member? Use this when staff already did this training before CompassDocs — it's recorded as waived, not completed, and nobody is notified. New members added later still get assigned normally.`
+              )
+            )
+              void assign({ everyone: true, waive: true });
+          }}
+          disabled={busy}
+          className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+        >
+          Waive for everyone
         </button>
       </div>
     </section>

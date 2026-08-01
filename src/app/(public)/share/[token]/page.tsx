@@ -8,7 +8,7 @@ import type { Metadata } from "next";
 import { resolveShare, recordShareView } from "@/lib/shares";
 import { getAppSettings } from "@/lib/settings-store";
 import { formatDate } from "@/lib/format";
-import { listAttachments } from "@/lib/db";
+import { listAttachments, isTrainingDeckDoc } from "@/lib/db";
 import { DOC_TYPE_LABEL } from "@/lib/types";
 import { MarkdownView } from "@/components/MarkdownView";
 import { PrintButton } from "@/components/PrintButton";
@@ -73,7 +73,11 @@ export default async function SharedDocPage({ params }: { params: Promise<{ toke
         {doc.summary && <p className="mb-6 max-w-3xl text-lg leading-relaxed text-slate-600">{doc.summary}</p>}
 
         <div className="rounded-xl border border-slate-200 bg-white p-8 shadow-xs">
-          <MarkdownView content={content} docKey={`share-${doc.id}`} />
+          <MarkdownView
+            content={content}
+            docKey={`share-${doc.id}`}
+            slideBreaks={(await isTrainingDeckDoc(doc.id)) ? "hidden" : undefined}
+          />
         </div>
 
         {attachments.length > 0 && (
