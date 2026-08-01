@@ -78,7 +78,7 @@ export default async function HealthPage() {
   ];
 
   return (
-    <SettingsPage href="/admin/health" wide>
+    <SettingsPage href="/admin/health">
     <div className="space-y-6">
       <div>
         <p className="text-sm text-slate-500">

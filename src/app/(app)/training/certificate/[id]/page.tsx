@@ -1,5 +1,7 @@
 import { notFound } from "next/navigation";
+
 import Link from "next/link";
+import { PageContainer } from "@/components/PageWidth";
 import { ArrowLeft, GraduationCap } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { canAccessSection } from "@/lib/section-access";
@@ -28,7 +30,7 @@ export default async function TrainingCertificatePage({
   const settings = await getAppSettings();
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-8">
+    <PageContainer>
       <div className="mb-6 flex items-center justify-between print:hidden">
         <Link
           href="/training"
@@ -39,7 +41,7 @@ export default async function TrainingCertificatePage({
         <PrintButton compact />
       </div>
 
-      <div className="rounded-2xl border-2 border-compass-200 bg-surface p-10 text-center shadow-xs print:border print:shadow-none">
+      <div className="mx-auto max-w-3xl rounded-2xl border-2 border-compass-200 bg-surface p-10 text-center shadow-xs print:border print:shadow-none">
         <div className="flex items-center justify-center gap-2 text-sm font-semibold uppercase tracking-widest text-compass-600">
           <GraduationCap className="h-5 w-5" /> Certificate of completion
         </div>
@@ -89,6 +91,6 @@ export default async function TrainingCertificatePage({
           Issued by CompassDocs training records · {settings.company_name}
         </p>
       </div>
-    </div>
+    </PageContainer>
   );
 }

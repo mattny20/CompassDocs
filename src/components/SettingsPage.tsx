@@ -8,18 +8,12 @@ export function SettingsPage({
   href,
   children,
   actions,
-  wide,
 }: {
   /** The section's /admin/... href (the settings-sections key). */
   href: string;
   children: React.ReactNode;
   /** Optional right-aligned header controls (e.g. an export button). */
   actions?: React.ReactNode;
-  /**
-   * Settings content is capped at a readable column (~48rem) by default;
-   * table-heavy sections opt out with `wide`.
-   */
-  wide?: boolean;
 }) {
   const s = settingsSection(href);
   const Icon = s?.icon;
@@ -36,7 +30,7 @@ export function SettingsPage({
           {actions}
         </div>
       )}
-      {wide ? children : <div className="max-w-3xl">{children}</div>}
+      {children}
     </div>
   );
 }

@@ -4,6 +4,21 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.85.1] - 2026-08-01
+
+### Fixed
+- **Settings pages ignored the page-width preference.** 0.85.0's readable
+  column pinned settings content to a fixed width inside the page
+  container, so Normal / Wide / Full had no effect on most settings pages
+  (the few table-heavy ones still responded, which made it look
+  inconsistent). Settings now follow the account preference like every
+  other page.
+- Single sign-on, the team-lead training view, the training player, the
+  training certificate, and the new-document template picker had the same
+  problem from earlier releases — all now honor the preference. Printed
+  certificates are unchanged: the certificate itself keeps its fixed
+  width, only the page around it widens.
+
 ## [0.85.0] - 2026-08-01
 
 ### Added

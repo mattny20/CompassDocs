@@ -1,5 +1,7 @@
 import { notFound } from "next/navigation";
+
 import Link from "next/link";
+import { PageContainer } from "@/components/PageWidth";
 import { ArrowLeft, CircleAlert, CircleCheck, Users } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { featureEnabled } from "@/lib/ee";
@@ -32,7 +34,7 @@ export default async function TrainingTeamPage() {
     !r.completed_at && r.due_at !== null && new Date(r.due_at).getTime() < now;
 
   return (
-    <div className="mx-auto max-w-4xl px-4 py-6">
+    <PageContainer>
       <div className="mb-5">
         <Link
           href="/training"
@@ -116,6 +118,6 @@ export default async function TrainingTeamPage() {
           );
         })}
       </div>
-    </div>
+    </PageContainer>
   );
 }
