@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ExternalLink, SquareArrowOutUpRight } from "lucide-react";
+import { ExternalLink, SquareArrowOutUpRight, Link2 } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { listLinkCategories, listLinksVisibleTo } from "@/lib/db";
 import type { QuickLink } from "@/lib/db";
@@ -35,7 +35,9 @@ export default async function LinksPage() {
     <PageContainer>
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Links</h1>
+          <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900">
+            <Link2 className="h-6 w-6 text-compass-600" /> Links
+          </h1>
           <p className="mt-1 text-slate-500">
             Shortcuts to the tools and sites your team uses.
           </p>

@@ -2,7 +2,9 @@ import { requireUser } from "@/lib/auth";
 import { listStatusServices, listStatusIncidents } from "@/lib/db";
 import { refreshDueStatuses, STATUS_CATALOG } from "@/lib/status";
 import { roleAtLeast } from "@/lib/types";
+import { Activity } from "lucide-react";
 import { StatusBoard } from "@/components/StatusBoard";
+import { PageContainer } from "@/components/PageWidth";
 
 export const dynamic = "force-dynamic";
 
@@ -17,8 +19,10 @@ export default async function StatusPage() {
   ]);
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-6 py-8">
-      <h1 className="text-2xl font-bold text-slate-900">Service status</h1>
+    <PageContainer>
+      <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900">
+        <Activity className="h-6 w-6 text-compass-600" /> Service status
+      </h1>
       <p className="mb-6 mt-1 text-sm text-slate-500">
         The tools this organization relies on — vendor status pages, checked automatically,
         plus incidents declared for internal systems.
@@ -30,6 +34,6 @@ export default async function StatusPage() {
         isAdmin={user.role === "admin"}
         isApprover={roleAtLeast(user.role, "approver")}
       />
-    </div>
+    </PageContainer>
   );
 }
