@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "@/components/Toasts";
 import type { TlsMode, SecureCookieMode } from "@/lib/settings";
 
 interface ProxyStatus {
@@ -73,17 +74,13 @@ export function DomainSettings({ initial }: { initial: DomainState }) {
   const [secureCookies, setSecureCookies] = useState<SecureCookieMode>(initial.secure_cookies);
 
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [error, setError] = useState("");
   const [warning, setWarning] = useState("");
 
   const { managed, reachable } = initial.proxy;
 
   async function save() {
     setSaving(true);
-    setError("");
     setWarning("");
-    setSaved(false);
     const res = await fetch("/api/admin/domain", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -98,7 +95,7 @@ export function DomainSettings({ initial }: { initial: DomainState }) {
     setSaving(false);
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      setError(data?.error || "Could not save.");
+      toast("error", data?.error || "Could not save.");
       return;
     }
     // Saved; the certificate is now stored server-side so clear the inputs.
@@ -115,7 +112,7 @@ export function DomainSettings({ initial }: { initial: DomainState }) {
       if (data.state.secure_cookies) setSecureCookies(data.state.secure_cookies);
     }
     if (!data.applied && data.proxyError) setWarning(data.proxyError);
-    setSaved(true);
+    else toast("ok", "Domain settings saved.");
     router.refresh();
   }
 
@@ -161,10 +158,7 @@ export function DomainSettings({ initial }: { initial: DomainState }) {
           <span className="mb-1 block text-xs font-medium text-slate-500">Domain</span>
           <input
             value={domain}
-            onChange={(e) => {
-              setDomain(e.target.value);
-              setSaved(false);
-            }}
+            onChange={(e) => setDomain(e.target.value)}
             className={field}
             placeholder="docs.example.com"
             autoCapitalize="none"
@@ -191,10 +185,7 @@ export function DomainSettings({ initial }: { initial: DomainState }) {
                 type="radio"
                 name="tls_mode"
                 checked={mode === opt.value}
-                onChange={() => {
-                  setMode(opt.value);
-                  setSaved(false);
-                }}
+                onChange={() => setMode(opt.value)}
                 className="mt-1"
               />
               <span>
@@ -214,10 +205,7 @@ export function DomainSettings({ initial }: { initial: DomainState }) {
             <input
               type="email"
               value={email}
-              onChange={(e) => {
-                setEmail(e.target.value);
-                setSaved(false);
-              }}
+              onChange={(e) => setEmail(e.target.value)}
               className={field}
               placeholder="admin@example.com"
             />
@@ -239,10 +227,7 @@ export function DomainSettings({ initial }: { initial: DomainState }) {
               </span>
               <textarea
                 value={cert}
-                onChange={(e) => {
-                  setCert(e.target.value);
-                  setSaved(false);
-                }}
+                onChange={(e) => setCert(e.target.value)}
                 className={`${field} h-28 font-mono text-xs`}
                 placeholder="-----BEGIN CERTIFICATE-----&#10;…"
                 spellCheck={false}
@@ -254,10 +239,7 @@ export function DomainSettings({ initial }: { initial: DomainState }) {
               </span>
               <textarea
                 value={key}
-                onChange={(e) => {
-                  setKey(e.target.value);
-                  setSaved(false);
-                }}
+                onChange={(e) => setKey(e.target.value)}
                 className={`${field} h-28 font-mono text-xs`}
                 placeholder="-----BEGIN PRIVATE KEY-----&#10;…"
                 spellCheck={false}
@@ -290,10 +272,7 @@ export function DomainSettings({ initial }: { initial: DomainState }) {
                 type="radio"
                 name="secure_cookies"
                 checked={secureCookies === opt.value}
-                onChange={() => {
-                  setSecureCookies(opt.value);
-                  setSaved(false);
-                }}
+                onChange={() => setSecureCookies(opt.value)}
                 className="mt-1"
               />
               <span>
@@ -313,8 +292,6 @@ export function DomainSettings({ initial }: { initial: DomainState }) {
         >
           {saving ? "Saving…" : "Save & apply"}
         </button>
-        {saved && !warning && <span className="text-sm text-green-600">✓ Saved</span>}
-        {error && <span className="text-sm text-red-600">{error}</span>}
       </div>
       {warning && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">

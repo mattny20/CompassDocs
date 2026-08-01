@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "@/components/Toasts";
 
 type AiKeySource = "settings" | "env" | "none";
 type AiProvider = "anthropic" | "openai";
@@ -43,8 +44,6 @@ export function AiSettings({ initial }: { initial: AiState }) {
   const [oaKeySet, setOaKeySet] = useState(initial.openai_key_set);
 
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [error, setError] = useState("");
 
   // If the current model isn't one of the presets (e.g. set via env), show it.
   const modelOptions = MODEL_OPTIONS.some((m) => m.value === model)
@@ -53,10 +52,8 @@ export function AiSettings({ initial }: { initial: AiState }) {
 
   const aiOn = provider === "anthropic" ? source !== "none" : Boolean(oaUrl && oaModel);
 
-  async function send(payload: Record<string, unknown>) {
+  async function send(payload: Record<string, unknown>, okText: string) {
     setSaving(true);
-    setError("");
-    setSaved(false);
     const res = await fetch("/api/admin/ai", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -65,7 +62,7 @@ export function AiSettings({ initial }: { initial: AiState }) {
     setSaving(false);
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      setError(data?.error || "Could not save.");
+      toast("error", data?.error || "Could not save.");
       return false;
     }
     if (data?.state) {
@@ -77,7 +74,7 @@ export function AiSettings({ initial }: { initial: AiState }) {
       setOaModel(data.state.openai_model);
       setOaKeySet(data.state.openai_key_set);
     }
-    setSaved(true);
+    toast("ok", okText);
     router.refresh();
     return true;
   }
@@ -92,7 +89,7 @@ export function AiSettings({ initial }: { initial: AiState }) {
       payload.openai_model = oaModel.trim();
       if (oaKey.trim()) payload.openai_api_key = oaKey.trim();
     }
-    const ok = await send(payload);
+    const ok = await send(payload, "AI settings saved.");
     if (ok) {
       setApiKey("");
       setOaKey("");
@@ -101,7 +98,7 @@ export function AiSettings({ initial }: { initial: AiState }) {
 
   async function removeKey() {
     if (!confirm("Remove the saved API key? AI features will turn off unless a key is set in the environment.")) return;
-    await send({ clear: true });
+    await send({ clear: true }, "API key removed.");
   }
 
   return (
@@ -145,10 +142,7 @@ export function AiSettings({ initial }: { initial: AiState }) {
               name="ai-provider"
               className="mt-0.5"
               checked={provider === "anthropic"}
-              onChange={() => {
-                setProvider("anthropic");
-                setSaved(false);
-              }}
+              onChange={() => setProvider("anthropic")}
             />
             <span>
               <strong>Anthropic (Claude)</strong>
@@ -163,10 +157,7 @@ export function AiSettings({ initial }: { initial: AiState }) {
               name="ai-provider"
               className="mt-0.5"
               checked={provider === "openai"}
-              onChange={() => {
-                setProvider("openai");
-                setSaved(false);
-              }}
+              onChange={() => setProvider("openai")}
             />
             <span>
               <strong>OpenAI-compatible endpoint</strong>
@@ -223,10 +214,7 @@ export function AiSettings({ initial }: { initial: AiState }) {
               <input
                 type="password"
                 value={apiKey}
-                onChange={(e) => {
-                  setApiKey(e.target.value);
-                  setSaved(false);
-                }}
+                onChange={(e) => setApiKey(e.target.value)}
                 className={`${field} font-mono`}
                 placeholder="sk-ant-…"
                 autoComplete="off"
@@ -246,10 +234,7 @@ export function AiSettings({ initial }: { initial: AiState }) {
               <span className="mb-1 block text-xs font-medium text-slate-500">Model</span>
               <select
                 value={model}
-                onChange={(e) => {
-                  setModel(e.target.value);
-                  setSaved(false);
-                }}
+                onChange={(e) => setModel(e.target.value)}
                 className={field}
               >
                 {modelOptions.map((m) => (
@@ -277,10 +262,7 @@ export function AiSettings({ initial }: { initial: AiState }) {
               <input
                 type="url"
                 value={oaUrl}
-                onChange={(e) => {
-                  setOaUrl(e.target.value);
-                  setSaved(false);
-                }}
+                onChange={(e) => setOaUrl(e.target.value)}
                 className={`${field} font-mono`}
                 placeholder="https://api.openai.com/v1/chat/completions"
                 autoComplete="off"
@@ -292,10 +274,7 @@ export function AiSettings({ initial }: { initial: AiState }) {
               <input
                 type="text"
                 value={oaModel}
-                onChange={(e) => {
-                  setOaModel(e.target.value);
-                  setSaved(false);
-                }}
+                onChange={(e) => setOaModel(e.target.value)}
                 className={`${field} font-mono`}
                 placeholder="gpt-4o-mini, llama3.1, …"
                 autoComplete="off"
@@ -309,10 +288,7 @@ export function AiSettings({ initial }: { initial: AiState }) {
               <input
                 type="password"
                 value={oaKey}
-                onChange={(e) => {
-                  setOaKey(e.target.value);
-                  setSaved(false);
-                }}
+                onChange={(e) => setOaKey(e.target.value)}
                 className={`${field} font-mono`}
                 placeholder={oaKeySet ? "••••••••" : "sk-…"}
                 autoComplete="off"
@@ -331,8 +307,6 @@ export function AiSettings({ initial }: { initial: AiState }) {
         >
           {saving ? "Saving…" : "Save"}
         </button>
-        {saved && <span className="text-sm text-green-600">✓ Saved</span>}
-        {error && <span className="text-sm text-red-600">{error}</span>}
       </div>
     </div>
   );

@@ -5,6 +5,7 @@
 // secret (write-only), and an enable switch per integration.
 
 import { useState } from "react";
+import { toast } from "@/components/Toasts";
 
 interface Config {
   slack_enabled: boolean;
@@ -18,13 +19,9 @@ export function ChatAskPanel({ initial, baseUrl }: { initial: Config; baseUrl: s
   const [slackSecret, setSlackSecret] = useState("");
   const [teamsSecret, setTeamsSecret] = useState("");
   const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState("");
-  const [error, setError] = useState("");
 
-  async function save(patch: Record<string, unknown>) {
+  async function save(patch: Record<string, unknown>, okText: string) {
     setSaving(true);
-    setMsg("");
-    setError("");
     try {
       const res = await fetch("/api/admin/chat-ask", {
         method: "PUT",
@@ -32,15 +29,15 @@ export function ChatAskPanel({ initial, baseUrl }: { initial: Config; baseUrl: s
         body: JSON.stringify(patch),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) setError(data?.error || "Could not save.");
+      if (!res.ok) toast("error", data?.error || "Could not save.");
       else {
         setCfg(data as Config);
         setSlackSecret("");
         setTeamsSecret("");
-        setMsg("Saved.");
+        toast("ok", okText);
       }
     } catch {
-      setError("Could not save.");
+      toast("error", "Could not save.");
     }
     setSaving(false);
   }
@@ -69,7 +66,12 @@ export function ChatAskPanel({ initial, baseUrl }: { initial: Config; baseUrl: s
                 type="checkbox"
                 checked={cfg.slack_enabled}
                 disabled={saving || !cfg.slack_secret_set}
-                onChange={(e) => save({ slack_enabled: e.target.checked })}
+                onChange={(e) =>
+                  save(
+                    { slack_enabled: e.target.checked },
+                    e.target.checked ? "Slack Ask enabled." : "Slack Ask disabled."
+                  )
+                }
               />
               Enabled
             </label>
@@ -93,7 +95,7 @@ export function ChatAskPanel({ initial, baseUrl }: { initial: Config; baseUrl: s
               autoComplete="off"
             />
             <button
-              onClick={() => save({ slack_signing_secret: slackSecret })}
+              onClick={() => save({ slack_signing_secret: slackSecret }, "Slack signing secret saved.")}
               disabled={saving || !slackSecret.trim()}
               className="shrink-0 rounded-lg bg-compass-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-50"
             >
@@ -102,7 +104,12 @@ export function ChatAskPanel({ initial, baseUrl }: { initial: Config; baseUrl: s
           </div>
           {cfg.slack_secret_set && (
             <button
-              onClick={() => save({ slack_signing_secret: "", slack_enabled: false })}
+              onClick={() =>
+                save(
+                  { slack_signing_secret: "", slack_enabled: false },
+                  "Slack secret removed and Ask disabled."
+                )
+              }
               disabled={saving}
               className="mt-2 text-xs font-medium text-red-600 hover:underline"
             >
@@ -120,7 +127,12 @@ export function ChatAskPanel({ initial, baseUrl }: { initial: Config; baseUrl: s
                 type="checkbox"
                 checked={cfg.teams_enabled}
                 disabled={saving || !cfg.teams_secret_set}
-                onChange={(e) => save({ teams_enabled: e.target.checked })}
+                onChange={(e) =>
+                  save(
+                    { teams_enabled: e.target.checked },
+                    e.target.checked ? "Teams Ask enabled." : "Teams Ask disabled."
+                  )
+                }
               />
               Enabled
             </label>
@@ -145,7 +157,7 @@ export function ChatAskPanel({ initial, baseUrl }: { initial: Config; baseUrl: s
               autoComplete="off"
             />
             <button
-              onClick={() => save({ teams_hmac_secret: teamsSecret })}
+              onClick={() => save({ teams_hmac_secret: teamsSecret }, "Teams security token saved.")}
               disabled={saving || !teamsSecret.trim()}
               className="shrink-0 rounded-lg bg-compass-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-50"
             >
@@ -154,7 +166,12 @@ export function ChatAskPanel({ initial, baseUrl }: { initial: Config; baseUrl: s
           </div>
           {cfg.teams_secret_set && (
             <button
-              onClick={() => save({ teams_hmac_secret: "", teams_enabled: false })}
+              onClick={() =>
+                save(
+                  { teams_hmac_secret: "", teams_enabled: false },
+                  "Teams secret removed and Ask disabled."
+                )
+              }
               disabled={saving}
               className="mt-2 text-xs font-medium text-red-600 hover:underline"
             >
@@ -163,11 +180,6 @@ export function ChatAskPanel({ initial, baseUrl }: { initial: Config; baseUrl: s
           )}
         </div>
       </div>
-
-      {msg && <p className="mt-3 text-sm font-medium text-green-700">{msg}</p>}
-      {error && (
-        <div className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>
-      )}
     </div>
   );
 }

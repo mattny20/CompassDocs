@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Check, CircleAlert, LoaderCircle, RefreshCw, Sparkles } from "lucide-react";
+import { toast } from "@/components/Toasts";
 
 // Semantic-search configuration (Settings → AI): provider, key, model, base
 // URL, index status, and a background rebuild with live progress.
@@ -34,7 +35,6 @@ export function SemanticSearchPanel({ initial }: { initial: Status }) {
   const [model, setModel] = useState(initial.provider === "off" ? "" : initial.model);
   const [baseUrl, setBaseUrl] = useState(initial.provider === "off" ? "" : initial.base_url);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 
   const defaults = provider === "voyage" || provider === "openai" ? DEFAULTS[provider] : null;
@@ -57,7 +57,6 @@ export function SemanticSearchPanel({ initial }: { initial: Status }) {
 
   async function send(payload: Record<string, unknown>, okText: string) {
     setBusy(true);
-    setMessage(null);
     try {
       const res = await fetch("/api/admin/embeddings", {
         method: "PATCH",
@@ -66,22 +65,22 @@ export function SemanticSearchPanel({ initial }: { initial: Status }) {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setMessage({ tone: "error", text: data?.error || "Could not save." });
+        toast("error", data?.error || "Could not save.");
       } else {
         if (data.state) setStatus(data.state);
         if (data.started) setStatus((s) => ({ ...s, reindex: { ...s.reindex, running: true } }));
         if (data.test) {
-          setMessage(
-            data.test.ok
-              ? { tone: "ok", text: `Connection works — ${data.test.dims}-dimension embeddings.` }
-              : { tone: "error", text: data.test.error || "Connection test failed." }
-          );
+          if (data.test.ok) {
+            toast("ok", `Connection works — ${data.test.dims}-dimension embeddings.`);
+          } else {
+            toast("error", data.test.error || "Connection test failed.");
+          }
         } else {
-          setMessage({ tone: "ok", text: okText });
+          toast("ok", okText);
         }
       }
     } catch {
-      setMessage({ tone: "error", text: "Request failed." });
+      toast("error", "Request failed.");
     }
     setBusy(false);
   }
@@ -214,7 +213,7 @@ export function SemanticSearchPanel({ initial }: { initial: Status }) {
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <button
-          onClick={() => send(payload(), "Saved.").then(() => setApiKey(""))}
+          onClick={() => send(payload(), "Semantic search settings saved.").then(() => setApiKey(""))}
           disabled={busy}
           className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-compass-700 disabled:opacity-60"
         >
@@ -234,11 +233,6 @@ export function SemanticSearchPanel({ initial }: { initial: Status }) {
         >
           <RefreshCw className="h-4 w-4" /> Rebuild index
         </button>
-        {message && (
-          <span className={`text-sm ${message.tone === "ok" ? "text-green-600" : "text-red-600"}`}>
-            {message.text}
-          </span>
-        )}
       </div>
     </div>
   );

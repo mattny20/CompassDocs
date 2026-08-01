@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { toast } from "@/components/Toasts";
 
 interface FeatureRow {
   key: string;
@@ -43,8 +44,6 @@ export function LicensePanel() {
   const [key, setKey] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [error, setError] = useState("");
 
   async function load() {
     setLoading(true);
@@ -56,10 +55,8 @@ export function LicensePanel() {
     load();
   }, []);
 
-  async function send(payload: Record<string, unknown>) {
+  async function send(payload: Record<string, unknown>, okText: string) {
     setSaving(true);
-    setError("");
-    setSaved(false);
     const res = await fetch("/api/admin/license", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -68,21 +65,21 @@ export function LicensePanel() {
     setSaving(false);
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      setError(data?.error || "Could not save.");
+      toast("error", data?.error || "Could not save.");
       return;
     }
     if (data?.state) setV(data.state);
-    setSaved(true);
+    toast("ok", okText);
   }
 
   async function save() {
     if (!key.trim()) return;
-    await send({ license_key: key.trim() });
+    await send({ license_key: key.trim() }, "License installed.");
     setKey("");
   }
   async function remove() {
     if (!confirm("Remove the license? Enterprise features will turn off.")) return;
-    await send({ clear: true });
+    await send({ clear: true }, "License removed.");
   }
 
   return (
@@ -208,10 +205,7 @@ export function LicensePanel() {
             </div>
             <textarea
               value={key}
-              onChange={(e) => {
-                setKey(e.target.value);
-                setSaved(false);
-              }}
+              onChange={(e) => setKey(e.target.value)}
               className={`${field} h-24 font-mono text-xs`}
               placeholder="Paste your license key…"
               spellCheck={false}
@@ -224,8 +218,6 @@ export function LicensePanel() {
               >
                 {saving ? "Saving…" : "Activate"}
               </button>
-              {saved && <span className="text-sm text-green-600">✓ Saved</span>}
-              {error && <span className="text-sm text-red-600">{error}</span>}
             </div>
           </div>
         </>
