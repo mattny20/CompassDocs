@@ -32,8 +32,8 @@ export async function register() {
     }
     // Training due/overdue reminders (entitlement-gated inside; atomic claim).
     try {
-      const { remindDueTraining } = await import("./lib/training");
-      await remindDueTraining();
+      const { trainingHourly } = await import("./lib/training");
+      await trainingHourly();
     } catch (e) {
       console.error("[training] scheduler error:", e);
     }

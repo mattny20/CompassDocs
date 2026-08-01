@@ -6,6 +6,8 @@
 
 import {
   claimTrainingReminders,
+  claimTrainingEscalations,
+  claimRecertifications,
   getNotifyPrefsFor,
   listUsers,
 } from "@/lib/db";
@@ -23,6 +25,28 @@ export interface DeckSlides {
   complianceText: string | null;
 }
 
+export interface QuizQuestion {
+  /** Markdown of the question line (after "Q:"). */
+  text: string;
+  options: string[];
+  /** Indexes of the correct options. NEVER send this to the trainee. */
+  correct: number[];
+}
+
+export interface Deck {
+  slides: string[];
+  complianceText: string | null;
+  /** Quiz questions per slide (aligned with slides; empty array = no quiz on that slide). */
+  quizzes: QuizQuestion[][];
+}
+
+/** Trainee-safe view of a question — the answer key stripped. */
+export function publicQuiz(quizzes: QuizQuestion[][]): { text: string; options: string[]; multi: boolean }[][] {
+  return quizzes.map((qs) =>
+    qs.map((q) => ({ text: q.text, options: q.options, multi: q.correct.length > 1 }))
+  );
+}
+
 const DEFAULT_COMPLIANCE =
   "I confirm that I have completed this training and understood the material.";
 
@@ -31,19 +55,59 @@ export function defaultComplianceText(): string {
 }
 
 /**
- * Split deck content into slides on `---` lines, ignoring `---` inside
- * fenced code blocks, and extract a trailing :::compliance block. Pure.
+ * Parse the body of a :::quiz block. Format:
+ *   Q: question text
+ *   - [ ] wrong option
+ *   - [x] right option
+ * Multiple `[x]` options make the question multi-select.
  */
-export function splitSlides(content: string): DeckSlides {
+function parseQuizBody(lines: string[]): QuizQuestion[] {
+  const questions: QuizQuestion[] = [];
+  let q: QuizQuestion | null = null;
+  for (const raw of lines) {
+    const line = raw.trim();
+    const qm = /^Q:\s*(.+)$/.exec(line);
+    if (qm) {
+      if (q && q.options.length) questions.push(q);
+      q = { text: qm[1], options: [], correct: [] };
+      continue;
+    }
+    const om = /^[-*]\s*\[( |x|X)\]\s*(.+)$/.exec(line);
+    if (om && q) {
+      if (om[1].toLowerCase() === "x") q.correct.push(q.options.length);
+      q.options.push(om[2]);
+    }
+  }
+  if (q && q.options.length) questions.push(q);
+  // A question nobody can answer correctly is an authoring mistake — drop it.
+  return questions.filter((x) => x.correct.length > 0 && x.options.length >= 2);
+}
+
+/**
+ * Parse deck content: slides split on `---` lines (ignoring `---` inside
+ * fenced code blocks), a trailing :::compliance block, and per-slide
+ * :::quiz blocks. Quiz blocks are REMOVED from the slide markdown — the
+ * player renders them interactively and the answer key stays server-side.
+ * Pure.
+ */
+export function parseDeck(content: string): Deck {
   const lines = content.replace(/\r\n/g, "\n").split("\n");
 
-  // Walk once, tracking code-fence state so a `---` inside ``` or ~~~ fences
-  // (or a compliance marker pasted into a code sample) never splits a slide.
   const slides: string[] = [];
+  const quizzes: QuizQuestion[][] = [];
   let current: string[] = [];
+  let currentQuiz: QuizQuestion[] = [];
   let fence: string | null = null;
   let compliance: string[] | null = null;
   let inCompliance = false;
+  let quizBody: string[] | null = null;
+
+  const flushSlide = () => {
+    slides.push(current.join("\n").trim());
+    quizzes.push(currentQuiz);
+    current = [];
+    currentQuiz = [];
+  };
 
   for (const line of lines) {
     const fenceMatch = line.match(/^\s*(```+|~~~+)/);
@@ -51,6 +115,20 @@ export function splitSlides(content: string): DeckSlides {
       const mark = fenceMatch[1][0].repeat(3);
       if (!fence) fence = mark;
       else if (fence === mark) fence = null;
+    }
+
+    if (!fence && quizBody === null && !inCompliance && /^:::quiz\s*$/.test(line.trim())) {
+      quizBody = [];
+      continue;
+    }
+    if (quizBody !== null) {
+      if (/^:::\s*$/.test(line.trim())) {
+        currentQuiz.push(...parseQuizBody(quizBody));
+        quizBody = null;
+        continue;
+      }
+      quizBody.push(line);
+      continue;
     }
 
     if (!fence && !inCompliance && /^:::compliance\s*$/.test(line.trim())) {
@@ -68,23 +146,63 @@ export function splitSlides(content: string): DeckSlides {
     }
 
     if (!fence && /^\s*---+\s*$/.test(line) && !/^\s*----/.test(line)) {
-      slides.push(current.join("\n").trim());
-      current = [];
+      flushSlide();
       continue;
     }
     current.push(line);
   }
-  slides.push(current.join("\n").trim());
+  // An unterminated quiz block still counts.
+  if (quizBody !== null) currentQuiz.push(...parseQuizBody(quizBody));
+  flushSlide();
 
-  const nonEmpty = slides.filter((s) => s.length > 0);
+  // Drop empty slides (but keep their quizzes attached to the nearest kept
+  // slide is overkill — an empty slide with a quiz keeps the slide).
+  const kept: string[] = [];
+  const keptQuizzes: QuizQuestion[][] = [];
+  for (let i = 0; i < slides.length; i++) {
+    if (slides[i].length > 0 || quizzes[i].length > 0) {
+      kept.push(slides[i]);
+      keptQuizzes.push(quizzes[i]);
+    }
+  }
   return {
-    slides: nonEmpty.length ? nonEmpty : [""],
+    slides: kept.length ? kept : [""],
+    quizzes: kept.length ? keptQuizzes : [[]],
     complianceText: compliance ? compliance.join("\n").trim() || null : null,
   };
 }
 
+/** Back-compat wrapper: slides + compliance only. */
+export function splitSlides(content: string): DeckSlides {
+  const d = parseDeck(content);
+  return { slides: d.slides, complianceText: d.complianceText };
+}
+
 export function slideCount(content: string): number {
-  return splitSlides(content).slides.length;
+  return parseDeck(content).slides.length;
+}
+
+/** All quiz questions across the deck, in slide order. */
+export function deckQuestions(content: string): QuizQuestion[] {
+  return parseDeck(content).quizzes.flat();
+}
+
+/**
+ * Grade submitted answers against the deck's questions. `answers[i]` is the
+ * selected option indexes for question i (deck order). A question is right
+ * only when the selected set equals the correct set exactly.
+ */
+export function gradeQuiz(
+  content: string,
+  answers: number[][]
+): { score: number; total: number; results: boolean[] } {
+  const questions = deckQuestions(content);
+  const results = questions.map((q, i) => {
+    const picked = [...new Set((answers[i] ?? []).filter(Number.isInteger))].sort((a, b) => a - b);
+    const correct = [...q.correct].sort((a, b) => a - b);
+    return picked.length === correct.length && picked.every((v, j) => v === correct[j]);
+  });
+  return { score: results.filter(Boolean).length, total: questions.length, results };
 }
 
 /** In-app + (pref-gated) email fan-out when a deck is assigned. */
@@ -167,4 +285,56 @@ export async function remindDueTraining(): Promise<void> {
     );
     await sendMail([r.email], subject, text, html).catch(() => {});
   }
+}
+
+/**
+ * Escalation sweep: when someone is more than 7 days overdue, tell the deck's
+ * creator once (per assignment). In-app only — this is a manager nudge, not a
+ * broadcast.
+ */
+export async function escalateOverdueTraining(): Promise<void> {
+  const rows = await claimTrainingEscalations();
+  if (!rows.length) return;
+  // One notification per deck per sweep, however many people crossed the line.
+  const byDeck = new Map<number, { creator: number; title: string; count: number }>();
+  for (const r of rows) {
+    const cur = byDeck.get(r.deck_id);
+    if (cur) cur.count += 1;
+    else byDeck.set(r.deck_id, { creator: r.creator_id, title: r.title, count: 1 });
+  }
+  for (const d of byDeck.values()) {
+    void notify([d.creator], {
+      kind: "training_due",
+      title: `Overdue training: ${d.title}`,
+      body: `${d.count} ${d.count === 1 ? "person is" : "people are"} more than a week overdue.`,
+      link: "/training",
+    });
+  }
+}
+
+/**
+ * Recertification sweep: completed assignments on decks with a recert
+ * interval reopen once the interval elapses. The prior completion is archived
+ * to history first (claimRecertifications does both atomically).
+ */
+export async function recertifyDueTraining(): Promise<void> {
+  const reopened = await claimRecertifications();
+  if (!reopened.length) return;
+  const settings = await getAppSettings();
+  for (const r of reopened) {
+    void notify([r.user_id], {
+      kind: "training_assigned",
+      title: `Recertification due: ${r.title}`,
+      body: r.due_at ? `Complete it again by ${formatDate(r.due_at, settings)}.` : "Time to take this training again.",
+      link: "/training",
+    });
+  }
+}
+
+/** Hourly orchestrator for all training sweeps (instrumentation.ts). */
+export async function trainingHourly(): Promise<void> {
+  if (!(await featureEnabled("training"))) return;
+  await remindDueTraining().catch(() => {});
+  await escalateOverdueTraining().catch(() => {});
+  await recertifyDueTraining().catch(() => {});
 }

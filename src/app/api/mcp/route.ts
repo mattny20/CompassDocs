@@ -21,6 +21,13 @@ import {
   createChangeRequest,
   createAttachment,
   getApprovalMode,
+  createTrainingDeck,
+  getTrainingDeck,
+  listTrainingDecks,
+  trainingDeckStatus,
+  assignTraining,
+  expandTrainingAudience,
+  listUsers,
 } from "@/lib/db";
 import { currentVersion } from "@/lib/version";
 import { listTemplates, getTemplate, getTemplateByName, renderTemplate } from "@/lib/doc-templates";
@@ -137,6 +144,16 @@ the final confirmation gate:
 
 :::compliance
 I confirm that I have completed this training and understood the material.
+:::
+
+Add graded questions with a quiz block on any slide — [x] marks the correct
+option(s); the player grades server-side and a passing score (deck setting)
+is required before the confirmation unlocks:
+
+:::quiz
+Q: Which cable goes in first?
+- [ ] Power
+- [x] Ground
 :::
 
 ## Notes
@@ -285,6 +302,48 @@ const TOOLS = [
         alt: { type: "string", description: "Alt text for the returned markdown snippet. Optional but recommended." },
       },
       required: ["doc_id", "data"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "create_training_deck",
+    description:
+      "Turn a published document into a training deck (enterprise training entitlement; requires training-manager access). Slides split on --- lines; a trailing :::compliance block sets the confirmation wording; :::quiz blocks add graded questions. Returns the deck id.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        doc_id: { type: "number", description: "A published document (from list_docs / create_doc)." },
+        due_days: { type: "number", description: "Due within N days of assignment (1-365). Optional." },
+        assign_new_members: { type: "boolean", description: "Auto-assign to every new member. Default false." },
+      },
+      required: ["doc_id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "assign_training",
+    description:
+      "Assign a training deck to people (enterprise training entitlement; requires training-manager access). Pass usernames and/or everyone. Assignees are notified; already-assigned people are skipped.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        deck_id: { type: "number", description: "The deck (from create_training_deck or training_status)." },
+        usernames: { type: "array", items: { type: "string" }, description: "Usernames to assign." },
+        everyone: { type: "boolean", description: "Assign to every active member instead." },
+      },
+      required: ["deck_id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "training_status",
+    description:
+      "Training progress (enterprise training entitlement; requires training-manager access). Without deck_id: every deck with completion counts. With deck_id: per-person status — completed, waived, open, overdue, quiz scores.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        deck_id: { type: "number", description: "Optional: one deck's per-person detail." },
+      },
       additionalProperties: false,
     },
   },
@@ -723,6 +782,124 @@ async function callTool(user: User, name: string, args: any, origin: string) {
         markdown: `![${String(args?.alt ?? "").trim() || filename}](/api/attachments/${att.id})`,
         note: "Place the markdown snippet in the document body (update_doc) where the image belongs — uploading alone does not display it.",
       });
+    }
+
+    case "create_training_deck":
+    case "assign_training":
+    case "training_status": {
+      // Entitlement + delegated-section gate, mirroring the training APIs.
+      const { featureEnabled } = await import("@/lib/ee");
+      const { canAccessSection } = await import("@/lib/section-access");
+      if (!(await featureEnabled("training"))) {
+        return toolText("Training is not included in this workspace's license.", true);
+      }
+      if (!(await canAccessSection(user, "training"))) {
+        return toolText("Training management requires admin or Training-section access.", true);
+      }
+
+      if (name === "create_training_deck") {
+        const doc = await getDocument(Number(args?.doc_id));
+        if (!doc || doc.status !== "published" || !scopeAllows(scope, doc.space_id)) {
+          return toolText("Pick a published document you can see.", true);
+        }
+        const dueDays = args?.due_days
+          ? Math.min(365, Math.max(1, Math.floor(Number(args.due_days)))) || null
+          : null;
+        const created = await createTrainingDeck(
+          doc.id,
+          { due_days: dueDays, assign_new_members: args?.assign_new_members === true },
+          user.id
+        );
+        if (!created) return toolText("That document is already a training deck.", true);
+        await audit({
+          actor: actorFrom(user),
+          action: "training.deck_create",
+          targetType: "document",
+          targetId: doc.id,
+          targetLabel: doc.title,
+          details: { via: "mcp" },
+        });
+        return toolJson({ ok: true, deck_id: created.id, title: doc.title });
+      }
+
+      if (name === "assign_training") {
+        const deck = await getTrainingDeck(Number(args?.deck_id));
+        if (!deck || deck.archived_at) return toolText("No such training deck.", true);
+        let ids: number[] = [];
+        if (args?.everyone === true) {
+          ids = await expandTrainingAudience([], [], true);
+        } else {
+          const wanted = new Set(
+            (Array.isArray(args?.usernames) ? args.usernames : []).map((u: unknown) =>
+              String(u).toLowerCase()
+            )
+          );
+          ids = (await listUsers())
+            .filter((u) => u.status === "active" && wanted.has(u.username.toLowerCase()))
+            .map((u) => u.id);
+        }
+        if (!ids.length) return toolText("Nobody matched — pass usernames or everyone: true.", true);
+        const dueAt = deck.due_days
+          ? new Date(Date.now() + deck.due_days * 86_400_000).toISOString()
+          : null;
+        const assigned = await assignTraining(deck.id, ids, user.name || user.username, "manual", dueAt);
+        if (assigned.length) {
+          const { notifyTrainingAssigned } = await import("@/lib/training");
+          void notifyTrainingAssigned({
+            userIds: assigned,
+            deckTitle: deck.title,
+            dueAt,
+            assignerName: user.name || user.username,
+            origin,
+          });
+        }
+        await audit({
+          actor: actorFrom(user),
+          action: "training.assigned",
+          targetType: "document",
+          targetId: deck.document_id,
+          targetLabel: deck.title,
+          details: { via: "mcp", newly_assigned: assigned.length, audience: ids.length },
+        });
+        return toolJson({ ok: true, assigned: assigned.length, already: ids.length - assigned.length });
+      }
+
+      // training_status
+      if (args?.deck_id) {
+        const deck = await getTrainingDeck(Number(args.deck_id));
+        if (!deck) return toolText("No such training deck.", true);
+        const rows = await trainingDeckStatus(deck.id);
+        return toolJson({
+          deck: { id: deck.id, title: deck.title, due_days: deck.due_days, pass_pct: deck.pass_pct },
+          people: rows.map((r) => ({
+            name: r.name,
+            username: r.username,
+            status: r.completed_at
+              ? r.source === "waived"
+                ? "waived"
+                : "completed"
+              : r.due_at && new Date(r.due_at).getTime() < Date.now()
+                ? "overdue"
+                : "open",
+            due_at: r.due_at,
+            completed_at: r.completed_at,
+            quiz: r.quiz_total ? `${r.quiz_score}/${r.quiz_total}` : null,
+            prior_completions: r.prior_completions,
+          })),
+        });
+      }
+      const decks = await listTrainingDecks();
+      return toolJson(
+        decks.map((d) => ({
+          deck_id: d.id,
+          title: d.title,
+          active: d.active === 1,
+          assigned: d.assigned,
+          completed: d.completed,
+          due_days: d.due_days,
+          recert_months: d.recert_months,
+        }))
+      );
     }
 
     default:

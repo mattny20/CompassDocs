@@ -27,6 +27,7 @@ export async function GET() {
       completed_at: m.completed_at,
       last_slide: m.last_slide,
       slide_count: slideCount(m.content),
+      waived: m.source === "waived",
     })),
   });
 }

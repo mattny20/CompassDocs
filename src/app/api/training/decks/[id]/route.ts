@@ -6,10 +6,14 @@ import {
   updateTrainingDeck,
   deleteTrainingDeck,
   trainingDeckStatus,
+  trainingDropoff,
+  reopenCompletedForDeck,
+  getTrainingAssignment,
   assignTraining,
   waiveTraining,
   expandTrainingAudience,
 } from "@/lib/db";
+import { notify } from "@/lib/notifications";
 import { notifyTrainingAssigned } from "@/lib/training";
 import { publicOrigin } from "@/lib/oauth";
 import { audit, actorFrom } from "@/lib/audit";
@@ -63,7 +67,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       },
     });
   }
-  return NextResponse.json({ deck, rows });
+  return NextResponse.json({ deck, rows, dropoff: await trainingDropoff(deck.id) });
 }
 
 // Deck settings.
@@ -76,10 +80,19 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     due_days?: number | null;
     assign_new_members?: boolean;
     archived?: boolean;
+    pass_pct?: number;
+    recert_months?: number | null;
   };
   await updateTrainingDeck(deck.id, {
     active: typeof body.active === "boolean" ? body.active : undefined,
     archived: typeof body.archived === "boolean" ? body.archived : undefined,
+    pass_pct: typeof body.pass_pct === "number" ? body.pass_pct : undefined,
+    recert_months:
+      body.recert_months === undefined
+        ? undefined
+        : body.recert_months === null
+          ? null
+          : Math.min(60, Math.max(1, Math.floor(Number(body.recert_months) || 0))) || null,
     due_days:
       body.due_days === undefined
         ? undefined
@@ -115,7 +128,7 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   return NextResponse.json({ ok: true });
 }
 
-// Assign (or waive): users + groups, or everyone.
+// Assign (or waive) audiences, nudge one person, or reopen completions.
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const { denied, deck, user } = await gated(id);
@@ -125,7 +138,57 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     group_ids?: number[];
     everyone?: boolean;
     waive?: boolean;
+    remind_assignment_id?: number;
+    reopen_completed?: boolean;
   };
+
+  // Instant nudge: one person, right now, regardless of the 3-day cadence.
+  if (body.remind_assignment_id) {
+    const a = await getTrainingAssignment(Number(body.remind_assignment_id));
+    if (!a || a.deck_id !== deck.id || a.completed_at) {
+      return NextResponse.json({ error: "No open assignment to remind." }, { status: 400 });
+    }
+    void notify([a.user_id], {
+      kind: "training_due",
+      title: `Reminder: ${deck.title}`,
+      body: a.due_at ? `Due ${new Date(a.due_at).toLocaleDateString()}.` : "Please complete this training.",
+      link: "/training",
+      actorName: user.name || user.username,
+    });
+    await audit({
+      actor: actorFrom(user),
+      action: "training.reminded",
+      targetType: "document",
+      targetId: deck.document_id,
+      targetLabel: deck.title,
+      details: { user_id: a.user_id },
+    });
+    return NextResponse.json({ ok: true });
+  }
+
+  // The document changed materially — everyone who completed it goes again.
+  // Prior completions are archived to history, so the audit trail keeps both.
+  if (body.reopen_completed === true) {
+    const reopened = await reopenCompletedForDeck(deck.id);
+    if (reopened.length) {
+      void notifyTrainingAssigned({
+        userIds: reopened.map((r) => r.user_id),
+        deckTitle: `${deck.title} (updated — please retake)`,
+        dueAt: reopened[0]?.due_at ?? null,
+        assignerName: user.name || user.username,
+        origin: await publicOrigin(req),
+      });
+    }
+    await audit({
+      actor: actorFrom(user),
+      action: "training.reopened",
+      targetType: "document",
+      targetId: deck.document_id,
+      targetLabel: deck.title,
+      details: { reopened: reopened.length },
+    });
+    return NextResponse.json({ ok: true, reopened: reopened.length });
+  }
   const userIds = Array.isArray(body.user_ids) ? body.user_ids.filter(Number.isInteger) : [];
   const groupIds = Array.isArray(body.group_ids) ? body.group_ids.filter(Number.isInteger) : [];
   const audience = await expandTrainingAudience(userIds, groupIds, body.everyone === true);

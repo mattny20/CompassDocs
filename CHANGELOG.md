@@ -4,6 +4,40 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.80.0] - 2026-08-01
+
+### Added
+- **Quizzes.** Add a `:::quiz` block to any slide (editor button included):
+  multiple-choice questions, single- or multi-select. Grading happens
+  server-side — the answer key never reaches the trainee's browser — and a
+  per-deck pass threshold (default 80%) must be met before the final
+  confirmation unlocks. Scores appear on the dashboard, in CSV exports, on
+  certificates, and in the audit record.
+- **Recurring recertification.** Give a deck a "recertify every N months"
+  interval and completed assignments reopen automatically when it elapses —
+  the prior completion is preserved in a history table, the person is
+  notified, and the due clock restarts. A "Reopen completed" button does the
+  same on demand after a material document update.
+- **Completion certificates.** Every real completion (not waivers) gets a
+  printable certificate — name, deck, date, quiz score, document version,
+  and the assignment record number — linked from the player, the My
+  Training card, and the manager's people list.
+- **Org-wide Overview tab.** Training managers get KPIs (active decks,
+  people, completion %, overdue), per-deck completion bars, an overdue
+  list, and a whole-program CSV export for auditors.
+- **Per-person deck view.** Each deck card now expands to a people table —
+  status (open/overdue/completed/waived), quiz score, prior completions —
+  with a per-person **Remind now** button that bypasses the reminder
+  cadence, and certificate links.
+- **Overdue escalation.** When someone crosses a week overdue, the deck's
+  creator gets a notification (once per assignment).
+- **Drop-off insight.** Deck cards show the slide where most in-progress
+  trainees stopped.
+- **Claude connector training tools.** `create_training_deck`,
+  `assign_training`, and `training_status` — ask Claude "who hasn't
+  finished security onboarding?" or have it assign the new SOP deck.
+  Gated by the training entitlement and Training-section access.
+
 ## [0.79.0] - 2026-08-01
 
 ### Added

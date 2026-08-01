@@ -29,6 +29,7 @@ const DOC_BLOCK_CLASSES = [
   "md-callout-info",
   "md-details",
   "md-compliance",
+  "md-quiz",
   "md-tabs",
   "md-tab",
   "md-video",

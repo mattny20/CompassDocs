@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/auth";
 import { featureEnabled } from "@/lib/ee";
 import { getMyTrainingAssignment } from "@/lib/db";
-import { splitSlides, defaultComplianceText } from "@/lib/training";
+import { parseDeck, publicQuiz, defaultComplianceText } from "@/lib/training";
 import { TrainingPlayer } from "@/components/TrainingPlayer";
 
 export const dynamic = "force-dynamic";
@@ -17,16 +17,22 @@ export default async function TrainingTakePage({ params }: { params: Promise<{ i
   const assignment = await getMyTrainingAssignment(Number(id), user.id);
   if (!assignment) notFound();
 
-  const { slides, complianceText } = splitSlides(assignment.content);
+  const { slides, quizzes, complianceText } = parseDeck(assignment.content);
   return (
     <TrainingPlayer
       assignmentId={assignment.assignment_id}
       title={assignment.title}
       spaceName={assignment.space_name}
       slides={slides}
+      // Questions only — the answer key never reaches the client.
+      quizzes={publicQuiz(quizzes)}
+      passPct={assignment.pass_pct}
+      quizScore={assignment.quiz_score}
+      quizTotal={assignment.quiz_total}
       complianceText={complianceText ?? defaultComplianceText()}
       initialSlide={Math.min(assignment.last_slide, slides.length)}
       completedAt={assignment.completed_at}
+      waived={assignment.source === "waived"}
       dueAt={assignment.due_at}
     />
   );

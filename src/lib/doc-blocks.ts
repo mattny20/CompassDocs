@@ -61,6 +61,9 @@ export function remarkDocBlocks() {
       if (name === "compliance" && isContainer) {
         dropLabel(node);
         asDiv(node, "md-compliance", { title: label || attrs.title || "Compliance confirmation" });
+      } else if (name === "quiz" && isContainer) {
+        dropLabel(node);
+        asDiv(node, "md-quiz", { title: label || attrs.title || "Quiz" });
       } else if (CALLOUTS.has(name) && isContainer) {
         dropLabel(node);
         asDiv(node, `md-callout md-callout-${name}`, { title: label || attrs.title || "" });
