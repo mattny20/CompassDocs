@@ -132,6 +132,39 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
       "[Open your training]({{training_url}}) to finish the remaining slides and confirm completion.",
   },
   {
+    key: "training_report",
+    label: "Monthly training report",
+    description:
+      "Sent monthly to the recipients chosen under Training → Overview when the scheduled report is enabled.",
+    tags: [
+      T("month", "Report month (YYYY-MM)"),
+      T("summary", "The report body (completion, overdue, lowest decks)"),
+      T("training_url", "Link to the training console"),
+      T("org_name", "Workspace name"),
+    ],
+    subject: "[{{org_name}}] Training report — {{month}}",
+    body:
+      "Here's where training stands as of the {{month}} snapshot:\n\n{{summary}}\n\n" +
+      "[Open the training console]({{training_url}}) for the full picture — the matching " +
+      "point-in-time snapshot (with its SHA-256) is stored under Overview → Snapshots.",
+  },
+  {
+    key: "training_team_digest",
+    label: "Team training digest (leads)",
+    description:
+      "Sent weekly to each group lead summarizing where their team stands on assigned training.",
+    tags: [
+      T("lead_name", "The lead's name"),
+      T("summary", "Per-team status lines"),
+      T("team_url", "Link to the team view"),
+      T("org_name", "Workspace name"),
+    ],
+    subject: "[{{org_name}}] Your team's training this week",
+    body:
+      "Hi {{lead_name}} — here's where your team stands:\n\n{{summary}}\n\n" +
+      "[Open your team view]({{team_url}}) to see who's behind and nudge them along.",
+  },
+  {
     key: "workflow_event",
     label: "Workflow event (email channel)",
     description:
@@ -178,6 +211,19 @@ export const SAMPLE_VARS: Record<string, Record<string, string>> = {
     deck_title: "Security awareness onboarding",
     due_date: "Aug 14, 2026",
     training_url: "https://docs.example.com/training",
+  },
+  training_report: {
+    month: "2026-08",
+    summary:
+      "- **4** active decks · **32** people with assignments\n" +
+      "- **86%** overall completion (98 completed, 12 waived, 18 open)\n" +
+      "- **5** overdue · **7** in the needs-attention queue",
+    training_url: "https://docs.example.com/training",
+  },
+  training_team_digest: {
+    lead_name: "Dana Whitfield",
+    summary: "- **Support**: 14 done · 3 open · **2 overdue**\n- **Field ops**: 9 done · 1 open",
+    team_url: "https://docs.example.com/training/team",
   },
   doc_update: {
     doc_title: "Remote Work Policy",

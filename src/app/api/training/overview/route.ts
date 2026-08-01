@@ -30,12 +30,12 @@ export async function GET(req: Request) {
     const rows = await trainingOrgRows();
     const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
     const lines = [
-      "training,name,username,email,assigned_at,due_at,completed_at,confirmed_version,quiz_score,quiz_total,prior_completions,status",
+      "training,name,username,email,assigned_at,due_at,completed_at,confirmed_version,quiz_score,quiz_total,prior_completions,signed_name,content_sha256,status",
     ];
     for (const r of rows) {
       const status = r.completed_at ? (r.source === "waived" ? "waived" : "completed") : "open";
       lines.push(
-        [r.deck, r.name, r.username, r.email, r.assigned_at, r.due_at ?? "", r.completed_at ?? "", r.confirmed_version ?? "", r.quiz_score ?? "", r.quiz_total ?? "", r.prior_completions, status]
+        [r.deck, r.name, r.username, r.email, r.assigned_at, r.due_at ?? "", r.completed_at ?? "", r.confirmed_version ?? "", r.quiz_score ?? "", r.quiz_total ?? "", r.prior_completions, r.signed_name ?? "", r.content_sha256 ?? "", status]
           .map(esc)
           .join(",")
       );

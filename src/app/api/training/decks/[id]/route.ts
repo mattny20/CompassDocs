@@ -15,8 +15,10 @@ import {
   extendTrainingDue,
   setTrainingReminded,
   expandTrainingAudience,
+  getDocument,
 } from "@/lib/db";
 import { notifyTrainingAssigned, remindAssignmentsNow } from "@/lib/training";
+import { deckQuestionStats } from "@/lib/training-audit";
 import { publicOrigin } from "@/lib/oauth";
 import { audit, actorFrom } from "@/lib/audit";
 import type { SessionUser } from "@/lib/types";
@@ -52,12 +54,12 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   if (url.searchParams.get("format") === "csv") {
     const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
     const lines = [
-      "training,name,username,email,assigned_at,due_at,completed_at,confirmed_version,quiz_score,quiz_total,prior_completions,status",
+      "training,name,username,email,assigned_at,due_at,completed_at,confirmed_version,quiz_score,quiz_total,prior_completions,signed_name,content_sha256,status",
     ];
     for (const r of rows) {
       const status = r.completed_at ? (r.source === "waived" ? "waived" : "completed") : "open";
       lines.push(
-        [deck.title, r.name, r.username, r.email, r.assigned_at, r.due_at ?? "", r.completed_at ?? "", r.confirmed_version ?? "", r.quiz_score ?? "", r.quiz_total ?? "", r.prior_completions, status]
+        [deck.title, r.name, r.username, r.email, r.assigned_at, r.due_at ?? "", r.completed_at ?? "", r.confirmed_version ?? "", r.quiz_score ?? "", r.quiz_total ?? "", r.prior_completions, r.signed_name ?? "", r.content_sha256 ?? "", status]
           .map(esc)
           .join(",")
       );
@@ -69,7 +71,14 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       },
     });
   }
-  return NextResponse.json({ deck, rows, dropoff: await trainingDropoff(deck.id) });
+  const doc = await getDocument(deck.document_id);
+  return NextResponse.json({
+    deck,
+    rows,
+    dropoff: await trainingDropoff(deck.id),
+    // Per-question quiz analytics: how often each question is answered right.
+    question_stats: doc ? await deckQuestionStats(deck.id, doc.content) : [],
+  });
 }
 
 // Deck settings.
@@ -85,12 +94,15 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     pass_pct?: number;
     recert_months?: number | null;
     tag?: string;
+    require_signature?: boolean;
   };
   await updateTrainingDeck(deck.id, {
     active: typeof body.active === "boolean" ? body.active : undefined,
     archived: typeof body.archived === "boolean" ? body.archived : undefined,
     pass_pct: typeof body.pass_pct === "number" ? body.pass_pct : undefined,
     tag: typeof body.tag === "string" ? body.tag.trim() : undefined,
+    require_signature:
+      typeof body.require_signature === "boolean" ? body.require_signature : undefined,
     recert_months:
       body.recert_months === undefined
         ? undefined

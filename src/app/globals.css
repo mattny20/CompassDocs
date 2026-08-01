@@ -132,6 +132,17 @@ body {
   color: rgb(130 180 224 / 0.85);
 }
 
+/* Native form controls follow the workspace accent. The --compass-* vars
+ * hold raw "R G B" triplets, so they must be wrapped in rgb() here — the
+ * bare var is not a valid color and the browser silently falls back to its
+ * stock blue. */
+input[type="checkbox"],
+input[type="radio"],
+input[type="range"],
+progress {
+  accent-color: rgb(var(--compass-600));
+}
+
 /* Search snippet highlight — kept legible (dark-on-light) in both themes. */
 mark {
   @apply rounded-sm px-0.5;
@@ -450,6 +461,6 @@ mark {
 .tiptap ul[data-type="taskList"] input[type="checkbox"] {
   width: 1rem;
   height: 1rem;
-  accent-color: var(--compass-600, #2e75bd);
+  accent-color: rgb(var(--compass-600));
   cursor: pointer;
 }

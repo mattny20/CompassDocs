@@ -25,6 +25,14 @@ export interface PlayerQuizQuestion {
   multi: boolean;
 }
 
+export interface PlayerSignature {
+  required: boolean;
+  /** Local accounts re-enter their password; SSO accounts sign by name only. */
+  passwordRequired: boolean;
+  /** The name the trainee must type (their account name). */
+  expectedName: string;
+}
+
 export function TrainingPlayer({
   assignmentId,
   preview = false,
@@ -40,6 +48,7 @@ export function TrainingPlayer({
   completedAt,
   waived = false,
   dueAt,
+  signature,
 }: {
   assignmentId: number;
   /** Manager preview: nothing is recorded; quiz + confirm are disabled. */
@@ -58,6 +67,8 @@ export function TrainingPlayer({
   /** Waived completions don't earn a certificate. */
   waived?: boolean;
   dueAt: string | null;
+  /** E-signature gate: typed name (+ password for local accounts). */
+  signature?: PlayerSignature;
 }) {
   const router = useRouter();
   // Index slides.length is the compliance gate.
@@ -66,6 +77,12 @@ export function TrainingPlayer({
   const [done, setDone] = useState(Boolean(completedAt));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const signatureRequired = signature?.required === true && !done;
+  const [typedName, setTypedName] = useState("");
+  const [signPassword, setSignPassword] = useState("");
+  const signatureIncomplete =
+    signatureRequired &&
+    (!typedName.trim() || (signature?.passwordRequired === true && !signPassword));
 
   // Quiz state: answers[qi] = selected option indexes, in deck-wide question
   // order. Result comes back from the server (graded there).
@@ -169,7 +186,10 @@ export function TrainingPlayer({
     const res = await fetch(`/api/training/assignments/${assignmentId}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ action: "confirm" }),
+      body: JSON.stringify({
+        action: "confirm",
+        ...(signatureRequired ? { typed_name: typedName, password: signPassword } : {}),
+      }),
     });
     if (!res.ok) {
       const data = (await res.json().catch(() => ({}))) as { error?: string };
@@ -259,6 +279,33 @@ export function TrainingPlayer({
                 </button>
               </div>
             )}
+            {signatureRequired && !preview && (
+              <div className="mt-4 w-full max-w-md rounded-lg border border-slate-200 bg-canvas px-4 py-3 text-left text-sm">
+                <p className="font-medium text-slate-700">Sign to confirm</p>
+                <p className="mt-0.5 text-xs text-slate-400">
+                  Type your full name{signature?.passwordRequired ? " and re-enter your password" : ""} —
+                  recorded with this confirmation.
+                </p>
+                <input
+                  value={typedName}
+                  onChange={(e) => setTypedName(e.target.value)}
+                  placeholder={signature?.expectedName}
+                  aria-label="Type your full name to sign"
+                  className="mt-2 w-full rounded-lg border border-slate-200 bg-surface px-3 py-1.5 text-sm outline-hidden focus:border-compass-400"
+                />
+                {signature?.passwordRequired && (
+                  <input
+                    type="password"
+                    value={signPassword}
+                    onChange={(e) => setSignPassword(e.target.value)}
+                    placeholder="Account password"
+                    aria-label="Re-enter your account password to sign"
+                    autoComplete="current-password"
+                    className="mt-2 w-full rounded-lg border border-slate-200 bg-surface px-3 py-1.5 text-sm outline-hidden focus:border-compass-400"
+                  />
+                )}
+              </div>
+            )}
             {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
             {done ? (
               <div className="mt-4 text-sm text-slate-400">
@@ -278,8 +325,14 @@ export function TrainingPlayer({
             ) : (
               <button
                 onClick={() => void confirm()}
-                disabled={busy || quizGateBlocked || preview}
-                title={quizGateBlocked ? `Pass the quiz first (${passPct}% or better)` : undefined}
+                disabled={busy || quizGateBlocked || preview || signatureIncomplete}
+                title={
+                  quizGateBlocked
+                    ? `Pass the quiz first (${passPct}% or better)`
+                    : signatureIncomplete
+                      ? "Sign above to confirm"
+                      : undefined
+                }
                 className="mt-5 inline-flex items-center gap-2 rounded-lg bg-compass-600 px-5 py-2 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60"
               >
                 {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}

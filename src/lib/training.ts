@@ -8,8 +8,15 @@ import {
   claimTrainingReminders,
   claimTrainingEscalations,
   claimRecertifications,
+  claimTrainingPeriod,
   getNotifyPrefsFor,
+  getSetting,
   listUsers,
+  listTrainingDigestLeads,
+  teamTrainingRows,
+  trainingOverview,
+  trainingNeedsAttention,
+  listTrainingDecks,
 } from "@/lib/db";
 import { notify, notifyPrefAllows } from "@/lib/notifications";
 import { renderEmail } from "@/lib/email-templates";
@@ -382,10 +389,162 @@ export async function recertifyDueTraining(): Promise<void> {
   }
 }
 
+// --- Monthly evidence: point-in-time snapshot + report email ----------------
+
+export interface TrainingReportSettings {
+  enabled: boolean;
+  user_ids: number[];
+}
+
+export async function getTrainingReportSettings(): Promise<TrainingReportSettings> {
+  const raw = await getSetting("training_report");
+  if (!raw) return { enabled: false, user_ids: [] };
+  try {
+    const parsed = JSON.parse(raw);
+    return {
+      enabled: parsed?.enabled === true,
+      user_ids: Array.isArray(parsed?.user_ids)
+        ? parsed.user_ids.map(Number).filter(Number.isInteger)
+        : [],
+    };
+  } catch {
+    return { enabled: false, user_ids: [] };
+  }
+}
+
+/** The markdown summary block shared by the report email and its preview. */
+export async function trainingReportSummary(): Promise<string> {
+  const [overview, attention, decks] = await Promise.all([
+    trainingOverview(),
+    trainingNeedsAttention(),
+    listTrainingDecks(),
+  ]);
+  const done = overview.completed + overview.waived;
+  const total = done + overview.open;
+  const pct = total ? Math.round((done / total) * 100) : 0;
+  const lines = [
+    `- **${overview.decks}** active decks · **${overview.people_assigned}** people with assignments`,
+    `- **${pct}%** overall completion (${overview.completed} completed, ${overview.waived} waived, ${overview.open} open)`,
+    `- **${overview.overdue}** overdue · **${attention.total}** in the needs-attention queue`,
+  ];
+  const worst = decks
+    .filter((d) => d.assigned > 0)
+    .sort(
+      (a, b) =>
+        (a.completed + a.waived) / a.assigned - (b.completed + b.waived) / b.assigned
+    )
+    .slice(0, 5);
+  if (worst.length) {
+    lines.push("", "Lowest completion:");
+    for (const d of worst) {
+      const p = Math.round(((d.completed + d.waived) / d.assigned) * 100);
+      lines.push(`- ${d.title}: ${p}% (${d.overdue} overdue)`);
+    }
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Monthly sweep: take the point-in-time snapshot (claimed atomically via the
+ * unique monthly index) and, when the report is enabled, email the summary
+ * to the chosen recipients. Both fire once per calendar month (UTC).
+ */
+export async function monthlyTrainingEvidence(): Promise<void> {
+  const period = new Date().toISOString().slice(0, 7); // YYYY-MM
+  const { takeTrainingSnapshot } = await import("@/lib/training-audit");
+  const snap = await takeTrainingSnapshot("monthly", period, "scheduled").catch(() => null);
+  if (!snap) return; // someone else took this month's, or it failed — no report either
+
+  const report = await getTrainingReportSettings();
+  if (!report.enabled || !report.user_ids.length) return;
+  const smtp = await getSmtpConfig();
+  if (!smtpConfigured(smtp)) return;
+
+  const settings = await getAppSettings();
+  const origin = settings.custom_domain ? `https://${settings.custom_domain}` : "";
+  const summary = await trainingReportSummary();
+  const recipients = (await listUsers()).filter(
+    (u) => report.user_ids.includes(u.id) && u.email && u.status === "active"
+  );
+  for (const u of recipients) {
+    const { subject, text, html } = await renderEmail(
+      "training_report",
+      {
+        month: period,
+        summary,
+        training_url: `${origin}/training`,
+        org_name: settings.company_name,
+      },
+      origin
+    );
+    await sendMail([u.email], subject, text, html).catch(() => {});
+  }
+}
+
+// --- Weekly team digest for group leads -------------------------------------
+
+function isoWeekId(d: Date): string {
+  const t = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  t.setUTCDate(t.getUTCDate() + 4 - (t.getUTCDay() || 7));
+  const yearStart = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+  const week = Math.ceil(((t.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  return `${t.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
+}
+
+/**
+ * Weekly sweep: each group lead gets one email summarizing where their
+ * team(s) stand. Claimed once per ISO week (UTC) via the settings table.
+ */
+export async function weeklyTeamDigest(): Promise<void> {
+  const leads = await listTrainingDigestLeads();
+  if (!leads.length) return;
+  const smtp = await getSmtpConfig();
+  if (!smtpConfigured(smtp)) return;
+  if (!(await claimTrainingPeriod("training_team_digest_week", isoWeekId(new Date())))) return;
+
+  const settings = await getAppSettings();
+  const origin = settings.custom_domain ? `https://${settings.custom_domain}` : "";
+  for (const lead of leads) {
+    const rows = await teamTrainingRows(lead.group_ids);
+    const byGroup = new Map<string, { open: number; overdue: number; done: number }>();
+    const now = Date.now();
+    for (const r of rows) {
+      const g = byGroup.get(r.group_name) ?? { open: 0, overdue: 0, done: 0 };
+      if (r.deck) {
+        if (r.completed_at) g.done += 1;
+        else {
+          g.open += 1;
+          if (r.due_at && new Date(r.due_at).getTime() < now) g.overdue += 1;
+        }
+      }
+      byGroup.set(r.group_name, g);
+    }
+    const summary = [...byGroup.entries()]
+      .map(
+        ([name, g]) =>
+          `- **${name}**: ${g.done} done · ${g.open} open${g.overdue ? ` · **${g.overdue} overdue**` : ""}`
+      )
+      .join("\n");
+    const { subject, text, html } = await renderEmail(
+      "training_team_digest",
+      {
+        lead_name: lead.name,
+        summary: summary || "- No training activity this week.",
+        team_url: `${origin}/training/team`,
+        org_name: settings.company_name,
+      },
+      origin
+    );
+    await sendMail([lead.email], subject, text, html).catch(() => {});
+  }
+}
+
 /** Hourly orchestrator for all training sweeps (instrumentation.ts). */
 export async function trainingHourly(): Promise<void> {
   if (!(await featureEnabled("training"))) return;
   await remindDueTraining().catch(() => {});
   await escalateOverdueTraining().catch(() => {});
   await recertifyDueTraining().catch(() => {});
+  await monthlyTrainingEvidence().catch(() => {});
+  await weeklyTeamDigest().catch(() => {});
 }

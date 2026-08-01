@@ -64,11 +64,25 @@ export default async function TrainingCertificatePage({
               </div>
             </>
           ) : null}
+          {a.signed_name ? (
+            <>
+              <div className="text-right text-slate-400">Signed</div>
+              <div className="text-left font-medium text-slate-700">{a.signed_name}</div>
+            </>
+          ) : null}
           <div className="text-right text-slate-400">Record</div>
           <div className="text-left font-medium text-slate-700">
             Assignment #{a.assignment_id}
             {typeof a.confirmed_version === "number" ? ` · doc version ${a.confirmed_version}` : ""}
           </div>
+          {a.content_sha256 ? (
+            <>
+              <div className="text-right text-slate-400">Content SHA-256</div>
+              <div className="break-all text-left font-mono text-[11px] text-slate-500">
+                {a.content_sha256}
+              </div>
+            </>
+          ) : null}
         </div>
 
         <p className="mt-8 text-xs text-slate-400">

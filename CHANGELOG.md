@@ -4,6 +4,39 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.82.0] - 2026-08-01
+
+### Added
+- **Compliance matrix.** A new Matrix tab in the training console: every
+  person × every deck in one grid — done, waived, open, overdue, or not
+  assigned — with person search and CSV export.
+- **Point-in-time snapshots.** A snapshot of the full training record is
+  stored automatically every month (and on demand with one click), hashed
+  with SHA-256 over the exact stored text — `sha256sum` on the downloaded
+  file reproduces the stored hash, so evidence is tamper-evident.
+- **One-click audit package.** Overview → Evidence exports a single ZIP:
+  summary, compliance matrix, all assignment and history records as CSV,
+  every stored snapshot, and a manifest with a SHA-256 for each file.
+- **Scheduled monthly report.** Opt-in email (with a recipient picker) sent
+  alongside each monthly snapshot: completion rate, overdue counts, and the
+  decks that need attention. Template editable under Email templates.
+- **E-signature confirmations.** A per-deck "Require e-signature" setting:
+  trainees type their full name — and local accounts re-enter their
+  password — before the confirmation is recorded. The signed name appears
+  on the certificate and in every export. Every completion (signed or not)
+  now also records a SHA-256 of the exact content confirmed.
+- **Question-level quiz analytics.** Each deck card shows how often every
+  quiz question is answered correctly across attempts, so a confusing
+  question stands out from a confusing slide.
+- **Team leads.** Managers can name leads per group: leads get a scoped
+  `/training/team` view of just their group's status (no manager access
+  needed) plus a weekly email digest.
+
+### Fixed
+- Native checkboxes, radios, sliders, and progress bars now follow the
+  workspace accent color — they previously stayed browser-default blue
+  regardless of the color chosen in the console settings.
+
 ## [0.81.0] - 2026-08-01
 
 ### Added
