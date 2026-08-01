@@ -282,7 +282,7 @@ function BarList({
               <button
                 onClick={() => onPick(r.label)}
                 className="truncate text-left text-slate-700 hover:text-compass-700 hover:underline"
-                title="Run this search"
+                data-tt="Run this search" aria-label="Run this search"
               >
                 {r.label}
               </button>
@@ -349,7 +349,7 @@ function DocDrilldown({ docId, days, onClose }: { docId: number; days: number; o
                 >
                   Open <ArrowUpRight className="h-3 w-3" />
                 </Link>
-                <button onClick={onClose} title="Close" aria-label="Close" className="rounded-md border border-slate-200 p-1.5 text-slate-400 hover:text-slate-600">
+                <button onClick={onClose} data-tt="Close" aria-label="Close" className="rounded-md border border-slate-200 p-1.5 text-slate-400 hover:text-slate-600">
                   <X className="h-4 w-4" />
                 </button>
               </div>
@@ -453,7 +453,7 @@ export function AnalyticsClient() {
       <h1 className="mb-1 flex items-center gap-2 text-2xl font-bold text-slate-900">
         <ChartColumn className="h-6 w-6 text-compass-600" /> Analytics
       </h1>
-      <p className="mb-5 text-slate-500">
+      <p className="mb-5 mt-1 text-sm text-slate-500">
         How your knowledge base is read, searched, and used.
       </p>
 

@@ -81,7 +81,7 @@ export function SpaceSearch({
         {query && (
           <button
             onClick={() => setQuery("")}
-            title="Clear search"
+            data-tt="Clear search"
             aria-label="Clear search"
             className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
           >

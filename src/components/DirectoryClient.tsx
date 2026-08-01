@@ -182,7 +182,7 @@ export function DirectoryClient({
               className={`px-3 py-2 text-sm font-medium ${
                 view === v.id ? "bg-compass-600 text-white" : "bg-surface text-slate-600 hover:bg-slate-50"
               }`}
-              title={v.label}
+              data-tt={v.label} aria-label={v.label}
             >
               <span className="inline-flex items-center gap-1.5">
                 {v.icon}

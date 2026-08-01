@@ -75,7 +75,7 @@ export function VideoPlayer({
         {player(false)}
         <button
           onClick={() => setTheater(true)}
-          title="Theater mode"
+          data-tt="Theater mode"
           aria-label="Open video in theater mode"
           className="absolute right-2 top-2 rounded-md bg-slate-900/60 p-1.5 text-white opacity-0 transition focus:opacity-100 group-hover:opacity-100"
         >
@@ -99,7 +99,7 @@ export function VideoPlayer({
           </div>
           <button
             onClick={() => setTheater(false)}
-            title="Close (Esc)"
+            data-tt="Close (Esc)"
             aria-label="Close theater mode"
             className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-white hover:bg-white/20"
           >

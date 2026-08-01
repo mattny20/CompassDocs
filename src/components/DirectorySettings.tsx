@@ -414,7 +414,7 @@ function GraphPanel({ graph, onSynced }: { graph: GraphState; onSynced: () => vo
         <button onClick={save} disabled={saving} className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60">
           {saving ? "Saving…" : "Save"}
         </button>
-        <button onClick={syncNow} disabled={syncing || !g.tenant || !g.client_id || !(g.has_secret || secret)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50" title={!g.tenant || !g.client_id ? "Save the tenant, client ID, and secret first" : ""}>
+        <button onClick={syncNow} disabled={syncing || !g.tenant || !g.client_id || !(g.has_secret || secret)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50" data-tt={!g.tenant || !g.client_id ? "Save the tenant, client ID, and secret first" : ""} aria-label={!g.tenant || !g.client_id ? "Save the tenant, client ID, and secret first" : ""}>
           {syncing ? "Syncing…" : "Sync now"}
         </button>
         {msg && <span className="text-sm text-green-600">{msg}</span>}
@@ -659,14 +659,14 @@ function PrintColumnsPanel() {
         {columns.map((k, i) => (
           <div key={k} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-1.5 text-sm">
             <span className="flex-1 font-medium text-slate-700">{label(k)}</span>
-            <button onClick={() => move(i, -1)} disabled={i === 0} title="Move up"
+            <button onClick={() => move(i, -1)} disabled={i === 0} data-tt="Move up" aria-label="Move up"
               className="rounded-sm px-1.5 text-slate-400 hover:text-slate-600 disabled:opacity-30">↑</button>
-            <button onClick={() => move(i, 1)} disabled={i === columns.length - 1} title="Move down"
+            <button onClick={() => move(i, 1)} disabled={i === columns.length - 1} data-tt="Move down" aria-label="Move down"
               className="rounded-sm px-1.5 text-slate-400 hover:text-slate-600 disabled:opacity-30">↓</button>
             <button
               onClick={() => save(columns.filter((c) => c !== k))}
               disabled={columns.length === 1}
-              title="Remove column"
+              data-tt="Remove column" aria-label="Remove column"
               className="rounded-sm px-1.5 text-slate-400 hover:text-red-600 disabled:opacity-30"
             >
               ×

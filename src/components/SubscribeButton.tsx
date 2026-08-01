@@ -49,7 +49,7 @@ export function SubscribeButton({
     <button
       onClick={toggle}
       disabled={busy}
-      title={
+      data-tt={
         effective
           ? viaGroup && state !== "subscribed"
             ? "Subscribed via a group — click to mute emails for this space"

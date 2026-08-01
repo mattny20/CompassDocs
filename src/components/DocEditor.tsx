@@ -680,7 +680,7 @@ export function DocEditor({
                     key={kind}
                     type="button"
                     onClick={() => insertSnippet(kind)}
-                    title={label}
+                    data-tt={label}
                     aria-label={`Insert ${label}`}
                     className="rounded-sm p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
                   >
@@ -690,7 +690,7 @@ export function DocEditor({
                 <button
                   type="button"
                   onClick={() => insertSnippet("table")}
-                  title="Table"
+                  data-tt="Table"
                   aria-label="Insert table"
                   className="rounded-sm p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
                 >
@@ -699,7 +699,7 @@ export function DocEditor({
                 <button
                   type="button"
                   onClick={() => insertSnippet("slideBreak")}
-                  title="Training page break — starts a new slide (invisible on the published page)"
+                  data-tt="Training page break — starts a new slide (invisible on the published page)"
                   aria-label="Insert training page break"
                   className="rounded-sm p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
                 >
@@ -708,7 +708,7 @@ export function DocEditor({
                 <button
                   type="button"
                   onClick={() => insertSnippet("compliance")}
-                  title="Compliance confirmation (training decks)"
+                  data-tt="Compliance confirmation (training decks)"
                   aria-label="Insert compliance block"
                   className="rounded-sm p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
                 >
@@ -717,7 +717,7 @@ export function DocEditor({
                 <button
                   type="button"
                   onClick={() => insertSnippet("quiz")}
-                  title="Quiz questions (training decks) — graded in the player, answers stay server-side"
+                  data-tt="Quiz questions (training decks) — graded in the player, answers stay server-side"
                   aria-label="Insert quiz block"
                   className="rounded-sm p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
                 >
@@ -733,7 +733,7 @@ export function DocEditor({
                   disabled={!!assisting}
                   aria-haspopup="menu"
                   aria-expanded={assistMenu}
-                  title="Draft, rewrite, or summarize with AI"
+                  data-tt="Draft, rewrite, or summarize with AI" aria-label="Draft, rewrite, or summarize with AI"
                   className="flex items-center gap-1 rounded-md px-2.5 py-1 text-sm font-medium text-compass-700 hover:bg-compass-50 disabled:opacity-50"
                 >
                   {assisting ? "Writing…" : "✨ Write ▾"}
@@ -783,7 +783,7 @@ export function DocEditor({
                 type="button"
                 onClick={runProofread}
                 disabled={proofing || !content.trim()}
-                title="Check grammar, spelling, and clarity with AI"
+                data-tt="Check grammar, spelling, and clarity with AI" aria-label="Check grammar, spelling, and clarity with AI"
                 className="mr-1 flex items-center gap-1 rounded-md px-2.5 py-1 text-sm font-medium text-compass-700 hover:bg-compass-50 disabled:opacity-50"
               >
                 {proofing ? "Proofreading…" : "✨ Proofread"}

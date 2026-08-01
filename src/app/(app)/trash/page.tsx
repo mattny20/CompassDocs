@@ -24,7 +24,7 @@ export default async function TrashPage() {
       <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900">
         <Trash2 className="h-6 w-6 text-compass-600" /> Trash
       </h1>
-      <p className="mb-6 mt-1 text-slate-500">
+      <p className="mb-6 mt-1 text-sm text-slate-500">
         {retention > 0 ? (
           <>
             Deleted documents are kept here and can be restored. They&rsquo;re

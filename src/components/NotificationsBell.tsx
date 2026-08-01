@@ -128,7 +128,7 @@ export function NotificationsBell({ initialUnread }: { initialUnread: number }) 
     <div className="relative" ref={boxRef}>
       <button
         onClick={() => setOpen((v) => !v)}
-        title="Notifications"
+        data-tt="Notifications"
         aria-label={unread > 0 ? `Notifications, ${unread} unread` : "Notifications"}
         aria-expanded={open}
         className="relative rounded-md p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"

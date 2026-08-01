@@ -139,7 +139,7 @@ export function RelatedDocs({
               setAdding(true);
               if (!open) toggleOpen();
             }}
-            title="Link another document"
+            data-tt="Link another document" aria-label="Link another document"
             className="shrink-0 whitespace-nowrap rounded-lg border border-slate-200 bg-surface px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
           >
             {"＋ Link"}
@@ -168,7 +168,7 @@ export function RelatedDocs({
                 {canEdit && (
                   <button
                     onClick={() => unlink(d.relation_id)}
-                    title="Remove link"
+                    data-tt="Remove link"
                     aria-label={`Remove link to ${d.title}`}
                     className="mt-1.5 rounded-sm p-1 text-slate-300 opacity-0 transition hover:bg-red-50 hover:text-red-600 group-hover:opacity-100"
                   >

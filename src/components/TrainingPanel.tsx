@@ -186,7 +186,7 @@ export function TrainingPanel({
         <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900">
           <GraduationCap className="h-6 w-6 text-compass-600" /> Training
         </h1>
-        <p className="mt-0.5 text-sm text-slate-400">
+        <p className="mt-1 text-sm text-slate-500">
           Assigned decks to work through, with a confirmation recorded at the end.
         </p>
       </div>
@@ -340,7 +340,7 @@ function MyTraining({ mine, teamLead = false }: { mine: MyItem[] | null; teamLea
               {it.completed_at && !it.waived && (
                 <a
                   href={`/training/certificate/${it.assignment_id}`}
-                  title="View certificate"
+                  data-tt="View certificate"
                   aria-label={`Certificate for ${it.title}`}
                   className="inline-flex items-center rounded-lg border border-slate-200 p-2 text-slate-500 hover:bg-slate-50"
                 >
@@ -498,7 +498,7 @@ function Overview({
                   <button
                     onClick={() => void act(r, { remind_assignment_ids: [r.assignment_id] }, undefined, "Reminder sent.")}
                     disabled={busyId === r.assignment_id}
-                    title="Remind now"
+                    data-tt="Remind now"
                     className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
                   >
                     <BellRing className="h-3 w-3" /> Remind
@@ -508,7 +508,7 @@ function Overview({
                       void act(r, { extend_assignment_ids: [r.assignment_id], extend_days: 7 }, undefined, "Due date pushed out 7 days.")
                     }
                     disabled={busyId === r.assignment_id}
-                    title="Extend due date by 7 days"
+                    data-tt="Extend due date by 7 days"
                     className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
                   >
                     <Timer className="h-3 w-3" /> +7d
@@ -523,7 +523,7 @@ function Overview({
                       )
                     }
                     disabled={busyId === r.assignment_id}
-                    title="Hide from this queue for 7 days"
+                    data-tt="Hide from this queue for 7 days"
                     className="rounded-md border border-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
                   >
                     Snooze
@@ -650,7 +650,7 @@ function Evidence({ onError, onNotice }: { onError: (s: string) => void; onNotic
               </code>
               <a
                 href={`/api/training/snapshots/${s.id}`}
-                title="Download snapshot JSON"
+                data-tt="Download snapshot JSON"
                 aria-label={`Download snapshot ${s.id}`}
                 className="inline-flex items-center rounded-md border border-slate-200 p-1 text-slate-500 hover:bg-slate-50"
               >
@@ -889,7 +889,7 @@ function MatrixView() {
             Everyone with at least one assignment, across every deck.
           </p>
         </div>
-        <div className="relative ml-auto min-w-44">
+        <div className="relative ml-auto min-w-44 print:hidden">
           <Search className="pointer-events-none absolute left-2.5 top-2 h-4 w-4 text-slate-400" />
           <input
             value={query}
@@ -900,7 +900,7 @@ function MatrixView() {
         </div>
         <a
           href="/api/training/matrix?format=csv"
-          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 print:hidden"
         >
           <Download className="h-4 w-4" /> CSV
         </a>
@@ -1449,7 +1449,7 @@ function ProgramRow({
               setEditDeckIds(program.decks.map((d) => d.id));
             }}
             disabled={busy}
-            title="Edit program"
+            data-tt="Edit program"
             className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 font-medium text-slate-600 hover:bg-slate-50"
           >
             <Pencil className="h-3.5 w-3.5" /> Edit
@@ -2056,7 +2056,7 @@ function PeopleTable({
                         <button
                           onClick={() => void post({ remind_assignment_ids: [p.assignment_id] }, "Reminder sent.")}
                           disabled={busy}
-                          title="Send a reminder now"
+                          data-tt="Send a reminder now"
                           className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
                         >
                           <BellRing className="h-3 w-3" /> Remind
@@ -2066,7 +2066,7 @@ function PeopleTable({
                           {p.source !== "waived" && (
                             <a
                               href={`/training/certificate/${p.assignment_id}`}
-                              title="Certificate"
+                              data-tt="Certificate"
                               className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
                             >
                               <Award className="h-3 w-3" /> Certificate

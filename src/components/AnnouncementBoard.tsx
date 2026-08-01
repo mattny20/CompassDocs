@@ -80,7 +80,7 @@ export function AnnouncementBoard({ initial }: { initial: AnnouncementView[] }) 
               </div>
               <button
                 onClick={() => dismiss(a.id)}
-                title="Dismiss for me"
+                data-tt="Dismiss for me"
                 aria-label="Dismiss announcement"
                 className="shrink-0 rounded-md p-1 text-slate-400 hover:bg-white/60 hover:text-slate-600 dark:hover:bg-white/10"
               >

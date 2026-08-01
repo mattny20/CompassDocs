@@ -246,10 +246,10 @@ export function OutlookPane() {
               placeholder="Search or ask a question…"
               className="min-w-0 flex-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm focus:border-compass-400 focus:outline-hidden"
             />
-            <button type="submit" title="Search" disabled={!!busy} className="rounded-lg border border-slate-200 px-2 hover:bg-slate-50">
+            <button type="submit" data-tt="Search" aria-label="Search" disabled={!!busy} className="rounded-lg border border-slate-200 px-2 hover:bg-slate-50">
               <Search className="h-4 w-4 text-slate-500" />
             </button>
-            <button type="button" title="Ask AI" disabled={!!busy} onClick={ask} className="rounded-lg bg-compass-600 px-2 text-white hover:bg-compass-700">
+            <button type="button" data-tt="Ask AI" aria-label="Ask AI" disabled={!!busy} onClick={ask} className="rounded-lg bg-compass-600 px-2 text-white hover:bg-compass-700">
               <Sparkles className="h-4 w-4" />
             </button>
           </form>

@@ -110,7 +110,7 @@ export function EntityPicker({
               {!disabled && (
                 <button
                   onClick={() => remove(id)}
-                  title="Remove"
+                  data-tt="Remove"
                   aria-label={`Remove ${byId.get(id)?.label ?? id}`}
                   className="opacity-60 hover:opacity-100"
                 >

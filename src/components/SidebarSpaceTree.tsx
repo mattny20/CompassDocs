@@ -30,7 +30,7 @@ function TreeRow({ node, depth }: { node: TreeNode; depth: number }) {
         {node.children.length > 0 ? (
           <button
             onClick={() => setOpen((o) => !o)}
-            title={open ? "Collapse" : "Expand"}
+            data-tt={open ? "Collapse" : "Expand"}
             aria-label={`${open ? "Collapse" : "Expand"} ${node.title}`}
             className="rounded-sm p-0.5 text-slate-400 hover:text-slate-600"
           >
@@ -39,7 +39,7 @@ function TreeRow({ node, depth }: { node: TreeNode; depth: number }) {
         ) : (
           <span className="w-4 shrink-0" aria-hidden />
         )}
-        <Link href={`/doc/${node.id}`} className="min-w-0 flex-1 truncate text-[13px]" title={node.title}>
+        <Link href={`/doc/${node.id}`} className="min-w-0 flex-1 truncate text-[13px]" data-tt={node.title} aria-label={node.title}>
           {node.title}
         </Link>
         {node.status === "draft" && (

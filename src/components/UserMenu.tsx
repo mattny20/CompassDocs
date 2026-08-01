@@ -24,7 +24,7 @@ export function UserMenu({ user, collapsed = false }: { user: SessionUser; colla
   const avatar = (
     <Link
       href="/account"
-      title={`${user.name || user.username} — manage account`}
+      data-tt={`${user.name || user.username} — manage account`} aria-label={`${user.name || user.username} — manage account`}
       className="shrink-0 rounded-full transition hover:ring-2 hover:ring-compass-300"
     >
       <UserAvatar name={user.name || user.username} avatar={user.avatar} size="sm" />
@@ -39,10 +39,10 @@ export function UserMenu({ user, collapsed = false }: { user: SessionUser; colla
       <div className="flex flex-col items-center gap-1 border-t border-slate-100 py-3">
         {avatar}
         <ThemeToggle accountPref={user.theme} />
-        <Link href="/account" title="Manage account" className={iconBtn}>
+        <Link href="/account" data-tt="Manage account" aria-label="Manage account" className={iconBtn}>
           <UserCog className="h-4 w-4" />
         </Link>
-        <button onClick={logout} title="Sign out" aria-label="Sign out" className={iconBtn}>
+        <button onClick={logout} data-tt="Sign out" aria-label="Sign out" className={iconBtn}>
           <LogOut className="h-4 w-4" />
         </button>
       </div>
@@ -63,10 +63,10 @@ export function UserMenu({ user, collapsed = false }: { user: SessionUser; colla
       </div>
       <div className="flex shrink-0 items-center">
         <ThemeToggle accountPref={user.theme} />
-        <Link href="/account" title="Manage account" className={iconBtn}>
+        <Link href="/account" data-tt="Manage account" aria-label="Manage account" className={iconBtn}>
           <UserCog className="h-4 w-4" />
         </Link>
-        <button onClick={logout} title="Sign out" aria-label="Sign out" className={iconBtn}>
+        <button onClick={logout} data-tt="Sign out" aria-label="Sign out" className={iconBtn}>
           <LogOut className="h-4 w-4" />
         </button>
       </div>

@@ -228,7 +228,7 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
               <button
                 key={hex}
                 type="button"
-                title={label}
+                data-tt={label}
                 onClick={() => set("accent_color", hex)}
                 className={`h-7 w-7 rounded-full border-2 transition ${
                   s.accent_color === hex ? "scale-110 border-slate-700" : "border-transparent hover:scale-105"

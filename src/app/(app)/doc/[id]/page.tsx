@@ -122,7 +122,7 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
         {[...ancestors].reverse().map((a) => (
           <span key={a.id} className="flex min-w-0 items-center gap-1.5">
             <span>/</span>
-            <Link href={`/doc/${a.id}`} className="max-w-48 truncate hover:text-slate-600" title={a.title}>
+            <Link href={`/doc/${a.id}`} className="max-w-48 truncate hover:text-slate-600" data-tt={a.title} aria-label={a.title}>
               {a.title}
             </Link>
           </span>
@@ -193,7 +193,7 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
             <Link
               href={`/directory/${authorPerson.id}`}
               className="font-medium text-slate-700 hover:text-compass-700 hover:underline"
-              title={[authorPerson.title, authorPerson.department].filter(Boolean).join(" · ") || undefined}
+              data-tt={[authorPerson.title, authorPerson.department].filter(Boolean).join(" · ") || undefined} aria-label={[authorPerson.title, authorPerson.department].filter(Boolean).join(" · ") || undefined}
             >
               {doc.author}
             </Link>
@@ -319,7 +319,7 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
                     <Link
                       href={`/doc/${b.id}`}
                       className="block truncate text-sm font-medium text-slate-700 hover:text-compass-600"
-                      title={b.title}
+                      data-tt={b.title} aria-label={b.title}
                     >
                       {b.title}
                     </Link>

@@ -272,7 +272,7 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
                             <button
                               onClick={() => act(d.id, "remind", "Reminder sent")}
                               disabled={busy !== null}
-                              title="Notify everyone who hasn't acknowledged yet"
+                              data-tt="Notify everyone who hasn't acknowledged yet"
                               className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
                             >
                               {busy === `remind-${d.id}` ? (
@@ -285,7 +285,7 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
                           )}
                           <a
                             href={`/api/documents/${d.id}/acknowledgements?format=csv`}
-                            title="Download this policy's compliance record"
+                            data-tt="Download this policy's compliance record" aria-label="Download this policy's compliance record"
                             className="inline-flex items-center rounded-md border border-slate-200 p-1.5 text-slate-400 hover:text-slate-600"
                           >
                             <Download className="h-3.5 w-3.5" />

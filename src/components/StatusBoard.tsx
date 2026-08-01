@@ -115,9 +115,9 @@ export function StatusBoard({
   const input =
     "rounded-lg border border-slate-200 bg-surface px-3 py-1.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-compass-400 focus:outline-none";
   const btn =
-    "rounded-lg bg-compass-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-compass-700 disabled:opacity-50";
+    "rounded-lg bg-compass-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-compass-700 disabled:opacity-50 print:hidden";
   const chipBtn =
-    "shrink-0 whitespace-nowrap rounded-lg border border-slate-200 bg-surface px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50";
+    "shrink-0 whitespace-nowrap rounded-lg border border-slate-200 bg-surface px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 print:hidden";
 
   return (
     <div className="space-y-6">
@@ -358,7 +358,7 @@ export function StatusBoard({
                       href={s.status_url}
                       target="_blank"
                       rel="noreferrer noopener"
-                      title="Vendor status page"
+                      data-tt="Vendor status page" aria-label="Vendor status page"
                       className="shrink-0 rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
                     >
                       <ExternalLink className="h-4 w-4" />

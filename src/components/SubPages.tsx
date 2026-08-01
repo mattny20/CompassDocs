@@ -76,7 +76,7 @@ export function SubPages({
         {canEdit && canAddChild && (
           <Link
             href={`/doc/new?space=${spaceSlug}&parent=${parentId}`}
-            title="New sub-page"
+            data-tt="New sub-page" aria-label="New sub-page"
             className="shrink-0 whitespace-nowrap rounded-lg border border-slate-200 bg-surface px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
           >
             {"＋ New"}
@@ -93,7 +93,7 @@ export function SubPages({
               <Link
                 href={`/doc/${p.id}`}
                 className="min-w-0 flex-1 truncate text-sm font-medium text-slate-700 hover:text-compass-600"
-                title={p.title}
+                data-tt={p.title} aria-label={p.title}
               >
                 {p.title}
               </Link>
@@ -107,7 +107,7 @@ export function SubPages({
                   <button
                     onClick={() => move(i, -1)}
                     disabled={busy || i === 0}
-                    title="Move up"
+                    data-tt="Move up"
                     aria-label={`Move ${p.title} up`}
                     className="rounded-sm p-0.5 text-slate-400 hover:bg-slate-100 disabled:opacity-30"
                   >
@@ -116,7 +116,7 @@ export function SubPages({
                   <button
                     onClick={() => move(i, 1)}
                     disabled={busy || i === pages.length - 1}
-                    title="Move down"
+                    data-tt="Move down"
                     aria-label={`Move ${p.title} down`}
                     className="rounded-sm p-0.5 text-slate-400 hover:bg-slate-100 disabled:opacity-30"
                   >

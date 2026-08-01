@@ -464,3 +464,55 @@ mark {
   accent-color: rgb(var(--compass-600));
   cursor: pointer;
 }
+
+/* Custom tooltips: any element with data-tt="Label" shows a styled tooltip on
+ * hover or keyboard focus — replacing native title=, which browsers show
+ * inconsistently (slow, unstyled, never on focus). Attribute-driven so no
+ * wrapper element or class is needed; data-tt-pos="bottom" flips placement
+ * when the element sits near the top of the viewport. Note: tooltips clip
+ * inside overflow-hidden/auto containers — prefer data-tt-pos or native
+ * title there. */
+[data-tt] {
+  position: relative;
+}
+[data-tt]::after {
+  content: attr(data-tt);
+  position: absolute;
+  bottom: calc(100% + 7px);
+  left: 50%;
+  z-index: 60;
+  transform: translateX(-50%) translateY(2px);
+  padding: 4px 9px;
+  border-radius: 7px;
+  background: rgb(15 23 42 / 0.94);
+  color: #f8fafc;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 1.35;
+  white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.12s ease, transform 0.12s ease, visibility 0.12s;
+}
+[data-tt]:hover::after,
+[data-tt]:focus-visible::after {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(0);
+  transition-delay: 0.35s;
+}
+[data-tt][data-tt-pos="bottom"]::after {
+  bottom: auto;
+  top: calc(100% + 7px);
+  transform: translateX(-50%) translateY(-2px);
+}
+[data-tt][data-tt-pos="bottom"]:hover::after,
+[data-tt][data-tt-pos="bottom"]:focus-visible::after {
+  transform: translateX(-50%) translateY(0);
+}
+:root[data-theme="dark"] [data-tt]::after {
+  background: rgb(226 232 240 / 0.97);
+  color: #0f172a;
+}

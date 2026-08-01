@@ -81,7 +81,7 @@ export function WidthToggle() {
         <button
           key={o.value}
           onClick={() => setWidth(o.value)}
-          title={`${o.label} width (applies everywhere)`}
+          data-tt={`${o.label} width (applies everywhere)`} aria-label={`${o.label} width (applies everywhere)`}
           className={`rounded-md px-2 py-1 text-xs font-medium transition ${
             width === o.value
               ? "bg-compass-50 text-compass-700"

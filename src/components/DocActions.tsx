@@ -147,7 +147,7 @@ export function DocActions({
         <>
           <button
             onClick={() => setPopover((p) => (p === "share" ? null : "share"))}
-            title="Share link"
+            data-tt="Share link"
             aria-label="Share link"
             aria-expanded={popover === "share"}
             className={
@@ -165,7 +165,7 @@ export function DocActions({
         <>
           <button
             onClick={() => setPopover((p) => (p === "review" ? null : "review"))}
-            title={reviewOverdue ? "Review schedule — overdue" : "Review schedule"}
+            data-tt={reviewOverdue ? "Review schedule — overdue" : "Review schedule"}
             aria-label="Review schedule"
             aria-expanded={popover === "review"}
             className={
@@ -185,7 +185,7 @@ export function DocActions({
         <button
           onClick={onToggleAck}
           disabled={ackBusy || !isPublished}
-          title={
+          data-tt={
             !isPublished
               ? "Publish first to require read confirmation"
               : ackRequired
@@ -210,7 +210,7 @@ export function DocActions({
       <PrintButton iconOnly />
       <Link
         href={`/doc/${id}/history`}
-        title="Version history"
+        data-tt="Version history"
         aria-label="Version history"
         className={iconBtn}
       >
@@ -220,7 +220,7 @@ export function DocActions({
         <button
           onClick={onBranch}
           disabled={branching}
-          title="New draft branch"
+          data-tt="New draft branch"
           aria-label="Create a draft branch"
           className={iconBtn + " disabled:opacity-50"}
         >
@@ -235,7 +235,7 @@ export function DocActions({
         <button
           onClick={onSaveAsTemplate}
           disabled={templating}
-          title="Save as template"
+          data-tt="Save as template"
           aria-label="Save this document as a template"
           className={iconBtn + " disabled:opacity-50"}
         >
@@ -247,7 +247,7 @@ export function DocActions({
         </button>
       )}
       {canEdit && (
-        <Link href={`/doc/${id}/edit`} title="Edit" aria-label="Edit document" className={iconBtn}>
+        <Link href={`/doc/${id}/edit`} data-tt="Edit" aria-label="Edit document" className={iconBtn}>
           <Pencil className="h-4 w-4" />
         </Link>
       )}
@@ -255,7 +255,7 @@ export function DocActions({
         <button
           onClick={onDelete}
           disabled={deleting}
-          title="Move to Trash"
+          data-tt="Move to Trash"
           aria-label="Move document to Trash"
           className="inline-flex items-center rounded-lg border border-red-200 bg-surface p-2 text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-800/70"
         >

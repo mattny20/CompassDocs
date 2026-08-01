@@ -99,7 +99,7 @@ export function SpaceViews({
               key={v.key}
               role="tab"
               aria-selected={view === v.key}
-              title={v.label}
+              data-tt={v.label} aria-label={v.label}
               onClick={() => pick(v.key)}
               className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition ${
                 view === v.key
@@ -638,7 +638,7 @@ function TreeNode({
         {kids.length > 0 ? (
           <button
             onClick={() => onToggle(d.id)}
-            title={expanded ? "Collapse" : "Expand"}
+            data-tt={expanded ? "Collapse" : "Expand"}
             aria-label={`${expanded ? "Collapse" : "Expand"} ${d.title}`}
             className="rounded-sm p-0.5 text-slate-400 hover:text-slate-600"
           >

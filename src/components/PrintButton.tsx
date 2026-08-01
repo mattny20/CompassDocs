@@ -16,7 +16,7 @@ export function PrintButton({
   return (
     <button
       onClick={() => window.print()}
-      title="Print or save as PDF"
+      data-tt="Print or save as PDF"
       aria-label="Print or save as PDF"
       className={
         iconOnly

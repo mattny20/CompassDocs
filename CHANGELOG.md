@@ -4,6 +4,27 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.83.0] - 2026-08-01
+
+### Added
+- **Custom tooltips.** A new app-wide tooltip system replaces the browser's
+  native `title` bubbles (slow, unstyled, and invisible to keyboard users):
+  styled, theme-aware tooltips that appear on hover *and* keyboard focus.
+  All 124 control tooltips across the app now use it, and every icon-only
+  control gained a matching `aria-label` for screen readers.
+- **Platform style guide.** `STYLEGUIDE.md` codifies the UI patterns —
+  page skeleton, title icons, subtitle tiers, empty states, buttons,
+  tooltips, chips, color/theming rules, print rules, and accessibility —
+  so every future page ships consistent by construction.
+
+### Changed
+- Ask now follows the Normal / Wide / Full page-width preference like every
+  other page.
+- Page subtitles unified to one style across Directory, Links, Review,
+  Trash, Settings, Analytics, Ask, and Training.
+- The Service status page and the training compliance matrix hide their
+  controls when printing, for clean record copies.
+
 ## [0.82.1] - 2026-08-01
 
 ### Fixed

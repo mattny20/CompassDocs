@@ -367,7 +367,7 @@ function EmbedCardControls({
         <button
           type="button"
           onClick={onEdit}
-          title="Change URL"
+          data-tt="Change URL" aria-label="Change URL"
           className="rounded-sm border border-slate-200 p-1 text-slate-400 hover:text-slate-600"
         >
           <Pencil className="h-3 w-3" />
@@ -375,7 +375,7 @@ function EmbedCardControls({
         <button
           type="button"
           onClick={onDelete}
-          title="Remove"
+          data-tt="Remove" aria-label="Remove"
           className="rounded-sm border border-slate-200 p-1 text-slate-400 hover:text-red-500"
         >
           <Trash2 className="h-3 w-3" />
