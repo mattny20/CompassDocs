@@ -27,6 +27,7 @@ export interface PlayerQuizQuestion {
 
 export function TrainingPlayer({
   assignmentId,
+  preview = false,
   title,
   spaceName,
   slides,
@@ -41,6 +42,8 @@ export function TrainingPlayer({
   dueAt,
 }: {
   assignmentId: number;
+  /** Manager preview: nothing is recorded; quiz + confirm are disabled. */
+  preview?: boolean;
   title: string;
   spaceName: string;
   slides: string[];
@@ -137,6 +140,7 @@ export function TrainingPlayer({
     (next: number) => {
       const clamped = Math.max(0, Math.min(next, total - 1));
       setIdx(clamped);
+      if (preview) return;
       // Fire-and-forget resume position (content slides only).
       void fetch(`/api/training/assignments/${assignmentId}`, {
         method: "POST",
@@ -144,7 +148,7 @@ export function TrainingPlayer({
         body: JSON.stringify({ action: "progress", slide: Math.min(clamped, slides.length) }),
       }).catch(() => {});
     },
-    [assignmentId, slides.length, total]
+    [assignmentId, preview, slides.length, total]
   );
 
   useEffect(() => {
@@ -225,7 +229,12 @@ export function TrainingPlayer({
             <div className="prose prose-sm mt-2 max-w-md text-slate-600 dark:prose-invert">
               <MarkdownView content={complianceText} />
             </div>
-            {totalQuestions > 0 && !done && (
+            {preview && (
+              <p className="mt-4 w-full max-w-md rounded-lg border border-slate-200 bg-canvas px-4 py-3 text-sm text-slate-500">
+                Preview — nothing is recorded. Trainees answer the quiz and confirm here.
+              </p>
+            )}
+            {totalQuestions > 0 && !done && !preview && (
               <div className="mt-4 w-full max-w-md rounded-lg border border-slate-200 bg-canvas px-4 py-3 text-sm">
                 {quizResult ? (
                   <p className={quizResult.passed ? "text-emerald-600" : "text-red-600"}>
@@ -269,7 +278,7 @@ export function TrainingPlayer({
             ) : (
               <button
                 onClick={() => void confirm()}
-                disabled={busy || quizGateBlocked}
+                disabled={busy || quizGateBlocked || preview}
                 title={quizGateBlocked ? `Pass the quiz first (${passPct}% or better)` : undefined}
                 className="mt-5 inline-flex items-center gap-2 rounded-lg bg-compass-600 px-5 py-2 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60"
               >

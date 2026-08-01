@@ -288,6 +288,57 @@ export async function remindDueTraining(): Promise<void> {
 }
 
 /**
+ * Manager "Remind now": immediate in-app notification plus (pref-gated)
+ * email for the given open assignments of one deck. Returns the assignment
+ * ids actually reminded — the caller stamps reminded_at so the hourly sweep
+ * doesn't double-nudge within hours.
+ */
+export async function remindAssignmentsNow(
+  deck: { id: number; title: string },
+  assignmentIds: number[],
+  actorName: string
+): Promise<number[]> {
+  const { trainingDeckStatus } = await import("@/lib/db");
+  const settings = await getAppSettings();
+  const wanted = new Set(assignmentIds);
+  const rows = (await trainingDeckStatus(deck.id)).filter(
+    (r) => wanted.has(r.assignment_id) && !r.completed_at
+  );
+  if (!rows.length) return [];
+
+  for (const r of rows) {
+    void notify([r.user_id], {
+      kind: "training_due",
+      title: `Reminder: ${deck.title}`,
+      body: r.due_at ? `Due ${formatDate(r.due_at, settings)}.` : "Please complete this training.",
+      link: "/training",
+      actorName,
+    });
+  }
+
+  const smtp = await getSmtpConfig();
+  if (smtpConfigured(smtp)) {
+    const prefs = await getNotifyPrefsFor(rows.map((r) => r.user_id));
+    const origin = settings.custom_domain ? `https://${settings.custom_domain}` : "";
+    for (const r of rows) {
+      if (!r.email) continue;
+      if (!notifyPrefAllows(prefs.get(r.user_id), "training_due", "email")) continue;
+      const { subject, text, html } = await renderEmail(
+        "training_due",
+        {
+          deck_title: deck.title,
+          due_date: r.due_at ? formatDate(r.due_at, settings) : "soon",
+          training_url: `${origin}/training`,
+        },
+        origin
+      );
+      await sendMail([r.email], subject, text, html).catch(() => {});
+    }
+  }
+  return rows.map((r) => r.assignment_id);
+}
+
+/**
  * Escalation sweep: when someone is more than 7 days overdue, tell the deck's
  * creator once (per assignment). In-app only — this is a manager nudge, not a
  * broadcast.

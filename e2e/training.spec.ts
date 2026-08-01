@@ -34,6 +34,9 @@ test("training: entitlement gate holds in the community build", async ({ page })
   const overview = await api(page, "/api/training/overview");
   expect(overview.status).toBe(402);
 
+  const person = await api(page, "/api/training/people/1");
+  expect(person.status).toBe(402);
+
   const programAssign = await api(page, "/api/training/programs/1", {
     method: "POST",
     body: { everyone: true },

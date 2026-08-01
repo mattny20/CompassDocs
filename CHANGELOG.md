@@ -4,6 +4,47 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.81.0] - 2026-08-01
+
+### Added
+- **Training console, rebuilt for scale.** Manage decks is now a dense,
+  searchable table — sort by title, lowest completion, or most overdue;
+  filter by free-form deck tags; click a row to expand the full deck card.
+- **Bulk people actions.** Each deck's people table gains status filter
+  chips, name search, and row checkboxes with a bulk bar: remind, waive,
+  **unassign** (open assignments only — completed records are never
+  removed), and **extend due dates** (someone on leave no longer trips the
+  escalation with no remedy). Completed rows get a per-person **Reopen**.
+- **Per-person training transcript.** Click any name for one page with a
+  person's live assignments and every prior certification cycle — quiz
+  scores, waivers, confirmed versions — printable, with CSV export. The
+  record auditors actually sample.
+- **Needs-attention queue.** The Overview's inert overdue list is now a
+  triage queue combining overdue, quiz-below-pass, and stalled (14+ days
+  idle) assignments, with inline Remind / +7 days / Snooze — work it to
+  zero.
+- **Manager deck preview.** Walk any deck exactly as trainees will, without
+  assigning it to yourself; nothing is recorded.
+- **Evidence retention.** Completed training now survives deletion:
+  offboarding a user or deleting a deck archives the completions to the
+  history table first, and history rows carry name/title snapshots instead
+  of vanishing with their foreign keys.
+
+### Changed
+- Deck settings (due days, auto-assign, quiz pass %, recertification, tag)
+  are all editable after creation; programs are editable too (rename,
+  add/remove/reorder decks, auto-assign toggle separate from active).
+- "Remind now" sends email as well as the in-app notification and resets
+  the reminder cadence, so the sweep no longer double-nudges within hours.
+- Action feedback moved to toast notifications that are visible wherever
+  you are on the page (and settings-save failures are no longer silent).
+- Deck cards and Overview bars now agree on the numbers: counts cover
+  active users only, and waived is reported separately from completed
+  everywhere. Per-deck CSV gained the quiz and prior-completion columns
+  the org CSV already had.
+- The drop-off insight ("most stop at slide N") shows without opening the
+  people list, and Overview's deck bars sort lowest-completion first.
+
 ## [0.80.0] - 2026-08-01
 
 ### Added

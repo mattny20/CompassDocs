@@ -1,10 +1,11 @@
 "use client";
 
-// Training home. "My training" for everyone; deck builder + progress
-// dashboard for admins and Training-section grantees. Mirrors the
-// CompliancePanel look so the two programs feel like siblings.
+// Training home. "My training" for everyone; Overview (org rollup + triage
+// queue) and Manage decks (dense table + expandable deck cards) for admins
+// and Training-section grantees. Mirrors the CompliancePanel look so the two
+// programs feel like siblings.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   Archive,
@@ -15,14 +16,18 @@ import {
   CircleAlert,
   CircleCheck,
   Download,
+  Eye,
   GraduationCap,
   Layers,
   LoaderCircle,
+  Pencil,
   Play,
   Plus,
   RotateCcw,
+  Search,
   Send,
   Settings2,
+  Timer,
   Trash2,
   Users,
   X,
@@ -54,8 +59,12 @@ interface Deck {
   archived_at: string | null;
   pass_pct: number;
   recert_months: number | null;
+  tag: string;
   assigned: number;
   completed: number;
+  waived: number;
+  overdue: number;
+  stall_slide: number | null;
 }
 
 interface Program {
@@ -68,6 +77,7 @@ interface Program {
 
 interface PersonRow {
   assignment_id: number;
+  user_id: number;
   name: string;
   username: string;
   due_at: string | null;
@@ -82,6 +92,39 @@ const fmtDay = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString()
 const overdue = (it: MyItem) =>
   !it.completed_at && it.due_at !== null && new Date(it.due_at).getTime() < Date.now();
 
+// --- Toasts: action feedback that's visible wherever you are on the page ----
+
+interface Toast {
+  id: number;
+  kind: "ok" | "error";
+  text: string;
+}
+let toastSeq = 1;
+
+function Toasts({ toasts, dismiss }: { toasts: Toast[]; dismiss: (id: number) => void }) {
+  if (!toasts.length) return null;
+  return (
+    <div className="fixed bottom-4 right-4 z-50 flex w-80 flex-col gap-2">
+      {toasts.map((t) => (
+        <div
+          key={t.id}
+          role="status"
+          className={`flex items-start justify-between gap-2 rounded-lg border px-3 py-2 text-sm shadow-lg ${
+            t.kind === "ok"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800/60 dark:bg-emerald-950/70"
+              : "border-red-200 bg-red-50 text-red-700 dark:border-red-800/60 dark:bg-red-950/70"
+          }`}
+        >
+          <span>{t.text}</span>
+          <button onClick={() => dismiss(t.id)} aria-label="Dismiss" className="opacity-60 hover:opacity-100">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function TrainingPanel({ licensed, manager }: { licensed: boolean; manager: boolean }) {
   const [tab, setTab] = useState<"mine" | "overview" | "decks">("mine");
   const [mine, setMine] = useState<MyItem[] | null>(null);
@@ -91,25 +134,34 @@ export function TrainingPanel({ licensed, manager }: { licensed: boolean; manage
   const [candidates, setCandidates] = useState<{ id: number; title: string; space_name: string }[]>([]);
   const [userOpts, setUserOpts] = useState<PickerOption[]>([]);
   const [groupOpts, setGroupOpts] = useState<PickerOption[]>([]);
-  const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
+  const [toasts, setToasts] = useState<Toast[]>([]);
 
+  const toast = useCallback((kind: "ok" | "error", text: string) => {
+    const id = toastSeq++;
+    setToasts((ts) => [...ts.slice(-3), { id, kind, text }]);
+    setTimeout(() => setToasts((ts) => ts.filter((t) => t.id !== id)), 6000);
+  }, []);
+  const dismissToast = (id: number) => setToasts((ts) => ts.filter((t) => t.id !== id));
+  const onError = useCallback((s: string) => s && toast("error", s), [toast]);
+  const onNotice = useCallback((s: string) => s && toast("ok", s), [toast]);
+
+  // Decks refresh cheaply; the pickers' option lists load once.
+  const loadDecks = useCallback(async () => {
+    const d = await fetch("/api/training/decks").then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    if (d) {
+      setDecks(d.decks);
+      setPrograms(d.programs ?? []);
+      setArchivedCount(d.archived_count ?? 0);
+      setCandidates(d.candidates);
+      setUserOpts(d.users);
+      setGroupOpts(d.groups);
+    }
+  }, []);
   const load = useCallback(async () => {
-    setError("");
     const my = await fetch("/api/training/my").then((r) => (r.ok ? r.json() : null)).catch(() => null);
     if (my) setMine(my.items);
-    if (manager) {
-      const d = await fetch("/api/training/decks").then((r) => (r.ok ? r.json() : null)).catch(() => null);
-      if (d) {
-        setDecks(d.decks);
-        setPrograms(d.programs ?? []);
-        setArchivedCount(d.archived_count ?? 0);
-        setCandidates(d.candidates);
-        setUserOpts(d.users);
-        setGroupOpts(d.groups);
-      }
-    }
-  }, [manager]);
+    if (manager) await loadDecks();
+  }, [manager, loadDecks]);
   useEffect(() => {
     if (licensed) void load();
   }, [licensed, load]);
@@ -167,19 +219,12 @@ export function TrainingPanel({ licensed, manager }: { licensed: boolean; manage
         }
       />
 
-      {error && (
-        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">{error}</div>
-      )}
-      {notice && (
-        <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-700 dark:border-emerald-800/60 dark:bg-emerald-950/40">
-          {notice}
-        </div>
-      )}
+      <Toasts toasts={toasts} dismiss={dismissToast} />
 
       {tab === "mine" || !manager ? (
         <MyTraining mine={mine} />
       ) : tab === "overview" ? (
-        <Overview />
+        <Overview onError={onError} onNotice={onNotice} />
       ) : (
         <ManageDecks
           decks={decks}
@@ -188,119 +233,16 @@ export function TrainingPanel({ licensed, manager }: { licensed: boolean; manage
           candidates={candidates}
           userOpts={userOpts}
           groupOpts={groupOpts}
-          onError={setError}
-          onNotice={setNotice}
-          reload={load}
+          onError={onError}
+          onNotice={onNotice}
+          reload={loadDecks}
         />
       )}
     </div>
   );
 }
 
-// --- Org-wide overview: KPIs, overdue list, whole-program CSV --------------
-
-interface OverviewData {
-  overview: {
-    decks: number;
-    people_assigned: number;
-    open: number;
-    overdue: number;
-    completed: number;
-    waived: number;
-    overdue_people: { name: string; username: string; deck: string; due_at: string }[];
-  };
-  decks: Deck[];
-}
-
-function Overview() {
-  const [data, setData] = useState<OverviewData | null>(null);
-  useEffect(() => {
-    void fetch("/api/training/overview")
-      .then((r) => (r.ok ? r.json() : null))
-      .then(setData)
-      .catch(() => {});
-  }, []);
-  if (!data) {
-    return (
-      <div className="flex items-center gap-2 py-10 text-sm text-slate-400">
-        <LoaderCircle className="h-4 w-4 animate-spin" /> Loading…
-      </div>
-    );
-  }
-  const o = data.overview;
-  const doneAll = o.completed + o.waived;
-  const totalAll = doneAll + o.open;
-  const pct = totalAll ? Math.round((doneAll / totalAll) * 100) : 0;
-  return (
-    <div className="space-y-5">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {[
-          { label: "Active decks", value: o.decks },
-          { label: "People with assignments", value: o.people_assigned },
-          { label: "Overall completion", value: `${pct}%` },
-          { label: "Overdue", value: o.overdue },
-        ].map((c) => (
-          <div key={c.label} className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
-            <div className="text-2xl font-bold tracking-tight text-slate-900">{c.value}</div>
-            <div className="text-xs text-slate-400">{c.label}</div>
-          </div>
-        ))}
-      </div>
-
-      <section className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-slate-800">Decks</h2>
-          <a
-            href="/api/training/overview?format=csv"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
-          >
-            <Download className="h-4 w-4" /> All records (CSV)
-          </a>
-        </div>
-        <ul className="mt-3 space-y-2">
-          {data.decks.map((d) => {
-            const p = d.assigned ? Math.round((d.completed / d.assigned) * 100) : 0;
-            return (
-              <li key={d.id} className="flex items-center gap-3 text-sm">
-                <span className="w-56 truncate font-medium text-slate-700">{d.title}</span>
-                <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100">
-                  <div className="h-full rounded-full bg-compass-500" style={{ width: `${p}%` }} />
-                </div>
-                <span className="w-24 text-right text-xs text-slate-400">
-                  {d.completed}/{d.assigned} done
-                </span>
-              </li>
-            );
-          })}
-          {data.decks.length === 0 && (
-            <li className="text-sm text-slate-400">No decks yet — create one under Manage decks.</li>
-          )}
-        </ul>
-      </section>
-
-      <section className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
-        <h2 className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
-          <CircleAlert className="h-4 w-4 text-red-500" /> Overdue
-        </h2>
-        {o.overdue_people.length === 0 ? (
-          <p className="mt-2 text-sm text-slate-400">Nobody is overdue.</p>
-        ) : (
-          <ul className="mt-2 divide-y divide-slate-100">
-            {o.overdue_people.map((p, i) => (
-              <li key={i} className="flex items-center justify-between gap-3 py-1.5 text-sm">
-                <span className="font-medium text-slate-700">{p.name}</span>
-                <span className="min-w-0 flex-1 truncate text-slate-500">{p.deck}</span>
-                <span className="shrink-0 text-xs font-medium text-red-600">
-                  due {fmtDay(p.due_at)}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-    </div>
-  );
-}
+// --- My training ------------------------------------------------------------
 
 function MyTraining({ mine }: { mine: MyItem[] | null }) {
   if (!mine) {
@@ -337,7 +279,7 @@ function MyTraining({ mine }: { mine: MyItem[] | null }) {
             </div>
             <div className="mt-1.5 flex items-center justify-between text-xs">
               <span className="text-slate-400">
-                {it.completed_at ? "Completed" : `${pct}% · ${it.slide_count} slides`}
+                {it.completed_at ? (it.waived ? "Waived" : "Completed") : `${pct}% · ${it.slide_count} slides`}
               </span>
               {it.completed_at ? (
                 <span className="inline-flex items-center gap-1 font-medium text-emerald-600">
@@ -379,6 +321,211 @@ function MyTraining({ mine }: { mine: MyItem[] | null }) {
   );
 }
 
+// --- Overview: KPIs, per-deck bars, needs-attention triage queue ------------
+
+interface AttentionRow {
+  assignment_id: number;
+  deck_id: number;
+  deck: string;
+  user_id: number;
+  name: string;
+  username: string;
+  due_at: string | null;
+  quiz_score: number | null;
+  quiz_total: number | null;
+  pass_pct: number;
+  reason: "overdue" | "failed_quiz" | "stalled";
+}
+
+interface OverviewData {
+  overview: {
+    decks: number;
+    people_assigned: number;
+    open: number;
+    overdue: number;
+    completed: number;
+    waived: number;
+  };
+  decks: Deck[];
+  attention: { rows: AttentionRow[]; total: number };
+}
+
+const REASON_LABEL: Record<AttentionRow["reason"], { text: string; cls: string }> = {
+  overdue: { text: "Overdue", cls: "bg-red-100 text-red-700" },
+  failed_quiz: { text: "Quiz below pass", cls: "bg-amber-100 text-amber-700" },
+  stalled: { text: "Stalled 14d+", cls: "bg-slate-100 text-slate-500" },
+};
+
+function Overview({ onError, onNotice }: { onError: (s: string) => void; onNotice: (s: string) => void }) {
+  const [data, setData] = useState<OverviewData | null>(null);
+  const [busyId, setBusyId] = useState<number | null>(null);
+  const refresh = useCallback(async () => {
+    const d = await fetch("/api/training/overview").then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    if (d) setData(d);
+  }, []);
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  async function act(row: AttentionRow, body: Record<string, unknown>, path?: string, done?: string) {
+    setBusyId(row.assignment_id);
+    const res = await fetch(path ?? `/api/training/decks/${row.deck_id}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const d = (await res.json().catch(() => ({}))) as { error?: string };
+    if (!res.ok) onError(d.error || "Something went wrong.");
+    else onNotice(done ?? "Done.");
+    setBusyId(null);
+    await refresh();
+  }
+
+  if (!data) {
+    return (
+      <div className="flex items-center gap-2 py-10 text-sm text-slate-400">
+        <LoaderCircle className="h-4 w-4 animate-spin" /> Loading…
+      </div>
+    );
+  }
+  const o = data.overview;
+  const doneAll = o.completed + o.waived;
+  const totalAll = doneAll + o.open;
+  const pct = totalAll ? Math.round((doneAll / totalAll) * 100) : 0;
+  // Worst-completion first, so the deck needing attention tops the list.
+  const decksSorted = [...data.decks].sort((a, b) => {
+    const pa = a.assigned ? (a.completed + a.waived) / a.assigned : 1;
+    const pb = b.assigned ? (b.completed + b.waived) / b.assigned : 1;
+    return pa - pb;
+  });
+
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {[
+          { label: "Active decks", value: o.decks },
+          { label: "People with assignments", value: o.people_assigned },
+          { label: "Overall completion", value: `${pct}%` },
+          { label: "Overdue", value: o.overdue },
+        ].map((c) => (
+          <div key={c.label} className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
+            <div className="text-2xl font-bold tracking-tight text-slate-900">{c.value}</div>
+            <div className="text-xs text-slate-400">{c.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Needs attention: work this list to zero. */}
+      <section className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
+            <CircleAlert className="h-4 w-4 text-red-500" /> Needs attention
+            <span className="text-xs font-normal text-slate-400">
+              {data.attention.total > data.attention.rows.length
+                ? `showing ${data.attention.rows.length} of ${data.attention.total}`
+                : `${data.attention.total}`}
+            </span>
+          </h2>
+          <a
+            href="/api/training/overview?format=csv"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+          >
+            <Download className="h-4 w-4" /> All records (CSV)
+          </a>
+        </div>
+        {data.attention.rows.length === 0 ? (
+          <p className="mt-2 text-sm text-slate-400">Nothing needs attention.</p>
+        ) : (
+          <ul className="mt-2 divide-y divide-slate-100">
+            {data.attention.rows.map((r) => (
+              <li key={r.assignment_id} className="flex flex-wrap items-center gap-2 py-2 text-sm">
+                <Link
+                  href={`/training/person/${r.user_id}`}
+                  className="font-medium text-slate-700 hover:text-compass-600 hover:underline"
+                >
+                  {r.name}
+                </Link>
+                <span className="min-w-0 flex-1 truncate text-slate-500">{r.deck}</span>
+                <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${REASON_LABEL[r.reason].cls}`}>
+                  {REASON_LABEL[r.reason].text}
+                  {r.reason === "overdue" && r.due_at ? ` · ${fmtDay(r.due_at)}` : ""}
+                  {r.reason === "failed_quiz" && r.quiz_total ? ` · ${r.quiz_score}/${r.quiz_total}` : ""}
+                </span>
+                <span className="flex shrink-0 items-center gap-1">
+                  <button
+                    onClick={() => void act(r, { remind_assignment_ids: [r.assignment_id] }, undefined, "Reminder sent.")}
+                    disabled={busyId === r.assignment_id}
+                    title="Remind now"
+                    className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                  >
+                    <BellRing className="h-3 w-3" /> Remind
+                  </button>
+                  <button
+                    onClick={() =>
+                      void act(r, { extend_assignment_ids: [r.assignment_id], extend_days: 7 }, undefined, "Due date pushed out 7 days.")
+                    }
+                    disabled={busyId === r.assignment_id}
+                    title="Extend due date by 7 days"
+                    className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                  >
+                    <Timer className="h-3 w-3" /> +7d
+                  </button>
+                  <button
+                    onClick={() =>
+                      void act(
+                        r,
+                        { snooze_assignment_ids: [r.assignment_id], days: 7 },
+                        "/api/training/overview",
+                        "Snoozed for 7 days."
+                      )
+                    }
+                    disabled={busyId === r.assignment_id}
+                    title="Hide from this queue for 7 days"
+                    className="rounded-md border border-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                  >
+                    Snooze
+                  </button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
+        <h2 className="text-sm font-semibold text-slate-800">Decks — lowest completion first</h2>
+        <ul className="mt-3 space-y-2">
+          {decksSorted.map((d) => {
+            const done = d.completed + d.waived;
+            const p = d.assigned ? Math.round((done / d.assigned) * 100) : 0;
+            return (
+              <li key={d.id} className="flex items-center gap-3 text-sm">
+                <span className="w-56 truncate font-medium text-slate-700" title={d.title}>
+                  {d.title}
+                </span>
+                <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100">
+                  <div className="h-full rounded-full bg-compass-500" style={{ width: `${p}%` }} />
+                </div>
+                <span className="w-40 shrink-0 text-right text-xs text-slate-400">
+                  {d.completed} done{d.waived ? ` · ${d.waived} waived` : ""}
+                  {d.overdue ? ` · ${d.overdue} overdue` : ""} / {d.assigned}
+                </span>
+              </li>
+            );
+          })}
+          {decksSorted.length === 0 && (
+            <li className="text-sm text-slate-400">No decks yet — create one under Manage decks.</li>
+          )}
+        </ul>
+      </section>
+    </div>
+  );
+}
+
+// --- Manage decks: dense table + expandable cards ---------------------------
+
+type DeckSort = "title" | "progress" | "overdue" | "created";
+
 function ManageDecks({
   decks,
   programs,
@@ -404,9 +551,11 @@ function ManageDecks({
   const [dueDays, setDueDays] = useState("14");
   const [autoNew, setAutoNew] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [query, setQuery] = useState("");
+  const [tagFilter, setTagFilter] = useState("");
+  const [sort, setSort] = useState<DeckSort>("created");
+  const [openDeck, setOpenDeck] = useState<number | null>(null);
 
-  // Most-recently-updated first (the API returns them that way); the picker
-  // shows the top 10 on focus and filters as you type.
   const candidateOpts: PickerOption[] = candidates.map((c) => ({
     id: c.id,
     label: c.title,
@@ -414,18 +563,40 @@ function ManageDecks({
   }));
   const chosen = candidates.find((c) => c.id === candidate);
 
-  async function post(path: string, body: unknown, done: string) {
+  const tags = useMemo(
+    () => [...new Set((decks ?? []).map((d) => d.tag).filter(Boolean))].sort(),
+    [decks]
+  );
+  const visible = useMemo(() => {
+    let list = decks ?? [];
+    const needle = query.trim().toLowerCase();
+    if (needle) list = list.filter((d) => `${d.title} ${d.space_name} ${d.tag}`.toLowerCase().includes(needle));
+    if (tagFilter) list = list.filter((d) => d.tag === tagFilter);
+    const prog = (d: Deck) => (d.assigned ? (d.completed + d.waived) / d.assigned : 1);
+    if (sort === "title") list = [...list].sort((a, b) => a.title.localeCompare(b.title));
+    else if (sort === "progress") list = [...list].sort((a, b) => prog(a) - prog(b));
+    else if (sort === "overdue") list = [...list].sort((a, b) => b.overdue - a.overdue);
+    return list;
+  }, [decks, query, tagFilter, sort]);
+
+  async function createDeck() {
+    if (!candidate) return;
     setBusy(true);
-    onError("");
-    onNotice("");
-    const res = await fetch(path, {
+    const res = await fetch("/api/training/decks", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify({
+        document_id: candidate,
+        due_days: dueDays ? Number(dueDays) : null,
+        assign_new_members: autoNew,
+      }),
     });
     const data = (await res.json().catch(() => ({}))) as { error?: string };
-    if (!res.ok) onError(data.error || "Something went wrong.");
-    else onNotice(done);
+    if (!res.ok) onError(data.error || "Could not create the deck.");
+    else {
+      onNotice("Deck created — assign it below.");
+      setCandidate(null);
+    }
     setBusy(false);
     await reload();
   }
@@ -438,8 +609,9 @@ function ManageDecks({
           <Plus className="h-4 w-4 text-compass-600" /> New training deck
         </h2>
         <p className="mt-0.5 text-xs text-slate-400">
-          Pick a published document — slides split on <code>---</code> lines, and an optional{" "}
-          <code>:::compliance</code> block at the end sets the confirmation wording.
+          Pick a published document — slides split on <code>---</code> lines, an optional{" "}
+          <code>:::quiz</code> adds graded questions, and a trailing <code>:::compliance</code>{" "}
+          block sets the confirmation wording.
         </p>
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <div className="min-w-72 flex-1 sm:max-w-md">
@@ -447,11 +619,7 @@ function ManageDecks({
               <span className="inline-flex items-center gap-1.5 rounded-lg border border-compass-200 bg-compass-50 px-3 py-1.5 text-sm font-medium text-compass-800">
                 {chosen.title}
                 <span className="text-xs font-normal text-compass-600">{chosen.space_name}</span>
-                <button
-                  onClick={() => setCandidate(null)}
-                  aria-label="Clear document choice"
-                  className="opacity-60 hover:opacity-100"
-                >
+                <button onClick={() => setCandidate(null)} aria-label="Clear document choice" className="opacity-60 hover:opacity-100">
                   <X className="h-3.5 w-3.5" />
                 </button>
               </span>
@@ -482,18 +650,7 @@ function ManageDecks({
             Auto-assign to new members
           </label>
           <button
-            onClick={() =>
-              candidate &&
-              void post(
-                "/api/training/decks",
-                {
-                  document_id: candidate,
-                  due_days: dueDays ? Number(dueDays) : null,
-                  assign_new_members: autoNew,
-                },
-                "Deck created — assign it below."
-              ).then(() => setCandidate(null))
-            }
+            onClick={() => void createDeck()}
             disabled={!candidate || busy}
             className="inline-flex items-center gap-1.5 rounded-lg bg-compass-600 px-3.5 py-1.5 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60"
           >
@@ -514,7 +671,7 @@ function ManageDecks({
         reload={reload}
       />
 
-      {/* Decks */}
+      {/* Deck table */}
       {!decks ? (
         <div className="flex items-center gap-2 py-10 text-sm text-slate-400">
           <LoaderCircle className="h-4 w-4 animate-spin" /> Loading…
@@ -524,9 +681,101 @@ function ManageDecks({
           No training decks yet — create one above.
         </p>
       ) : (
-        decks.map((d) => (
-          <DeckCard key={d.id} deck={d} userOpts={userOpts} groupOpts={groupOpts} onError={onError} onNotice={onNotice} reload={reload} />
-        ))
+        <section className="rounded-xl border border-slate-200 bg-surface shadow-xs">
+          <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-4 py-3">
+            <div className="relative min-w-56 flex-1 sm:max-w-xs">
+              <Search className="pointer-events-none absolute left-2.5 top-2 h-4 w-4 text-slate-400" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search decks…"
+                className="w-full rounded-lg border border-slate-200 bg-surface py-1.5 pl-8 pr-3 text-sm outline-hidden placeholder:text-slate-400 focus:border-compass-400"
+              />
+            </div>
+            {tags.map((t) => (
+              <button
+                key={t}
+                onClick={() => setTagFilter(tagFilter === t ? "" : t)}
+                className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                  tagFilter === t ? "bg-compass-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}
+              >
+                {t}
+              </button>
+            ))}
+            <select
+              value={sort}
+              onChange={(e) => setSort(e.target.value as DeckSort)}
+              aria-label="Sort decks"
+              className="ml-auto rounded-lg border border-slate-200 bg-surface px-2 py-1.5 text-sm text-slate-600 outline-hidden focus:border-compass-400"
+            >
+              <option value="created">Newest first</option>
+              <option value="title">Title A–Z</option>
+              <option value="progress">Lowest completion</option>
+              <option value="overdue">Most overdue</option>
+            </select>
+          </div>
+          <ul className="divide-y divide-slate-100">
+            {visible.map((d) => {
+              const done = d.completed + d.waived;
+              const p = d.assigned ? Math.round((done / d.assigned) * 100) : 0;
+              const open = openDeck === d.id;
+              return (
+                <li key={d.id}>
+                  <button
+                    onClick={() => setOpenDeck(open ? null : d.id)}
+                    className="flex w-full flex-wrap items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-slate-50/60"
+                  >
+                    {open ? (
+                      <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+                    ) : (
+                      <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
+                    )}
+                    <span className="min-w-0 flex-1 truncate font-medium text-slate-800">
+                      {d.title}
+                      {d.active === 0 && (
+                        <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium uppercase text-slate-500">
+                          inactive
+                        </span>
+                      )}
+                    </span>
+                    {d.tag && (
+                      <span className="rounded-full bg-compass-50 px-2 py-0.5 text-[11px] font-medium text-compass-700">
+                        {d.tag}
+                      </span>
+                    )}
+                    <span className="hidden w-28 sm:block">
+                      <span className="block h-1.5 overflow-hidden rounded-full bg-slate-100">
+                        <span className="block h-full rounded-full bg-compass-500" style={{ width: `${p}%` }} />
+                      </span>
+                    </span>
+                    <span className="w-28 shrink-0 text-right text-xs text-slate-400">
+                      {done}/{d.assigned} done
+                    </span>
+                    <span className={`w-20 shrink-0 text-right text-xs font-medium ${d.overdue ? "text-red-600" : "text-slate-300"}`}>
+                      {d.overdue ? `${d.overdue} overdue` : "—"}
+                    </span>
+                  </button>
+                  {open && (
+                    <div className="border-t border-slate-100 bg-slate-50/40 px-4 py-4 dark:bg-slate-800/20">
+                      <DeckCard
+                        deck={d}
+                        userOpts={userOpts}
+                        groupOpts={groupOpts}
+                        onError={onError}
+                        onNotice={onNotice}
+                        reload={reload}
+                      />
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+            {visible.length === 0 && (
+              <li className="px-4 py-6 text-center text-sm text-slate-400">No decks match.</li>
+            )}
+          </ul>
+        </section>
       )}
 
       {archivedCount > 0 && (
@@ -540,7 +789,7 @@ function ManageDecks({
   );
 }
 
-// --- Onboarding programs: named bundles of decks -----------------------------
+// --- Onboarding programs ----------------------------------------------------
 
 function Programs({
   programs,
@@ -562,26 +811,28 @@ function Programs({
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [deckIds, setDeckIds] = useState<number[]>([]);
+  const [autoNew, setAutoNew] = useState(true);
   const [busy, setBusy] = useState(false);
-  const deckOpts: PickerOption[] = decks.map((d) => ({
-    id: d.id,
-    label: d.title,
-    sublabel: d.space_name,
-  }));
+  const deckOpts: PickerOption[] = decks.map((d) => ({ id: d.id, label: d.title, sublabel: d.space_name }));
 
   async function create() {
     setBusy(true);
-    onError("");
-    onNotice("");
     const res = await fetch("/api/training/programs", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ name, deck_ids: deckIds }),
     });
-    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    const data = (await res.json().catch(() => ({}))) as { error?: string; id?: number };
     if (!res.ok) onError(data.error || "Could not create the program.");
     else {
-      onNotice("Program created — new members will get every deck in it.");
+      if (!autoNew && data.id) {
+        await fetch(`/api/training/programs/${data.id}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ assign_new_members: false }),
+        }).catch(() => {});
+      }
+      onNotice(autoNew ? "Program created — new members will get every deck in it." : "Program created.");
       setName("");
       setDeckIds([]);
       setCreating(false);
@@ -598,8 +849,8 @@ function Programs({
             <Layers className="h-4 w-4 text-compass-600" /> Onboarding programs
           </h2>
           <p className="mt-0.5 text-xs text-slate-400">
-            Bundle decks into a package — active programs are auto-assigned to every new member,
-            and can be assigned to people or groups as one unit.
+            Bundle decks into a package — auto-assigned to every new member, or assigned to
+            people and groups as one unit.
           </p>
         </div>
         {!creating && (
@@ -628,6 +879,10 @@ function Programs({
             emptyText="No decks — create one first."
             maxVisible={10}
           />
+          <label className="flex items-center gap-1.5 text-sm text-slate-600">
+            <input type="checkbox" checked={autoNew} onChange={(e) => setAutoNew(e.target.checked)} />
+            Auto-assign to new members
+          </label>
           <div className="flex items-center gap-2">
             <button
               onClick={() => void create()}
@@ -637,10 +892,7 @@ function Programs({
               {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
               Create program
             </button>
-            <button
-              onClick={() => setCreating(false)}
-              className="rounded-lg px-3 py-1.5 text-sm font-medium text-slate-500 hover:bg-slate-50"
-            >
+            <button onClick={() => setCreating(false)} className="rounded-lg px-3 py-1.5 text-sm font-medium text-slate-500 hover:bg-slate-50">
               Cancel
             </button>
           </div>
@@ -653,6 +905,7 @@ function Programs({
             <ProgramRow
               key={p.id}
               program={p}
+              deckOpts={deckOpts}
               userOpts={userOpts}
               groupOpts={groupOpts}
               onError={onError}
@@ -668,6 +921,7 @@ function Programs({
 
 function ProgramRow({
   program,
+  deckOpts,
   userOpts,
   groupOpts,
   onError,
@@ -675,6 +929,7 @@ function ProgramRow({
   reload,
 }: {
   program: Program;
+  deckOpts: PickerOption[];
   userOpts: PickerOption[];
   groupOpts: PickerOption[];
   onError: (s: string) => void;
@@ -682,14 +937,15 @@ function ProgramRow({
   reload: () => Promise<void>;
 }) {
   const [assigning, setAssigning] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState(program.name);
+  const [editDeckIds, setEditDeckIds] = useState<number[]>(program.decks.map((d) => d.id));
   const [userIds, setUserIds] = useState<number[]>([]);
   const [groupIds, setGroupIds] = useState<number[]>([]);
   const [busy, setBusy] = useState(false);
 
   async function call(method: string, body?: unknown, done?: string) {
     setBusy(true);
-    onError("");
-    onNotice("");
     const res = await fetch(`/api/training/programs/${program.id}`, {
       method,
       headers: { "content-type": "application/json" },
@@ -712,6 +968,7 @@ function ProgramRow({
     setUserIds([]);
     setGroupIds([]);
     setAssigning(false);
+    setEditing(false);
     await reload();
   }
 
@@ -747,7 +1004,36 @@ function ProgramRow({
             <Send className="h-3.5 w-3.5" /> Assign
           </button>
           <button
-            onClick={() => void call("PATCH", { active: program.active === 0 }, program.active === 0 ? "Program activated." : "Program deactivated — it will no longer auto-assign.")}
+            onClick={() => {
+              setEditing((e) => !e);
+              setEditName(program.name);
+              setEditDeckIds(program.decks.map((d) => d.id));
+            }}
+            disabled={busy}
+            title="Edit program"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 font-medium text-slate-600 hover:bg-slate-50"
+          >
+            <Pencil className="h-3.5 w-3.5" /> Edit
+          </button>
+          <button
+            onClick={() =>
+              void call(
+                "PATCH",
+                { assign_new_members: program.assign_new_members === 0 },
+                program.assign_new_members === 0
+                  ? "New members will now get this program."
+                  : "New members will no longer get this program automatically."
+              )
+            }
+            disabled={busy}
+            className="rounded-lg border border-slate-200 px-3 py-1.5 font-medium text-slate-600 hover:bg-slate-50"
+          >
+            {program.assign_new_members === 0 ? "Auto-assign on" : "Auto-assign off"}
+          </button>
+          <button
+            onClick={() =>
+              void call("PATCH", { active: program.active === 0 }, program.active === 0 ? "Program activated." : "Program deactivated.")
+            }
             disabled={busy}
             className="rounded-lg border border-slate-200 px-3 py-1.5 font-medium text-slate-600 hover:bg-slate-50"
           >
@@ -766,6 +1052,30 @@ function ProgramRow({
           </button>
         </div>
       </div>
+
+      {editing && (
+        <div className="mt-3 space-y-2 rounded-lg border border-slate-100 p-3">
+          <input
+            value={editName}
+            onChange={(e) => setEditName(e.target.value)}
+            className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-1.5 text-sm outline-hidden focus:border-compass-400"
+          />
+          <EntityPicker
+            options={deckOpts}
+            value={editDeckIds}
+            onChange={setEditDeckIds}
+            placeholder="Decks in order…"
+            maxVisible={10}
+          />
+          <button
+            onClick={() => void call("PATCH", { name: editName, deck_ids: editDeckIds }, "Program updated.")}
+            disabled={busy || !editName.trim() || !editDeckIds.length}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-compass-600 px-3.5 py-1.5 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60"
+          >
+            Save changes
+          </button>
+        </div>
+      )}
 
       {assigning && (
         <div className="mt-3 space-y-2">
@@ -799,6 +1109,8 @@ function ProgramRow({
   );
 }
 
+// --- Deck card (expanded row) ----------------------------------------------
+
 function DeckCard({
   deck,
   userOpts,
@@ -817,98 +1129,70 @@ function DeckCard({
   const [userIds, setUserIds] = useState<number[]>([]);
   const [groupIds, setGroupIds] = useState<number[]>([]);
   const [busy, setBusy] = useState(false);
-  const [showPeople, setShowPeople] = useState(false);
   const [people, setPeople] = useState<PersonRow[] | null>(null);
-  const [dropoff, setDropoff] = useState<{ slide: number; n: number }[]>([]);
   const [passPct, setPassPct] = useState(String(deck.pass_pct));
   const [recert, setRecert] = useState(deck.recert_months ? String(deck.recert_months) : "");
-  const pct = deck.assigned ? Math.round((deck.completed / deck.assigned) * 100) : 0;
+  const [due, setDue] = useState(deck.due_days ? String(deck.due_days) : "");
+  const [tag, setTag] = useState(deck.tag);
 
   async function loadPeople() {
     const res = await fetch(`/api/training/decks/${deck.id}`).then((r) => (r.ok ? r.json() : null)).catch(() => null);
-    if (res) {
-      setPeople(res.rows);
-      setDropoff(res.dropoff ?? []);
-    }
+    if (res) setPeople(res.rows);
   }
+  useEffect(() => {
+    void loadPeople();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deck.id]);
 
-  async function assign(
-    body: {
-      waive?: boolean;
-      remind_assignment_id?: number;
-      reopen_completed?: boolean;
-    } & Record<string, unknown>
-  ) {
+  async function post(body: Record<string, unknown>, done: string) {
     setBusy(true);
-    onError("");
-    onNotice("");
     const res = await fetch(`/api/training/decks/${deck.id}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     });
-    const data = (await res.json().catch(() => ({}))) as {
-      error?: string;
-      assigned?: number;
-      waived?: number;
-      already?: number;
-      reopened?: number;
-    };
-    if (!res.ok) onError(data.error || "Assignment failed.");
-    else if (body.remind_assignment_id) onNotice("Reminder sent.");
-    else if (body.reopen_completed)
-      onNotice(`Reopened for ${data.reopened} ${data.reopened === 1 ? "person" : "people"} — prior completions kept in history.`);
-    else if (body.waive)
-      onNotice(
-        `Waived for ${data.waived} ${data.waived === 1 ? "person" : "people"}${
-          data.already ? ` (${data.already} already completed)` : ""
-        } — recorded as waived, not completed.`
-      );
-    else
-      onNotice(
-        `Assigned to ${data.assigned} ${data.assigned === 1 ? "person" : "people"}${
-          data.already ? ` (${data.already} already had it)` : ""
-        }.`
-      );
+    const data = (await res.json().catch(() => ({}))) as Record<string, number | string | boolean>;
+    if (!res.ok) onError(String(data.error || "Something went wrong."));
+    else onNotice(done.replace("{n}", String(data.assigned ?? data.waived ?? data.removed ?? data.extended ?? data.reminded ?? data.reopened ?? "")));
     setUserIds([]);
     setGroupIds([]);
     setBusy(false);
     await reload();
-    if (people) await loadPeople();
+    await loadPeople();
   }
 
-  async function patch(body: unknown) {
+  async function patch(body: unknown, done = "Saved.") {
     setBusy(true);
-    await fetch(`/api/training/decks/${deck.id}`, {
+    const res = await fetch(`/api/training/decks/${deck.id}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     });
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      onError(data.error || "Could not save the deck settings.");
+    } else onNotice(done);
     setBusy(false);
     await reload();
   }
 
   return (
-    <section className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
+    <div>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h3 className="font-semibold text-slate-900">
-            {deck.title}
-            {deck.active === 0 && (
-              <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium uppercase text-slate-500">
-                inactive
-              </span>
-            )}
-          </h3>
-          <div className="text-xs text-slate-400">
-            {deck.space_icon} {deck.space_name}
-            {deck.due_days ? ` · due within ${deck.due_days} days` : ""}
-            {deck.assign_new_members === 1 ? " · auto-assigns to new members" : ""}
-            {deck.recert_months ? ` · recertifies every ${deck.recert_months} mo` : ""}
-            {` · quiz pass ${deck.pass_pct}%`}
-          </div>
+        <div className="text-xs text-slate-400">
+          {deck.space_icon} {deck.space_name} ·{" "}
+          <a href={`/doc/${deck.document_id}`} className="text-compass-600 hover:underline">
+            open document
+          </a>
+          {deck.stall_slide !== null && ` · most in-progress stop at slide ${deck.stall_slide}`}
         </div>
         <div className="flex items-center gap-2 text-sm">
+          <a
+            href={`/training/preview/${deck.id}`}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 font-medium text-slate-600 hover:bg-slate-50"
+          >
+            <Eye className="h-4 w-4" /> Preview
+          </a>
           <a
             href={`/api/training/decks/${deck.id}?format=csv`}
             className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 font-medium text-slate-600 hover:bg-slate-50"
@@ -916,7 +1200,7 @@ function DeckCard({
             <Download className="h-4 w-4" /> CSV
           </a>
           <button
-            onClick={() => void patch({ active: deck.active === 0 })}
+            onClick={() => void patch({ active: deck.active === 0 }, deck.active === 0 ? "Deck activated." : "Deck deactivated.")}
             disabled={busy}
             className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 font-medium text-slate-600 hover:bg-slate-50"
           >
@@ -929,11 +1213,10 @@ function DeckCard({
                   `Archive "${deck.title}"? It disappears from everyone's Training tab (history kept) — restore it any time from Archived decks.`
                 )
               )
-                void patch({ archived: true });
+                void patch({ archived: true }, "Deck archived.");
             }}
             disabled={busy}
             title="Archive deck"
-            aria-label={`Archive ${deck.title}`}
             className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 font-medium text-slate-600 hover:bg-slate-50"
           >
             <Archive className="h-4 w-4" /> Archive
@@ -943,15 +1226,36 @@ function DeckCard({
 
       <div className="mt-3 flex items-center gap-3">
         <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100">
-          <div className="h-full rounded-full bg-compass-500" style={{ width: `${pct}%` }} />
+          <div
+            className="h-full rounded-full bg-compass-500"
+            style={{ width: `${deck.assigned ? Math.round(((deck.completed + deck.waived) / deck.assigned) * 100) : 0}%` }}
+          />
         </div>
         <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-500">
-          <Users className="h-3.5 w-3.5" /> {deck.completed}/{deck.assigned} complete
+          <Users className="h-3.5 w-3.5" /> {deck.completed} done
+          {deck.waived ? ` · ${deck.waived} waived` : ""} / {deck.assigned}
         </span>
       </div>
 
-      {/* Quiz threshold + recertification cadence */}
+      {/* Settings: everything editable after creation. */}
       <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-slate-600">
+        <label className="flex items-center gap-1.5">
+          Due within
+          <input
+            type="number"
+            min={1}
+            max={365}
+            value={due}
+            placeholder="—"
+            onChange={(e) => setDue(e.target.value)}
+            onBlur={() => {
+              const v = due.trim() === "" ? null : Math.min(365, Math.max(1, Number(due) || 0)) || null;
+              if (v !== deck.due_days) void patch({ due_days: v });
+            }}
+            className="w-16 rounded-lg border border-slate-200 bg-surface px-2 py-1 text-sm outline-hidden focus:border-compass-400"
+          />
+          days
+        </label>
         <label className="flex items-center gap-1.5">
           Quiz pass
           <input
@@ -985,6 +1289,26 @@ function DeckCard({
           />
           months
         </label>
+        <label className="flex items-center gap-1.5">
+          Tag
+          <input
+            value={tag}
+            placeholder="e.g. Safety"
+            onChange={(e) => setTag(e.target.value)}
+            onBlur={() => {
+              if (tag.trim() !== deck.tag) void patch({ tag: tag.trim() });
+            }}
+            className="w-28 rounded-lg border border-slate-200 bg-surface px-2 py-1 text-sm outline-hidden focus:border-compass-400"
+          />
+        </label>
+        <label className="flex items-center gap-1.5">
+          <input
+            type="checkbox"
+            checked={deck.assign_new_members === 1}
+            onChange={(e) => void patch({ assign_new_members: e.target.checked })}
+          />
+          Auto-assign to new members
+        </label>
         <button
           onClick={() => {
             if (
@@ -992,111 +1316,24 @@ function DeckCard({
                 `Reopen "${deck.title}" for everyone who completed it? Use this after a material update — prior completions stay in the history, and everyone is asked to retake it.`
               )
             )
-              void assign({ reopen_completed: true } as never);
+              void post({ reopen_completed: true }, "Reopened for {n} people — prior completions kept in history.");
           }}
           disabled={busy}
           className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1 text-sm font-medium text-slate-600 hover:bg-slate-50"
         >
           <RotateCcw className="h-3.5 w-3.5" /> Reopen completed
         </button>
-        {dropoff.length > 0 && (
-          <span className="text-xs text-slate-400">
-            Most in-progress stop at slide{" "}
-            {dropoff.reduce((a, b) => (b.n > a.n ? b : a), dropoff[0]).slide}
-          </span>
-        )}
       </div>
 
-      {/* Per-person status */}
-      <button
-        onClick={() => {
-          setShowPeople((s) => !s);
-          if (!people) void loadPeople();
-        }}
-        className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-compass-600 hover:underline"
-      >
-        {showPeople ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-        People ({deck.assigned})
-      </button>
-      {showPeople && (
-        <div className="mt-2 overflow-x-auto rounded-lg border border-slate-100">
-          {!people ? (
-            <p className="flex items-center gap-2 px-3 py-3 text-sm text-slate-400">
-              <LoaderCircle className="h-4 w-4 animate-spin" /> Loading…
-            </p>
-          ) : people.length === 0 ? (
-            <p className="px-3 py-3 text-sm text-slate-400">Nobody assigned yet.</p>
-          ) : (
-            <table className="w-full text-sm">
-              <tbody className="divide-y divide-slate-100">
-                {people.map((p) => {
-                  const status = p.completed_at
-                    ? p.source === "waived"
-                      ? "Waived"
-                      : "Completed"
-                    : p.due_at && new Date(p.due_at).getTime() < Date.now()
-                      ? "Overdue"
-                      : "Open";
-                  return (
-                    <tr key={p.assignment_id}>
-                      <td className="px-3 py-1.5 font-medium text-slate-700">{p.name}</td>
-                      <td className="px-2 py-1.5">
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                            status === "Completed"
-                              ? "bg-emerald-100 text-emerald-700"
-                              : status === "Waived"
-                                ? "bg-slate-100 text-slate-500"
-                                : status === "Overdue"
-                                  ? "bg-red-100 text-red-700"
-                                  : "bg-compass-50 text-compass-700"
-                          }`}
-                        >
-                          {status}
-                        </span>
-                      </td>
-                      <td className="px-2 py-1.5 text-xs text-slate-400">
-                        {p.quiz_total ? `quiz ${p.quiz_score}/${p.quiz_total}` : ""}
-                        {p.prior_completions > 0 ? ` · ${p.prior_completions} prior` : ""}
-                      </td>
-                      <td className="px-2 py-1.5 text-right">
-                        {!p.completed_at ? (
-                          <button
-                            onClick={() =>
-                              void assign({ remind_assignment_id: p.assignment_id } as never)
-                            }
-                            disabled={busy}
-                            title="Send a reminder now"
-                            className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
-                          >
-                            <BellRing className="h-3 w-3" /> Remind
-                          </button>
-                        ) : p.source !== "waived" ? (
-                          <a
-                            href={`/training/certificate/${p.assignment_id}`}
-                            title="Certificate"
-                            className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
-                          >
-                            <Award className="h-3 w-3" /> Certificate
-                          </a>
-                        ) : null}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
+      <PeopleTable deck={deck} people={people} busy={busy} post={post} />
 
       <div className="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-2">
         <EntityPicker options={userOpts} value={userIds} onChange={setUserIds} placeholder="Add people…" />
         <EntityPicker options={groupOpts} value={groupIds} onChange={setGroupIds} placeholder="Add groups…" />
       </div>
-      <div className="mt-2 flex items-center gap-2">
+      <div className="mt-2 flex flex-wrap items-center gap-2">
         <button
-          onClick={() => void assign({ user_ids: userIds, group_ids: groupIds })}
+          onClick={() => void post({ user_ids: userIds, group_ids: groupIds }, "Assigned to {n} people.")}
           disabled={busy || (!userIds.length && !groupIds.length)}
           className="inline-flex items-center gap-1.5 rounded-lg bg-compass-600 px-3.5 py-1.5 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60"
         >
@@ -1105,30 +1342,21 @@ function DeckCard({
         </button>
         <button
           onClick={() => {
-            if (confirm(`Assign "${deck.title}" to every active member?`)) void assign({ everyone: true });
+            if (confirm(`Assign "${deck.title}" to every active member?`)) void post({ everyone: true }, "Assigned to {n} people.");
           }}
           disabled={busy}
           className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
         >
           Assign to everyone
         </button>
-        <span className="mx-1 h-4 border-l border-slate-200" aria-hidden />
-        <button
-          onClick={() => void assign({ user_ids: userIds, group_ids: groupIds, waive: true })}
-          disabled={busy || (!userIds.length && !groupIds.length)}
-          title="Mark as already done elsewhere — recorded as waived, no notification sent"
-          className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60"
-        >
-          Waive selected
-        </button>
         <button
           onClick={() => {
             if (
               confirm(
-                `Waive "${deck.title}" for every current member? Use this when staff already did this training before CompassDocs — it's recorded as waived, not completed, and nobody is notified. New members added later still get assigned normally.`
+                `Waive "${deck.title}" for every current member? Use this when staff already did this training before CompassDocs — recorded as waived, not completed, and nobody is notified.`
               )
             )
-              void assign({ everyone: true, waive: true });
+              void post({ everyone: true, waive: true }, "Waived for {n} people — recorded as waived, not completed.");
           }}
           disabled={busy}
           className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
@@ -1136,6 +1364,244 @@ function DeckCard({
           Waive for everyone
         </button>
       </div>
-    </section>
+    </div>
+  );
+}
+
+// --- People table with filters + bulk actions -------------------------------
+
+type PeopleFilter = "all" | "open" | "overdue" | "completed" | "waived";
+
+function PeopleTable({
+  deck,
+  people,
+  busy,
+  post,
+}: {
+  deck: Deck;
+  people: PersonRow[] | null;
+  busy: boolean;
+  post: (body: Record<string, unknown>, done: string) => Promise<void>;
+}) {
+  const [filter, setFilter] = useState<PeopleFilter>("all");
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+
+  const status = (p: PersonRow): PeopleFilter =>
+    p.completed_at
+      ? p.source === "waived"
+        ? "waived"
+        : "completed"
+      : p.due_at && new Date(p.due_at).getTime() < Date.now()
+        ? "overdue"
+        : "open";
+
+  const visible = useMemo(() => {
+    let list = people ?? [];
+    if (filter !== "all") list = list.filter((p) => status(p) === filter || (filter === "open" && status(p) === "overdue"));
+    const needle = query.trim().toLowerCase();
+    if (needle) list = list.filter((p) => `${p.name} ${p.username}`.toLowerCase().includes(needle));
+    return list;
+  }, [people, filter, query]);
+
+  const openSelected = [...selected].filter((id) => {
+    const p = (people ?? []).find((x) => x.assignment_id === id);
+    return p && !p.completed_at;
+  });
+
+  function toggle(id: number) {
+    setSelected((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function bulk(body: Record<string, unknown>, done: string) {
+    await post(body, done);
+    setSelected(new Set());
+  }
+
+  return (
+    <div className="mt-3">
+      <div className="flex flex-wrap items-center gap-2">
+        {(["all", "open", "overdue", "completed", "waived"] as const).map((f) => (
+          <button
+            key={f}
+            onClick={() => setFilter(f)}
+            className={`rounded-full px-2.5 py-1 text-xs font-medium capitalize ${
+              filter === f ? "bg-compass-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+            }`}
+          >
+            {f}
+          </button>
+        ))}
+        <div className="relative ml-auto min-w-44">
+          <Search className="pointer-events-none absolute left-2.5 top-1.5 h-3.5 w-3.5 text-slate-400" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Find a person…"
+            className="w-full rounded-lg border border-slate-200 bg-surface py-1 pl-7 pr-2 text-sm outline-hidden placeholder:text-slate-400 focus:border-compass-400"
+          />
+        </div>
+      </div>
+
+      {openSelected.length > 0 && (
+        <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-compass-200 bg-compass-50/60 px-3 py-2 text-sm dark:bg-compass-100/20">
+          <span className="font-medium text-compass-800">{openSelected.length} selected</span>
+          <button
+            onClick={() => void bulk({ remind_assignment_ids: openSelected }, "Reminded {n} people.")}
+            disabled={busy}
+            className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-surface px-2 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+          >
+            <BellRing className="h-3 w-3" /> Remind
+          </button>
+          <button
+            onClick={() => {
+              const days = Number(prompt("Extend due date by how many days?", "7"));
+              if (Number.isFinite(days) && days > 0)
+                void bulk({ extend_assignment_ids: openSelected, extend_days: days }, `Extended {n} due dates.`);
+            }}
+            disabled={busy}
+            className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-surface px-2 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+          >
+            <Timer className="h-3 w-3" /> Extend due
+          </button>
+          <button
+            onClick={() => {
+              if (confirm("Waive the selected open assignments? Recorded as waived, no notifications."))
+                void bulk({ waive_assignment_ids: openSelected }, "Waived {n} people.");
+            }}
+            disabled={busy}
+            className="rounded-md border border-slate-200 bg-surface px-2 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+          >
+            Waive
+          </button>
+          <button
+            onClick={() => {
+              if (confirm("Remove the selected open assignments? Completed records are never removed."))
+                void bulk({ unassign_assignment_ids: openSelected }, "Removed {n} assignments.");
+            }}
+            disabled={busy}
+            className="rounded-md border border-slate-200 bg-surface px-2 py-0.5 text-xs font-medium text-red-600 hover:bg-red-50"
+          >
+            Unassign
+          </button>
+        </div>
+      )}
+
+      <div className="mt-2 overflow-x-auto rounded-lg border border-slate-100">
+        {!people ? (
+          <p className="flex items-center gap-2 px-3 py-3 text-sm text-slate-400">
+            <LoaderCircle className="h-4 w-4 animate-spin" /> Loading…
+          </p>
+        ) : visible.length === 0 ? (
+          <p className="px-3 py-3 text-sm text-slate-400">
+            {people.length === 0 ? "Nobody assigned yet." : "Nobody matches."}
+          </p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-100 text-left text-[11px] uppercase tracking-wide text-slate-400">
+                <th className="w-8 px-3 py-1.5"></th>
+                <th className="px-2 py-1.5">Person</th>
+                <th className="px-2 py-1.5">Status</th>
+                <th className="px-2 py-1.5">Due</th>
+                <th className="px-2 py-1.5">Completed</th>
+                <th className="px-2 py-1.5">Quiz</th>
+                <th className="px-2 py-1.5 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {visible.map((p) => {
+                const st = status(p);
+                return (
+                  <tr key={p.assignment_id}>
+                    <td className="px-3 py-1.5">
+                      {!p.completed_at && (
+                        <input
+                          type="checkbox"
+                          checked={selected.has(p.assignment_id)}
+                          onChange={() => toggle(p.assignment_id)}
+                          aria-label={`Select ${p.name}`}
+                        />
+                      )}
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <Link
+                        href={`/training/person/${p.user_id}`}
+                        className="font-medium text-slate-700 hover:text-compass-600 hover:underline"
+                      >
+                        {p.name}
+                      </Link>
+                      {p.prior_completions > 0 && (
+                        <span className="ml-1.5 text-xs text-slate-400">· {p.prior_completions} prior</span>
+                      )}
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[11px] font-medium capitalize ${
+                          st === "completed"
+                            ? "bg-emerald-100 text-emerald-700"
+                            : st === "waived"
+                              ? "bg-slate-100 text-slate-500"
+                              : st === "overdue"
+                                ? "bg-red-100 text-red-700"
+                                : "bg-compass-50 text-compass-700"
+                        }`}
+                      >
+                        {st}
+                      </span>
+                    </td>
+                    <td className="px-2 py-1.5 text-xs text-slate-500">{fmtDay(p.due_at) ?? "—"}</td>
+                    <td className="px-2 py-1.5 text-xs text-slate-500">{fmtDay(p.completed_at) ?? "—"}</td>
+                    <td className="px-2 py-1.5 text-xs text-slate-500">
+                      {p.quiz_total ? `${p.quiz_score}/${p.quiz_total}` : "—"}
+                    </td>
+                    <td className="px-2 py-1.5 text-right">
+                      {!p.completed_at ? (
+                        <button
+                          onClick={() => void post({ remind_assignment_ids: [p.assignment_id] }, "Reminder sent.")}
+                          disabled={busy}
+                          title="Send a reminder now"
+                          className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                        >
+                          <BellRing className="h-3 w-3" /> Remind
+                        </button>
+                      ) : (
+                        <span className="inline-flex items-center gap-1">
+                          {p.source !== "waived" && (
+                            <a
+                              href={`/training/certificate/${p.assignment_id}`}
+                              title="Certificate"
+                              className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                            >
+                              <Award className="h-3 w-3" /> Certificate
+                            </a>
+                          )}
+                          <button
+                            onClick={() => {
+                              if (confirm(`Reopen this training for ${p.name}? Their completion moves to history and they're asked to retake it.`))
+                                void post({ reopen_assignment_id: p.assignment_id }, "Reopened — prior completion kept in history.");
+                            }}
+                            disabled={busy}
+                            title="Reopen for this person"
+                            className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                          >
+                            <RotateCcw className="h-3 w-3" /> Reopen
+                          </button>
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
   );
 }

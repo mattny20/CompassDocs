@@ -775,6 +775,37 @@ const SCHEMA_SQL = `
   );
   CREATE INDEX IF NOT EXISTS idx_training_history ON training_completion_history(deck_id, user_id);
 
+  -- 0.81: console at scale + evidence retention. Deck tags for filtering,
+  -- activity timestamp for stall detection, snooze for the attention queue —
+  -- and the history table stops cascading away when a person or deck goes:
+  -- FKs relax to SET NULL and rows carry name/title snapshots.
+  ALTER TABLE training_decks ADD COLUMN IF NOT EXISTS tag text NOT NULL DEFAULT '';
+  ALTER TABLE training_assignments ADD COLUMN IF NOT EXISTS progress_at timestamptz;
+  ALTER TABLE training_assignments ADD COLUMN IF NOT EXISTS snoozed_until timestamptz;
+  ALTER TABLE training_completion_history ADD COLUMN IF NOT EXISTS user_name text NOT NULL DEFAULT '';
+  ALTER TABLE training_completion_history ADD COLUMN IF NOT EXISTS user_email text NOT NULL DEFAULT '';
+  ALTER TABLE training_completion_history ADD COLUMN IF NOT EXISTS deck_title text NOT NULL DEFAULT '';
+  ALTER TABLE training_completion_history ALTER COLUMN user_id DROP NOT NULL;
+  ALTER TABLE training_completion_history ALTER COLUMN deck_id DROP NOT NULL;
+  ALTER TABLE training_completion_history
+    DROP CONSTRAINT IF EXISTS training_completion_history_user_id_fkey;
+  ALTER TABLE training_completion_history
+    ADD CONSTRAINT training_completion_history_user_id_fkey
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
+  ALTER TABLE training_completion_history
+    DROP CONSTRAINT IF EXISTS training_completion_history_deck_id_fkey;
+  ALTER TABLE training_completion_history
+    ADD CONSTRAINT training_completion_history_deck_id_fkey
+    FOREIGN KEY (deck_id) REFERENCES training_decks(id) ON DELETE SET NULL;
+  UPDATE training_completion_history h
+    SET user_name = COALESCE(u.name, h.user_name),
+        user_email = COALESCE(u.email, h.user_email)
+    FROM users u WHERE u.id = h.user_id AND h.user_name = '';
+  UPDATE training_completion_history h
+    SET deck_title = COALESCE(d.title, h.deck_title)
+    FROM training_decks t JOIN documents d ON d.id = t.document_id
+    WHERE t.id = h.deck_id AND h.deck_title = '';
+
   -- Quick links: an admin-curated launchpad of external shortcuts (Duo
   -- Central-style bookmarks). A link with no link_groups rows is visible to
   -- every signed-in user; with rows, only to members of those groups (admins
@@ -2598,6 +2629,21 @@ export async function markLogin(id: number): Promise<void> {
 }
 
 export async function deleteUser(id: number): Promise<boolean> {
+  // Completed training is compliance evidence — archive it (with snapshots)
+  // before the user row and its assignments cascade away.
+  await q(
+    `INSERT INTO training_completion_history
+       (deck_id, user_id, assigned_at, completed_at, confirmed_version, quiz_score, quiz_total,
+        source, user_name, user_email, deck_title)
+     SELECT a.deck_id, a.user_id, a.assigned_at, a.completed_at, a.confirmed_version,
+            a.quiz_score, a.quiz_total, a.source, u.name, u.email, d.title
+     FROM training_assignments a
+     JOIN users u ON u.id = a.user_id
+     JOIN training_decks t ON t.id = a.deck_id
+     JOIN documents d ON d.id = t.document_id
+     WHERE a.user_id = $1 AND a.completed_at IS NOT NULL`,
+    [id]
+  ).catch(() => {});
   const res = await pool().query("DELETE FROM users WHERE id = $1", [id]);
   return (res.rowCount ?? 0) > 0;
 }
@@ -3608,12 +3654,17 @@ export interface TrainingDeck {
   archived_at: string | null;
   pass_pct: number;
   recert_months: number | null;
+  tag: string;
   title: string;
   space_name: string;
   space_icon: string;
   doc_status: string;
   assigned: number;
   completed: number;
+  waived: number;
+  overdue: number;
+  /** Slide where the most in-progress trainees stopped (null = none started). */
+  stall_slide: number | null;
 }
 
 export async function createTrainingDeck(
@@ -3640,6 +3691,7 @@ export async function updateTrainingDeck(
     archived?: boolean;
     pass_pct?: number;
     recert_months?: number | null;
+    tag?: string;
   }
 ): Promise<void> {
   const sets: string[] = [];
@@ -3661,6 +3713,10 @@ export async function updateTrainingDeck(
     vals.push(patch.recert_months);
     sets.push(`recert_months = $${vals.length}`);
   }
+  if (patch.tag !== undefined) {
+    vals.push(patch.tag.slice(0, 60));
+    sets.push(`tag = $${vals.length}`);
+  }
   if (!sets.length) return;
   await q(`UPDATE training_decks SET ${sets.join(", ")} WHERE id = $1`, vals);
 }
@@ -3668,9 +3724,20 @@ export async function updateTrainingDeck(
 export async function listTrainingDecks(archived = false): Promise<TrainingDeck[]> {
   return q(
     `SELECT t.*, d.title, d.status AS doc_status, s.name AS space_name, s.icon AS space_icon,
-            (SELECT COUNT(*)::int FROM training_assignments a WHERE a.deck_id = t.id) AS assigned,
-            (SELECT COUNT(*)::int FROM training_assignments a
-             WHERE a.deck_id = t.id AND a.completed_at IS NOT NULL) AS completed
+            (SELECT COUNT(*)::int FROM training_assignments a JOIN users u ON u.id = a.user_id
+             WHERE a.deck_id = t.id AND u.status = 'active') AS assigned,
+            (SELECT COUNT(*)::int FROM training_assignments a JOIN users u ON u.id = a.user_id
+             WHERE a.deck_id = t.id AND u.status = 'active'
+               AND a.completed_at IS NOT NULL AND a.source <> 'waived') AS completed,
+            (SELECT COUNT(*)::int FROM training_assignments a JOIN users u ON u.id = a.user_id
+             WHERE a.deck_id = t.id AND u.status = 'active'
+               AND a.completed_at IS NOT NULL AND a.source = 'waived') AS waived,
+            (SELECT COUNT(*)::int FROM training_assignments a JOIN users u ON u.id = a.user_id
+             WHERE a.deck_id = t.id AND u.status = 'active'
+               AND a.completed_at IS NULL AND a.due_at < now()) AS overdue,
+            (SELECT a.last_slide FROM training_assignments a
+             WHERE a.deck_id = t.id AND a.completed_at IS NULL AND a.last_slide > 0
+             GROUP BY a.last_slide ORDER BY COUNT(*) DESC, a.last_slide LIMIT 1) AS stall_slide
      FROM training_decks t
      JOIN documents d ON d.id = t.document_id
      JOIN spaces s ON s.id = d.space_id
@@ -3679,8 +3746,25 @@ export async function listTrainingDecks(archived = false): Promise<TrainingDeck[
   );
 }
 
-/** Hard-delete a deck (assignments and program links cascade). */
+/**
+ * Hard-delete a deck. Completed assignments are archived to the history
+ * table first (with name/title snapshots), so the evidence outlives the
+ * deck; open assignments and program links cascade away.
+ */
 export async function deleteTrainingDeck(id: number): Promise<void> {
+  await q(
+    `INSERT INTO training_completion_history
+       (deck_id, user_id, assigned_at, completed_at, confirmed_version, quiz_score, quiz_total,
+        source, user_name, user_email, deck_title)
+     SELECT a.deck_id, a.user_id, a.assigned_at, a.completed_at, a.confirmed_version,
+            a.quiz_score, a.quiz_total, a.source, u.name, u.email, d.title
+     FROM training_assignments a
+     JOIN users u ON u.id = a.user_id
+     JOIN training_decks t ON t.id = a.deck_id
+     JOIN documents d ON d.id = t.document_id
+     WHERE a.deck_id = $1 AND a.completed_at IS NOT NULL`,
+    [id]
+  );
   await q(`DELETE FROM training_decks WHERE id = $1`, [id]);
 }
 
@@ -3695,7 +3779,8 @@ export async function getTrainingDeck(id: number): Promise<TrainingDeck | undefi
   return (
     await q<TrainingDeck>(
       `SELECT t.*, d.title, d.status AS doc_status, s.name AS space_name, s.icon AS space_icon,
-              0 AS assigned, 0 AS completed
+              0 AS assigned, 0 AS completed, 0 AS waived, 0 AS overdue,
+              NULL::int AS stall_slide
        FROM training_decks t
        JOIN documents d ON d.id = t.document_id
        JOIN spaces s ON s.id = d.space_id
@@ -3826,7 +3911,7 @@ export async function setTrainingProgress(
   slide: number
 ): Promise<void> {
   await q(
-    `UPDATE training_assignments SET last_slide = GREATEST(last_slide, $3)
+    `UPDATE training_assignments SET last_slide = GREATEST(last_slide, $3), progress_at = now()
      WHERE id = $1 AND user_id = $2 AND completed_at IS NULL`,
     [assignmentId, userId, Math.max(0, Math.floor(slide))]
   );
@@ -3962,10 +4047,15 @@ async function reopenAssignments(where: string, params: unknown[]): Promise<
      ),
      hist AS (
        INSERT INTO training_completion_history
-         (deck_id, user_id, assigned_at, completed_at, confirmed_version, quiz_score, quiz_total, source)
+         (deck_id, user_id, assigned_at, completed_at, confirmed_version, quiz_score, quiz_total,
+          source, user_name, user_email, deck_title)
        SELECT a.deck_id, a.user_id, a.assigned_at, a.completed_at, a.confirmed_version,
-              a.quiz_score, a.quiz_total, a.source
-       FROM training_assignments a JOIN due ON due.id = a.id
+              a.quiz_score, a.quiz_total, a.source, u.name, u.email, d2.title
+       FROM training_assignments a
+       JOIN due ON due.id = a.id
+       JOIN users u ON u.id = a.user_id
+       JOIN training_decks t3 ON t3.id = a.deck_id
+       JOIN documents d2 ON d2.id = t3.document_id
      )
      UPDATE training_assignments a
      SET completed_at = NULL, confirmed_version = NULL, last_slide = 0,
@@ -3995,10 +4085,17 @@ export async function claimRecertifications(): Promise<
   );
 }
 
-/** Manager action: reopen every completed assignment on one deck now. */
-export async function reopenCompletedForDeck(deckId: number): Promise<
-  { assignment_id: number; user_id: number; title: string; due_at: string | null }[]
-> {
+/**
+ * Manager action: reopen completed assignments on one deck — all of them, or
+ * just the given assignment ids (individual retraining).
+ */
+export async function reopenCompletedForDeck(
+  deckId: number,
+  assignmentIds?: number[]
+): Promise<{ assignment_id: number; user_id: number; title: string; due_at: string | null }[]> {
+  if (assignmentIds && assignmentIds.length) {
+    return reopenAssignments(`a.deck_id = $1 AND a.id = ANY($2)`, [deckId, assignmentIds]);
+  }
   return reopenAssignments(`a.deck_id = $1`, [deckId]);
 }
 
@@ -4121,6 +4218,179 @@ export async function getTrainingAssignment(assignmentId: number): Promise<
     [assignmentId]
   );
   return r[0];
+}
+
+/**
+ * Remove OPEN assignments (mis-assignments, leavers). Completed rows are
+ * records and cannot be unassigned — reopen or archive the deck instead.
+ * Returns how many were removed.
+ */
+export async function unassignTraining(deckId: number, assignmentIds: number[]): Promise<number> {
+  if (!assignmentIds.length) return 0;
+  const r = await q<{ id: number }>(
+    `DELETE FROM training_assignments
+     WHERE deck_id = $1 AND id = ANY($2) AND completed_at IS NULL
+     RETURNING id`,
+    [deckId, assignmentIds]
+  );
+  return r.length;
+}
+
+/**
+ * Push selected open assignments' due dates out by N days (from now, or from
+ * the current due date if that's later). Re-arms escalation.
+ */
+export async function extendTrainingDue(
+  deckId: number,
+  assignmentIds: number[],
+  days: number
+): Promise<number> {
+  if (!assignmentIds.length) return 0;
+  const r = await q<{ id: number }>(
+    `UPDATE training_assignments
+     SET due_at = GREATEST(COALESCE(due_at, now()), now()) + make_interval(days => $3),
+         escalated_at = NULL, snoozed_until = NULL
+     WHERE deck_id = $1 AND id = ANY($2) AND completed_at IS NULL
+     RETURNING id`,
+    [deckId, assignmentIds, Math.min(365, Math.max(1, Math.floor(days)))]
+  );
+  return r.length;
+}
+
+/** Mark manual reminders sent so the sweep doesn't double-nudge within hours. */
+export async function setTrainingReminded(assignmentIds: number[]): Promise<void> {
+  if (!assignmentIds.length) return;
+  await q(`UPDATE training_assignments SET reminded_at = now() WHERE id = ANY($1)`, [
+    assignmentIds,
+  ]);
+}
+
+/** Snooze rows out of the needs-attention queue for N days. */
+export async function snoozeTraining(assignmentIds: number[], days: number): Promise<void> {
+  if (!assignmentIds.length) return;
+  await q(
+    `UPDATE training_assignments
+     SET snoozed_until = now() + make_interval(days => $2)
+     WHERE id = ANY($1) AND completed_at IS NULL`,
+    [assignmentIds, Math.min(90, Math.max(1, Math.floor(days)))]
+  );
+}
+
+export interface AttentionRow {
+  assignment_id: number;
+  deck_id: number;
+  deck: string;
+  user_id: number;
+  name: string;
+  username: string;
+  due_at: string | null;
+  last_slide: number;
+  quiz_score: number | null;
+  quiz_total: number | null;
+  pass_pct: number;
+  reason: "overdue" | "failed_quiz" | "stalled";
+}
+
+/**
+ * The triage queue: overdue, failed-quiz (below the deck's pass %), or
+ * stalled (started, then no activity for 14+ days). Snoozed rows drop out.
+ */
+export async function trainingNeedsAttention(): Promise<{
+  rows: AttentionRow[];
+  total: number;
+}> {
+  const where = `a.completed_at IS NULL
+       AND (a.snoozed_until IS NULL OR a.snoozed_until < now())
+       AND t.active = 1 AND t.archived_at IS NULL
+       AND d.status = 'published' AND d.deleted_at IS NULL AND u.status = 'active'
+       AND ((a.due_at IS NOT NULL AND a.due_at < now())
+         OR (a.quiz_total IS NOT NULL AND a.quiz_total > 0
+             AND a.quiz_score::numeric / a.quiz_total < t.pass_pct / 100.0)
+         OR (a.last_slide > 0 AND a.progress_at IS NOT NULL
+             AND a.progress_at < now() - interval '14 days'))`;
+  const from = `FROM training_assignments a
+     JOIN training_decks t ON t.id = a.deck_id
+     JOIN documents d ON d.id = t.document_id
+     JOIN users u ON u.id = a.user_id`;
+  const rows = await q<AttentionRow>(
+    `SELECT a.id AS assignment_id, t.id AS deck_id, d.title AS deck,
+            u.id AS user_id, u.name, u.username, a.due_at, a.last_slide,
+            a.quiz_score, a.quiz_total, t.pass_pct,
+            CASE WHEN a.due_at IS NOT NULL AND a.due_at < now() THEN 'overdue'
+                 WHEN a.quiz_total IS NOT NULL AND a.quiz_total > 0
+                      AND a.quiz_score::numeric / a.quiz_total < t.pass_pct / 100.0
+                   THEN 'failed_quiz'
+                 ELSE 'stalled' END AS reason
+     ${from} WHERE ${where}
+     ORDER BY (a.due_at IS NULL), a.due_at ASC, u.name
+     LIMIT 200`
+  );
+  const total = await q<{ n: number }>(`SELECT COUNT(*)::int AS n ${from} WHERE ${where}`);
+  return { rows, total: total[0]?.n ?? 0 };
+}
+
+export interface TranscriptRow {
+  assignment_id: number;
+  deck_id: number;
+  deck: string;
+  deck_archived: boolean;
+  assigned_at: string;
+  due_at: string | null;
+  completed_at: string | null;
+  confirmed_version: number | null;
+  quiz_score: number | null;
+  quiz_total: number | null;
+  source: string;
+  last_slide: number;
+}
+
+/** One person's full training record: live assignments + closed cycles. */
+export async function userTrainingTranscript(userId: number): Promise<{
+  current: TranscriptRow[];
+  history: {
+    deck_title: string;
+    assigned_at: string;
+    completed_at: string | null;
+    confirmed_version: number | null;
+    quiz_score: number | null;
+    quiz_total: number | null;
+    source: string;
+    closed_at: string;
+  }[];
+}> {
+  const current = await q<TranscriptRow>(
+    `SELECT a.id AS assignment_id, t.id AS deck_id, d.title AS deck,
+            (t.archived_at IS NOT NULL) AS deck_archived,
+            a.assigned_at, a.due_at, a.completed_at, a.confirmed_version,
+            a.quiz_score, a.quiz_total, a.source, a.last_slide
+     FROM training_assignments a
+     JOIN training_decks t ON t.id = a.deck_id
+     JOIN documents d ON d.id = t.document_id
+     WHERE a.user_id = $1 AND d.deleted_at IS NULL
+     ORDER BY (a.completed_at IS NULL) DESC, a.due_at NULLS LAST, d.title`,
+    [userId]
+  );
+  const history = await q<{
+    deck_title: string;
+    assigned_at: string;
+    completed_at: string | null;
+    confirmed_version: number | null;
+    quiz_score: number | null;
+    quiz_total: number | null;
+    source: string;
+    closed_at: string;
+  }>(
+    `SELECT COALESCE(NULLIF(h.deck_title, ''),
+                     (SELECT d.title FROM training_decks t JOIN documents d ON d.id = t.document_id
+                      WHERE t.id = h.deck_id)) AS deck_title,
+            h.assigned_at, h.completed_at, h.confirmed_version,
+            h.quiz_score, h.quiz_total, h.source, h.closed_at
+     FROM training_completion_history h
+     WHERE h.user_id = $1
+     ORDER BY h.closed_at DESC`,
+    [userId]
+  );
+  return { current, history };
 }
 
 /** Resolve an assignment audience (users + groups + everyone) to user ids. */
