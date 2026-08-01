@@ -14,6 +14,7 @@ import {
   ATTACHMENT_MB_MAX,
 } from "@/lib/settings";
 import type { AppSettings } from "@/lib/settings";
+import { toast } from "@/components/Toasts";
 
 // IANA zones the runtime knows about, with a couple of common ones pinned first.
 function timeZones(): string[] {
@@ -31,15 +32,12 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
   const router = useRouter();
   const [s, setS] = useState<AppSettings>(initial);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [error, setError] = useState("");
   const [siteUrl, setSiteUrl] = useState("");
   const [logoBusy, setLogoBusy] = useState(false);
   const [logoMsg, setLogoMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   function set<K extends keyof AppSettings>(key: K, value: AppSettings[K]) {
     setS((prev) => ({ ...prev, [key]: value }));
-    setSaved(false);
   }
 
   // Logo fetch/upload/remove apply immediately (they store a file server-side),
@@ -96,8 +94,6 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
 
   async function save() {
     setSaving(true);
-    setError("");
-    setSaved(false);
     const res = await fetch("/api/admin/settings", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -106,12 +102,12 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
     setSaving(false);
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
-      setError(data?.error || "Could not save settings.");
+      toast("error", data?.error || "Could not save settings.");
       return;
     }
     const data = await res.json().catch(() => ({}));
     if (data?.settings) setS(data.settings);
-    setSaved(true);
+    toast("ok", "Workspace settings saved.");
     router.refresh();
   }
 
@@ -487,8 +483,6 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
         >
           {saving ? "Saving…" : "Save changes"}
         </button>
-        {saved && <span className="text-sm text-green-600">✓ Saved</span>}
-        {error && <span className="text-sm text-red-600">{error}</span>}
       </div>
     </div>
   );

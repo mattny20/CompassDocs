@@ -4,6 +4,7 @@ import { runDiagnostics } from "@/lib/diagnostics";
 import { SystemPanel } from "@/components/SystemPanel";
 import { UpdatePanel } from "@/components/UpdatePanel";
 import { DiagnosticsPanel } from "@/components/DiagnosticsPanel";
+import { SettingsPage } from "@/components/SettingsPage";
 
 export const dynamic = "force-dynamic";
 
@@ -14,10 +15,12 @@ export default async function SystemPage() {
     runDiagnostics(),
   ]);
   return (
+    <SettingsPage href="/admin">
     <div className="space-y-4">
       <UpdatePanel />
       <DiagnosticsPanel initial={checks} />
       <SystemPanel info={info} settings={settings} />
     </div>
+    </SettingsPage>
   );
 }

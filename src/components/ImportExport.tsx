@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "@/components/Toasts";
 import type { ImportResult } from "@/lib/transfer";
 
 export function ImportExport() {
@@ -10,16 +11,14 @@ export function ImportExport() {
   const [fileName, setFileName] = useState("");
   const [importing, setImporting] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
-  const [error, setError] = useState("");
 
   async function runImport() {
     const file = fileInput.current?.files?.[0];
     if (!file) {
-      setError("Choose a .zip file first.");
+      toast("error", "Choose a .zip file first.");
       return;
     }
     setImporting(true);
-    setError("");
     setResult(null);
     const body = new FormData();
     body.append("file", file);
@@ -27,7 +26,7 @@ export function ImportExport() {
     setImporting(false);
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      setError(data?.error || "Import failed.");
+      toast("error", data?.error || "Import failed.");
       return;
     }
     setResult(data as ImportResult);
@@ -66,7 +65,6 @@ export function ImportExport() {
             onChange={(e) => {
               setFileName(e.target.files?.[0]?.name ?? "");
               setResult(null);
-              setError("");
             }}
             className="block w-full text-sm text-slate-500 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-slate-700 hover:file:bg-slate-200"
           />
@@ -79,9 +77,6 @@ export function ImportExport() {
           </button>
         </div>
 
-        {error && (
-          <div className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>
-        )}
         {result && (
           <div className="mt-3 rounded-lg bg-green-50 px-3 py-2 text-sm text-green-800">
             Imported: <strong>{result.created}</strong> created,{" "}

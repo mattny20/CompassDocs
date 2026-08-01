@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Copy, KeyRound, LoaderCircle, RefreshCw } from "lucide-react";
 import { timeAgo } from "@/lib/ui";
+import { toast } from "@/components/Toasts";
 
 // Admin card for SCIM provisioning (enterprise): shows the tenant/base URL to
 // paste into Entra, generates/rotates the bearer token (displayed once), and
@@ -20,12 +21,10 @@ export function ScimPanel({ initial }: { initial: ScimStatus }) {
   const [status, setStatus] = useState<ScimStatus>(initial);
   const [freshToken, setFreshToken] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
   const [copied, setCopied] = useState<"url" | "token" | null>(null);
 
   async function call(method: "POST" | "PATCH", body?: unknown) {
     setBusy(true);
-    setError("");
     try {
       const res = await fetch("/api/admin/scim", {
         method,
@@ -43,7 +42,7 @@ export function ScimPanel({ initial }: { initial: ScimStatus }) {
         base_url: data.base_url,
       });
     } catch (e: any) {
-      setError(e.message || "Request failed.");
+      toast("error", e.message || "Request failed.");
     } finally {
       setBusy(false);
     }
@@ -159,7 +158,6 @@ export function ScimPanel({ initial }: { initial: ScimStatus }) {
               </span>
             </div>
           )}
-          {error && <p className="text-sm text-red-600">{error}</p>}
           <p className="text-xs text-slate-400">
             Users are provisioned as Viewers and sign in via SSO. Entra deletes deactivate the
             account here (content and history are kept). Group provisioning stays with Entra

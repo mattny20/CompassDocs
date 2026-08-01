@@ -6,6 +6,7 @@
 
 import { useState } from "react";
 import { Globe, ExternalLink } from "lucide-react";
+import { toast } from "@/components/Toasts";
 
 type PublicSpace = { id: number; name: string; slug: string; doc_count: number };
 
@@ -18,11 +19,12 @@ export function PublicSitePanel({
 }) {
   const [config, setConfig] = useState(initial);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
 
-  async function save(patch: { enabled?: boolean; indexing?: boolean; shareLinks?: boolean }) {
+  async function save(
+    patch: { enabled?: boolean; indexing?: boolean; shareLinks?: boolean },
+    okText: string
+  ) {
     setSaving(true);
-    setError("");
     const res = await fetch("/api/admin/public-site", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -30,16 +32,16 @@ export function PublicSitePanel({
     });
     setSaving(false);
     if (!res.ok) {
-      setError((await res.json().catch(() => ({}))).error || "Could not save.");
+      toast("error", (await res.json().catch(() => ({}))).error || "Could not save.");
       return;
     }
     setConfig((await res.json()).config);
+    toast("ok", okText);
   }
 
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-lg font-semibold text-slate-900">Public site</h2>
         <p className="mt-1 text-sm text-slate-500">
           Serve the published documents of <strong>Public</strong> spaces to anyone on the
           internet — no sign-in — at{" "}
@@ -49,19 +51,18 @@ export function PublicSitePanel({
         </p>
       </div>
 
-      {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-          {error}
-        </div>
-      )}
-
       <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <label className="flex cursor-pointer items-start gap-3">
           <input
             type="checkbox"
             checked={config.enabled}
             disabled={saving}
-            onChange={(e) => save({ enabled: e.target.checked })}
+            onChange={(e) =>
+              save(
+                { enabled: e.target.checked },
+                e.target.checked ? "Public site enabled." : "Public site disabled."
+              )
+            }
             className="mt-0.5 h-4 w-4 accent-compass-600"
           />
           <span>
@@ -78,7 +79,12 @@ export function PublicSitePanel({
             type="checkbox"
             checked={config.indexing}
             disabled={saving || !config.enabled}
-            onChange={(e) => save({ indexing: e.target.checked })}
+            onChange={(e) =>
+              save(
+                { indexing: e.target.checked },
+                e.target.checked ? "Search engines allowed." : "Search engines disallowed."
+              )
+            }
             className="mt-0.5 h-4 w-4 accent-compass-600"
           />
           <span>
@@ -97,7 +103,12 @@ export function PublicSitePanel({
             type="checkbox"
             checked={config.shareLinks}
             disabled={saving}
-            onChange={(e) => save({ shareLinks: e.target.checked })}
+            onChange={(e) =>
+              save(
+                { shareLinks: e.target.checked },
+                e.target.checked ? "Public share links enabled." : "Public share links disabled."
+              )
+            }
             className="mt-0.5 h-4 w-4 accent-compass-600"
           />
           <span>

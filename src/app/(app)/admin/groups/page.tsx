@@ -3,6 +3,7 @@ import { listGroups, listUsers } from "@/lib/db";
 import { getDirectoryGraphConfig } from "@/lib/directory-config";
 import { eePresent, featureEnabled } from "@/lib/ee";
 import { GroupsPanel } from "@/components/GroupsPanel";
+import { SettingsPage } from "@/components/SettingsPage";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +18,7 @@ export default async function GroupsAdminPage() {
   ]);
 
   return (
+    <SettingsPage href="/admin/groups">
     <GroupsPanel
       initial={groups}
       users={users.map((u) => ({
@@ -32,5 +34,6 @@ export default async function GroupsAdminPage() {
         configured: Boolean(cfg.tenant && cfg.clientId && cfg.clientSecret),
       }}
     />
+    </SettingsPage>
   );
 }

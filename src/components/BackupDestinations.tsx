@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "@/components/Toasts";
 
 interface DestState {
   s3: {
@@ -61,13 +62,9 @@ export function BackupDestinations({ initial }: { initial: DestState }) {
 
 function useSaver(refresh: () => void, onState: (s: DestState) => void) {
   const [saving, setSaving] = useState<"" | "save" | "test">("");
-  const [msg, setMsg] = useState("");
-  const [err, setErr] = useState("");
 
   async function submit(payload: Record<string, unknown>, withTest: boolean) {
     setSaving(withTest ? "test" : "save");
-    setMsg("");
-    setErr("");
     const res = await fetch("/api/admin/backup-destinations", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -76,21 +73,21 @@ function useSaver(refresh: () => void, onState: (s: DestState) => void) {
     setSaving("");
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      setErr(data?.error || "Could not save.");
+      toast("error", data?.error || "Could not save.");
       return null;
     }
     if (data?.state) onState(data.state);
     if (withTest) {
-      if (data?.test?.ok) setMsg("✓ Saved — connection verified.");
-      else setErr(data?.test?.error || "Saved, but the connection test failed.");
+      if (data?.test?.ok) toast("ok", "Destination saved — connection verified.");
+      else toast("error", data?.test?.error || "Saved, but the connection test failed.");
     } else {
-      setMsg("✓ Saved.");
+      toast("ok", "Destination saved.");
     }
     refresh();
     return data;
   }
 
-  return { saving, msg, err, submit, setMsg, setErr };
+  return { saving, submit };
 }
 
 function S3Card({
@@ -108,7 +105,7 @@ function S3Card({
   const [prefix, setPrefix] = useState(s3.prefix);
   const [accessKeyId, setAccessKeyId] = useState(s3.access_key_id);
   const [secret, setSecret] = useState("");
-  const { saving, msg, err, submit } = useSaver(refresh, onState);
+  const { saving, submit } = useSaver(refresh, onState);
 
   const payload = () => ({
     provider: "s3",
@@ -137,6 +134,7 @@ function S3Card({
     setPrefix("");
     setAccessKeyId("");
     setSecret("");
+    toast("ok", "S3 destination removed.");
     refresh();
   }
 
@@ -184,8 +182,6 @@ function S3Card({
 
       <Actions
         saving={saving}
-        msg={msg}
-        err={err}
         onSave={() => submit(payload(), false)}
         onTest={() => submit(payload(), true)}
         onRemove={s3.configured ? remove : undefined}
@@ -205,7 +201,7 @@ function AzureCard({
 }) {
   const [container, setContainer] = useState(azure.container);
   const [conn, setConn] = useState("");
-  const { saving, msg, err, submit } = useSaver(refresh, onState);
+  const { saving, submit } = useSaver(refresh, onState);
 
   const payload = () => ({
     provider: "azure",
@@ -224,6 +220,7 @@ function AzureCard({
     if (data?.state) onState(data.state);
     setContainer("");
     setConn("");
+    toast("ok", "Azure destination removed.");
     refresh();
   }
 
@@ -256,8 +253,6 @@ function AzureCard({
 
       <Actions
         saving={saving}
-        msg={msg}
-        err={err}
         onSave={() => submit(payload(), false)}
         onTest={() => submit(payload(), true)}
         onRemove={azure.configured ? remove : undefined}
@@ -277,15 +272,11 @@ function Labeled({ label, children }: { label: string; children: React.ReactNode
 
 function Actions({
   saving,
-  msg,
-  err,
   onSave,
   onTest,
   onRemove,
 }: {
   saving: "" | "save" | "test";
-  msg: string;
-  err: string;
   onSave: () => void;
   onTest: () => void;
   onRemove?: () => void;
@@ -315,8 +306,6 @@ function Actions({
           Remove
         </button>
       )}
-      {msg && <span className="text-sm text-green-600">{msg}</span>}
-      {err && <span className="text-sm text-red-600">{err}</span>}
     </div>
   );
 }

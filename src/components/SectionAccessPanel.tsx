@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { GraduationCap, Megaphone, ShieldCheck } from "lucide-react";
 import { EntityPicker } from "@/components/EntityPicker";
+import { toast } from "@/components/Toasts";
 
 // Settings → Section access: grant non-admins the operational sections that
 // live in the main navigation (Announcements, Compliance), per user or group.
@@ -43,13 +44,9 @@ export function SectionAccessPanel({
 }) {
   const [sections, setSections] = useState<SectionRow[]>(initial);
   const [busyKey, setBusyKey] = useState("");
-  const [message, setMessage] = useState<{ key: string; tone: "ok" | "error"; text: string } | null>(
-    null
-  );
 
   async function save(section: SectionRow) {
     setBusyKey(section.key);
-    setMessage(null);
     try {
       const res = await fetch("/api/admin/section-access", {
         method: "PATCH",
@@ -58,12 +55,12 @@ export function SectionAccessPanel({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setMessage({ key: section.key, tone: "error", text: data.error || "Save failed." });
+        toast("error", data.error || "Save failed.");
       } else {
-        setMessage({ key: section.key, tone: "ok", text: "Saved — access applies immediately." });
+        toast("ok", `${section.label} access saved — applies immediately.`);
       }
     } catch {
-      setMessage({ key: section.key, tone: "error", text: "Save failed." });
+      toast("error", "Save failed.");
     }
     setBusyKey("");
   }
@@ -75,7 +72,6 @@ export function SectionAccessPanel({
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="text-lg font-semibold text-slate-900">Section access</h2>
         <p className="mt-1 max-w-2xl text-sm text-slate-500">
           Announcements and Compliance live in the main navigation. Admins always have access;
           grant them here to individual people or groups so a comms lead or HR manager can run
@@ -84,7 +80,6 @@ export function SectionAccessPanel({
       </div>
 
       {sections.map((s) => {
-        const msg = message?.key === s.key ? message : null;
         return (
           <div key={s.key} className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
             <div className="mb-1 flex items-center gap-2">
@@ -136,11 +131,6 @@ export function SectionAccessPanel({
               >
                 {busyKey === s.key ? "Saving…" : "Save"}
               </button>
-              {msg && (
-                <span className={`text-sm ${msg.tone === "ok" ? "text-green-600" : "text-red-600"}`}>
-                  {msg.text}
-                </span>
-              )}
             </div>
           </div>
         );

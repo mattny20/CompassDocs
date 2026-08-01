@@ -15,6 +15,7 @@ import {
   SquarePen,
 } from "lucide-react";
 import { RichTextEditor } from "@/components/RichTextEditor";
+import { toast } from "@/components/Toasts";
 
 // Admin editor for the emails CompassDocs sends (Settings → Notifications →
 // Email templates). One template open at a time: subject line, doc-editor
@@ -49,7 +50,6 @@ export function EmailTemplatesPanel({ initial }: { initial: Template[] }) {
   const [body, setBody] = useState("");
   const [preview, setPreview] = useState<{ subject: string; html: string } | null>(null);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
   const previewTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const open = templates.find((t) => t.key === openKey) ?? null;
@@ -61,7 +61,6 @@ export function EmailTemplatesPanel({ initial }: { initial: Template[] }) {
     setSubject(t.subject);
     setBody(t.body);
     setPreview(null);
-    setMessage(null);
   }
 
   // Live preview: re-render (debounced) whenever the draft changes.
@@ -88,7 +87,6 @@ export function EmailTemplatesPanel({ initial }: { initial: Template[] }) {
   async function save() {
     if (!open) return;
     setBusy(true);
-    setMessage(null);
     try {
       const res = await fetch("/api/admin/email-templates", {
         method: "PUT",
@@ -97,17 +95,17 @@ export function EmailTemplatesPanel({ initial }: { initial: Template[] }) {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setMessage({ tone: "error", text: data.error || "Save failed." });
+        toast("error", data.error || "Save failed.");
       } else {
         setTemplates((all) =>
           all.map((t) =>
             t.key === open.key ? { ...t, subject, body, customized: data.customized } : t
           )
         );
-        setMessage({ tone: "ok", text: "Template saved — future emails use it immediately." });
+        toast("ok", "Template saved — future emails use it immediately.");
       }
     } catch {
-      setMessage({ tone: "error", text: "Save failed." });
+      toast("error", "Save failed.");
     }
     setBusy(false);
   }
@@ -115,14 +113,13 @@ export function EmailTemplatesPanel({ initial }: { initial: Template[] }) {
   async function resetToDefault() {
     if (!open) return;
     setBusy(true);
-    setMessage(null);
     try {
       const res = await fetch(`/api/admin/email-templates?key=${encodeURIComponent(open.key)}`, {
         method: "DELETE",
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setMessage({ tone: "error", text: data.error || "Reset failed." });
+        toast("error", data.error || "Reset failed.");
       } else {
         setSubject(data.subject);
         setBody(data.body);
@@ -133,10 +130,10 @@ export function EmailTemplatesPanel({ initial }: { initial: Template[] }) {
               : t
           )
         );
-        setMessage({ tone: "ok", text: "Restored the default template." });
+        toast("ok", "Restored the default template.");
       }
     } catch {
-      setMessage({ tone: "error", text: "Reset failed." });
+      toast("error", "Reset failed.");
     }
     setBusy(false);
   }
@@ -267,13 +264,6 @@ export function EmailTemplatesPanel({ initial }: { initial: Template[] }) {
                     >
                       <RotateCcw className="h-4 w-4" /> Reset to default
                     </button>
-                    {message && (
-                      <span
-                        className={`text-sm ${message.tone === "ok" ? "text-green-600" : "text-red-600"}`}
-                      >
-                        {message.text}
-                      </span>
-                    )}
                   </div>
                 </div>
               )}

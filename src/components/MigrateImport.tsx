@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "@/components/Toasts";
 
 interface SpaceOpt {
   id: number;
@@ -36,7 +37,6 @@ export function MigrateImport({ spaces }: { spaces: SpaceOpt[] }) {
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [result, setResult] = useState<Result | null>(null);
-  const [error, setError] = useState("");
 
   // Destination + options.
   const [dest, setDest] = useState<"new" | "existing">("new");
@@ -47,7 +47,6 @@ export function MigrateImport({ spaces }: { spaces: SpaceOpt[] }) {
   function reset() {
     setPreview(null);
     setResult(null);
-    setError("");
   }
 
   async function onPick(f: File | null) {
@@ -62,13 +61,13 @@ export function MigrateImport({ spaces }: { spaces: SpaceOpt[] }) {
       const res = await fetch("/api/admin/migrate", { method: "POST", body });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(data?.error || "Could not read the export.");
+        toast("error", data?.error || "Could not read the export.");
       } else {
         setPreview(data as Preview);
         setNewName((data as Preview).suggestedSpaceName || "");
       }
     } catch {
-      setError("Could not read the export.");
+      toast("error", "Could not read the export.");
     } finally {
       setBusy(false);
     }
@@ -77,7 +76,6 @@ export function MigrateImport({ spaces }: { spaces: SpaceOpt[] }) {
   async function runImport() {
     if (!file || !preview) return;
     setBusy(true);
-    setError("");
     try {
       const body = new FormData();
       body.append("file", file);
@@ -89,13 +87,13 @@ export function MigrateImport({ spaces }: { spaces: SpaceOpt[] }) {
       const res = await fetch("/api/admin/migrate", { method: "POST", body });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(data?.error || "Import failed.");
+        toast("error", data?.error || "Import failed.");
       } else {
         setResult(data as Result);
         router.refresh();
       }
     } catch {
-      setError("Import failed.");
+      toast("error", "Import failed.");
     } finally {
       setBusy(false);
     }
@@ -119,10 +117,6 @@ export function MigrateImport({ spaces }: { spaces: SpaceOpt[] }) {
       />
 
       {busy && !result && <p className="mt-3 text-sm text-slate-500">Reading export…</p>}
-
-      {error && (
-        <div className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>
-      )}
 
       {preview && !result && (
         <div className="mt-4 space-y-4">

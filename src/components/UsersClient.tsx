@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ROLE_ORDER, ROLE_LABEL, ROLE_BLURB } from "@/lib/types";
 import type { User, Role } from "@/lib/types";
+import { toast } from "@/components/Toasts";
 
 export function UsersClient({
   users,
@@ -45,7 +46,7 @@ function UserTable({ users, currentUserId }: { users: User[]; currentUserId: num
     setBusyId(null);
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
-      alert(data?.error || "Update failed.");
+      toast("error", data?.error || "Update failed.");
       return false;
     }
     router.refresh();
@@ -53,17 +54,19 @@ function UserTable({ users, currentUserId }: { users: User[]; currentUserId: num
   }
 
   async function changeRole(id: number, role: Role) {
-    await patch(id, { role });
+    if (await patch(id, { role })) toast("ok", `Role changed to ${ROLE_LABEL[role]}.`);
   }
 
   async function toggleStatus(u: User) {
-    await patch(u.id, { status: u.status === "active" ? "disabled" : "active" });
+    const next = u.status === "active" ? "disabled" : "active";
+    if (await patch(u.id, { status: next }))
+      toast("ok", next === "active" ? "User enabled." : "User disabled.");
   }
 
   async function resetPassword(u: User) {
     const pw = prompt(`Set a temporary password for ${u.username} (they'll be asked to change it):`);
     if (!pw) return;
-    if (await patch(u.id, { resetPassword: pw })) alert("Temporary password set.");
+    if (await patch(u.id, { resetPassword: pw })) toast("ok", "Temporary password set.");
   }
 
   async function remove(u: User) {
@@ -71,10 +74,12 @@ function UserTable({ users, currentUserId }: { users: User[]; currentUserId: num
     setBusyId(u.id);
     const res = await fetch(`/api/admin/users/${u.id}`, { method: "DELETE" });
     setBusyId(null);
-    if (res.ok) router.refresh();
-    else {
+    if (res.ok) {
+      toast("ok", `User "${u.username}" deleted.`);
+      router.refresh();
+    } else {
       const data = await res.json().catch(() => ({}));
-      alert(data?.error || "Delete failed.");
+      toast("error", data?.error || "Delete failed.");
     }
   }
 
@@ -145,7 +150,7 @@ function UserTable({ users, currentUserId }: { users: User[]; currentUserId: num
                     <button
                       onClick={async () => {
                         if (!confirm(`Reset two-factor auth for ${u.username}? They'll sign in with just their password and can re-enroll.`)) return;
-                        if (await patch(u.id, { reset2fa: true })) alert("Two-factor auth cleared.");
+                        if (await patch(u.id, { reset2fa: true })) toast("ok", "Two-factor auth cleared.");
                       }}
                       title="Clear this user's authenticator (lost-device recovery)"
                       className="rounded-md border border-slate-200 px-2 py-1 text-slate-600 hover:bg-slate-50"
@@ -186,13 +191,11 @@ function CreateUser() {
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<Role>("viewer");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
-    setError("");
     const res = await fetch("/api/admin/users", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -201,9 +204,10 @@ function CreateUser() {
     const data = await res.json();
     setSaving(false);
     if (!res.ok) {
-      setError(data?.error || "Could not create user.");
+      toast("error", data?.error || "Could not create user.");
       return;
     }
+    toast("ok", `User "${username}" created.`);
     setUsername("");
     setName("");
     setEmail("");
@@ -230,7 +234,6 @@ function CreateUser() {
   return (
     <form onSubmit={submit} className="mt-4 rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
       <h3 className="mb-3 font-semibold text-slate-900">Add a user</h3>
-      {error && <div className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="block">
           <span className="mb-1 block text-xs font-medium text-slate-500">Username</span>
@@ -286,30 +289,25 @@ function CreateUser() {
 
 
 function AutoLinkButton() {
-  const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
   return (
-    <span className="flex items-center gap-2">
-      {msg && <span className="text-xs text-slate-500">{msg}</span>}
-      <button
-        onClick={async () => {
-          setBusy(true);
-          setMsg("");
-          const res = await fetch("/api/admin/users/link-directory", { method: "POST" });
-          setBusy(false);
-          if (res.ok) {
-            const d = await res.json();
-            setMsg(d.linked === 0 ? "All accounts already linked." : `Linked ${d.linked} account${d.linked === 1 ? "" : "s"}.`);
-          } else {
-            setMsg("Auto-link failed.");
-          }
-        }}
-        disabled={busy}
-        title="Match accounts to people-directory entries by SSO identity or email — powers profile links and article bylines."
-        className="rounded-lg border border-slate-200 bg-surface px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60"
-      >
-        {busy ? "Linking…" : "Auto-link directory"}
-      </button>
-    </span>
+    <button
+      onClick={async () => {
+        setBusy(true);
+        const res = await fetch("/api/admin/users/link-directory", { method: "POST" });
+        setBusy(false);
+        if (res.ok) {
+          const d = await res.json();
+          toast("ok", d.linked === 0 ? "All accounts already linked." : `Linked ${d.linked} account${d.linked === 1 ? "" : "s"}.`);
+        } else {
+          toast("error", "Auto-link failed.");
+        }
+      }}
+      disabled={busy}
+      title="Match accounts to people-directory entries by SSO identity or email — powers profile links and article bylines."
+      className="rounded-lg border border-slate-200 bg-surface px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+    >
+      {busy ? "Linking…" : "Auto-link directory"}
+    </button>
   );
 }

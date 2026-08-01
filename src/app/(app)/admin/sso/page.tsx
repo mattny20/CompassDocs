@@ -8,6 +8,7 @@ import { eePresent, featureEnabled } from "@/lib/ee";
 import { SsoSettings } from "@/components/SsoSettings";
 import { SamlPanel } from "@/components/SamlPanel";
 import { ScimPanel } from "@/components/ScimPanel";
+import { SettingsPage } from "@/components/SettingsPage";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +35,7 @@ export default async function SsoAdminPage() {
   const sp = samlSpUrls(origin);
 
   return (
+    <SettingsPage href="/admin/sso">
     <>
       <SsoSettings
         initial={{
@@ -82,5 +84,6 @@ export default async function SsoAdminPage() {
         />
       )}
     </>
+    </SettingsPage>
   );
 }

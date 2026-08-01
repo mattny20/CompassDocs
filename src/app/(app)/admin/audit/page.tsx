@@ -2,6 +2,7 @@ import { listAuditLog, auditCategories } from "@/lib/audit";
 import { getAppSettings } from "@/lib/settings-store";
 import { featureEnabled } from "@/lib/ee";
 import { AuditLog } from "@/components/AuditLog";
+import { SettingsPage } from "@/components/SettingsPage";
 
 export const dynamic = "force-dynamic";
 
@@ -15,10 +16,12 @@ export default async function AuditPage() {
     featureEnabled("audit_export"),
   ]);
   return (
+    <SettingsPage href="/admin/audit">
     <AuditLog
       initial={{ rows, total, categories, limit: PAGE_SIZE }}
       settings={settings}
       exportEnabled={exportEnabled}
     />
+    </SettingsPage>
   );
 }

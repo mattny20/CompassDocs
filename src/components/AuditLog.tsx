@@ -167,7 +167,6 @@ export function AuditLog({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-slate-900">Audit log</h2>
           <p className="mt-1 text-sm text-slate-500">
             A record of security- and content-significant actions. {total} event{total === 1 ? "" : "s"}.
           </p>

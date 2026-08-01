@@ -4,6 +4,7 @@ import { Sidebar } from "@/components/Sidebar";
 import { WidthProvider } from "@/components/PageWidth";
 import { countOpenSuggestions, countPendingChangeRequests, countTrashed } from "@/lib/db";
 import { roleAtLeast } from "@/lib/types";
+import { ToastHost } from "@/components/Toasts";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
@@ -32,7 +33,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       </a>
       <Sidebar user={user} reviewCount={reviewCount} trashCount={trashCount} />
       <main id="main" className="flex-1 overflow-y-auto print:overflow-visible">
-        <WidthProvider initial={user.page_width}>{children}</WidthProvider>
+        <WidthProvider initial={user.page_width}>{children}
+        <ToastHost /></WidthProvider>
       </main>
     </div>
   );

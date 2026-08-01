@@ -6,6 +6,7 @@
 
 import { useState } from "react";
 import type { Role } from "@/lib/types";
+import { toast } from "@/components/Toasts";
 
 export interface SamlState {
   enabled: boolean; // bundled AND licensed
@@ -33,15 +34,11 @@ export function SamlPanel({ initial }: { initial: SamlState }) {
   const [metaXml, setMetaXml] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState("");
-  const [error, setError] = useState("");
 
   const configured = Boolean(s.idp_sso_url && s.idp_issuer && s.idp_cert);
 
   async function save(patch: Record<string, unknown>) {
     setSaving(true);
-    setMsg("");
-    setError("");
     try {
       const res = await fetch("/api/admin/saml", {
         method: "PATCH",
@@ -49,14 +46,14 @@ export function SamlPanel({ initial }: { initial: SamlState }) {
         body: JSON.stringify(patch),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) setError(data?.error || "Could not save.");
+      if (!res.ok) toast("error", data?.error || "Could not save.");
       else {
         setS(data.state as SamlState);
         setMetaXml("");
-        setMsg("Saved.");
+        toast("ok", "SAML settings saved.");
       }
     } catch {
-      setError("Could not save.");
+      toast("error", "Could not save.");
     }
     setSaving(false);
   }
@@ -246,8 +243,6 @@ export function SamlPanel({ initial }: { initial: SamlState }) {
             Test sign-in
           </a>
         )}
-        {msg && <span className="text-sm font-medium text-green-700">{msg}</span>}
-        {error && <span className="text-sm text-red-600">{error}</span>}
       </div>
     </div>
   );

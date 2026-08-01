@@ -1,6 +1,7 @@
 import { getAppSettings } from "@/lib/settings-store";
 import { proxyStatus, hasCustomCert } from "@/lib/caddy";
 import { DomainSettings } from "@/components/DomainSettings";
+import { SettingsPage } from "@/components/SettingsPage";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +12,7 @@ export default async function DomainPage() {
     hasCustomCert(),
   ]);
   return (
+    <SettingsPage href="/admin/domain">
     <DomainSettings
       initial={{
         custom_domain: settings.custom_domain,
@@ -21,5 +23,6 @@ export default async function DomainPage() {
         proxy,
       }}
     />
+    </SettingsPage>
   );
 }

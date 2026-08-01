@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Lock, Globe, Building2, PencilRuler, ChevronUp, ChevronDown, Pencil, Trash2, X } from "lucide-react";
 import { EntityPicker } from "@/components/EntityPicker";
+import { toast } from "@/components/Toasts";
 import { SpaceIconPicker } from "./SpaceIconPicker";
 import type { Space } from "@/lib/types";
 
@@ -47,7 +48,6 @@ export function SpacesManager({
   const [togglingEditAll, setTogglingEditAll] = useState(false);
   const [editing, setEditing] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
-  const [error, setError] = useState("");
 
   async function refresh() {
     const res = await fetch("/api/admin/spaces");
@@ -64,25 +64,28 @@ export function SpacesManager({
 
   async function toggleEditAll(next: boolean) {
     setTogglingEditAll(true);
-    setError("");
     const res = await fetch("/api/admin/spaces", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ editorsEditAll: next }),
     });
     setTogglingEditAll(false);
-    if (res.ok) setEditAll(next);
-    else setError((await res.json().catch(() => ({}))).error || "Could not update the setting.");
+    if (res.ok) {
+      setEditAll(next);
+      toast("ok", "Setting saved.");
+    } else {
+      toast("error", (await res.json().catch(() => ({}))).error || "Could not update the setting.");
+    }
   }
 
   async function remove(space: SpaceRow) {
-    setError("");
     if (!confirm(`Delete the space “${space.name}”? This can't be undone.`)) return;
     const res = await fetch(`/api/admin/spaces/${space.id}`, { method: "DELETE" });
     if (!res.ok) {
-      setError((await res.json().catch(() => ({}))).error || "Could not delete the space.");
+      toast("error", (await res.json().catch(() => ({}))).error || "Could not delete the space.");
       return;
     }
+    toast("ok", `Space “${space.name}” deleted.`);
     await refresh();
   }
 
@@ -90,7 +93,6 @@ export function SpacesManager({
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-lg font-semibold text-slate-900">Spaces</h2>
           <p className="mt-1 text-sm text-slate-500">
             Spaces group related documents — one per team, product, or topic. Public spaces are
             visible to everyone who signs in; private spaces only to admins and the groups you
@@ -106,12 +108,6 @@ export function SpacesManager({
           </button>
         )}
       </div>
-
-      {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-          {error}
-        </div>
-      )}
 
       {/* Org-level edit-rights switch */}
       <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
@@ -334,9 +330,10 @@ function SpaceForm({
     });
     setSaving(false);
     if (!res.ok) {
-      setError((await res.json().catch(() => ({}))).error || "Could not save the space.");
+      toast("error", (await res.json().catch(() => ({}))).error || "Could not save the space.");
       return;
     }
+    toast("ok", space ? "Space saved." : `Space “${name.trim()}” created.`);
     onSaved();
   }
 
@@ -702,6 +699,7 @@ function CategoryEditor({ spaceId, initial }: { spaceId: number; initial: Catego
       body: JSON.stringify({ name }),
     });
     setName("");
+    toast("ok", "Category added.");
     await reload();
     setBusy(false);
   }
@@ -714,6 +712,7 @@ function CategoryEditor({ spaceId, initial }: { spaceId: number; initial: Catego
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: next }),
     });
+    toast("ok", "Category renamed.");
     await reload();
   }
 
@@ -741,6 +740,7 @@ function CategoryEditor({ spaceId, initial }: { spaceId: number; initial: Catego
   async function remove(c: CategoryOption) {
     if (!confirm(`Delete the "${c.name}" category? Its documents move to General.`)) return;
     await fetch(`/api/admin/spaces/${spaceId}/categories/${c.id}`, { method: "DELETE" });
+    toast("ok", "Category deleted.");
     await reload();
   }
 

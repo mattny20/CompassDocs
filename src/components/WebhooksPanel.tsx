@@ -5,6 +5,7 @@
 // they embed the channel secret — so the list shows a masked preview.
 
 import { useState } from "react";
+import { toast } from "@/components/Toasts";
 
 const field =
   "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
@@ -57,7 +58,6 @@ export function WebhooksPanel({
   const [events, setEvents] = useState<string[]>(["change_request.submitted"]);
   const [spaceIds, setSpaceIds] = useState<number[]>([]);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
   const [testResult, setTestResult] = useState<Record<number, string>>({});
 
   async function reload() {
@@ -68,7 +68,6 @@ export function WebhooksPanel({
   async function add(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
-    setError("");
     const res = await fetch("/api/admin/webhooks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -77,12 +76,13 @@ export function WebhooksPanel({
     setBusy(false);
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      setError(data?.error || "Could not add the webhook.");
+      toast("error", data?.error || "Could not add the webhook.");
       return;
     }
     setHooks(data.webhooks);
     setName("");
     setUrl("");
+    toast("ok", "Webhook added.");
   }
 
   async function test(id: number) {
@@ -114,7 +114,7 @@ export function WebhooksPanel({
 
   return (
     <div className="max-w-3xl">
-      <h2 className="text-lg font-semibold text-slate-900">Notifications</h2>
+      <h2 className="text-lg font-semibold text-slate-900">Webhooks</h2>
       <p className="mb-4 text-sm text-slate-500">
         Send approval-workflow events to your chat tools or by email. Create an incoming webhook
         in Webex, Teams (via Workflows), or Slack — or configure SMTP below and add an email
@@ -193,7 +193,6 @@ export function WebhooksPanel({
           <button type="submit" disabled={busy || !url} className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60">
             {busy ? "Adding…" : "Add webhook"}
           </button>
-          {error && <span className="text-sm text-red-600">{error}</span>}
         </div>
       </form>
 
@@ -263,13 +262,9 @@ export function SmtpPanel({ initial }: { initial: SmtpState }) {
   const [pass, setPass] = useState("");
   const [testTo, setTestTo] = useState("");
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState("");
-  const [error, setError] = useState("");
 
   async function save() {
     setBusy(true);
-    setError("");
-    setMsg("");
     const res = await fetch("/api/admin/smtp", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -285,18 +280,16 @@ export function SmtpPanel({ initial }: { initial: SmtpState }) {
     setBusy(false);
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      setError(data?.error || "Could not save.");
+      toast("error", data?.error || "Could not save.");
       return;
     }
     if (data?.state) setS(data.state);
     setPass("");
-    setMsg("Saved.");
+    toast("ok", "SMTP settings saved.");
   }
 
   async function test() {
     setBusy(true);
-    setError("");
-    setMsg("");
     const res = await fetch("/api/admin/smtp", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -305,10 +298,10 @@ export function SmtpPanel({ initial }: { initial: SmtpState }) {
     setBusy(false);
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      setError(data?.error || "Test failed.");
+      toast("error", data?.error || "Test failed.");
       return;
     }
-    setMsg(`Test email ${data.status}.`);
+    toast("ok", `Test email ${data.status}.`);
   }
 
   return (
@@ -371,8 +364,6 @@ export function SmtpPanel({ initial }: { initial: SmtpState }) {
         <button onClick={test} disabled={busy || !testTo || !s.configured} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">
           Send test email
         </button>
-        {msg && <span className="text-sm text-green-600">{msg}</span>}
-        {error && <span className="text-sm text-red-600">{error}</span>}
       </div>
     </div>
   );

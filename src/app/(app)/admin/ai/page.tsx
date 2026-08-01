@@ -8,12 +8,14 @@ import {
 import { embeddingsStatus } from "@/lib/embeddings";
 import { AiSettings } from "@/components/AiSettings";
 import { SemanticSearchPanel } from "@/components/SemanticSearchPanel";
+import { SettingsPage } from "@/components/SettingsPage";
 
 export const dynamic = "force-dynamic";
 
 export default async function AiPage() {
   const [source, providerCfg] = await Promise.all([getAiKeySource(), getAiProviderConfig()]);
   return (
+    <SettingsPage href="/admin/ai">
     <div className="space-y-6">
       <AiSettings
         initial={{
@@ -30,5 +32,6 @@ export default async function AiPage() {
       />
       <SemanticSearchPanel initial={await embeddingsStatus()} />
     </div>
+    </SettingsPage>
   );
 }
