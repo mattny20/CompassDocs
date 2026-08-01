@@ -2,6 +2,7 @@ import { requireRole } from "@/lib/auth";
 import { listUsers } from "@/lib/db";
 import { listNewsletterFromAddresses, getNewsletterAppearance } from "@/lib/newsletter";
 import { NewsletterPeople } from "@/components/NewsletterPeople";
+import { SettingsPage } from "@/components/SettingsPage";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +16,7 @@ export default async function NewsletterAdminPage() {
     getNewsletterAppearance(),
   ]);
   return (
+    <SettingsPage href="/admin/newsletter">
     <NewsletterPeople
       initialSenders={senders}
       initialAppearance={appearance}
@@ -28,5 +30,6 @@ export default async function NewsletterAdminPage() {
         newsletter_role: u.newsletter_role,
       }))}
     />
+    </SettingsPage>
   );
 }

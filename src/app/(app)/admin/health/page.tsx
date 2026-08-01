@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { knowledgeHealthReport, type HealthDoc } from "@/lib/health";
+import { SettingsPage } from "@/components/SettingsPage";
 
 export const dynamic = "force-dynamic";
 
@@ -77,10 +78,10 @@ export default async function HealthPage() {
   ];
 
   return (
+    <SettingsPage href="/admin/health">
     <div className="space-y-6">
       <div>
-        <h2 className="text-lg font-semibold text-slate-900">Content health</h2>
-        <p className="mt-1 text-sm text-slate-500">
+        <p className="text-sm text-slate-500">
           {r.totals.published} published of {r.totals.documents} documents. Signals refresh every
           time you open this page.
         </p>
@@ -247,5 +248,6 @@ function Row({ doc, children }: { doc: HealthDoc; children?: React.ReactNode }) 
       {children}
       <span className="ml-auto text-xs text-slate-500">updated {doc.updated_at}</span>
     </div>
+    </SettingsPage>
   );
 }

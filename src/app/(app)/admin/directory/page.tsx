@@ -7,6 +7,7 @@ import {
 } from "@/lib/directory-config";
 import { eePresent, featureEnabled } from "@/lib/ee";
 import { DirectorySettings } from "@/components/DirectorySettings";
+import { SettingsPage } from "@/components/SettingsPage";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +24,7 @@ export default async function DirectoryAdminPage() {
   ]);
 
   return (
+    <SettingsPage href="/admin/directory">
     <DirectorySettings
       initialPeople={people}
       initialFields={fields}
@@ -41,5 +43,6 @@ export default async function DirectoryAdminPage() {
         last_sync: lastSync,
       }}
     />
+    </SettingsPage>
   );
 }

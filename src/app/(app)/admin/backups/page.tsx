@@ -4,6 +4,7 @@ import { getBackupDestState } from "@/lib/backup-config";
 import { getAppSettings } from "@/lib/settings-store";
 import { BackupsClient } from "@/components/BackupsClient";
 import { BackupDestinations } from "@/components/BackupDestinations";
+import { SettingsPage } from "@/components/SettingsPage";
 
 export const dynamic = "force-dynamic";
 
@@ -15,9 +16,11 @@ export default async function BackupsPage() {
     getBackupDestState(),
   ]);
   return (
+    <SettingsPage href="/admin/backups">
     <div className="space-y-8">
       <BackupsClient backups={backups} destinations={destinations} settings={settings} />
       <BackupDestinations initial={destState} />
     </div>
+    </SettingsPage>
   );
 }

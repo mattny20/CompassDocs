@@ -11,6 +11,7 @@ import { editorsEditAll } from "@/lib/access";
 import { listTemplates } from "@/lib/doc-templates";
 import { roleAtLeast } from "@/lib/types";
 import { SpacesManager } from "@/components/SpacesManager";
+import { SettingsPage } from "@/components/SettingsPage";
 
 export const dynamic = "force-dynamic";
 
@@ -30,6 +31,7 @@ export default async function SpacesPage() {
   const categoriesBySpace: Record<number, { id: number; name: string; position: number }[]> = {};
   for (const c of cats) (categoriesBySpace[c.space_id] ??= []).push({ id: c.id, name: c.name, position: c.position });
   return (
+    <SettingsPage href="/admin/spaces">
     <SpacesManager
       initial={spaces}
       groups={groups.map((g) => ({
@@ -49,5 +51,6 @@ export default async function SpacesPage() {
       initialEditorsEditAll={editAll}
       initialCategories={categoriesBySpace}
     />
+    </SettingsPage>
   );
 }

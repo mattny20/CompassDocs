@@ -81,6 +81,24 @@ focus):
 - Plain-text truncation previews (full title on a truncated cell) may keep
   native `title` — that's content, not a control label.
 
+## Settings pages
+
+- Every `/admin/*` page wraps its content in `<SettingsPage href="/admin/…">`
+  — the header (icon + label + description) comes from
+  `lib/settings-sections.ts`, the same source the nav uses. Never hand-write
+  a settings page header.
+- New sections register in `settings-sections.ts` (pick the group:
+  Platform / Content / People & access / AI / Operations) — that's the only
+  place a section's identity lives.
+- Sub-section headings inside a settings page:
+  `mb-3 text-lg font-semibold text-slate-900`.
+- Save/action feedback is a toast — `toast("ok", "Thing saved.")` /
+  `toast("error", msg)` from `components/Toasts` (a single ToastHost is
+  mounted in the app layout). No transient inline "Saved" flashes. Inline
+  red text stays only for field-level validation; persistent status banners
+  (license expiry, TLS state, import results) stay inline — they're state,
+  not feedback.
+
 ## Color and theming
 
 - **All accent color comes from the `compass-*` palette** — never hard-code

@@ -8,6 +8,7 @@ import { getSmtpConfig, smtpConfigured } from "@/lib/smtp-config";
 import { EMAIL_TEMPLATES, templateOverride } from "@/lib/email-templates";
 import { getChatAskConfig } from "@/lib/chat-ask";
 import { getAppSettings } from "@/lib/settings-store";
+import { SettingsPage } from "@/components/SettingsPage";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +38,7 @@ export default async function NotificationsPage() {
     await Promise.all(EMAIL_TEMPLATES.map((t) => templateOverride(t.key)))
   ).filter(Boolean).length;
   return (
+    <SettingsPage href="/admin/notifications">
     <div>
     <Link
       href="/admin/notifications/templates"
@@ -86,5 +88,6 @@ export default async function NotificationsPage() {
       <ChatAskPanel initial={chatAsk} baseUrl={chatBase} />
     </div>
     </div>
+    </SettingsPage>
   );
 }

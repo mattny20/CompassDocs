@@ -38,6 +38,7 @@ import {
   X,
 } from "lucide-react";
 import { EntityPicker, type PickerOption } from "@/components/EntityPicker";
+import { toast } from "@/components/Toasts";
 
 interface MyItem {
   assignment_id: number;
@@ -98,39 +99,6 @@ const fmtDay = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString()
 const overdue = (it: MyItem) =>
   !it.completed_at && it.due_at !== null && new Date(it.due_at).getTime() < Date.now();
 
-// --- Toasts: action feedback that's visible wherever you are on the page ----
-
-interface Toast {
-  id: number;
-  kind: "ok" | "error";
-  text: string;
-}
-let toastSeq = 1;
-
-function Toasts({ toasts, dismiss }: { toasts: Toast[]; dismiss: (id: number) => void }) {
-  if (!toasts.length) return null;
-  return (
-    <div className="fixed bottom-4 right-4 z-50 flex w-80 flex-col gap-2">
-      {toasts.map((t) => (
-        <div
-          key={t.id}
-          role="status"
-          className={`flex items-start justify-between gap-2 rounded-lg border px-3 py-2 text-sm shadow-lg ${
-            t.kind === "ok"
-              ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800/60 dark:bg-emerald-950/70"
-              : "border-red-200 bg-red-50 text-red-700 dark:border-red-800/60 dark:bg-red-950/70"
-          }`}
-        >
-          <span>{t.text}</span>
-          <button onClick={() => dismiss(t.id)} aria-label="Dismiss" className="opacity-60 hover:opacity-100">
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 export function TrainingPanel({
   licensed,
   manager,
@@ -148,16 +116,8 @@ export function TrainingPanel({
   const [candidates, setCandidates] = useState<{ id: number; title: string; space_name: string }[]>([]);
   const [userOpts, setUserOpts] = useState<PickerOption[]>([]);
   const [groupOpts, setGroupOpts] = useState<PickerOption[]>([]);
-  const [toasts, setToasts] = useState<Toast[]>([]);
-
-  const toast = useCallback((kind: "ok" | "error", text: string) => {
-    const id = toastSeq++;
-    setToasts((ts) => [...ts.slice(-3), { id, kind, text }]);
-    setTimeout(() => setToasts((ts) => ts.filter((t) => t.id !== id)), 6000);
-  }, []);
-  const dismissToast = (id: number) => setToasts((ts) => ts.filter((t) => t.id !== id));
-  const onError = useCallback((s: string) => s && toast("error", s), [toast]);
-  const onNotice = useCallback((s: string) => s && toast("ok", s), [toast]);
+  const onError = useCallback((s: string) => s && toast("error", s), []);
+  const onNotice = useCallback((s: string) => s && toast("ok", s), []);
 
   // Decks refresh cheaply; the pickers' option lists load once.
   const loadDecks = useCallback(async () => {
@@ -234,7 +194,6 @@ export function TrainingPanel({
         }
       />
 
-      <Toasts toasts={toasts} dismiss={dismissToast} />
 
       {tab === "mine" || !manager ? (
         <MyTraining mine={mine} teamLead={teamLead} />
