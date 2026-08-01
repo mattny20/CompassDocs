@@ -57,7 +57,7 @@ export function NewsletterBoard({ initial }: { initial: NewsletterCard[] }) {
             </div>
             <button
               onClick={() => dismiss(n.id)}
-              title="Dismiss for me"
+              data-tt="Dismiss for me"
               aria-label="Dismiss newsletter"
               className="shrink-0 rounded-md p-1 text-slate-400 hover:bg-white/60 hover:text-slate-600 dark:hover:bg-white/10"
             >

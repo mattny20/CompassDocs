@@ -198,7 +198,7 @@ export function DocComments({
                     {(isAdmin || c.user_id === currentUserId) && (
                       <button
                         onClick={() => remove(c.id)}
-                        title={isAdmin && c.user_id !== currentUserId ? "Remove (moderation)" : "Delete your comment"}
+                        data-tt={isAdmin && c.user_id !== currentUserId ? "Remove (moderation)" : "Delete your comment"} aria-label={isAdmin && c.user_id !== currentUserId ? "Remove (moderation)" : "Delete your comment"}
                         className="text-slate-300 hover:text-red-600"
                       >
                         <Trash2 className="h-3.5 w-3.5" />

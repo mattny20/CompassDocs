@@ -178,7 +178,7 @@ export function Attachments({
             />
             <button
               onClick={() => setLinkFormOpen((v) => !v)}
-              title="Add a link to iManage, NetDocuments, SharePoint, or any https URL"
+              data-tt="Add a link to iManage, NetDocuments, SharePoint, or any https URL" aria-label="Add a link to iManage, NetDocuments, SharePoint, or any https URL"
               className="shrink-0 whitespace-nowrap rounded-lg border border-slate-200 bg-surface px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
             >
               {"＋ Link"}
@@ -279,7 +279,7 @@ export function Attachments({
                   href={l.url}
                   target="_blank"
                   rel="noreferrer noopener"
-                  title={`${l.title}\n${l.url}`}
+                  data-tt={`${l.title}\n${l.url}`} aria-label={`${l.title}\n${l.url}`}
                   className="block truncate text-sm font-medium text-slate-700 hover:text-compass-600"
                 >
                   {l.title}
@@ -293,7 +293,7 @@ export function Attachments({
                   href={l.url}
                   target="_blank"
                   rel="noreferrer noopener"
-                  title="Open"
+                  data-tt="Open"
                   aria-label={`Open ${l.title}`}
                   className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
                 >
@@ -302,7 +302,7 @@ export function Attachments({
                 {canEdit && (
                   <button
                     onClick={() => removeLink(l)}
-                    title="Remove link"
+                    data-tt="Remove link"
                     aria-label={`Remove ${l.title}`}
                     className="rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
                   >
@@ -336,7 +336,7 @@ export function Attachments({
                 href={`/api/attachments/${a.id}`}
                 target="_blank"
                 rel="noreferrer"
-                title={a.filename}
+                data-tt={a.filename} aria-label={a.filename}
                 className="block truncate text-sm font-medium text-slate-700 hover:text-compass-600"
               >
                 {a.filename}
@@ -346,7 +346,7 @@ export function Attachments({
             <div className="flex shrink-0 items-center gap-0.5">
               <button
                 onClick={() => copyLink(a)}
-                title={copied === a.id ? "Copied!" : "Copy link"}
+                data-tt={copied === a.id ? "Copied!" : "Copy link"}
                 aria-label={`Copy link to ${a.filename}`}
                 className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
               >
@@ -359,7 +359,7 @@ export function Attachments({
               {canEdit && (
                 <button
                   onClick={() => remove(a)}
-                  title="Delete"
+                  data-tt="Delete"
                   aria-label={`Delete ${a.filename}`}
                   className="rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
                 >

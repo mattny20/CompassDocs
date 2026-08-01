@@ -274,15 +274,15 @@ export function AnnouncementsAdmin({
                     </p>
                   </div>
                   {r.archived_at ? (
-                    <button onClick={() => setArchived(r, false)} title="Restore to dashboards" className="rounded-sm p-1 text-slate-400 hover:bg-slate-100">
+                    <button onClick={() => setArchived(r, false)} data-tt="Restore to dashboards" aria-label="Restore to dashboards" className="rounded-sm p-1 text-slate-400 hover:bg-slate-100">
                       <ArchiveRestore className="h-4 w-4" />
                     </button>
                   ) : (
-                    <button onClick={() => setArchived(r, true)} title="Archive (hide from all dashboards)" className="rounded-sm p-1 text-slate-400 hover:bg-slate-100">
+                    <button onClick={() => setArchived(r, true)} data-tt="Archive (hide from all dashboards)" aria-label="Archive (hide from all dashboards)" className="rounded-sm p-1 text-slate-400 hover:bg-slate-100">
                       <Archive className="h-4 w-4" />
                     </button>
                   )}
-                  <button onClick={() => remove(r)} title="Delete" className="rounded-sm p-1 text-slate-400 hover:bg-red-50 hover:text-red-600">
+                  <button onClick={() => remove(r)} data-tt="Delete" aria-label="Delete" className="rounded-sm p-1 text-slate-400 hover:bg-red-50 hover:text-red-600">
                     <Trash2 className="h-4 w-4" />
                   </button>
                 </li>

@@ -117,7 +117,7 @@ export function Lightbox({
       >
         <button
           onClick={() => zoomBy(1 / 1.25)}
-          title="Zoom out (−)"
+          data-tt="Zoom out (−)"
           aria-label="Zoom out"
           className="rounded-full p-2 text-slate-200 hover:bg-white/10"
         >
@@ -128,7 +128,7 @@ export function Lightbox({
         </span>
         <button
           onClick={() => zoomBy(1.25)}
-          title="Zoom in (+)"
+          data-tt="Zoom in (+)"
           aria-label="Zoom in"
           className="rounded-full p-2 text-slate-200 hover:bg-white/10"
         >
@@ -136,7 +136,7 @@ export function Lightbox({
         </button>
         <button
           onClick={reset}
-          title="Reset (0)"
+          data-tt="Reset (0)"
           aria-label="Reset zoom"
           className="rounded-full p-2 text-slate-200 hover:bg-white/10"
         >
@@ -144,7 +144,7 @@ export function Lightbox({
         </button>
         <button
           onClick={onClose}
-          title="Close (Esc)"
+          data-tt="Close (Esc)"
           aria-label="Close"
           className="rounded-full p-2 text-slate-200 hover:bg-white/10"
         >

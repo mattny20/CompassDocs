@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { Sparkles, X } from "lucide-react";
 import { MarkdownView } from "./MarkdownView";
+import { PageContainer } from "./PageWidth";
 import { TypeBadge } from "./Badges";
 import { timeAgo } from "@/lib/ui";
 import { parseSearchQuery } from "@/lib/search-query";
@@ -88,11 +89,11 @@ export function SearchClient({
   }
 
   return (
-    <div className="mx-auto max-w-3xl px-8 py-8">
+    <PageContainer>
       <h1 className="mb-1 flex items-center gap-2 text-2xl font-bold text-slate-900">
         <Sparkles className="h-6 w-6 text-compass-600" /> Ask {companyName}
       </h1>
-      <p className="mb-5 text-slate-500">
+      <p className="mb-5 mt-1 text-sm text-slate-500">
         Ask a question in plain English, or search by keyword. Answers are grounded in your
         knowledge base.
       </p>
@@ -134,7 +135,7 @@ export function SearchClient({
               <button
                 key={k}
                 onClick={() => remove(k)}
-                title={`Remove ${k} filter`}
+                data-tt={`Remove ${k} filter`} aria-label={`Remove ${k} filter`}
                 className="inline-flex items-center gap-1 rounded-full bg-compass-50 px-2 py-0.5 font-medium text-compass-700 hover:bg-compass-100"
               >
                 {k}: {v} <X className="h-3 w-3" aria-hidden />
@@ -278,7 +279,7 @@ export function SearchClient({
           </div>
         </div>
       )}
-    </div>
+    </PageContainer>
   );
 }
 

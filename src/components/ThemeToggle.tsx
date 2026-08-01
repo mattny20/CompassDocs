@@ -95,7 +95,7 @@ export function ThemeToggle({
     <button
       type="button"
       onClick={cycle}
-      title={mounted ? `Theme: ${LABEL[pref]} — click for ${LABEL[next]}` : "Theme"}
+      data-tt={mounted ? `Theme: ${LABEL[pref]} — click for ${LABEL[next]}` : "Theme"}
       aria-label={`Color theme (currently ${LABEL[pref]})`}
       className={`rounded-md p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 ${className}`}
     >

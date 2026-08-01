@@ -215,7 +215,7 @@ export function TrainingPlayer({
         </div>
         <button
           onClick={() => router.push("/training")}
-          title="Your place is saved — pick up where you left off any time (Esc)"
+          data-tt="Your place is saved — pick up where you left off any time (Esc)" aria-label="Your place is saved — pick up where you left off any time (Esc)"
           className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
         >
           <X className="h-4 w-4" /> {done ? "Exit" : "Save & exit"}
@@ -326,7 +326,7 @@ export function TrainingPlayer({
               <button
                 onClick={() => void confirm()}
                 disabled={busy || quizGateBlocked || preview || signatureIncomplete}
-                title={
+                data-tt={
                   quizGateBlocked
                     ? `Pass the quiz first (${passPct}% or better)`
                     : signatureIncomplete

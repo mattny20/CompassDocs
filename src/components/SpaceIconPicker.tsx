@@ -180,7 +180,7 @@ export function SpaceIconPicker({
                     key={i.e}
                     type="button"
                     onClick={() => onChange(i.e)}
-                    title={i.k}
+                    data-tt={i.k} aria-label={i.k}
                     className={`flex h-9 w-9 items-center justify-center rounded-md text-xl transition ${
                       value === i.e ? "bg-compass-100 ring-2 ring-compass-400" : "hover:bg-slate-100"
                     }`}

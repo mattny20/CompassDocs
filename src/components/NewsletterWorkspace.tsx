@@ -398,7 +398,7 @@ export function NewsletterWorkspace({
           <button
             onClick={remove}
             disabled={!!busy}
-            title="Delete newsletter"
+            data-tt="Delete newsletter"
             className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50 dark:text-red-400 dark:hover:bg-red-500/10"
           >
             <Trash2 className="h-4 w-4" /> Delete
@@ -641,7 +641,7 @@ export function NewsletterWorkspace({
                   {can.edit && (
                     <button
                       onClick={() => removeAttachment(f.id)}
-                      title="Remove attachment"
+                      data-tt="Remove attachment"
                       aria-label={`Remove ${f.filename}`}
                       className="shrink-0 rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-red-600"
                     >
@@ -688,7 +688,7 @@ export function NewsletterWorkspace({
             <button
               onClick={() => sendIt(true)}
               disabled={!!busy || dirty || !smtpReady || !n.subject.trim() || !n.body.trim()}
-              title={dirty ? "Save your changes first" : undefined}
+              data-tt={dirty ? "Save your changes first" : undefined} aria-label={dirty ? "Save your changes first" : undefined}
               className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
             >
               <FlaskConical className="h-4 w-4" />
@@ -699,7 +699,7 @@ export function NewsletterWorkspace({
             <button
               onClick={() => setSubmitOpen((v) => !v)}
               disabled={!!busy || dirty || !n.subject.trim() || !n.body.trim()}
-              title={dirty ? "Save your changes first" : undefined}
+              data-tt={dirty ? "Save your changes first" : undefined}
               className="inline-flex items-center gap-1.5 rounded-lg border border-compass-200 bg-compass-50 px-4 py-2 text-sm font-semibold text-compass-700 hover:bg-compass-100 disabled:opacity-50"
             >
               <Send className="h-4 w-4" /> Submit for review
@@ -709,7 +709,7 @@ export function NewsletterWorkspace({
             <button
               onClick={() => setDecisionOpen((v) => !v)}
               disabled={!!busy || dirty}
-              title={dirty ? "Save your changes first" : undefined}
+              data-tt={dirty ? "Save your changes first" : undefined}
               className="inline-flex items-center gap-1.5 rounded-lg border border-compass-200 bg-compass-50 px-4 py-2 text-sm font-semibold text-compass-700 hover:bg-compass-100 disabled:opacity-50"
             >
               <CheckCircle2 className="h-4 w-4" /> Review decision
@@ -719,7 +719,7 @@ export function NewsletterWorkspace({
             <button
               onClick={() => sendIt(false)}
               disabled={!!busy || dirty || !smtpReady}
-              title={dirty ? "Save your changes first" : undefined}
+              data-tt={dirty ? "Save your changes first" : undefined} aria-label={dirty ? "Save your changes first" : undefined}
               className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-green-700 disabled:opacity-50"
             >
               <Mail className="h-4 w-4" />
@@ -730,7 +730,7 @@ export function NewsletterWorkspace({
             <button
               onClick={() => setScheduleOpen((v) => !v)}
               disabled={!!busy || dirty || !smtpReady}
-              title={dirty ? "Save your changes first" : "Pick a date and time for the send"}
+              data-tt={dirty ? "Save your changes first" : "Pick a date and time for the send"}
               className="inline-flex items-center gap-1.5 rounded-lg border border-green-200 bg-green-50 px-4 py-2 text-sm font-semibold text-green-700 hover:bg-green-100 disabled:opacity-50 dark:border-green-500/30 dark:bg-green-500/10 dark:text-green-300 dark:hover:bg-green-500/20"
             >
               <CalendarClock className="h-4 w-4" /> Schedule…

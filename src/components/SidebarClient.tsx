@@ -158,7 +158,7 @@ export function SidebarClient({
     <button
       onClick={toggleMore}
       aria-expanded={moreOpen}
-      title={collapsed ? (moreOpen ? "Less" : "More") : undefined}
+      data-tt={collapsed ? (moreOpen ? "Less" : "More") : undefined}
       className={`relative flex w-full items-center rounded-md py-2 font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-600 ${
         collapsed ? "justify-center px-0" : "gap-2 px-3"
       }`}
@@ -213,7 +213,7 @@ export function SidebarClient({
           {!collapsed && <NotificationsBell initialUnread={unreadNotifications} />}
           <button
             onClick={toggle}
-            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            data-tt={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             className="rounded-md p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
           >
@@ -224,7 +224,7 @@ export function SidebarClient({
 
       {collapsed && (
         <div className="flex flex-col items-center gap-2 border-b border-slate-100 py-3">
-          <Link href="/" title={companyName}>
+          <Link href="/" data-tt={companyName} aria-label={companyName}>
             <Brand name={companyName} logoUrl={logoUrl} showName={false} />
           </Link>
           <NotificationsBell initialUnread={unreadNotifications} />
@@ -327,7 +327,7 @@ export function SidebarClient({
           {isAdmin && (
             <Link
               href="/admin/spaces"
-              title="Manage spaces"
+              data-tt="Manage spaces" aria-label="Manage spaces"
               className="text-slate-400 transition hover:text-compass-600"
             >
               ＋
@@ -355,7 +355,7 @@ export function SidebarClient({
                       return next;
                     })
                   }
-                  title={openSpaces.has(s.id) ? "Collapse pages" : "Show pages"}
+                  data-tt={openSpaces.has(s.id) ? "Collapse pages" : "Show pages"}
                   aria-label={`${openSpaces.has(s.id) ? "Collapse" : "Expand"} pages in ${s.name}`}
                   className="ml-1 rounded-sm p-0.5 text-slate-400 hover:text-slate-600"
                 >
@@ -366,7 +366,7 @@ export function SidebarClient({
               )}
               <Link
                 href={`/spaces/${s.slug}`}
-                title={s.name}
+                data-tt={s.name}
                 className={`flex min-w-0 flex-1 items-center py-2 ${
                   collapsed ? "justify-center px-0" : nestedPages ? "pr-2" : "px-3"
                 }`}
@@ -389,7 +389,7 @@ export function SidebarClient({
         <div className={`border-t border-slate-100 ${collapsed ? "p-2" : "p-3"}`}>
           <Link
             href="/doc/new"
-            title="New document"
+            data-tt="New document" aria-label="New document"
             className={`flex w-full items-center justify-center gap-1.5 rounded-lg bg-compass-600 text-sm font-semibold text-white shadow-xs transition hover:bg-compass-700 ${
               collapsed ? "px-0 py-2" : "px-3 py-2"
             }`}
@@ -427,7 +427,7 @@ function NavLink({
   return (
     <Link
       href={href}
-      title={collapsed ? label : undefined}
+      data-tt={collapsed ? label : undefined}
       className={`relative flex items-center rounded-md py-2 font-medium text-slate-600 hover:bg-slate-100 ${
         collapsed ? "justify-center px-0" : "gap-2 px-3"
       }`}

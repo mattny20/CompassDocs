@@ -406,7 +406,7 @@ export function NewsletterPeople({
                 <button
                   onClick={() => saveSenders(senders.filter((x) => x !== s))}
                   disabled={senderBusy}
-                  title="Remove this sender"
+                  data-tt="Remove this sender"
                   aria-label={`Remove ${s}`}
                   className="rounded-sm p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-600"
                 >

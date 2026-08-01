@@ -414,7 +414,7 @@ export function VersionHistory({
                   <button
                     onClick={() => restore(v)}
                     disabled={restoring !== null}
-                    title={
+                    data-tt={
                       docStatus === "published" && !canPublishDirect
                         ? "Submits to the review queue"
                         : "Make this the current version"

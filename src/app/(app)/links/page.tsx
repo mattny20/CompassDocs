@@ -38,7 +38,7 @@ export default async function LinksPage() {
           <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900">
             <Link2 className="h-6 w-6 text-compass-600" /> Links
           </h1>
-          <p className="mt-1 text-slate-500">
+          <p className="mt-1 text-sm text-slate-500">
             Shortcuts to the tools and sites your team uses.
           </p>
         </div>

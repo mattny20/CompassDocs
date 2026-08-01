@@ -265,16 +265,16 @@ export function LinksAdmin({
               <span className="text-xs text-slate-500">
                 {links.filter((l) => l.category_id === c.id).length} links
               </span>
-              <button onClick={() => moveCategory(c, -1)} disabled={i === 0 || busy} title="Move up" className="rounded-sm p-1 text-slate-400 hover:bg-slate-100 disabled:opacity-30">
+              <button onClick={() => moveCategory(c, -1)} disabled={i === 0 || busy} data-tt="Move up" aria-label="Move up" className="rounded-sm p-1 text-slate-400 hover:bg-slate-100 disabled:opacity-30">
                 <ChevronUp className="h-4 w-4" />
               </button>
-              <button onClick={() => moveCategory(c, 1)} disabled={i === categories.length - 1 || busy} title="Move down" className="rounded-sm p-1 text-slate-400 hover:bg-slate-100 disabled:opacity-30">
+              <button onClick={() => moveCategory(c, 1)} disabled={i === categories.length - 1 || busy} data-tt="Move down" aria-label="Move down" className="rounded-sm p-1 text-slate-400 hover:bg-slate-100 disabled:opacity-30">
                 <ChevronDown className="h-4 w-4" />
               </button>
-              <button onClick={() => renameCategory(c)} disabled={busy} title="Rename" className="rounded-sm p-1 text-slate-400 hover:bg-slate-100">
+              <button onClick={() => renameCategory(c)} disabled={busy} data-tt="Rename" aria-label="Rename" className="rounded-sm p-1 text-slate-400 hover:bg-slate-100">
                 <Pencil className="h-4 w-4" />
               </button>
-              <button onClick={() => deleteCategory(c)} disabled={busy} title="Delete" className="rounded-sm p-1 text-slate-400 hover:bg-red-50 hover:text-red-600">
+              <button onClick={() => deleteCategory(c)} disabled={busy} data-tt="Delete" aria-label="Delete" className="rounded-sm p-1 text-slate-400 hover:bg-red-50 hover:text-red-600">
                 <Trash2 className="h-4 w-4" />
               </button>
             </li>
@@ -344,7 +344,7 @@ export function LinksAdmin({
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center gap-1.5 font-medium text-slate-800">
                       <span className="truncate">{l.title}</span>
-                      <a href={l.url} target="_blank" rel="noopener noreferrer" title={l.url}>
+                      <a href={l.url} target="_blank" rel="noopener noreferrer" data-tt={l.url} aria-label={l.url}>
                         <ExternalLink className="h-3.5 w-3.5 text-slate-300 hover:text-compass-500" />
                       </a>
                     </span>
@@ -358,14 +358,14 @@ export function LinksAdmin({
                           .join(", ")}
                   </span>
                   {l.icon_type === "favicon" && (
-                    <button onClick={() => refreshIcon(l)} disabled={busy} title="Re-fetch site icon" className="rounded-sm p-1 text-slate-400 hover:bg-slate-100">
+                    <button onClick={() => refreshIcon(l)} disabled={busy} data-tt="Re-fetch site icon" aria-label="Re-fetch site icon" className="rounded-sm p-1 text-slate-400 hover:bg-slate-100">
                       <RefreshCw className="h-4 w-4" />
                     </button>
                   )}
-                  <button onClick={() => startEdit(l)} disabled={busy} title="Edit" className="rounded-sm p-1 text-slate-400 hover:bg-slate-100">
+                  <button onClick={() => startEdit(l)} disabled={busy} data-tt="Edit" aria-label="Edit" className="rounded-sm p-1 text-slate-400 hover:bg-slate-100">
                     <Pencil className="h-4 w-4" />
                   </button>
-                  <button onClick={() => deleteLink(l)} disabled={busy} title="Delete" className="rounded-sm p-1 text-slate-400 hover:bg-red-50 hover:text-red-600">
+                  <button onClick={() => deleteLink(l)} disabled={busy} data-tt="Delete" aria-label="Delete" className="rounded-sm p-1 text-slate-400 hover:bg-red-50 hover:text-red-600">
                     <Trash2 className="h-4 w-4" />
                   </button>
                 </li>

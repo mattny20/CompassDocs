@@ -20,7 +20,7 @@ export default async function ReviewPage() {
       <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900">
         <ClipboardCheck className="h-6 w-6 text-compass-600" /> Review queue
       </h1>
-      <p className="mb-6 mt-1 text-slate-500">
+      <p className="mb-6 mt-1 text-sm text-slate-500">
         Approve or reject proposed changes, and triage suggestions from the team.
       </p>
       <ReviewClient changeRequests={changeRequests} suggestions={suggestions} />

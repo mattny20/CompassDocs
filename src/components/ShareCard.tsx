@@ -94,7 +94,7 @@ export function ShareCard({
             />
             <button
               onClick={copy}
-              title={copied ? "Copied!" : "Copy link"}
+              data-tt={copied ? "Copied!" : "Copy link"}
               aria-label="Copy share link"
               className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
             >
@@ -112,7 +112,7 @@ export function ShareCard({
             <button
               onClick={create}
               disabled={busy}
-              title="Replace with a fresh link (the old one stops working)"
+              data-tt="Replace with a fresh link (the old one stops working)"
               className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60"
             >
               <RefreshCw className="h-3 w-3" /> Regenerate

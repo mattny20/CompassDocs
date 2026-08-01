@@ -1064,7 +1064,7 @@ function Toolbar({
               onClick={() =>
                 editor.chain().focus().updateAttributes("heading", { bgColor: c.value }).run()
               }
-              title={c.value ? `${c.label} heading highlight` : "No highlight"}
+              data-tt={c.value ? `${c.label} heading highlight` : "No highlight"}
               aria-label={c.value ? `${c.label} heading highlight` : "Remove heading highlight"}
               className={`mx-0.5 h-5 w-5 rounded-md border ${
                 (editor.getAttributes("heading").bgColor ?? null) === c.value
@@ -1096,7 +1096,7 @@ function Toolbar({
               onClick={() =>
                 editor.chain().focus().updateAttributes("colorPanel", { bg: c.value }).run()
               }
-              title={`${c.label} panel background`}
+              data-tt={`${c.label} panel background`}
               aria-label={`${c.label} panel background`}
               className={`mx-0.5 h-5 w-5 rounded-md border ${
                 editor.getAttributes("colorPanel").bg === c.value
@@ -1301,7 +1301,7 @@ function Btn({
     <button
       type="button"
       onClick={onClick}
-      title={label}
+      data-tt={label}
       aria-label={label}
       aria-pressed={active}
       className={`group relative flex h-8 min-w-8 items-center justify-center rounded-md px-2 text-sm font-medium transition ${

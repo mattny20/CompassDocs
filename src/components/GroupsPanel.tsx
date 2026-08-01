@@ -226,7 +226,7 @@ function GroupCard({
                 >
                   Save
                 </button>
-                <button onClick={() => setRenaming(false)} title="Cancel" aria-label="Cancel renaming" className="p-1 text-slate-400 hover:text-slate-600">
+                <button onClick={() => setRenaming(false)} data-tt="Cancel" aria-label="Cancel renaming" className="p-1 text-slate-400 hover:text-slate-600">
                   <X className="h-3.5 w-3.5" />
                 </button>
               </span>
@@ -256,7 +256,7 @@ function GroupCard({
               setRenaming(true);
             }}
             className="rounded-lg border border-slate-200 p-2 text-slate-500 hover:bg-slate-50"
-            title="Rename"
+            data-tt="Rename" aria-label="Rename"
           >
             <Pencil className="h-3.5 w-3.5" />
           </button>
@@ -273,7 +273,7 @@ function GroupCard({
         <button
           onClick={onDelete}
           className="rounded-lg border border-slate-200 p-2 text-red-600 hover:bg-red-50"
-          title="Delete group"
+          data-tt="Delete group" aria-label="Delete group"
         >
           <Trash2 className="h-3.5 w-3.5" />
         </button>
@@ -303,7 +303,7 @@ function GroupCard({
                     <button
                       onClick={() => patch({ removeUserId: m.id })}
                       className="rounded-md p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
-                      title="Remove from group"
+                      data-tt="Remove from group" aria-label="Remove from group"
                     >
                       <X className="h-3.5 w-3.5" />
                     </button>
