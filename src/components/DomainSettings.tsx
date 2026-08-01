@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "@/components/Toasts";
 import type { TlsMode, SecureCookieMode } from "@/lib/settings";
+import { Field, TextInput, Textarea } from "@/components/form";
 
 interface ProxyStatus {
   managed: boolean;
@@ -18,9 +19,6 @@ interface DomainState {
   has_custom_cert: boolean;
   proxy: ProxyStatus;
 }
-
-const field =
-  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
 
 const TLS_OPTIONS: { value: TlsMode; label: string; hint: string }[] = [
   {
@@ -153,18 +151,18 @@ export function DomainSettings({ initial }: { initial: DomainState }) {
           Point an A/AAAA DNS record for this hostname at your server, then enter it here. Leave
           blank to serve on any hostname over plain HTTP.
         </p>
-        <label className="block max-w-md">
-          <span className="mb-1 block text-xs font-medium text-slate-500">Domain</span>
-          <input
-            value={domain}
-            onChange={(e) => setDomain(e.target.value)}
-            className={field}
-            placeholder="docs.example.com"
-            autoCapitalize="none"
-            autoCorrect="off"
-            spellCheck={false}
-          />
-        </label>
+        <div className="max-w-md">
+          <Field label="Domain">
+            <TextInput
+              value={domain}
+              onChange={(e) => setDomain(e.target.value)}
+              placeholder="docs.example.com"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+            />
+          </Field>
+        </div>
       </div>
 
       {/* TLS mode */}
@@ -197,18 +195,22 @@ export function DomainSettings({ initial }: { initial: DomainState }) {
 
         {/* Let's Encrypt email */}
         {mode === "auto" && (
-          <label className="mt-4 block max-w-md">
-            <span className="mb-1 block text-xs font-medium text-slate-500">
-              Contact email <span className="text-slate-400">(optional, for renewal notices)</span>
-            </span>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className={field}
-              placeholder="admin@example.com"
-            />
-          </label>
+          <div className="mt-4 max-w-md">
+            <Field
+              label={
+                <>
+                  Contact email <span className="text-slate-400">(optional, for renewal notices)</span>
+                </>
+              }
+            >
+              <TextInput
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="admin@example.com"
+              />
+            </Field>
+          </div>
         )}
 
         {/* Bring-your-own cert */}
@@ -220,30 +222,24 @@ export function DomainSettings({ initial }: { initial: DomainState }) {
                 it.
               </p>
             )}
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium text-slate-500">
-                Certificate (PEM, including any chain)
-              </span>
-              <textarea
+            <Field label="Certificate (PEM, including any chain)">
+              <Textarea
                 value={cert}
                 onChange={(e) => setCert(e.target.value)}
-                className={`${field} h-28 font-mono text-xs`}
+                className="h-28 font-mono text-xs"
                 placeholder="-----BEGIN CERTIFICATE-----&#10;…"
                 spellCheck={false}
               />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium text-slate-500">
-                Private key (PEM)
-              </span>
-              <textarea
+            </Field>
+            <Field label="Private key (PEM)">
+              <Textarea
                 value={key}
                 onChange={(e) => setKey(e.target.value)}
-                className={`${field} h-28 font-mono text-xs`}
+                className="h-28 font-mono text-xs"
                 placeholder="-----BEGIN PRIVATE KEY-----&#10;…"
                 spellCheck={false}
               />
-            </label>
+            </Field>
           </div>
         )}
       </div>

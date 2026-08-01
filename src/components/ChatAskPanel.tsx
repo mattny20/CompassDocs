@@ -6,6 +6,7 @@
 
 import { useState } from "react";
 import { toast } from "@/components/Toasts";
+import { TextInput, Toggle } from "@/components/form";
 
 interface Config {
   slack_enabled: boolean;
@@ -42,8 +43,6 @@ export function ChatAskPanel({ initial, baseUrl }: { initial: Config; baseUrl: s
     setSaving(false);
   }
 
-  const inputCls =
-    "w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 outline-hidden focus:border-compass-400";
   const urlCls =
     "block select-all rounded-md bg-slate-100 px-2 py-1 font-mono text-xs text-slate-700";
 
@@ -61,20 +60,17 @@ export function ChatAskPanel({ initial, baseUrl }: { initial: Config; baseUrl: s
         <div className="rounded-lg border border-slate-200 p-3">
           <div className="mb-2 flex items-center justify-between">
             <span className="font-medium text-slate-800">Slack slash command</span>
-            <label className="flex items-center gap-2 text-sm text-slate-600">
-              <input
-                type="checkbox"
-                checked={cfg.slack_enabled}
-                disabled={saving || !cfg.slack_secret_set}
-                onChange={(e) =>
-                  save(
-                    { slack_enabled: e.target.checked },
-                    e.target.checked ? "Slack Ask enabled." : "Slack Ask disabled."
-                  )
-                }
-              />
-              Enabled
-            </label>
+            <Toggle
+              label="Enabled"
+              checked={cfg.slack_enabled}
+              disabled={saving || !cfg.slack_secret_set}
+              onChange={(next) =>
+                save(
+                  { slack_enabled: next },
+                  next ? "Slack Ask enabled." : "Slack Ask disabled."
+                )
+              }
+            />
           </div>
           <ol className="mb-3 list-decimal space-y-1 pl-5 text-xs text-slate-500">
             <li>
@@ -86,12 +82,11 @@ export function ChatAskPanel({ initial, baseUrl }: { initial: Config; baseUrl: s
             </li>
           </ol>
           <div className="flex gap-2">
-            <input
+            <TextInput
               type="password"
               value={slackSecret}
               onChange={(e) => setSlackSecret(e.target.value)}
               placeholder={cfg.slack_secret_set ? "Signing secret is set — replace…" : "Signing secret"}
-              className={inputCls}
               autoComplete="off"
             />
             <button
@@ -122,20 +117,17 @@ export function ChatAskPanel({ initial, baseUrl }: { initial: Config; baseUrl: s
         <div className="rounded-lg border border-slate-200 p-3">
           <div className="mb-2 flex items-center justify-between">
             <span className="font-medium text-slate-800">Teams outgoing webhook</span>
-            <label className="flex items-center gap-2 text-sm text-slate-600">
-              <input
-                type="checkbox"
-                checked={cfg.teams_enabled}
-                disabled={saving || !cfg.teams_secret_set}
-                onChange={(e) =>
-                  save(
-                    { teams_enabled: e.target.checked },
-                    e.target.checked ? "Teams Ask enabled." : "Teams Ask disabled."
-                  )
-                }
-              />
-              Enabled
-            </label>
+            <Toggle
+              label="Enabled"
+              checked={cfg.teams_enabled}
+              disabled={saving || !cfg.teams_secret_set}
+              onChange={(next) =>
+                save(
+                  { teams_enabled: next },
+                  next ? "Teams Ask enabled." : "Teams Ask disabled."
+                )
+              }
+            />
           </div>
           <ol className="mb-3 list-decimal space-y-1 pl-5 text-xs text-slate-500">
             <li>
@@ -148,12 +140,11 @@ export function ChatAskPanel({ initial, baseUrl }: { initial: Config; baseUrl: s
             </li>
           </ol>
           <div className="flex gap-2">
-            <input
+            <TextInput
               type="password"
               value={teamsSecret}
               onChange={(e) => setTeamsSecret(e.target.value)}
               placeholder={cfg.teams_secret_set ? "Security token is set — replace…" : "Security token"}
-              className={inputCls}
               autoComplete="off"
             />
             <button
