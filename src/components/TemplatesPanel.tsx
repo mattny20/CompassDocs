@@ -12,6 +12,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { RichTextEditor } from "@/components/RichTextEditor";
+import { toast } from "@/components/Toasts";
 import { DOC_TYPES, DOC_TYPE_LABEL } from "@/lib/types";
 import type { DocType } from "@/lib/types";
 
@@ -48,7 +49,6 @@ export function TemplatesPanel({ initial }: { initial: TemplateRow[] }) {
   const [templates, setTemplates] = useState<TemplateRow[]>(initial);
   const [openId, setOpenId] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
-  const [error, setError] = useState("");
 
   async function refresh() {
     const res = await fetch("/api/admin/templates");
@@ -83,12 +83,6 @@ export function TemplatesPanel({ initial }: { initial: TemplateRow[] }) {
         )}
       </div>
 
-      {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-          {error}
-        </div>
-      )}
-
       {creating && (
         <TemplateForm
           onCancel={() => setCreating(false)}
@@ -96,7 +90,6 @@ export function TemplatesPanel({ initial }: { initial: TemplateRow[] }) {
             setCreating(false);
             await refresh();
           }}
-          onError={setError}
         />
       )}
 
@@ -154,7 +147,6 @@ export function TemplatesPanel({ initial }: { initial: TemplateRow[] }) {
                       setOpenId(null);
                       await refresh();
                     }}
-                    onError={setError}
                   />
                 </div>
               )}
@@ -175,12 +167,10 @@ function TemplateForm({
   template,
   onCancel,
   onSaved,
-  onError,
 }: {
   template?: TemplateRow;
   onCancel: () => void;
   onSaved: () => void;
-  onError: (msg: string) => void;
 }) {
   const [name, setName] = useState(template?.name ?? "");
   const [description, setDescription] = useState(template?.description ?? "");
@@ -194,11 +184,10 @@ function TemplateForm({
 
   async function save() {
     if (!name.trim()) {
-      onError("Give the template a name.");
+      toast("error", "Give the template a name.");
       return;
     }
     setBusy(true);
-    onError("");
     const payload = {
       name: name.trim(),
       description: description.trim(),

@@ -8,6 +8,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { UsersRound, RefreshCw, CloudDownload, Trash2, Pencil, X } from "lucide-react";
 import { EntityPicker } from "@/components/EntityPicker";
+import { toast } from "@/components/Toasts";
 
 type GroupRow = {
   id: number;
@@ -40,7 +41,6 @@ export function GroupsPanel({
   const [newName, setNewName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
 
   async function refresh() {
     const res = await fetch("/api/admin/groups");
@@ -63,10 +63,11 @@ export function GroupsPanel({
     });
     setBusy(false);
     if (!res.ok) {
-      setError((await res.json().catch(() => ({}))).error || "Could not create the group.");
+      toast("error", (await res.json().catch(() => ({}))).error || "Could not create the group.");
       return;
     }
     setNewName("");
+    toast("ok", `Group “${name}” created.`);
     await refresh();
   }
 
@@ -79,10 +80,11 @@ export function GroupsPanel({
     if (!confirm(`Delete the group “${g.name}”?${warn}`)) return;
     const res = await fetch(`/api/admin/groups/${g.id}`, { method: "DELETE" });
     if (!res.ok) {
-      setError((await res.json().catch(() => ({}))).error || "Could not delete the group.");
+      toast("error", (await res.json().catch(() => ({}))).error || "Could not delete the group.");
       return;
     }
     if (open === g.id) setOpen(null);
+    toast("ok", `Group “${g.name}” deleted.`);
     await refresh();
   }
 
@@ -101,12 +103,6 @@ export function GroupsPanel({
           {error}
         </div>
       )}
-      {notice && (
-        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-          {notice}
-        </div>
-      )}
-
       <div className="flex gap-2">
         <input
           value={newName}
@@ -144,10 +140,7 @@ export function GroupsPanel({
         )}
       </div>
 
-      <EntraSection entra={entra} onImported={async (msg) => {
-        setNotice(msg);
-        await refresh();
-      }} />
+      <EntraSection entra={entra} onImported={refresh} />
     </div>
   );
 }
@@ -170,7 +163,6 @@ function GroupCard({
   const [members, setMembers] = useState<Member[] | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [name, setName] = useState(group.name);
-  const [error, setError] = useState("");
 
   async function load() {
     const res = await fetch(`/api/admin/groups/${group.id}`);
@@ -178,7 +170,6 @@ function GroupCard({
   }
 
   async function patch(body: Record<string, unknown>) {
-    setError("");
     const res = await fetch(`/api/admin/groups/${group.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -186,10 +177,14 @@ function GroupCard({
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      setError(data.error || "Could not update the group.");
+      toast("error", data.error || "Could not update the group.");
       return false;
     }
     setMembers(data.members);
+    toast(
+      "ok",
+      "name" in body ? "Group renamed." : "addUserId" in body ? "Member added." : "Member removed."
+    );
     await onChanged();
     return true;
   }
@@ -281,7 +276,6 @@ function GroupCard({
 
       {expanded && (
         <div className="border-t border-slate-100 p-3">
-          {error && <p className="mb-2 text-sm text-red-600">{error}</p>}
           {synced && (
             <p className="mb-2 rounded-md bg-sky-50 px-2.5 py-1.5 text-xs text-sky-700">
               This group syncs from Microsoft Entra — manual changes here are overwritten on the
@@ -337,23 +331,21 @@ function EntraSection({
   onImported,
 }: {
   entra: { bundled: boolean; licensed: boolean; configured: boolean };
-  onImported: (msg: string) => Promise<void>;
+  onImported: () => Promise<void>;
 }) {
   const [browsing, setBrowsing] = useState(false);
   const [available, setAvailable] = useState<EntraGroup[] | null>(null);
   const [picked, setPicked] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
 
   async function browse() {
     setBrowsing(true);
     setBusy(true);
-    setError("");
     const res = await fetch("/api/ee/directory/groups");
     const data = await res.json().catch(() => ({}));
     setBusy(false);
     if (!res.ok) {
-      setError(data.error || "Could not load groups from Microsoft Entra.");
+      toast("error", data.error || "Could not load groups from Microsoft Entra.");
       setAvailable([]);
       return;
     }
@@ -363,7 +355,6 @@ function EntraSection({
 
   async function importPicked() {
     setBusy(true);
-    setError("");
     const res = await fetch("/api/ee/directory/groups/import", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -372,29 +363,32 @@ function EntraSection({
     const data = await res.json().catch(() => ({}));
     setBusy(false);
     if (!res.ok) {
-      setError(data.error || "Import failed.");
+      toast("error", data.error || "Import failed.");
       return;
     }
     setBrowsing(false);
     setAvailable(null);
-    await onImported(
+    toast(
+      "ok",
       `Imported ${data.imported} group${data.imported === 1 ? "" : "s"} from Microsoft Entra (${data.matched} member${data.matched === 1 ? "" : "s"} matched to CompassDocs users).`
     );
+    await onImported();
   }
 
   async function syncAll() {
     setBusy(true);
-    setError("");
     const res = await fetch("/api/ee/directory/groups/sync", { method: "POST" });
     const data = await res.json().catch(() => ({}));
     setBusy(false);
     if (!res.ok) {
-      setError(data.error || "Sync failed.");
+      toast("error", data.error || "Sync failed.");
       return;
     }
-    await onImported(
+    toast(
+      "ok",
       `Synced ${data.groups} group${data.groups === 1 ? "" : "s"} (${data.matched} member${data.matched === 1 ? "" : "s"} matched).`
     );
+    await onImported();
   }
 
   return (
@@ -453,8 +447,6 @@ function EntraSection({
           application permission, which the one-click setup grants).
         </p>
       ) : null}
-
-      {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
 
       {browsing && available !== null && (
         <div className="mt-3 rounded-lg border border-slate-200 p-3">

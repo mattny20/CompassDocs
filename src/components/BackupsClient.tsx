@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "@/components/Toasts";
 import { formatDateTime } from "@/lib/format";
 import type { AppSettings, BackupFrequency } from "@/lib/settings";
 import { BACKUP_KEEP_MIN, BACKUP_KEEP_MAX } from "@/lib/settings";
@@ -39,37 +40,31 @@ export function BackupsClient({
   const [freq, setFreq] = useState<BackupFrequency>(settings.backup_frequency);
   const [keep, setKeep] = useState(settings.backup_keep);
   const [savingSchedule, setSavingSchedule] = useState(false);
-  const [scheduleSaved, setScheduleSaved] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
-  const [msg, setMsg] = useState("");
-  const [err, setErr] = useState("");
 
   async function saveSchedule() {
     setSavingSchedule(true);
-    setScheduleSaved(false);
     await fetch("/api/admin/settings", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ backup_frequency: freq, backup_keep: keep }),
     });
     setSavingSchedule(false);
-    setScheduleSaved(true);
+    toast("ok", "Backup schedule saved.");
     router.refresh();
   }
 
   async function backupNow() {
     setBusy("__create__");
-    setErr("");
-    setMsg("");
     const res = await fetch("/api/backups", { method: "POST" });
     const data = await res.json().catch(() => ({}));
     setBusy(null);
     if (!res.ok) {
-      setErr(data?.error || "Backup failed.");
+      toast("error", data?.error || "Backup failed.");
       return;
     }
     const up = data.backup?.uploaded?.length ? ` · uploaded to ${data.backup.uploaded.join(", ")}` : "";
-    setMsg(`Backup created (${bytes(data.backup?.size ?? 0)})${up}.`);
+    toast("ok", `Backup created (${bytes(data.backup?.size ?? 0)})${up}.`);
     router.refresh();
   }
 
@@ -79,8 +74,12 @@ export function BackupsClient({
     setBusy(b.name);
     const res = await fetch(`/api/backups/${b.name}`, { method: "DELETE" });
     setBusy(null);
-    if (res.ok) router.refresh();
-    else setErr((await res.json().catch(() => ({})))?.error || "Delete failed.");
+    if (res.ok) {
+      toast("ok", `Backup ${b.name} deleted.`);
+      router.refresh();
+    } else {
+      toast("error", (await res.json().catch(() => ({})))?.error || "Delete failed.");
+    }
   }
 
   async function restore(b: BackupInfo) {
@@ -92,15 +91,13 @@ export function BackupsClient({
       return;
     if (!confirm("Are you absolutely sure? Everyone will need to sign in again.")) return;
     setBusy(b.name);
-    setErr("");
-    setMsg("");
     const res = await fetch(`/api/backups/${b.name}/restore`, { method: "POST" });
     setBusy(null);
     if (res.ok) {
-      setMsg("Database restored. You may need to sign in again.");
+      toast("ok", "Database restored. You may need to sign in again.");
       router.refresh();
     } else {
-      setErr((await res.json().catch(() => ({})))?.error || "Restore failed.");
+      toast("error", (await res.json().catch(() => ({})))?.error || "Restore failed.");
     }
   }
 
@@ -142,7 +139,6 @@ export function BackupsClient({
             >
               {savingSchedule ? "Saving…" : "Save"}
             </button>
-            {scheduleSaved && <span className="text-sm text-green-600">✓</span>}
           </div>
         </div>
 
@@ -180,9 +176,6 @@ export function BackupsClient({
             {busy === "__create__" ? "Backing up…" : "Back up now"}
           </button>
         </div>
-
-        {msg && <div className="mb-3 rounded-lg bg-green-50 px-3 py-2 text-sm text-green-800">{msg}</div>}
-        {err && <div className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{err}</div>}
 
         {backups.length === 0 ? (
           <p className="py-6 text-center text-sm text-slate-400">
