@@ -166,6 +166,37 @@ Two remain, both per-space, and they belong together with the per-space guard
 enforcement 0.93 deferred: **space visibility** (`spaceScopeFor`) and **space
 edit rights** (`editors_edit_all` + edit grants). They are the next piece.
 
+## Per-space grants (0.95)
+
+The space scope on an assignment finally decides something. `spaceScopeFor` and
+`canEditSpace` read role assignments, and the last two hard-coded
+`role === "admin"` bypasses in the authorization path become named permissions:
+
+| Was | Now |
+| --- | --- |
+| `spaceScopeFor`: `role === "admin"` ⇒ every space | `space.read_all` |
+| `canEditSpace`: `role === "admin"` ⇒ author anywhere | `space.author_all` |
+| private-space membership: group grant only | group grant **or** space-scoped `space.member` |
+| authoring: `editors_edit_all` + edit grants | those **or** space-scoped `space.author` |
+
+**Everything is additive or an exact swap.** The Administrator preset holds both
+`*_all` keys, so administrators are unchanged; a space-scoped grant is unioned
+with the existing sources rather than replacing them. That is deliberate, and it
+is the whole reason this shipped as its own release: when the failure mode is
+"a private space became visible" or "an author lost their space", a migration
+that can only widen is the only kind worth attempting without a cutover flag.
+
+`editableScopeFor` had to be changed in lockstep with `canEditSpace` — one
+decides what a list shows, the other whether a write succeeds, and a
+disagreement is either a document you can see but not save or one you can save
+but never find.
+
+**Still to retire.** `space_groups`, `space_editors`, and `space_editor_groups`
+remain as a second source consulted alongside assignments. Migrating their rows
+into space-scoped assignments and deleting the tables is a data change with no
+behavioural component, which makes it a good standalone piece of work and a bad
+thing to bundle with the semantics change above.
+
 ## Status
 
 All of RBAC ships in the community edition; only the Google and Microsoft
