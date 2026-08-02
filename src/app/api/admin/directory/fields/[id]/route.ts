@@ -23,6 +23,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   const field = await updateField(id, {
     ...(body?.label !== undefined ? { label: String(body.label) } : {}),
     ...(body?.graph_path !== undefined ? { graph_path: String(body.graph_path) } : {}),
+    ...(body?.google_path !== undefined ? { google_path: String(body.google_path) } : {}),
     ...(body?.show_in_card !== undefined ? { show_in_card: Boolean(body.show_in_card) } : {}),
     ...(body?.display !== undefined ? { display: body.display === "tag" ? ("tag" as const) : ("field" as const) } : {}),
     ...(body?.sort !== undefined ? { sort: Number(body.sort) } : {}),

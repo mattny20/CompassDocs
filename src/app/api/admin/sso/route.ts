@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { apiGuard, credentialSaveError } from "@/lib/api-auth";
-import { getSsoConfig, updateSsoConfig, ssoAuthority } from "@/lib/sso-config";
+import { getSsoConfig, updateSsoConfig, ssoAuthority, asSsoVendor } from "@/lib/sso-config";
 import { getSetting } from "@/lib/db";
 import { featureEnabled, eePresent } from "@/lib/ee";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
@@ -31,6 +31,7 @@ async function view() {
     default_role: cfg.defaultRole,
     allowed_domains: cfg.allowedDomains.join(", "),
     sso_only: cfg.ssoOnly,
+    vendor: cfg.vendor,
   };
 }
 
@@ -69,6 +70,7 @@ export async function PATCH(req: Request) {
       ? { allowedDomains: String(body.allowed_domains) }
       : {}),
     ...(body?.sso_only !== undefined ? { ssoOnly: Boolean(body.sso_only) } : {}),
+    ...(body?.vendor !== undefined ? { vendor: asSsoVendor(String(body.vendor)) } : {}),
   }));
   if (keyErr) return keyErr;
 

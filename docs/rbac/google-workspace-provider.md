@@ -4,10 +4,15 @@
 > column, per-source group uniqueness, the SSO vendor discriminator, the sealed
 > Google credential key, and the four correctness fixes in §1 seams E and G.
 >
-> **Not yet implemented:** the Google client itself — OAuth against the service
-> account, `listPeople`/`listGroups`, the `/api/ee/google/*` endpoints and the
-> admin panel. Those live in the **compassdocs-ee overlay repo**, not here, and
-> are the companion piece to this release. Core carries the shapes and the write
+> **Added in 0.97:** the configuration surface an admin actually touches —
+> `lib/directory-google-config.ts`, `/api/admin/directory/google` (GET / PATCH /
+> DELETE, with key validation and a write-only credential), the SSO vendor
+> field wired through the SSO API, and `google_path` threaded through the
+> directory-field data layer and its two routes.
+>
+> **Still not implemented:** the Google client itself — OAuth against the
+> service account, `listPeople`/`listGroups`, and the `/api/ee/google/*`
+> endpoints. Those live in the **compassdocs-ee overlay repo**, not here. Core carries the shapes and the write
 > paths so a downgrade to the community build leaves a directory that still
 > reads correctly.
 
