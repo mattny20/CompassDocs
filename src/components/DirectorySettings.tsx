@@ -447,7 +447,7 @@ function GraphPanel({ graph, onSynced }: { graph: GraphState; onSynced: () => vo
       </div>
 
       {g.last_sync?.blocked && (
-        <div className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+        <div className="notice-warn mt-3 rounded-lg border p-3 text-sm">
           <p className="font-medium">
             {g.last_sync.blocked.doomed} of {g.last_sync.blocked.total} synced people are no
             longer in the tenant — more than half, so they were left in place.
@@ -461,7 +461,7 @@ function GraphPanel({ graph, onSynced }: { graph: GraphState; onSynced: () => vo
             type="button"
             onClick={syncAllowingRemovals}
             disabled={syncing}
-            className="mt-2 rounded-lg border border-amber-300 px-3 py-1.5 text-sm font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-800 dark:text-amber-100 dark:hover:bg-amber-900/40"
+            className="mt-2 rounded-lg border border-current/40 px-3 py-1.5 font-medium hover:bg-black/5 disabled:opacity-50 dark:hover:bg-white/10"
           >
             {syncing ? "Syncing…" : `Sync and remove the ${g.last_sync.blocked.doomed}`}
           </button>
