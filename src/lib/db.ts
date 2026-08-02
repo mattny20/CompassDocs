@@ -118,6 +118,8 @@ async function initialize(): Promise<void> {
   try {
     await client.query("SELECT pg_advisory_lock(id) FROM (SELECT 728341 AS id) t");
     await client.query(SCHEMA_SQL);
+    await syncPresetRoles(client);
+    await migrateLadderToAssignments(client);
     await migrateVisibilityTiers(client);
     await migrateSecuritySealing(client);
     await migrateWeightedSearch(client);
@@ -1029,6 +1031,95 @@ const SCHEMA_SQL = `
   ALTER TABLE announcements ADD COLUMN IF NOT EXISTS
     target_user_id integer REFERENCES users(id) ON DELETE CASCADE;
   ALTER TABLE announcements ADD COLUMN IF NOT EXISTS link text NOT NULL DEFAULT '';
+
+  -- --- Role-based access control (0.91) ------------------------------------
+  --
+  -- Three tables. Roles hold permissions; assignments bind a role to a subject
+  -- (a user or a group) at a scope (workspace-wide, or one space).
+  --
+  -- Permission keys are stored as plain text and validated against the
+  -- code-defined catalog in lib/permissions.ts on write. They are deliberately
+  -- NOT a foreign key to a permissions table: the catalog ships with the code,
+  -- so a downgrade must not fail on rows referencing a key it doesn't know —
+  -- unknown keys are ignored on read, which fails closed.
+  CREATE TABLE IF NOT EXISTS roles (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    key text NOT NULL UNIQUE,
+    name text NOT NULL,
+    description text NOT NULL DEFAULT '',
+    -- Built-in roles are seeded from PRESET_ROLES and cannot be deleted; their
+    -- permission sets are reset to the catalog on every boot so an upgrade
+    -- that adds a permission grants it without a migration.
+    is_builtin boolean NOT NULL DEFAULT false,
+    created_at timestamptz NOT NULL DEFAULT now()
+  );
+  CREATE TABLE IF NOT EXISTS role_permissions (
+    role_id integer NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+    permission text NOT NULL,
+    PRIMARY KEY (role_id, permission)
+  );
+  CREATE TABLE IF NOT EXISTS role_assignments (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    role_id integer NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+    -- Exactly one of user_id / group_id is set (enforced below).
+    user_id integer REFERENCES users(id) ON DELETE CASCADE,
+    group_id integer REFERENCES groups(id) ON DELETE CASCADE,
+    -- 'global' applies everywhere; 'space' applies to space_id only.
+    scope_type text NOT NULL DEFAULT 'global',
+    space_id integer REFERENCES spaces(id) ON DELETE CASCADE,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT role_assignment_subject CHECK (
+      (user_id IS NOT NULL AND group_id IS NULL) OR (user_id IS NULL AND group_id IS NOT NULL)
+    ),
+    CONSTRAINT role_assignment_scope CHECK (
+      (scope_type = 'global' AND space_id IS NULL) OR
+      (scope_type = 'space'  AND space_id IS NOT NULL)
+    )
+  );
+  -- One assignment per (subject, role, scope). Partial uniques because NULLs
+  -- don't compare equal, so a plain UNIQUE would let duplicates through.
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_ra_user_global
+    ON role_assignments (user_id, role_id) WHERE user_id IS NOT NULL AND scope_type = 'global';
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_ra_user_space
+    ON role_assignments (user_id, role_id, space_id) WHERE user_id IS NOT NULL AND scope_type = 'space';
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_ra_group_global
+    ON role_assignments (group_id, role_id) WHERE group_id IS NOT NULL AND scope_type = 'global';
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_ra_group_space
+    ON role_assignments (group_id, role_id, space_id) WHERE group_id IS NOT NULL AND scope_type = 'space';
+  -- The hot path is "everything this user holds", resolved once per request.
+  CREATE INDEX IF NOT EXISTS idx_ra_user ON role_assignments (user_id) WHERE user_id IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS idx_ra_group ON role_assignments (group_id) WHERE group_id IS NOT NULL;
+
+  -- Keep the legacy ladder and the new assignments in step, in the database
+  -- rather than in application code.
+  --
+  -- users.role is written from several places — the admin API, SCIM
+  -- provisioning, SSO just-in-time creation, the first-run bootstrap — and
+  -- until 0.92 removes the ladder entirely, every one of them must also produce
+  -- an assignment or the user silently has no permissions. Finding all those
+  -- writers and remembering to patch each is exactly the kind of "did we get
+  -- them all?" problem this rewrite exists to stop having, so the invariant
+  -- lives next to the data instead.
+  --
+  -- Only built-in roles at global scope are touched: custom roles and
+  -- space-scoped grants are never created or removed by this.
+  CREATE OR REPLACE FUNCTION compass_sync_ladder_assignment() RETURNS trigger AS $fn$
+  BEGIN
+    DELETE FROM role_assignments ra
+     USING roles r
+     WHERE ra.role_id = r.id AND r.is_builtin
+       AND ra.user_id = NEW.id AND ra.scope_type = 'global' AND r.key <> NEW.role;
+    INSERT INTO role_assignments (role_id, user_id, scope_type)
+    SELECT r.id, NEW.id, 'global' FROM roles r WHERE r.is_builtin AND r.key = NEW.role
+    ON CONFLICT DO NOTHING;
+    RETURN NEW;
+  END;
+  $fn$ LANGUAGE plpgsql;
+
+  DROP TRIGGER IF EXISTS compass_users_ladder_sync ON users;
+  CREATE TRIGGER compass_users_ladder_sync
+    AFTER INSERT OR UPDATE OF role ON users
+    FOR EACH ROW EXECUTE FUNCTION compass_sync_ladder_assignment();
 `;
 
 /**
@@ -1063,6 +1154,67 @@ async function migrateWeightedSearch(client: import("pg").PoolClient) {
     ) STORED;
     CREATE INDEX idx_documents_search ON documents USING gin(search);
   `);
+}
+
+/**
+ * Reconcile the four built-in roles with the code catalog, every boot.
+ *
+ * Built-ins are owned by the code, not the database: an upgrade that adds a
+ * permission to the Editor preset should grant it without anyone running a
+ * migration. So their permission sets are replaced wholesale here. Custom
+ * roles are never touched.
+ *
+ * Deliberately not `DELETE FROM role_permissions` + re-INSERT: that would leave
+ * a window inside the transaction where a concurrent reader sees a role with no
+ * permissions. Instead the delete is narrowed to keys that are no longer in the
+ * preset, and inserts are ON CONFLICT DO NOTHING.
+ */
+async function syncPresetRoles(client: import("pg").PoolClient) {
+  const { PRESET_ROLES, PRESET_ROLE_KEYS } = await import("./permissions");
+  for (const key of PRESET_ROLE_KEYS) {
+    const preset = PRESET_ROLES[key];
+    const { rows } = await client.query<{ id: number }>(
+      `INSERT INTO roles (key, name, description, is_builtin)
+       VALUES ($1, $2, $3, true)
+       ON CONFLICT (key) DO UPDATE SET name = EXCLUDED.name, description = EXCLUDED.description
+       RETURNING id`,
+      [key, preset.label, preset.description]
+    );
+    const roleId = rows[0].id;
+    const want = preset.permissions as readonly string[];
+    await client.query(
+      "DELETE FROM role_permissions WHERE role_id = $1 AND permission <> ALL($2::text[])",
+      [roleId, want]
+    );
+    await client.query(
+      `INSERT INTO role_permissions (role_id, permission)
+       SELECT $1, unnest($2::text[]) ON CONFLICT DO NOTHING`,
+      [roleId, want]
+    );
+  }
+}
+
+/**
+ * Keep every user's ladder role represented as a real global assignment.
+ *
+ * Runs on every boot, not once. A trigger keeps the two in step for writes made
+ * while the app is running, but a backfill costs one indexed anti-join when
+ * there is nothing to do and means the system repairs itself after a restore
+ * from an older dump, a manual UPDATE, or any future writer that bypasses the
+ * trigger. For something that decides whether a user has any permissions at
+ * all, self-healing beats a one-shot flag.
+ */
+async function migrateLadderToAssignments(client: import("pg").PoolClient) {
+  const { rowCount } = await client.query(
+    `INSERT INTO role_assignments (role_id, user_id, scope_type)
+     SELECT r.id, u.id, 'global'
+       FROM users u JOIN roles r ON r.key = u.role AND r.is_builtin
+      WHERE NOT EXISTS (
+        SELECT 1 FROM role_assignments ra
+         WHERE ra.user_id = u.id AND ra.role_id = r.id AND ra.scope_type = 'global')
+     ON CONFLICT DO NOTHING`
+  );
+  if (rowCount) console.log(`[rbac] backfilled ${rowCount} role assignment(s) from the ladder`);
 }
 
 async function migrateVisibilityTiers(client: import("pg").PoolClient) {
@@ -6064,4 +6216,47 @@ export async function rejectChangeRequest(
     [reviewerId, note, id]
   );
   return (res.rowCount ?? 0) > 0;
+}
+
+// --- RBAC introspection (0.91) ---------------------------------------------
+
+export async function listRolesWithCounts(): Promise<
+  { id: number; key: string; name: string; description: string; is_builtin: boolean; permission_count: number }[]
+> {
+  return q(
+    `SELECT r.id, r.key, r.name, r.description, r.is_builtin,
+            count(rp.permission)::int AS permission_count
+       FROM roles r LEFT JOIN role_permissions rp ON rp.role_id = r.id
+      GROUP BY r.id ORDER BY r.is_builtin DESC, permission_count DESC, r.name`
+  );
+}
+
+/**
+ * Cross-check the migrated assignments against the legacy ladder they came
+ * from. Both are live until 0.92 ports the check sites, so a disagreement means
+ * something wrote one and not the other — worth catching while there is still a
+ * second source of truth to compare against.
+ */
+export async function rbacMigrationAudit(): Promise<{
+  users: number;
+  users_without_assignment: number;
+  mismatched: number;
+}> {
+  const rows = await q<{ users: string; without: string; mismatched: string }>(
+    `SELECT
+       (SELECT count(*) FROM users)::text AS users,
+       (SELECT count(*) FROM users u
+          WHERE NOT EXISTS (SELECT 1 FROM role_assignments ra
+                             WHERE ra.user_id = u.id AND ra.scope_type = 'global'))::text AS without,
+       (SELECT count(*) FROM users u
+          JOIN role_assignments ra ON ra.user_id = u.id AND ra.scope_type = 'global'
+          JOIN roles r ON r.id = ra.role_id AND r.is_builtin
+         WHERE r.key <> u.role)::text AS mismatched`
+  );
+  const r = rows[0];
+  return {
+    users: Number(r?.users ?? 0),
+    users_without_assignment: Number(r?.without ?? 0),
+    mismatched: Number(r?.mismatched ?? 0),
+  };
 }

@@ -9,6 +9,20 @@ import { ADMIN, login } from "./helpers";
 
 const palette = (page: Page) => page.locator('[role="dialog"][aria-label="Command palette"]');
 
+/**
+ * Wait until the app-wide hotkey layer is actually listening.
+ *
+ * The palette is a client component mounted by the app shell, so a keypress
+ * sent between navigation and hydration is simply dropped — which made these
+ * tests intermittently fail with "element not found" rather than anything
+ * meaningful. The sidebar's search affordance renders from the same client
+ * bundle as the sidebar chrome, so waiting for a sidebar control to appear is a
+ * sound proxy for "the listener is bound".
+ */
+async function hotkeysReady(page: Page) {
+  await expect(page.locator('[aria-label="Collapse sidebar"]').first()).toBeVisible();
+}
+
 /** Focus the page body, so bare-key shortcuts aren't suppressed by an input. */
 async function focusBody(page: Page) {
   await page.evaluate(() => {
@@ -20,6 +34,7 @@ async function focusBody(page: Page) {
 test("Ctrl+K and Meta+K both open the palette over the current page", async ({ page }) => {
   await login(page, ADMIN);
   await page.goto("/directory");
+  await hotkeysReady(page);
   const url = page.url();
 
   // Windows/Linux modifier.
