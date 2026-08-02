@@ -25,7 +25,13 @@ export interface GoogleState {
   photos: boolean;
   configured: boolean;
   scopes: string[];
-  last_sync: { at: string; ok: boolean; count?: number; error?: string } | null;
+  last_sync: {
+    at: string;
+    ok: boolean;
+    count?: number;
+    error?: string;
+    blocked?: { doomed: number; total: number };
+  } | null;
 }
 
 const primary =
@@ -73,6 +79,8 @@ export function GoogleDirectoryPanel({ initial }: { initial: GoogleState }) {
     setBusy("");
   }
 
+  const blocked = state.last_sync?.blocked;
+
   async function post(path: string, label: string, body?: unknown) {
     setBusy(label);
     try {
@@ -100,15 +108,36 @@ export function GoogleDirectoryPanel({ initial }: { initial: GoogleState }) {
     if (data) setProbe({ ok: Boolean(data.ok), detail: String(data.detail ?? "") });
   }
 
-  async function runSync() {
-    const data = await post("/api/ee/google/sync", "sync");
+  async function runSync(allowRemovals = false) {
+    const data = await post(
+      "/api/ee/google/sync",
+      "sync",
+      allowRemovals ? { allow_removals: true } : undefined
+    );
     if (!data) return;
     // A tripped removal brake is a success with a caveat: the updates applied.
     // Reporting it as a failure would send someone hunting the wrong problem.
     if (data.warning) toast("error", data.warning);
-    else toast("ok", `Synced ${data.count} ${data.count === 1 ? "person" : "people"}.`);
+    else
+      toast(
+        "ok",
+        `Synced ${data.count} ${data.count === 1 ? "person" : "people"}` +
+          (data.deleted ? `, removed ${data.deleted}.` : ".")
+      );
     const fresh = await fetch("/api/admin/directory/google");
     if (fresh.ok) setState(await fresh.json());
+  }
+
+  async function syncAllowingRemovals() {
+    if (!blocked) return;
+    if (
+      !confirm(
+        `Remove ${blocked.doomed} people who are no longer in Google Workspace? ` +
+          `They will be deleted from the directory. Manual entries are not affected.`
+      )
+    )
+      return;
+    await runSync(true);
   }
 
   async function importGroups() {
@@ -230,7 +259,7 @@ export function GoogleDirectoryPanel({ initial }: { initial: GoogleState }) {
           <button
             type="button"
             className={secondary}
-            onClick={runSync}
+            onClick={() => runSync()}
             disabled={busy !== "" || !state.configured}
           >
             {busy === "sync" ? (
@@ -265,6 +294,35 @@ export function GoogleDirectoryPanel({ initial }: { initial: GoogleState }) {
             )}
             {probe.detail}
           </p>
+        )}
+
+        {blocked && (
+          <div className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+            <p className="flex items-start gap-1.5 font-medium">
+              <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+              {blocked.doomed} of {blocked.total} synced people are no longer in Google
+              Workspace — more than half, so they were left in place.
+            </p>
+            <p className="mt-1.5">
+              That is usually a filter pointing at the wrong group, or delegation that stopped
+              working. If the removals are right — you narrowed the group, or that many people
+              really did leave — allow them once. Syncing again on its own will keep stopping
+              here.
+            </p>
+            <button
+              type="button"
+              onClick={syncAllowingRemovals}
+              disabled={busy !== ""}
+              className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-amber-300 px-3 py-1.5 text-sm font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-800 dark:text-amber-100 dark:hover:bg-amber-900/40"
+            >
+              {busy === "sync" ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              ) : (
+                <Trash2 className="h-4 w-4" aria-hidden />
+              )}{" "}
+              Sync and remove the {blocked.doomed}
+            </button>
+          </div>
         )}
 
         {state.last_sync && (

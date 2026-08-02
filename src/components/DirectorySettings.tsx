@@ -22,7 +22,13 @@ interface GraphState {
   require_title: boolean;
   require_phone: boolean;
   photos: boolean;
-  last_sync: { at: string; ok: boolean; count?: number; error?: string } | null;
+  last_sync: {
+    at: string;
+    ok: boolean;
+    count?: number;
+    error?: string;
+    blocked?: { doomed: number; total: number };
+  } | null;
 }
 
 const EMPTY_FORM = { name: "", title: "", department: "", email: "", phone: "", mobile: "", office: "" };
@@ -316,17 +322,38 @@ function GraphPanel({ graph, onSynced }: { graph: GraphState; onSynced: () => vo
     toast("ok", "Microsoft 365 sync settings saved.");
   }
 
-  async function syncNow() {
+  async function syncNow(allowRemovals = false) {
     setSyncing(true);
-    const res = await fetch("/api/ee/directory/sync", { method: "POST" });
+    const res = await fetch("/api/ee/directory/sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ allow_removals: allowRemovals }),
+    });
     const data = await res.json().catch(() => ({}));
     setSyncing(false);
     if (!res.ok) {
       toast("error", data?.error || "Sync failed.");
       return;
     }
-    toast("ok", `Synced ${data?.count ?? "?"} people from Microsoft 365.`);
+    // The brake tripping is a success with a caveat — the upserts committed.
+    if (data?.warning) toast("error", data.warning);
+    else toast("ok", `Synced ${data?.count ?? "?"} people from Microsoft 365.`);
+    const fresh = await fetch("/api/admin/directory/graph");
+    if (fresh.ok) setG(await fresh.json());
     onSynced();
+  }
+
+  async function syncAllowingRemovals() {
+    const b = g.last_sync?.blocked;
+    if (!b) return;
+    if (
+      !confirm(
+        `Remove ${b.doomed} people who are no longer in the tenant? They will be deleted ` +
+          `from the directory. Manual entries are not affected.`
+      )
+    )
+      return;
+    await syncNow(true);
   }
 
   return (
@@ -414,10 +441,32 @@ function GraphPanel({ graph, onSynced }: { graph: GraphState; onSynced: () => vo
         <button onClick={save} disabled={saving} className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60">
           {saving ? "Saving…" : "Save"}
         </button>
-        <button onClick={syncNow} disabled={syncing || !g.tenant || !g.client_id || !(g.has_secret || secret)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50" data-tt={!g.tenant || !g.client_id ? "Save the tenant, client ID, and secret first" : ""} aria-label={!g.tenant || !g.client_id ? "Save the tenant, client ID, and secret first" : ""}>
+        <button onClick={() => syncNow()} disabled={syncing || !g.tenant || !g.client_id || !(g.has_secret || secret)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50" data-tt={!g.tenant || !g.client_id ? "Save the tenant, client ID, and secret first" : ""} aria-label={!g.tenant || !g.client_id ? "Save the tenant, client ID, and secret first" : ""}>
           {syncing ? "Syncing…" : "Sync now"}
         </button>
       </div>
+
+      {g.last_sync?.blocked && (
+        <div className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+          <p className="font-medium">
+            {g.last_sync.blocked.doomed} of {g.last_sync.blocked.total} synced people are no
+            longer in the tenant — more than half, so they were left in place.
+          </p>
+          <p className="mt-1.5">
+            Usually a group filter pointing somewhere unexpected, or consent that lapsed. If
+            the removals are right, allow them once — syncing again on its own will keep
+            stopping here.
+          </p>
+          <button
+            type="button"
+            onClick={syncAllowingRemovals}
+            disabled={syncing}
+            className="mt-2 rounded-lg border border-amber-300 px-3 py-1.5 text-sm font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-800 dark:text-amber-100 dark:hover:bg-amber-900/40"
+          >
+            {syncing ? "Syncing…" : `Sync and remove the ${g.last_sync.blocked.doomed}`}
+          </button>
+        </div>
+      )}
 
       {g.last_sync && (
         <p className={`mt-3 text-xs ${g.last_sync.ok ? "text-slate-400" : "text-red-500"}`}>

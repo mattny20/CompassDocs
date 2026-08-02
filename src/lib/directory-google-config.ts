@@ -13,6 +13,7 @@
 
 import "server-only";
 import { getSetting, setSetting } from "./db";
+import type { ProviderSyncStatus } from "./directory";
 
 const KEYS = {
   serviceAccount: "directory_google_service_account",
@@ -129,27 +130,17 @@ export async function updateDirectoryGoogleConfig(
   await Promise.all(jobs);
 }
 
-export async function getGoogleSyncStatus(): Promise<{
-  at: string;
-  ok: boolean;
-  count?: number;
-  error?: string;
-} | null> {
+export async function getGoogleSyncStatus(): Promise<ProviderSyncStatus | null> {
   const raw = await getSetting(KEYS.lastSync);
   if (!raw) return null;
   try {
-    return JSON.parse(raw);
+    return JSON.parse(raw) as ProviderSyncStatus;
   } catch {
     return null;
   }
 }
 
-export async function setGoogleSyncStatus(status: {
-  at: string;
-  ok: boolean;
-  count?: number;
-  error?: string;
-}): Promise<void> {
+export async function setGoogleSyncStatus(status: ProviderSyncStatus): Promise<void> {
   await setSetting(KEYS.lastSync, JSON.stringify(status));
 }
 
