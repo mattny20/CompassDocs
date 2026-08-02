@@ -60,7 +60,7 @@ export function Lightbox({
     <div
       role="dialog"
       aria-label={label}
-      className="fixed inset-0 z-50 overflow-hidden bg-slate-900/90"
+      className="cmd-scrim fixed inset-0 z-50 overflow-hidden"
       onWheel={(e) => zoomBy(e.deltaY < 0 ? 1.15 : 1 / 1.15)}
       onPointerDown={(e) => {
         moved.current = false;

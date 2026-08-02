@@ -4,6 +4,42 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.88.0] - 2026-08-02
+
+### Added
+- **The sidebar now shows you where you are.** The main navigation was the
+  only one in the app that never highlighted the current page — settings,
+  account and the space tree all did. It does now, in both the wide and the
+  icon-only rail.
+- **Documents have a readable line length.** Body text ran to 98 characters
+  per line at the default width and 187 on a wide monitor, well past the
+  comfortable range. Prose is now capped at a readable column — around 64
+  to 70 characters — while the title, notices, toolbar and side panel keep
+  using the full width you chose. Body text is also a point larger.
+
+### Fixed
+- **The mobile navigation was unusable with a screen reader.** On a phone
+  the rail is always collapsed, so the entire primary navigation was
+  unlabelled icons; spaces announced as the name of their emoji. Everything
+  is now named, and the phone controls are proper 44px tap targets.
+- **The mobile navigation drawer wasn't a real dialog.** It ignored Escape,
+  left the page behind it scrollable and focusable, and in dark mode washed
+  the page white instead of dimming it.
+- **Escape now closes only the top layer.** The overlay ordering added in
+  0.86.0 was never actually wired up, so each overlay handled Escape itself
+  — with a palette open over the navigation drawer, one press could close
+  both.
+- **Controls that only worked with a mouse.** Stop tracking a service,
+  unlink a related document and reorder sub-pages were invisible on phones
+  and tablets — not merely awkward, but permanently hidden — and drew their
+  focus ring on an invisible box when tabbed to. The directory's sortable
+  columns weren't operable by keyboard at all.
+- Unnamed form controls got accessible names, including each row's role
+  selector in Users, which previously announced thirty identical anonymous
+  dropdowns with no indication of whose role was about to change.
+- The table of contents now remembers whether you opened it, and stops
+  listing the document's own title as its first entry.
+
 ## [0.87.0] - 2026-08-02
 
 ### Fixed

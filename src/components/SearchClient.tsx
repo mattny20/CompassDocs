@@ -103,6 +103,7 @@ export function SearchClient({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           autoFocus
+          aria-label="Ask a question or search by keyword"
           placeholder="e.g. How do I roll back a bad deploy?"
           className="flex-1 rounded-lg border border-slate-200 bg-surface px-4 py-2.5 text-slate-800 outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100"
         />

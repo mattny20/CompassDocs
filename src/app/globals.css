@@ -156,7 +156,7 @@ mark {
 
 /* Rendered markdown ("prose") styling — self-contained, no plugin needed. */
 .doc-prose {
-  @apply text-[15px] leading-7 text-slate-700;
+  @apply text-[16px] leading-7 text-slate-700;
 }
 .doc-prose h1 {
   @apply mb-4 mt-8 text-2xl font-bold text-slate-900 first:mt-0;
@@ -222,6 +222,37 @@ mark {
 
 .doc-prose img {
   @apply my-4 h-auto max-w-full rounded-lg border border-slate-200 shadow-xs;
+}
+
+/* Reading column: a measure for rendered documents.
+ *
+ * `.doc-prose` is shared — the tiptap editor carries it, and every
+ * MarkdownView consumer (editor preview, newsletter, training player,
+ * version history, review queue, AI answers) renders inside it — so the cap
+ * is scoped to `.doc-read`, which only the three document-reading surfaces
+ * set: the document page, the share page and the public document page.
+ * Nothing without a `.doc-read` ancestor can match this rule.
+ *
+ * This does NOT hard-code a page width (STYLEGUIDE: "narrow content columns
+ * inside a page … are fine when deliberate"). Only the prose column is
+ * capped; the masthead, right rail, notice strip and sticky bar keep the
+ * full Normal/Wide/Full width the reader chose. `ch` scales with the prose
+ * font-size, so the measure holds if the body size changes. */
+.doc-read .doc-prose {
+  /* 60ch, not 78ch: `1ch` is the advance of "0" (8.69px here) but the average
+     prose glyph is 6.91px, so a ch value renders ~1.26x more characters than
+     it names. 78ch measured at ~98 characters per line — the number that made
+     this a bug. 60ch measures ~75, the top of the comfortable 45-75 band,
+     which suits a technical knowledge base with code and tables in it. */
+  max-width: 60ch;
+}
+
+/* On paper the page box already provides the measure, and narrowing it further
+   just wastes the sheet. */
+@media print {
+  .doc-read .doc-prose {
+    max-width: none;
+  }
 }
 
 /* Print: clean document output for the Print / Save-as-PDF button. */

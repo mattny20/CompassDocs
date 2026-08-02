@@ -14,7 +14,7 @@
 // have always been no-ops. Outside the app shell we fall back to <body>.
 
 import { useEffect, useRef } from "react";
-import { pushOverlay } from "@/lib/overlay-stack";
+import { bindEscapeDispatcher, pushOverlay } from "@/lib/overlay-stack";
 
 /**
  * Background regions taken out of the tab order, the pointer, and the
@@ -109,8 +109,10 @@ export function useModalOverlay(
 
     lockScroll();
     const popOverlay = pushOverlay(() => onCloseRef.current());
+    const unbindEscape = bindEscapeDispatcher();
 
     return () => {
+      unbindEscape();
       popOverlay();
       unlockScroll();
       // Un-inert first: focus() on a still-inert element silently does nothing.

@@ -160,6 +160,7 @@ export function DirectoryClient({
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search people…"
+          aria-label="Search people"
           className={`${field} w-64`}
           autoFocus
         />
@@ -251,14 +252,26 @@ export function DirectoryClient({
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-500">
+                {/* A real <button>, not a click handler on the <th> — the same treatment
+                    SpaceViews uses, so the table can be sorted from the keyboard. */}
                 {activeColumns.map((c) => (
                   <th
                     key={c.id}
-                    className="cursor-pointer select-none px-4 py-2.5 hover:text-slate-600"
-                    onClick={() => clickSort(c.id)}
+                    className="select-none px-4 py-2.5"
+                    aria-sort={
+                      sortBy === c.id ? (sortDir === 1 ? "ascending" : "descending") : "none"
+                    }
                   >
-                    {c.label}
-                    {sortBy === c.id ? (sortDir === 1 ? " ↑" : " ↓") : ""}
+                    <button
+                      type="button"
+                      onClick={() => clickSort(c.id)}
+                      className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wide hover:text-slate-600"
+                    >
+                      {c.label}
+                      <span aria-hidden>
+                        {sortBy === c.id ? (sortDir === 1 ? "↑" : "↓") : ""}
+                      </span>
+                    </button>
                   </th>
                 ))}
               </tr>

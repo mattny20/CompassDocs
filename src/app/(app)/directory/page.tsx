@@ -53,9 +53,9 @@ export default async function DirectoryPage() {
       {/* Print: the quick phone directory, columns configured by an admin
           under Settings → Directory → Quick print directory. */}
       <div className="hidden print:block">
-        <h1 className="text-lg font-bold text-slate-900">
+        <h2 className="text-lg font-bold text-slate-900">
           {settings.company_name || "Company"} phone directory
-        </h1>
+        </h2>
         <p className="mb-3 mt-0.5 text-xs text-slate-500">
           {printable.length} people · {formatDate(new Date().toISOString(), settings)}
         </p>

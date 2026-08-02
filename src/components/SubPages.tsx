@@ -102,8 +102,11 @@ export function SubPages({
                   Draft
                 </span>
               )}
+              {/* focus-within (not focus-visible) — the reveal has to survive Tab landing
+                  on either of the two buttons inside. Hiding is gated on hover existing;
+                  see StatusBoard. */}
               {canEdit && pages.length > 1 && (
-                <span className="flex shrink-0 opacity-0 transition group-hover:opacity-100">
+                <span className="flex shrink-0 transition focus-within:opacity-100 group-hover:opacity-100 [@media(hover:hover)]:opacity-0">
                   <button
                     onClick={() => move(i, -1)}
                     disabled={busy || i === 0}

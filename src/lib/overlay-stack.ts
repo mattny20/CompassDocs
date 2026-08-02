@@ -34,6 +34,50 @@ export function topOverlay(): OverlayEntry | undefined {
   return stack.length > 0 ? stack[stack.length - 1] : undefined;
 }
 
+// The dispatcher that makes the stack mean something. Registered once, on the
+// capture phase, and reference-counted so the listener exists exactly while at
+// least one overlay does.
+//
+// Capture, not bubble, is load-bearing: a layer that closes on the bubble phase
+// unmounts synchronously, so a later handler would look at an already-empty DOM
+// and swallow the same keypress for the layer underneath — closing two overlays
+// with one Escape.
+let listeners = 0;
+let bound: ((e: KeyboardEvent) => void) | null = null;
+
+function dispatchEscape(e: KeyboardEvent): void {
+  if (e.key !== "Escape" || e.defaultPrevented) return;
+  const top = topOverlay();
+  if (!top) return;
+  e.preventDefault();
+  e.stopPropagation();
+  top.onEscape();
+}
+
+/**
+ * Start routing Escape to the top-most overlay. Returns the teardown. Called
+ * by `useModalOverlay`, so individual overlays never bind Escape themselves —
+ * that's what let two layers close on one keypress before this existed.
+ */
+export function bindEscapeDispatcher(): () => void {
+  if (typeof document === "undefined") return () => {};
+  if (listeners === 0) {
+    bound = dispatchEscape;
+    document.addEventListener("keydown", bound, true);
+  }
+  listeners++;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    listeners--;
+    if (listeners === 0 && bound) {
+      document.removeEventListener("keydown", bound, true);
+      bound = null;
+    }
+  };
+}
+
 /**
  * True when any overlay is on screen. Checks the registry first, then falls
  * back to a DOM probe so overlays that haven't moved onto the stack yet

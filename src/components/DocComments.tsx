@@ -242,6 +242,7 @@ export function DocComments({
           }}
           rows={3}
           maxLength={4000}
+          aria-label="Add a comment"
           placeholder="Add a comment… type @ to mention someone (they'll be notified)"
           className="w-full rounded-xl border border-slate-200 bg-surface px-3 py-2 text-sm text-slate-800 focus:border-compass-400 focus:outline-hidden"
         />
