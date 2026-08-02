@@ -182,7 +182,7 @@ export function GoogleDirectoryPanel({ initial }: { initial: GoogleState }) {
         </p>
 
         {!state.enabled && (
-          <p className="mb-3 rounded-lg bg-amber-50 p-2 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+          <p className="notice-warn mb-3 rounded-lg border px-3 py-2 text-sm">
             Your licence doesn&rsquo;t include directory sync. You can configure it, but syncs will
             be refused.
           </p>
@@ -281,10 +281,8 @@ export function GoogleDirectoryPanel({ initial }: { initial: GoogleState }) {
 
         {probe && (
           <p
-            className={`mt-3 flex items-start gap-1.5 rounded-lg p-2 text-sm ${
-              probe.ok
-                ? "bg-green-50 text-green-800 dark:bg-green-950/40 dark:text-green-200"
-                : "bg-red-50 text-red-800 dark:bg-red-950/40 dark:text-red-200"
+            className={`mt-3 flex items-start gap-1.5 rounded-lg border px-3 py-2 text-sm ${
+              probe.ok ? "notice-ok" : "notice-error"
             }`}
           >
             {probe.ok ? (
@@ -297,7 +295,7 @@ export function GoogleDirectoryPanel({ initial }: { initial: GoogleState }) {
         )}
 
         {blocked && (
-          <div className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+          <div className="notice-warn mt-3 rounded-lg border p-3 text-sm">
             <p className="flex items-start gap-1.5 font-medium">
               <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
               {blocked.doomed} of {blocked.total} synced people are no longer in Google
@@ -313,7 +311,7 @@ export function GoogleDirectoryPanel({ initial }: { initial: GoogleState }) {
               type="button"
               onClick={syncAllowingRemovals}
               disabled={busy !== ""}
-              className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-amber-300 px-3 py-1.5 text-sm font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-800 dark:text-amber-100 dark:hover:bg-amber-900/40"
+              className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-current/40 px-3 py-1.5 font-medium hover:bg-black/5 disabled:opacity-50 dark:hover:bg-white/10"
             >
               {busy === "sync" ? (
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden />

@@ -4,6 +4,14 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.98.2] - 2026-08-02
+
+### Changed
+- The two directory panels now use the shared notice classes rather than
+  hand-written colors. No visible change — both already carried their dark
+  variants — but the style guide keeps notice color in one place precisely so
+  the next person to touch these doesn't have to remember to.
+
 ## [0.98.1] - 2026-08-02
 
 ### Fixed
