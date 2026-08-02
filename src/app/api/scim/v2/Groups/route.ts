@@ -24,6 +24,6 @@ export async function POST(req: Request) {
   if (denied) return denied;
   return scimError(
     501,
-    "Group provisioning is not supported over SCIM — use Entra group sync (Settings → Groups)."
+    "Group provisioning is not supported over SCIM — use directory group sync (Settings → Groups)."
   );
 }

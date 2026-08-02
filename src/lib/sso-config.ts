@@ -19,9 +19,20 @@ const KEYS = {
   defaultRole: "sso_default_role",
   allowedDomains: "sso_allowed_domains",
   ssoOnly: "sso_only",
+  vendor: "sso_vendor",
 } as const;
 
 const ROLES: Role[] = ["viewer", "editor", "approver", "admin"];
+
+/**
+ * Which identity vendor this workspace signs in against. Only affects the
+ * default authority; the protocol is OIDC either way.
+ */
+export type SsoVendor = "microsoft" | "google" | "generic";
+
+export function asSsoVendor(v: string | null | undefined): SsoVendor {
+  return v === "google" || v === "generic" ? v : "microsoft";
+}
 
 export interface SsoConfig {
   enabled: boolean;
@@ -43,14 +54,28 @@ export interface SsoConfig {
   allowedDomains: string[];
   /** Hide the username/password form on the login page (break-glass: admins can still POST /api/auth/login). */
   ssoOnly: boolean;
+  /** Which vendor's defaults to apply. Absent means "microsoft" (0.96). */
+  vendor: SsoVendor;
 }
 
-/** The OIDC authority in effect — explicit override, else built from the tenant. */
-export function ssoAuthority(cfg: Pick<SsoConfig, "authority" | "tenant">): string {
+/**
+ * The OIDC authority in effect — explicit override, else derived from the
+ * vendor.
+ *
+ * Google sign-in has always worked by pasting `https://accounts.google.com`
+ * into the "Advanced" authority field, which is a working feature disguised as
+ * an escape hatch. A vendor discriminator (0.96) makes it a choice instead of a
+ * trick, without changing anything for an install that never sets it: absent or
+ * unrecognised means "microsoft", exactly the previous behaviour.
+ */
+export function ssoAuthority(cfg: Pick<SsoConfig, "authority" | "tenant"> & { vendor?: SsoVendor }): string {
   if (cfg.authority) return cfg.authority.replace(/\/+$/, "");
+  if (cfg.vendor === "google") return GOOGLE_OIDC_AUTHORITY;
   if (!cfg.tenant) return "";
   return `https://login.microsoftonline.com/${cfg.tenant}/v2.0`;
 }
+
+export const GOOGLE_OIDC_AUTHORITY = "https://accounts.google.com";
 
 /** Configured completely enough for the login flow to run. */
 export function ssoConfigured(cfg: SsoConfig): boolean {
@@ -58,7 +83,7 @@ export function ssoConfigured(cfg: SsoConfig): boolean {
 }
 
 export async function getSsoConfig(): Promise<SsoConfig> {
-  const [enabled, tenant, clientId, clientSecret, authority, autoProv, role, domains, ssoOnly] =
+  const [enabled, tenant, clientId, clientSecret, authority, autoProv, role, domains, ssoOnly, vendor] =
     await Promise.all([
       getSetting(KEYS.enabled),
       getSetting(KEYS.tenant),
@@ -69,6 +94,7 @@ export async function getSsoConfig(): Promise<SsoConfig> {
       getSetting(KEYS.defaultRole),
       getSetting(KEYS.allowedDomains),
       getSetting(KEYS.ssoOnly),
+      getSetting(KEYS.vendor),
     ]);
   return {
     enabled: enabled === "1",
@@ -83,6 +109,7 @@ export async function getSsoConfig(): Promise<SsoConfig> {
       .map((d) => d.trim().toLowerCase().replace(/^@/, ""))
       .filter(Boolean),
     ssoOnly: ssoOnly === "1",
+    vendor: asSsoVendor(vendor),
   };
 }
 
@@ -96,6 +123,7 @@ export async function updateSsoConfig(patch: {
   defaultRole?: Role;
   allowedDomains?: string;
   ssoOnly?: boolean;
+  vendor?: SsoVendor;
 }): Promise<void> {
   const jobs: Promise<void>[] = [];
   if (patch.enabled !== undefined) jobs.push(setSetting(KEYS.enabled, patch.enabled ? "1" : "0"));
@@ -110,5 +138,6 @@ export async function updateSsoConfig(patch: {
   if (patch.allowedDomains !== undefined)
     jobs.push(setSetting(KEYS.allowedDomains, patch.allowedDomains));
   if (patch.ssoOnly !== undefined) jobs.push(setSetting(KEYS.ssoOnly, patch.ssoOnly ? "1" : "0"));
+  if (patch.vendor !== undefined) jobs.push(setSetting(KEYS.vendor, asSsoVendor(patch.vendor)));
   await Promise.all(jobs);
 }

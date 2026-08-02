@@ -58,6 +58,7 @@ test("the workspace can always be recovered: the last admin cannot be removed", 
   // recorded and undone in `finally`. A test that can strand the account the
   // rest of the suite signs in with is worse than no test.
   const demoted: number[] = [];
+  let spareId: number | undefined;
 
   try {
     const before = await api(page, "/api/admin/rbac/recovery");
@@ -74,7 +75,7 @@ test("the workspace can always be recovered: the last admin cannot be removed", 
       body: { ...spare, role: "admin", name: "E2E Spare Admin" },
     });
     expect(created.status, "spare admin created").toBe(201);
-    const spareId: number = created.body?.user?.id;
+    spareId = created.body?.user?.id;
     expect(spareId).toBeTruthy();
 
     // Creating a user must also create their assignment — a database trigger
@@ -85,7 +86,10 @@ test("the workspace can always be recovered: the last admin cannot be removed", 
     expect((await api(page, "/api/admin/rbac/recovery")).body?.count).toBeGreaterThanOrEqual(2);
 
     // Reduce to exactly one holder, never touching the account we signed in as.
-    for (let i = 0; i < 12; i++) {
+    // The bound is generous rather than tight: on a long-lived database this
+    // loop is the only thing standing between the test and a wrong answer, and
+    // stopping early reports "cannot reduce to one" as a product failure.
+    for (let i = 0; i < 200; i++) {
       const now = await api(page, "/api/admin/rbac/recovery");
       const hs: { id: number; username: string }[] = now.body?.holders ?? [];
       const victim = hs.find((h) => h.username !== ADMIN.username);
@@ -124,6 +128,13 @@ test("the workspace can always be recovered: the last admin cannot be removed", 
     for (const id of demoted) {
       await api(page, `/api/admin/users/${id}`, { method: "PATCH", body: { role: "admin" } });
     }
+    // Delete the disposable admin rather than leaving it promoted. Re-promoting
+    // it was enough to restore the workspace but not enough to restore the
+    // FIXTURE: every run left one more administrator behind, and on a database
+    // that outlives a single run they accumulate until the reduction above
+    // cannot reach one holder. Deleting must come after the re-promotion loop —
+    // the last-admin guard refuses to delete the only one left.
+    if (spareId) await api(page, `/api/admin/users/${spareId}`, { method: "DELETE" });
     await ctx.close();
   }
 });
