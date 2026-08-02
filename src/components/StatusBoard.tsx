@@ -364,6 +364,11 @@ export function StatusBoard({
                       <ExternalLink className="h-4 w-4" />
                     </a>
                   )}
+                  {/* Hidden-until-hover, but only where hovering exists: Tailwind wraps
+                      group-hover in `@media (hover:hover)`, so on a coarse pointer it
+                      never fires and an ungated `opacity-0` hides this button forever on
+                      phones and tablets. Keyboard users get it back via focus-visible —
+                      the same shape VideoPlayer already uses. */}
                   {isAdmin && (
                     <button
                       onClick={() => {
@@ -371,7 +376,7 @@ export function StatusBoard({
                       }}
                       title="Stop tracking"
                       aria-label={`Stop tracking ${s.name}`}
-                      className="shrink-0 rounded-md p-1.5 text-slate-300 opacity-0 transition hover:bg-red-50 hover:text-red-600 group-hover:opacity-100"
+                      className="shrink-0 rounded-md p-1.5 text-slate-300 transition hover:bg-red-50 hover:text-red-600 focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:hover)]:opacity-0"
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>

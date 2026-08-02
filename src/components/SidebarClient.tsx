@@ -9,8 +9,9 @@
 // would crush the content), and expanding it floats the full sidebar over the
 // page with a backdrop instead of squeezing the layout.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import {
   Activity,
   Home,
@@ -36,10 +37,21 @@ import { UserMenu } from "./UserMenu";
 import { Brand } from "./Brand";
 import { SidebarSpaceTree } from "./SidebarSpaceTree";
 import { ChevronRight } from "lucide-react";
+import { useModalOverlay } from "./overlay/useModalOverlay";
 import type { SessionUser } from "@/lib/types";
 
 const LS_KEY = "compass_sidebar_collapsed";
 const LS_MORE = "compass_sidebar_more";
+
+/**
+ * Is `href` the page we're on? Exact for the dashboard (every path starts with
+ * "/"), otherwise the section root plus anything below it — matched on a
+ * trailing slash so /spaces/eng doesn't light up for /spaces/eng-ops.
+ */
+function isActivePath(pathname: string, href: string): boolean {
+  if (href === "/") return pathname === "/";
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
 
 interface SpaceLite {
   id: number;
@@ -54,7 +66,6 @@ export function SidebarClient({
   companyName,
   logoUrl,
   reviewCount,
-  trashCount,
   announcementCount,
   unreadNotifications = 0,
   statusProblemCount = 0,
@@ -73,6 +84,11 @@ export function SidebarClient({
   companyName: string;
   logoUrl?: string;
   reviewCount: number;
+  /**
+   * Still accepted (the shell computes it) but deliberately NOT badged: the
+   * accent pill means "work waiting for you", and a recycle-bin count is
+   * state, not a queue.
+   */
   trashCount: number;
   /** Active announcements the user hasn't dismissed — badged on Dashboard. */
   announcementCount: number;
@@ -93,6 +109,8 @@ export function SidebarClient({
   /** Nested pages toggle: spaces get an expandable page tree. */
   nestedPages?: boolean;
 }) {
+  const pathname = usePathname();
+  const asideRef = useRef<HTMLElement>(null);
   const [collapsed, setCollapsed] = useState(false);
   const [isSmall, setIsSmall] = useState(false);
   // Less-used nav items live behind a "More" fold so the spaces list keeps

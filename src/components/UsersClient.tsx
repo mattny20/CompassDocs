@@ -150,6 +150,7 @@ function UserTable({
                 <select
                   value={u.role}
                   onChange={(e) => changeRole(u.id, e.target.value as Role)}
+                  aria-label={`Role for ${u.name || u.username}`}
                   className="rounded-md border border-slate-200 bg-surface px-2 py-1 text-sm outline-hidden focus:border-compass-400"
                 >
                   {ROLE_ORDER.map((r) => (

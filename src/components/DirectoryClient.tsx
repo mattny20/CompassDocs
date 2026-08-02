@@ -160,6 +160,7 @@ export function DirectoryClient({
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search people…"
+          aria-label="Search people"
           className={`${field} w-64`}
           autoFocus
         />

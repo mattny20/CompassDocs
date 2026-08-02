@@ -692,6 +692,7 @@ export function DocEditor({
             setTitle(e.target.value);
           }}
           placeholder="Document title"
+          aria-label="Document title"
           className="w-full rounded-lg border border-slate-200 bg-surface px-4 py-3 text-lg font-semibold text-slate-900 outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100"
         />
 
