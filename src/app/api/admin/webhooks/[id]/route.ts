@@ -14,7 +14,7 @@ function validEmails(list: string): boolean {
 }
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "integration.webhook_manage");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
 
@@ -83,7 +83,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 }
 
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "integration.webhook_manage");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
 

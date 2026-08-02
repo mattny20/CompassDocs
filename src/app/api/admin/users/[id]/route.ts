@@ -17,7 +17,7 @@ import type { Role, SessionUser } from "@/lib/types";
 export const dynamic = "force-dynamic";
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "user.update_role");
   if (gate instanceof NextResponse) return gate;
   const admin = gate as SessionUser;
 
@@ -106,7 +106,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 }
 
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "user.delete");
   if (gate instanceof NextResponse) return gate;
   const admin = gate as SessionUser;
 

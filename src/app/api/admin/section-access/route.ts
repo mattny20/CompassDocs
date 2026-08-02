@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 // can run Announcements and Compliance from the main navigation.
 
 export async function GET() {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "workspace.section_access_manage");
   if (gate instanceof NextResponse) return gate;
 
   const [users, groups] = await Promise.all([listUsers(), listGroups()]);
@@ -29,7 +29,7 @@ export async function GET() {
 }
 
 export async function PATCH(req: Request) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "workspace.section_access_manage");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
 

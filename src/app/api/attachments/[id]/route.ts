@@ -104,7 +104,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 
 // Delete an attachment (editors and up, with edit rights on the doc's space).
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("editor");
+  const gate = await apiGuard("editor", "attachment.delete");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
 

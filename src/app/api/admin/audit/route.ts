@@ -11,7 +11,7 @@ function parseDay(raw: string | null, endOfDay: boolean): string | undefined {
 }
 
 export async function GET(req: Request) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "audit.read");
   if (gate instanceof NextResponse) return gate;
 
   const url = new URL(req.url);

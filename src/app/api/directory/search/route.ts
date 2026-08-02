@@ -20,7 +20,7 @@ const MAX_Q = 80;
  * typeahead must not log an error on every backspace.
  */
 export async function GET(req: Request) {
-  const gate = await apiGuard("viewer");
+  const gate = await apiGuard("viewer", "directory.search");
   if (gate instanceof NextResponse) return gate;
   if (directoryRateLimited(String(gate.id))) {
     return NextResponse.json({ error: "Too many requests — slow down a moment." }, { status: 429 });

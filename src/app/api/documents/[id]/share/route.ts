@@ -11,11 +11,12 @@ import {
 } from "@/lib/shares";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
 import type { SessionUser } from "@/lib/types";
+import type { PermissionKey } from "@/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
-async function guard(id: string) {
-  const gate = await apiGuard("editor");
+async function guard(id: string, permission: PermissionKey) {
+  const gate = await apiGuard("editor", permission);
   if (gate instanceof NextResponse) return { gate };
   const user = gate as SessionUser;
   if (!(await shareLinksEnabled())) {
@@ -51,7 +52,7 @@ function shareInfo(s: { token: string; created_at: string; expires_at: string | 
 }
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const g = await guard((await params).id);
+  const g = await guard((await params).id, "document.share_read");
   if ("gate" in g) return g.gate;
   const share = await getActiveShare(g.doc.id);
   return NextResponse.json({ share: share ? shareInfo(share) : null });
@@ -59,7 +60,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
 // Create (or regenerate — the previous link is revoked) a share link.
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const g = await guard((await params).id);
+  const g = await guard((await params).id, "document.share_create");
   if ("gate" in g) return g.gate;
   if (g.doc.status !== "published") {
     return NextResponse.json({ error: "Only published documents can be shared." }, { status: 400 });
@@ -93,7 +94,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 }
 
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const g = await guard((await params).id);
+  const g = await guard((await params).id, "document.share_revoke");
   if ("gate" in g) return g.gate;
   const had = await revokeShare(g.doc.id);
   if (had) {

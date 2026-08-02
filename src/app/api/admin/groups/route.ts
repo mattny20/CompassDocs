@@ -6,13 +6,13 @@ import { audit, actorFrom, ipFrom } from "@/lib/audit";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "group.read");
   if (gate instanceof NextResponse) return gate;
   return NextResponse.json({ groups: await listGroups() });
 }
 
 export async function POST(req: Request) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "group.create");
   if (gate instanceof NextResponse) return gate;
 
   let body: any;

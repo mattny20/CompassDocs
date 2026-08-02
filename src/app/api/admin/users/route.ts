@@ -9,7 +9,7 @@ import type { Role } from "@/lib/types";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "user.create");
   if (gate instanceof NextResponse) return gate;
 
   let body: any;

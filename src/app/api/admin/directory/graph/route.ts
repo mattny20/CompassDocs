@@ -36,13 +36,13 @@ async function view() {
 }
 
 export async function GET() {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "directory.sync_manage");
   if (gate instanceof NextResponse) return gate;
   return NextResponse.json(await view());
 }
 
 export async function PATCH(req: Request) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "directory.sync_manage");
   if (gate instanceof NextResponse) return gate;
 
   let body: any;

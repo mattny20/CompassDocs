@@ -8,7 +8,7 @@ import type { SessionUser } from "@/lib/types";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
-  const gate = await apiGuard("viewer");
+  const gate = await apiGuard("viewer", "suggestion.create");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
 

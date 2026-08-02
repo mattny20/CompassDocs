@@ -19,7 +19,7 @@ export const dynamic = "force-dynamic";
  * gated rows are correct on first paint with no optimistic default.
  */
 export async function GET(req: Request) {
-  const gate = await apiGuard("viewer");
+  const gate = await apiGuard("viewer", "ui.command_palette");
   if (gate instanceof NextResponse) return gate;
 
   const { searchParams } = new URL(req.url);

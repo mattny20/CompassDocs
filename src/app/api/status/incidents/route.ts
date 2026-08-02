@@ -20,7 +20,7 @@ const SEVERITIES = ["outage", "degraded", "maintenance"];
 // updates as it unfolds, resolve it when it's over. Declare + resolve alert
 // the whole workspace through the notification pipeline.
 export async function POST(req: Request) {
-  const gate = await apiGuard("approver");
+  const gate = await apiGuard("approver", "status.incident_manage");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
 

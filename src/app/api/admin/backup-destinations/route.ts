@@ -15,13 +15,13 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
 export async function GET() {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "integration.backup_destination_read");
   if (gate instanceof NextResponse) return gate;
   return NextResponse.json(await getBackupDestState());
 }
 
 export async function PATCH(req: Request) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "integration.backup_destination_manage");
   if (gate instanceof NextResponse) return gate;
 
   let body: any;

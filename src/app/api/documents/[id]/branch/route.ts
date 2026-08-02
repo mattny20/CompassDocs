@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 // edited freely (it's hidden from listings and search) and later merged back.
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("editor");
+  const gate = await apiGuard("editor", "document.branch");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
 

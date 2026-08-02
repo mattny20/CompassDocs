@@ -8,13 +8,13 @@ export const dynamic = "force-dynamic";
 // Ask-in-chat (Slack / Teams) settings. Secrets are write-only: GET reports
 // only whether one is stored.
 export async function GET() {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "integration.chat_ask_read");
   if (gate instanceof NextResponse) return gate;
   return NextResponse.json(await getChatAskConfig());
 }
 
 export async function PUT(req: Request) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "integration.chat_ask_manage");
   if (gate instanceof NextResponse) return gate;
 
   let body: any;

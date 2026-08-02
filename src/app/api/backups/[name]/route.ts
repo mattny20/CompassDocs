@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 // Download a backup file.
 export async function GET(_req: Request, { params }: { params: Promise<{ name: string }> }) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "system.backup_download");
   if (gate instanceof NextResponse) return gate;
   const { name } = await params;
   if (!isValidBackupName(name)) {
@@ -27,7 +27,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ name: s
 
 // Delete a backup (local + best-effort remote).
 export async function DELETE(_req: Request, { params }: { params: Promise<{ name: string }> }) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "system.backup_delete");
   if (gate instanceof NextResponse) return gate;
   const { name } = await params;
   const ok = await deleteBackup(name);

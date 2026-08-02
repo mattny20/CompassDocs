@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 /** The people directory — any signed-in user. Hidden entries are never returned. */
 export async function GET(req: Request) {
-  const gate = await apiGuard("viewer");
+  const gate = await apiGuard("viewer", "directory.read");
   if (gate instanceof NextResponse) return gate;
 
   const url = new URL(req.url);

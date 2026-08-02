@@ -19,13 +19,13 @@ export const dynamic = "force-dynamic";
 // header banner (upload the image via /api/newsletter/assets first).
 
 export async function GET() {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "newsletter.configure");
   if (gate instanceof NextResponse) return gate;
   return NextResponse.json(await getNewsletterAppearance());
 }
 
 export async function PUT(req: Request) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "newsletter.configure");
   if (gate instanceof NextResponse) return gate;
   const admin = gate as SessionUser;
 

@@ -7,13 +7,13 @@ import type { SessionUser } from "@/lib/types";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const gate = await apiGuard("viewer");
+  const gate = await apiGuard("viewer", "account.connection_read");
   if (gate instanceof NextResponse) return gate;
   return NextResponse.json({ connections: await listOAuthGrants((gate as SessionUser).id) });
 }
 
 export async function DELETE(req: Request) {
-  const gate = await apiGuard("viewer");
+  const gate = await apiGuard("viewer", "account.connection_revoke");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
 

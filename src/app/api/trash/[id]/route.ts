@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 // Restore a trashed document back to its space. Editors and up, with edit
 // rights on the space it returns to.
 export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("editor");
+  const gate = await apiGuard("editor", "document.restore");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
 
@@ -36,7 +36,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
 
 // Permanently delete a trashed document (irreversible). Admins only.
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "document.purge");
   if (gate instanceof NextResponse) return gate;
 
   const { id } = await params;

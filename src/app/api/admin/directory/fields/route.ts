@@ -6,14 +6,14 @@ import { audit, actorFrom, ipFrom } from "@/lib/audit";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "directory.field_manage");
   if (gate instanceof NextResponse) return gate;
   return NextResponse.json({ fields: await listFields() });
 }
 
 /** Define a custom directory field (optionally mapped to a Graph property). */
 export async function POST(req: Request) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "directory.field_manage");
   if (gate instanceof NextResponse) return gate;
 
   let body: any;

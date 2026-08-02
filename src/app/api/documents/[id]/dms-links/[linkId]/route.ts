@@ -10,7 +10,7 @@ export async function DELETE(
   req: Request,
   ctx: { params: Promise<{ id: string; linkId: string }> }
 ) {
-  const gate = await apiGuard("editor");
+  const gate = await apiGuard("editor", "document.dms_link_manage");
   if (gate instanceof NextResponse) return gate;
   const { id, linkId } = await ctx.params;
 

@@ -10,6 +10,10 @@ export const dynamic = "force-dynamic";
 // this user leads. No training-section grant needed — leading a group IS the
 // grant, and the data is scoped to those groups only.
 export async function GET() {
+  // Authentication only. The authorization for this view is group leadership,
+  // enforced below — annotating the guard with training.team_read would claim
+  // the guard grants it, which it does not (shadow mode caught exactly that).
+  // Folds into the permission model in 0.94 when leadership becomes a grant.
   const gate = await apiGuard("viewer");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;

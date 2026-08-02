@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 // Serve a quick link's cached favicon / custom icon. Signed-in only, and the
 // link's group restriction applies (admins see everything).
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("viewer");
+  const gate = await apiGuard("viewer", "link.icon_read");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
 

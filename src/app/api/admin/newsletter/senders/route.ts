@@ -14,13 +14,13 @@ export const dynamic = "force-dynamic";
 // these per newsletter (or leave the SMTP default).
 
 export async function GET() {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "newsletter.configure");
   if (gate instanceof NextResponse) return gate;
   return NextResponse.json({ from_addresses: await listNewsletterFromAddresses() });
 }
 
 export async function PUT(req: Request) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "newsletter.configure");
   if (gate instanceof NextResponse) return gate;
   const admin = gate as SessionUser;
 

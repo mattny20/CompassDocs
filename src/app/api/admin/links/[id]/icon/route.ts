@@ -19,7 +19,7 @@ const ACCEPTED: Record<string, string> = {
 const MAX_BYTES = 1024 * 1024;
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "link.manage");
   if (gate instanceof NextResponse) return gate;
 
   const { id } = await params;

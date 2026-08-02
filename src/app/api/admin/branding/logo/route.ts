@@ -33,7 +33,7 @@ async function storeLogo(buf: Buffer, mime: string): Promise<string> {
 }
 
 export async function POST(req: Request) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "workspace.branding_manage");
   if (gate instanceof NextResponse) return gate;
 
   const contentType = req.headers.get("content-type") || "";
@@ -109,7 +109,7 @@ export async function POST(req: Request) {
 
 // Remove the stored logo (and clear logo_url if it pointed at it).
 export async function DELETE(req: Request) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "workspace.branding_manage");
   if (gate instanceof NextResponse) return gate;
 
   const old = await getSetting("logo_file");

@@ -14,7 +14,7 @@ import type { SessionUser } from "@/lib/types";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const gate = await apiGuard("viewer");
+  const gate = await apiGuard("viewer", "account.notification_prefs_read");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
   const [me, subscriptions] = await Promise.all([
@@ -32,7 +32,7 @@ export async function GET() {
 }
 
 export async function PATCH(req: Request) {
-  const gate = await apiGuard("viewer");
+  const gate = await apiGuard("viewer", "account.notification_prefs_manage");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
 

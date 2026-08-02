@@ -64,6 +64,34 @@ construct, and forgetting it stops compiling.
   `can()`. The v1 `read`/`write` scope stays a *ceiling* on top of the user's
   permissions, never a grant.
 
+## How the port itself is done (0.92)
+
+Measured, rather than assumed: the ~280 authorization sites are not 280
+bespoke decisions. They concentrate in two helpers —
+
+| Pattern | Sites |
+| ------- | ----- |
+| `apiGuard("admin")` | 105 |
+| `apiGuard(<other role>)` | 61 |
+| `roleAtLeast(...)` | 63 |
+| `role === "admin"` | 32 |
+| `requireRole(...)` | 19 |
+
+so `apiGuard` and `requireRole` gaining a permission-taking overload covers
+about two thirds of them with one consistent transformation.
+
+**The port runs in shadow mode first.** Rather than swapping enforcement
+site-by-site and hoping, each ported guard evaluates *both* the legacy ladder
+check and the new permission check, **enforces the legacy answer**, and records
+any disagreement with the route and the permission involved. A workspace can
+then run a build where the new model is fully wired but cannot yet deny anyone,
+and the question "is the port correct?" becomes a number on a page instead of a
+matter of review diligence. Enforcement flips only once that number is zero.
+
+This is deliberately slower than a big-bang swap. A wrong substitution in an
+authorization port is not a build failure — it is a silent grant or a silent
+denial, and 0.89.1 is a recent reminder of what the silent-grant version costs.
+
 ## Status
 
 All of RBAC ships in the community edition; only the Google and Microsoft

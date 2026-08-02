@@ -7,13 +7,13 @@ import type { SessionUser } from "@/lib/types";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const gate = await apiGuard("viewer");
+  const gate = await apiGuard("viewer", "account.token_read");
   if (gate instanceof NextResponse) return gate;
   return NextResponse.json({ tokens: await listApiTokens((gate as SessionUser).id) });
 }
 
 export async function POST(req: Request) {
-  const gate = await apiGuard("viewer");
+  const gate = await apiGuard("viewer", "account.token_create");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
 

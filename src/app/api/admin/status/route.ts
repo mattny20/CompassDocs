@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 // Admin management of tracked services. Adding polls immediately so the row
 // has real state by the time the admin looks at the board.
 export async function POST(req: Request) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "status.service_manage");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
 
@@ -49,7 +49,7 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "status.service_manage");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
   const id = Number(new URL(req.url).searchParams.get("id"));

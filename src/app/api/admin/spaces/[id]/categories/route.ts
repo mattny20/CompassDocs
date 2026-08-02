@@ -6,7 +6,7 @@ import { audit, actorFrom, ipFrom } from "@/lib/audit";
 export const dynamic = "force-dynamic";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "space.category_read");
   if (gate instanceof NextResponse) return gate;
   const id = Number((await params).id);
   if (!(await getSpaceById(id))) {
@@ -16,7 +16,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 }
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "space.category_manage");
   if (gate instanceof NextResponse) return gate;
 
   const id = Number((await params).id);

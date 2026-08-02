@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 // Download the whole knowledge base as a zip of front-matter Markdown files.
 export async function GET() {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "system.export");
   if (gate instanceof NextResponse) return gate;
 
   const buf = await buildExportZip();

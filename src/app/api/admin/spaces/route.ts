@@ -24,7 +24,7 @@ const cleanIds = (v: unknown) =>
   Array.isArray(v) ? v.map(Number).filter((n: number) => Number.isInteger(n) && n > 0) : undefined;
 
 export async function GET() {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "space.manage_members");
   if (gate instanceof NextResponse) return gate;
   return NextResponse.json({
     spaces: await listSpaces(EVERY_SPACE_UNFILTERED),
@@ -38,7 +38,7 @@ export async function GET() {
 // Org-level switch: editors_edit_all — when on (default), any editor may edit
 // any space they can see and per-space grants are ignored.
 export async function PATCH(req: Request) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "space.update");
   if (gate instanceof NextResponse) return gate;
 
   let body: any;
@@ -61,7 +61,7 @@ export async function PATCH(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "space.create");
   if (gate instanceof NextResponse) return gate;
 
   let body: any;

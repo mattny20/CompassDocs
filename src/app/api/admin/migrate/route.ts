@@ -12,7 +12,7 @@ const SOURCES = new Set(["notion", "confluence"]);
 // Migrate a Confluence (HTML) or Notion (Markdown & CSV) export into a space.
 // mode=preview inspects the zip; mode=commit imports it.
 export async function POST(req: Request) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "system.migrate_run");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
 

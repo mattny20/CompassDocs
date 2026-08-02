@@ -9,7 +9,7 @@ const MAX_BYTES = 50 * 1024 * 1024; // 50 MB
 
 // Import documents from an export zip (or any zip of front-matter Markdown).
 export async function POST(req: Request) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "system.import");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
 

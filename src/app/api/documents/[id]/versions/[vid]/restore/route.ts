@@ -25,7 +25,7 @@ export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string; vid: string }> }
 ) {
-  const gate = await apiGuard("editor");
+  const gate = await apiGuard("editor", "document.version_restore");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
 

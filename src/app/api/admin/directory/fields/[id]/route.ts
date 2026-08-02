@@ -6,7 +6,7 @@ import { audit, actorFrom, ipFrom } from "@/lib/audit";
 export const dynamic = "force-dynamic";
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "directory.field_manage");
   if (gate instanceof NextResponse) return gate;
 
   const { id: idRaw } = await ctx.params;
@@ -42,7 +42,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 
 /** Delete a field definition and scrub its values from every person. */
 export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "directory.field_manage");
   if (gate instanceof NextResponse) return gate;
 
   const { id: idRaw } = await ctx.params;

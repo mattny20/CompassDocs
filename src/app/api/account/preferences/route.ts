@@ -21,7 +21,7 @@ function validTimezone(tz: string): boolean {
 
 // Personal UI preferences: page width, theme, time zone, date format.
 export async function PATCH(req: Request) {
-  const gate = await apiGuard("viewer");
+  const gate = await apiGuard("viewer", "account.preferences_manage");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
 

@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 // Lightweight title lookup for the editor's [[ link autocomplete and the
 // parent-page picker: id + title + space, scope-filtered, no bodies.
 export async function GET(req: Request) {
-  const gate = await apiGuard("editor");
+  const gate = await apiGuard("editor", "document.lookup");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
 

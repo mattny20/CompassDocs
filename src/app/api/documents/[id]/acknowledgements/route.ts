@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 // The compliance record: who has (and hasn't) acknowledged the current
 // revision. Approver+; ?format=csv downloads it.
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("approver");
+  const gate = await apiGuard("approver", "document.ack_roster_read");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
 

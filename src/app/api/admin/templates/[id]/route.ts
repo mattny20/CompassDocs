@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 const TYPES: DocType[] = ["sop", "technical", "policy", "knowledge"];
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "template.manage");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
   const { id } = await params;
@@ -65,7 +65,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 }
 
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "template.manage");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
   const { id } = await params;

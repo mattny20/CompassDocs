@@ -8,13 +8,13 @@ import { audit, actorFrom, ipFrom } from "@/lib/audit";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "workspace.settings_read");
   if (gate instanceof NextResponse) return gate;
   return NextResponse.json(await getAppSettings());
 }
 
 export async function PATCH(req: Request) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "workspace.settings_manage");
   if (gate instanceof NextResponse) return gate;
 
   let body: any;

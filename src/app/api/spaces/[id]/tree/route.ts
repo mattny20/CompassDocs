@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 // The nested page tree for one space (sidebar navigation). Viewer-safe:
 // scope-checked, drafts included only for staff.
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("viewer");
+  const gate = await apiGuard("viewer", "space.tree_read");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
 

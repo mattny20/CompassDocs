@@ -22,7 +22,7 @@ const MAX_IDS = 200;
 // space scope, edit rights, and the approval workflow (a change that affects
 // live content needs publish rights; ineligible docs are skipped, not forced).
 export async function POST(req: Request) {
-  const gate = await apiGuard("editor");
+  const gate = await apiGuard("editor", "document.update");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
 

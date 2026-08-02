@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 /** Edit a directory entry (manual fields, or hide/show any entry). */
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "directory.person_manage");
   if (gate instanceof NextResponse) return gate;
 
   const { id: idRaw } = await ctx.params;
@@ -50,7 +50,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 
 /** Remove a directory entry. (Graph entries reappear on the next sync — hide those instead.) */
 export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "directory.person_manage");
   if (gate instanceof NextResponse) return gate;
 
   const { id: idRaw } = await ctx.params;

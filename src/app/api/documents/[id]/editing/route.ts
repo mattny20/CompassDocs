@@ -24,7 +24,7 @@ async function gateDoc(gate: Awaited<ReturnType<typeof apiGuard>>, idRaw: string
 
 /** POST — heartbeat ({leaving: true} clears it on editor close). */
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("editor");
+  const gate = await apiGuard("editor", "document.presence");
   if (gate instanceof NextResponse) return gate;
   const { id } = await ctx.params;
   const doc = await gateDoc(gate, id);

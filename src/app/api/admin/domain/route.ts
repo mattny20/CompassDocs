@@ -29,13 +29,13 @@ async function currentState() {
 }
 
 export async function GET() {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "workspace.domain_manage");
   if (gate instanceof NextResponse) return gate;
   return NextResponse.json(await currentState());
 }
 
 export async function PATCH(req: Request) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "workspace.domain_manage");
   if (gate instanceof NextResponse) return gate;
 
   let body: any;

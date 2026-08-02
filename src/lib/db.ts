@@ -1116,6 +1116,22 @@ const SCHEMA_SQL = `
   END;
   $fn$ LANGUAGE plpgsql;
 
+  -- Shadow-mode observations for the 0.92 authorization port. Each row is a
+  -- (route, permission, legacy answer, RBAC answer) combination with a counter,
+  -- so the table stays small however much traffic flows through it. A row where
+  -- the two answers differ is a porting bug, and the count of such rows is the
+  -- gate on flipping enforcement over.
+  CREATE TABLE IF NOT EXISTS authz_shadow (
+    route text NOT NULL,
+    permission text NOT NULL,
+    legacy_allowed boolean NOT NULL,
+    rbac_allowed boolean NOT NULL,
+    hits bigint NOT NULL DEFAULT 0,
+    first_seen timestamptz NOT NULL DEFAULT now(),
+    last_seen timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (route, permission, legacy_allowed, rbac_allowed)
+  );
+
   DROP TRIGGER IF EXISTS compass_users_ladder_sync ON users;
   CREATE TRIGGER compass_users_ladder_sync
     AFTER INSERT OR UPDATE OF role ON users
@@ -6258,5 +6274,64 @@ export async function rbacMigrationAudit(): Promise<{
     users: Number(r?.users ?? 0),
     users_without_assignment: Number(r?.without ?? 0),
     mismatched: Number(r?.mismatched ?? 0),
+  };
+}
+
+// --- Shadow-mode observations (0.92) ---------------------------------------
+
+/**
+ * Record one legacy-vs-RBAC comparison. Upserts a counter rather than logging a
+ * row per request, so this is safe to leave on in production: the table is
+ * bounded by the number of distinct (route, permission, outcome) shapes.
+ *
+ * Never throws — an observability write must not be able to fail a request that
+ * authorization already allowed.
+ */
+export async function recordShadowObservation(
+  route: string,
+  permission: string,
+  legacyAllowed: boolean,
+  rbacAllowed: boolean
+): Promise<void> {
+  try {
+    await pool().query(
+      `INSERT INTO authz_shadow (route, permission, legacy_allowed, rbac_allowed, hits)
+       VALUES ($1, $2, $3, $4, 1)
+       ON CONFLICT (route, permission, legacy_allowed, rbac_allowed)
+       DO UPDATE SET hits = authz_shadow.hits + 1, last_seen = now()`,
+      [route.slice(0, 200), permission.slice(0, 100), legacyAllowed, rbacAllowed]
+    );
+  } catch {
+    /* observability only */
+  }
+}
+
+export async function shadowReport(): Promise<{
+  agreements: number;
+  disagreements: number;
+  rows: {
+    route: string;
+    permission: string;
+    legacy_allowed: boolean;
+    rbac_allowed: boolean;
+    hits: string;
+    last_seen: string;
+  }[];
+}> {
+  const rows = await q<{
+    route: string;
+    permission: string;
+    legacy_allowed: boolean;
+    rbac_allowed: boolean;
+    hits: string;
+    last_seen: string;
+  }>(
+    `SELECT route, permission, legacy_allowed, rbac_allowed, hits::text, last_seen
+       FROM authz_shadow ORDER BY (legacy_allowed <> rbac_allowed) DESC, hits DESC LIMIT 500`
+  );
+  return {
+    agreements: rows.filter((r) => r.legacy_allowed === r.rbac_allowed).length,
+    disagreements: rows.filter((r) => r.legacy_allowed !== r.rbac_allowed).length,
+    rows,
   };
 }

@@ -23,7 +23,7 @@ export const dynamic = "force-dynamic";
 // the access grant: training must be completable even when the deck's doc
 // lives in a space the assignee can't browse.
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("viewer");
+  const gate = await apiGuard("viewer", "training.progress_own");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
   if (!(await featureEnabled("training"))) {

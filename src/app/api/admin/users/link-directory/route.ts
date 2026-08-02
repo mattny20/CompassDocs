@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 // Match unlinked accounts to directory entries by SSO id, then email.
 export async function POST(req: Request) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "user.link_directory");
   if (gate instanceof NextResponse) return gate;
   const linked = await autoLinkUsersToDirectory();
   await audit({

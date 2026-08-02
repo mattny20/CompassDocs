@@ -7,14 +7,14 @@ import { listPublicSpaces } from "@/lib/db";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "workspace.public_site_manage");
   if (gate instanceof NextResponse) return gate;
   const [config, spaces] = await Promise.all([getPublicSiteConfig(), listPublicSpaces()]);
   return NextResponse.json({ config, publicSpaces: spaces.map((s) => ({ id: s.id, name: s.name, slug: s.slug, doc_count: s.doc_count })) });
 }
 
 export async function PATCH(req: Request) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "workspace.public_site_manage");
   if (gate instanceof NextResponse) return gate;
 
   let body: any;

@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 // Personal dismiss: hides the announcement from this user's dashboard only.
 export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("viewer");
+  const gate = await apiGuard("viewer", "announcement.dismiss");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
 

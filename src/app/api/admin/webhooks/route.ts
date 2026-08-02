@@ -39,13 +39,13 @@ function view(hooks: Awaited<ReturnType<typeof listWebhooks>>) {
 }
 
 export async function GET() {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "integration.webhook_read");
   if (gate instanceof NextResponse) return gate;
   return NextResponse.json({ webhooks: view(await listWebhooks()) });
 }
 
 export async function POST(req: Request) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "integration.webhook_manage");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
 

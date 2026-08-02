@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 
 // Upload an attachment to a document (editors and up).
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("editor");
+  const gate = await apiGuard("editor", "attachment.upload");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
 

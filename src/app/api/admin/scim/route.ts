@@ -30,13 +30,13 @@ async function status(req: Request) {
 }
 
 export async function GET(req: Request) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "identity.scim_read");
   if (gate instanceof NextResponse) return gate;
   return NextResponse.json(await status(req));
 }
 
 export async function POST(req: Request) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "identity.scim_manage");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
   if (!(await featureEnabled("scim"))) {
@@ -59,7 +59,7 @@ export async function POST(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "identity.scim_manage");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
 
