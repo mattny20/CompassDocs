@@ -196,27 +196,6 @@ export function SidebarClient({
   const overlay = isSmall && !collapsed;
   useModalOverlay(overlay, () => setCollapsed(true), { panelRef: asideRef });
 
-  // Escape closes the drawer. Each overlay in this app still binds its own
-  // Escape (nothing dispatches from the stack yet), so this listener stands
-  // down whenever another dialog is on screen: the drawer is the shell itself,
-  // so anything opened over it (the palette) owns Escape first. Bound on the
-  // CAPTURE phase deliberately — the layer above closes on the bubble phase and
-  // React flushes that unmount synchronously, so a bubble-phase check would
-  // find the DOM already empty and swallow the same keypress.
-  useEffect(() => {
-    if (!overlay) return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key !== "Escape") return;
-      const above = Array.from(document.querySelectorAll('[role="dialog"]')).some(
-        (el) => el !== asideRef.current
-      );
-      if (above) return;
-      e.preventDefault();
-      setCollapsed(true);
-    }
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [overlay]);
 
   return (
     <>
