@@ -153,7 +153,10 @@ export function DocLinkSuggest({ editor }: { editor: Editor }) {
                 }}
                 onMouseEnter={() => setSel(i)}
                 className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm ${
-                  i === sel ? "bg-compass-50 text-compass-800" : "text-slate-700"
+                  // 700, not 800: globals.css hand-lightens only .text-compass-600
+                  // and .text-compass-700 for dark mode, so an 800 highlight is
+                  // dark blue on dark navy.
+                  i === sel ? "bg-compass-50 text-compass-700" : "text-slate-700"
                 }`}
               >
                 <FileText className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />

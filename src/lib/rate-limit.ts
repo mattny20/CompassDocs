@@ -33,6 +33,20 @@ export function aiRateLimited(key: string): boolean {
   return limited(`ai:${key}`, 20, 60_000);
 }
 
+/**
+ * Document search: 60 per minute per key (e.g. per user). /api/search can cost
+ * an uncached embeddings provider call per request, so it needs a ceiling — a
+ * debounced typeahead cannot come close to this in normal use.
+ */
+export function searchRateLimited(key: string): boolean {
+  return limited(`search:${key}`, 60, 60_000);
+}
+
+/** Directory typeahead: 60 per minute per key (e.g. per user). */
+export function directoryRateLimited(key: string): boolean {
+  return limited(`dir:${key}`, 60, 60_000);
+}
+
 /** PlantUML render proxy: 30 per minute per key (e.g. per client IP). */
 export function plantumlRateLimited(key: string): boolean {
   return limited(`puml:${key}`, 30, 60_000);

@@ -4,6 +4,38 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.86.0] - 2026-08-02
+
+### Added
+- **Command palette.** Press **⌘K** (**Ctrl+K** on Windows and Linux) from
+  anywhere to open a search overlay that floats in front of whatever you're
+  looking at — it never navigates you away. It searches documents, people,
+  spaces, every navigation destination, and actions, all in one list, with
+  the documents you opened recently offered before you type a thing.
+- **People search.** `@` opens a dedicated people mode over the directory,
+  matching on name, email, job title, and department, with photos.
+- **Keyboard shortcuts.** `/` search · `@` people · `>` actions · `#` spaces
+  · `?` the full shortcut sheet · `c` new document · and `g` then a letter
+  to jump anywhere in the left-hand navigation (`g h` dashboard, `g p`
+  people, `g t` training…). Shortcuts you have no access to aren't bound.
+  Press `?` any time for the list, which names the right modifier for your
+  platform.
+- Shortcuts never fire while you're typing — in the editor, an input, or
+  with another dialog open — and the mode keys work on European keyboard
+  layouts where they're typed with AltGr.
+
+### Fixed
+- ⌘K was advertised on the dashboard but did nothing when the sidebar was
+  collapsed or on a phone, because the shortcut lived inside the sidebar's
+  search box. The palette is now mounted app-wide, and the sidebar's search
+  affordance works in both the wide and the icon-only rail.
+- `/api/search` no longer returns a server error for a negative `limit`, and
+  is now rate limited like the other search endpoints.
+- Closing a zoomed image while taking a training deck no longer throws you
+  out of the deck — an open overlay now owns the Escape key.
+- The document-link and @mention pickers had unreadable highlighted rows in
+  dark mode.
+
 ## [0.85.1] - 2026-08-01
 
 ### Fixed

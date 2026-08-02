@@ -480,6 +480,8 @@ mark {
   position: absolute;
   bottom: calc(100% + 7px);
   left: 50%;
+  /* Tier 60: above the saturated z-50 layer (toasts, lightbox, sidebar
+   * drawer) and below the command palette at z-[70]. */
   z-index: 60;
   transform: translateX(-50%) translateY(2px);
   padding: 4px 9px;
@@ -515,4 +517,88 @@ mark {
 :root[data-theme="dark"] [data-tt]::after {
   background: rgb(226 232 240 / 0.97);
   color: #0f172a;
+}
+
+/* --- Command palette ------------------------------------------------------
+ * Unlayered on purpose, exactly like the [data-tt] block above: these are
+ * hand-written component styles, not Tailwind utilities. Unlayered rules also
+ * beat anything in @layer utilities, which is what lets `.cmd-snippet mark`
+ * override the global <mark> highlight further up this file.
+ */
+
+/* The backdrop. It must NOT be bg-slate-900/50 or any themed variable: the
+ * slate ramp INVERTS in dark mode (--slate-900 goes 15 23 42 → 237 241 247),
+ * so every slate scrim in this app paints a near-WHITE full-screen wash in
+ * dark. Hard-coded near-black in both themes, a little heavier in dark where
+ * the app behind it is already dim. */
+.cmd-scrim {
+  background: rgb(2 6 23 / 0.55);
+  backdrop-filter: blur(2px);
+  animation: cmd-scrim-in 0.12s ease-out;
+}
+:root[data-theme="dark"] .cmd-scrim {
+  background: rgb(2 6 23 / 0.72);
+}
+@keyframes cmd-scrim-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+/* A full-viewport fade plus a blur is exactly the motion this asks to drop. */
+@media (prefers-reduced-motion: reduce) {
+  .cmd-scrim {
+    animation: none;
+    backdrop-filter: none;
+  }
+}
+
+/* Keycap chips (components/palette/Kbd). Every color is wrapped as
+ * rgb(var(--…)): the vars hold raw "R G B" triplets, so a bare var() is not a
+ * valid color and fails SILENTLY (this bug shipped once, on accent-color).
+ * Wrapped, the chip follows both themes and the workspace accent for free. */
+.cmd-kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.35em;
+  padding: 1px 5px;
+  border: 1px solid rgb(var(--slate-200));
+  border-radius: 5px;
+  background: rgb(var(--canvas));
+  box-shadow: 0 1px 0 rgb(var(--slate-200));
+  color: rgb(var(--slate-500));
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.45;
+  white-space: nowrap;
+}
+
+/* Search snippets: sanitized ts_headline HTML (lib/snippet safeSnippet), the
+ * palette's one dangerouslySetInnerHTML sink. One line, ellipsized. */
+.cmd-snippet {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* An accent tint rather than the global amber <mark>, which is tuned for
+ * full-size reading surfaces and shouts at 12px. `color: inherit` keeps the
+ * run legible in both themes: --compass-100 is a pale blue in light and a dark
+ * navy in dark, and the surrounding slate text flips with it. */
+.cmd-snippet mark {
+  background: rgb(var(--compass-100));
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 2px;
+  font-weight: 600;
+}
+/* Repeated under the dark selector on purpose. `:root[data-theme="dark"] mark`
+ * further up scores (0,2,1) and would otherwise outrank `.cmd-snippet mark`
+ * at (0,1,1), repainting these snippets amber in dark mode only. */
+:root[data-theme="dark"] .cmd-snippet mark {
+  background: rgb(var(--compass-100));
+  color: inherit;
 }

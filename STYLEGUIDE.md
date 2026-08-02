@@ -152,6 +152,39 @@ focus):
 - Sizes: page title `h-6 w-6`, section heading `h-4 w-4`, inline/button
   `h-4 w-4`, chip/tiny `h-3 w-3` or `h-3.5 w-3.5`.
 
+## Overlays and modals
+
+- Overlays mount as a **direct child of the app shell's root flex div**
+  (`(app)/layout.tsx`), not inside the component that owns them. That div
+  creates no stacking context, so a `fixed` child is not clamped — which is
+  why the notifications dropdown clips today and the palette doesn't. No
+  portals exist in this codebase; if a `transform` ever lands on the shell,
+  add one rather than escalating z-index.
+- Use `useModalOverlay` (`components/overlay`): it registers the layer on
+  the LIFO overlay stack, sets `inert` + `aria-hidden` on the background,
+  locks scroll, and hands focus back to whatever opened it.
+- **Escape belongs to the top-most layer only.** Anything that binds Escape
+  globally must check `overlayOpen()` from `lib/overlay-stack` first.
+- Every overlay carries `role="dialog"`, `aria-modal="true"`, and an
+  accessible name. The scrim's color is hard-coded (never a themed
+  variable — the slate ramp inverts and would paint a near-white wash in
+  dark mode).
+
+## Keyboard shortcuts
+
+- Bindings live in `lib/nav-items` (`g` chords) and `lib/palette-commands`;
+  guards live in `lib/hotkeys`. Never add a bare `keydown` listener without
+  `blockBareKey`/`blockModKey`.
+- **Match on the character produced (`e.key`), never a key code**, so every
+  keyboard layout reaches the shortcut. AltGr (Ctrl+Alt on Windows/Linux)
+  is how `@ > # ?` are typed on many layouts — the guards treat it as
+  typing, not as a modifier.
+- Mod means ⌘ *or* Ctrl in handlers, always both. For labels use
+  `modLabel()` — never hard-code a glyph, or Windows users read "⌘K".
+- A shortcut must never fire while the user is typing or while an overlay
+  is open. Gate every binding on capability too: a shortcut for something
+  the user can't reach must not be bound at all.
+
 ## Print
 
 Pages people print for records (certificates, transcripts, status, the

@@ -19,6 +19,8 @@ import {
   X,
 } from "lucide-react";
 import { MarkdownView } from "@/components/MarkdownView";
+import { isTypingTarget } from "@/lib/hotkeys";
+import { overlayOpen } from "@/lib/overlay-stack";
 
 export interface PlayerQuizQuestion {
   text: string;
@@ -171,11 +173,12 @@ export function TrainingPlayer({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
+      if (isTypingTarget(e.target)) return;
       if (e.key === "ArrowRight") go(idx + 1);
       if (e.key === "ArrowLeft") go(idx - 1);
-      if (e.key === "Escape") router.push("/training");
+      // An open overlay owns Escape — closing a lightboxed slide image must not
+      // also throw the trainee out of the deck.
+      if (e.key === "Escape" && !overlayOpen()) router.push("/training");
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

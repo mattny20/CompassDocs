@@ -118,6 +118,100 @@ export async function searchPeopleForAnswer(
   return rows.rows;
 }
 
+/**
+ * One row of the command-palette people typeahead. Deliberately narrow: no
+ * photo blob, no custom fields, no `hidden`, no assistant, no source /
+ * external_id. `has_photo` lets the caller decide between an <img> pointed at
+ * /api/directory/{id}/photo and an initials bubble without shipping ~270 KB of
+ * inflated base64 per person.
+ */
+export interface PersonTypeaheadRow {
+  id: number;
+  name: string;
+  title: string;
+  department: string;
+  email: string;
+  has_photo: boolean;
+}
+
+/** Beyond this, extra words cost query time without sharpening the result. */
+const TYPEAHEAD_MAX_TOKENS = 4;
+
+/**
+ * People typeahead for the command palette: every token must hit something
+ * (AND, not a summed OR), so "chen technology" can't match everyone in
+ * Technology. Prefix hits on name and email outrank substring hits, so typing
+ * "ma" puts Maya above Osman.
+ *
+ * Hidden people are excluded in SQL with no escape hatch — unlike `listPeople`,
+ * this path has no `includeHidden` option to get wrong. `custom` is
+ * deliberately not searched (the jsonb cast matches field *keys*, and it can
+ * hold admin-only data).
+ */
+export async function searchPeopleTypeahead(
+  query: string,
+  limit = 8
+): Promise<PersonTypeaheadRow[]> {
+  // The allowlist doubles as LIKE-wildcard scrubbing: % and _ are not in it,
+  // so a token can never smuggle a pattern in (values are parameterized too).
+  const tokens = query
+    .toLowerCase()
+    .replace(/[^a-z0-9\s@.'-]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((t) => t.slice(0, 40))
+    .slice(0, TYPEAHEAD_MAX_TOKENS);
+  if (tokens.length === 0) return [];
+
+  const params: unknown[] = [];
+  const perToken = tokens.map((t) => {
+    params.push(t);
+    const p = `$${params.length}`;
+    return `(CASE WHEN lower(p.name)       LIKE ${p} || '%'         THEN 100 ELSE 0 END
+           + CASE WHEN lower(p.name)       LIKE '% ' || ${p} || '%' THEN  60 ELSE 0 END
+           + CASE WHEN lower(p.email)      LIKE ${p} || '%'         THEN  40 ELSE 0 END
+           + CASE WHEN lower(p.name)       LIKE '%' || ${p} || '%'  THEN  25 ELSE 0 END
+           + CASE WHEN lower(p.title)      LIKE '%' || ${p} || '%'  THEN  15 ELSE 0 END
+           + CASE WHEN lower(p.department) LIKE '%' || ${p} || '%'  THEN  10 ELSE 0 END)`;
+  });
+  params.push(Math.max(1, Math.min(20, Math.trunc(limit) || 8)));
+
+  const res = await pool().query<PersonTypeaheadRow & { score: number }>(
+    `SELECT p.id, p.name, p.title, p.department, p.email,
+            (p.photo <> '') AS has_photo,
+            (${perToken.join(" + ")}) AS score
+     FROM directory_people p
+     WHERE p.hidden = 0
+       AND ${perToken.map((x) => `${x} > 0`).join(" AND ")}
+     ORDER BY score DESC, p.name
+     LIMIT $${params.length}`,
+    params
+  );
+  // `score` is a ranking detail, not part of the endpoint's contract.
+  return res.rows.map(({ score: _score, ...row }) => row);
+}
+
+/**
+ * A *visible* person's stored photo (a data: URL) for /api/directory/{id}/photo.
+ *
+ * `hidden = 0` is enforced here in SQL on purpose: `getPerson` does not filter
+ * it, and the profile page re-checks in its body — a habit that is easy for a
+ * new consumer to forget, and forgetting it leaks a deliberately hidden person.
+ * Rows with no photo are treated as absent so the caller 404s uniformly.
+ */
+export async function visiblePersonPhoto(
+  id: number
+): Promise<{ photo: string; updated_at: string } | undefined> {
+  if (!Number.isInteger(id)) return undefined;
+  return (
+    await pool().query<{ photo: string; updated_at: string }>(
+      `SELECT p.photo, p.updated_at FROM directory_people p
+       WHERE p.id = $1 AND p.hidden = 0 AND p.photo <> '' LIMIT 1`,
+      [id]
+    )
+  ).rows[0];
+}
+
 /** Distinct non-empty departments among visible people (for the filter menu). */
 export async function listDepartments(): Promise<string[]> {
   const res = await pool().query<{ department: string }>(
