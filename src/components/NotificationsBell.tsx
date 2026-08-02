@@ -131,7 +131,8 @@ export function NotificationsBell({ initialUnread }: { initialUnread: number }) 
         data-tt="Notifications"
         aria-label={unread > 0 ? `Notifications, ${unread} unread` : "Notifications"}
         aria-expanded={open}
-        className="relative rounded-md p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+        // A finger-sized target on phones; desktop geometry unchanged.
+        className="relative rounded-md p-3.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 sm:p-1.5"
       >
         <Bell className="h-4 w-4" aria-hidden />
         {unread > 0 && (

@@ -72,7 +72,8 @@ export default async function SharedDocPage({ params }: { params: Promise<{ toke
 
         {doc.summary && <p className="mb-6 max-w-3xl text-lg leading-relaxed text-slate-600">{doc.summary}</p>}
 
-        <div className="rounded-xl border border-slate-200 bg-white p-8 shadow-xs">
+        {/* doc-read: reading measure on the document body (see globals.css). */}
+        <div className="doc-read rounded-xl border border-slate-200 bg-white p-8 shadow-xs">
           <MarkdownView
             content={content}
             docKey={`share-${doc.id}`}

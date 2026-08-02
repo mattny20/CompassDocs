@@ -275,8 +275,11 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
 
       <div className="lg:flex lg:items-start lg:gap-10">
         <div className="min-w-0 flex-1">
-          <DocToc />
-          <article>
+          <DocToc title={doc.title} />
+          {/* doc-read scopes the reading measure to the document body only —
+              the masthead, rail, notices and sticky bar above keep the full
+              width preference. */}
+          <article className="doc-read">
             <MarkdownView
               content={doc.content}
               docKey={`doc-${doc.id}`}

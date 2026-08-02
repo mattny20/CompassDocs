@@ -224,6 +224,24 @@ mark {
   @apply my-4 h-auto max-w-full rounded-lg border border-slate-200 shadow-xs;
 }
 
+/* Reading column: a measure for rendered documents.
+ *
+ * `.doc-prose` is shared — the tiptap editor carries it, and every
+ * MarkdownView consumer (editor preview, newsletter, training player,
+ * version history, review queue, AI answers) renders inside it — so the cap
+ * is scoped to `.doc-read`, which only the three document-reading surfaces
+ * set: the document page, the share page and the public document page.
+ * Nothing without a `.doc-read` ancestor can match this rule.
+ *
+ * This does NOT hard-code a page width (STYLEGUIDE: "narrow content columns
+ * inside a page … are fine when deliberate"). Only the prose column is
+ * capped; the masthead, right rail, notice strip and sticky bar keep the
+ * full Normal/Wide/Full width the reader chose. `ch` scales with the prose
+ * font-size, so the measure holds if the body size changes. */
+.doc-read .doc-prose {
+  max-width: 78ch;
+}
+
 /* Print: clean document output for the Print / Save-as-PDF button. */
 @media print {
   .doc-prose img,

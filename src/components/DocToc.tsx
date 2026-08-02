@@ -1,12 +1,14 @@
 "use client";
 
 // Table of contents for a document page, built from the rendered H1–H3
-// headings. Collapsed by default; expanding shows an indented outline whose
-// links jump to the heading (ids are assigned here — the markdown pipeline
-// doesn't emit them). Hidden entirely for docs with fewer than two headings.
+// headings. Open by default and remembered per browser like the other doc
+// panels; expanding shows an indented outline whose links jump to the heading
+// (ids are assigned here — the markdown pipeline doesn't emit them). Hidden
+// entirely for docs with fewer than two listed headings.
 
 import { useEffect, useState } from "react";
 import { ChevronRight, TableOfContents } from "lucide-react";
+import { usePanelCollapse } from "@/lib/use-panel-collapse";
 
 interface Item {
   id: string;
@@ -25,9 +27,16 @@ function slugify(text: string): string {
   );
 }
 
-export function DocToc() {
+/** Loose match so "Production Deployment SOP" == "# Production Deployment SOP". */
+function sameHeading(a: string, b: string): boolean {
+  const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").replace(/[^\p{L}\p{N} ]/gu, "").trim();
+  return norm(a) !== "" && norm(a) === norm(b);
+}
+
+export function DocToc({ title }: { title?: string }) {
   const [items, setItems] = useState<Item[]>([]);
-  const [open, setOpen] = useState(false);
+  // Remembered per browser, like the Attachments / Related-documents panels.
+  const [open, toggleOpen] = usePanelCollapse("toc", true);
 
   useEffect(() => {
     const article = document.querySelector("article");
@@ -47,8 +56,15 @@ export function DocToc() {
       h.style.scrollMarginTop = "5rem";
       found.push({ id: h.id, text, level: Number(h.tagName[1]) as 1 | 2 | 3 });
     });
-    setItems(found);
-  }, []);
+    // Most documents open with `# Title` repeating the title already shown in
+    // the masthead. Drop that leading duplicate from the outline — but only
+    // that one, and only when it really is the title, so documents that use
+    // H1s as real sections keep them. The heading still gets its id above, so
+    // existing #anchor links keep working.
+    const listed =
+      found[0]?.level === 1 && title && sameHeading(found[0].text, title) ? found.slice(1) : found;
+    setItems(listed);
+  }, [title]);
 
   if (items.length < 2) return null;
 
@@ -58,7 +74,7 @@ export function DocToc() {
       className="mb-5 rounded-xl border border-slate-200 bg-surface"
     >
       <button
-        onClick={() => setOpen((o) => !o)}
+        onClick={toggleOpen}
         aria-expanded={open}
         className="flex w-full items-center gap-2 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:text-slate-800"
       >

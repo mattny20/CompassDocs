@@ -77,7 +77,8 @@ export default async function PublicDocPage({
         {doc.tags.length > 0 && <span>· {doc.tags.join(", ")}</span>}
       </div>
 
-      <div className="prose prose-slate mt-8 max-w-none rounded-xl border border-slate-200 bg-white p-8 shadow-xs">
+      {/* doc-read: reading measure on the document body (see globals.css). */}
+      <div className="doc-read prose prose-slate mt-8 max-w-none rounded-xl border border-slate-200 bg-white p-8 shadow-xs">
         <MarkdownView
           content={doc.content}
           docKey={`pub-${doc.id}`}

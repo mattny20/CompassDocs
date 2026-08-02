@@ -169,14 +169,14 @@ export function SidebarClient({
   // Anything role-gated beyond the everyday items folds under "More".
   const hasMoreItems =
     showNewsletter || isApprover || showAnnouncements || showCompliance || isEditor || isAdmin;
-  // The only badge that can hide inside the fold — surface it on the More row.
-  const foldedBadge = moreOpen ? 0 : trashCount;
 
+  const moreLabel = moreOpen ? "Less" : "More";
   const moreToggle = (
     <button
       onClick={toggleMore}
       aria-expanded={moreOpen}
-      data-tt={collapsed ? (moreOpen ? "Less" : "More") : undefined}
+      data-tt={collapsed ? moreLabel : undefined}
+      aria-label={collapsed ? moreLabel : undefined}
       className={`relative flex w-full items-center rounded-md py-2 font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-600 ${
         collapsed ? "justify-center px-0" : "gap-2 px-3"
       }`}
@@ -184,31 +184,57 @@ export function SidebarClient({
       <span className="text-slate-400">
         <MoreHorizontal className="h-4 w-4" />
       </span>
-      {!collapsed && <span className="flex-1 text-left">{moreOpen ? "Less" : "More"}</span>}
-      {foldedBadge ? (
-        collapsed ? (
-          <span className="absolute right-2 top-1.5 h-2 w-2 rounded-full bg-compass-500" />
-        ) : (
-          <span className="rounded-full bg-compass-100 px-1.5 text-xs font-semibold text-compass-700">
-            {foldedBadge}
-          </span>
-        )
-      ) : null}
+      {!collapsed && <span className="flex-1 text-left">{moreLabel}</span>}
     </button>
   );
 
+  // On a phone the expanded sidebar floats over the page — that's a modal, so
+  // it owes the page everything useModalOverlay hands out (inert + aria-hidden
+  // background, scroll lock, focus return, a layer on the overlay stack).
+  // panelRef is the <aside> itself: an inert target that *contains* the panel
+  // is skipped, so the drawer doesn't make itself inert while #main does.
   const overlay = isSmall && !collapsed;
+  useModalOverlay(overlay, () => setCollapsed(true), { panelRef: asideRef });
+
+  // Escape closes the drawer. Each overlay in this app still binds its own
+  // Escape (nothing dispatches from the stack yet), so this listener stands
+  // down whenever another dialog is on screen: the drawer is the shell itself,
+  // so anything opened over it (the palette) owns Escape first. Bound on the
+  // CAPTURE phase deliberately — the layer above closes on the bubble phase and
+  // React flushes that unmount synchronously, so a bubble-phase check would
+  // find the DOM already empty and swallow the same keypress.
+  useEffect(() => {
+    if (!overlay) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      const above = Array.from(document.querySelectorAll('[role="dialog"]')).some(
+        (el) => el !== asideRef.current
+      );
+      if (above) return;
+      e.preventDefault();
+      setCollapsed(true);
+    }
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [overlay]);
+
   return (
     <>
       {overlay && (
+        // .cmd-scrim, not a slate tint: the slate ramp inverts in dark mode, so
+        // bg-slate-900/40 paints a near-white wash over the page there.
         <div
-          className="fixed inset-0 z-30 bg-slate-900/40 print:hidden"
+          className="cmd-scrim fixed inset-0 z-30 print:hidden"
           aria-hidden
           onClick={() => setCollapsed(true)}
         />
       )}
     <aside
+      ref={asideRef}
       data-app-sidebar
+      role={overlay ? "dialog" : undefined}
+      aria-modal={overlay ? true : undefined}
+      aria-label={overlay ? "Main navigation" : undefined}
       onClickCapture={(e) => {
         // Navigating from the overlay should also close it.
         if (overlay && (e.target as HTMLElement).closest("a")) setCollapsed(true);
@@ -234,7 +260,8 @@ export function SidebarClient({
             onClick={toggle}
             data-tt={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            className="rounded-md p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+            // A finger-sized target on phones; desktop geometry unchanged.
+            className="rounded-md p-3.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 sm:p-1.5"
           >
             {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
           </button>
@@ -257,22 +284,44 @@ export function SidebarClient({
       {/* One shared scroll region for nav + spaces, so a short window squeezes
           nothing out of reach — the spaces list no longer absorbs all of it. */}
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-      <nav className={`text-sm ${collapsed ? "px-2 pt-3" : "px-3"} pb-2`}>
+      {/* shrink-0: the nav keeps its height and the Spaces list below it owns
+          the scroll, instead of nav items being squeezed below the fold. */}
+      <nav className={`shrink-0 text-sm ${collapsed ? "px-2 pt-3" : "px-3"} pb-2`}>
         <NavLink
           href="/"
           icon={<Home className="h-4 w-4" />}
           label="Dashboard"
           collapsed={collapsed}
+          active={isActivePath(pathname, "/")}
           badge={announcementCount}
         />
-        <NavLink href="/search" icon={<Sparkles className="h-4 w-4" />} label={`Ask ${companyName || "CompassDocs"}`} collapsed={collapsed} />
-        <NavLink href="/directory" icon={<BookUser className="h-4 w-4" />} label="Directory" collapsed={collapsed} />
-        <NavLink href="/links" icon={<SquareArrowOutUpRight className="h-4 w-4" />} label="Links" collapsed={collapsed} />
+        <NavLink
+          href="/search"
+          icon={<Sparkles className="h-4 w-4" />}
+          label={`Ask ${companyName || "CompassDocs"}`}
+          collapsed={collapsed}
+          active={isActivePath(pathname, "/search")}
+        />
+        <NavLink
+          href="/directory"
+          icon={<BookUser className="h-4 w-4" />}
+          label="Directory"
+          collapsed={collapsed}
+          active={isActivePath(pathname, "/directory")}
+        />
+        <NavLink
+          href="/links"
+          icon={<SquareArrowOutUpRight className="h-4 w-4" />}
+          label="Links"
+          collapsed={collapsed}
+          active={isActivePath(pathname, "/links")}
+        />
         <NavLink
           href="/status"
           icon={<Activity className="h-4 w-4" />}
           label="Status"
           collapsed={collapsed}
+          active={isActivePath(pathname, "/status")}
           badge={statusProblemCount}
         />
         {showTraining && (
@@ -281,6 +330,7 @@ export function SidebarClient({
             icon={<GraduationCap className="h-4 w-4" />}
             label="Training"
             collapsed={collapsed}
+            active={isActivePath(pathname, "/training")}
             badge={trainingCount}
           />
         )}
@@ -290,6 +340,7 @@ export function SidebarClient({
             icon={<ClipboardList className="h-4 w-4" />}
             label="Review queue"
             collapsed={collapsed}
+            active={isActivePath(pathname, "/review")}
             badge={reviewCount}
           />
         )}
@@ -297,7 +348,13 @@ export function SidebarClient({
             expanded items when open — so "Less" ends the list it controls. */}
         {hasMoreItems && !moreOpen && moreToggle}
         {moreOpen && showNewsletter && (
-          <NavLink href="/newsletter" icon={<Mail className="h-4 w-4" />} label="Newsletter" collapsed={collapsed} />
+          <NavLink
+            href="/newsletter"
+            icon={<Mail className="h-4 w-4" />}
+            label="Newsletter"
+            collapsed={collapsed}
+            active={isActivePath(pathname, "/newsletter")}
+          />
         )}
         {moreOpen && isApprover && (
           <NavLink
@@ -305,6 +362,7 @@ export function SidebarClient({
             icon={<ChartColumn className="h-4 w-4" />}
             label="Analytics"
             collapsed={collapsed}
+            active={isActivePath(pathname, "/analytics")}
           />
         )}
         {moreOpen && showAnnouncements && (
@@ -313,6 +371,7 @@ export function SidebarClient({
             icon={<Megaphone className="h-4 w-4" />}
             label="Announcements"
             collapsed={collapsed}
+            active={isActivePath(pathname, "/announcements")}
           />
         )}
         {moreOpen && showCompliance && (
@@ -321,6 +380,7 @@ export function SidebarClient({
             icon={<ShieldCheck className="h-4 w-4" />}
             label="Compliance"
             collapsed={collapsed}
+            active={isActivePath(pathname, "/compliance")}
           />
         )}
         {moreOpen && isEditor && (
@@ -329,11 +389,17 @@ export function SidebarClient({
             icon={<Trash2 className="h-4 w-4" />}
             label="Trash"
             collapsed={collapsed}
-            badge={trashCount}
+            active={isActivePath(pathname, "/trash")}
           />
         )}
         {moreOpen && isAdmin && (
-          <NavLink href="/admin" icon={<Settings className="h-4 w-4" />} label="Settings" collapsed={collapsed} />
+          <NavLink
+            href="/admin"
+            icon={<Settings className="h-4 w-4" />}
+            label="Settings"
+            collapsed={collapsed}
+            active={isActivePath(pathname, "/admin")}
+          />
         )}
         {hasMoreItems && moreOpen && moreToggle}
       </nav>
@@ -355,12 +421,14 @@ export function SidebarClient({
       {collapsed && <div className="mt-2 border-t border-slate-100 pt-2" />}
 
       <nav className={`pb-4 text-sm ${collapsed ? "px-2" : "px-3"}`}>
-        {spaces.map((s) => (
+        {spaces.map((s) => {
+          const active = isActivePath(pathname, `/spaces/${s.slug}`);
+          return (
           <div key={s.id}>
             <span
-              className={`flex items-center rounded-md text-slate-600 hover:bg-slate-100 ${
-                collapsed ? "justify-center px-0" : "gap-1 pr-1"
-              }`}
+              className={`flex items-center rounded-md ${
+                active ? "bg-compass-50 text-compass-700" : "text-slate-600 hover:bg-slate-100"
+              } ${collapsed ? "justify-center px-0" : "gap-1 pr-1"}`}
             >
               {!collapsed && nestedPages && (
                 <button
@@ -384,12 +452,16 @@ export function SidebarClient({
               <Link
                 href={`/spaces/${s.slug}`}
                 data-tt={s.name}
+                // Collapsed, the only visible content is the space's emoji —
+                // which a screen reader announces by its Unicode name.
+                aria-label={collapsed ? s.name : undefined}
+                aria-current={active ? "page" : undefined}
                 className={`flex min-w-0 flex-1 items-center py-2 ${
                   collapsed ? "justify-center px-0" : nestedPages ? "pr-2" : "px-3"
                 }`}
               >
                 <span className={`flex items-center gap-2 truncate ${collapsed ? "justify-center" : ""}`}>
-                  <span>{s.icon}</span>
+                  <span aria-hidden>{s.icon}</span>
                   {!collapsed && <span className="truncate">{s.name}</span>}
                 </span>
               </Link>
@@ -398,7 +470,8 @@ export function SidebarClient({
               <SidebarSpaceTree spaceId={s.id} />
             )}
           </div>
-        ))}
+          );
+        })}
       </nav>
       </div>
 
@@ -433,23 +506,31 @@ function NavLink({
   icon,
   label,
   collapsed,
+  active = false,
   badge,
 }: {
   href: string;
   icon: React.ReactNode;
   label: string;
   collapsed: boolean;
+  /** This row is the page we're on. */
+  active?: boolean;
   badge?: number;
 }) {
   return (
     <Link
       href={href}
       data-tt={collapsed ? label : undefined}
-      className={`relative flex items-center rounded-md py-2 font-medium text-slate-600 hover:bg-slate-100 ${
-        collapsed ? "justify-center px-0" : "gap-2 px-3"
-      }`}
+      // Collapsed there is no visible text, so the tooltip's label has to be
+      // mirrored as the accessible name. Expanded, the text is the name and an
+      // aria-label would override it.
+      aria-label={collapsed ? label : undefined}
+      aria-current={active ? "page" : undefined}
+      className={`relative flex items-center rounded-md py-2 font-medium ${
+        active ? "bg-compass-50 text-compass-700" : "text-slate-600 hover:bg-slate-100"
+      } ${collapsed ? "justify-center px-0" : "gap-2 px-3"}`}
     >
-      <span className="text-slate-400">{icon}</span>
+      <span className={active ? "" : "text-slate-400"}>{icon}</span>
       {!collapsed && <span className="flex-1">{label}</span>}
       {badge ? (
         collapsed ? (
