@@ -1,3 +1,4 @@
+import { requireSettingsSection } from "@/lib/auth";
 import {
   getAiKeySource,
   getAiModel,
@@ -13,6 +14,7 @@ import { SettingsPage } from "@/components/SettingsPage";
 export const dynamic = "force-dynamic";
 
 export default async function AiPage() {
+  await requireSettingsSection("/admin/ai");
   const [source, providerCfg] = await Promise.all([getAiKeySource(), getAiProviderConfig()]);
   return (
     <SettingsPage href="/admin/ai">

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, Download } from "lucide-react";
-import { requireRole } from "@/lib/auth";
+import { requirePermission } from "@/lib/auth";
 import { getDocument, ackStatusForDocument } from "@/lib/db";
 import { spaceScopeFor, scopeAllows } from "@/lib/access";
 import { featureEnabled } from "@/lib/ee";
@@ -16,7 +16,7 @@ export default async function AcknowledgementsPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const user = await requireRole("approver");
+  const user = await requirePermission("approver", "document.ack_roster_read");
   if (!(await featureEnabled("policy_ack"))) notFound();
 
   const { id } = await params;

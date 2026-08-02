@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 // How many active people could still restore everyone else's access. If this
 // ever reads 0 the workspace is stranded, so it is worth being able to ask.
 export async function GET() {
-  const gate = await apiGuard("admin", "system.diagnostics_read");
+  const gate = await apiGuard("admin", "role.read");
   if (gate instanceof NextResponse) return gate;
   return NextResponse.json({
     permission: RECOVERY_PERMISSION,

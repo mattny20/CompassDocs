@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 // any drift between them is a bug worth surfacing loudly rather than a
 // curiosity — hence an endpoint rather than a one-off script.
 export async function GET() {
-  const gate = await apiGuard("admin", "system.diagnostics_read");
+  const gate = await apiGuard("admin", "role.read");
   if (gate instanceof NextResponse) return gate;
   return NextResponse.json(await rbacMigrationAudit());
 }

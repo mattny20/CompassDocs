@@ -1,11 +1,11 @@
-import { requireRole } from "@/lib/auth";
+import { requirePermission } from "@/lib/auth";
 import { EMAIL_TEMPLATES, templateOverride } from "@/lib/email-templates";
 import { EmailTemplatesPanel } from "@/components/EmailTemplatesPanel";
 
 export const dynamic = "force-dynamic";
 
 export default async function EmailTemplatesPage() {
-  await requireRole("admin");
+  await requirePermission("admin", "integration.email_template_manage");
   const initial = await Promise.all(
     EMAIL_TEMPLATES.map(async (t) => {
       const override = await templateOverride(t.key);

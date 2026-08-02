@@ -1,4 +1,4 @@
-import { requireRole } from "@/lib/auth";
+import { requirePermission } from "@/lib/auth";
 import { spaceScopeFor } from "@/lib/access";
 import { listChangeRequests, listSuggestions } from "@/lib/db";
 import { ReviewClient } from "@/components/ReviewClient";
@@ -8,7 +8,7 @@ import { PageContainer } from "@/components/PageWidth";
 export const dynamic = "force-dynamic";
 
 export default async function ReviewPage() {
-  const user = await requireRole("approver");
+  const user = await requirePermission("approver", "change_request.read");
   const scope = await spaceScopeFor(user);
   const [changeRequests, suggestions] = await Promise.all([
     listChangeRequests("pending", scope),

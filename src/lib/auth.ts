@@ -120,6 +120,57 @@ export async function requireRole(min: Role): Promise<SessionUser> {
 }
 
 /**
+ * The page-level counterpart to `apiGuard(min, permission)`, and the reason it
+ * exists: once the API enforces permissions, a page still gated on the ladder
+ * would bounce someone the API would have let in — a custom role that holds
+ * `workspace.settings_manage` without being an Administrator would find the
+ * settings page redirecting home while every request it makes succeeds.
+ *
+ * Same admission rule as the API guard, including the legacy break-glass.
+ */
+export async function requirePermission(
+  min: Role,
+  permission: import("./permissions").PermissionKey,
+  spaceId?: number
+): Promise<SessionUser> {
+  const user = await requireUser();
+  const { grantsFor, admits, legacyAuthzEnforcement } = await import("./authz");
+  if (legacyAuthzEnforcement()) {
+    if (!roleAtLeast(user.role, min)) redirect("/");
+    return user;
+  }
+  if (!admits(await grantsFor(user.id), permission, spaceId)) redirect("/");
+  return user;
+}
+
+/**
+ * Guard for a settings section, keyed on its href.
+ *
+ * The permission lives in lib/settings-sections next to the section's label and
+ * icon, so the page guard and the nav that links to it read the same value.
+ * Before 0.93 the /admin layout gated the whole console on being an
+ * Administrator, which meant a role holding exactly one settings permission
+ * could call the API but not open the page that calls it.
+ */
+export async function requireSettingsSection(href: string): Promise<SessionUser> {
+  const { settingsSection } = await import("./settings-sections");
+  const section = settingsSection(href);
+  if (!section) redirect("/");
+  return requirePermission("admin", section.permission);
+}
+
+/** Which settings sections this user may open — the rail renders exactly these. */
+export async function reachableSettingsSections(user: SessionUser): Promise<string[]> {
+  const { SETTINGS_SECTIONS } = await import("./settings-sections");
+  const { grantsFor, admits, legacyAuthzEnforcement } = await import("./authz");
+  if (legacyAuthzEnforcement()) {
+    return roleAtLeast(user.role, "admin") ? SETTINGS_SECTIONS.map((s) => s.href) : [];
+  }
+  const grants = await grantsFor(user.id);
+  return SETTINGS_SECTIONS.filter((s) => admits(grants, s.permission)).map((s) => s.href);
+}
+
+/**
  * Verify credentials and open a session. Returns the token to set as a cookie,
  * null on failure (bad password/code, unknown user, or disabled account), or
  * a totp_required marker when the password checked out but the account has

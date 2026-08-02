@@ -57,25 +57,21 @@ export async function crossOriginRejection(): Promise<NextResponse | null> {
 
 /**
  * Guard for API route handlers. Returns either the authenticated user or a
- * ready-to-return NextResponse (401/403). Usage:
- *   const gate = await apiGuard("editor");
+ * ready-to-return NextResponse (401/403/503). Usage:
+ *   const gate = await apiGuard("editor", "document.create");
  *   if (gate instanceof NextResponse) return gate;
  *   const user = gate;
  *
- * SHADOW MODE (0.92). Pass the permission this route actually requires and the
- * guard evaluates the new RBAC model alongside the legacy ladder, records
- * whether the two agreed, and then **enforces the legacy answer**:
+ * The permission is the authority (0.93). `min` is still passed at every site
+ * and still evaluated, but only to keep the shadow scoreboard honest — it
+ * records how the two models compared so a regression shows up as a number on
+ * /admin/roles rather than as a support ticket. Routes that have not been given
+ * a permission fall back to the ladder.
  *
- *   const gate = await apiGuard("admin", "group.create");
- *
- * So porting a route cannot change who gets in. When every route has a
- * permission attached and the disagreement count at
- * /api/admin/rbac/shadow is zero, enforcement flips to the RBAC answer in one
- * reviewable commit. This is deliberately slower than swapping the check
- * outright — a wrong substitution here is a silent grant, not a build failure.
- *
- * `spaceId` is required for space-scoped permissions; a space-scoped permission
- * held globally applies everywhere.
+ * Pass `spaceId` when the route already knows which space it is acting on. When
+ * it doesn't, a space-scoped permission is admitted if the caller holds it in
+ * any space and the route's own SpaceScope check does the narrowing — see
+ * `admits()` in lib/authz.
  */
 export async function apiGuard(
   min: Role = "viewer",
@@ -87,38 +83,57 @@ export async function apiGuard(
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
 
+  const { legacyAuthzEnforcement } = await import("./authz");
   const legacyAllowed = roleAtLeast(user.role, min);
-  if (permission) await observe(user.id, permission, legacyAllowed, spaceId);
+  if (!permission || legacyAuthzEnforcement()) {
+    if (!legacyAllowed) {
+      return NextResponse.json({ error: "You don't have permission for that." }, { status: 403 });
+    }
+    return user;
+  }
 
-  if (!legacyAllowed) {
+  let rbacAllowed: boolean;
+  try {
+    const { grantsFor, admits } = await import("./authz");
+    rbacAllowed = admits(await grantsFor(user.id), permission, spaceId);
+  } catch {
+    // Authorization is now load-bearing, so an unresolvable answer must not
+    // become an allowed one. 503 rather than 403: the caller's rights are
+    // unknown, not absent, and retrying is the right advice.
+    return NextResponse.json(
+      { error: "Could not evaluate permissions. Try again shortly." },
+      { status: 503 }
+    );
+  }
+
+  void observe(permission, legacyAllowed, rbacAllowed);
+
+  if (!rbacAllowed) {
     return NextResponse.json({ error: "You don't have permission for that." }, { status: 403 });
   }
   return user;
 }
 
 /**
- * Evaluate the RBAC answer and record how it compared. Isolated and
- * fail-quiet: shadow accounting must never be able to turn an allowed request
- * into an error, so anything that goes wrong here is swallowed.
+ * Record how the two models compared. Kept running past the flip: it is now a
+ * regression detector rather than a porting scoreboard, and it costs one
+ * upserted counter per distinct (route, permission, outcome) shape.
+ *
+ * Not awaited and fail-quiet — accounting must never turn an allowed request
+ * into an error, nor add latency to one.
  */
 async function observe(
-  userId: number,
   permission: PermissionKey,
   legacyAllowed: boolean,
-  spaceId?: number
+  rbacAllowed: boolean
 ): Promise<void> {
   try {
-    const [{ grantsFor, holds }, { recordShadowObservation }] = await Promise.all([
-      import("./authz"),
-      import("./db"),
-    ]);
-    const grants = await grantsFor(userId);
-    const rbacAllowed = holds(grants, permission, spaceId);
+    const { recordShadowObservation } = await import("./db");
     const h = await headers();
     const route = h.get("x-invoke-path") || h.get("referer") || permission;
     await recordShadowObservation(route, permission, legacyAllowed, rbacAllowed);
   } catch {
-    /* shadow accounting is never load-bearing */
+    /* observability is never load-bearing */
   }
 }
 

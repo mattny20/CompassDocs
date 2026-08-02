@@ -4,6 +4,48 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.93.0] - 2026-08-02
+
+### Added
+- **Custom roles are here.** Settings → **Roles & permissions** lets you build
+  a role out of any of the ~200 things CompassDocs can do, and grant it to a
+  person or a group — for the whole workspace, or for a single space. A group
+  grant follows the group, so people joining or leaving pick up and lose the
+  role without anyone revisiting the page.
+
+  This is what the last two releases were building toward: **permissions now
+  decide access**, not the four fixed roles. Someone can run the launchpad, or
+  the audit log, or backups, without being made an administrator.
+
+- **A permission matrix that's usable.** Permissions are grouped by what they
+  act on, each group collapses, and a search box filters across names, keys,
+  and descriptions at once, with select-all per group.
+
+- **"Why can this person do that?"** The **Explain access** tab lists
+  everything someone effectively holds and which role — and which group — gave
+  it to them.
+
+- **Health checks for the model itself.** One tab answers the three questions
+  worth asking: can anyone still restore other people's access, does the new
+  model still agree with the old role ladder, and does everyone have a role.
+
+### Changed
+- **The settings console is no longer all-or-nothing.** Each section now has
+  its own permission, so a delegated role sees exactly the sections it can use
+  and the navigation shows only those. Previously the whole console required
+  the administrator role even for a section you'd been given.
+- Your four existing roles are unchanged and keep working exactly as before —
+  they are now presets you can duplicate and modify. The presets themselves
+  stay read-only so that upgrades adding new permissions keep granting them.
+
+### Security
+- Any change that would leave **nobody** able to manage users — editing a role,
+  deleting one, revoking a grant — is applied, checked, and rolled back with an
+  explanation. The workspace cannot be locked out of itself.
+- `COMPASSDOCS_AUTHZ_LEGACY=1` restores the previous role-based enforcement at
+  startup if a workspace needs to fall back. The console shows a banner while
+  it is set.
+
 ## [0.92.0] - 2026-08-02
 
 ### Added

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { MailPlus, ChevronRight } from "lucide-react";
-import { requireRole } from "@/lib/auth";
+import { requireSettingsSection } from "@/lib/auth";
 import { listWebhooks, listSpaces } from "@/lib/db";
 import { WebhooksPanel, SmtpPanel } from "@/components/WebhooksPanel";
 import { ChatAskPanel } from "@/components/ChatAskPanel";
@@ -24,7 +24,7 @@ function maskUrl(url: string): string {
 }
 
 export default async function NotificationsPage() {
-  await requireRole("admin");
+  await requireSettingsSection("/admin/notifications");
   const [hooks, spaces, smtp, chatAsk, appSettings] = await Promise.all([
     listWebhooks(),
     listSpaces(EVERY_SPACE_UNFILTERED),

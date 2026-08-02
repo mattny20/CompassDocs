@@ -1,3 +1,4 @@
+import { requireSettingsSection } from "@/lib/auth";
 import { getApprovalMode } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings-store";
 import { WorkspaceSettings } from "@/components/WorkspaceSettings";
@@ -7,6 +8,7 @@ import { SettingsPage } from "@/components/SettingsPage";
 export const dynamic = "force-dynamic";
 
 export default async function WorkspacePage() {
+  await requireSettingsSection("/admin/workspace");
   const [settings, approvalMode] = await Promise.all([getAppSettings(), getApprovalMode()]);
   return (
     <SettingsPage href="/admin/workspace">

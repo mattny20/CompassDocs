@@ -1,3 +1,4 @@
+import { requireSettingsSection } from "@/lib/auth";
 import {
   listSpaces,
   listGroups,
@@ -17,6 +18,7 @@ import { EVERY_SPACE_UNFILTERED } from "@/lib/space-scope";
 export const dynamic = "force-dynamic";
 
 export default async function SpacesPage() {
+  await requireSettingsSection("/admin/spaces");
   const [spaces, groups, users, spaceGroups, subscriptionGroups, editorGrants, editAll, cats, templates] =
     await Promise.all([
       listSpaces(EVERY_SPACE_UNFILTERED),

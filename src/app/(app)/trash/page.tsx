@@ -1,5 +1,5 @@
 import { Trash2 } from "lucide-react";
-import { requireRole } from "@/lib/auth";
+import { requirePermission } from "@/lib/auth";
 import { listTrashedDocuments, purgeExpiredTrash } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings-store";
 import { TrashClient } from "@/components/TrashClient";
@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 export default async function TrashPage() {
   // Editors and up can see the Trash; permanent deletion is gated to admins
   // inside the client and the API.
-  const user = await requireRole("editor");
+  const user = await requirePermission("editor", "document.restore");
   const settings = await getAppSettings();
 
   // Enforce the retention window whenever the Trash is opened.

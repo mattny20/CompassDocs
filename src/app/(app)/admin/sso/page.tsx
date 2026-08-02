@@ -1,5 +1,5 @@
 import { headers } from "next/headers";
-import { requireRole } from "@/lib/auth";
+import { requireSettingsSection } from "@/lib/auth";
 import { getSsoConfig, ssoAuthority } from "@/lib/sso-config";
 import { getSamlConfig, samlConfigured, samlSpUrls } from "@/lib/saml-config";
 import { getSetting } from "@/lib/db";
@@ -13,7 +13,7 @@ import { SettingsPage } from "@/components/SettingsPage";
 export const dynamic = "force-dynamic";
 
 export default async function SsoAdminPage() {
-  await requireRole("admin");
+  await requireSettingsSection("/admin/sso");
   const [cfg, samlCfg, app, bundled, enabled, secretExpires, scimLicensed, scimEnabled, scimTokenHash, scimLast] =
     await Promise.all([
       getSsoConfig(),
