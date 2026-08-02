@@ -67,7 +67,7 @@ export function SsoSettings({ initial }: { initial: SsoState }) {
     return (
       <div>
         {header}
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+        <div className="notice-warn rounded-xl border p-4 text-sm">
           <p className="font-semibold">SSO isn&rsquo;t licensed.</p>
           <p className="mt-1">
             This Enterprise build supports it, but your license doesn&rsquo;t include the{" "}

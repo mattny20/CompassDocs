@@ -8,8 +8,9 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { UsersRound, RefreshCw, CloudDownload, Trash2, Pencil, X } from "lucide-react";
 import { EntityPicker } from "@/components/EntityPicker";
-import { controlClass, TextInput } from "@/components/form";
+import { controlClass, SectionEmpty, TextInput } from "@/components/form";
 import { toast } from "@/components/Toasts";
+import { useFormatDate } from "./SettingsProvider";
 
 type GroupRow = {
   id: number;
@@ -96,7 +97,7 @@ export function GroupsPanel({
       </div>
 
       {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        <div className="notice-error rounded-lg border px-3 py-2 text-sm">
           {error}
         </div>
       )}
@@ -131,9 +132,9 @@ export function GroupsPanel({
           />
         ))}
         {groups.length === 0 && (
-          <p className="rounded-lg border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-400">
+          <SectionEmpty className="py-6">
             No groups yet. Create one above, then grant it on a private space.
-          </p>
+          </SectionEmpty>
         )}
       </div>
 
@@ -157,6 +158,7 @@ function GroupCard({
   onChanged: () => Promise<void>;
   onDelete: () => void;
 }) {
+  const fmt = useFormatDate();
   const [members, setMembers] = useState<Member[] | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [name, setName] = useState(group.name);
@@ -238,7 +240,7 @@ function GroupCard({
             {group.space_count > 0 &&
               ` · grants access to ${group.space_count} space${group.space_count === 1 ? "" : "s"}`}
             {synced && group.last_synced_at &&
-              ` · synced ${new Date(group.last_synced_at).toLocaleString()}`}
+              ` · synced ${fmt.dateTime(group.last_synced_at)}`}
           </p>
         </div>
         {!synced && !renaming && (
@@ -301,7 +303,9 @@ function GroupCard({
                   </li>
                 ))}
                 {members.length === 0 && (
-                  <li className="py-2 text-sm text-slate-400">No members yet.</li>
+                  <li>
+                    <SectionEmpty className="py-2">No members yet.</SectionEmpty>
+                  </li>
                 )}
               </ul>
               <div className="mt-2">
@@ -448,7 +452,7 @@ function EntraSection({
       {browsing && available !== null && (
         <div className="mt-3 rounded-lg border border-slate-200 p-3">
           {available.length === 0 ? (
-            <p className="text-sm text-slate-400">No groups found in the tenant.</p>
+            <SectionEmpty>No groups found in the tenant.</SectionEmpty>
           ) : (
             <div className="max-h-64 space-y-1 overflow-y-auto">
               {available.map((g) => (

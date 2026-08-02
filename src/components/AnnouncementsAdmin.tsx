@@ -7,6 +7,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Megaphone, TriangleAlert, Siren, Archive, ArchiveRestore, Trash2 } from "lucide-react";
+import { useFormatDate } from "./SettingsProvider";
 
 interface AnnouncementRow {
   id: number;
@@ -47,6 +48,7 @@ export function AnnouncementsAdmin({
   webhookCount: number;
 }) {
   const router = useRouter();
+  const fmt = useFormatDate();
   const [rows, setRows] = useState(initial);
   const [title, setTitle] = useState("");
   const [message, setMessage] = useState("");
@@ -268,8 +270,8 @@ export function AnnouncementsAdmin({
                     <p className="font-medium text-slate-800">{r.title}</p>
                     <p className="mt-0.5 line-clamp-2 whitespace-pre-line text-xs text-slate-500">{r.body}</p>
                     <p className="mt-1 text-xs text-slate-400">
-                      {r.level} · {r.author_name} · {new Date(r.created_at).toLocaleString()}
-                      {r.expires_at && ` · hides ${new Date(r.expires_at).toLocaleDateString()}`}
+                      {r.level} · {r.author_name} · {fmt.dateTime(r.created_at)}
+                      {r.expires_at && ` · hides ${fmt.date(r.expires_at)}`}
                       {r.dismissed_count > 0 && ` · dismissed by ${r.dismissed_count}`}
                     </p>
                   </div>

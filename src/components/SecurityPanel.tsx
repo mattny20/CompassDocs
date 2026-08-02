@@ -6,6 +6,7 @@
 
 import { useState } from "react";
 import type { SessionInfo } from "@/lib/db";
+import { useFormatDate } from "./SettingsProvider";
 
 const field =
   "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
@@ -163,11 +164,11 @@ function TwoFactor({ initial }: { initial: TotpState }) {
       )}
 
       {phase === "recovery" && (
-        <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm">
-          <p className="font-semibold text-amber-800">
+        <div className="notice-warn mt-3 rounded-lg border p-3 text-sm">
+          <p className="font-semibold">
             Two-factor auth is on. Save these recovery codes now — they&rsquo;re shown once.
           </p>
-          <p className="mt-1 text-xs text-amber-700">
+          <p className="mt-1 text-xs">
             Each works exactly once if you lose your authenticator.
           </p>
           <pre className="mt-2 grid grid-cols-2 gap-x-6 rounded-sm bg-white p-3 font-mono text-[13px] leading-6 ring-1 ring-amber-200 sm:grid-cols-4">
@@ -250,6 +251,7 @@ function describeAgent(ua: string | null): string {
 function Sessions({ initial }: { initial: SessionInfo[] }) {
   const [sessions, setSessions] = useState(initial);
   const [busy, setBusy] = useState(false);
+  const fmt = useFormatDate();
 
   async function revoke(sid: string) {
     const res = await fetch(`/api/account/sessions?sid=${encodeURIComponent(sid)}`, {
@@ -293,7 +295,7 @@ function Sessions({ initial }: { initial: SessionInfo[] }) {
                 )}
               </div>
               <div className="text-xs text-slate-500">
-                {s.ip ? `${s.ip} · ` : ""}signed in {new Date(s.created_at).toLocaleString()}
+                {s.ip ? `${s.ip} · ` : ""}signed in {fmt.dateTime(s.created_at)}
               </div>
             </div>
             {!s.current && (

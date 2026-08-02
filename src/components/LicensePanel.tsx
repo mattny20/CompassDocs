@@ -125,12 +125,12 @@ export function LicensePanel() {
             </div>
           )}
           {v.status === "invalid" && v.reason && (
-            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            <div className="notice-error rounded-lg border px-3 py-2 text-sm">
               {v.reason}
             </div>
           )}
           {v.status === "grace" && (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            <div className="notice-warn rounded-lg border px-3 py-2 text-sm">
               Your license has expired but is in a grace period. Renew to avoid losing enterprise
               features.
             </div>

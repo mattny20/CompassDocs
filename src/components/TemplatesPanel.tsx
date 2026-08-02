@@ -11,7 +11,7 @@ import {
   SquarePen,
   Trash2,
 } from "lucide-react";
-import { Field, Select, TextInput, Toggle } from "@/components/form";
+import { Field, SectionEmpty, Select, TextInput, Toggle } from "@/components/form";
 import { RichTextEditor } from "@/components/RichTextEditor";
 import { toast } from "@/components/Toasts";
 import { DOC_TYPES, DOC_TYPE_LABEL } from "@/lib/types";
@@ -124,7 +124,7 @@ export function TemplatesPanel({ initial }: { initial: TemplateRow[] }) {
                       </span>
                     )}
                     {t.hidden === 1 && (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950/50 dark:text-amber-300">
                         <EyeOff className="h-3 w-3" /> Hidden
                       </span>
                     )}
@@ -151,9 +151,18 @@ export function TemplatesPanel({ initial }: { initial: TemplateRow[] }) {
           );
         })}
         {templates.length === 0 && !creating && (
-          <p className="rounded-lg border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-400">
+          <SectionEmpty
+            className="py-6"
+            action={{
+              label: "New template",
+              onClick: () => {
+                setCreating(true);
+                setOpenId(null);
+              },
+            }}
+          >
             No templates yet.
-          </p>
+          </SectionEmpty>
         )}
       </div>
     </div>

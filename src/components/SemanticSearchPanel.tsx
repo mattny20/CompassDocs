@@ -110,7 +110,7 @@ export function SemanticSearchPanel({ initial }: { initial: Status }) {
       </p>
 
       {!status.pgvector ? (
-        <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+        <div className="notice-warn mb-3 flex items-start gap-2 rounded-lg border px-3 py-2 text-sm">
           <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
           <span>
             The <strong>pgvector</strong> extension isn&rsquo;t available in your PostgreSQL.
@@ -120,7 +120,7 @@ export function SemanticSearchPanel({ initial }: { initial: Status }) {
           </span>
         </div>
       ) : configured ? (
-        <div className="mb-3 flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
+        <div className="notice-ok mb-3 flex items-center gap-2 rounded-lg border px-3 py-2 text-sm">
           <Check className="h-4 w-4 shrink-0" />
           <span>
             Semantic search is <strong>on</strong> — {status.indexed_docs} of {status.total_docs}{" "}
@@ -141,7 +141,7 @@ export function SemanticSearchPanel({ initial }: { initial: Status }) {
         </div>
       )}
       {status.reindex.error && !status.reindex.running && (
-        <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        <div className="notice-error mb-3 rounded-lg border px-3 py-2 text-sm">
           Last rebuild failed: {status.reindex.error}
         </div>
       )}

@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
+import { FileText } from "lucide-react";
 import { getSpaceBySlug, listDocumentsBySpace } from "@/lib/db";
+import { EmptyState } from "@/components/form";
 import { DOC_TYPE_LABEL } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -46,9 +48,13 @@ export default async function PublicSpacePage({
       </div>
 
       {docs.length === 0 ? (
-        <p className="mt-10 rounded-xl border border-dashed border-slate-300 bg-white p-10 text-center text-slate-400">
-          Nothing published here yet.
-        </p>
+        <div className="mt-10">
+          <EmptyState
+            icon={<FileText />}
+            title="Nothing published here yet"
+            body={`Documents published to ${space.name} will be listed here.`}
+          />
+        </div>
       ) : (
         <ul className="mt-6 divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white shadow-xs">
           {docs.map((d) => (

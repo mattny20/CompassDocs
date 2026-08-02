@@ -7,6 +7,9 @@ import { ROLE_LABEL } from "@/lib/types";
 import { AccountNav } from "@/components/AccountNav";
 import { UserAvatar } from "@/components/UserAvatar";
 import { WidthProvider, PageContainer } from "@/components/PageWidth";
+import { SettingsProvider } from "@/components/SettingsProvider";
+import { getAppSettings } from "@/lib/settings-store";
+import { settingsForUser } from "@/lib/format";
 import { ToastHost } from "@/components/Toasts";
 
 export const dynamic = "force-dynamic";
@@ -18,8 +21,12 @@ export default async function AccountLayout({ children }: { children: React.Reac
   const user = await requireUser();
   if (user.must_change_password) redirect("/account/password");
   const me = await getUserById(user.id);
+  // The account shell sits outside (app), so it mounts its own settings
+  // provider — without one these panels would fall back to the defaults.
+  const settings = settingsForUser(await getAppSettings(), user);
 
   return (
+    <SettingsProvider value={settings}>
     <WidthProvider initial={user.page_width}>
     <div className="min-h-screen bg-linear-to-br from-slate-100 to-compass-50 py-8">
       <PageContainer className="py-0">
@@ -57,5 +64,6 @@ export default async function AccountLayout({ children }: { children: React.Reac
       <ToastHost />
     </div>
     </WidthProvider>
+    </SettingsProvider>
   );
 }

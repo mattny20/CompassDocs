@@ -4,6 +4,31 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.89.0] - 2026-08-02
+
+### Fixed
+- **Dark mode had white slabs everywhere.** About fifty tinted panels were
+  written for light mode only and rendered as cream rectangles punched into
+  dark pages — including the most important message on Domain & HTTPS.
+  Several places had the opposite bug and were genuinely unreadable: the
+  command palette's own input text, the new-document template picker's
+  heading, and the header of every code block.
+- **Empty pages looked like different products.** Sixteen pages that can be
+  empty used eleven different treatments. They're now one, and they tell
+  you how to fill them — an empty Links page offers "Add links" instead of
+  only describing where links would go.
+- **The workspace date and time settings now apply everywhere.** Roughly
+  half the app ignored them, so the audit log could read "2026-08-02, 03:58"
+  while the account security page two clicks away read "08/02/2026, 3:58 AM"
+  for a comparable event. The per-user timezone was dead on those surfaces
+  too.
+- **Dates could be a day out.** Several pages formatted timestamps inside
+  the database, in the server's timezone, so a document touched near
+  midnight showed the wrong day to anyone in a different zone. The weekly
+  digest email had the same bug and ignored each recipient's format.
+- The audit log honoured the workspace date format but silently ignored the
+  per-user preference.
+
 ## [0.88.0] - 2026-08-02
 
 ### Added

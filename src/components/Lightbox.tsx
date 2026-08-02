@@ -109,7 +109,7 @@ export function Lightbox({
 
       {/* Controls — stopPropagation so they don't close or pan the viewer. */}
       <div
-        className="absolute bottom-5 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-slate-800/90 px-2 py-1.5 shadow-lg ring-1 ring-white/10"
+        className="absolute bottom-5 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-[#1e293b]/90 px-2 py-1.5 shadow-lg ring-1 ring-white/10"
         onClick={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
         onDoubleClick={(e) => e.stopPropagation()}

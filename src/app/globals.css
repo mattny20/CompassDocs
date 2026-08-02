@@ -550,6 +550,46 @@ mark {
   color: #0f172a;
 }
 
+/* --- Notices --------------------------------------------------------------
+ * The one treatment for persistent inline state banners (STYLEGUIDE §Feedback:
+ * "persistent status banners … stay inline — they're state, not feedback").
+ *
+ * Why a class and not a <Notice> component: the ~50 call sites differ in
+ * everything EXCEPT color — rounded-lg vs rounded-xl, px-3 py-2 vs p-4, <p> vs
+ * <div>, with and without a leading icon, mb-4/mt-3/mb-3 margins, some inside a
+ * flex row. A component would have to normalise that layout; a class swaps only
+ * the three color utilities and leaves every other utility on the element
+ * exactly where it was. It also needs no import, so server components use it
+ * too.
+ *
+ * Each class carries BOTH themes. amber/red/green are NOT variable-driven in
+ * this app (only --compass-* and --slate-* flip), so a bare `bg-amber-50` stays
+ * cream on a dark page — that is the bug these replace. The dark values are the
+ * ones already shipped for each family (`-950/40` fill, `-800/60` border), so a
+ * converted banner is indistinguishable from the ones that were already right.
+ *
+ * Unlayered like [data-tt] and .cmd-* above: these must win over a stray
+ * utility rather than lose to one. Notices are not hoverable, so nothing here
+ * is fighting a `hover:bg-*` — put buttons in Tailwind, not in a notice class.
+ *
+ * Written with @apply so the palette stays Tailwind's single source of truth
+ * and no raw color literal is hand-typed here. (Any hand-written slate or
+ * compass color in this file must still be wrapped as rgb(var(--…)) — a bare
+ * var() on those raw "R G B" triplets fails silently.)
+ */
+.notice-warn {
+  @apply border-amber-200 bg-amber-50 text-amber-800;
+  @apply dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200;
+}
+.notice-error {
+  @apply border-red-200 bg-red-50 text-red-700;
+  @apply dark:border-red-800/60 dark:bg-red-950/40 dark:text-red-300;
+}
+.notice-ok {
+  @apply border-green-200 bg-green-50 text-green-700;
+  @apply dark:border-green-800/60 dark:bg-green-950/40 dark:text-green-300;
+}
+
 /* --- Command palette ------------------------------------------------------
  * Unlayered on purpose, exactly like the [data-tt] block above: these are
  * hand-written component styles, not Tailwind utilities. Unlayered rules also

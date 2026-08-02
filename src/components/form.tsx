@@ -7,6 +7,7 @@
 // field validation — action results still go through components/Toasts.
 
 import { forwardRef, useId } from "react";
+import Link from "next/link";
 
 export function Field({
   label,
@@ -127,6 +128,139 @@ export function DangerZone({
       <h3 className="mb-3 text-sm font-semibold text-red-700">{title}</h3>
       <div className="space-y-3">{children}</div>
     </section>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+ * Empty states (STYLEGUIDE.md "Empty states"). Two tiers, one recipe each:
+ * EmptyState is the card a page shows instead of its content; SectionEmpty is
+ * the line a list inside a card shows instead of its rows. Nothing else may
+ * hand-roll a "nothing here" box — sixteen pages once shipped eleven of them.
+ * ------------------------------------------------------------------------ */
+
+/**
+ * Where to go to fill the page. Either a destination (`href`, safe to pass
+ * from a server component) or a handler already on the page (`onClick`).
+ */
+export type EmptyAction = { label: string; icon?: React.ReactNode } & (
+  | { href: string; onClick?: never }
+  | { onClick: () => void; href?: never }
+);
+
+const emptyActionClass =
+  "inline-flex items-center gap-1.5 rounded-lg bg-compass-600 px-4 py-2 text-sm " +
+  "font-semibold text-white shadow-xs hover:bg-compass-700";
+
+/** The primary button inside an empty state — the same recipe as any primary. */
+function EmptyActionButton({ action }: { action: EmptyAction }) {
+  const inner = (
+    <>
+      {action.icon && (
+        <span className="[&>svg]:h-4 [&>svg]:w-4" aria-hidden>
+          {action.icon}
+        </span>
+      )}
+      {action.label}
+    </>
+  );
+  return action.href ? (
+    <Link href={action.href} className={emptyActionClass}>
+      {inner}
+    </Link>
+  ) : (
+    <button type="button" onClick={action.onClick} className={emptyActionClass}>
+      {inner}
+    </button>
+  );
+}
+
+/**
+ * Page-level empty state: the whole page (or its whole content region) has
+ * nothing in it yet. Three tiers, echoing the page header — a lucide icon, a
+ * headline, a sentence — plus an optional action, so an empty page tells you
+ * how to fill it instead of only naming the place.
+ *
+ * Pass the icon as an *element* (`icon={<Trash2 />}`), never an emoji: size
+ * and tone are applied here so every empty state matches, and emoji ignore the
+ * workspace accent. For a list inside a card use <SectionEmpty> — no box in a
+ * box.
+ */
+export function EmptyState({
+  icon,
+  title,
+  body,
+  action,
+  children,
+}: {
+  /** A lucide icon element, e.g. `<Inbox />`. Sized and toned here. */
+  icon: React.ReactNode;
+  /** The state in a few words — "Trash is empty". */
+  title: React.ReactNode;
+  /** A sentence or two: what appears here, and how it gets here. */
+  body?: React.ReactNode;
+  /** The destination that fills this page, rendered as the primary button. */
+  action?: EmptyAction;
+  /** Rare extras under the body (search tips, a secondary link). */
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-surface px-4 py-10 text-center shadow-xs">
+      <span
+        className="block [&>svg]:mx-auto [&>svg]:h-8 [&>svg]:w-8 [&>svg]:text-slate-400"
+        aria-hidden
+      >
+        {icon}
+      </span>
+      <p className="mt-3 text-base font-semibold text-slate-800">{title}</p>
+      {body && <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">{body}</p>}
+      {children}
+      {action && (
+        <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+          <EmptyActionButton action={action} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Section-level empty state: a list *inside* a card has no rows. Plain text in
+ * the flow of the card — never a second bordered box inside the first one.
+ * Pass the card's own padding through `className` when the list manages it.
+ */
+export function SectionEmpty({
+  children,
+  action,
+  className = "",
+}: {
+  children: React.ReactNode;
+  /** Optional inline link to the thing that fills the list. */
+  action?: EmptyAction;
+  /** Padding when the surrounding list owns it, e.g. `px-4 py-6`. */
+  className?: string;
+}) {
+  return (
+    <p className={`text-sm text-slate-500 ${className}`.trim()}>
+      {children}
+      {action && (
+        <>
+          {" "}
+          {action.href ? (
+            <Link href={action.href} className="font-medium text-compass-600 hover:underline">
+              {action.label}
+            </Link>
+          ) : (
+            <button
+              type="button"
+              onClick={action.onClick}
+              className="font-medium text-compass-600 hover:underline"
+            >
+              {action.label}
+            </button>
+          )}
+        </>
+      )}
+    </p>
   );
 }
 

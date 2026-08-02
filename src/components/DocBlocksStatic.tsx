@@ -26,8 +26,8 @@ export const CALLOUT_STYLE: Record<
 > = {
   note: {
     Icon: StickyNote,
-    box: "border-slate-300 bg-slate-50 dark:border-slate-600 dark:bg-slate-800/40",
-    title: "text-slate-700 dark:text-slate-200",
+    box: "border-slate-300 bg-slate-50",
+    title: "text-slate-700",
     defaultTitle: "Note",
   },
   info: {

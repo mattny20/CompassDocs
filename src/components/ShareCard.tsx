@@ -6,6 +6,7 @@
 
 import { useEffect, useState } from "react";
 import { Check, Copy, Link as LinkIcon, LoaderCircle, RefreshCw, Share2, X } from "lucide-react";
+import { useFormatDate } from "./SettingsProvider";
 
 interface ShareInfo {
   token: string;
@@ -30,6 +31,7 @@ export function ShareCard({
   initial: ShareInfo | null;
   isPublished: boolean;
 }) {
+  const fmt = useFormatDate();
   const [share, setShare] = useState<ShareInfo | null>(initial);
   const [expiry, setExpiry] = useState("");
   const [busy, setBusy] = useState(false);
@@ -111,7 +113,7 @@ export function ShareCard({
           <p className="text-xs text-slate-400">
             Anyone with this link can read the current published version.{" "}
             {share.expires_at
-              ? `Expires ${new Date(share.expires_at).toLocaleDateString()}.`
+              ? `Expires ${fmt.date(share.expires_at)}.`
               : "Never expires."}{" "}
             Opened {share.view_count} time{share.view_count === 1 ? "" : "s"}.
           </p>

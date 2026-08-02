@@ -463,10 +463,8 @@ function TableView({
       {notice && (
         <div
           role="status"
-          className={`mb-2 rounded-lg px-3 py-2 text-sm ${
-            notice.kind === "ok"
-              ? "border border-green-200 bg-green-50 text-green-800"
-              : "border border-red-200 bg-red-50 text-red-700"
+          className={`mb-2 rounded-lg border px-3 py-2 text-sm ${
+            notice.kind === "ok" ? "notice-ok" : "notice-error"
           }`}
         >
           {notice.text}
@@ -808,7 +806,7 @@ function TimelineView({ docs }: { docs: DocumentWithSpace[] }) {
   return (
     <div className="space-y-6">
       {overdue.length > 0 && (
-        <section className="rounded-xl border border-amber-200 bg-amber-50/60 p-3">
+        <section className="rounded-xl border border-amber-200 bg-amber-50/60 p-3 dark:border-amber-800/60 dark:bg-amber-950/30">
           <h2 className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-amber-600">
             <AlarmClock className="h-3.5 w-3.5" /> Review overdue
           </h2>

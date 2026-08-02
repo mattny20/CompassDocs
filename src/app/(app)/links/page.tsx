@@ -1,9 +1,10 @@
 import Link from "next/link";
-import { ExternalLink, SquareArrowOutUpRight, Link2 } from "lucide-react";
+import { ExternalLink, Plus, SquareArrowOutUpRight, Link2 } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { listLinkCategories, listLinksVisibleTo } from "@/lib/db";
 import type { QuickLink } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings-store";
+import { EmptyState } from "@/components/form";
 import { PageContainer } from "@/components/PageWidth";
 
 export const dynamic = "force-dynamic";
@@ -53,15 +54,20 @@ export default async function LinksPage() {
       </div>
 
       {sections.length === 0 && (
-        <div className="rounded-xl border border-dashed border-slate-300 p-10 text-center text-slate-500">
-          <SquareArrowOutUpRight className="mx-auto mb-3 h-8 w-8 text-slate-300" />
-          <p className="font-medium text-slate-600">No links yet</p>
-          <p className="mt-1 text-sm">
-            {user.role === "admin"
+        <EmptyState
+          icon={<SquareArrowOutUpRight />}
+          title="No links yet"
+          body={
+            user.role === "admin"
               ? "Add shortcuts to the tools your team uses in Settings → Links."
-              : "Your admin hasn't added any shortcuts yet."}
-          </p>
-        </div>
+              : "Your admin hasn't added any shortcuts yet."
+          }
+          action={
+            user.role === "admin"
+              ? { href: "/admin/links", label: "Add links", icon: <Plus /> }
+              : undefined
+          }
+        />
       )}
 
       {sections.map((section) => (

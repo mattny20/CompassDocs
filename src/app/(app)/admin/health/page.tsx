@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { knowledgeHealthReport, type HealthDoc } from "@/lib/health";
 import { SettingsPage } from "@/components/SettingsPage";
+import { DateText } from "@/components/SettingsProvider";
 
 export const dynamic = "force-dynamic";
 
@@ -94,7 +95,7 @@ export default async function HealthPage() {
             key={s.key}
             href={`#${s.key}`}
             className={`rounded-xl border p-3 text-center shadow-xs ${
-              s.count > 0 ? "border-amber-200 bg-amber-50" : "border-slate-200 bg-surface"
+              s.count > 0 ? "border-amber-200 bg-amber-50 dark:border-amber-800/60 dark:bg-amber-950/40" : "border-slate-200 bg-surface"
             }`}
           >
             <div className={`text-2xl font-bold ${s.count > 0 ? "text-amber-700" : "text-slate-400"}`}>
@@ -247,7 +248,9 @@ function Row({ doc, children }: { doc: HealthDoc; children?: React.ReactNode }) 
         <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">{doc.status}</span>
       )}
       {children}
-      <span className="ml-auto text-xs text-slate-500">updated {doc.updated_at}</span>
+      <span className="ml-auto text-xs text-slate-500">
+        updated <DateText iso={doc.updated_at} />
+      </span>
     </div>
   );
 }

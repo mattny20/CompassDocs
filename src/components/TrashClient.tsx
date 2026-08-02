@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Search, Trash2 } from "lucide-react";
 import { TypeBadge } from "./Badges";
+import { EmptyState } from "./form";
 import { toast } from "./Toasts";
 import { formatDate, formatDateTime } from "@/lib/format";
 import type { AppSettings } from "@/lib/settings";
@@ -63,11 +65,12 @@ export function TrashClient({
 
   if (docs.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-slate-200 bg-surface px-6 py-16 text-center">
-        <div className="text-3xl">🗑️</div>
-        <p className="mt-2 font-medium text-slate-700">Trash is empty</p>
-        <p className="text-sm text-slate-500">Deleted documents will appear here.</p>
-      </div>
+      <EmptyState
+        icon={<Trash2 />}
+        title="Trash is empty"
+        body="Deleted documents will appear here."
+        action={{ href: "/search", label: "Search documents", icon: <Search /> }}
+      />
     );
   }
 

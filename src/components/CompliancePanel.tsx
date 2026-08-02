@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { EntityPicker } from "@/components/EntityPicker";
 import { timeAgo } from "@/lib/ui";
+import { useFormatDate } from "./SettingsProvider";
 
 interface DocRow {
   id: number;
@@ -37,6 +38,7 @@ interface DocRow {
 }
 
 export function CompliancePanel({ licensed }: { licensed: boolean }) {
+  const fmt = useFormatDate();
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -104,7 +106,7 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
     return (
       <div>
         <Header />
-        <p className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500 dark:bg-slate-800/40">
+        <p className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
           The compliance portal requires an enterprise license with the{" "}
           <code className="text-xs">policy_ack</code> entitlement.
         </p>
@@ -127,12 +129,12 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
       />
 
       {error && (
-        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+        <div className="notice-error mb-4 rounded-lg border px-4 py-2 text-sm">
           {error}
         </div>
       )}
       {notice && (
-        <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-700 dark:border-emerald-800/60 dark:bg-emerald-950/40">
+        <div className="notice-ok mb-4 rounded-lg border px-4 py-2 text-sm">
           {notice}
         </div>
       )}
@@ -246,7 +248,7 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
                               {d.space_icon} {d.title}
                             </span>
                             <span className="block text-xs text-slate-400">
-                              Revision of {new Date(d.updated_at).toLocaleDateString()} ·{" "}
+                              Revision of {fmt.date(d.updated_at)} ·{" "}
                               {d.ack_last_reminded_at
                                 ? `last reminded ${timeAgo(d.ack_last_reminded_at)}`
                                 : "never reminded"}
@@ -260,7 +262,7 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
                             </span>
                             <span className="text-slate-400">{pct}%</span>
                           </div>
-                          <div className="h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                          <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
                             <div
                               className={`h-full rounded-full ${complete ? "bg-emerald-500" : "bg-compass-500"}`}
                               style={{ width: `${pct}%` }}
@@ -293,7 +295,7 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
                         </div>
                       </div>
                       {open === d.id && (
-                        <div className="border-t border-slate-100 bg-slate-50/60 px-4 py-3 dark:bg-slate-800/30">
+                        <div className="border-t border-slate-100 bg-slate-50/60 px-4 py-3">
                           {!detail[d.id] ? (
                             <div className="flex items-center gap-2 text-sm text-slate-400">
                               <LoaderCircle className="h-4 w-4 animate-spin" /> Loading…

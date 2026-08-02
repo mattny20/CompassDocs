@@ -1,5 +1,7 @@
 import Link from "next/link";
+import { BookOpen } from "lucide-react";
 import { listPublicSpaces } from "@/lib/db";
+import { EmptyState } from "@/components/form";
 
 export const dynamic = "force-dynamic";
 
@@ -12,9 +14,13 @@ export default async function PublicHome() {
       <p className="mt-1 text-slate-500">Browse the published documentation.</p>
 
       {spaces.length === 0 ? (
-        <p className="mt-10 rounded-xl border border-dashed border-slate-300 bg-white p-10 text-center text-slate-400">
-          Nothing published here yet.
-        </p>
+        <div className="mt-10">
+          <EmptyState
+            icon={<BookOpen />}
+            title="Nothing published here yet"
+            body="Spaces published to the public site will be listed here."
+          />
+        </div>
       ) : (
         <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
           {spaces.map((s) => (

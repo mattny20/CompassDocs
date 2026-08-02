@@ -65,6 +65,23 @@ export function formatDate(iso: string | null | undefined, settings: AppSettings
   );
 }
 
+/** Format a calendar *bucket* key ("YYYY-MM-DD") as a short day label, e.g.
+ * "Aug 1" / "08-01" / "01/08" — month + day only, no year.
+ *
+ * Chart buckets are calendar days, not instants: the grouping already happened
+ * in the database, so re-projecting the label into another time zone would
+ * mislabel the bar it sits under. This formats the bucket verbatim (pinned to
+ * UTC so no shift can occur) while still honoring the workspace date format. */
+export function formatDayShort(ymd: string | null | undefined, settings: AppSettings): string {
+  if (!ymd) return "";
+  const fmt = settings.date_format;
+  const opts: Intl.DateTimeFormatOptions =
+    fmt === "iso" || fmt === "us" || fmt === "eu"
+      ? { month: "2-digit", day: "2-digit", timeZone: "UTC" }
+      : { month: "short", day: "numeric", timeZone: "UTC" };
+  return build(`${ymd}T00:00:00Z`, opts, fmt);
+}
+
 /** Format date + time, e.g. "Jul 12, 2026, 14:05" (per the workspace settings). */
 export function formatDateTime(iso: string | null | undefined, settings: AppSettings): string {
   return build(

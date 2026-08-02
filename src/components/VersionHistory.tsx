@@ -75,7 +75,7 @@ function LineNo({ n }: { n?: number }) {
 function FoldRow({ hidden, cols, onExpand }: { hidden: number; cols: number; onExpand: () => void }) {
   return (
     <tr>
-      <td colSpan={cols} className="bg-slate-50/80 px-2 py-0.5 text-center dark:bg-slate-800/40">
+      <td colSpan={cols} className="bg-slate-50/80 px-2 py-0.5 text-center">
         <button
           onClick={onExpand}
           className="text-[11px] font-medium text-compass-600 hover:underline"
@@ -516,7 +516,7 @@ function RenderedDiff({
     <article className="space-y-3 px-5 py-4">
       {chunks.map((c, ci) =>
         c.fold !== undefined ? (
-          <div key={`f${ci}`} className="rounded-md bg-slate-50/80 py-1 text-center dark:bg-slate-800/40">
+          <div key={`f${ci}`} className="rounded-md bg-slate-50/80 py-1 text-center">
             <button onClick={onExpand} className="text-[11px] font-medium text-compass-600 hover:underline">
               ⋯ {c.fold} unchanged section{c.fold === 1 ? "" : "s"} — show
             </button>
@@ -566,7 +566,7 @@ function SplitView({ display, onExpand }: { display: DisplayRow[]; onExpand: () 
               <LineNo n={p.left?.leftNo} />
               <td
                 className={`w-1/2 whitespace-pre-wrap wrap-break-word border-r border-slate-100 px-2 py-0 leading-5 text-slate-700 ${
-                  p.left ? CELL[p.left.type] : "bg-slate-50/60 dark:bg-slate-800/30"
+                  p.left ? CELL[p.left.type] : "bg-slate-50/60"
                 }`}
               >
                 {p.left ? <Segments segs={p.left.segments} text={p.left.text} /> : null}
@@ -574,7 +574,7 @@ function SplitView({ display, onExpand }: { display: DisplayRow[]; onExpand: () 
               <LineNo n={p.right?.rightNo} />
               <td
                 className={`w-1/2 whitespace-pre-wrap wrap-break-word px-2 py-0 leading-5 text-slate-700 ${
-                  p.right ? CELL[p.right.type] : "bg-slate-50/60 dark:bg-slate-800/30"
+                  p.right ? CELL[p.right.type] : "bg-slate-50/60"
                 }`}
               >
                 {p.right ? <Segments segs={p.right.segments} text={p.right.text} /> : null}

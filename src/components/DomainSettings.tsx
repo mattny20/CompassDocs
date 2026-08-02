@@ -125,7 +125,7 @@ export function DomainSettings({ initial }: { initial: DomainState }) {
 
       {/* Proxy status banner */}
       {!managed ? (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+        <div className="notice-warn rounded-xl border p-4 text-sm">
           <p className="font-semibold">No reverse proxy is attached to this deployment.</p>
           <p className="mt-1">
             These settings are saved but won&rsquo;t take effect until you run the HTTPS compose
@@ -134,11 +134,11 @@ export function DomainSettings({ initial }: { initial: DomainState }) {
           </p>
         </div>
       ) : reachable ? (
-        <div className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
+        <div className="notice-ok rounded-lg border px-3 py-2 text-sm">
           ✓ Reverse proxy connected — configuration will apply live.
         </div>
       ) : (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        <div className="notice-error rounded-lg border px-3 py-2 text-sm">
           ✕ Reverse proxy is configured but not reachable right now. Saving will still store your
           settings; they&rsquo;ll apply once the proxy is back.
         </div>
@@ -289,7 +289,7 @@ export function DomainSettings({ initial }: { initial: DomainState }) {
         </button>
       </div>
       {warning && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+        <div className="notice-warn rounded-lg border px-3 py-2 text-sm">
           Settings saved, but the proxy didn&rsquo;t apply them: {warning}
         </div>
       )}

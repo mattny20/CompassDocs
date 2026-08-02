@@ -78,7 +78,7 @@ export function ImportExport() {
         </div>
 
         {result && (
-          <div className="mt-3 rounded-lg bg-green-50 px-3 py-2 text-sm text-green-800">
+          <div className="notice-ok mt-3 rounded-lg px-3 py-2 text-sm">
             Imported: <strong>{result.created}</strong> created,{" "}
             <strong>{result.updated}</strong> updated, <strong>{result.spacesCreated}</strong>{" "}
             space{result.spacesCreated === 1 ? "" : "s"} created

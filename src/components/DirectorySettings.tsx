@@ -8,6 +8,7 @@ import { EntityPicker } from "./EntityPicker";
 import { Field, Select, TextInput, Toggle } from "@/components/form";
 import { toast } from "@/components/Toasts";
 import type { DirectoryPerson, DirectoryField } from "@/lib/directory";
+import { useFormatDate } from "./SettingsProvider";
 
 interface GraphState {
   enabled: boolean; // bundled AND licensed
@@ -253,6 +254,7 @@ export function DirectorySettings({
 }
 
 function GraphPanel({ graph, onSynced }: { graph: GraphState; onSynced: () => void }) {
+  const fmt = useFormatDate();
   const [g, setG] = useState(graph);
   const [secret, setSecret] = useState("");
   const [saving, setSaving] = useState(false);
@@ -276,7 +278,7 @@ function GraphPanel({ graph, onSynced }: { graph: GraphState; onSynced: () => vo
 
   if (!g.enabled) {
     return (
-      <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+      <div className="notice-warn rounded-xl border p-4 text-sm">
         <p className="font-semibold">Microsoft 365 directory sync isn&rsquo;t licensed.</p>
         <p className="mt-1">
           This Enterprise build supports it, but your license doesn&rsquo;t include the{" "}
@@ -419,7 +421,7 @@ function GraphPanel({ graph, onSynced }: { graph: GraphState; onSynced: () => vo
 
       {g.last_sync && (
         <p className={`mt-3 text-xs ${g.last_sync.ok ? "text-slate-400" : "text-red-500"}`}>
-          Last sync {new Date(g.last_sync.at).toLocaleString()} —{" "}
+          Last sync {fmt.dateTime(g.last_sync.at)} —{" "}
           {g.last_sync.ok ? `${g.last_sync.count} people` : `failed: ${g.last_sync.error}`}
         </p>
       )}

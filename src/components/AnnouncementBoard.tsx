@@ -7,6 +7,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Megaphone, TriangleAlert, Siren, X } from "lucide-react";
+import { useFormatDate } from "./SettingsProvider";
 
 export interface AnnouncementView {
   id: number;
@@ -26,7 +27,7 @@ const STYLE = {
   info: {
     box: "border-compass-200 bg-compass-50/70 dark:border-compass-100 dark:bg-compass-50/60",
     title: "text-compass-900 dark:text-compass-300",
-    body: "text-compass-900/80 dark:text-slate-600",
+    body: "text-compass-900/80",
     icon: <Megaphone className="h-4 w-4 text-compass-600 dark:text-compass-400" />,
   },
   warning: {
@@ -45,6 +46,7 @@ const STYLE = {
 
 export function AnnouncementBoard({ initial }: { initial: AnnouncementView[] }) {
   const router = useRouter();
+  const fmt = useFormatDate();
   const [items, setItems] = useState(initial);
   if (items.length === 0) return null;
 
@@ -75,7 +77,7 @@ export function AnnouncementBoard({ initial }: { initial: AnnouncementView[] }) 
                   </a>
                 )}
                 <p className="mt-2 text-xs text-slate-500">
-                  {a.author_name} · {new Date(a.created_at).toLocaleDateString()}
+                  {a.author_name} · {fmt.date(a.created_at)}
                 </p>
               </div>
               <button

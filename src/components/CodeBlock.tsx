@@ -62,9 +62,9 @@ export function CodeBlock({ language, code }: { language: string; code: string }
   }
 
   return (
-    <div className="code-block group my-4 overflow-hidden rounded-lg ring-1 ring-slate-800/60">
-      <div className="flex items-center justify-between bg-slate-800 px-3 py-1.5">
-        <span className="flex items-center gap-2 text-xs font-medium text-slate-400">
+    <div className="code-block group my-4 overflow-hidden rounded-lg ring-1 ring-[#1e293b]/60">
+      <div className="flex items-center justify-between bg-[#1e293b] px-3 py-1.5">
+        <span className="flex items-center gap-2 text-xs font-medium text-[#94a3b8]">
           {isRun ? (
             <>
               <span className="flex gap-1" aria-hidden>
@@ -82,7 +82,7 @@ export function CodeBlock({ language, code }: { language: string; code: string }
         <button
           onClick={copy}
           className={`rounded px-2 py-0.5 text-xs font-medium transition ${
-            copied ? "text-green-400" : "text-slate-400 hover:bg-slate-700 hover:text-slate-200"
+            copied ? "text-green-400" : "text-[#94a3b8] hover:bg-[#334155] hover:text-[#e2e8f0]"
           }`}
         >
           {copied ? "Copied ✓" : isRun ? "Copy commands" : "Copy"}

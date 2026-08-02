@@ -18,6 +18,7 @@ import {
   ShieldCheck,
   SquarePen,
 } from "lucide-react";
+import { useFormatDate } from "./SettingsProvider";
 
 const ROW = "flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5 text-sm";
 const ICON = "h-4 w-4 shrink-0";
@@ -43,6 +44,7 @@ export function DocNotices({
   reviewOverdue?: { dueDateLabel: string; canEdit: boolean } | null;
 }) {
   const router = useRouter();
+  const fmt = useFormatDate();
   const [ackedAt, setAckedAt] = useState<string | null>(ack?.ackedAt ?? null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -67,7 +69,7 @@ export function DocNotices({
         (ackedAt ? (
           <p className={`${ROW} text-emerald-700`}>
             <CircleCheckBig className={`${ICON} text-emerald-600`} />
-            You confirmed reading this document on {new Date(ackedAt).toLocaleString()}.
+            You confirmed reading this document on {fmt.dateTime(ackedAt)}.
           </p>
         ) : (
           <div className={`${ROW} bg-amber-50/60 dark:bg-amber-950/20`}>

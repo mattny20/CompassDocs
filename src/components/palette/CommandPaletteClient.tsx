@@ -436,11 +436,11 @@ export function CommandPaletteClient({
         role="dialog"
         aria-modal="true"
         aria-label="Command palette"
-        className="w-full max-w-2xl overflow-hidden rounded-xl border border-slate-200 bg-surface shadow-2xl dark:border-slate-700"
+        className="w-full max-w-2xl overflow-hidden rounded-xl border border-slate-200 bg-surface shadow-2xl"
         onMouseDown={(e) => e.stopPropagation()}
         onKeyDown={onPanelKeyDown}
       >
-        <div className="flex items-center gap-2 border-b border-slate-100 px-3 dark:border-slate-800">
+        <div className="flex items-center gap-2 border-b border-slate-100 px-3">
           <Search className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
           {mode !== "all" && (
             <span className="shrink-0 rounded-full bg-compass-50 px-2 py-0.5 text-[11px] font-medium text-compass-700">
@@ -460,7 +460,7 @@ export function CommandPaletteClient({
             placeholder={MODE_PLACEHOLDER[mode]}
             spellCheck={false}
             autoComplete="off"
-            className="w-full bg-transparent py-3 text-sm text-slate-800 outline-hidden placeholder:text-slate-400 dark:text-slate-100"
+            className="w-full bg-transparent py-3 text-sm text-slate-800 outline-hidden placeholder:text-slate-400"
           />
           {loading && <span className="shrink-0 text-xs text-slate-400">…</span>}
         </div>
@@ -512,7 +512,7 @@ export function CommandPaletteClient({
           )}
         </div>
 
-        <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-3 py-2 text-[11px] text-slate-400 dark:border-slate-800">
+        <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-3 py-2 text-[11px] text-slate-400">
           <span className="flex items-center gap-3">
             <span className="flex items-center gap-1">
               <ArrowUp className="h-3 w-3" aria-hidden />

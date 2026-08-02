@@ -207,7 +207,7 @@ export function MigrateImport({ spaces }: { spaces: SpaceOpt[] }) {
       )}
 
       {result && (
-        <div className="mt-4 rounded-lg bg-green-50 px-3 py-3 text-sm text-green-800">
+        <div className="notice-ok mt-4 rounded-lg px-3 py-3 text-sm">
           Imported <strong>{result.pagesCreated}</strong> page
           {result.pagesCreated === 1 ? "" : "s"}
           {result.attachmentsCreated > 0 && (

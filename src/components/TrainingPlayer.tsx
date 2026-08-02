@@ -21,6 +21,7 @@ import {
 import { MarkdownView } from "@/components/MarkdownView";
 import { isTypingTarget } from "@/lib/hotkeys";
 import { overlayOpen } from "@/lib/overlay-stack";
+import { useFormatDate } from "@/components/SettingsProvider";
 
 export interface PlayerQuizQuestion {
   text: string;
@@ -73,6 +74,7 @@ export function TrainingPlayer({
   /** E-signature gate: typed name (+ password for local accounts). */
   signature?: PlayerSignature;
 }) {
+  const fmt = useFormatDate();
   const router = useRouter();
   // Index slides.length is the compliance gate.
   const total = slides.length + 1;
@@ -213,7 +215,7 @@ export function TrainingPlayer({
         <div className="min-w-0">
           <div className="flex items-center gap-1.5 text-xs text-slate-400">
             <GraduationCap className="h-3.5 w-3.5" /> Training · {spaceName}
-            {dueAt && !done && <span>· due {new Date(dueAt).toLocaleDateString()}</span>}
+            {dueAt && !done && <span>· due {fmt.date(dueAt)}</span>}
           </div>
           <h1 className="truncate text-lg font-bold tracking-tight text-slate-900">{title}</h1>
         </div>
@@ -315,7 +317,7 @@ export function TrainingPlayer({
               <div className="mt-4 text-sm text-slate-400">
                 <p>
                   Your confirmation is recorded
-                  {completedAt ? ` (${new Date(completedAt).toLocaleDateString()})` : ""}.
+                  {completedAt ? ` (${fmt.date(completedAt)})` : ""}.
                 </p>
                 {!waived && (
                   <a

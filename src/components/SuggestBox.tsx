@@ -32,7 +32,7 @@ export function SuggestBox({ documentId }: { documentId: number }) {
 
   if (state === "done") {
     return (
-      <div className="mt-8 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+      <div className="notice-ok mt-8 rounded-xl border px-4 py-3 text-sm">
         ✓ Thanks — your suggestion was sent to the review queue.{" "}
         <button className="font-medium underline" onClick={() => setState("idle")}>
           Suggest another

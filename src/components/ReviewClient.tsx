@@ -3,7 +3,9 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { ClipboardList, House } from "lucide-react";
 import { MarkdownView } from "./MarkdownView";
+import { EmptyState } from "./form";
 import { toast } from "./Toasts";
 import type { ChangeRequest, Suggestion } from "@/lib/types";
 import { timeAgo } from "@/lib/ui";
@@ -62,9 +64,12 @@ export function ReviewClient({
   const empty = crs.length === 0 && sugs.length === 0;
   if (empty) {
     return (
-      <div className="rounded-xl border border-dashed border-slate-300 bg-surface p-10 text-center text-slate-400">
-        🎉 The queue is empty. Nothing to review right now.
-      </div>
+      <EmptyState
+        icon={<ClipboardList />}
+        title="The queue is empty"
+        body="Nothing to review right now. Change requests and suggestions from writers land here."
+        action={{ href: "/", label: "Back to dashboard", icon: <House /> }}
+      />
     );
   }
 

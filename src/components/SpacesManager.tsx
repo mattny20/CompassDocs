@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Lock, Globe, Building2, PencilRuler, ChevronUp, ChevronDown, Pencil, Trash2, X } from "lucide-react";
 import { EntityPicker } from "@/components/EntityPicker";
-import { Field, Select, TextInput, Toggle } from "@/components/form";
+import { Field, SectionEmpty, Select, TextInput, Toggle } from "@/components/form";
 import { toast } from "@/components/Toasts";
 import { SpaceIconPicker } from "./SpaceIconPicker";
 import type { Space } from "@/lib/types";
@@ -183,7 +183,7 @@ export function SpacesManager({
                     {s.doc_count} doc{s.doc_count === 1 ? "" : "s"}
                   </span>
                   {s.visibility === "private" && (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-700">
+                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950/50 dark:text-amber-300">
                       <Lock className="h-3 w-3" />
                       Private
                       {(spaceGroups[s.id]?.length ?? 0) > 0 && (
@@ -195,7 +195,7 @@ export function SpacesManager({
                     </span>
                   )}
                   {s.visibility === "public" && (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-xs font-medium text-emerald-700">
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
                       <Globe className="h-3 w-3" />
                       Public — no sign-in
                     </span>
@@ -229,9 +229,12 @@ export function SpacesManager({
           )
         )}
         {spaces.length === 0 && !creating && (
-          <p className="rounded-lg border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-400">
-            No spaces yet. Create your first one to start organizing documents.
-          </p>
+          <SectionEmpty
+            className="py-6"
+            action={{ label: "Create your first space", onClick: () => setCreating(true) }}
+          >
+            No spaces yet — spaces are how documents get organized.
+          </SectionEmpty>
         )}
       </div>
     </div>
@@ -393,7 +396,7 @@ function SpaceForm({
             onClick={() => setVisibility("private")}
             className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium ${
               visibility === "private"
-                ? "border-amber-400 bg-amber-50 text-amber-700"
+                ? "border-amber-400 bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
                 : "border-slate-200 text-slate-600 hover:bg-slate-50"
             }`}
           >
@@ -405,7 +408,7 @@ function SpaceForm({
             onClick={() => setVisibility("public")}
             className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium ${
               visibility === "public"
-                ? "border-emerald-400 bg-emerald-50 text-emerald-700"
+                ? "border-emerald-400 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
                 : "border-slate-200 text-slate-600 hover:bg-slate-50"
             }`}
           >
@@ -415,11 +418,11 @@ function SpaceForm({
         </div>
 
         {visibility === "public" && (
-          <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50/50 p-3">
-            <p className="text-xs text-emerald-800">
+          <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50/50 p-3 dark:border-emerald-800/60 dark:bg-emerald-950/40">
+            <p className="text-xs text-emerald-800 dark:text-emerald-200">
               Published documents in this space will be readable by <strong>anyone on the
               internet</strong> — no account needed — at{" "}
-              <code className="rounded-sm bg-white/70 px-1">/public</code>. Drafts stay hidden.
+              <code className="rounded-sm bg-surface/70 px-1">/public</code>. Drafts stay hidden.
               The public site itself is switched on under{" "}
               <a href="/admin/public-site" className="font-medium underline">
                 Settings → Public site
@@ -430,8 +433,8 @@ function SpaceForm({
         )}
 
         {visibility === "private" && (
-          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50/50 p-3">
-            <p className="mb-2 text-xs text-amber-800">
+          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50/50 p-3 dark:border-amber-800/60 dark:bg-amber-950/40">
+            <p className="mb-2 text-xs text-amber-800 dark:text-amber-200">
               Admins always have access. Grant one or more groups to give their members access:
             </p>
             {groups.length === 0 ? (
@@ -501,7 +504,7 @@ function SpaceForm({
             <div>
               <span className="mb-1 block text-xs font-medium text-slate-500">People</span>
               {users.length === 0 ? (
-                <p className="text-sm text-slate-400">No editor or approver accounts yet.</p>
+                <SectionEmpty>No editor or approver accounts yet.</SectionEmpty>
               ) : (
                 <EntityPicker
                   options={users.map((u) => ({ id: u.id, label: u.name, sublabel: u.role }))}
@@ -752,7 +755,11 @@ function CategoryEditor({ spaceId, initial }: { spaceId: number; initial: Catego
             </button>
           </li>
         ))}
-        {cats.length === 0 && <li className="text-sm text-slate-400">No categories yet.</li>}
+        {cats.length === 0 && (
+          <li>
+            <SectionEmpty>No categories yet.</SectionEmpty>
+          </li>
+        )}
       </ul>
       <div className="flex gap-2">
         <div className="w-56">

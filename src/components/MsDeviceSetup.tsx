@@ -75,7 +75,7 @@ export function MsDeviceSetup({
 
   if (phase === "done") {
     return (
-      <div className="mb-4 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
+      <div className="notice-ok mb-4 rounded-lg border px-3 py-2 text-sm">
         {doneMessage}
       </div>
     );
