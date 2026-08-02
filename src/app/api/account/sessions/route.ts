@@ -17,14 +17,14 @@ async function currentToken(): Promise<string> {
 }
 
 export async function GET() {
-  const gate = await apiGuard("viewer");
+  const gate = await apiGuard("viewer", "account.session_read");
   if (gate instanceof NextResponse) return gate;
   const sessions = await listUserSessions((gate as SessionUser).id, await currentToken());
   return NextResponse.json({ sessions });
 }
 
 export async function DELETE(req: Request) {
-  const gate = await apiGuard("viewer");
+  const gate = await apiGuard("viewer", "account.session_revoke");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
 

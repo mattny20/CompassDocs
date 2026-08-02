@@ -30,7 +30,7 @@ const esc = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 export async function GET(req: Request) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "integration.addin_manifest_read");
   if (gate instanceof NextResponse) return gate;
 
   const origin = requestOrigin(req);

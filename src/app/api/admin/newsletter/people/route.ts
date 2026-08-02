@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 // Admin roster for the newsletter module: who can contribute, who can approve.
 
 export async function GET() {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "newsletter.configure");
   if (gate instanceof NextResponse) return gate;
   const users = (await listUsers()).map((u) => ({
     id: u.id,
@@ -24,7 +24,7 @@ export async function GET() {
 }
 
 export async function PATCH(req: Request) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "newsletter.configure");
   if (gate instanceof NextResponse) return gate;
   const admin = gate as SessionUser;
 

@@ -7,14 +7,14 @@ export const dynamic = "force-dynamic";
 
 /** Admin view: all directory entries, including hidden ones. */
 export async function GET() {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "directory.person_manage");
   if (gate instanceof NextResponse) return gate;
   return NextResponse.json({ people: await listPeople({ includeHidden: true }) });
 }
 
 /** Add a manual directory entry. */
 export async function POST(req: Request) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "directory.person_manage");
   if (gate instanceof NextResponse) return gate;
 
   let body: any;

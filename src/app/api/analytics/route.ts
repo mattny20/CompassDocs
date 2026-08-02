@@ -25,7 +25,7 @@ const RANGES = new Set([7, 30, 90, 365]);
 // honor the caller's space scope on top of any explicit filters.
 
 export async function GET(req: Request) {
-  const gate = await apiGuard("approver");
+  const gate = await apiGuard("approver", "analytics.read");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
 

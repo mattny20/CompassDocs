@@ -9,7 +9,7 @@ export const maxDuration = 60;
 
 export async function POST(req: Request) {
   // Only people who can edit documents can invoke the proofreader.
-  const gate = await apiGuard("editor");
+  const gate = await apiGuard("editor", "ai.proofread");
   if (gate instanceof NextResponse) return gate;
   if (aiRateLimited(`proofread:${(gate as SessionUser).id}`)) {
     return NextResponse.json({ error: "Too many requests — slow down a moment." }, { status: 429 });

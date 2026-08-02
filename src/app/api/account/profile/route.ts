@@ -14,7 +14,7 @@ const AVATAR_MAX_CHARS = 150_000;
 // Self-service profile: display name + email (local accounts only — SSO and
 // SCIM keep the identity provider as the source of truth) and avatar (anyone).
 export async function PATCH(req: Request) {
-  const gate = await apiGuard("viewer");
+  const gate = await apiGuard("viewer", "account.profile_manage");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
 

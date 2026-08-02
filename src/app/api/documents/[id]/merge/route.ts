@@ -24,7 +24,7 @@ export const dynamic = "force-dynamic";
 // open-mode edits apply immediately and the branch is moved to the Trash.
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("editor");
+  const gate = await apiGuard("editor", "document.merge");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
 

@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 // The status board's data: every tracked service plus incident timelines.
 // Any signed-in user may read it — outage comms are for the whole org.
 export async function GET() {
-  const gate = await apiGuard("viewer");
+  const gate = await apiGuard("viewer", "status.read");
   if (gate instanceof NextResponse) return gate;
   const [services, incidents] = await Promise.all([
     listStatusServices(),

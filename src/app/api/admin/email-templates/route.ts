@@ -23,7 +23,7 @@ const MAX_SUBJECT = 300;
 const MAX_BODY = 20_000;
 
 export async function GET() {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "integration.email_template_read");
   if (gate instanceof NextResponse) return gate;
 
   const templates = await Promise.all(
@@ -46,7 +46,7 @@ export async function GET() {
 }
 
 export async function PUT(req: Request) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "integration.email_template_manage");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
 
@@ -85,7 +85,7 @@ export async function PUT(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "integration.email_template_manage");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
 
@@ -105,7 +105,7 @@ export async function DELETE(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "integration.email_template_manage");
   if (gate instanceof NextResponse) return gate;
 
   let body: any;

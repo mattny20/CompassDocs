@@ -11,7 +11,7 @@ import { audit, actorFrom, ipFrom } from "@/lib/audit";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "directory.print_columns_manage");
   if (gate instanceof NextResponse) return gate;
   const fields = await listFields();
   return NextResponse.json({
@@ -24,7 +24,7 @@ export async function GET() {
 }
 
 export async function PUT(req: Request) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "directory.print_columns_manage");
   if (gate instanceof NextResponse) return gate;
   let body: any;
   try {

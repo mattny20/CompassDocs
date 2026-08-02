@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 // Read-only view of the role catalog. The editor lands in 0.93; this exists so
 // the migration can be inspected (and asserted on) before anything depends on it.
 export async function GET() {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "system.diagnostics_read");
   if (gate instanceof NextResponse) return gate;
   return NextResponse.json({ roles: await listRolesWithCounts() });
 }

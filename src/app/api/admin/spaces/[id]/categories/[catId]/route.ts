@@ -15,7 +15,7 @@ export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string; catId: string }> }
 ) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "space.category_manage");
   if (gate instanceof NextResponse) return gate;
 
   const cat = await load(params);
@@ -48,7 +48,7 @@ export async function DELETE(
   req: Request,
   { params }: { params: Promise<{ id: string; catId: string }> }
 ) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "space.category_manage");
   if (gate instanceof NextResponse) return gate;
 
   const cat = await load(params);

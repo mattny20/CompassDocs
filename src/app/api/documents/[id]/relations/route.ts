@@ -25,7 +25,7 @@ async function visibleDoc(user: SessionUser, id: number) {
 }
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("viewer");
+  const gate = await apiGuard("viewer", "document.relation_read");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
   const { id } = await params;
@@ -41,7 +41,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("editor");
+  const gate = await apiGuard("editor", "document.relation_manage");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
   const { id } = await params;
@@ -81,7 +81,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("editor");
+  const gate = await apiGuard("editor", "document.relation_manage");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
   const { id } = await params;

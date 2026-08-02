@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 // List backups + which destinations are configured.
 export async function GET() {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "system.backup_read");
   if (gate instanceof NextResponse) return gate;
   return NextResponse.json({
     backups: await listBackups(),
@@ -19,7 +19,7 @@ export async function GET() {
 
 // Create a backup now (and prune to the retention count).
 export async function POST() {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "system.backup_create");
   if (gate instanceof NextResponse) return gate;
   try {
     const result = await createBackup();

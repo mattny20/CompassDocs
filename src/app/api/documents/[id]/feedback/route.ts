@@ -41,7 +41,7 @@ async function summary(docId: number, userId: number) {
 
 // "Was this helpful?" — one vote per user per document, revisable.
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("viewer");
+  const gate = await apiGuard("viewer", "document.feedback_vote");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
   const doc = await visibleDoc(user, (await params).id);
@@ -50,7 +50,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 }
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("viewer");
+  const gate = await apiGuard("viewer", "document.feedback_vote");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
   const doc = await visibleDoc(user, (await params).id);

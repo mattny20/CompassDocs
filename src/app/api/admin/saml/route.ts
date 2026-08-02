@@ -47,13 +47,13 @@ async function view(req: Request) {
 }
 
 export async function GET(req: Request) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "identity.saml_read");
   if (gate instanceof NextResponse) return gate;
   return NextResponse.json(await view(req));
 }
 
 export async function PATCH(req: Request) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "identity.saml_manage");
   if (gate instanceof NextResponse) return gate;
 
   let body: any;

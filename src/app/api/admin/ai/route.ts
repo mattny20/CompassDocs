@@ -35,13 +35,13 @@ async function state() {
 }
 
 export async function GET() {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "integration.ai_config_read");
   if (gate instanceof NextResponse) return gate;
   return NextResponse.json(await state());
 }
 
 export async function PATCH(req: Request) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "integration.ai_config_manage");
   if (gate instanceof NextResponse) return gate;
 
   let body: any;

@@ -34,7 +34,7 @@ function normalizeTags(input: unknown): string[] | undefined {
 }
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("viewer");
+  const gate = await apiGuard("viewer", "document.read");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
 
@@ -51,7 +51,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 }
 
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("editor");
+  const gate = await apiGuard("editor", "document.update");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
 
@@ -269,7 +269,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 }
 
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("editor");
+  const gate = await apiGuard("editor", "document.delete_draft");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
 

@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 
 // Reorder a sub-page among its siblings (nested pages must be enabled).
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("editor");
+  const gate = await apiGuard("editor", "document.move");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
 

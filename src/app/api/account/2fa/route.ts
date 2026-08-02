@@ -29,7 +29,7 @@ import type { SessionUser } from "@/lib/types";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const gate = await apiGuard("viewer");
+  const gate = await apiGuard("viewer", "account.twofa_manage");
   if (gate instanceof NextResponse) return gate;
   const state = await getTotpState((gate as SessionUser).id);
   return NextResponse.json({
@@ -39,7 +39,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const gate = await apiGuard("viewer");
+  const gate = await apiGuard("viewer", "account.twofa_manage");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
 

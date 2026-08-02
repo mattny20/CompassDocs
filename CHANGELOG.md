@@ -4,6 +4,23 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.92.0] - 2026-08-02
+
+### Added
+- **Every part of the app now knows which permission it requires.** Work
+  continues on custom roles: all 166 places the API checks whether you're
+  allowed to do something have been labelled with the specific permission
+  they're protecting — "create a group", "restore a backup", "revoke a
+  share link" — rather than just a role name. Administrators can see the
+  running comparison between the old role check and the new permission
+  check under the API; it currently reports **189 agreements and no
+  disagreements**.
+
+  **Nothing about your access changes in this release.** The old check is
+  still the one that decides. The new one runs alongside it purely so any
+  difference shows up before it can affect anyone, and the switch happens
+  in a later release once that comparison stays clean.
+
 ## [0.91.0] - 2026-08-02
 
 ### Added

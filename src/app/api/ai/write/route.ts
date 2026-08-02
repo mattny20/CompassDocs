@@ -13,7 +13,7 @@ const TONES = new Set<WriteTone>(["professional", "friendly", "concise", "confid
 // AI writing helpers for the document editor. Same gate as proofreading:
 // available to anyone who can edit documents.
 export async function POST(req: Request) {
-  const gate = await apiGuard("editor");
+  const gate = await apiGuard("editor", "ai.write_assist");
   if (gate instanceof NextResponse) return gate;
   if (aiRateLimited(`write:${(gate as SessionUser).id}`)) {
     return NextResponse.json({ error: "Too many requests — slow down a moment." }, { status: 429 });

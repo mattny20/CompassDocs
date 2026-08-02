@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 // Visible templates for pickers (editors and up — the people who create docs).
 export async function GET() {
-  const gate = await apiGuard("editor");
+  const gate = await apiGuard("editor", "template.read");
   if (gate instanceof NextResponse) return gate;
   const templates = await listTemplates(false);
   return NextResponse.json({

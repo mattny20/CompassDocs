@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 // A user's own subscription to one space. Spaces outside their scope look
 // nonexistent, like everywhere else.
 async function guard(params: Promise<{ id: string }>) {
-  const gate = await apiGuard("viewer");
+  const gate = await apiGuard("viewer", "space.subscribe");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
   const id = Number((await params).id);

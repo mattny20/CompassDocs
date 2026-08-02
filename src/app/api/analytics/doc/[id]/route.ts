@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 // Per-document drill-down for the analytics dashboard.
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("approver");
+  const gate = await apiGuard("approver", "analytics.document_read");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
 

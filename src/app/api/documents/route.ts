@@ -25,7 +25,7 @@ function normalizeTags(input: unknown): string[] {
 }
 
 export async function POST(req: Request) {
-  const gate = await apiGuard("editor");
+  const gate = await apiGuard("editor", "document.create");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
 

@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 // Restore the database from a backup. DESTRUCTIVE — replaces all data.
 export async function POST(_req: Request, { params }: { params: Promise<{ name: string }> }) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "system.backup_restore");
   if (gate instanceof NextResponse) return gate;
   const { name } = await params;
   if (!isValidBackupName(name)) {

@@ -34,7 +34,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 }
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("editor");
+  const gate = await apiGuard("editor", "document.dms_link_manage");
   if (gate instanceof NextResponse) return gate;
   const { id } = await ctx.params;
   const doc = await loadDocFor(gate, id);

@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 
 // POST — the signed-in reader confirms they've read this document.
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("viewer");
+  const gate = await apiGuard("viewer", "document.ack_submit");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
 
@@ -48,7 +48,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
 // PATCH — approver+ toggles whether the doc requires acknowledgement.
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("approver");
+  const gate = await apiGuard("approver", "document.ack_require");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
 

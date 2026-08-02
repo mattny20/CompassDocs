@@ -9,7 +9,7 @@ import type { SessionUser } from "@/lib/types";
 export const dynamic = "force-dynamic";
 
 async function guard(id: string) {
-  const gate = await apiGuard("editor");
+  const gate = await apiGuard("editor", "document.review_manage");
   if (gate instanceof NextResponse) return { gate };
   const user = gate as SessionUser;
   const doc = await getDocument(Number(id));

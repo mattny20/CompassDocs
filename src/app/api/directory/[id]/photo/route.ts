@@ -16,7 +16,7 @@ const DATA_URL = /^data:([^;,]+);base64,([\s\S]*)$/;
 
 /** A visible directory person's photo — any signed-in user. */
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("viewer");
+  const gate = await apiGuard("viewer", "directory.photo_read");
   if (gate instanceof NextResponse) return gate;
 
   const { id } = await params;

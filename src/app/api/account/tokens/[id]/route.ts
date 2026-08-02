@@ -7,7 +7,7 @@ import type { SessionUser } from "@/lib/types";
 export const dynamic = "force-dynamic";
 
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("viewer");
+  const gate = await apiGuard("viewer", "account.token_revoke");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
 

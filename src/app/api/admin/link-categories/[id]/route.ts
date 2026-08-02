@@ -6,7 +6,7 @@ import { audit, actorFrom, ipFrom } from "@/lib/audit";
 export const dynamic = "force-dynamic";
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "link.category_manage");
   if (gate instanceof NextResponse) return gate;
 
   const { id } = await params;
@@ -33,7 +33,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
 // Deleting a category keeps its links — they fall back to "General".
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "link.category_manage");
   if (gate instanceof NextResponse) return gate;
 
   const { id } = await params;

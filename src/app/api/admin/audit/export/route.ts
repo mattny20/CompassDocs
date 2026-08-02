@@ -17,7 +17,7 @@ function parseInstant(raw: string | null, endOfDay: boolean): string | undefined
 }
 
 export async function GET(req: Request) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "audit.export");
   if (gate instanceof NextResponse) return gate;
 
   const exporter = ee().exportAuditLog;

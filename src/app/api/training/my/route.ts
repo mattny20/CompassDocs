@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 // The signed-in user's assignments (any role — training is assigned TO people).
 export async function GET() {
-  const gate = await apiGuard("viewer");
+  const gate = await apiGuard("viewer", "training.read_own");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
   if (!(await featureEnabled("training"))) {
