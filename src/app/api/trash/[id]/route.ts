@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { restoreDocument, purgeDocument, getTrashedDocumentSpaceId } from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
-import { canEditSpace } from "@/lib/access";
+import { canEditSpace, scopeAllows, spaceScopeFor } from "@/lib/access";
 import type { SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -16,6 +16,12 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   const { id } = await params;
   const spaceId = await getTrashedDocumentSpaceId(Number(id));
   if (!spaceId) return NextResponse.json({ error: "Not found in Trash." }, { status: 404 });
+  // canEditSpace is visibility-blind (see access.ts), so check space scope
+  // first — otherwise an editor could restore documents into a private space
+  // they cannot see.
+  if (!scopeAllows(await spaceScopeFor(user), spaceId)) {
+    return NextResponse.json({ error: "Not found in Trash." }, { status: 404 });
+  }
   if (!(await canEditSpace(user, spaceId))) {
     return NextResponse.json(
       { error: "You don't have edit access to this space." },

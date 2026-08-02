@@ -4,6 +4,27 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.89.1] - 2026-08-02
+
+### Security
+- **An editor could publish a document out of a private space they had no
+  access to.** Creating a share link checked that you may *edit* the space
+  but never that you may *see* it — and because the default "editors may
+  edit any space they can see" setting makes the edit check pass for every
+  editor, any editor could mint an anonymous `/share/…` link for any
+  document in any private space, then read it (and its attachments) with no
+  account at all. Restoring a document from the Trash had the same missing
+  check, letting an editor pull documents back into a space they cannot see.
+  Both now verify space visibility first, as the equivalent move and review
+  routes already did.
+
+  Affects every release since share links shipped in 0.57.0. Exploiting it
+  required an account with the Editor role or higher. Workspaces with no
+  private spaces are unaffected; so are workspaces that turned share links
+  off. Existing share links are unchanged — review them under each
+  document's Share menu if you want to be certain none were created this
+  way.
+
 ## [0.89.0] - 2026-08-02
 
 ### Fixed

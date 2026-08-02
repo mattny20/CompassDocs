@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getDocument } from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
-import { canEditSpace } from "@/lib/access";
+import { canEditSpace, scopeAllows, spaceScopeFor } from "@/lib/access";
 import {
   shareLinksEnabled,
   getActiveShare,
@@ -23,6 +23,12 @@ async function guard(id: string) {
   }
   const doc = await getDocument(Number(id));
   if (!doc || doc.branch_of !== null) {
+    return { gate: NextResponse.json({ error: "Not found." }, { status: 404 }) };
+  }
+  // canEditSpace is visibility-blind (see access.ts), so check space scope
+  // first — otherwise an editor could mint an anonymous share link for a
+  // document in a private space they cannot even read.
+  if (!scopeAllows(await spaceScopeFor(user), doc.space_id)) {
     return { gate: NextResponse.json({ error: "Not found." }, { status: 404 }) };
   }
   if (!(await canEditSpace(user, doc.space_id))) {
