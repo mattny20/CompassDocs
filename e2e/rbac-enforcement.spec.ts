@@ -105,7 +105,12 @@ test("built-in roles are read-only, and their ladder assignments cannot be revok
   try {
     const list = await api(page, "/api/admin/rbac/roles");
     expect(list.status).toBe(200);
-    const builtin = (list.body?.roles ?? []).filter((r: any) => r.is_builtin);
+    // Built-in now covers the four ladder rungs AND the seeded delegated roles
+    // (0.94), so the presets are identified by key rather than by the flag.
+    const LADDER = ["viewer", "editor", "approver", "admin"];
+    const builtin = (list.body?.roles ?? []).filter(
+      (r: any) => r.is_builtin && LADDER.includes(r.key)
+    );
     expect(builtin.length, "the four presets exist").toBe(4);
 
     // Editing a preset would silently revert on the next boot (syncPresetRoles

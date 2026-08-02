@@ -17,6 +17,7 @@
 // Server-only.
 
 import "server-only";
+import { cache } from "react";
 import { pool } from "./db";
 import { isPermissionKey, permission } from "./permissions";
 import type { PermissionKey } from "./permissions";
@@ -70,7 +71,19 @@ async function grantRows(userId: number): Promise<GrantRow[]> {
   return rows;
 }
 
-export async function grantsFor(userId: number): Promise<Grants> {
+/**
+ * Resolve everything a principal holds, once per request.
+ *
+ * Wrapped in React's `cache()` because authorization moved onto the hot path in
+ * 0.93: the API guard resolves grants, the page guard resolves grants, and the
+ * session builder derives capabilities from them. Without deduplication a
+ * single page render would run this query three or four times for the same
+ * user. `cache()` is scoped to one request, so there is no staleness window —
+ * a permission edit applies to the next request, not the next restart.
+ */
+export const grantsFor = cache(resolveGrants);
+
+async function resolveGrants(userId: number): Promise<Grants> {
   const rows = await grantRows(userId);
   const global = new Set<PermissionKey>();
   const perSpace = new Map<PermissionKey, Set<number>>();
