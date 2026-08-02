@@ -4,6 +4,32 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.90.0] - 2026-08-02
+
+### Changed
+- **Authoring in a space now requires being able to see it.** The internal
+  check for "may this person write here?" trusted its callers to have
+  already confirmed the space was visible to them. That assumption was
+  wrong twice — it's what made 0.89.1 possible — so the check now confirms
+  visibility itself. The workspace-wide "editors may edit any space they
+  can see" option is unchanged and still on by default; it was only ever
+  meant to widen writing across spaces you can already see, and now it
+  can't do more than that.
+
+### Fixed
+- Internal groundwork for the permissions rewrite: the value that carries
+  "which spaces may this request see" can no longer be constructed by hand
+  or accidentally left out of a database query. Seventeen queries could
+  previously be called without it and would then return results from every
+  space; that only ever happened on admin-only screens, where it was
+  correct, but it was one typo away from not being. Those screens now say
+  so explicitly, and three places that build their own view of the
+  workspace — the public site, the Slack/Teams integration, and analytics —
+  now go through named, reviewable entry points.
+
+  No behaviour changes for anyone who could already see what they were
+  looking at.
+
 ## [0.89.1] - 2026-08-02
 
 ### Security

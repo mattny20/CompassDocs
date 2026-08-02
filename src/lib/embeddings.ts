@@ -20,6 +20,7 @@ import { createHash } from "crypto";
 import { pool, getSetting, setSetting } from "./db";
 import { safeFetch } from "./safe-fetch";
 import type { Document, SearchHit } from "./types";
+import type { SpaceScope } from "./space-scope";
 
 async function q<T = any>(sql: string, params: any[] = []): Promise<T[]> {
   return (await pool().query(sql, params)).rows as T[];
@@ -351,7 +352,7 @@ export async function semanticSearch(
   query: string,
   limit: number,
   includeDrafts: boolean,
-  scope?: number[] | "all",
+  scope: SpaceScope,
   spaceId?: number
 ): Promise<SemanticHit[]> {
   try {
@@ -407,7 +408,7 @@ export async function hybridSearchDocuments(
   raw: string,
   limit = 25,
   includeDrafts = false,
-  scope?: number[] | "all",
+  scope: SpaceScope,
   spaceId?: number
 ): Promise<SearchHit[]> {
   const { searchDocuments, searchCardsByIds } = await import("./db");
@@ -474,7 +475,7 @@ export async function hybridRetrieveForAnswer(
   raw: string,
   limit = 6,
   includeDrafts = false,
-  scope?: number[] | "all"
+  scope: SpaceScope
 ): Promise<Document[]> {
   const { retrieveForAnswer, getDocumentsByIds } = await import("./db");
   const [keyword, semantic] = await Promise.all([

@@ -3,6 +3,7 @@ import { searchPeopleForAnswer } from "./directory";
 import type { DirectoryPerson } from "./directory";
 import { aiAvailable, chatComplete } from "./ai-config";
 import type { Document } from "./types";
+import type { SpaceScope } from "./space-scope";
 
 export interface AiSource {
   id: number;
@@ -331,7 +332,7 @@ export async function writeAssist(input: {
 export async function answerQuestion(
   question: string,
   includeDrafts = false,
-  scope?: number[] | "all"
+  scope: SpaceScope
 ): Promise<AiAnswer> {
   const docs = await hybridRetrieveForAnswer(question, 6, includeDrafts, scope);
   // The people directory is workspace-wide for signed-in users, so "who"

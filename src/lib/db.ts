@@ -3,6 +3,8 @@ import { createHash, randomBytes } from "node:crypto";
 import { SEED_SPACES, SEED_DOCS } from "./seed-data";
 import { hashPassword } from "./password";
 import { sealSecret, openSecret, isSealed, getMasterKey, MasterKeyError } from "./secretbox";
+import { asScope } from "./space-scope";
+import type { SpaceScope } from "./space-scope";
 import type {
   Document,
   DocumentWithSpace,
@@ -1560,7 +1562,7 @@ function mapDoc(row: any): DocumentWithSpace {
 
 // --- Spaces ------------------------------------------------------------------
 
-export async function listSpaces(scope?: number[] | "all"): Promise<(Space & { doc_count: number })[]> {
+export async function listSpaces(scope: SpaceScope): Promise<(Space & { doc_count: number })[]> {
   const filter = Array.isArray(scope) ? " WHERE s.id = ANY($1)" : "";
   return q(
     `SELECT s.*, (SELECT COUNT(*)::int FROM documents d
@@ -1698,7 +1700,7 @@ export async function listLinkedUserNames(personId: number): Promise<string[]> {
 export async function listDocumentsByAuthor(
   author: string | string[],
   includeDrafts = false,
-  scope?: number[] | "all"
+  scope: SpaceScope
 ): Promise<DocumentWithSpace[]> {
   const names = (Array.isArray(author) ? author : [author]).map((n) => n.toLowerCase());
   const conds = ["lower(d.author) = ANY($1)", "d.deleted_at IS NULL", "d.branch_of IS NULL"];
@@ -1737,7 +1739,7 @@ export async function listDocumentsBySpace(
 
 /** Paged listing for the public REST API (space/status filters, newest first). */
 export async function listDocumentsV1(opts: {
-  scope?: number[] | "all";
+  scope: SpaceScope;
   spaceId?: number;
   status?: "published" | "draft";
   includeDrafts: boolean;
@@ -1775,7 +1777,7 @@ export async function listDocumentsV1(opts: {
 export async function listRecentDocuments(
   limit = 8,
   includeDrafts = false,
-  scope?: number[] | "all"
+  scope: SpaceScope
 ): Promise<DocumentWithSpace[]> {
   const filter = includeDrafts ? "" : " AND d.status = 'published'";
   const scoped = Array.isArray(scope) ? " AND d.space_id = ANY($2)" : "";
@@ -1794,7 +1796,7 @@ export async function listRecentDocuments(
  */
 export async function listRecentlyViewedBy(
   userId: number,
-  scope?: number[] | "all",
+  scope: SpaceScope,
   includeDrafts = false,
   limit = 6
 ): Promise<DocumentWithSpace[]> {
@@ -1821,7 +1823,7 @@ export async function listRecentlyViewedBy(
 /** This author's unpublished drafts, newest first (dashboard "your drafts"). */
 export async function listDraftsByAuthor(
   author: string,
-  scope?: number[] | "all",
+  scope: SpaceScope,
   limit = 4
 ): Promise<DocumentWithSpace[]> {
   const scoped = Array.isArray(scope) ? " AND d.space_id = ANY($3)" : "";
@@ -1836,7 +1838,7 @@ export async function listDraftsByAuthor(
 
 export async function countDocuments(
   includeDrafts = false,
-  scope?: number[] | "all"
+  scope: SpaceScope
 ): Promise<number> {
   const filter =
     (includeDrafts ? "" : " AND status = 'published'") +
@@ -2303,7 +2305,7 @@ export async function searchDocuments(
   raw: string,
   limit = 25,
   includeDrafts = false,
-  scope?: number[] | "all",
+  scope: SpaceScope,
   /** Restrict hits to one space (the in-space search box). */
   spaceId?: number,
   /** Parsed `type:`/`tag:`/… operators from the query. */
@@ -2400,7 +2402,7 @@ export async function retrieveForAnswer(
   raw: string,
   limit = 6,
   includeDrafts = false,
-  scope?: number[] | "all"
+  scope: SpaceScope
 ): Promise<Document[]> {
   if (!raw.trim()) return [];
   const filter =
@@ -3162,11 +3164,16 @@ export async function accessibleSpaceIdsFor(userId: number): Promise<number[]> {
   return rows.map((r) => r.id);
 }
 
-/** Spaces exposed on the anonymous public site (visibility 'public'). */
-export async function publicSpaceIds(): Promise<number[]> {
-  return (await q<{ id: number }>("SELECT id FROM spaces WHERE visibility = 'public'")).map(
-    (r) => r.id
-  );
+/**
+ * Spaces exposed on the anonymous public site (visibility 'public').
+ *
+ * This is the scope resolver for the anonymous principal — the counterpart to
+ * spaceScopeFor() for someone with no account — so it returns a real
+ * SpaceScope rather than a bare id list that a caller would have to brand.
+ */
+export async function publicSpaceScope(): Promise<SpaceScope> {
+  const rows = await q<{ id: number }>("SELECT id FROM spaces WHERE visibility = 'public'");
+  return asScope(rows.map((r) => r.id));
 }
 
 /** Public spaces with their *published* doc counts, for the public landing. */
@@ -3660,7 +3667,7 @@ export async function ackStatusForDocument(docId: number): Promise<
 /** Published ack-required docs in the user's scope they haven't confirmed yet. */
 export async function listPendingAcksFor(
   userId: number,
-  scope?: number[] | "all"
+  scope: SpaceScope
 ): Promise<{ id: number; title: string; space_name: string; space_icon: string }[]> {
   const scopeCond = Array.isArray(scope) ? " AND d.space_id = ANY($2)" : "";
   return q(
@@ -5861,8 +5868,8 @@ const SUGGESTION_SELECT = `
   LEFT JOIN documents d ON d.id = sg.document_id`;
 
 export async function listSuggestions(
-  status?: "open",
-  scope?: number[] | "all"
+  status: "open" | undefined,
+  scope: SpaceScope
 ): Promise<Suggestion[]> {
   // Hide suggestions attached to a trashed document; keep general (doc-less) ones.
   const conds = ["(sg.document_id IS NULL OR d.deleted_at IS NULL)"];
@@ -5881,7 +5888,7 @@ export async function resolveSuggestion(
   id: number,
   resolverId: number,
   status: "accepted" | "dismissed",
-  scope?: number[] | "all"
+  scope: SpaceScope
 ): Promise<boolean> {
   // Enforce space scope in the UPDATE (race-free): an approver may only resolve
   // a suggestion that is doc-less or attached to a doc in a space they can see.
@@ -5958,8 +5965,8 @@ export async function getChangeRequest(id: number): Promise<ChangeRequest | unde
 }
 
 export async function listChangeRequests(
-  status?: "pending",
-  scope?: number[] | "all"
+  status: "pending" | undefined,
+  scope: SpaceScope
 ): Promise<ChangeRequest[]> {
   // Exclude change requests whose document has been trashed.
   const conds = ["d.deleted_at IS NULL"];

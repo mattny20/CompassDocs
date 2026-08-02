@@ -16,6 +16,7 @@ import {
 import { editorsEditAll } from "@/lib/access";
 import { apiGuard } from "@/lib/api-auth";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
+import { EVERY_SPACE_UNFILTERED } from "@/lib/space-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +27,7 @@ export async function GET() {
   const gate = await apiGuard("admin");
   if (gate instanceof NextResponse) return gate;
   return NextResponse.json({
-    spaces: await listSpaces(),
+    spaces: await listSpaces(EVERY_SPACE_UNFILTERED),
     spaceGroups: await listAllSpaceGroups(),
     subscriptionGroups: await listAllSpaceSubscriptionGroups(),
     editorGrants: await listAllSpaceEditorGrants(),

@@ -12,13 +12,14 @@ import { listTemplates } from "@/lib/doc-templates";
 import { roleAtLeast } from "@/lib/types";
 import { SpacesManager } from "@/components/SpacesManager";
 import { SettingsPage } from "@/components/SettingsPage";
+import { EVERY_SPACE_UNFILTERED } from "@/lib/space-scope";
 
 export const dynamic = "force-dynamic";
 
 export default async function SpacesPage() {
   const [spaces, groups, users, spaceGroups, subscriptionGroups, editorGrants, editAll, cats, templates] =
     await Promise.all([
-      listSpaces(),
+      listSpaces(EVERY_SPACE_UNFILTERED),
       listGroups(),
       listUsers(),
       listAllSpaceGroups(),
