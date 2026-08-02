@@ -9,9 +9,17 @@ import { toast } from "@/components/Toasts";
 export function UsersClient({
   users,
   currentUserId,
+  extraRoles,
 }: {
   users: User[];
   currentUserId: number;
+  /**
+   * Roles each user holds beyond their ladder rung, by user id (0.97). The
+   * dropdown below shows only `users.role`, which since 0.93 is one source of
+   * someone's access rather than all of it — a Viewer can hold a custom role
+   * that opens an admin section, and this page would have said "Viewer".
+   */
+  extraRoles?: Record<number, string[]>;
 }) {
   // The search box lives in the table, but the heading count has to agree with
   // it — so the filter state sits here and the table receives the result.
@@ -32,6 +40,7 @@ export function UsersClient({
         <AutoLinkButton />
       </div>
       <UserTable
+        extraRoles={extraRoles}
         users={visible}
         currentUserId={currentUserId}
         query={query}
@@ -44,12 +53,14 @@ export function UsersClient({
 }
 
 function UserTable({
+  extraRoles,
   users,
   currentUserId,
   query,
   onQueryChange,
   filtered,
 }: {
+  extraRoles?: Record<number, string[]>;
   users: User[];
   currentUserId: number;
   query: string;
@@ -159,6 +170,18 @@ function UserTable({
                     </option>
                   ))}
                 </select>
+                {(extraRoles?.[u.id] ?? []).length > 0 && (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {extraRoles![u.id].map((label) => (
+                      <span
+                        key={label}
+                        className="rounded bg-compass-50 px-1.5 py-0.5 text-[11px] font-medium text-compass-700"
+                      >
+                        {label}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </td>
               <td className="px-4 py-3">
                 <span

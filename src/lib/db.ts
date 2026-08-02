@@ -6875,3 +6875,35 @@ export async function setSectionRoleGrants(
     client.release();
   }
 }
+
+/**
+ * Extra roles each user holds beyond their ladder rung — the custom and seeded
+ * roles that Users & roles cannot show from `users.role` alone (0.97).
+ *
+ * Without this the page states someone's access and is wrong: a Viewer holding
+ * "Announcements manager" and a space-scoped "Space editor" renders as plain
+ * "Viewer", so an admin auditing access from the obvious page gets the obvious
+ * answer and it is incomplete. Returns a map of user id → role labels, deduped,
+ * with the space count where a grant is scoped.
+ */
+export async function extraRolesByUser(): Promise<Map<number, string[]>> {
+  const rows = await q<{ user_id: number; name: string; scoped: number }>(
+    `SELECT u.id AS user_id, r.name,
+            count(*) FILTER (WHERE ra.scope_type = 'space')::int AS scoped
+       FROM users u
+       JOIN role_assignments ra
+         ON ra.user_id = u.id
+         OR ra.group_id IN (SELECT group_id FROM group_members WHERE user_id = u.id)
+       JOIN roles r ON r.id = ra.role_id
+      WHERE NOT (r.is_builtin AND r.key = ANY($1::text[]))
+      GROUP BY u.id, r.name
+      ORDER BY r.name`,
+    [LADDER_ROLE_KEYS]
+  );
+  const out = new Map<number, string[]>();
+  for (const r of rows) {
+    const label = r.scoped > 0 ? `${r.name} (${r.scoped} space${r.scoped === 1 ? "" : "s"})` : r.name;
+    out.set(r.user_id, [...(out.get(r.user_id) ?? []), label]);
+  }
+  return out;
+}

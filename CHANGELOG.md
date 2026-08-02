@@ -4,6 +4,28 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.97.0] - 2026-08-02
+
+### Added
+- **Google Workspace can now be configured.** Settings → Directory takes a
+  service-account key and the administrator to impersonate, and tells you the
+  exact scopes to authorise and the client ID to paste into Google's
+  domain-wide delegation screen. A malformed key is rejected when you paste it
+  rather than failing at the next sync with an error that points elsewhere.
+- **Single sign-on has a vendor choice.** Picking Google sets the right sign-in
+  authority for you; before this it meant knowing to paste a URL into an
+  "Advanced" field. Existing setups are untouched and stay on Microsoft.
+- **Directory fields can map from both providers.** Each custom field holds a
+  Microsoft attribute path and a Google one, so a workspace connected to both
+  populates the same field from either.
+
+### Fixed
+- **Users & roles showed only part of the picture.** Someone holding a custom
+  role — running the launchpad, or the audit log — appeared as a plain
+  "Viewer", so the obvious page for auditing access gave an incomplete answer.
+  Every role a person holds is now listed beside their role, with the number of
+  spaces where a grant is scoped to one.
+
 ## [0.96.0] - 2026-08-02
 
 ### Added
