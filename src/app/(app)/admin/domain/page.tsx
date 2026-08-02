@@ -1,3 +1,4 @@
+import { requireSettingsSection } from "@/lib/auth";
 import { getAppSettings } from "@/lib/settings-store";
 import { proxyStatus, hasCustomCert } from "@/lib/caddy";
 import { DomainSettings } from "@/components/DomainSettings";
@@ -6,6 +7,7 @@ import { SettingsPage } from "@/components/SettingsPage";
 export const dynamic = "force-dynamic";
 
 export default async function DomainPage() {
+  await requireSettingsSection("/admin/domain");
   const [settings, proxy, customCert] = await Promise.all([
     getAppSettings(),
     proxyStatus(),

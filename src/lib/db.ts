@@ -6335,3 +6335,281 @@ export async function shadowReport(): Promise<{
     rows,
   };
 }
+
+// --- Role management (0.93) -------------------------------------------------
+//
+// Every mutation below that could *reduce* someone's access runs the change and
+// then asserts the workspace invariant inside the same transaction, rolling
+// back if it no longer holds:
+//
+//   at least one active person still holds RECOVERY_PERMISSION globally
+//
+// Apply-then-assert rather than predict-then-apply, deliberately. Predicting
+// whether a permission edit strands the workspace means re-implementing the
+// resolver in the guard, and any drift between the two is a lockout. Asking the
+// database what is true after the change cannot drift.
+
+export type RoleMutationError =
+  | "not_found"
+  | "builtin"
+  | "duplicate"
+  | "invalid_permission"
+  | "would_orphan"
+  | "in_use";
+
+export interface RoleDetail {
+  id: number;
+  key: string;
+  name: string;
+  description: string;
+  is_builtin: boolean;
+  permissions: string[];
+}
+
+export interface RoleAssignmentRow {
+  id: number;
+  role_id: number;
+  role_name: string;
+  user_id: number | null;
+  group_id: number | null;
+  subject: string;
+  subject_kind: "user" | "group";
+  scope_type: string;
+  space_id: number | null;
+  space_name: string | null;
+}
+
+export async function getRoleDetail(id: number): Promise<RoleDetail | null> {
+  const rows = await q<RoleDetail>(
+    `SELECT r.id, r.key, r.name, r.description, r.is_builtin,
+            coalesce(array_agg(rp.permission ORDER BY rp.permission)
+                     FILTER (WHERE rp.permission IS NOT NULL), '{}') AS permissions
+       FROM roles r LEFT JOIN role_permissions rp ON rp.role_id = r.id
+      WHERE r.id = $1 GROUP BY r.id`,
+    [id]
+  );
+  return rows[0] ?? null;
+}
+
+/** Reject anything not in the shipped catalog before it reaches a role. */
+async function validPermissions(keys: string[]): Promise<string[] | null> {
+  const { isPermissionKey } = await import("./permissions");
+  const clean = [...new Set(keys.map((k) => String(k)))];
+  return clean.every(isPermissionKey) ? clean : null;
+}
+
+/**
+ * Create a custom role, optionally seeded from an existing one. The key is
+ * derived from the name and must not collide — including with a built-in key,
+ * which would make the ladder trigger start writing assignments for a role that
+ * is not a ladder rung.
+ */
+export async function createRole(input: {
+  name: string;
+  description?: string;
+  permissions: string[];
+  copyFromRoleId?: number;
+}): Promise<{ id: number } | { error: RoleMutationError }> {
+  const name = input.name.trim();
+  if (!name) return { error: "duplicate" };
+  const key = slugify(name) || `role-${Date.now()}`;
+
+  let want = input.permissions;
+  if (input.copyFromRoleId) {
+    const src = await getRoleDetail(input.copyFromRoleId);
+    if (!src) return { error: "not_found" };
+    want = src.permissions;
+  }
+  const perms = await validPermissions(want);
+  if (!perms) return { error: "invalid_permission" };
+
+  const client = await pool().connect();
+  try {
+    await client.query("BEGIN");
+    const existing = await client.query("SELECT 1 FROM roles WHERE key = $1", [key]);
+    if (existing.rowCount) {
+      await client.query("ROLLBACK");
+      return { error: "duplicate" };
+    }
+    const { rows } = await client.query<{ id: number }>(
+      `INSERT INTO roles (key, name, description, is_builtin)
+       VALUES ($1, $2, $3, false) RETURNING id`,
+      [key, name, input.description?.trim() ?? ""]
+    );
+    const id = rows[0].id;
+    if (perms.length) {
+      await client.query(
+        `INSERT INTO role_permissions (role_id, permission)
+         SELECT $1, unnest($2::text[]) ON CONFLICT DO NOTHING`,
+        [id, perms]
+      );
+    }
+    await client.query("COMMIT");
+    return { id };
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Edit a custom role. Built-in roles are rejected: their permission sets are
+ * re-derived from the catalog on every boot, so an edit here would silently
+ * revert on the next restart — worse than refusing.
+ */
+export async function updateRole(
+  id: number,
+  patch: { name?: string; description?: string; permissions?: string[] }
+): Promise<{ ok: true } | { error: RoleMutationError }> {
+  const role = await getRoleDetail(id);
+  if (!role) return { error: "not_found" };
+  if (role.is_builtin) return { error: "builtin" };
+
+  let perms: string[] | null = null;
+  if (patch.permissions) {
+    perms = await validPermissions(patch.permissions);
+    if (!perms) return { error: "invalid_permission" };
+  }
+
+  const { countGlobalUserAdmins } = await import("./authz");
+  const client = await pool().connect();
+  try {
+    await client.query("BEGIN");
+    if (patch.name !== undefined || patch.description !== undefined) {
+      await client.query(
+        "UPDATE roles SET name = coalesce($2, name), description = coalesce($3, description) WHERE id = $1",
+        [id, patch.name?.trim() || null, patch.description?.trim() ?? null]
+      );
+    }
+    if (perms) {
+      await client.query(
+        "DELETE FROM role_permissions WHERE role_id = $1 AND permission <> ALL($2::text[])",
+        [id, perms]
+      );
+      if (perms.length) {
+        await client.query(
+          `INSERT INTO role_permissions (role_id, permission)
+           SELECT $1, unnest($2::text[]) ON CONFLICT DO NOTHING`,
+          [id, perms]
+        );
+      }
+    }
+    if ((await countGlobalUserAdmins(client)) === 0) {
+      await client.query("ROLLBACK");
+      return { error: "would_orphan" };
+    }
+    await client.query("COMMIT");
+    return { ok: true };
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+export async function deleteRole(id: number): Promise<{ ok: true } | { error: RoleMutationError }> {
+  const role = await getRoleDetail(id);
+  if (!role) return { error: "not_found" };
+  if (role.is_builtin) return { error: "builtin" };
+
+  const { countGlobalUserAdmins } = await import("./authz");
+  const client = await pool().connect();
+  try {
+    await client.query("BEGIN");
+    // Assignments cascade, which is the point: deleting a role is how you
+    // revoke it from everyone at once. The invariant check below is what stops
+    // that from being how you lock everyone out at once.
+    await client.query("DELETE FROM roles WHERE id = $1", [id]);
+    if ((await countGlobalUserAdmins(client)) === 0) {
+      await client.query("ROLLBACK");
+      return { error: "would_orphan" };
+    }
+    await client.query("COMMIT");
+    return { ok: true };
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+export async function listRoleAssignments(roleId?: number): Promise<RoleAssignmentRow[]> {
+  return q<RoleAssignmentRow>(
+    `SELECT ra.id, ra.role_id, r.name AS role_name, ra.user_id, ra.group_id,
+            coalesce(u.name, u.username, g.name, '(removed)') AS subject,
+            CASE WHEN ra.user_id IS NOT NULL THEN 'user' ELSE 'group' END AS subject_kind,
+            ra.scope_type, ra.space_id, s.name AS space_name
+       FROM role_assignments ra
+       JOIN roles r ON r.id = ra.role_id
+       LEFT JOIN users u ON u.id = ra.user_id
+       LEFT JOIN groups g ON g.id = ra.group_id
+       LEFT JOIN spaces s ON s.id = ra.space_id
+      WHERE $1::int IS NULL OR ra.role_id = $1
+      ORDER BY r.is_builtin DESC, r.name, subject_kind, subject`,
+    [roleId ?? null]
+  );
+}
+
+export async function assignRole(input: {
+  roleId: number;
+  userId?: number;
+  groupId?: number;
+  spaceId?: number;
+}): Promise<{ ok: true } | { error: RoleMutationError }> {
+  const role = await getRoleDetail(input.roleId);
+  if (!role) return { error: "not_found" };
+  if ((input.userId === undefined) === (input.groupId === undefined)) return { error: "not_found" };
+  const scope = input.spaceId === undefined ? "global" : "space";
+  // Granting can only widen access, so there is no invariant to re-check.
+  await q(
+    `INSERT INTO role_assignments (role_id, user_id, group_id, scope_type, space_id)
+     VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING`,
+    [input.roleId, input.userId ?? null, input.groupId ?? null, scope, input.spaceId ?? null]
+  );
+  return { ok: true };
+}
+
+/**
+ * Revoke one assignment.
+ *
+ * A built-in role held globally by a user is the ladder's own representation
+ * (kept in step by the compass_users_ladder_sync trigger). Deleting that row
+ * directly would leave the user with no permissions while `users.role` still
+ * says otherwise, and the next boot's backfill would silently put it back —
+ * so it is refused here and the user's role is changed in Users & roles
+ * instead, which moves both together.
+ */
+export async function unassignRole(id: number): Promise<{ ok: true } | { error: RoleMutationError }> {
+  const rows = await q<{ user_id: number | null; is_builtin: boolean; scope_type: string }>(
+    `SELECT ra.user_id, r.is_builtin, ra.scope_type
+       FROM role_assignments ra JOIN roles r ON r.id = ra.role_id WHERE ra.id = $1`,
+    [id]
+  );
+  const row = rows[0];
+  if (!row) return { error: "not_found" };
+  if (row.is_builtin && row.user_id !== null && row.scope_type === "global") {
+    return { error: "in_use" };
+  }
+
+  const { countGlobalUserAdmins } = await import("./authz");
+  const client = await pool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("DELETE FROM role_assignments WHERE id = $1", [id]);
+    if ((await countGlobalUserAdmins(client)) === 0) {
+      await client.query("ROLLBACK");
+      return { error: "would_orphan" };
+    }
+    await client.query("COMMIT");
+    return { ok: true };
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
+}

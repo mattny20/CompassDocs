@@ -21,6 +21,19 @@ import { pool } from "./db";
 import { isPermissionKey, permission } from "./permissions";
 import type { PermissionKey } from "./permissions";
 
+/**
+ * Is the legacy role ladder still the enforcement authority?
+ *
+ * The break-glass for the 0.93 flip. If a workspace hits an authorization edge
+ * we did not foresee — role assignments lost to a partial restore, say — an
+ * operator sets COMPASSDOCS_AUTHZ_LEGACY=1 and restarts to get the pre-0.93
+ * behaviour back. Deliberately an environment variable and not a setting: the
+ * failure mode it exists for is "nobody can sign in to change the setting".
+ */
+export function legacyAuthzEnforcement(): boolean {
+  return process.env.COMPASSDOCS_AUTHZ_LEGACY === "1";
+}
+
 /** Everything a principal holds, resolved once and then queried in memory. */
 export interface Grants {
   userId: number;
@@ -95,6 +108,31 @@ export function spacesWith(g: Grants, key: PermissionKey): "all" | number[] {
   return [...(g.perSpace.get(key) ?? [])];
 }
 
+/** Held globally, or in at least one space. */
+export function holdsAnywhere(g: Grants, key: PermissionKey): boolean {
+  return g.global.has(key) || (g.perSpace.get(key)?.size ?? 0) > 0;
+}
+
+/**
+ * The admission test an API guard applies.
+ *
+ * A guard runs before the route knows which space it is dealing with — the
+ * document has not been loaded yet, and loading it first would mean doing
+ * unauthenticated work. So for a space-scoped permission with no space in hand,
+ * this admits a principal who holds it *somewhere* and leaves the narrowing to
+ * the route's existing `SpaceScope` / `canEditSpace` checks, which is where
+ * per-space filtering has always happened.
+ *
+ * That is the same shape as the ladder it replaces (the ladder was global too),
+ * so the flip preserves behaviour rather than quietly widening it. When a route
+ * does know its space it should pass `spaceId`, and this becomes exact.
+ */
+export function admits(g: Grants, key: PermissionKey, spaceId?: number): boolean {
+  if (spaceId !== undefined) return holds(g, key, spaceId);
+  if (permission(key).scope === "space") return holdsAnywhere(g, key);
+  return holds(g, key);
+}
+
 // --- Explaining a decision -------------------------------------------------
 
 export interface GrantExplanation {
@@ -130,6 +168,36 @@ export async function explain(
     granted: via.length > 0,
     via,
   };
+}
+
+/**
+ * Everything a principal effectively holds, with provenance — the data behind
+ * "show me what this person can actually do". One query, then grouped in
+ * memory: the console needs the whole picture at once, and asking the database
+ * 208 times to build a matrix would be absurd.
+ */
+export interface EffectivePermission {
+  permission: PermissionKey;
+  label: string;
+  scope: "global" | number[];
+  via: { role: string; group: string | null; spaceId: number | null }[];
+}
+
+export async function effectivePermissions(userId: number): Promise<EffectivePermission[]> {
+  const rows = await grantRows(userId);
+  const byKey = new Map<PermissionKey, EffectivePermission>();
+  for (const r of rows) {
+    if (!isPermissionKey(r.permission)) continue;
+    const key = r.permission as PermissionKey;
+    let e = byKey.get(key);
+    if (!e) byKey.set(key, (e = { permission: key, label: permission(key).label, scope: [], via: [] }));
+    if (r.scope_type === "global") e.scope = "global";
+    else if (e.scope !== "global" && r.space_id !== null && !e.scope.includes(r.space_id)) {
+      e.scope.push(r.space_id);
+    }
+    e.via.push({ role: r.role_name, group: r.via_group, spaceId: r.space_id });
+  }
+  return [...byKey.values()].sort((a, b) => a.permission.localeCompare(b.permission));
 }
 
 // --- The lockout guard -----------------------------------------------------

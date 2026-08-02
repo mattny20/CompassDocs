@@ -1,3 +1,4 @@
+import { requireSettingsSection } from "@/lib/auth";
 import { ImportExport } from "@/components/ImportExport";
 import { MigrateImport } from "@/components/MigrateImport";
 import { listSpaces } from "@/lib/db";
@@ -7,6 +8,7 @@ import { EVERY_SPACE_UNFILTERED } from "@/lib/space-scope";
 export const dynamic = "force-dynamic";
 
 export default async function DataPage() {
+  await requireSettingsSection("/admin/data");
   const spaces = await listSpaces(EVERY_SPACE_UNFILTERED);
   return (
     <SettingsPage href="/admin/data">

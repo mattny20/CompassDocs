@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 // whether the legacy ladder and the RBAC model agreed; `disagreements` must be
 // zero before enforcement flips from one to the other.
 export async function GET() {
-  const gate = await apiGuard("admin", "system.diagnostics_read");
+  const gate = await apiGuard("admin", "role.read");
   if (gate instanceof NextResponse) return gate;
   return NextResponse.json(await shadowReport());
 }

@@ -1,3 +1,4 @@
+import { requireSettingsSection } from "@/lib/auth";
 import Link from "next/link";
 import { knowledgeHealthReport, type HealthDoc } from "@/lib/health";
 import { SettingsPage } from "@/components/SettingsPage";
@@ -9,6 +10,7 @@ export const dynamic = "force-dynamic";
 // orphans, overdue and stale docs, unread docs, likely duplicates, and
 // documents with no active owner. Computed on demand from existing signals.
 export default async function HealthPage() {
+  await requireSettingsSection("/admin/health");
   const r = await knowledgeHealthReport();
 
   const sections: {

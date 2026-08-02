@@ -1,4 +1,4 @@
-import { requireRole } from "@/lib/auth";
+import { requireSettingsSection } from "@/lib/auth";
 import { listGroups, listUsers } from "@/lib/db";
 import { getDirectoryGraphConfig } from "@/lib/directory-config";
 import { eePresent, featureEnabled } from "@/lib/ee";
@@ -8,7 +8,7 @@ import { SettingsPage } from "@/components/SettingsPage";
 export const dynamic = "force-dynamic";
 
 export default async function GroupsAdminPage() {
-  await requireRole("admin");
+  await requireSettingsSection("/admin/groups");
   const [groups, users, bundled, licensed, cfg] = await Promise.all([
     listGroups(),
     listUsers(),

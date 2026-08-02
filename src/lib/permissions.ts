@@ -197,6 +197,13 @@ export const PERMISSIONS = [
   { key: "public.search", label: "Search public site", description: "Anonymous search", scope: "global", principal: "anonymous" },
   { key: "public.share_attachment_read", label: "Read shared attachment", description: "Anonymous attachment read scoped to exactly the shared document", scope: "global", principal: "anonymous" },
   { key: "public.share_read", label: "Read shared document", description: "Anonymous read of one document via a /share/<token> link", scope: "global", principal: "anonymous" },
+  // --- role ---
+  // Administering the permission model is itself a permission, so a workspace
+  // can delegate (say) "assign roles" to an IT lead without also handing over
+  // the ability to invent new ones.
+  { key: "role.assign", label: "Assign roles", description: "Bind a role to a person or group, globally or in one space", scope: "global" },
+  { key: "role.manage", label: "Manage roles", description: "Create, edit, and delete custom roles and their permissions", scope: "global" },
+  { key: "role.read", label: "Read roles", description: "View roles, their permissions, and who holds them", scope: "global" },
   // --- search ---
   { key: "search.ai_query", label: "Ask AI", description: "Ask a grounded natural-language question", scope: "global" },
   { key: "search.public_query", label: "Public search", description: "Anonymous search of the public site", scope: "global", principal: "anonymous" },
@@ -645,6 +652,9 @@ export const PRESET_ROLES = {
       "newsletter.use",
       "notification.mark_read",
       "notification.read",
+      "role.assign",
+      "role.manage",
+      "role.read",
       "search.ai_query",
       "search.query",
       "space.author",

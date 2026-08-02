@@ -1,3 +1,4 @@
+import { requireSettingsSection } from "@/lib/auth";
 import { listBackups } from "@/lib/backup";
 import { destinationStatus } from "@/lib/backup-destinations";
 import { getBackupDestState } from "@/lib/backup-config";
@@ -9,6 +10,7 @@ import { SettingsPage } from "@/components/SettingsPage";
 export const dynamic = "force-dynamic";
 
 export default async function BackupsPage() {
+  await requireSettingsSection("/admin/backups");
   const [backups, settings, destinations, destState] = await Promise.all([
     listBackups(),
     getAppSettings(),

@@ -1,4 +1,4 @@
-import { requireRole } from "@/lib/auth";
+import { requireSettingsSection } from "@/lib/auth";
 import { getSetting } from "@/lib/db";
 import { listPeople, listFields } from "@/lib/directory";
 import {
@@ -12,7 +12,7 @@ import { SettingsPage } from "@/components/SettingsPage";
 export const dynamic = "force-dynamic";
 
 export default async function DirectoryAdminPage() {
-  await requireRole("admin");
+  await requireSettingsSection("/admin/directory");
   const [people, fields, cfg, lastSync, bundled, enabled, secretExpires] = await Promise.all([
     listPeople({ includeHidden: true }),
     listFields(),

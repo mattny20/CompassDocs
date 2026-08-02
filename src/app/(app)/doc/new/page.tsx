@@ -4,7 +4,7 @@ import { FileText, FolderLock, House, LayoutTemplate } from "lucide-react";
 import { EmptyState } from "@/components/form";
 import { PageContainer } from "@/components/PageWidth";
 import { listSpaces, getSpaceBySlug, getApprovalMode, listAllSpaceCategories } from "@/lib/db";
-import { requireRole } from "@/lib/auth";
+import { requirePermission } from "@/lib/auth";
 import { editableScopeFor } from "@/lib/access";
 import { roleAtLeast, DOC_TYPE_LABEL } from "@/lib/types";
 import { listTemplates, renderTemplate, type DocTemplate } from "@/lib/doc-templates";
@@ -19,7 +19,7 @@ export default async function NewDocPage({
 }: {
   searchParams: Promise<{ space?: string; template?: string; parent?: string }>;
 }) {
-  const user = await requireRole("editor");
+  const user = await requirePermission("editor", "document.create");
   const { space, template: tplParam, parent: parentParam } = await searchParams;
   // Only spaces the user can author in are offered (per-space edit rights).
   const spaces = await listSpaces(await editableScopeFor(user));

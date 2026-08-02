@@ -6,7 +6,7 @@ import {
   listAllSpaceCategories,
   isTrainingDeckDoc,
 } from "@/lib/db";
-import { requireRole } from "@/lib/auth";
+import { requirePermission } from "@/lib/auth";
 import { spaceScopeFor, scopeAllows, canEditSpace, editableScopeFor } from "@/lib/access";
 import { roleAtLeast } from "@/lib/types";
 import { getAppSettings } from "@/lib/settings-store";
@@ -15,7 +15,7 @@ import { DocEditor } from "@/components/DocEditor";
 export const dynamic = "force-dynamic";
 
 export default async function EditDocPage({ params }: { params: Promise<{ id: string }> }) {
-  const user = await requireRole("editor");
+  const user = await requirePermission("editor", "document.update");
   const { id } = await params;
   const doc = await getDocument(Number(id));
   if (!doc) notFound();

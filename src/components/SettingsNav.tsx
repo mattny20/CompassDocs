@@ -26,12 +26,21 @@ function NavLink({ s, active }: { s: SettingsSection; active: boolean }) {
   );
 }
 
-export function SettingsNav() {
+export function SettingsNav({ reachable }: { reachable: string[] }) {
   const path = usePathname();
   const [query, setQuery] = useState("");
+  // The rail lists only what this user may open — the layout resolves that from
+  // each section's permission, so a delegated role sees its one section rather
+  // than twenty links that redirect home.
+  const allowed = new Set(reachable);
+  const sections = SETTINGS_SECTIONS.filter((s) => allowed.has(s.href));
+  const groups = SETTINGS_GROUPS.map((g) => ({
+    ...g,
+    sections: g.sections.filter((s) => allowed.has(s.href)),
+  })).filter((g) => g.sections.length > 0);
   const needle = query.trim().toLowerCase();
   const matches = needle
-    ? SETTINGS_SECTIONS.filter((s) => `${s.label} ${s.keywords}`.toLowerCase().includes(needle))
+    ? sections.filter((s) => `${s.label} ${s.keywords}`.toLowerCase().includes(needle))
     : null;
 
   return (
@@ -60,13 +69,13 @@ export function SettingsNav() {
         <>
           {/* Mobile: one horizontally scrollable flat row. */}
           <nav className="flex gap-1 overflow-x-auto sm:hidden">
-            {SETTINGS_SECTIONS.map((s) => (
+            {sections.map((s) => (
               <NavLink key={s.href} s={s} active={path === s.href} />
             ))}
           </nav>
           {/* Desktop: grouped rail. */}
           <nav className="hidden sm:flex sm:flex-col sm:gap-1">
-            {SETTINGS_GROUPS.map((g) => (
+            {groups.map((g) => (
               <div key={g.label} className="flex flex-col gap-1">
                 <p className="mb-0.5 mt-3 px-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400 first:mt-1">
                   {g.label}

@@ -92,6 +92,48 @@ This is deliberately slower than a big-bang swap. A wrong substitution in an
 authorization port is not a build failure — it is a silent grant or a silent
 denial, and 0.89.1 is a recent reminder of what the silent-grant version costs.
 
+## The flip (0.93)
+
+Enforcement now reads the permission, not the ladder. `apiGuard(min, permission)`
+resolves the caller's grants and answers from those; `min` is still passed and
+still evaluated, but only to keep recording agreement so a regression surfaces
+as a number on **Settings → Roles & permissions → Health** instead of a support
+ticket. A route with no permission attached still falls back to the ladder.
+
+Three things the flip needed that the design above didn't anticipate:
+
+- **A space you don't have yet.** A guard runs before the route knows which
+  document — and therefore which space — it is dealing with. `admits()` handles
+  that: with no `spaceId` in hand, a space-scoped permission is admitted if the
+  caller holds it *anywhere*, and the route's existing `SpaceScope` /
+  `canEditSpace` check does the narrowing, exactly as it did under the ladder.
+  Nothing widens; per-space enforcement at the guard arrives with 0.94.
+
+- **The settings console was all-or-nothing.** The `/admin` layout gated the
+  whole thing on being an Administrator, so a role holding one settings
+  permission could call the API but not open the page that calls it. Each
+  section now declares its permission in `lib/settings-sections.ts` — one value,
+  read by the page guard (`requireSettingsSection`) and by the rail, so a nav
+  entry that redirects home is not expressible.
+
+- **A way back when the model is the problem.** `COMPASSDOCS_AUTHZ_LEGACY=1`
+  restores ladder enforcement at boot. An environment variable rather than a
+  setting, because the failure it exists for is "nobody can sign in to change
+  the setting". The console says so in a banner when it is on.
+
+Every mutation that could reduce access — editing a role, deleting one,
+revoking an assignment — **applies the change and then asserts the invariant in
+the same transaction**, rolling back if no active user still holds
+`RECOVERY_PERMISSION` globally. Apply-then-assert rather than predict-then-apply:
+predicting whether an edit strands the workspace means reimplementing the
+resolver inside the guard, and any drift between the two is a lockout. Asking
+the database what became true cannot drift.
+
+Built-in roles stay read-only in the editor. `syncPresetRoles()` re-derives them
+from the catalog on every boot — that is what makes an upgrade that adds a
+permission grant it without a migration — so an edit would silently revert on
+restart. Duplicating a preset gives an editable copy.
+
 ## Status
 
 All of RBAC ships in the community edition; only the Google and Microsoft

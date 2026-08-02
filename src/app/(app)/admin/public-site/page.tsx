@@ -1,4 +1,4 @@
-import { requireRole } from "@/lib/auth";
+import { requireSettingsSection } from "@/lib/auth";
 import { getPublicSiteConfig } from "@/lib/public-site";
 import { shareLinksEnabled } from "@/lib/shares";
 import { listPublicSpaces } from "@/lib/db";
@@ -8,7 +8,7 @@ import { SettingsPage } from "@/components/SettingsPage";
 export const dynamic = "force-dynamic";
 
 export default async function PublicSiteAdminPage() {
-  await requireRole("admin");
+  await requireSettingsSection("/admin/public-site");
   const [config, spaces, shareLinks] = await Promise.all([
     getPublicSiteConfig(),
     listPublicSpaces(),

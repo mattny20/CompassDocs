@@ -1,4 +1,4 @@
-import { requireRole } from "@/lib/auth";
+import { requireSettingsSection } from "@/lib/auth";
 import { listUsers } from "@/lib/db";
 import { listNewsletterFromAddresses, getNewsletterAppearance } from "@/lib/newsletter";
 import { NewsletterPeople } from "@/components/NewsletterPeople";
@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 // Settings → Newsletter is the access roster + sender list + email
 // appearance; writing and sending happens in the /newsletter workspace.
 export default async function NewsletterAdminPage() {
-  await requireRole("admin");
+  await requireSettingsSection("/admin/newsletter");
   const [users, senders, appearance] = await Promise.all([
     listUsers(),
     listNewsletterFromAddresses(),
