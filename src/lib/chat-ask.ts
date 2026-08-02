@@ -15,6 +15,8 @@ import "server-only";
 import { createHmac, timingSafeEqual } from "crypto";
 import { pool, getSetting, setSetting } from "./db";
 import { answerQuestion, type AiAnswer } from "./ai";
+import { asScope, scopeIsEmpty } from "./space-scope";
+import type { SpaceScope } from "./space-scope";
 
 async function q<T = any>(sql: string, params: any[] = []): Promise<T[]> {
   return (await pool().query(sql, params)).rows as T[];
@@ -102,17 +104,17 @@ export async function verifyTeamsSignature(
 // --- Answering ---------------------------------------------------------------
 
 /** Space ids a chat asker may draw answers from: everything not private. */
-export async function chatSpaceScope(): Promise<number[]> {
+export async function chatSpaceScope(): Promise<SpaceScope> {
   const rows = await q<{ id: number }>(
     "SELECT id FROM spaces WHERE visibility IN ('internal', 'public')"
   );
-  return rows.map((r) => r.id);
+  return asScope(rows.map((r) => r.id));
 }
 
 export async function chatAnswer(question: string): Promise<AiAnswer> {
   const scope = await chatSpaceScope();
   // An instance where every space is private has nothing to offer chat.
-  if (scope.length === 0) {
+  if (scopeIsEmpty(scope)) {
     return {
       answer: "All spaces on this knowledge base are private, so I can't answer from chat.",
       sources: [],

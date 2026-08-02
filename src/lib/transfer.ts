@@ -11,6 +11,7 @@ import {
   slugify,
 } from "./db";
 import type { DocType, DocStatus } from "./types";
+import { EVERY_SPACE_UNFILTERED } from "./space-scope";
 
 // Content-level import/export: the knowledge base as a zip of Markdown files
 // with YAML front-matter, plus a manifest.json describing the spaces. This is a
@@ -32,7 +33,7 @@ function normalizeTags(input: unknown): string[] {
 
 /** Build a zip of the whole knowledge base. Returns a Node Buffer. */
 export async function buildExportZip(): Promise<Buffer> {
-  const [docs, spaces] = await Promise.all([exportDocuments(), listSpaces()]);
+  const [docs, spaces] = await Promise.all([exportDocuments(), listSpaces(EVERY_SPACE_UNFILTERED)]);
   const zip = new JSZip();
   const usedPaths = new Set<string>();
   const index: { path: string; title: string; space: string; status: string }[] = [];

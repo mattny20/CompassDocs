@@ -9,6 +9,7 @@ import { EMAIL_TEMPLATES, templateOverride } from "@/lib/email-templates";
 import { getChatAskConfig } from "@/lib/chat-ask";
 import { getAppSettings } from "@/lib/settings-store";
 import { SettingsPage } from "@/components/SettingsPage";
+import { EVERY_SPACE_UNFILTERED } from "@/lib/space-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +27,7 @@ export default async function NotificationsPage() {
   await requireRole("admin");
   const [hooks, spaces, smtp, chatAsk, appSettings] = await Promise.all([
     listWebhooks(),
-    listSpaces(),
+    listSpaces(EVERY_SPACE_UNFILTERED),
     getSmtpConfig(),
     getChatAskConfig(),
     getAppSettings(),

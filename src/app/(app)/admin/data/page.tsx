@@ -2,11 +2,12 @@ import { ImportExport } from "@/components/ImportExport";
 import { MigrateImport } from "@/components/MigrateImport";
 import { listSpaces } from "@/lib/db";
 import { SettingsPage } from "@/components/SettingsPage";
+import { EVERY_SPACE_UNFILTERED } from "@/lib/space-scope";
 
 export const dynamic = "force-dynamic";
 
 export default async function DataPage() {
-  const spaces = await listSpaces();
+  const spaces = await listSpaces(EVERY_SPACE_UNFILTERED);
   return (
     <SettingsPage href="/admin/data">
     <div className="space-y-8">

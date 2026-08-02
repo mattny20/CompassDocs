@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { headers } from "next/headers";
 import type { Metadata } from "next";
-import { searchDocuments, publicSpaceIds } from "@/lib/db";
+import { searchDocuments, publicSpaceScope } from "@/lib/db";
 import { recordSearch } from "@/lib/analytics";
 import { searchRateLimited } from "@/lib/public-site";
 import { safeSnippet } from "@/lib/snippet";
+import { scopeIsEmpty } from "@/lib/space-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -28,8 +29,8 @@ export default async function PublicSearchPage({
     const ip = (h.get("x-forwarded-for") ?? "unknown").split(",")[0].trim();
     limited = searchRateLimited(ip);
     if (!limited) {
-      const ids = await publicSpaceIds();
-      hits = ids.length ? await searchDocuments(q, 20, false, ids) : [];
+      const scope = await publicSpaceScope();
+      hits = scopeIsEmpty(scope) ? [] : await searchDocuments(q, 20, false, scope);
       void recordSearch(null, q, hits.length, "public").catch(() => {});
     }
   }

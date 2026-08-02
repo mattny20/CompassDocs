@@ -1,5 +1,6 @@
 import "server-only";
 import { pool } from "./db";
+import type { SpaceScope } from "./space-scope";
 
 // Knowledge-base analytics: event recording (views with duration heartbeats,
 // searches, downloads) and the aggregations behind the /analytics dashboard.
@@ -88,7 +89,7 @@ export interface AnalyticsFilters {
   author?: string;
   tag?: string;
   /** Space ids visible to the caller ("all" = unrestricted). */
-  scope: number[] | "all";
+  scope: SpaceScope;
 }
 
 /** WHERE fragment + params for doc-scoped filters. Every condition references

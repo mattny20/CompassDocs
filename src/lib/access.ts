@@ -13,16 +13,18 @@ import {
 import { roleAtLeast } from "./types";
 import type { Role } from "./types";
 
-/** "all" (admins) or the concrete list of visible space ids. */
-export type SpaceScope = "all" | number[];
+// Scope is an opaque branded value defined in ./space-scope, so the data layer
+// can require one without importing the policy layer. Re-exported here because
+// this module is where callers already look for it.
+import { asScope as scope, EVERY_SPACE_UNFILTERED, scopeAllows, scopeIsEmpty } from "./space-scope";
+import type { SpaceScope } from "./space-scope";
+
+export type { SpaceScope };
+export { EVERY_SPACE_UNFILTERED, scopeAllows, scopeIsEmpty };
 
 export async function spaceScopeFor(user: { id: number; role: Role }): Promise<SpaceScope> {
-  if (user.role === "admin") return "all";
-  return accessibleSpaceIdsFor(user.id);
-}
-
-export function scopeAllows(scope: SpaceScope, spaceId: number): boolean {
-  return scope === "all" || scope.includes(spaceId);
+  if (user.role === "admin") return scope("all");
+  return scope(await accessibleSpaceIdsFor(user.id));
 }
 
 // --- Edit rights -----------------------------------------------------------------
@@ -40,13 +42,28 @@ export async function editorsEditAll(): Promise<boolean> {
   return (await getSetting("editors_edit_all")) !== "0";
 }
 
-/** May this user author in this space? (Assumes caller verified visibility.) */
+/**
+ * May this user author in this space?
+ *
+ * Authoring implies seeing: this checks visibility itself rather than trusting
+ * the caller to have done it. It used to be documented as "assumes caller
+ * verified visibility", and that unenforced contract was broken twice — the
+ * share and trash-restore routes reached it with no scope check, which let an
+ * editor mint an anonymous share link for a document in a private space they
+ * could not read (fixed in 0.89.1). An invariant a caller can silently skip is
+ * not an invariant.
+ *
+ * Note the ordering: editorsEditAll() only widens authoring across spaces the
+ * user can already SEE. It is not a bypass of visibility, and never was meant
+ * to be one.
+ */
 export async function canEditSpace(
   user: { id: number; role: Role },
   spaceId: number
 ): Promise<boolean> {
   if (!roleAtLeast(user.role, "editor")) return false;
   if (user.role === "admin") return true;
+  if (!scopeAllows(await spaceScopeFor(user), spaceId)) return false;
   if (await editorsEditAll()) return true;
   return spaceEditGrantAllows(spaceId, user.id);
 }
@@ -56,10 +73,10 @@ export async function editableScopeFor(user: {
   id: number;
   role: Role;
 }): Promise<SpaceScope> {
-  if (user.role === "admin") return "all";
-  if (!roleAtLeast(user.role, "editor")) return [];
+  if (user.role === "admin") return scope("all");
+  if (!roleAtLeast(user.role, "editor")) return scope([]);
   const visible = await accessibleSpaceIdsFor(user.id);
-  if (await editorsEditAll()) return visible;
+  if (await editorsEditAll()) return scope(visible);
   const granted = new Set(await editGrantedSpaceIdsFor(user.id));
-  return visible.filter((id) => granted.has(id));
+  return scope(visible.filter((id) => granted.has(id)));
 }
