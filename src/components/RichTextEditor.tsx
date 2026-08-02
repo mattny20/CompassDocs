@@ -803,8 +803,13 @@ function Toolbar({
 
   return (
     // Sticky: the toolbar rides along while scrolling long content, pinned to
-    // the top of the app's scroll container.
-    <div className="sticky top-0 z-20 flex flex-wrap items-center gap-0.5 rounded-t-xl border-b border-slate-100 bg-surface px-2 py-1.5">
+    // the top of the app's scroll container — or just below whatever the host
+    // has pinned above it (the document editor's sticky Cancel/Save row sets
+    // --rte-sticky-top to its own height). Defaults to 0 for every other host.
+    <div
+      style={{ top: "var(--rte-sticky-top, 0px)" }}
+      className="sticky z-20 flex flex-wrap items-center gap-0.5 rounded-t-xl border-b border-slate-100 bg-surface px-2 py-1.5"
+    >
       <Btn onClick={() => editor.chain().focus().toggleBold().run()} active={editor.isActive("bold")} label="Bold">
         <BoldIcon className={TB_ICON} />
       </Btn>
@@ -835,7 +840,8 @@ function Toolbar({
           if (v) editor.chain().focus().setFontFamily(v).run();
           else editor.chain().focus().unsetFontFamily().run();
         }}
-        title="Font — email-safe choices that render everywhere"
+        data-tt="Font — email-safe choices that render everywhere"
+        data-tt-pos="bottom"
         aria-label="Font"
         className="mx-0.5 h-8 rounded-md border border-slate-200 bg-surface px-1 text-xs text-slate-600 outline-hidden hover:bg-slate-50"
       >
