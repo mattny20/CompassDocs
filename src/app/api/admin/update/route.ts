@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 // mid-update, so a response would never arrive. The admin UI polls the
 // version endpoint until the app comes back newer.
 export async function POST(req: Request) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "system.update_apply");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
 

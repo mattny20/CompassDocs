@@ -11,14 +11,14 @@ const TYPES: DocType[] = ["sop", "technical", "policy", "knowledge"];
 const MAX_BODY = 100_000;
 
 export async function GET() {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "template.read");
   if (gate instanceof NextResponse) return gate;
   return NextResponse.json({ templates: await listTemplates(true) });
 }
 
 // Create a template — from fields, or from an existing document (from_doc_id).
 export async function POST(req: Request) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "template.manage");
   if (gate instanceof NextResponse) return gate;
   const user = gate as SessionUser;
 

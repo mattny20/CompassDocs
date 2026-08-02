@@ -25,7 +25,7 @@ function validUrl(raw: string): string | null {
 
 // Everything the Links admin screen needs in one call.
 export async function GET() {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "link.manage");
   if (gate instanceof NextResponse) return gate;
   const [categories, links, groups] = await Promise.all([
     listLinkCategories(),
@@ -39,7 +39,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const gate = await apiGuard("admin");
+  const gate = await apiGuard("admin", "link.manage");
   if (gate instanceof NextResponse) return gate;
 
   let body: any;
