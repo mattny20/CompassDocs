@@ -6,6 +6,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { BellOff, BellRing, UsersRound } from "lucide-react";
+import { toast } from "./Toasts";
 
 type Sub = {
   space_id: number;
@@ -58,6 +59,13 @@ export function NotificationsPanel({
     });
     setBusy(false);
     if (res.ok) setEnabled(on);
+    // The checkbox springs back on failure — say why, or it looks like the
+    // click simply didn't register.
+    else
+      toast(
+        "error",
+        (await res.json().catch(() => ({})))?.error || "Couldn't change your email setting."
+      );
   }
 
   async function toggleDigest(on: boolean) {
@@ -69,6 +77,11 @@ export function NotificationsPanel({
     });
     setBusy(false);
     if (res.ok) setDigest(on);
+    else
+      toast(
+        "error",
+        (await res.json().catch(() => ({})))?.error || "Couldn't change the weekly digest setting."
+      );
   }
 
   async function setSub(s: Sub, action: "subscribe" | "mute" | "clear") {
@@ -77,7 +90,13 @@ export function NotificationsPanel({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action }),
     });
-    if (!res.ok) return;
+    if (!res.ok) {
+      toast(
+        "error",
+        (await res.json().catch(() => ({})))?.error || "Couldn't update that subscription."
+      );
+      return;
+    }
     const next = (await res.json()).state as Sub["state"];
     setSubs((prev) =>
       prev

@@ -7,6 +7,7 @@ import { ROLE_LABEL } from "@/lib/types";
 import { AccountNav } from "@/components/AccountNav";
 import { UserAvatar } from "@/components/UserAvatar";
 import { WidthProvider, PageContainer } from "@/components/PageWidth";
+import { ToastHost } from "@/components/Toasts";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +52,9 @@ export default async function AccountLayout({ children }: { children: React.Reac
           <main className="min-w-0">{children}</main>
         </div>
       </PageContainer>
+      {/* The account shell is outside (app), so it needs its own toast host —
+          without one, toast() from these panels would go nowhere. */}
+      <ToastHost />
     </div>
     </WidthProvider>
   );

@@ -131,8 +131,8 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
 
       {/* Masthead: pure typography — badges, title, one meta line, summary as
           a plain lede. Workflow state lives in the single notice strip below. */}
-      <div className="mb-3 flex items-start justify-between gap-4">
-        <div>
+      <div className="mb-3 flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
           <div className="mb-2 flex items-center gap-2">
             <TypeBadge type={doc.type} />
             <StatusBadge status={doc.status} />

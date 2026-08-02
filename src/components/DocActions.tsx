@@ -17,6 +17,7 @@ import {
 import { roleAtLeast } from "@/lib/types";
 import type { Role } from "@/lib/types";
 import { PrintButton } from "./PrintButton";
+import { toast } from "./Toasts";
 
 export function DocActions({
   id,
@@ -85,7 +86,7 @@ export function DocActions({
       router.refresh();
     } else {
       setBranching(false);
-      alert(data?.error || "Couldn't create the branch.");
+      toast("error", data?.error || "Couldn't create the branch.");
     }
   }
 
@@ -102,7 +103,11 @@ export function DocActions({
       setAckRequired(next);
       router.refresh();
     } else {
-      alert((await res.json().catch(() => ({}))).error || "Could not update.");
+      toast(
+        "error",
+        (await res.json().catch(() => ({}))).error ||
+          "Couldn't change the read-confirmation setting."
+      );
     }
   }
 
@@ -118,7 +123,7 @@ export function DocActions({
     const data = await res.json().catch(() => ({}));
     setTemplating(false);
     if (res.ok) router.push("/admin/templates");
-    else alert(data?.error || "Couldn't create the template.");
+    else toast("error", data?.error || "Couldn't create the template.");
   }
 
   async function onDelete() {
@@ -131,7 +136,7 @@ export function DocActions({
     } else {
       const data = await res.json().catch(() => ({}));
       setDeleting(false);
-      alert(data?.error || "Failed to delete.");
+      toast("error", data?.error || "Couldn't move this document to the Trash.");
     }
   }
 

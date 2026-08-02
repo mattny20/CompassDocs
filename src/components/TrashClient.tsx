@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { TypeBadge } from "./Badges";
+import { toast } from "./Toasts";
 import { formatDate, formatDateTime } from "@/lib/format";
 import type { AppSettings } from "@/lib/settings";
 import type { DocType, DocStatus } from "@/lib/types";
@@ -36,7 +37,7 @@ export function TrashClient({
     const res = await fetch(`/api/trash/${d.id}`, { method: "POST" });
     setBusyId(null);
     if (res.ok) router.refresh();
-    else alert((await res.json().catch(() => ({})))?.error || "Restore failed.");
+    else toast("error", (await res.json().catch(() => ({})))?.error || "Couldn't restore that document.");
   }
 
   async function purge(d: TrashedDoc) {
@@ -50,7 +51,8 @@ export function TrashClient({
     const res = await fetch(`/api/trash/${d.id}`, { method: "DELETE" });
     setBusyId(null);
     if (res.ok) router.refresh();
-    else alert((await res.json().catch(() => ({})))?.error || "Delete failed.");
+    else
+      toast("error", (await res.json().catch(() => ({})))?.error || "Couldn't delete that document.");
   }
 
   function purgeOn(deletedAt: string | null): string {

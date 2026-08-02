@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { MarkdownView } from "./MarkdownView";
+import { toast } from "./Toasts";
 import type { ChangeRequest, Suggestion } from "@/lib/types";
 import { timeAgo } from "@/lib/ui";
 
@@ -31,7 +32,10 @@ export function ReviewClient({
       setCrs((prev) => prev.filter((c) => c.id !== id));
       router.refresh();
     } else {
-      alert("Action failed.");
+      // The API explains *why* (stale request, lost edit rights, space gone) —
+      // show that instead of swallowing it behind a generic failure.
+      const msg = (await res.json().catch(() => ({})))?.error;
+      toast("error", msg || `Couldn't ${action} this change request.`);
     }
   }
 
@@ -47,7 +51,11 @@ export function ReviewClient({
       setSugs((prev) => prev.filter((s) => s.id !== id));
       router.refresh();
     } else {
-      alert("Action failed.");
+      const msg = (await res.json().catch(() => ({})))?.error;
+      toast(
+        "error",
+        msg || `Couldn't ${action === "accept" ? "mark that suggestion done" : "dismiss that suggestion"}.`
+      );
     }
   }
 
