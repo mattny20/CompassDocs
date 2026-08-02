@@ -4,6 +4,30 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.91.0] - 2026-08-02
+
+### Added
+- **Groundwork for custom roles.** CompassDocs is moving from four fixed
+  roles to real role-based access control, where a role is a named set of
+  permissions you can create and edit, and can be granted for the whole
+  workspace or for a single space. This release installs the machinery —
+  the permission catalogue, the roles themselves, and who holds them — but
+  **nothing about your access changes yet**. Viewer, Editor, Approver and
+  Administrator are now ordinary roles holding exactly the permissions they
+  always implied, and everyone keeps the role they had. The screens for
+  creating and assigning roles arrive in a later release.
+- Administrators get three read-only views under the API to inspect the
+  new data: the role list, a cross-check that every account's role came
+  across intact, and — most usefully — **who could still restore everyone
+  else's access** if something went wrong.
+
+### Changed
+- The protection that stops you removing the last administrator no longer
+  counts people with the "admin" role, because with custom roles that
+  wouldn't mean anything. It now asks the question that actually matters:
+  is there still at least one active person who can manage other people's
+  roles? Demoting, disabling and deleting are all checked against it.
+
 ## [0.90.0] - 2026-08-02
 
 ### Changed
