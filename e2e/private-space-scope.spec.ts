@@ -46,12 +46,17 @@ test("an editor outside a private space cannot share or restore its documents", 
   const docId = createdDoc.body?.doc?.id ?? createdDoc.body?.document?.id;
   expect(docId, "confidential document was created").toBeTruthy();
 
-  // Share links must be on, or the route short-circuits before the scope check
-  // and the test would pass for the wrong reason.
-  await api(adminPage, "/api/admin/settings", {
+  // Share links must be on, or the route short-circuits at its own "disabled"
+  // check (400) before ever reaching the scope check, and this test would pass
+  // without exercising the fix. Assert the toggle actually took.
+  const shareCfg = await api(adminPage, "/api/admin/public-site", {
     method: "PATCH",
-    body: { share_links_enabled: "1" },
+    body: { shareLinks: true },
   });
+  expect(
+    shareCfg.body?.config?.shareLinks,
+    "share links are enabled, so the scope check is what refuses us below"
+  ).toBe(true);
 
   const editorCtx = await browser.newContext();
   const editorPage = await editorCtx.newPage();
@@ -88,10 +93,14 @@ test("an editor outside a private space cannot share or restore its documents", 
   const restore = await api(editorPage, `/api/trash/${docId}`, { method: "POST" });
   expect(restore.status, "editor cannot restore into a space out of scope").toBe(404);
 
-  // And it really is still in the trash.
-  const trash = await api(adminPage, "/api/trash");
-  const stillTrashed = JSON.stringify(trash.body ?? {}).includes(String(docId));
-  expect(stillTrashed, "document remained in the trash").toBe(true);
+  // Prove it stayed in the trash without depending on a listing shape: an admin
+  // restore can only succeed if the document is still there. This doubles as a
+  // check that the added scope guard didn't break restore for someone who does
+  // have access.
+  const adminRestore = await api(adminPage, `/api/trash/${docId}`, { method: "POST" });
+  expect(adminRestore.status, "the document was still in the trash for an admin to restore").toBe(
+    200
+  );
 
   await anonCtx.close();
   await editorCtx.close();
