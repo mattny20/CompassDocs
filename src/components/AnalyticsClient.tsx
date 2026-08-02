@@ -612,9 +612,9 @@ export function AnalyticsClient() {
                           losing it to columns holding single digits. */}
                       <th className="w-full pb-2 font-medium">Document</th>
                       <th className="pb-2 text-right font-medium">Views</th>
-                      <th className="pb-2 text-right font-medium">Unique</th>
-                      <th className="pb-2 text-right font-medium">Avg time</th>
-                      <th className="pb-2 text-right font-medium">DLs</th>
+                      <th className="pb-2 pl-3 text-right font-medium">Unique</th>
+                      <th className="pb-2 pl-3 text-right font-medium">Avg time</th>
+                      <th className="pb-2 pl-3 text-right font-medium">DLs</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -624,9 +624,9 @@ export function AnalyticsClient() {
                           {d.space_icon} {d.title}
                         </td>
                         <td className="py-2 text-right text-slate-600">{d.views}</td>
-                        <td className="py-2 text-right text-slate-400">{d.unique_viewers}</td>
-                        <td className="py-2 text-right text-slate-400">{fmtDuration(d.avg_seconds)}</td>
-                        <td className="py-2 text-right text-slate-400">{d.downloads || "—"}</td>
+                        <td className="py-2 pl-3 text-right text-slate-400">{d.unique_viewers}</td>
+                        <td className="py-2 pl-3 text-right text-slate-400">{fmtDuration(d.avg_seconds)}</td>
+                        <td className="py-2 pl-3 text-right text-slate-400">{d.downloads || "—"}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -646,7 +646,7 @@ export function AnalyticsClient() {
                     <tr className="text-left text-xs uppercase tracking-wide text-slate-400">
                       <th className="w-full pb-2 font-medium">Document</th>
                       <th className="pb-2 text-right font-medium">Views</th>
-                      <th className="pb-2 text-right font-medium">Updated</th>
+                      <th className="pb-2 pl-3 text-right font-medium">Updated</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -658,7 +658,7 @@ export function AnalyticsClient() {
                         <td className={`py-2 text-right ${d.views === 0 ? "font-semibold text-amber-600" : "text-slate-600"}`}>
                           {d.views}
                         </td>
-                        <td className="py-2 text-right text-slate-400">{d.updated}</td>
+                        <td className="whitespace-nowrap py-2 pl-3 text-right text-slate-400">{d.updated}</td>
                       </tr>
                     ))}
                   </tbody>

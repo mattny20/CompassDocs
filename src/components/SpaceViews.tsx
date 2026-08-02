@@ -761,7 +761,7 @@ function BoardView({ docs }: { docs: DocumentWithSpace[] }) {
       </div>
       {/* auto-fit rather than a fixed xl:grid-cols-4: columns keep a usable
           minimum on a phone and take the extra room on a wide monitor. */}
-      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,240px),1fr))] gap-4">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,200px),1fr))] gap-4">
         {columns.map((c) => (
           <div key={c.key} className="min-w-0 rounded-xl border border-slate-200 bg-surface p-3">
             <div className="mb-2 flex items-center justify-between">
