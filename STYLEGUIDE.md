@@ -21,6 +21,15 @@ Every top-level page:
 - **Never hard-code a page width** (`max-w-*` on the page wrapper) — that
   breaks the user's width preference. Narrow *content columns* inside a page
   (e.g. a reading column) are fine when deliberate.
+- The one such column is the **document reading measure**: put `doc-read` on
+  the element wrapping the rendered document body and `globals.css` caps
+  `.doc-read .doc-prose` at `78ch`. Only the document page, the share page
+  and the public document page set it — `.doc-prose` is shared with the
+  tiptap editor and every other `MarkdownView` (editor preview, newsletter,
+  training player, version history, review queue, AI answers), and those must
+  stay uncapped, so the cap lives on the scoping class, never on `.doc-prose`
+  itself. Everything outside the prose column — masthead, right rail, notice
+  strip, sticky bar — keeps the full Normal/Wide/Full width.
 - **Every page title carries a lucide icon**, `h-6 w-6 text-compass-600`,
   before the text. Pick the icon once and keep it stable (it may also appear
   in navigation).
