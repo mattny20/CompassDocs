@@ -38,7 +38,9 @@ import {
   X,
 } from "lucide-react";
 import { EntityPicker, type PickerOption } from "@/components/EntityPicker";
+import { EmptyState, SectionEmpty } from "@/components/form";
 import { toast } from "@/components/Toasts";
+import { useFormatDate } from "@/components/SettingsProvider";
 
 interface MyItem {
   assignment_id: number;
@@ -95,7 +97,12 @@ interface PersonRow {
   prior_completions: number;
 }
 
-const fmtDay = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString() : null);
+/** Day-only formatter bound to the workspace/user date settings. Returns
+ * null for a null input so call sites keep their own "—" fallbacks. */
+function useFmtDay() {
+  const fmt = useFormatDate();
+  return (iso: string | null) => (iso ? fmt.date(iso) : null);
+}
 const overdue = (it: MyItem) =>
   !it.completed_at && it.due_at !== null && new Date(it.due_at).getTime() < Date.now();
 
@@ -158,7 +165,7 @@ export function TrainingPanel({
     return (
       <div>
         <Header />
-        <p className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500 dark:bg-slate-800/40">
+        <p className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
           Training requires a license with the <code className="text-xs">training</code> entitlement.
         </p>
       </div>
@@ -221,6 +228,7 @@ export function TrainingPanel({
 // --- My training ------------------------------------------------------------
 
 function MyTraining({ mine, teamLead = false }: { mine: MyItem[] | null; teamLead?: boolean }) {
+  const fmtDay = useFmtDay();
   const teamLink = teamLead ? (
     <p className="mb-4 flex items-center gap-2 rounded-xl border border-compass-200 bg-compass-50/60 px-4 py-2.5 text-sm text-compass-800 dark:bg-compass-100/20">
       <Users className="h-4 w-4 shrink-0" />
@@ -244,9 +252,11 @@ function MyTraining({ mine, teamLead = false }: { mine: MyItem[] | null; teamLea
     return (
       <div>
         {teamLink}
-        <p className="rounded-xl border border-slate-200 bg-surface px-4 py-10 text-center text-sm text-slate-400 shadow-xs">
-          Nothing assigned — when training lands here, you&apos;ll also get a notification.
-        </p>
+        <EmptyState
+          icon={<GraduationCap />}
+          title="Nothing assigned"
+          body="When training lands here, you'll also get a notification."
+        />
       </div>
     );
   }
@@ -359,6 +369,7 @@ function Overview({
   onNotice: (s: string) => void;
   userOpts: PickerOption[];
 }) {
+  const fmtDay = useFmtDay();
   const [data, setData] = useState<OverviewData | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
   const refresh = useCallback(async () => {
@@ -436,7 +447,7 @@ function Overview({
           </a>
         </div>
         {data.attention.rows.length === 0 ? (
-          <p className="mt-2 text-sm text-slate-400">Nothing needs attention.</p>
+          <SectionEmpty className="mt-2">Nothing needs attention.</SectionEmpty>
         ) : (
           <ul className="mt-2 divide-y divide-slate-100">
             {data.attention.rows.map((r) => (
@@ -516,7 +527,9 @@ function Overview({
             );
           })}
           {decksSorted.length === 0 && (
-            <li className="text-sm text-slate-400">No decks yet — create one under Manage decks.</li>
+            <li>
+              <SectionEmpty>No decks yet — create one under Manage decks.</SectionEmpty>
+            </li>
           )}
         </ul>
       </section>
@@ -540,6 +553,7 @@ interface SnapshotMeta {
 }
 
 function Evidence({ onError, onNotice }: { onError: (s: string) => void; onNotice: (s: string) => void }) {
+  const fmtDay = useFmtDay();
   const [snapshots, setSnapshots] = useState<SnapshotMeta[] | null>(null);
   const [busy, setBusy] = useState(false);
   const load = useCallback(async () => {
@@ -865,9 +879,9 @@ function MatrixView() {
         </a>
       </div>
       {data.decks.length === 0 || data.people.length === 0 ? (
-        <p className="px-4 py-8 text-center text-sm text-slate-400">
+        <SectionEmpty className="px-4 py-8 text-center">
           Nothing to show yet — assign a deck first.
-        </p>
+        </SectionEmpty>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -907,8 +921,8 @@ function MatrixView() {
               ))}
               {people.length === 0 && (
                 <tr>
-                  <td colSpan={1 + data.decks.length} className="px-4 py-6 text-center text-sm text-slate-400">
-                    Nobody matches.
+                  <td colSpan={1 + data.decks.length}>
+                    <SectionEmpty className="px-4 py-6 text-center">Nobody matches.</SectionEmpty>
                   </td>
                 </tr>
               )}
@@ -1075,9 +1089,11 @@ function ManageDecks({
           <LoaderCircle className="h-4 w-4 animate-spin" /> Loading…
         </div>
       ) : decks.length === 0 ? (
-        <p className="rounded-xl border border-slate-200 bg-surface px-4 py-8 text-center text-sm text-slate-400 shadow-xs">
-          No training decks yet — create one above.
-        </p>
+        <EmptyState
+          icon={<Layers />}
+          title="No training decks yet"
+          body="Pick a published document above to turn it into a deck people can be assigned."
+        />
       ) : (
         <section className="rounded-xl border border-slate-200 bg-surface shadow-xs">
           <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-4 py-3">
@@ -1155,7 +1171,7 @@ function ManageDecks({
                     </span>
                   </button>
                   {open && (
-                    <div className="border-t border-slate-100 bg-slate-50/40 px-4 py-4 dark:bg-slate-800/20">
+                    <div className="border-t border-slate-100 bg-slate-50/40 px-4 py-4">
                       <DeckCard
                         deck={d}
                         userOpts={userOpts}
@@ -1170,7 +1186,9 @@ function ManageDecks({
               );
             })}
             {visible.length === 0 && (
-              <li className="px-4 py-6 text-center text-sm text-slate-400">No decks match.</li>
+              <li>
+                <SectionEmpty className="px-4 py-6 text-center">No decks match.</SectionEmpty>
+              </li>
             )}
           </ul>
         </section>
@@ -1384,7 +1402,7 @@ function ProgramRow({
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
             {program.decks.map((d, i) => (
-              <span key={d.id} className="rounded-full bg-slate-100 px-2 py-0.5 dark:bg-slate-800/60">
+              <span key={d.id} className="rounded-full bg-slate-100 px-2 py-0.5">
                 {i + 1}. {d.title}
               </span>
             ))}
@@ -1833,6 +1851,7 @@ function PeopleTable({
   busy: boolean;
   post: (body: Record<string, unknown>, done: string) => Promise<void>;
 }) {
+  const fmtDay = useFmtDay();
   const [filter, setFilter] = useState<PeopleFilter>("all");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -1948,9 +1967,9 @@ function PeopleTable({
             <LoaderCircle className="h-4 w-4 animate-spin" /> Loading…
           </p>
         ) : visible.length === 0 ? (
-          <p className="px-3 py-3 text-sm text-slate-400">
+          <SectionEmpty className="px-3 py-3">
             {people.length === 0 ? "Nobody assigned yet." : "Nobody matches."}
-          </p>
+          </SectionEmpty>
         ) : (
           <table className="w-full text-sm">
             <thead>

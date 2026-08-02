@@ -254,7 +254,7 @@ export function OutlookPane() {
             </button>
           </form>
 
-          {flash && <p className="mt-2 rounded-sm bg-green-50 px-2 py-1 text-xs text-green-700">{flash}</p>}
+          {flash && <p className="notice-ok mt-2 rounded-sm px-2 py-1 text-xs">{flash}</p>}
           {busy && <p className="mt-3 text-sm text-slate-400">{busy === "ask" ? "Thinking…" : "Searching…"}</p>}
 
           {answer && (

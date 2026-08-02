@@ -31,6 +31,7 @@ import {
   MousePointerClick,
   FilterX,
 } from "lucide-react";
+import { useFormatDate } from "./SettingsProvider";
 
 type Kpis = Record<string, number>;
 interface SeriesPoint {
@@ -64,11 +65,6 @@ function fmtDuration(seconds: number): string {
   const m = Math.floor(seconds / 60);
   if (m < 60) return `${m}m ${seconds % 60}s`;
   return `${Math.floor(m / 60)}h ${m % 60}m`;
-}
-
-function fmtDay(day: string): string {
-  const d = new Date(day + "T00:00:00");
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 // --- KPI cards ----------------------------------------------------------------
@@ -141,6 +137,7 @@ const H = 220;
 const PAD = { l: 36, r: 10, t: 12, b: 24 };
 
 function TrendChart({ series, compact = false }: { series: SeriesPoint[]; compact?: boolean }) {
+  const fmt = useFormatDate();
   const [hover, setHover] = useState<number | null>(null);
   const h = compact ? 160 : H;
   const innerW = W - PAD.l - PAD.r;
@@ -174,7 +171,7 @@ function TrendChart({ series, compact = false }: { series: SeriesPoint[]; compac
       >
         {ticks.map((t) => (
           <g key={t}>
-            <line x1={PAD.l} x2={W - PAD.r} y1={y(t)} y2={y(t)} className="stroke-slate-200/70 dark:stroke-slate-700/60" strokeDasharray="3 4" strokeWidth="1" />
+            <line x1={PAD.l} x2={W - PAD.r} y1={y(t)} y2={y(t)} className="stroke-slate-200/70" strokeDasharray="3 4" strokeWidth="1" />
             <text x={PAD.l - 6} y={y(t) + 3.5} textAnchor="end" className="fill-slate-400 text-[10px]">
               {t}
             </text>
@@ -203,7 +200,7 @@ function TrendChart({ series, compact = false }: { series: SeriesPoint[]; compac
           series.map((s, i) =>
             i % Math.ceil(series.length / 8) === 0 || i === series.length - 1 ? (
               <text key={i} x={x(i)} y={h - 6} textAnchor="middle" className="fill-slate-400 text-[10px]">
-                {fmtDay(s.day)}
+                {fmt.dayShort(s.day)}
               </text>
             ) : null
           )}
@@ -219,7 +216,7 @@ function TrendChart({ series, compact = false }: { series: SeriesPoint[]; compac
           className="pointer-events-none absolute top-1 z-10 rounded-lg border border-slate-200 bg-surface px-3 py-2 text-xs shadow-md"
           style={{ left: `${Math.min(82, Math.max(2, (x(hover!) / W) * 100))}%` }}
         >
-          <div className="font-semibold text-slate-700">{fmtDay(p.day)}</div>
+          <div className="font-semibold text-slate-700">{fmt.dayShort(p.day)}</div>
           <div className="mt-0.5 text-slate-500">
             {p.app_views + p.public_views} views ({p.public_views} public)
           </div>
@@ -294,7 +291,7 @@ function BarList({
               {r.hint ? ` · ${r.hint}` : ""}
             </span>
           </div>
-          <div className="mt-0.5 h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+          <div className="mt-0.5 h-1.5 overflow-hidden rounded-full bg-slate-100">
             <div className="h-full rounded-full bg-compass-400/80" style={{ width: `${(r.value / max) * 100}%` }} />
           </div>
         </li>
@@ -325,7 +322,7 @@ function DocDrilldown({ docId, days, onClose }: { docId: number; days: number; o
     <div
       role="dialog"
       aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+      className="cmd-scrim fixed inset-0 z-50 flex items-center justify-center p-4"
       onClick={onClose}
     >
       <div
@@ -367,7 +364,7 @@ function DocDrilldown({ docId, days, onClose }: { docId: number; days: number; o
                 ["Avg time", fmtDuration(data.totals.avg_seconds)],
                 ["Downloads", data.totals.downloads],
               ].map(([label, v]) => (
-                <div key={label as string} className="rounded-lg border border-slate-200 bg-slate-50/70 px-2.5 py-2 text-center dark:bg-slate-800/40">
+                <div key={label as string} className="rounded-lg border border-slate-200 bg-slate-50/70 px-2.5 py-2 text-center">
                   <div className="text-base font-bold text-slate-800">{v as any}</div>
                   <div className="text-[10px] uppercase tracking-wide text-slate-400">{label as string}</div>
                 </div>
@@ -404,6 +401,7 @@ function DocDrilldown({ docId, days, onClose }: { docId: number; days: number; o
 // --- Dashboard ----------------------------------------------------------------
 
 export function AnalyticsClient() {
+  const fmt = useFormatDate();
   const [days, setDays] = useState(30);
   const [space, setSpace] = useState("");
   const [category, setCategory] = useState("");
@@ -526,7 +524,7 @@ export function AnalyticsClient() {
       </div>
 
       {error && (
-        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+        <div className="notice-error mb-4 rounded-lg border px-4 py-2 text-sm">
           {error}
         </div>
       )}
@@ -658,7 +656,7 @@ export function AnalyticsClient() {
                         <td className={`py-2 text-right ${d.views === 0 ? "font-semibold text-amber-600" : "text-slate-600"}`}>
                           {d.views}
                         </td>
-                        <td className="whitespace-nowrap py-2 pl-3 text-right text-slate-400">{d.updated}</td>
+                        <td className="whitespace-nowrap py-2 pl-3 text-right text-slate-400">{fmt.date(d.updated)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -700,7 +698,7 @@ export function AnalyticsClient() {
                         {s.query}
                       </Link>
                       <span className="shrink-0 text-xs text-slate-400">
-                        ×{s.count} · last {s.last}
+                        ×{s.count} · last {fmt.date(s.last)}
                       </span>
                     </li>
                   ))}
@@ -732,7 +730,7 @@ export function AnalyticsClient() {
                         <td className="py-2 text-right text-slate-600">{r.views}</td>
                         <td className="py-2 text-right text-slate-400">{r.docs}</td>
                         <td className="py-2 text-right text-slate-400">{fmtDuration(r.seconds)}</td>
-                        <td className="py-2 text-right text-slate-400">{r.last_active}</td>
+                        <td className="py-2 text-right text-slate-400">{fmt.date(r.last_active)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -781,7 +779,7 @@ export function AnalyticsClient() {
               <ul className="divide-y divide-slate-100 text-sm">
                 {data.activity.map((a: any, i: number) => (
                   <li key={i} className="flex items-center gap-2.5 py-2">
-                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500 dark:bg-slate-800">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500">
                       {a.kind === "view" ? (
                         <Eye className="h-3 w-3" />
                       ) : a.kind === "search" ? (
@@ -813,7 +811,7 @@ export function AnalyticsClient() {
                       )}
                     </span>
                     <span className="shrink-0 text-xs text-slate-400">
-                      {new Date(a.at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                      {fmt.dateTime(a.at)}
                     </span>
                   </li>
                 ))}

@@ -7,15 +7,15 @@ import type { DiagnosticCheck } from "@/lib/diagnostics";
 const TONE: Record<DiagnosticCheck["status"], { icon: React.ReactNode; chip: string }> = {
   pass: {
     icon: <CheckCircle2 className="h-4 w-4 text-green-600" aria-hidden />,
-    chip: "bg-green-50 text-green-700",
+    chip: "bg-green-50 text-green-700 dark:bg-green-950/50 dark:text-green-300",
   },
   warn: {
     icon: <AlertTriangle className="h-4 w-4 text-amber-500" aria-hidden />,
-    chip: "bg-amber-50 text-amber-700",
+    chip: "bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300",
   },
   fail: {
     icon: <XCircle className="h-4 w-4 text-red-600" aria-hidden />,
-    chip: "bg-red-50 text-red-700",
+    chip: "bg-red-50 text-red-700 dark:bg-red-950/50 dark:text-red-300",
   },
 };
 

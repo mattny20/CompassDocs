@@ -13,6 +13,8 @@ import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import { toHtml } from "hast-util-to-html";
 import { MD_SANITIZE_SCHEMA, rehypeFilterStyles } from "./md-html";
+import { formatDate } from "./format";
+import { getAppSettings } from "./settings-store";
 import {
   listAnnouncementRecipients,
   getSetting,
@@ -165,7 +167,9 @@ export async function archiveNewsletter(n: Newsletter): Promise<number | null> {
       type: "knowledge",
       status: "published",
       content: n.body,
-      summary: `Newsletter sent ${new Date().toLocaleDateString()}.`,
+      // Workspace date format, not the server's locale — this string is
+      // persisted on the archived document and read by everyone.
+      summary: `Newsletter sent ${formatDate(new Date().toISOString(), await getAppSettings())}.`,
       tags: ["newsletter"],
       author: n.author_name,
     });

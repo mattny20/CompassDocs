@@ -80,11 +80,11 @@ export default async function AcknowledgementsPage({
                 <td className="px-4 py-2.5 text-slate-500">{r.role}</td>
                 <td className="px-4 py-2.5">
                   {r.acknowledged_at ? (
-                    <span className="rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700">
+                    <span className="rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-950/50 dark:text-green-300">
                       Acknowledged
                     </span>
                   ) : (
-                    <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
+                    <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950/50 dark:text-amber-300">
                       Pending
                     </span>
                   )}

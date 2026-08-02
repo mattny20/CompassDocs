@@ -662,7 +662,7 @@ export function DocEditor({
       )}
 
       {error && (
-        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+        <div className="notice-error mb-4 rounded-lg border px-4 py-2 text-sm">
           {error}
           {conflict && docId && (
             <span className="mt-1 block">
@@ -829,7 +829,7 @@ export function DocEditor({
         </div>
 
         {!canPublish && (
-          <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          <p className="notice-warn rounded-lg border px-3 py-2 text-xs">
             You can save drafts freely. Setting the status to <strong>Published</strong> submits
             your change to the review queue for an approver to publish.
           </p>
@@ -1068,7 +1068,7 @@ export function DocEditor({
           </p>
         )}
         {proofError && (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          <div className="notice-error rounded-lg border px-3 py-2 text-sm">
             {proofError}
           </div>
         )}
@@ -1076,7 +1076,7 @@ export function DocEditor({
         {proof && <ProofPanel proof={proof} onApply={applyProof} onDismiss={() => setProof(null)} />}
 
         {assistError && (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          <div className="notice-warn rounded-lg border px-3 py-2 text-sm">
             {assistError}
           </div>
         )}
@@ -1199,7 +1199,7 @@ function ProofPanel({
 
   if (proof.mode === "unavailable") {
     return (
-      <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+      <div className="notice-warn rounded-lg border px-4 py-3 text-sm">
         {proof.message || "AI proofreading is unavailable."}
       </div>
     );
@@ -1248,11 +1248,11 @@ function ProofPanel({
                 {c.note && <span className="text-xs text-slate-500">{c.note}</span>}
               </div>
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                <span className="rounded-sm bg-red-50 px-1.5 py-0.5 text-red-700 line-through decoration-red-300">
+                <span className="rounded-sm bg-red-50 px-1.5 py-0.5 text-red-700 line-through decoration-red-300 dark:bg-red-950/40 dark:text-red-300">
                   {c.before}
                 </span>
                 <span className="text-slate-400">→</span>
-                <span className="rounded-sm bg-green-50 px-1.5 py-0.5 text-green-700">{c.after}</span>
+                <span className="rounded-sm bg-green-50 px-1.5 py-0.5 text-green-700 dark:bg-green-950/40 dark:text-green-300">{c.after}</span>
               </div>
             </li>
           ))}

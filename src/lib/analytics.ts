@@ -169,7 +169,14 @@ export async function overview(f: AnalyticsFilters) {
   return { ...row, ...dl, ...s };
 }
 
-/** Daily view counts (app vs public) and daily active users, for the chart. */
+/** Daily view counts (app vs public) and daily active users, for the chart.
+ *
+ * `day` stays a `to_char`'d calendar day on purpose: it is a *bucket key*, not
+ * an instant. `date_trunc` already grouped the rows into the database's
+ * calendar days, so re-projecting the label into another time zone would put
+ * the wrong date under a bar. Render it with `formatDayShort`, which honors the
+ * workspace date format without shifting the day. Every column below that is a
+ * real instant returns raw ISO and goes through formatDate/formatDateTime. */
 export async function viewsOverTime(f: AnalyticsFilters) {
   const params: unknown[] = [f.days];
   const filter = docFilter(f, params);
@@ -224,7 +231,7 @@ export async function leastViewed(f: AnalyticsFilters, limit = 10) {
   params.push(limit);
   return q(
     `SELECT d.id, d.title, d.author, s.name AS space_name, s.icon AS space_icon,
-            to_char(d.updated_at, 'YYYY-MM-DD') AS updated,
+            d.updated_at AS updated,
             COALESCE(x.views, 0)::int AS views
      FROM documents d
      JOIN spaces s ON s.id = d.space_id
@@ -275,7 +282,7 @@ export async function topSearches(days: number, limit = 10) {
 export async function zeroResultSearches(days: number, limit = 10) {
   return q(
     `SELECT lower(query) AS query, COUNT(*)::int AS count,
-            to_char(MAX(searched_at), 'YYYY-MM-DD') AS last
+            MAX(searched_at) AS last
      FROM search_events
      WHERE searched_at > now() - ($1 * interval '1 day') AND results = 0
      GROUP BY lower(query) ORDER BY count DESC, MAX(searched_at) DESC LIMIT $2`,
@@ -293,7 +300,7 @@ export async function topReaders(f: AnalyticsFilters, limit = 10) {
             COUNT(v.id)::int AS views,
             COUNT(DISTINCT v.document_id)::int AS docs,
             COALESCE(SUM(v.duration_seconds), 0)::int AS seconds,
-            to_char(MAX(v.viewed_at), 'YYYY-MM-DD') AS last_active
+            MAX(v.viewed_at) AS last_active
      FROM doc_views v ${DOC_JOIN} JOIN users u ON u.id = v.user_id
      WHERE v.viewed_at > now() - ($1 * interval '1 day') AND ${filter}
      GROUP BY u.id, u.name, u.username, u.role
@@ -353,6 +360,7 @@ export async function recentActivity(f: AnalyticsFilters, limit = 15) {
 export async function documentDetail(documentId: number, days: number) {
   const [daily, readers, [totals], downloads] = await Promise.all([
     q(
+      // `day` is a calendar bucket key, not an instant — see viewsOverTime.
       `SELECT to_char(day, 'YYYY-MM-DD') AS day,
               COALESCE(app_views, 0)::int AS app_views,
               COALESCE(public_views, 0)::int AS public_views

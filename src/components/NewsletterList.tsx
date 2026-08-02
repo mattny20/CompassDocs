@@ -8,6 +8,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Plus, Mail, CalendarClock, Newspaper } from "lucide-react";
+import { EmptyState } from "./form";
+import { useFormatDate } from "./SettingsProvider";
 
 export interface NewsletterRow {
   id: number;
@@ -62,6 +64,7 @@ const SECTIONS: { status: string; title: string }[] = [
 ];
 
 export function NewsletterList({ initial }: { initial: NewsletterRow[] }) {
+  const fmt = useFormatDate();
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -110,12 +113,16 @@ export function NewsletterList({ initial }: { initial: NewsletterRow[] }) {
       {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 
       {!anyRows && (
-        <div className="rounded-xl border border-dashed border-slate-200 p-10 text-center">
-          <Mail className="mx-auto h-8 w-8 text-slate-300" />
-          <p className="mt-3 text-sm text-slate-500">
-            Nothing here yet — start your first newsletter.
-          </p>
-        </div>
+        <EmptyState
+          icon={<Mail />}
+          title="Nothing here yet"
+          body="Drafts, scheduled issues, and everything you've sent appear here."
+          action={{
+            label: busy ? "Creating…" : "Start your first newsletter",
+            onClick: createDraft,
+            icon: <Plus />,
+          }}
+        />
       )}
 
       {SECTIONS.map(({ status, title }) => {
@@ -137,7 +144,7 @@ export function NewsletterList({ initial }: { initial: NewsletterRow[] }) {
                       </p>
                       <p className="text-xs text-slate-400">
                         {r.author_name} ·{" "}
-                        {new Date(r.sent_at || r.updated_at).toLocaleString()}
+                        {fmt.dateTime(r.sent_at || r.updated_at)}
                         {r.status === "sent" && r.audience ? ` · ${r.audience}` : ""}
                       </p>
                     </div>
@@ -149,7 +156,7 @@ export function NewsletterList({ initial }: { initial: NewsletterRow[] }) {
                     {r.status === "approved" && r.scheduled_at && (
                       <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-500/20 dark:text-green-300">
                         <CalendarClock className="h-3 w-3" />
-                        {new Date(r.scheduled_at).toLocaleString()}
+                        {fmt.dateTime(r.scheduled_at)}
                       </span>
                     )}
                     <StatusBadge status={r.status} />

@@ -13,6 +13,7 @@
 import "server-only";
 import { pool, getSetting } from "./db";
 import { sendMail } from "./mailer";
+import { formatDate, settingsForUser } from "./format";
 import { smtpConfigured, getSmtpConfig } from "./smtp-config";
 import { audit } from "./audit";
 
@@ -78,6 +79,8 @@ interface DigestRow {
   title: string;
   space_name: string;
   extra?: string;
+  /** Raw ISO instant for rows whose `extra` is a date (see the reviews query). */
+  extra_at?: string;
 }
 
 function section(title: string, rows: DigestRow[], origin: string): { text: string; html: string } | null {
@@ -112,9 +115,10 @@ export async function maybeSendWeeklyDigests(now = new Date()): Promise<void> {
     name: string;
     role: string;
     timezone: string;
+    date_format: string;
     digest_last_week: string;
   }>(
-    `SELECT id, email, name, role, timezone, digest_last_week FROM users
+    `SELECT id, email, name, role, timezone, date_format, digest_last_week FROM users
      WHERE status = 'active' AND email <> '' AND email_notifications = 1 AND weekly_digest = 1`
   );
   if (recipients.length === 0) return;
@@ -131,7 +135,8 @@ export async function maybeSendWeeklyDigests(now = new Date()): Promise<void> {
 
   // Zone fallback chain: personal preference → workspace zone → server zone.
   const { getAppSettings } = await import("./settings-store");
-  const workspaceTz = (await getAppSettings()).timezone || "";
+  const workspaceSettings = await getAppSettings();
+  const workspaceTz = workspaceSettings.timezone || "";
 
   let sent = 0;
   let failed = 0;
@@ -195,7 +200,7 @@ export async function maybeSendWeeklyDigests(now = new Date()): Promise<void> {
         u.role === "admin" || u.role === "approver"
           ? await q<DigestRow>(
               `SELECT d.id, d.title, s.name AS space_name,
-                      to_char(d.review_due_at, 'Mon DD') AS extra
+                      d.review_due_at AS extra_at
                FROM documents d JOIN spaces s ON s.id = d.space_id
                WHERE d.deleted_at IS NULL AND d.branch_of IS NULL
                  AND d.review_due_at IS NOT NULL AND d.review_due_at < now() + interval '7 days'
@@ -203,6 +208,11 @@ export async function maybeSendWeeklyDigests(now = new Date()): Promise<void> {
                ORDER BY d.review_due_at ASC
                LIMIT ${MAX_ROWS}`,
               u.role === "admin" ? [] : [u.id]
+            ).then((rows) =>
+              rows.map((r) => ({
+                ...r,
+                extra: formatDate(r.extra_at, settingsForUser(workspaceSettings, u)),
+              }))
             )
           : [];
 

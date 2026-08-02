@@ -5,8 +5,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Search, X } from "lucide-react";
+import { Search, SearchX, X } from "lucide-react";
 import { TypeBadge } from "./Badges";
+import { EmptyState } from "./form";
 import { safeSnippet } from "@/lib/snippet";
 
 interface Hit {
@@ -98,9 +99,12 @@ export function SpaceSearch({
             {busy ? "Searching…" : `${hits.length} result${hits.length === 1 ? "" : "s"} in ${spaceName}`}
           </p>
           {hits.length === 0 && !busy ? (
-            <div className="rounded-xl border border-dashed border-slate-300 bg-surface p-10 text-center text-slate-500">
-              Nothing in {spaceName} matches “{query.trim()}”.
-            </div>
+            <EmptyState
+              icon={<SearchX />}
+              title={<>Nothing in {spaceName} matches “{query.trim()}”</>}
+              body="Try fewer words, or search every space instead."
+              action={{ href: `/search?q=${encodeURIComponent(query.trim())}`, label: "Search all spaces", icon: <Search /> }}
+            />
           ) : (
             <ul className="space-y-2">
               {hits.map((h) => (

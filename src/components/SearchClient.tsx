@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
-import { Sparkles, X } from "lucide-react";
+import { SearchX, Sparkles, X } from "lucide-react";
+import { EmptyState } from "./form";
 import { MarkdownView } from "./MarkdownView";
 import { PageContainer } from "./PageWidth";
 import { TypeBadge } from "./Badges";
@@ -257,10 +258,10 @@ export function SearchClient({
               </Link>
             ))}
             {!searching && hits.length === 0 && (
-              <div className="rounded-xl border border-dashed border-slate-300 bg-surface p-8 text-center">
-                <p className="font-medium text-slate-600">
-                  No documents matched &ldquo;{submitted}&rdquo;.
-                </p>
+              <EmptyState
+                icon={<SearchX />}
+                title={<>No documents matched &ldquo;{submitted}&rdquo;</>}
+              >
                 <ul className="mx-auto mt-3 max-w-md space-y-1 text-left text-sm text-slate-500">
                   <li>· Try fewer or more general words — search also matches by meaning.</li>
                   {parseSearchQuery(submitted).hasFilters && (
@@ -275,7 +276,7 @@ export function SearchClient({
                   </li>
                   <li>· The ✨ answer above may still help — it reads across all your docs.</li>
                 </ul>
-              </div>
+              </EmptyState>
             )}
           </div>
         </div>

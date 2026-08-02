@@ -93,7 +93,7 @@ export function VideoInsertDialog({
     <div
       role="dialog"
       aria-label="Insert video"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4"
+      className="cmd-scrim fixed inset-0 z-50 flex items-center justify-center p-4"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}

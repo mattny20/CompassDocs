@@ -77,7 +77,7 @@ export function VideoPlayer({
           onClick={() => setTheater(true)}
           data-tt="Theater mode"
           aria-label="Open video in theater mode"
-          className="absolute right-2 top-2 rounded-md bg-slate-900/60 p-1.5 text-white opacity-0 transition focus:opacity-100 group-hover:opacity-100"
+          className="absolute right-2 top-2 rounded-md bg-[#0f172a]/60 p-1.5 text-white opacity-0 transition focus:opacity-100 group-hover:opacity-100"
         >
           <Maximize2 className="h-4 w-4" aria-hidden />
         </button>

@@ -84,7 +84,7 @@ export function ScimPanel({ initial }: { initial: ScimStatus }) {
       </div>
 
       {!status.licensed ? (
-        <p className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500 dark:bg-slate-800/40">
+        <p className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">
           SCIM provisioning requires an enterprise license that includes the{" "}
           <code className="text-xs">scim</code> entitlement.
         </p>
@@ -95,7 +95,7 @@ export function ScimPanel({ initial }: { initial: ScimStatus }) {
               Tenant URL (paste into Entra provisioning)
             </div>
             <div className="mt-1 flex items-center gap-2">
-              <code className="flex-1 truncate rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-700 dark:bg-slate-800/40">
+              <code className="flex-1 truncate rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-700">
                 {status.base_url}
               </code>
               <button
@@ -113,7 +113,7 @@ export function ScimPanel({ initial }: { initial: ScimStatus }) {
                 Secret token — copy it now, it won&rsquo;t be shown again
               </div>
               <div className="mt-1 flex items-center gap-2">
-                <code className="flex-1 break-all rounded-md bg-white/70 px-2.5 py-1.5 text-xs text-slate-800 dark:bg-slate-900/60 dark:text-slate-100">
+                <code className="flex-1 break-all rounded-md bg-surface/70 px-2.5 py-1.5 text-xs text-slate-800">
                   {freshToken}
                 </code>
                 <button

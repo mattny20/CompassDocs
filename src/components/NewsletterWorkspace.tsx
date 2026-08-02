@@ -25,6 +25,7 @@ import {
 import { RichTextEditor } from "./RichTextEditor";
 import { MarkdownView } from "./MarkdownView";
 import { StatusBadge } from "./NewsletterList";
+import { useFormatDate } from "./SettingsProvider";
 
 interface NewsletterDetail {
   id: number;
@@ -117,6 +118,7 @@ export function NewsletterWorkspace({
   hasModuleAccess?: boolean;
 }) {
   const router = useRouter();
+  const fmt = useFormatDate();
   const [n, setN] = useState(initial.newsletter);
   const [comments, setComments] = useState(initial.comments);
   const [files, setFiles] = useState<FileRow[]>(initial.files ?? []);
@@ -346,7 +348,7 @@ export function NewsletterWorkspace({
     setScheduleAt("");
     setNotice(
       at
-        ? `Scheduled — it will go out ${new Date(at).toLocaleString()}.`
+        ? `Scheduled — it will go out ${fmt.dateTime(at)}.`
         : "Schedule cancelled."
     );
     await refresh();
@@ -391,7 +393,7 @@ export function NewsletterWorkspace({
           <StatusBadge status={n.status} />
           <span className="text-xs text-slate-400">
             by {n.author_name}
-            {n.sent_at ? ` · sent ${new Date(n.sent_at).toLocaleString()}` : ""}
+            {n.sent_at ? ` · sent ${fmt.dateTime(n.sent_at)}` : ""}
           </span>
         </div>
         {can.delete && (
@@ -418,7 +420,7 @@ export function NewsletterWorkspace({
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-500/30 dark:bg-green-500/10 dark:text-green-300">
           <span className="inline-flex items-center gap-1.5">
             <CalendarClock className="h-4 w-4" />
-            Scheduled to send {new Date(n.scheduled_at).toLocaleString()}.
+            Scheduled to send {fmt.dateTime(n.scheduled_at)}.
           </span>
           {can.send && (
             <button
@@ -858,7 +860,7 @@ export function NewsletterWorkspace({
                     {" · "}
                     {eventLabel(c.kind)}
                     {" · "}
-                    {new Date(c.created_at).toLocaleString()}
+                    {fmt.dateTime(c.created_at)}
                   </p>
                   <p className="whitespace-pre-wrap text-slate-700">{c.body}</p>
                 </div>

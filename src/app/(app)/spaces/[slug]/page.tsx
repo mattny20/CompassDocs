@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { FileText, Plus } from "lucide-react";
 import {
   getSpaceBySlug,
   listDocumentsBySpace,
@@ -10,6 +11,7 @@ import {
 import { SubscribeButton } from "@/components/SubscribeButton";
 import { SpaceSearch } from "@/components/SpaceSearch";
 import { SpaceViews } from "@/components/SpaceViews";
+import { EmptyState } from "@/components/form";
 import { PageContainer } from "@/components/PageWidth";
 import { requireUser } from "@/lib/auth";
 import { spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
@@ -83,17 +85,24 @@ export default async function SpacePage({ params }: { params: Promise<{ slug: st
 
       <SpaceSearch spaceId={space.id} spaceName={space.name}>
         {docs.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-slate-300 bg-surface p-10 text-center text-slate-500">
-            No documents in this space yet.
-            {isEditor && canAuthor && (
-              <>
-                {" "}
-                <Link href={`/doc/new?space=${space.slug}`} className="font-medium text-compass-600">
-                  Create the first one →
-                </Link>
-              </>
-            )}
-          </div>
+          <EmptyState
+            icon={<FileText />}
+            title="No documents in this space yet"
+            body={
+              isEditor && canAuthor
+                ? `Everything published to ${space.name} will be listed here.`
+                : `Everything published to ${space.name} will be listed here. Ask an editor to add the first document.`
+            }
+            action={
+              isEditor && canAuthor
+                ? {
+                    href: `/doc/new?space=${space.slug}`,
+                    label: "Create the first one",
+                    icon: <Plus />,
+                  }
+                : undefined
+            }
+          />
         ) : (
           <SpaceViews
             docs={lite}

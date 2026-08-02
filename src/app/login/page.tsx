@@ -64,7 +64,7 @@ export default async function LoginPage({
         </div>
         <div className="rounded-2xl border border-slate-200 bg-surface p-6 shadow-xs">
           {ssoError && (
-            <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            <div className="notice-error mb-4 rounded-lg border px-3 py-2 text-sm">
               {ssoError}
             </div>
           )}

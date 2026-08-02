@@ -40,7 +40,7 @@ export default async function PublicSearchPage({
       {!q && <p className="mt-2 text-slate-500">Type something in the search box above.</p>}
 
       {limited && (
-        <p className="mt-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+        <p className="notice-warn mt-6 rounded-lg border px-4 py-3 text-sm">
           Too many searches right now — please try again in a minute.
         </p>
       )}

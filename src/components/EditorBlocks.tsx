@@ -200,7 +200,7 @@ function DetailsNodeView({ node, updateAttributes }: NodeViewProps) {
     <NodeViewWrapper className="my-3 rounded-lg border border-slate-200">
       <div
         contentEditable={false}
-        className="flex items-center gap-1.5 border-b border-slate-100 bg-slate-50 px-3 py-1.5 dark:bg-slate-800/40"
+        className="flex items-center gap-1.5 border-b border-slate-100 bg-slate-50 px-3 py-1.5"
       >
         <span className="text-xs text-slate-400">▸ accordion</span>
         <input
@@ -273,7 +273,7 @@ function TabPanelNodeView({ node, updateAttributes }: NodeViewProps) {
     <NodeViewWrapper className="mb-2 rounded-md border border-slate-200 last:mb-0">
       <div
         contentEditable={false}
-        className="flex items-center gap-1.5 border-b border-slate-100 bg-slate-50 px-2.5 py-1 dark:bg-slate-800/40"
+        className="flex items-center gap-1.5 border-b border-slate-100 bg-slate-50 px-2.5 py-1"
       >
         <span className="text-[11px] uppercase tracking-wide text-slate-400">tab</span>
         <input

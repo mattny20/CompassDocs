@@ -1,8 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { formatDateTime } from "@/lib/format";
-import type { AppSettings } from "@/lib/settings";
+import { useFormatDate } from "./SettingsProvider";
 
 interface AuditRow {
   id: string;
@@ -116,13 +115,12 @@ function detailText(row: AuditRow): string {
 
 export function AuditLog({
   initial,
-  settings,
   exportEnabled = false,
 }: {
   initial: Initial;
-  settings: AppSettings;
   exportEnabled?: boolean;
 }) {
+  const fmt = useFormatDate();
   const [rows, setRows] = useState<AuditRow[]>(initial.rows);
   const [total, setTotal] = useState(initial.total);
   const [page, setPage] = useState(0);
@@ -264,7 +262,7 @@ export function AuditLog({
               return (
                 <tr key={row.id} className="border-b border-slate-50 last:border-0 align-top">
                   <td className="whitespace-nowrap px-4 py-2.5 text-slate-500">
-                    {formatDateTime(row.at, settings)}
+                    {fmt.dateTime(row.at)}
                   </td>
                   <td className="px-4 py-2.5">
                     <span className="font-medium text-slate-800">{row.actor_name}</span>

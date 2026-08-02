@@ -12,6 +12,8 @@ import { MarkdownView } from "@/components/MarkdownView";
 import { ViewTracker } from "@/components/ViewTracker";
 import { Paperclip } from "lucide-react";
 import { PrintButton } from "@/components/PrintButton";
+import { getAppSettings } from "@/lib/settings-store";
+import { formatDate } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -42,6 +44,8 @@ export default async function PublicDocPage({
   const p = await params;
   const { space, doc } = await publicDoc(p.space, p.doc);
   const attachments = await listAttachments(doc.id);
+  // Public readers have no account, so this is the workspace setting only.
+  const settings = await getAppSettings();
 
   return (
     <article>
@@ -66,14 +70,7 @@ export default async function PublicDocPage({
         <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">
           {DOC_TYPE_LABEL[doc.type]}
         </span>
-        <span>
-          Updated{" "}
-          {new Date(doc.updated_at).toLocaleDateString(undefined, {
-            year: "numeric",
-            month: "long",
-            day: "numeric",
-          })}
-        </span>
+        <span>Updated {formatDate(doc.updated_at, settings)}</span>
         {doc.tags.length > 0 && <span>· {doc.tags.join(", ")}</span>}
       </div>
 

@@ -7,6 +7,7 @@
 import { useState } from "react";
 import { toast } from "@/components/Toasts";
 import { Field, Select, TextInput } from "@/components/form";
+import { useFormatDate } from "./SettingsProvider";
 
 const FORMATS = [
   { value: "webex", label: "Webex (incoming webhook)" },
@@ -49,6 +50,7 @@ export function WebhooksPanel({
   initial: HookView[];
   spaces?: SpaceLite[];
 }) {
+  const fmt = useFormatDate();
   const [hooks, setHooks] = useState(initial);
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
@@ -228,7 +230,7 @@ export function WebhooksPanel({
               {h.last_sent_at && (
                 <>
                   {" — last delivery "}
-                  {new Date(h.last_sent_at).toLocaleString()}:{" "}
+                  {fmt.dateTime(h.last_sent_at)}:{" "}
                   <span className={h.last_status?.startsWith("ok") ? "text-green-600" : "text-red-500"}>
                     {h.last_status}
                   </span>

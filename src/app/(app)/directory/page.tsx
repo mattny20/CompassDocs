@@ -17,7 +17,7 @@ import { formatDate } from "@/lib/format";
 export const dynamic = "force-dynamic";
 
 export default async function DirectoryPage() {
-  await requireUser();
+  const user = await requireUser();
   const [people, departments, fields, printColumns, settings] = await Promise.all([
     listPeople(),
     listDepartments(),
@@ -47,7 +47,12 @@ export default async function DirectoryPage() {
           </div>
           <PrintButton />
         </div>
-        <DirectoryClient initialPeople={people} departments={departments} fields={fields} />
+        <DirectoryClient
+          initialPeople={people}
+          departments={departments}
+          fields={fields}
+          isAdmin={user.role === "admin"}
+        />
       </div>
 
       {/* Print: the quick phone directory, columns configured by an admin

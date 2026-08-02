@@ -2,8 +2,19 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { LayoutGrid, List as ListIcon, Building2, Phone, Smartphone, MapPin } from "lucide-react";
+import {
+  LayoutGrid,
+  List as ListIcon,
+  Building2,
+  Phone,
+  Smartphone,
+  MapPin,
+  BookUser,
+  Settings,
+  UserSearch,
+} from "lucide-react";
 import type { DirectoryPerson, DirectoryField } from "@/lib/directory";
+import { EmptyState } from "./form";
 import { TagBadges } from "./TagBadges";
 
 const field =
@@ -59,10 +70,13 @@ export function DirectoryClient({
   initialPeople,
   departments,
   fields,
+  isAdmin = false,
 }: {
   initialPeople: DirectoryPerson[];
   departments: string[];
   fields: DirectoryField[];
+  /** Admins get a link to Settings → Directory from the empty state. */
+  isAdmin?: boolean;
 }) {
   const [q, setQ] = useState("");
   const [dept, setDept] = useState("");
@@ -241,11 +255,28 @@ export function DirectoryClient({
       </div>
 
       {people.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-slate-200 p-10 text-center text-slate-400">
-          {initialPeople.length === 0
-            ? "The directory is empty. Admins can add people (or connect Microsoft 365) under Settings → Directory."
-            : "No one matches your search."}
-        </div>
+        initialPeople.length === 0 ? (
+          <EmptyState
+            icon={<BookUser />}
+            title="The directory is empty"
+            body={
+              isAdmin
+                ? "Add people, or connect Microsoft 365 to sync them, under Settings → Directory."
+                : "Admins can add people (or connect Microsoft 365) under Settings → Directory."
+            }
+            action={
+              isAdmin
+                ? { href: "/admin/directory", label: "Directory settings", icon: <Settings /> }
+                : undefined
+            }
+          />
+        ) : (
+          <EmptyState
+            icon={<UserSearch />}
+            title="No one matches your search"
+            body="Try a shorter name, or clear the department filter."
+          />
+        )
       ) : view === "list" ? (
         /* ------------------------------ LIST ------------------------------ */
         <div className="overflow-x-auto rounded-xl border border-slate-200 bg-surface shadow-xs">

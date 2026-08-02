@@ -145,12 +145,12 @@ export function UpdatePanel() {
             </div>
           )}
           {updating === "done" && (
-            <div className="rounded-lg bg-emerald-50 px-3 py-2.5 text-sm font-medium text-emerald-800 dark:bg-emerald-950/40">
+            <div className="notice-ok rounded-lg px-3 py-2.5 text-sm font-medium">
               ✓ Updated to v{updatedTo}. Reload the page to pick up the new interface.
             </div>
           )}
           {updating === "timeout" && (
-            <div className="rounded-lg bg-amber-50 px-3 py-2.5 text-sm text-amber-800 dark:bg-amber-950/40">
+            <div className="notice-warn rounded-lg px-3 py-2.5 text-sm">
               The update was triggered but the app hasn&rsquo;t come back newer after several
               minutes. Check <code className="font-mono">docker compose logs updater</code> on the
               server — the image may still be downloading, or the container tag may be pinned.
@@ -179,12 +179,12 @@ export function UpdatePanel() {
                     {copied ? "Copied ✓" : "Copy"}
                   </button>
                 </div>
-                <pre className="overflow-x-auto rounded-lg bg-slate-900 px-3 py-2.5 font-mono text-xs text-slate-100">
+                <pre className="overflow-x-auto rounded-lg bg-[#0f172a] px-3 py-2.5 font-mono text-xs text-[#f1f5f9]">
                   {status.upgradeCommand}
                 </pre>
               </div>
               {status.imageTag && status.imageTag !== "latest" && (
-                <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                <p className="notice-warn rounded-lg px-3 py-2 text-xs">
                   You&rsquo;ve pinned <code className="font-mono">COMPASSDOCS_VERSION={status.imageTag}</code>.
                   Bump it to <code className="font-mono">{status.latest.tag.replace(/^v/, "")}</code> (or{" "}
                   <code className="font-mono">latest</code>) in your <code className="font-mono">.env</code> before running the command.
@@ -195,7 +195,7 @@ export function UpdatePanel() {
                   <summary className="cursor-pointer text-xs font-medium text-slate-600">
                     Not running Docker? Update from the source tarball
                   </summary>
-                  <pre className="mt-2 overflow-x-auto rounded-lg bg-slate-900 px-3 py-2.5 font-mono text-xs text-slate-100">
+                  <pre className="mt-2 overflow-x-auto rounded-lg bg-[#0f172a] px-3 py-2.5 font-mono text-xs text-[#f1f5f9]">
                     {status.sourceUpgradeCommand}
                   </pre>
                   <p className="mt-2 text-xs text-slate-500">

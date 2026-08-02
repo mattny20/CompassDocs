@@ -64,14 +64,14 @@ export function MermaidBlock({ code }: { code: string }) {
 
   if (error) {
     return (
-      <div className="my-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200">
+      <div className="notice-warn my-4 rounded-lg border px-4 py-3 text-sm">
         <strong>Mermaid:</strong> {error.split("\n")[0]}
       </div>
     );
   }
   if (!svg) {
     return (
-      <div className="my-4 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-400 dark:bg-slate-800/40">
+      <div className="my-4 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-400">
         <LoaderCircle className="h-4 w-4 animate-spin" /> Rendering diagram…
       </div>
     );
@@ -135,14 +135,14 @@ export function PlantUmlBlock({ code }: { code: string }) {
 
   if (error) {
     return (
-      <div className="my-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200">
+      <div className="notice-warn my-4 rounded-lg border px-4 py-3 text-sm">
         <strong>PlantUML:</strong> {error}
       </div>
     );
   }
   if (!src) {
     return (
-      <div className="my-4 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-400 dark:bg-slate-800/40">
+      <div className="my-4 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-400">
         <LoaderCircle className="h-4 w-4 animate-spin" /> Rendering diagram…
       </div>
     );
@@ -150,7 +150,7 @@ export function PlantUmlBlock({ code }: { code: string }) {
   return (
     <>
       <div
-        className="my-4 cursor-zoom-in overflow-x-auto rounded-lg border border-slate-200 bg-white p-4 text-center transition hover:border-compass-300 dark:bg-slate-900"
+        className="my-4 cursor-zoom-in overflow-x-auto rounded-lg border border-slate-200 bg-surface p-4 text-center transition hover:border-compass-300"
         title="Click to zoom"
         onClick={() => setZoomed(true)}
       >
@@ -186,7 +186,7 @@ export function DocTabs({ titles, children }: { titles: string[]; children: Reac
 
   return (
     <div className="my-4 overflow-hidden rounded-lg border border-slate-200">
-      <div className="flex flex-wrap gap-1 border-b border-slate-200 bg-slate-50 px-2 pt-2 dark:bg-slate-800/40">
+      <div className="flex flex-wrap gap-1 border-b border-slate-200 bg-slate-50 px-2 pt-2">
         {titles.map((t, i) => (
           <button
             key={i}
@@ -227,7 +227,7 @@ export function DecisionTreeBlock({ code }: { code: string }) {
 
   if (tree.error) {
     return (
-      <div className="my-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200">
+      <div className="notice-warn my-4 rounded-lg border px-4 py-3 text-sm">
         <strong>Decision tree:</strong> {tree.error}
       </div>
     );
@@ -281,7 +281,7 @@ export function DecisionTreeBlock({ code }: { code: string }) {
           {path.map((p, i) => (
             <span key={i} className="flex items-center gap-1">
               {i > 0 && <span>›</span>}
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 dark:bg-slate-800">
+              <span className="rounded-full bg-slate-100 px-2 py-0.5">
                 {tree.nodes[p.node]?.question.replace(/\?$/, "")} → <strong>{p.choice}</strong>
               </span>
             </span>

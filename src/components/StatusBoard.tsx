@@ -18,14 +18,15 @@ import {
   Megaphone,
   Trash2,
 } from "lucide-react";
+import { useFormatDate } from "./SettingsProvider";
 import type { StatusIncident, StatusService } from "@/lib/db";
 
 const BADGE: Record<string, { label: string; dot: string; chip: string; icon: typeof CheckCircle2 }> = {
-  operational: { label: "Operational", dot: "bg-emerald-500", chip: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50", icon: CheckCircle2 },
-  degraded: { label: "Degraded", dot: "bg-amber-500", chip: "bg-amber-50 text-amber-700 dark:bg-amber-950/50", icon: AlertTriangle },
-  outage: { label: "Outage", dot: "bg-red-500", chip: "bg-red-50 text-red-700 dark:bg-red-950/50", icon: XCircle },
-  maintenance: { label: "Maintenance", dot: "bg-sky-500", chip: "bg-sky-50 text-sky-700 dark:bg-sky-950/50", icon: Wrench },
-  unknown: { label: "Unknown", dot: "bg-slate-300", chip: "bg-slate-100 text-slate-500 dark:bg-slate-800", icon: CircleHelp },
+  operational: { label: "Operational", dot: "bg-emerald-500", chip: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300", icon: CheckCircle2 },
+  degraded: { label: "Degraded", dot: "bg-amber-500", chip: "bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300", icon: AlertTriangle },
+  outage: { label: "Outage", dot: "bg-red-500", chip: "bg-red-50 text-red-700 dark:bg-red-950/50 dark:text-red-300", icon: XCircle },
+  maintenance: { label: "Maintenance", dot: "bg-sky-500", chip: "bg-sky-50 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300", icon: Wrench },
+  unknown: { label: "Unknown", dot: "bg-slate-300", chip: "bg-slate-100 text-slate-500", icon: CircleHelp },
 };
 
 type CatalogEntry = { name: string; provider: string; source_url: string };
@@ -44,6 +45,7 @@ export function StatusBoard({
   isApprover: boolean;
 }) {
   const router = useRouter();
+  const fmt = useFormatDate();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [adding, setAdding] = useState(false);
@@ -149,7 +151,7 @@ export function StatusBoard({
         )}
       </div>
 
-      {error && <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+      {error && <div className="notice-error rounded-lg px-3 py-2 text-sm">{error}</div>}
 
       {/* Declare form */}
       {declaring && isApprover && (
@@ -232,7 +234,7 @@ export function StatusBoard({
                 <li key={u.id} className="text-sm">
                   <span className="text-slate-700">{u.body}</span>
                   <span className="ml-2 text-xs text-slate-400">
-                    {u.author} · {new Date(u.created_at).toLocaleString()}
+                    {u.author} · {fmt.dateTime(u.created_at)}
                   </span>
                 </li>
               ))}
@@ -276,7 +278,7 @@ export function StatusBoard({
         </div>
 
         {adding && isAdmin && (
-          <div className="space-y-2 border-b border-slate-100 bg-slate-50/60 px-4 py-3 dark:bg-slate-900/30">
+          <div className="space-y-2 border-b border-slate-100 bg-slate-50/60 px-4 py-3">
             <div className="flex flex-wrap items-center gap-2">
               <select value={pick} onChange={(e) => setPick(e.target.value)} className={input} aria-label="Catalog service">
                 <option value="">From the catalog…</option>
@@ -341,7 +343,7 @@ export function StatusBoard({
                       <span className="font-medium text-slate-800">{s.name}</span>
                       <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${b.chip}`}>{b.label}</span>
                       {s.provider === "manual" && (
-                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500 dark:bg-slate-800">
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500">
                           internal
                         </span>
                       )}
@@ -349,8 +351,8 @@ export function StatusBoard({
                     {s.status_detail && <div className="truncate text-xs text-slate-500">{s.status_detail}</div>}
                   </div>
                   {s.last_checked_at && (
-                    <span className="hidden shrink-0 text-xs text-slate-400 sm:block" title={new Date(s.last_checked_at).toLocaleString()}>
-                      checked {new Date(s.last_checked_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                    <span className="hidden shrink-0 whitespace-nowrap text-xs text-slate-400 sm:block">
+                      checked {fmt.dateTime(s.last_checked_at)}
                     </span>
                   )}
                   {s.status_url && (
@@ -400,7 +402,7 @@ export function StatusBoard({
                   {serviceName(inc.service_id)} — {inc.title}
                 </span>
                 <span className="ml-auto text-xs text-slate-400">
-                  {inc.resolved_at ? new Date(inc.resolved_at).toLocaleString() : ""}
+                  {inc.resolved_at ? fmt.dateTime(inc.resolved_at) : ""}
                 </span>
               </li>
             ))}

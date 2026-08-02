@@ -10,6 +10,8 @@ import { canSend } from "@/lib/newsletter-access";
 import { requestOrigin } from "@/lib/oauth";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
 import type { SessionUser } from "@/lib/types";
+import { formatDateTime } from "@/lib/format";
+import { getAppSettings } from "@/lib/settings-store";
 
 export const dynamic = "force-dynamic";
 
@@ -79,7 +81,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     newsletter_id: n.id,
     user_id: user.id,
     author_name: actorName,
-    body: `Scheduled to send ${at.toLocaleString()}.`,
+    body: `Scheduled to send ${formatDateTime(at.toISOString(), await getAppSettings())}.`,
     kind: "scheduled",
   });
   await audit({

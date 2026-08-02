@@ -64,8 +64,12 @@ const UNREAD_MIN_AGE_DAYS = 30; // … for docs at least this old
 const DUP_SIMILARITY = 0.92; // cosine similarity considered "likely duplicate"
 const LIST_CAP = 50; // rows per section, keeps the page and payload sane
 
+// Raw ISO timestamps, never `to_char` — formatting a date inside SQL renders
+// it in the *database server's* zone, so a document touched near midnight shows
+// the wrong day to anyone in another zone. The page formats these through
+// lib/format with the workspace/user zone.
 const DOC_COLS = `d.id, d.title, s.name AS space_name, d.status, d.author,
-  to_char(d.updated_at, 'YYYY-MM-DD') AS updated_at`;
+  d.updated_at`;
 
 export async function knowledgeHealthReport(): Promise<HealthReport> {
   const [totalsRow] = await q<{ documents: number; published: number }>(
@@ -169,9 +173,9 @@ export async function knowledgeHealthReport(): Promise<HealthReport> {
          GROUP BY ca.document_id, cb.document_id
        )
        SELECT b.a_id, da.title AS a_title, sa.name AS a_space, da.status AS a_status, da.author AS a_author,
-              to_char(da.updated_at,'YYYY-MM-DD') AS a_updated,
+              da.updated_at AS a_updated,
               b.b_id, db.title AS b_title, sb.name AS b_space, db.status AS b_status, db.author AS b_author,
-              to_char(db.updated_at,'YYYY-MM-DD') AS b_updated,
+              db.updated_at AS b_updated,
               round(b.similarity::numeric, 3)::float AS similarity
        FROM best b
        JOIN documents da ON da.id = b.a_id AND da.deleted_at IS NULL AND da.branch_of IS NULL

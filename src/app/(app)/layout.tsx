@@ -2,6 +2,9 @@ import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth";
 import { Sidebar } from "@/components/Sidebar";
 import { WidthProvider } from "@/components/PageWidth";
+import { SettingsProvider } from "@/components/SettingsProvider";
+import { getAppSettings } from "@/lib/settings-store";
+import { settingsForUser } from "@/lib/format";
 import { countOpenSuggestions, countPendingChangeRequests, countTrashed } from "@/lib/db";
 import { roleAtLeast } from "@/lib/types";
 import { ToastHost } from "@/components/Toasts";
@@ -17,7 +20,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   if (user.must_change_password) redirect("/account/password");
 
   const isEditor = roleAtLeast(user.role, "editor");
-  const [reviewCount, trashCount, caps, paletteSpaces] = await Promise.all([
+  const [reviewCount, trashCount, caps, paletteSpaces, workspaceSettings] = await Promise.all([
     roleAtLeast(user.role, "approver")
       ? Promise.all([countOpenSuggestions(), countPendingChangeRequests()]).then(
           ([a, b]) => a + b
@@ -26,7 +29,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     isEditor ? countTrashed() : Promise.resolve(0),
     navCapabilities(user),
     spaceScopeFor(user).then((scope) => listSpaces(scope)),
+    getAppSettings(),
   ]);
+  // Workspace defaults with this user's own time zone / date format on top.
+  const settings = settingsForUser(workspaceSettings, user);
 
   return (
     <div className="flex h-screen overflow-hidden print:h-auto print:overflow-visible">
@@ -39,8 +45,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       </a>
       <Sidebar user={user} reviewCount={reviewCount} trashCount={trashCount} />
       <main id="main" className="flex-1 overflow-y-auto print:overflow-visible">
+        <SettingsProvider value={settings}>
         <WidthProvider initial={user.page_width}>{children}
         <ToastHost /></WidthProvider>
+        </SettingsProvider>
       </main>
       <CommandPalette
         userId={user.id}

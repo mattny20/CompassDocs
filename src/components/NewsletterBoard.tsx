@@ -7,6 +7,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Mail, X } from "lucide-react";
+import { useFormatDate } from "./SettingsProvider";
 
 export interface NewsletterCard {
   id: number;
@@ -17,6 +18,7 @@ export interface NewsletterCard {
 
 export function NewsletterBoard({ initial }: { initial: NewsletterCard[] }) {
   const router = useRouter();
+  const fmt = useFormatDate();
   const [items, setItems] = useState(initial);
   if (items.length === 0) return null;
 
@@ -49,7 +51,7 @@ export function NewsletterBoard({ initial }: { initial: NewsletterCard[] }) {
                 {n.subject}
               </Link>
               <p className="mt-1 text-xs text-slate-500">
-                {n.author_name} · {new Date(n.sent_at).toLocaleDateString()} ·{" "}
+                {n.author_name} · {fmt.date(n.sent_at)} ·{" "}
                 <Link href={`/newsletter/${n.id}`} className="underline hover:no-underline">
                   read it here
                 </Link>

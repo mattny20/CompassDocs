@@ -111,11 +111,11 @@ export function AiSettings({ initial }: { initial: AiState }) {
 
       {/* Status banner */}
       {!aiOn ? (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+        <div className="notice-warn rounded-lg border px-3 py-2 text-sm">
           AI features are <strong>off</strong> — no provider configured.
         </div>
       ) : (
-        <div className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
+        <div className="notice-ok rounded-lg border px-3 py-2 text-sm">
           ✓ AI features are <strong>on</strong>
           {provider === "anthropic"
             ? source === "env"

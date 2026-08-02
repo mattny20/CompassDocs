@@ -47,14 +47,51 @@ Every top-level page:
 
 ## Empty states
 
-Two tiers:
+Two tiers, and both come from `components/form` — never hand-roll a "nothing
+here" box. (Sixteen pages once shipped eleven different ones: dashed and solid
+borders, four paddings, three greys, two of them with an emoji.)
 
-- **Page-level** (the whole page has no content yet):
-  `rounded-xl border border-slate-200 bg-surface px-4 py-10 text-center
-  text-sm text-slate-400 shadow-xs` — one sentence, say what will appear
-  here and how to create it.
-- **Section-level** (a list inside a card is empty): plain
-  `text-sm text-slate-400` text, no box-in-box.
+- **Page-level** (the whole page, or its whole content region, has no content
+  yet): `<EmptyState icon title body action?>`.
+
+  ```tsx
+  <EmptyState
+    icon={<Trash2 />}
+    title="Trash is empty"
+    body="Deleted documents wait here before they're removed for good."
+    action={{ href: "/search", label: "Search documents", icon: <Search /> }}
+  />
+  ```
+
+  It renders the card the page skeleton implies — `rounded-xl border
+  border-slate-200 bg-surface px-4 py-10 text-center shadow-xs` — with three
+  tiers inside it that mirror the page header: a lucide icon (`h-8 w-8
+  text-slate-400`, applied by the component), a headline (`text-base
+  font-semibold text-slate-800`), and a sentence (`text-sm text-slate-500`,
+  capped at `max-w-md`). **The border is solid** — a dashed border is a
+  drop-zone idiom this app uses nowhere else, and it was the loudest source of
+  drift.
+  - Pass the icon as an **element**, `icon={<Inbox />}` — never an emoji, and
+    never a size of your own. Emoji ignore the workspace accent, so a re-skinned
+    workspace is left with yellow sparkles.
+  - **Fill `action` whenever a real destination exists.** An empty state that
+    names a place in prose ("…under Settings → Directory") and doesn't link it
+    is a dead end; `action` takes `{ href }` (safe from server components) or
+    `{ onClick }` for a handler already on the page. Rare extras — search tips,
+    a second link — go in `children`, under the body.
+  - Say what *will* appear here, not just that nothing is. Keep it to a
+    headline plus one or two sentences.
+
+- **Section-level** (a list inside a card is empty): `<SectionEmpty>` — plain
+  `text-sm text-slate-500` in the flow of the card, **no box-in-box**. It takes
+  the same optional `action` (rendered as an inline accent link) and a
+  `className` for the padding when the surrounding list owns it
+  (`<SectionEmpty className="px-4 py-6">`).
+
+Empty-state text is `text-slate-500`, not `text-slate-400`: `slate-400`
+measures 2.56:1 on the canvas and can't carry a sentence. It stays the
+**icon/decorative tone** only — don't darken the token itself, that would
+collapse it into `slate-500` across the whole app.
 
 ## Buttons
 
@@ -139,6 +176,35 @@ focus):
   is no `compass-950` (classes referencing it are no-ops — don't add them).
 - Semantic colors stay semantic in both themes: emerald = success/complete,
   red = error/overdue, amber = warning, slate = neutral/disabled.
+- **Only `compass-*`, `slate-*`, `surface` and `canvas` flip with the theme.**
+  amber/red/green/sky are plain Tailwind, so `bg-amber-50` with no `dark:`
+  counterpart stays cream on a dark page.
+- **Never put a `dark:` variant on a slate token.** The slate ramp *inverts*
+  (`--slate-800` goes `30 41 59` → `221 227 236`), so `bg-slate-50
+  dark:bg-slate-800/40` flips twice and paints a light slab, and
+  `text-slate-900 dark:text-slate-100` paints near-black ink on a near-black
+  page. A bare slate token is already correct in both themes — the fix for one
+  of these is a **deletion**. Same for `bg-white`: use `bg-surface`.
+- Anything that must stay dark in both themes (code blocks, the code-block
+  header bar, the modal scrim) is **hard-coded literal**, never themed.
+
+## Notices (persistent inline state banners)
+
+Three classes in `globals.css`, each carrying both themes:
+`notice-warn` (amber), `notice-error` (red), `notice-ok` (green). They supply
+border-color, background and ink only — keep the element's own `border`,
+rounding, padding, `text-sm` and margins:
+
+```tsx
+<div className="notice-warn rounded-lg border px-3 py-2 text-sm">…</div>
+```
+
+They are classes rather than a `<Notice>` component because the call sites
+share nothing but color (`rounded-lg`/`rounded-xl`, `px-3 py-2`/`p-4`, `<p>`
+vs `<div>`, with/without a leading icon, flex rows), and because server
+components use them with no import. Don't add a per-instance `text-amber-*`
+inside one — child ink overrides the class and re-breaks dark mode; let it
+inherit. Toasts and per-field validation errors are unrelated (see Feedback).
 
 ## Status chips
 

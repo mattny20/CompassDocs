@@ -5,7 +5,9 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArchiveRestore, LoaderCircle, Trash2, Users } from "lucide-react";
+import { Archive, ArchiveRestore, GraduationCap, LoaderCircle, Trash2, Users } from "lucide-react";
+import { useFormatDate } from "./SettingsProvider";
+import { EmptyState } from "./form";
 
 interface ArchivedDeck {
   id: number;
@@ -19,6 +21,7 @@ interface ArchivedDeck {
 
 export function ArchivedDecks({ decks }: { decks: ArchivedDeck[] }) {
   const router = useRouter();
+  const fmt = useFormatDate();
   const [busyId, setBusyId] = useState<number | null>(null);
   const [error, setError] = useState("");
 
@@ -36,16 +39,19 @@ export function ArchivedDecks({ decks }: { decks: ArchivedDeck[] }) {
 
   if (!decks.length) {
     return (
-      <p className="rounded-xl border border-slate-200 bg-surface px-4 py-10 text-center text-sm text-slate-400 shadow-xs">
-        Nothing archived.
-      </p>
+      <EmptyState
+        icon={<Archive />}
+        title="Nothing archived"
+        body="Decks you retire from the Training tab are kept here, and can be restored."
+        action={{ href: "/training", label: "Back to training", icon: <GraduationCap /> }}
+      />
     );
   }
 
   return (
     <div className="space-y-3">
       {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">{error}</div>
+        <div className="notice-error rounded-lg border px-4 py-2 text-sm">{error}</div>
       )}
       {decks.map((d) => (
         <section
@@ -58,7 +64,7 @@ export function ArchivedDecks({ decks }: { decks: ArchivedDeck[] }) {
               <span>
                 {d.space_icon} {d.space_name}
               </span>
-              {d.archived_at && <span>· archived {new Date(d.archived_at).toLocaleDateString()}</span>}
+              {d.archived_at && <span>· archived {fmt.date(d.archived_at)}</span>}
               <span className="inline-flex items-center gap-1">
                 <Users className="h-3.5 w-3.5" /> {d.completed}/{d.assigned} completed
               </span>

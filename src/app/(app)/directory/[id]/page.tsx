@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Mail, Phone, Smartphone, MapPin, UserRound, ArrowLeft } from "lucide-react";
+import { Mail, Phone, Smartphone, MapPin, UserRound, ArrowLeft, FileText } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { getPersonById, listFields } from "@/lib/directory";
 import { listDocumentsByAuthor, listLinkedUserNames } from "@/lib/db";
@@ -8,6 +8,7 @@ import { spaceScopeFor } from "@/lib/access";
 import { roleAtLeast } from "@/lib/types";
 import { DocCard } from "@/components/DocCard";
 import { TagBadges } from "@/components/TagBadges";
+import { EmptyState } from "@/components/form";
 import { PageContainer } from "@/components/PageWidth";
 
 export const dynamic = "force-dynamic";
@@ -121,9 +122,11 @@ export default async function PersonProfilePage({
         Documents by {person.name.split(" ")[0]} ({docs.length})
       </h2>
       {docs.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-slate-200 bg-surface p-8 text-center text-sm text-slate-400">
-          No documents credited to {person.name} yet (in the spaces you can see).
-        </p>
+        <EmptyState
+          icon={<FileText />}
+          title="No documents yet"
+          body={`Nothing is credited to ${person.name} in the spaces you can see.`}
+        />
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           {docs.map((d) => (

@@ -237,7 +237,7 @@ export function Attachments({
         </form>
       )}
 
-      {error && <div className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+      {error && <div className="notice-error mb-3 rounded-lg px-3 py-2 text-sm">{error}</div>}
       {open && canEdit && attachments.length === 0 && dmsLinks.length === 0 && !linkFormOpen && (
         <p className="text-sm text-slate-500">
           {/* Literal curly quotes, not &ldquo;-entities: Turbopack (Next 16)
