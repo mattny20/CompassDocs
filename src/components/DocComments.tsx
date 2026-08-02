@@ -256,7 +256,11 @@ export function DocComments({
                     pick(u);
                   }}
                   className={`block w-full px-3 py-1.5 text-left text-sm ${
-                    i === pickerIndex ? "bg-compass-50 text-compass-800" : "text-slate-700 hover:bg-slate-50"
+                    // 700, not 800: only .text-compass-600/700 get a dark-mode
+                    // lightening in globals.css, so 800 is unreadable in dark.
+                    i === pickerIndex
+                      ? "bg-compass-50 text-compass-700"
+                      : "text-slate-700 hover:bg-slate-50"
                   }`}
                 >
                   {u.name || u.username}

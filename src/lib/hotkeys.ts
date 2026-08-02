@@ -75,10 +75,13 @@ interface UADataLike {
  */
 export function isApple(): boolean {
   if (typeof navigator === "undefined") return false;
-  const ua = (navigator as Navigator & { userAgentData?: UADataLike }).userAgentData;
-  if (ua?.platform) return /mac/i.test(ua.platform);
-  const legacy = navigator.platform || "";
-  return /Mac|iPhone|iPad|iPod/.test(legacy || navigator.userAgent);
+  // Either signal saying "Apple" is enough. userAgentData is the modern,
+  // accurate one, but it isn't everywhere yet and some environments override
+  // the UA string without it — and since this only picks a *label*, a false
+  // positive costs nothing while a false negative shows a Mac user "Ctrl".
+  const hints = (navigator as Navigator & { userAgentData?: UADataLike }).userAgentData;
+  if (hints?.platform && /mac/i.test(hints.platform)) return true;
+  return /Mac|iPhone|iPad|iPod/.test(`${navigator.platform || ""} ${navigator.userAgent || ""}`);
 }
 
 /** How the Mod key should be spelled for this user: "⌘" or "Ctrl". */

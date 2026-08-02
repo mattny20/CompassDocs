@@ -428,7 +428,7 @@ export function CommandPaletteClient({
 
   return (
     <div
-      className="cmd-scrim fixed inset-0 z-[60] flex items-start justify-center px-4 pt-[12vh] print:hidden"
+      className="cmd-scrim fixed inset-0 z-[70] flex items-start justify-center px-4 pt-[12vh] print:hidden"
       onMouseDown={close}
     >
       <div
@@ -454,7 +454,7 @@ export function CommandPaletteClient({
             role="combobox"
             aria-expanded="true"
             aria-controls="cmd-listbox"
-            aria-activedescendant={activeId}
+            aria-activedescendant={mode === "help" ? undefined : activeId}
             aria-autocomplete="list"
             aria-label={MODE_PLACEHOLDER[mode]}
             placeholder={MODE_PLACEHOLDER[mode]}
@@ -468,12 +468,12 @@ export function CommandPaletteClient({
         <div
           ref={listRef}
           id="cmd-listbox"
-          role="listbox"
-          aria-label="Results"
+          role={mode === "help" ? undefined : "listbox"}
+          aria-label={mode === "help" ? undefined : "Results"}
           className="max-h-[52vh] overflow-y-auto py-1"
         >
           {mode === "help" ? (
-            <ShortcutSheet caps={caps} commandIds={commandIds} />
+            <ShortcutSheet caps={caps} commandIds={commandIds} query={query} />
           ) : flat.length === 0 ? (
             <p className="px-4 py-8 text-center text-sm text-slate-400">
               {query.trim() ? "No matches." : "Start typing to search."}

@@ -19,7 +19,7 @@ export interface PaletteItem {
   run?: () => void | Promise<void>;
   /** Character ranges in `label` that matched the query, for highlighting. */
   ranges?: [number, number][];
-  /** Pre-sanitized snippet HTML from the search API (docs only). */
+  /** Raw snippet HTML from the search API; sanitized at the sink in PaletteRow. */
   snippetHtml?: string;
   /** Space emoji, for doc/space rows. */
   emoji?: string;
