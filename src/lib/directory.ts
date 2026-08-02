@@ -471,16 +471,48 @@ export interface ProviderPersonInput extends PersonInput {
 /** Kept as the Microsoft-shaped alias so the EE overlay needs no coordinated release. */
 export type GraphPersonInput = ProviderPersonInput;
 
+// `replaceGraphPeople` lived here until 0.98.1. It returned only the upserted
+// count, which meant the Microsoft sync silently discarded the removal brake's
+// report: a tenant whose sync stopped deleting departed staff was told nothing,
+// on any screen. Its one caller now uses replaceProviderPeople directly.
+
 /**
- * Replace the Graph-sourced portion of the directory with `people` (upsert by
- * external_id, delete Graph rows that disappeared from the tenant). Manual rows,
- * per-row `hidden` flags, assistant links, and custom values for keys the sync
- * doesn't map are all preserved (jsonb merge — synced keys win). Returns the
- * synced row count.
+ * What the removal brake stopped, when it stopped something. Carried out to the
+ * caller and stored on the provider's last-sync status, because the operator
+ * needs it twice: once as an explanation, and again later as the thing that
+ * decides whether to offer the override.
  */
-export async function replaceGraphPeople(people: GraphPersonInput[]): Promise<number> {
-  const { upserted } = await replaceProviderPeople("graph", people);
-  return upserted;
+export interface RemovalBlocked {
+  doomed: number;
+  total: number;
+  message: string;
+}
+
+export interface ReplaceOutcome {
+  upserted: number;
+  deleted: number;
+  blocked?: RemovalBlocked;
+}
+
+/**
+ * The last-sync record every provider stores. Defined here, beside the function
+ * that produces the interesting half of it, so Microsoft and Google can't drift
+ * into reporting the same outcome in two different shapes — the panels read it
+ * through one type and decide whether to offer the removals override.
+ */
+export interface ProviderSyncStatus {
+  at: string;
+  ok: boolean;
+  count?: number;
+  error?: string;
+  /**
+   * Set when the sync succeeded but the removal brake stopped its delete.
+   * Distinct from `error` because it is not a failure, and it has to outlive
+   * the response that reported it: a brake that trips once trips every time
+   * until an operator explicitly allows the removals, so the panel needs to
+   * know about it on a fresh page load. A clean sync clears it.
+   */
+  blocked?: { doomed: number; total: number };
 }
 
 /**
@@ -501,13 +533,20 @@ export async function replaceGraphPeople(people: GraphPersonInput[]): Promise<nu
  * When the proportion to remove exceeds the limit the delete is skipped, the
  * upserts still commit, and the caller is told why — an operator can then look
  * at it, rather than restoring a directory from a backup.
+ *
+ * The brake measures what is *currently* stored against what just arrived, so
+ * it cannot tell a broken sync from a deliberately smaller one: a team that
+ * really did halve keeps tripping it on every subsequent run, and no amount of
+ * re-syncing clears it. `allowRemovals` is the operator saying "I looked, the
+ * removals are correct" — it turns the brake off for one run only. Nothing sets
+ * it implicitly; a caller has to be told to, which is the point.
  */
 export async function replaceProviderPeople(
   source: Exclude<PersonSource, "manual">,
   people: ProviderPersonInput[],
-  opts?: { maxDeleteFraction?: number }
-): Promise<{ upserted: number; deleted: number; abortedDelete?: string }> {
-  const maxFraction = opts?.maxDeleteFraction ?? 0.5;
+  opts?: { maxDeleteFraction?: number; allowRemovals?: boolean }
+): Promise<ReplaceOutcome> {
+  const maxFraction = opts?.allowRemovals ? 1 : opts?.maxDeleteFraction ?? 0.5;
   const client = await pool().connect();
   try {
     await client.query("BEGIN");
@@ -550,12 +589,17 @@ export async function replaceProviderPeople(
     const doomed = Number(counts[0]?.doomed ?? 0);
 
     let deleted = 0;
-    let abortedDelete: string | undefined;
+    let blocked: RemovalBlocked | undefined;
     if (doomed > 0 && total > 0 && doomed / total > maxFraction) {
-      abortedDelete =
-        `Skipped removing ${doomed} of ${total} synced people — that is more than ` +
-        `${Math.round(maxFraction * 100)}% of this directory. Check the connection and ` +
-        `filters, then sync again; the people that did arrive have been updated.`;
+      blocked = {
+        doomed,
+        total,
+        message:
+          `Skipped removing ${doomed} of ${total} synced people — that is more than ` +
+          `${Math.round(maxFraction * 100)}% of this directory. The people that did arrive ` +
+          `have been updated. Check the connection and filters; if the removals are correct, ` +
+          `sync again with removals allowed.`,
+      };
     } else if (doomed > 0) {
       const res = await client.query(
         `DELETE FROM directory_people
@@ -566,8 +610,8 @@ export async function replaceProviderPeople(
     }
 
     await client.query("COMMIT");
-    if (abortedDelete) console.warn(`[directory:${source}] ${abortedDelete}`);
-    return { upserted: people.length, deleted, abortedDelete };
+    if (blocked) console.warn(`[directory:${source}] ${blocked.message}`);
+    return { upserted: people.length, deleted, blocked };
   } catch (e) {
     await client.query("ROLLBACK").catch(() => {});
     throw e;

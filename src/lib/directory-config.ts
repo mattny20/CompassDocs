@@ -6,6 +6,7 @@
 // Server-only.
 
 import { getSetting, setSetting } from "./db";
+import type { ProviderSyncStatus } from "./directory";
 
 const KEYS = {
   tenant: "directory_graph_tenant",
@@ -30,12 +31,8 @@ export interface DirectoryGraphConfig {
   photos: boolean; // default true
 }
 
-export interface DirectorySyncStatus {
-  at: string;
-  ok: boolean;
-  count?: number;
-  error?: string;
-}
+/** Kept as the Microsoft-shaped alias; the shape itself is shared (0.98.1). */
+export type DirectorySyncStatus = ProviderSyncStatus;
 
 export async function getDirectoryGraphConfig(): Promise<DirectoryGraphConfig> {
   const [tenant, clientId, clientSecret, group, guests, title, phone, photos] =

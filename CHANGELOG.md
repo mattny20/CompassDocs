@@ -4,6 +4,24 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.98.1] - 2026-08-02
+
+### Fixed
+- **A directory that legitimately shrank could never finish syncing.** The
+  removal brake — which stops a sync from deleting more than half the people it
+  owns, so a broken credential can't empty your directory — compares what just
+  arrived against what is currently stored. That means it cannot tell a broken
+  sync from a deliberately smaller one, and re-running changed nothing: a team
+  that narrowed its group filter, or really did lose that many people, tripped
+  the same brake on every subsequent sync, forever. The panel now says what was
+  held back and offers **Sync and remove the N** to allow it once, after a
+  confirmation naming the count. Normal syncs are still braked; nothing turns
+  the guard off implicitly.
+- **A blocked Microsoft 365 sync said nothing at all.** The Microsoft path
+  discarded the brake's report and returned only a count, so a tenant whose
+  sync had quietly stopped removing departed staff saw a plain success on every
+  screen. It now surfaces the same warning and the same override as Google.
+
 ## [0.98.0] - 2026-08-02
 
 ### Added
