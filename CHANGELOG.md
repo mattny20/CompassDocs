@@ -4,6 +4,39 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.87.0] - 2026-08-02
+
+### Fixed
+- **The editor no longer discards unsaved work.** Previously you could type a
+  paragraph, press Ctrl+S out of habit (which did nothing), click something
+  in the sidebar, and the work was gone with no warning. Now Ctrl/Cmd+S
+  saves, and an editor with unsaved changes asks before letting them go — on
+  reload, on tab close, on Cancel, and on that sidebar click. A document you
+  haven't touched never nags you.
+- **Save no longer scrolls out of reach.** The Save button now rides along
+  with you down a long document, the way the formatting toolbar already did.
+- **Content you couldn't get to.** Below roughly 1180px the user list silently
+  dropped its Status and Actions columns, so Reset password, Disable and
+  Delete were unreachable rather than merely awkward; on a phone the buttons
+  to create a document in a space, and to edit or trash one, sat off the edge
+  of the screen entirely. Board view gave document titles as little as three
+  characters of room while leaving a quarter of the row empty, the directory
+  clipped every card on a phone, and the analytics tables handed most of
+  their width to single-digit columns.
+- **Real not-found and error pages.** A link to a deleted document used to
+  eject you to a stock browser-style 404 with no way back — and a white slab
+  in dark mode. You now get a proper page inside the app that explains the
+  likely cause and offers a way onward.
+- **Failures that said nothing now speak.** Twelve actions that either popped
+  an OS dialog or failed silently — including revoking a share link, which
+  could fail while still showing the live link — now show the server's actual
+  explanation. Account settings never had a toast host mounted at all, so its
+  confirmations went nowhere.
+- The dashboard's search box still hard-coded a ⌘K hint, showing the wrong
+  key on Windows and Linux next to a sidebar that showed the right one.
+- Account settings ignored the Normal/Wide/Full page-width preference — on
+  the very page that offers it.
+
 ## [0.86.0] - 2026-08-02
 
 ### Added

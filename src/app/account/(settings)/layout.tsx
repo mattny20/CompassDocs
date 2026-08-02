@@ -6,6 +6,8 @@ import { getUserById } from "@/lib/db";
 import { ROLE_LABEL } from "@/lib/types";
 import { AccountNav } from "@/components/AccountNav";
 import { UserAvatar } from "@/components/UserAvatar";
+import { WidthProvider, PageContainer } from "@/components/PageWidth";
+import { ToastHost } from "@/components/Toasts";
 
 export const dynamic = "force-dynamic";
 
@@ -18,8 +20,9 @@ export default async function AccountLayout({ children }: { children: React.Reac
   const me = await getUserById(user.id);
 
   return (
-    <div className="min-h-screen bg-linear-to-br from-slate-100 to-compass-50 px-4 py-8">
-      <div className="mx-auto w-full max-w-4xl">
+    <WidthProvider initial={user.page_width}>
+    <div className="min-h-screen bg-linear-to-br from-slate-100 to-compass-50 py-8">
+      <PageContainer className="py-0">
         <Link
           href="/"
           className="mb-4 inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-compass-700"
@@ -48,7 +51,11 @@ export default async function AccountLayout({ children }: { children: React.Reac
           </div>
           <main className="min-w-0">{children}</main>
         </div>
-      </div>
+      </PageContainer>
+      {/* The account shell is outside (app), so it needs its own toast host —
+          without one, toast() from these panels would go nowhere. */}
+      <ToastHost />
     </div>
+    </WidthProvider>
   );
 }

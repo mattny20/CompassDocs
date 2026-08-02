@@ -8,6 +8,8 @@ import { EntityPicker } from "./EntityPicker";
 import { MarkdownView } from "./MarkdownView";
 import { PageWidth } from "./PageWidth";
 import { RichTextEditor, RICH_BLOCK_BUTTONS } from "./RichTextEditor";
+import { blockModKey } from "@/lib/hotkeys";
+import { overlayOpen } from "@/lib/overlay-stack";
 import { DOC_TYPES } from "@/lib/types";
 import type { DocType, DocStatus, Space } from "@/lib/types";
 
@@ -172,6 +174,130 @@ export function DocEditor({
   const [uploading, setUploading] = useState(false);
   const mdRef = useRef<HTMLTextAreaElement>(null);
 
+  // ── Unsaved work ─────────────────────────────────────────────────────────
+  // Two conditions must BOTH hold before this editor warns anyone, because a
+  // false "you have unsaved changes" prompt is a worse bug than the one this
+  // fixes:
+  //   1. `touched` — a real user-input handler ran. Nothing that happens while
+  //      the editor mounts goes through one: loading the document, the
+  //      parent-page lookup resolving and clearing a stale parent, tiptap
+  //      re-normalising the markdown it was handed. Those all reach state by
+  //      other routes, so they can never set this.
+  //   2. the field snapshot still differs from the last clean snapshot — so a
+  //      no-op change event, or an edit the user typed and then undid, is
+  //      clean again.
+  // While still untouched the baseline *follows* the current values, so any
+  // programmatic settling during mount re-baselines instead of dirtying.
+  const [touched, setTouched] = useState(false);
+  const touchedRef = useRef(false);
+  const baselineRef = useRef("");
+  const currentRef = useRef("");
+
+  /** Every field a writer can change, serialised. */
+  const snapshot = JSON.stringify([
+    spaceId,
+    categoryId,
+    title,
+    type,
+    status,
+    publishAt,
+    archiveAt,
+    summary,
+    tags,
+    content,
+    parentId,
+    changeNote,
+  ]);
+
+  useEffect(() => {
+    currentRef.current = snapshot;
+    if (!touchedRef.current) baselineRef.current = snapshot;
+  }, [snapshot]);
+
+  /** Called from user-input handlers only — never from a mount/lookup effect. */
+  function markDirty() {
+    if (touchedRef.current) return;
+    touchedRef.current = true;
+    setTouched(true);
+  }
+
+  /** Back to "nothing unsaved". `at` is the snapshot that was persisted. */
+  function markClean(at: string) {
+    touchedRef.current = false;
+    baselineRef.current = at;
+    setTouched(false);
+  }
+
+  const LEAVE_PROMPT = "You have unsaved changes. Discard them and leave the editor?";
+
+  /** True only when the user changed something AND it still differs. */
+  function hasUnsavedChanges() {
+    return touchedRef.current && currentRef.current !== baselineRef.current;
+  }
+
+  // Browser-level guard: reload, tab close, or a full navigation away. Only
+  // registered while the editor is actually dirty.
+  useEffect(() => {
+    if (!touched) return;
+    function onBeforeUnload(e: BeforeUnloadEvent) {
+      if (!touchedRef.current || currentRef.current === baselineRef.current) return;
+      e.preventDefault();
+      // Legacy browsers need returnValue set; the string itself is never shown.
+      e.returnValue = "";
+    }
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [touched]);
+
+  // In-app navigation guard. beforeunload covers reloads and tab closes, but
+  // the way people actually lose work here is clicking the sidebar — a
+  // client-side route change the browser never hears about, and the App
+  // Router exposes no hook for. So we catch the click that causes it.
+  //
+  // Deliberately narrow: only a plain left-click on an in-app link outside
+  // the editor, and only while genuinely dirty. Anything that isn't going to
+  // replace this page — new-tab clicks, downloads, hash links, other origins,
+  // links inside the editor itself — is left completely alone.
+  useEffect(() => {
+    if (!touched) return;
+    function onClickCapture(e: MouseEvent) {
+      if (e.defaultPrevented || e.button !== 0) return;
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return; // new tab/window
+      const target = e.target as HTMLElement | null;
+      const link = target?.closest?.("a");
+      if (!link) return;
+      if (link.target === "_blank" || link.hasAttribute("download")) return;
+      const href = link.getAttribute("href");
+      if (!href || href.startsWith("#")) return;
+      if (new URL(link.href, window.location.href).origin !== window.location.origin) return;
+      // Links the writer is editing, not navigating.
+      if (rootRef.current?.contains(link)) return;
+      if (!hasUnsavedChanges()) return;
+      if (window.confirm(LEAVE_PROMPT)) return;
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    document.addEventListener("click", onClickCapture, true);
+    return () => document.removeEventListener("click", onClickCapture, true);
+  }, [touched]);
+
+  // The Cancel/Save row is sticky, and so is the formatting toolbar inside the
+  // editor card. Publish the row's measured height so the toolbar can pin
+  // directly *below* it instead of underneath it (RichTextEditor reads
+  // --rte-sticky-top, defaulting to 0 for its other hosts).
+  const rootRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLDivElement>(null);
+  const [headerH, setHeaderH] = useState(0);
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const measure = () => setHeaderH(el.getBoundingClientRect().height);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   // AI proofreading state.
   const [proofing, setProofing] = useState(false);
   const [proof, setProof] = useState<ProofResult | null>(null);
@@ -197,7 +323,10 @@ export function DocEditor({
   }
 
   function applyProof() {
-    if (proof?.revised != null) setContent(proof.revised);
+    if (proof?.revised != null) {
+      markDirty();
+      setContent(proof.revised);
+    }
     setProof(null);
   }
 
@@ -230,6 +359,7 @@ export function DocEditor({
 
   function applyAssist() {
     if (!assist) return;
+    markDirty();
     if (assist.action === "summarize") setSummary(assist.text.slice(0, 280));
     else setContent(assist.text);
     setAssist(null);
@@ -290,6 +420,7 @@ export function DocEditor({
     if (!url) return;
     const alt = (file.name || "image").replace(/\.[a-z0-9]+$/i, "") || "image";
     const snippet = `![${alt}](${url})`;
+    markDirty();
     const ta = mdRef.current;
     if (ta) {
       const start = ta.selectionStart ?? content.length;
@@ -327,6 +458,7 @@ export function DocEditor({
   function insertSnippet(kind: string) {
     const snippet = SNIPPETS[kind];
     if (!snippet) return;
+    markDirty();
     const ta = mdRef.current;
     const start = ta?.selectionStart ?? content.length;
     const end = ta?.selectionEnd ?? start;
@@ -402,6 +534,9 @@ export function DocEditor({
         throw new Error(data.error);
       }
       if (!res.ok) throw new Error(data?.error || "Save failed.");
+      // Persisted — the fields as they were when this save started are now the
+      // clean baseline, so nothing warns on the way out.
+      markClean(snapshot);
       if (data.pending) {
         // Editor's change to live content went to the review queue.
         setSubmittedDocId(data.docId);
@@ -419,6 +554,33 @@ export function DocEditor({
       setSaving(false);
     }
   }
+
+  // ⌘S / Ctrl+S saves. This is the one shortcut in the app that MUST fire
+  // while the user is typing — reaching for it mid-sentence is the entire
+  // point — so `blockModKey` (which deliberately permits typing) is the only
+  // key guard, with no not-typing check. It is still gated on the overlay
+  // stack so ⌘S under a modal doesn't save the page behind it.
+  const saveHotkeyRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    saveHotkeyRef.current = () => {
+      if (saving) return;
+      void save();
+    };
+  });
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (blockModKey(e)) return;
+      // Match on the character produced, both cases (Caps Lock yields "S").
+      if (e.key !== "s" && e.key !== "S") return;
+      if (overlayOpen()) return;
+      // Swallow it unconditionally: the browser's Save-page dialog must never
+      // appear over the editor, even when we decline to save.
+      e.preventDefault();
+      saveHotkeyRef.current();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   if (submittedDocId !== null) {
     return (
@@ -448,13 +610,27 @@ export function DocEditor({
 
   return (
     <PageWidth>
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-xl font-bold text-slate-900">
+      <div ref={rootRef}>
+      {/* Sticky, the same way the formatting toolbar below is sticky: it rides
+          along while you scroll a long document, so Save never leaves the
+          screen. It pins at the very top and publishes its height so the
+          toolbar pins immediately underneath rather than behind it. */}
+      <div
+        ref={headerRef}
+        className="sticky top-0 z-40 -mx-8 mb-6 flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-surface px-8 py-3"
+      >
+        <h1 className="min-w-0 text-xl font-bold text-slate-900">
           {mode === "create" ? "New document" : "Edit document"}
         </h1>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Link
             href={mode === "edit" && initial.id ? `/doc/${initial.id}` : "/"}
+            onClick={(e) => {
+              if (!hasUnsavedChanges()) return;
+              if (!window.confirm(LEAVE_PROMPT)) {
+                e.preventDefault();
+              }
+            }}
             className="rounded-lg border border-slate-200 bg-surface px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
           >
             Cancel
@@ -505,10 +681,16 @@ export function DocEditor({
         </div>
       )}
 
-      <div className="space-y-4">
+      <div
+        className="space-y-4"
+        style={{ "--rte-sticky-top": `${headerH}px` } as React.CSSProperties}
+      >
         <input
           value={title}
-          onChange={(e) => setTitle(e.target.value)}
+          onChange={(e) => {
+            markDirty();
+            setTitle(e.target.value);
+          }}
           placeholder="Document title"
           className="w-full rounded-lg border border-slate-200 bg-surface px-4 py-3 text-lg font-semibold text-slate-900 outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100"
         />
@@ -519,6 +701,7 @@ export function DocEditor({
               value={spaceId}
               onChange={(e) => {
                 const next = Number(e.target.value);
+                markDirty();
                 setSpaceId(next);
                 if (categoryId && !categories.some((c) => c.id === categoryId && c.space_id === next)) {
                   setCategoryId(null);
@@ -542,7 +725,10 @@ export function DocEditor({
                   </span>
                   <button
                     type="button"
-                    onClick={() => setParentId(null)}
+                    onClick={() => {
+                      markDirty();
+                      setParentId(null);
+                    }}
                     aria-label="Clear parent page (top level)"
                     className="shrink-0 opacity-60 hover:opacity-100"
                   >
@@ -552,7 +738,10 @@ export function DocEditor({
               ) : (
                 <EntityPicker
                   options={parentOptions.map((o) => ({ id: o.id, label: o.title }))}
-                  onPick={(id) => setParentId(id)}
+                  onPick={(id) => {
+                    markDirty();
+                    setParentId(id);
+                  }}
                   placeholder="None — search to nest under a page…"
                   emptyText="No pages match."
                   maxVisible={10}
@@ -564,7 +753,10 @@ export function DocEditor({
             <Field label="Category">
               <select
                 value={categoryId ?? ""}
-                onChange={(e) => setCategoryId(e.target.value ? Number(e.target.value) : null)}
+                onChange={(e) => {
+                  markDirty();
+                  setCategoryId(e.target.value ? Number(e.target.value) : null);
+                }}
                 className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-hidden focus:border-compass-400"
               >
                 <option value="">General</option>
@@ -581,7 +773,10 @@ export function DocEditor({
           <Field label="Type">
             <select
               value={type}
-              onChange={(e) => setType(e.target.value as DocType)}
+              onChange={(e) => {
+                markDirty();
+                setType(e.target.value as DocType);
+              }}
               className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-hidden focus:border-compass-400"
             >
               {DOC_TYPES.map((t) => (
@@ -594,7 +789,10 @@ export function DocEditor({
           <Field label="Status">
             <select
               value={status}
-              onChange={(e) => setStatus(e.target.value as DocStatus)}
+              onChange={(e) => {
+                markDirty();
+                setStatus(e.target.value as DocStatus);
+              }}
               className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-hidden focus:border-compass-400"
             >
               <option value="draft">Draft</option>
@@ -606,7 +804,10 @@ export function DocEditor({
               <input
                 type="datetime-local"
                 value={publishAt}
-                onChange={(e) => setPublishAt(e.target.value)}
+                onChange={(e) => {
+                  markDirty();
+                  setPublishAt(e.target.value);
+                }}
                 className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-hidden focus:border-compass-400"
               />
             </Field>
@@ -616,7 +817,10 @@ export function DocEditor({
               <input
                 type="datetime-local"
                 value={archiveAt}
-                onChange={(e) => setArchiveAt(e.target.value)}
+                onChange={(e) => {
+                  markDirty();
+                  setArchiveAt(e.target.value);
+                }}
                 className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-hidden focus:border-compass-400"
               />
             </Field>
@@ -634,7 +838,10 @@ export function DocEditor({
           <Field label="Summary">
             <input
               value={summary}
-              onChange={(e) => setSummary(e.target.value)}
+              onChange={(e) => {
+                markDirty();
+                setSummary(e.target.value);
+              }}
               placeholder="One-line description for cards & search"
               className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-hidden focus:border-compass-400"
             />
@@ -642,7 +849,10 @@ export function DocEditor({
           <Field label="Tags (comma separated)">
             <input
               value={tags}
-              onChange={(e) => setTags(e.target.value)}
+              onChange={(e) => {
+                markDirty();
+                setTags(e.target.value);
+              }}
               placeholder="deploy, ci-cd, release"
               className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-hidden focus:border-compass-400"
             />
@@ -653,7 +863,10 @@ export function DocEditor({
           <Field label="Change note (shown in version history)">
             <input
               value={changeNote}
-              onChange={(e) => setChangeNote(e.target.value)}
+              onChange={(e) => {
+                markDirty();
+                setChangeNote(e.target.value);
+              }}
               placeholder="What changed and why? e.g. Updated escalation contacts for Q3"
               maxLength={200}
               className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-hidden focus:border-compass-400"
@@ -663,7 +876,7 @@ export function DocEditor({
 
         {/* Editor / preview */}
         <div className="rounded-lg border border-slate-200 bg-surface">
-          <div className="flex items-center gap-1 border-b border-slate-100 px-2 py-1.5">
+          <div className="flex flex-wrap items-center gap-1 border-b border-slate-100 px-2 py-1.5">
             <TabButton active={tab === "rich"} onClick={() => setTab("rich")}>
               Rich text
             </TabButton>
@@ -792,12 +1005,23 @@ export function DocEditor({
           </div>
 
           {tab === "rich" ? (
-            <RichTextEditor value={content} onChange={setContent} onUploadImage={uploadImage} docLinks={docLinks} />
+            <RichTextEditor
+              value={content}
+              onChange={(md) => {
+                markDirty();
+                setContent(md);
+              }}
+              onUploadImage={uploadImage}
+              docLinks={docLinks}
+            />
           ) : tab === "markdown" ? (
             <textarea
               ref={mdRef}
               value={content}
-              onChange={(e) => setContent(e.target.value)}
+              onChange={(e) => {
+                markDirty();
+                setContent(e.target.value);
+              }}
               onPaste={(e) => {
                 const file = imageFromDataTransfer(e.clipboardData?.items ?? null);
                 if (file) {
@@ -864,6 +1088,7 @@ export function DocEditor({
             onDismiss={() => setAssist(null)}
           />
         )}
+      </div>
       </div>
     </PageWidth>
   );
@@ -1048,7 +1273,7 @@ function TabButton({
   return (
     <button
       onClick={onClick}
-      className={`rounded-md px-3 py-1 text-sm font-medium ${
+      className={`whitespace-nowrap rounded-md px-3 py-1 text-sm font-medium ${
         active ? "bg-compass-50 text-compass-700" : "text-slate-500 hover:bg-slate-50"
       }`}
     >

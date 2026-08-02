@@ -305,12 +305,12 @@ export function DirectoryClient({
                 {deptName}
                 <span className="text-xs font-normal text-slate-400">({members.length})</span>
               </h2>
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
                 {members.map((p) => (
                   <Link
                     key={p.id}
                     href={`/directory/${p.id}`}
-                    className="flex items-center gap-3 rounded-lg border border-slate-200 bg-surface px-3 py-2 hover:border-compass-300"
+                    className="flex min-w-0 items-center gap-3 rounded-lg border border-slate-200 bg-surface px-3 py-2 hover:border-compass-300"
                   >
                     <Avatar p={p} size={10} />
                     <div className="min-w-0">
@@ -329,9 +329,11 @@ export function DirectoryClient({
         </div>
       ) : (
         /* ------------------------------ CARDS ------------------------------ */
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        /* grid-cols-1 is not redundant: without an explicit track the implicit
+           auto column sizes to the card's content and overflows a phone. */
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
           {people.map((p) => (
-            <div key={p.id} className="flex gap-3 rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
+            <div key={p.id} className="flex min-w-0 gap-3 rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
               <Avatar p={p} />
               <div className="min-w-0">
                 <Link

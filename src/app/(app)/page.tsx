@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getAppSettings } from "@/lib/settings-store";
 import { PageContainer } from "@/components/PageWidth";
+import { Kbd } from "@/components/palette/Kbd";
 import {
   listSpaces,
   listRecentDocuments,
@@ -93,9 +94,9 @@ export default async function DashboardPage() {
             Search, or ask {appSettings.company_name} anything…
           </span>
           <Sparkles className="h-4 w-4 shrink-0 text-compass-500" aria-hidden />
-          <kbd className="hidden rounded border border-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-400 sm:block">
-            ⌘K
-          </kbd>
+          <span className="hidden sm:block">
+            <Kbd keys={["Mod", "K"]} />
+          </span>
         </Link>
       </header>
 

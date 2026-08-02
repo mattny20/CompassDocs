@@ -13,21 +13,8 @@ export function UsersClient({
   users: User[];
   currentUserId: number;
 }) {
-  return (
-    <div>
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold text-slate-900">Users ({users.length})</h2>
-        <AutoLinkButton />
-      </div>
-      <UserTable users={users} currentUserId={currentUserId} />
-      <CreateUser />
-    </div>
-  );
-}
-
-function UserTable({ users, currentUserId }: { users: User[]; currentUserId: number }) {
-  const router = useRouter();
-  const [busyId, setBusyId] = useState<number | null>(null);
+  // The search box lives in the table, but the heading count has to agree with
+  // it — so the filter state sits here and the table receives the result.
   const [query, setQuery] = useState("");
   const needle = query.trim().toLowerCase();
   const visible = needle
@@ -35,6 +22,42 @@ function UserTable({ users, currentUserId }: { users: User[]; currentUserId: num
         `${u.name} ${u.username} ${u.email} ${u.role}`.toLowerCase().includes(needle)
       )
     : users;
+
+  return (
+    <div>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold text-slate-900">
+          Users ({needle ? `${visible.length} of ${users.length}` : users.length})
+        </h2>
+        <AutoLinkButton />
+      </div>
+      <UserTable
+        users={visible}
+        currentUserId={currentUserId}
+        query={query}
+        onQueryChange={setQuery}
+        filtered={needle.length > 0}
+      />
+      <CreateUser />
+    </div>
+  );
+}
+
+function UserTable({
+  users,
+  currentUserId,
+  query,
+  onQueryChange,
+  filtered,
+}: {
+  users: User[];
+  currentUserId: number;
+  query: string;
+  onQueryChange: (q: string) => void;
+  filtered: boolean;
+}) {
+  const router = useRouter();
+  const [busyId, setBusyId] = useState<number | null>(null);
 
   async function patch(id: number, body: any) {
     setBusyId(id);
@@ -87,13 +110,15 @@ function UserTable({ users, currentUserId }: { users: User[]; currentUserId: num
     <div>
       <input
         value={query}
-        onChange={(e) => setQuery(e.target.value)}
+        onChange={(e) => onQueryChange(e.target.value)}
         placeholder="Search by name, username, email, or role…"
         aria-label="Search users"
         className="mb-3 w-full max-w-sm rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-hidden placeholder:text-slate-400 focus:border-compass-400"
       />
-    <div className="overflow-hidden rounded-xl border border-slate-200 bg-surface shadow-xs">
-      <table className="w-full text-sm">
+    {/* Scrolls rather than clips: below ~1180px the Status and Actions columns
+        (Reset password / Disable / Delete) used to be unreachable entirely. */}
+    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-surface shadow-xs">
+      <table className="w-full min-w-[720px] text-sm">
         <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-400">
           <tr>
             <th className="px-4 py-2 font-medium">User</th>
@@ -103,7 +128,14 @@ function UserTable({ users, currentUserId }: { users: User[]; currentUserId: num
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
-          {visible.map((u) => (
+          {users.length === 0 && (
+            <tr>
+              <td colSpan={4} className="px-4 py-10 text-center text-sm text-slate-400">
+                {filtered ? "No users match your search." : "No users yet."}
+              </td>
+            </tr>
+          )}
+          {users.map((u) => (
             <tr key={u.id} className={busyId === u.id ? "opacity-50" : ""}>
               <td className="px-4 py-3">
                 <div className="font-medium text-slate-800">

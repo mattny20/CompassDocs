@@ -177,18 +177,51 @@ function reviewOverdue(d: DocumentWithSpace) {
   return Boolean(d.review_due_at && new Date(d.review_due_at).getTime() < Date.now());
 }
 
-function DocRowLink({ d, indent = 0 }: { d: DocumentWithSpace; indent?: number }) {
-  return (
-    <Link
-      href={`/doc/${d.id}`}
-      className="flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 hover:bg-slate-50"
-      style={indent ? { paddingLeft: `${0.5 + indent * 1.25}rem` } : undefined}
-    >
-      {indent > 0 && <CornerDownRight className="h-3 w-3 shrink-0 text-slate-300" aria-hidden />}
-      <span className="min-w-0 truncate font-medium text-slate-700">{d.title}</span>
+/** One document row. `stacked` puts the title on its own line above the
+ *  badges/timestamp — in a narrow board column the single-line form squeezes
+ *  the title down to a few pixels, because the badges can't shrink. */
+function DocRowLink({
+  d,
+  indent = 0,
+  stacked = false,
+}: {
+  d: DocumentWithSpace;
+  indent?: number;
+  stacked?: boolean;
+}) {
+  const meta = (
+    <>
       <TypeBadge type={d.type} />
       {d.status === "draft" && <StatusBadge status="draft" />}
       <span className="ml-auto shrink-0 text-xs text-slate-500">{timeAgo(d.updated_at)}</span>
+    </>
+  );
+  return (
+    <Link
+      href={`/doc/${d.id}`}
+      className={`min-w-0 rounded-md px-2 py-1.5 hover:bg-slate-50 ${
+        stacked ? "block" : "flex items-center gap-2"
+      }`}
+      style={indent ? { paddingLeft: `${0.5 + indent * 1.25}rem` } : undefined}
+    >
+      {stacked ? (
+        <>
+          <span className="block truncate font-medium text-slate-700" title={d.title}>
+            {d.title}
+          </span>
+          <span className="mt-1 flex items-center gap-2">{meta}</span>
+        </>
+      ) : (
+        <>
+          {indent > 0 && (
+            <CornerDownRight className="h-3 w-3 shrink-0 text-slate-300" aria-hidden />
+          )}
+          <span className="min-w-0 truncate font-medium text-slate-700" title={d.title}>
+            {d.title}
+          </span>
+          {meta}
+        </>
+      )}
     </Link>
   );
 }
@@ -726,9 +759,11 @@ function BoardView({ docs }: { docs: DocumentWithSpace[] }) {
           </button>
         ))}
       </div>
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+      {/* auto-fit rather than a fixed xl:grid-cols-4: columns keep a usable
+          minimum on a phone and take the extra room on a wide monitor. */}
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,200px),1fr))] gap-4">
         {columns.map((c) => (
-          <div key={c.key} className="rounded-xl border border-slate-200 bg-surface p-3">
+          <div key={c.key} className="min-w-0 rounded-xl border border-slate-200 bg-surface p-3">
             <div className="mb-2 flex items-center justify-between">
               <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">{c.label}</span>
               <span className="rounded-full bg-slate-100 px-1.5 text-xs font-semibold text-slate-500">
@@ -738,7 +773,7 @@ function BoardView({ docs }: { docs: DocumentWithSpace[] }) {
             <div className="space-y-1">
               {c.docs.length === 0 && <p className="px-2 py-1 text-sm text-slate-500">None</p>}
               {c.docs.map((d) => (
-                <DocRowLink key={d.id} d={d} />
+                <DocRowLink key={d.id} d={d} stacked />
               ))}
             </div>
           </div>

@@ -608,23 +608,25 @@ export function AnalyticsClient() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="text-left text-xs uppercase tracking-wide text-slate-400">
-                      <th className="pb-2 font-medium">Document</th>
+                      {/* w-full: the title column takes the slack instead of
+                          losing it to columns holding single digits. */}
+                      <th className="w-full pb-2 font-medium">Document</th>
                       <th className="pb-2 text-right font-medium">Views</th>
-                      <th className="pb-2 text-right font-medium">Unique</th>
-                      <th className="pb-2 text-right font-medium">Avg time</th>
-                      <th className="pb-2 text-right font-medium">DLs</th>
+                      <th className="pb-2 pl-3 text-right font-medium">Unique</th>
+                      <th className="pb-2 pl-3 text-right font-medium">Avg time</th>
+                      <th className="pb-2 pl-3 text-right font-medium">DLs</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {data.top.map((d: any) => (
                       <tr key={d.id} onClick={() => setDrill(d.id)} className="cursor-pointer hover:bg-slate-50/60">
-                        <td className="max-w-0 truncate py-2 pr-2 font-medium text-slate-700">
+                        <td className="max-w-0 truncate py-2 pr-2 font-medium text-slate-700" title={d.title}>
                           {d.space_icon} {d.title}
                         </td>
                         <td className="py-2 text-right text-slate-600">{d.views}</td>
-                        <td className="py-2 text-right text-slate-400">{d.unique_viewers}</td>
-                        <td className="py-2 text-right text-slate-400">{fmtDuration(d.avg_seconds)}</td>
-                        <td className="py-2 text-right text-slate-400">{d.downloads || "—"}</td>
+                        <td className="py-2 pl-3 text-right text-slate-400">{d.unique_viewers}</td>
+                        <td className="py-2 pl-3 text-right text-slate-400">{fmtDuration(d.avg_seconds)}</td>
+                        <td className="py-2 pl-3 text-right text-slate-400">{d.downloads || "—"}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -642,21 +644,21 @@ export function AnalyticsClient() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="text-left text-xs uppercase tracking-wide text-slate-400">
-                      <th className="pb-2 font-medium">Document</th>
+                      <th className="w-full pb-2 font-medium">Document</th>
                       <th className="pb-2 text-right font-medium">Views</th>
-                      <th className="pb-2 text-right font-medium">Updated</th>
+                      <th className="pb-2 pl-3 text-right font-medium">Updated</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {data.least.map((d: any) => (
                       <tr key={d.id} onClick={() => setDrill(d.id)} className="cursor-pointer hover:bg-slate-50/60">
-                        <td className="max-w-0 truncate py-2 pr-2 font-medium text-slate-700">
+                        <td className="max-w-0 truncate py-2 pr-2 font-medium text-slate-700" title={d.title}>
                           {d.space_icon} {d.title}
                         </td>
                         <td className={`py-2 text-right ${d.views === 0 ? "font-semibold text-amber-600" : "text-slate-600"}`}>
                           {d.views}
                         </td>
-                        <td className="py-2 text-right text-slate-400">{d.updated}</td>
+                        <td className="whitespace-nowrap py-2 pl-3 text-right text-slate-400">{d.updated}</td>
                       </tr>
                     ))}
                   </tbody>

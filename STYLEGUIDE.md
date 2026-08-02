@@ -144,6 +144,29 @@ focus):
   styling) — not top-of-page notices that scroll out of view.
 - Errors render in red (`text-red-600`); never show a failure in the
   success style.
+- **Never fail silently.** Every `fetch` that can fail needs an `else` —
+  `toast("error", …)` with the server's own `error` field when it sends one,
+  falling back to a specific sentence ("Couldn't restore that document."),
+  never a bare "Action failed." No `alert()` in the app; `confirm()` stays
+  for per-row destructive actions (see Settings pages).
+- `toast()` only shows where a `<ToastHost />` is mounted. One is in
+  `(app)/layout.tsx` and one in `account/(settings)/layout.tsx` — a new shell
+  outside those groups must mount its own or its toasts go nowhere.
+
+## Not-found and error routes
+
+Four boundary files cover the whole product; extend them rather than adding
+per-route variants:
+
+- `(app)/not-found.tsx` — every `notFound()` inside the shell. Standard page
+  skeleton, page-level empty-state card, and both escape hatches ("Back to
+  dashboard", "Search documents"). `app/not-found.tsx` is the same copy in a
+  centered card for addresses outside the shell.
+- `(app)/error.tsx` and `app/global-error.tsx` — client components with an
+  honest sentence, the `error.digest` as a support reference, and a `reset()`
+  retry button. `global-error.tsx` replaces the root layout, so it renders
+  its own `<html>`/`<body>`, imports `globals.css`, and re-runs the pre-paint
+  theme stamp itself — otherwise it is the one unstyled white slab left.
 
 ## Icons
 

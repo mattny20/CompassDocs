@@ -62,6 +62,13 @@ export function ShareCard({
     const res = await fetch(`/api/documents/${docId}/share`, { method: "DELETE" });
     setBusy(false);
     if (res.ok) setShare(null);
+    // A failed revoke leaves the link live — say so, or the card keeps showing
+    // a working URL the admin believes they just killed.
+    else
+      setError(
+        (await res.json().catch(() => ({}))).error ||
+          "Could not revoke the link — it is still active."
+      );
   }
 
   async function copy() {
