@@ -11,12 +11,12 @@ import {
   Home,
   Mail,
   Megaphone,
-  ChartNoAxesColumn,
+  ChartColumn,
   Settings,
   ShieldCheck,
   Sparkles,
   SquareArrowOutUpRight,
-  ClipboardCheck,
+  ClipboardList,
   Trash2,
 } from "lucide-react";
 
@@ -50,11 +50,11 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/links", label: "Links", icon: SquareArrowOutUpRight, keywords: "shortcuts tools launchpad apps", cap: null, chord: "l" },
   { href: "/status", label: "Status", icon: Activity, keywords: "service incidents uptime outage", cap: null, chord: "s" },
   { href: "/training", label: "Training", icon: GraduationCap, keywords: "courses decks compliance learning", cap: "showTraining", chord: "t" },
-  { href: "/review", label: "Review queue", icon: ClipboardCheck, keywords: "approve suggestions change requests pending", cap: "isApprover", chord: "r" },
+  { href: "/review", label: "Review queue", icon: ClipboardList, keywords: "approve suggestions change requests pending", cap: "isApprover", chord: "r" },
   { href: "/announcements", label: "Announcements", icon: Megaphone, keywords: "news posts broadcast", cap: "showAnnouncements", chord: "n" },
   { href: "/compliance", label: "Compliance", icon: ShieldCheck, keywords: "policy acknowledgements attestation", cap: "showCompliance", chord: "c" },
   { href: "/newsletter", label: "Newsletter", icon: Mail, keywords: "email campaign digest issue", cap: "showNewsletter" },
-  { href: "/analytics", label: "Analytics", icon: ChartNoAxesColumn, keywords: "usage views reports metrics", cap: "isApprover" },
+  { href: "/analytics", label: "Analytics", icon: ChartColumn, keywords: "usage views reports metrics", cap: "isApprover" },
   { href: "/trash", label: "Trash", icon: Trash2, keywords: "deleted removed restore recycle", cap: "isEditor" },
   { href: "/admin", label: "Settings", icon: Settings, keywords: "admin configure workspace system", cap: "isAdmin", chord: "," },
 ];
