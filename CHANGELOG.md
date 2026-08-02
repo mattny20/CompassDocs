@@ -4,6 +4,25 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.95.0] - 2026-08-02
+
+### Added
+- **Roles can be granted for a single space, and it now means something.**
+  Assignments have carried a space since custom roles arrived, but nothing
+  consulted it. Grant a role "in Engineering only" and it unlocks Engineering
+  and nothing else — including read access to a private space, which previously
+  could only come from a group.
+
+### Changed
+- **The last two hard-coded administrator bypasses are permissions.** Seeing
+  every space and authoring in every space are now `space.read_all` and
+  `space.author_all`, held by the Administrator preset. Administrators are
+  unaffected; the difference is that these are grants a workspace can move,
+  audit, and see explained, instead of constants buried in a module.
+
+  Everything here is additive — no existing access changes, and per-space
+  grants sit alongside the group and per-space edit rights you already have.
+
 ## [0.94.0] - 2026-08-02
 
 ### Changed

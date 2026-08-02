@@ -220,6 +220,9 @@ export const PERMISSIONS = [
   { key: "space.subscribe", label: "Subscribe to space", description: "Subscribe yourself to a space's change notifications", scope: "space" },
   { key: "space.tree_read", label: "Read page tree", description: "Read a space's page hierarchy", scope: "space" },
   { key: "space.update", label: "Update space", description: "Rename a space, change its visibility", scope: "global" },
+  { key: "space.author_all", label: "Author in every space", description: "Bypass per-space edit rights — create and edit documents anywhere visible", scope: "global" },
+  { key: "space.member", label: "Member of a space", description: "Read a private space. Held per space; this is what space membership is", scope: "space" },
+  { key: "space.read_all", label: "Read every space", description: "See every space including private ones, without being a member", scope: "global" },
   // --- status ---
   { key: "status.incident_manage", label: "Manage incidents", description: "Declare, update, resolve incidents (notifies the workspace)", scope: "global" },
   { key: "status.read", label: "Read status board", description: "View service status and incidents", scope: "global" },
@@ -658,6 +661,8 @@ export const PRESET_ROLES = {
       "search.ai_query",
       "search.query",
       "space.author",
+      "space.author_all",
+      "space.read_all",
       "space.category_manage",
       "space.category_read",
       "space.create",

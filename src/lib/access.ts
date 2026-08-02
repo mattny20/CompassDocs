@@ -22,9 +22,38 @@ import type { SpaceScope } from "./space-scope";
 export type { SpaceScope };
 export { EVERY_SPACE_UNFILTERED, scopeAllows, scopeIsEmpty };
 
+/**
+ * Which spaces may this user SEE?
+ *
+ * Two changes in 0.95, both of which can only widen or exactly preserve access:
+ *
+ * - The admin bypass is a permission (`space.read_all`) instead of
+ *   `role === "admin"`. The Administrator preset holds it, so administrators
+ *   are unaffected; the difference is that "can see every private space" is now
+ *   something a workspace can grant deliberately, name in an audit, and see in
+ *   the explainer — rather than a constant three layers down in a module most
+ *   people never open.
+ *
+ * - A space-scoped `space.member` grant counts as membership. That is the
+ *   RBAC-native way to say "these people can read this private space", and it
+ *   sits alongside the existing group grants rather than replacing them: the
+ *   union means no existing member can lose access to a space they can read
+ *   today, which is the property that matters when the failure mode is
+ *   exposing or hiding private content.
+ */
 export async function spaceScopeFor(user: { id: number; role: Role }): Promise<SpaceScope> {
-  if (user.role === "admin") return scope("all");
-  return scope(await accessibleSpaceIdsFor(user.id));
+  const { grantsFor, holds, spacesWith, legacyAuthzEnforcement } = await import("./authz");
+  if (legacyAuthzEnforcement()) {
+    if (user.role === "admin") return scope("all");
+    return scope(await accessibleSpaceIdsFor(user.id));
+  }
+  const grants = await grantsFor(user.id);
+  if (holds(grants, "space.read_all")) return scope("all");
+
+  const viaGroups = await accessibleSpaceIdsFor(user.id);
+  const viaRole = spacesWith(grants, "space.member");
+  if (viaRole === "all") return scope("all");
+  return scope([...new Set([...viaGroups, ...viaRole])]);
 }
 
 // --- Edit rights -----------------------------------------------------------------
@@ -61,9 +90,33 @@ export async function canEditSpace(
   user: { id: number; role: Role },
   spaceId: number
 ): Promise<boolean> {
-  if (!roleAtLeast(user.role, "editor")) return false;
-  if (user.role === "admin") return true;
+  const { grantsFor, holds, legacyAuthzEnforcement } = await import("./authz");
+  if (legacyAuthzEnforcement()) {
+    if (!roleAtLeast(user.role, "editor")) return false;
+    if (user.role === "admin") return true;
+    if (!scopeAllows(await spaceScopeFor(user), spaceId)) return false;
+    if (await editorsEditAll()) return true;
+    return spaceEditGrantAllows(spaceId, user.id);
+  }
+
+  const grants = await grantsFor(user.id);
+  // The admin bypass, named (0.95). Held by the Administrator preset, so this
+  // is the same set of people — but it is now a grant a workspace can move.
+  if (holds(grants, "space.author_all")) return true;
+
+  // Visibility first, always. Authoring implies seeing, and this is the check
+  // whose absence 0.89.1 turned into an anonymous read of a private document.
   if (!scopeAllows(await spaceScopeFor(user), spaceId)) return false;
+
+  // A space-scoped grant authorises authoring in exactly that space. This is
+  // the per-space enforcement 0.93 deferred: until now a role assigned to one
+  // space could not actually unlock anything, because nothing consulted it.
+  if (holds(grants, "space.author", spaceId)) return true;
+
+  // Otherwise the pre-existing rules, unchanged: the org policy switch, then
+  // the space's own editor grants. Everything above is additive, so nobody who
+  // can author today stops being able to.
+  if (!holds(grants, "document.update")) return false;
   if (await editorsEditAll()) return true;
   return spaceEditGrantAllows(spaceId, user.id);
 }
@@ -73,10 +126,38 @@ export async function editableScopeFor(user: {
   id: number;
   role: Role;
 }): Promise<SpaceScope> {
-  if (user.role === "admin") return scope("all");
-  if (!roleAtLeast(user.role, "editor")) return scope([]);
-  const visible = await accessibleSpaceIdsFor(user.id);
+  const { grantsFor, holds, spacesWith, legacyAuthzEnforcement } = await import("./authz");
+  if (legacyAuthzEnforcement()) {
+    if (user.role === "admin") return scope("all");
+    if (!roleAtLeast(user.role, "editor")) return scope([]);
+    const visible = await accessibleSpaceIdsFor(user.id);
+    if (await editorsEditAll()) return scope(visible);
+    const granted = new Set(await editGrantedSpaceIdsFor(user.id));
+    return scope(visible.filter((id) => granted.has(id)));
+  }
+
+  const grants = await grantsFor(user.id);
+  if (holds(grants, "space.author_all")) return scope("all");
+
+  // The set this returns must agree with canEditSpace above, space by space —
+  // one decides what a list shows, the other whether a write succeeds, and a
+  // disagreement is either a document you can see but not save or one you can
+  // save but never find. Both start from what's visible and add the same two
+  // sources: a space-scoped grant, and the legacy edit rights.
+  const visibleScope = await spaceScopeFor(user);
+  const perSpace = spacesWith(grants, "space.author");
+  if (visibleScope === "all") {
+    // Only reachable via space.read_all without space.author_all — an unusual
+    // combination, but "sees everything, authors where granted" is coherent.
+    return perSpace === "all" ? scope("all") : scope(perSpace);
+  }
+  const visible: number[] = visibleScope;
+  const fromRole = perSpace === "all" ? new Set(visible) : new Set(perSpace);
+
+  if (!holds(grants, "document.update")) {
+    return scope(visible.filter((id) => fromRole.has(id)));
+  }
   if (await editorsEditAll()) return scope(visible);
   const granted = new Set(await editGrantedSpaceIdsFor(user.id));
-  return scope(visible.filter((id) => granted.has(id)));
+  return scope(visible.filter((id) => granted.has(id) || fromRole.has(id)));
 }
