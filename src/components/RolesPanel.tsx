@@ -89,6 +89,18 @@ const primary =
 const secondary =
   "inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50";
 
+/**
+ * The three sections that used to have their own settings page (0.98). They are
+ * ordinary roles now, so this is a shortcut into the form below rather than a
+ * second place where access is stored — which is what the old page had become,
+ * and why it could only ever show half the holders.
+ */
+const SECTION_SHORTCUTS = [
+  { key: "announcements-manager", label: "Announcements" },
+  { key: "compliance-manager", label: "Compliance" },
+  { key: "training-manager", label: "Training" },
+];
+
 function family(key: string): string {
   return key.split(".")[0];
 }
@@ -663,6 +675,30 @@ function AssignmentsTab({
 
   return (
     <div className="space-y-4">
+      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
+        <h3 className="mb-1 text-lg font-semibold text-slate-900">Delegate a section</h3>
+        <p className="mb-3 max-w-2xl text-sm text-slate-500">
+          The shortcut that used to live on its own Section access page. Each of these picks the
+          built-in role behind that section — choose who gets it below and press Grant.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {SECTION_SHORTCUTS.map((s) => {
+            const role = roles.find((r) => r.key === s.key);
+            if (!role) return null;
+            return (
+              <button
+                key={s.key}
+                type="button"
+                onClick={() => setRoleId(role.id)}
+                className={`${roleId === role.id ? primary : secondary}`}
+              >
+                {s.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <h3 className="mb-3 text-lg font-semibold text-slate-900">Grant a role</h3>
         <p className="mb-3 max-w-2xl text-sm text-slate-500">

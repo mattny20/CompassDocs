@@ -10,9 +10,17 @@
 > field wired through the SSO API, and `google_path` threaded through the
 > directory-field data layer and its two routes.
 >
-> **Still not implemented:** the Google client itself — OAuth against the
-> service account, `listPeople`/`listGroups`, and the `/api/ee/google/*`
-> endpoints. Those live in the **compassdocs-ee overlay repo**, not here. Core carries the shapes and the write
+> **Complete as of 0.98.** The client shipped in the compassdocs-ee overlay
+> (`ee/google.ts`): service-account OAuth with domain-wide delegation,
+> users and groups from the Directory API, and
+> `/api/ee/google/{probe,sync,groups,groups/sync}`. Core carries the admin
+> panel (`components/GoogleDirectoryPanel`).
+>
+> **Still unverified against a live tenant** — flagged rather than assumed:
+> derived-membership behaviour for dynamic groups nested in static ones, and
+> current Directory API quota values. Group members are fetched with
+> `includeDerivedMembership` and narrowed client-side rather than trusting the
+> undocumented `roles` interaction. Core carries the shapes and the write
 > paths so a downgrade to the community build leaves a directory that still
 > reads correctly.
 
