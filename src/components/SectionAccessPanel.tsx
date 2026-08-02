@@ -73,11 +73,23 @@ export function SectionAccessPanel({
     <div className="space-y-4">
       <div>
         <p className="mt-1 max-w-2xl text-sm text-slate-500">
-          Announcements and Compliance live in the main navigation. Admins always have access;
-          grant them here to individual people or groups so a comms lead or HR manager can run
-          them without the admin role. Granted users see the section appear in their sidebar.
+          Announcements, Compliance, and Training live in the main navigation. Admins always
+          have access; grant them here to individual people or groups so a comms lead or HR
+          manager can run them without the admin role. Granted users see the section appear in
+          their sidebar.
         </p>
       </div>
+
+      <p className="max-w-2xl text-sm text-slate-500">
+        These are role grants now. Each section has a built-in role behind it, and this page
+        edits who holds it — so the same grant shows up in{" "}
+        <a href="/admin/roles" className="font-medium text-compass-600 hover:underline">
+          Roles &amp; permissions
+        </a>
+        , where you can also see anyone who reaches a section through a custom role. Those people
+        won&rsquo;t be listed below, because this page didn&rsquo;t grant them and shouldn&rsquo;t
+        offer to take it away.
+      </p>
 
       {sections.map((s) => {
         return (

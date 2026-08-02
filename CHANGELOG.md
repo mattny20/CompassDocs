@@ -4,6 +4,27 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.94.0] - 2026-08-02
+
+### Changed
+- **Section access and the newsletter are role grants now.** Delegating
+  Announcements, Compliance, or Training used to be stored separately from
+  everything else, as did who can write and approve the newsletter. Both are
+  ordinary roles today, so the same grant can go to a group, be explained in
+  Roles & permissions, and be revoked in one place. The settings pages work
+  exactly as before — the storage moved underneath them, and existing grants
+  were carried over on first start.
+- **Training team leads.** Leading a group still opens the team view on its
+  own. It can now also be granted as a permission, which closes the one check
+  in CompassDocs an administrator could not reach at all.
+
+### Fixed
+- A change to someone's role could have silently revoked their section
+  delegation or newsletter access. Caught before release; the two are now kept
+  properly separate.
+- The "does everyone have a role" health check counted delegated grants as
+  ladder mismatches, reporting problems that weren't.
+
 ## [0.93.0] - 2026-08-02
 
 ### Added

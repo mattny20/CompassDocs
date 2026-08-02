@@ -120,6 +120,7 @@ async function initialize(): Promise<void> {
     await client.query(SCHEMA_SQL);
     await syncPresetRoles(client);
     await migrateLadderToAssignments(client);
+    await migrateDelegationToAssignments(client);
     await migrateVisibilityTiers(client);
     await migrateSecuritySealing(client);
     await migrateWeightedSearch(client);
@@ -1101,13 +1102,17 @@ const SCHEMA_SQL = `
   -- them all?" problem this rewrite exists to stop having, so the invariant
   -- lives next to the data instead.
   --
-  -- Only built-in roles at global scope are touched: custom roles and
-  -- space-scoped grants are never created or removed by this.
+  -- Only the four LADDER rungs at global scope are touched. Custom roles,
+  -- space-scoped grants, and the seeded delegated roles (Announcements
+  -- manager, Newsletter approver, …) are never created or removed by this —
+  -- they are built-in too, and an unqualified is_builtin test would have wiped
+  -- someone's section delegation the moment an admin changed their role.
   CREATE OR REPLACE FUNCTION compass_sync_ladder_assignment() RETURNS trigger AS $fn$
   BEGIN
     DELETE FROM role_assignments ra
      USING roles r
      WHERE ra.role_id = r.id AND r.is_builtin
+       AND r.key IN ('viewer','editor','approver','admin')
        AND ra.user_id = NEW.id AND ra.scope_type = 'global' AND r.key <> NEW.role;
     INSERT INTO role_assignments (role_id, user_id, scope_type)
     SELECT r.id, NEW.id, 'global' FROM roles r WHERE r.is_builtin AND r.key = NEW.role
@@ -1186,9 +1191,15 @@ async function migrateWeightedSearch(client: import("pg").PoolClient) {
  * preset, and inserts are ON CONFLICT DO NOTHING.
  */
 async function syncPresetRoles(client: import("pg").PoolClient) {
-  const { PRESET_ROLES, PRESET_ROLE_KEYS } = await import("./permissions");
-  for (const key of PRESET_ROLE_KEYS) {
-    const preset = PRESET_ROLES[key];
+  const { PRESET_ROLES, PRESET_ROLE_KEYS, DELEGATED_ROLES } = await import("./permissions");
+  const seeded: Record<string, { label: string; description: string; permissions: readonly string[] }> = {
+    ...Object.fromEntries(
+      PRESET_ROLE_KEYS.map((k) => [k, PRESET_ROLES[k] as { label: string; description: string; permissions: readonly string[] }])
+    ),
+    ...DELEGATED_ROLES,
+  };
+  for (const key of Object.keys(seeded)) {
+    const preset = seeded[key];
     const { rows } = await client.query<{ id: number }>(
       `INSERT INTO roles (key, name, description, is_builtin)
        VALUES ($1, $2, $3, true)
@@ -1231,6 +1242,85 @@ async function migrateLadderToAssignments(client: import("pg").PoolClient) {
      ON CONFLICT DO NOTHING`
   );
   if (rowCount) console.log(`[rbac] backfilled ${rowCount} role assignment(s) from the ladder`);
+}
+
+/**
+ * Move the two remaining parallel grant stores into role assignments (0.94).
+ *
+ * Section delegation lived as JSON in `settings` (`section_access_announcements`
+ * and friends); the newsletter capability lived as a text column on `users`.
+ * Both expressed "this person or group may do this set of things" — which is
+ * an assignment — so both become assignments of the seeded roles.
+ *
+ * Runs once, guarded by a settings flag, because unlike the ladder backfill
+ * this is not self-healing: re-running it after an admin has deliberately
+ * revoked one of the migrated grants would put it back.
+ *
+ * The old data is left in place, untouched. It costs nothing, it is the only
+ * record of what the previous state was, and a downgrade to 0.93 needs it.
+ */
+async function migrateDelegationToAssignments(client: import("pg").PoolClient) {
+  const done = await client.query("SELECT 1 FROM settings WHERE key = 'migrated_delegation_rbac'");
+  if (done.rowCount) return;
+
+  const { SECTION_ROLES, NEWSLETTER_ROLES } = await import("./permissions");
+  let moved = 0;
+
+  const roleId = async (key: string): Promise<number | null> => {
+    const { rows } = await client.query<{ id: number }>("SELECT id FROM roles WHERE key = $1", [key]);
+    return rows[0]?.id ?? null;
+  };
+
+  for (const [key, def] of Object.entries(SECTION_ROLES)) {
+    const id = await roleId(key);
+    if (!id) continue;
+    const { rows } = await client.query<{ value: string }>(
+      "SELECT value FROM settings WHERE key = $1",
+      [`section_access_${def.section}`]
+    );
+    if (!rows[0]?.value) continue;
+    let parsed: { users?: unknown; groups?: unknown };
+    try {
+      parsed = JSON.parse(rows[0].value);
+    } catch {
+      continue; // unreadable grant: leave it alone rather than guess
+    }
+    const nums = (v: unknown) =>
+      Array.isArray(v) ? v.map(Number).filter((n) => Number.isInteger(n) && n > 0) : [];
+    for (const userId of nums(parsed.users)) {
+      const r = await client.query(
+        `INSERT INTO role_assignments (role_id, user_id, scope_type) VALUES ($1, $2, 'global')
+         ON CONFLICT DO NOTHING`,
+        [id, userId]
+      );
+      moved += r.rowCount ?? 0;
+    }
+    for (const groupId of nums(parsed.groups)) {
+      const r = await client.query(
+        `INSERT INTO role_assignments (role_id, group_id, scope_type) VALUES ($1, $2, 'global')
+         ON CONFLICT DO NOTHING`,
+        [id, groupId]
+      );
+      moved += r.rowCount ?? 0;
+    }
+  }
+
+  for (const [key, def] of Object.entries(NEWSLETTER_ROLES)) {
+    const id = await roleId(key);
+    if (!id) continue;
+    const r = await client.query(
+      `INSERT INTO role_assignments (role_id, user_id, scope_type)
+       SELECT $1, u.id, 'global' FROM users u WHERE u.newsletter_role = $2
+       ON CONFLICT DO NOTHING`,
+      [id, def.level]
+    );
+    moved += r.rowCount ?? 0;
+  }
+
+  await client.query(
+    "INSERT INTO settings (key, value) VALUES ('migrated_delegation_rbac','1') ON CONFLICT (key) DO NOTHING"
+  );
+  console.log(`[rbac] migrated ${moved} delegated grant(s) into role assignments`);
 }
 
 async function migrateVisibilityTiers(client: import("pg").PoolClient) {
@@ -5624,9 +5714,41 @@ export async function listNewsletterApproverPool(): Promise<
   );
 }
 
+/**
+ * Set someone's newsletter capability.
+ *
+ * Since 0.94 the assignment is what decides; the column is kept in step so the
+ * people list still reads it, a downgrade to 0.93 still works, and the
+ * break-glass path has something to fall back on. Both move together, in one
+ * transaction, for the same reason the ladder has a trigger: two stores that
+ * can disagree eventually will.
+ */
 export async function setUserNewsletterRole(userId: number, role: string): Promise<void> {
   const value = role === "contributor" || role === "approver" ? role : "none";
-  await q("UPDATE users SET newsletter_role = $2 WHERE id = $1", [userId, value]);
+  const client = await pool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("UPDATE users SET newsletter_role = $2 WHERE id = $1", [userId, value]);
+    await client.query(
+      `DELETE FROM role_assignments ra USING roles r
+        WHERE ra.role_id = r.id AND r.key IN ('newsletter-contributor','newsletter-approver')
+          AND ra.user_id = $1 AND ra.scope_type = 'global'`,
+      [userId]
+    );
+    if (value !== "none") {
+      await client.query(
+        `INSERT INTO role_assignments (role_id, user_id, scope_type)
+         SELECT r.id, $1, 'global' FROM roles r WHERE r.key = $2 ON CONFLICT DO NOTHING`,
+        [userId, `newsletter-${value}`]
+      );
+    }
+    await client.query("COMMIT");
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
 /** Set (or clear, with null) the send time of an approved newsletter. */
@@ -6248,8 +6370,10 @@ export async function listRolesWithCounts(): Promise<
 }
 
 /**
- * Cross-check the migrated assignments against the legacy ladder they came
- * from. Both are live until 0.92 ports the check sites, so a disagreement means
+ * Cross-check the migrated LADDER assignments against the ladder they came
+ * from. Delegated roles (Announcements manager, Newsletter approver, …) are
+ * built-in too but are not rungs, so they are excluded from both counts —
+ * including them would report every delegated grant as a mismatch. Both are live until 0.92 ports the check sites, so a disagreement means
  * something wrote one and not the other — worth catching while there is still a
  * second source of truth to compare against.
  */
@@ -6263,11 +6387,13 @@ export async function rbacMigrationAudit(): Promise<{
        (SELECT count(*) FROM users)::text AS users,
        (SELECT count(*) FROM users u
           WHERE NOT EXISTS (SELECT 1 FROM role_assignments ra
-                             WHERE ra.user_id = u.id AND ra.scope_type = 'global'))::text AS without,
+                             JOIN roles r ON r.id = ra.role_id
+                            WHERE ra.user_id = u.id AND ra.scope_type = 'global'
+                              AND r.key IN ('viewer','editor','approver','admin')))::text AS without,
        (SELECT count(*) FROM users u
           JOIN role_assignments ra ON ra.user_id = u.id AND ra.scope_type = 'global'
           JOIN roles r ON r.id = ra.role_id AND r.is_builtin
-         WHERE r.key <> u.role)::text AS mismatched`
+         WHERE r.key IN ('viewer','editor','approver','admin') AND r.key <> u.role)::text AS mismatched`
   );
   const r = rows[0];
   return {
@@ -6348,6 +6474,9 @@ export async function shadowReport(): Promise<{
 // whether a permission edit strands the workspace means re-implementing the
 // resolver in the guard, and any drift between the two is a lockout. Asking the
 // database what is true after the change cannot drift.
+
+/** The four rungs of the legacy ladder, mirrored into assignments by a trigger. */
+export const LADDER_ROLE_KEYS = ["viewer", "editor", "approver", "admin"];
 
 export type RoleMutationError =
   | "not_found"
@@ -6584,14 +6713,18 @@ export async function assignRole(input: {
  * instead, which moves both together.
  */
 export async function unassignRole(id: number): Promise<{ ok: true } | { error: RoleMutationError }> {
-  const rows = await q<{ user_id: number | null; is_builtin: boolean; scope_type: string }>(
-    `SELECT ra.user_id, r.is_builtin, ra.scope_type
+  const rows = await q<{ user_id: number | null; key: string; scope_type: string }>(
+    `SELECT ra.user_id, r.key, ra.scope_type
        FROM role_assignments ra JOIN roles r ON r.id = ra.role_id WHERE ra.id = $1`,
     [id]
   );
   const row = rows[0];
   if (!row) return { error: "not_found" };
-  if (row.is_builtin && row.user_id !== null && row.scope_type === "global") {
+  // Only the four LADDER rungs are refused here — those rows are the ladder's
+  // own mirror and must move with users.role. The seeded delegated roles are
+  // built-in too, but they are ordinary grants and revoking one here is exactly
+  // what an admin means to do.
+  if (LADDER_ROLE_KEYS.includes(row.key) && row.user_id !== null && row.scope_type === "global") {
     return { error: "in_use" };
   }
 
@@ -6606,6 +6739,82 @@ export async function unassignRole(id: number): Promise<{ ok: true } | { error: 
     }
     await client.query("COMMIT");
     return { ok: true };
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+// --- Seeded-role grants (0.94) ---------------------------------------------
+//
+// The Section access page and the newsletter people picker both edit "who is
+// granted this capability", which is now a set of assignments of one seeded
+// role. These two helpers are the whole storage layer for that: read the
+// subjects, or replace them.
+
+export async function sectionRoleGrants(
+  roleKey: string
+): Promise<{ users: number[]; groups: number[] }> {
+  const rows = await q<{ user_id: number | null; group_id: number | null }>(
+    `SELECT ra.user_id, ra.group_id
+       FROM role_assignments ra JOIN roles r ON r.id = ra.role_id
+      WHERE r.key = $1 AND ra.scope_type = 'global'`,
+    [roleKey]
+  );
+  return {
+    users: rows.filter((r) => r.user_id !== null).map((r) => r.user_id as number),
+    groups: rows.filter((r) => r.group_id !== null).map((r) => r.group_id as number),
+  };
+}
+
+/**
+ * Replace the subject set for one seeded role, in a single transaction so a
+ * half-applied change can't leave someone with access nobody intended.
+ *
+ * Scoped to this role's own assignments: a person who reaches the same section
+ * through a custom role is untouched, because this page did not grant that and
+ * has no business revoking it.
+ */
+export async function setSectionRoleGrants(
+  roleKey: string,
+  users: number[],
+  groups: number[]
+): Promise<void> {
+  const client = await pool().connect();
+  try {
+    await client.query("BEGIN");
+    const { rows } = await client.query<{ id: number }>("SELECT id FROM roles WHERE key = $1", [
+      roleKey,
+    ]);
+    const roleId = rows[0]?.id;
+    if (!roleId) {
+      await client.query("ROLLBACK");
+      return;
+    }
+    await client.query(
+      `DELETE FROM role_assignments
+        WHERE role_id = $1 AND scope_type = 'global'
+          AND (user_id IS NOT NULL AND user_id <> ALL($2::int[])
+            OR group_id IS NOT NULL AND group_id <> ALL($3::int[]))`,
+      [roleId, users, groups]
+    );
+    if (users.length) {
+      await client.query(
+        `INSERT INTO role_assignments (role_id, user_id, scope_type)
+         SELECT $1, unnest($2::int[]), 'global' ON CONFLICT DO NOTHING`,
+        [roleId, users]
+      );
+    }
+    if (groups.length) {
+      await client.query(
+        `INSERT INTO role_assignments (role_id, group_id, scope_type)
+         SELECT $1, unnest($2::int[]), 'global' ON CONFLICT DO NOTHING`,
+        [roleId, groups]
+      );
+    }
+    await client.query("COMMIT");
   } catch (e) {
     await client.query("ROLLBACK");
     throw e;

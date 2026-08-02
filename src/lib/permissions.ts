@@ -354,7 +354,7 @@ export const PRESET_ROLES = {
       "training.read_own",
       "ui.command_palette",
       "user.mention_list",
-    ] as PermissionKey[],
+    ] as const satisfies readonly PermissionKey[],
   },
   editor: {
     label: "Editor",
@@ -431,7 +431,7 @@ export const PRESET_ROLES = {
       "training.read_own",
       "ui.command_palette",
       "user.mention_list",
-    ] as PermissionKey[],
+    ] as const satisfies readonly PermissionKey[],
   },
   approver: {
     label: "Approver",
@@ -519,7 +519,7 @@ export const PRESET_ROLES = {
       "training.read_own",
       "ui.command_palette",
       "user.mention_list",
-    ] as PermissionKey[],
+    ] as const satisfies readonly PermissionKey[],
   },
   admin: {
     label: "Administrator",
@@ -722,9 +722,146 @@ export const PRESET_ROLES = {
       "workspace.section_access_manage",
       "workspace.settings_manage",
       "workspace.settings_read",
-    ] as PermissionKey[],
+    ] as const satisfies readonly PermissionKey[],
   },
 } as const;
 
 export type PresetRoleKey = keyof typeof PRESET_ROLES;
 export const PRESET_ROLE_KEYS = Object.keys(PRESET_ROLES) as PresetRoleKey[];
+
+/**
+ * Roles for the delegated operational sections (0.94).
+ *
+ * Announcements, Compliance, and Training used to be delegated by a separate
+ * mechanism entirely: JSON blobs of user and group ids in the `settings` table,
+ * read by their own `canAccessSection()`. It had no role floor at all, so a
+ * Viewer holding the training grant could export the audit package — which is
+ * defensible as a decision but was never one anybody made.
+ *
+ * They are ordinary roles now. Same grants, same people, one model — and the
+ * Roles console can explain them like anything else.
+ *
+ * Seeded and refreshed on every boot alongside the presets, so an upgrade that
+ * adds a training permission extends the Training manager role without a
+ * migration. Like the presets they are `is_builtin` and therefore read-only;
+ * unlike the presets they are NOT ladder rungs, and the trigger that mirrors
+ * `users.role` ignores them.
+ */
+export const SECTION_ROLES = {
+  "announcements-manager": {
+    label: "Announcements manager",
+    description: "Post, edit, and expire org-wide announcements, with email and chat delivery.",
+    section: "announcements",
+    permissions: ["announcement.manage"] as const satisfies readonly PermissionKey[],
+  },
+  "compliance-manager": {
+    label: "Compliance manager",
+    description: "Run the policy-acknowledgement program: progress, requests, reminders, exports.",
+    section: "compliance",
+    permissions: [
+      "compliance.export",
+      "compliance.program_manage",
+      "compliance.program_read",
+      "document.ack_roster_read",
+    ] as const satisfies readonly PermissionKey[],
+  },
+  "training-manager": {
+    label: "Training manager",
+    description: "Create training decks and programs, assign them, and track completion.",
+    section: "training",
+    permissions: [
+      "training.archive_read",
+      "training.assignment_manage",
+      "training.audit_package_export",
+      "training.certificate_read_any",
+      "training.deck_manage",
+      "training.deck_preview",
+      "training.deck_read",
+      "training.lead_manage",
+      "training.lead_read",
+      "training.matrix_read",
+      "training.overview_read",
+      "training.person_read",
+      "training.program_manage",
+      "training.report_export",
+      "training.report_read",
+      "training.snapshot_create",
+      "training.snapshot_delete",
+      "training.snapshot_read",
+      "training.team_read",
+    ] as const satisfies readonly PermissionKey[],
+  },
+} as const;
+
+export type SectionRoleKey = keyof typeof SECTION_ROLES;
+export const SECTION_ROLE_KEYS = Object.keys(SECTION_ROLES) as SectionRoleKey[];
+
+/**
+ * The permission that decides whether a section appears at all. A section is
+ * "reachable" when the user holds this key by any route — the seeded role
+ * above, a custom role, or the Administrator preset.
+ */
+export const SECTION_GATE: Record<string, PermissionKey> = {
+  announcements: "announcement.manage",
+  compliance: "compliance.program_read",
+  training: "training.deck_read",
+};
+
+/**
+ * The newsletter capability, likewise (0.94).
+ *
+ * `users.newsletter_role` was a third parallel system: a text column on the
+ * user row with its own three values and its own helper module. The two levels
+ * it expressed map exactly onto two roles.
+ */
+export const NEWSLETTER_ROLES = {
+  "newsletter-contributor": {
+    label: "Newsletter contributor",
+    description: "Write newsletter drafts and submit them for review.",
+    level: "contributor",
+    permissions: [
+      "newsletter.asset_upload",
+      "newsletter.comment",
+      "newsletter.create",
+      "newsletter.delete",
+      "newsletter.edit_content",
+      "newsletter.file_manage",
+      "newsletter.file_read",
+      "newsletter.read",
+      "newsletter.send_test",
+      "newsletter.submit",
+      "newsletter.use",
+    ] as const satisfies readonly PermissionKey[],
+  },
+  "newsletter-approver": {
+    label: "Newsletter approver",
+    description: "Everything a contributor does, plus reviewing, approving, and sending.",
+    level: "approver",
+    permissions: [
+      "newsletter.asset_upload",
+      "newsletter.comment",
+      "newsletter.create",
+      "newsletter.decide",
+      "newsletter.delete",
+      "newsletter.edit_content",
+      "newsletter.file_manage",
+      "newsletter.file_read",
+      "newsletter.read",
+      "newsletter.read_all",
+      "newsletter.schedule",
+      "newsletter.send",
+      "newsletter.send_test",
+      "newsletter.submit",
+      "newsletter.use",
+    ] as const satisfies readonly PermissionKey[],
+  },
+} as const;
+
+export type NewsletterRoleKey = keyof typeof NEWSLETTER_ROLES;
+export const NEWSLETTER_ROLE_KEYS = Object.keys(NEWSLETTER_ROLES) as NewsletterRoleKey[];
+
+/** Every seeded non-ladder role, in one place for the boot-time sync. */
+export const DELEGATED_ROLES: Record<
+  string,
+  { label: string; description: string; permissions: readonly PermissionKey[] }
+> = { ...SECTION_ROLES, ...NEWSLETTER_ROLES };

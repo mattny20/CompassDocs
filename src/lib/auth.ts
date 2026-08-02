@@ -102,7 +102,34 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
   if (!Number.isNaN(current) && target - current > TOUCH_THROTTLE_MS) {
     await touchSession(token, new Date(target).toISOString());
   }
-  return toSessionUser(session);
+  const user = toSessionUser(session);
+  user.newsletter_role = await newsletterLevel(user);
+  return user;
+}
+
+/**
+ * The newsletter capability, derived from role assignments (0.94).
+ *
+ * `users.newsletter_role` was a fourth parallel authorization system: a text
+ * column with its own three values and its own helper module. The column is
+ * still written and read for display, but it is no longer what decides — the
+ * seeded Newsletter contributor / approver roles are, so the capability can be
+ * granted to a group, explained in the Roles console, and revoked in one place.
+ *
+ * The value is folded back onto SessionUser so lib/newsletter-access keeps its
+ * simple synchronous shape and its ~20 call sites stay unchanged. Grants are
+ * request-cached, so this costs nothing beyond the query the guard already ran.
+ */
+async function newsletterLevel(
+  user: SessionUser
+): Promise<"none" | "contributor" | "approver"> {
+  const { grantsFor, holds, legacyAuthzEnforcement } = await import("./authz");
+  // Break-glass: the column is the authority again, exactly as before 0.94.
+  if (legacyAuthzEnforcement()) return user.newsletter_role;
+  const grants = await grantsFor(user.id);
+  if (holds(grants, "newsletter.send")) return "approver";
+  if (holds(grants, "newsletter.use")) return "contributor";
+  return "none";
 }
 
 /** For server components/pages: redirect to /login when not authenticated. */

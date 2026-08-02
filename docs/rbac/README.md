@@ -134,6 +134,38 @@ from the catalog on every boot — that is what makes an upgrade that adds a
 permission grant it without a migration — so an edit would silently revert on
 restart. Duplicating a preset gives an editable copy.
 
+## Collapsing the parallel systems (0.94)
+
+Three of the six are gone. Each was the same shape — "these people and these
+groups may do this set of things" — which is an assignment, so each became one:
+
+| Was | Now |
+| --- | --- |
+| `settings.section_access_*` JSON + its own resolver | Assignments of the seeded **Announcements / Compliance / Training manager** roles |
+| `users.newsletter_role` text column + `newsletter-access.ts` | Assignments of **Newsletter contributor / approver** |
+| training team view reachable *only* by group leadership | leadership **or** `training.team_read` |
+
+The settings pages did not change. `getSectionGrants`/`setSectionGrants` kept
+their signatures and swapped their storage, so the console gained a shared model
+without learning a new vocabulary. Existing grants migrate once on first boot,
+guarded by a flag — unlike the ladder backfill this is not self-healing, because
+re-running it after an admin revoked a migrated grant would put it back. The old
+rows are left in place: they cost nothing, they are the only record of the prior
+state, and a downgrade to 0.93 reads them.
+
+**The bug this nearly shipped with.** The trigger mirroring `users.role` deleted
+every `is_builtin` global assignment that wasn't the user's rung. The moment
+delegated roles became built-in — which they must be, so upgrades extend them
+from the catalog — that trigger would have revoked someone's section access on
+any role change, with no error and no log line. The trigger is now scoped to the
+four ladder keys, and `unassignRole`'s "this mirrors the ladder" refusal with
+it. Proven both ways on the rig: under the old trigger the grant count went
+1 → 0 on a role change; under the new one it stayed 1.
+
+Two remain, both per-space, and they belong together with the per-space guard
+enforcement 0.93 deferred: **space visibility** (`spaceScopeFor`) and **space
+edit rights** (`editors_edit_all` + edit grants). They are the next piece.
+
 ## Status
 
 All of RBAC ships in the community edition; only the Google and Microsoft
