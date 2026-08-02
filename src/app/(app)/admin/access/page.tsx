@@ -1,26 +1,15 @@
-import { requireSettingsSection } from "@/lib/auth";
-import { listUsers, listGroups } from "@/lib/db";
-import { SECTIONS, getSectionGrants } from "@/lib/section-access";
-import { SectionAccessPanel } from "@/components/SectionAccessPanel";
-import { SettingsPage } from "@/components/SettingsPage";
+import { redirect } from "next/navigation";
 
-export const dynamic = "force-dynamic";
-
-export default async function SectionAccessPage() {
-  await requireSettingsSection("/admin/access");
-  const [users, groups] = await Promise.all([listUsers(), listGroups()]);
-  const sections = await Promise.all(
-    SECTIONS.map(async (s) => ({ ...s, ...(await getSectionGrants(s.key)) }))
-  );
-  return (
-    <SettingsPage href="/admin/access">
-    <SectionAccessPanel
-      initial={sections}
-      users={users
-        .filter((u) => u.status === "active")
-        .map((u) => ({ id: u.id, name: u.name || u.username, username: u.username, role: u.role }))}
-      groups={groups.map((g) => ({ id: g.id, name: g.name, member_count: g.member_count }))}
-    />
-    </SettingsPage>
-  );
+// Section access folded into Roles & permissions (0.98).
+//
+// The three sections have been backed by real roles since 0.94, so this page
+// was a second surface onto one model — and a partial one: it could only list
+// holders of the seeded role, never anyone reaching a section through a custom
+// role, which meant it stated someone's access and was sometimes wrong. That is
+// the shape of problem this whole rewrite existed to remove, so it goes.
+//
+// A redirect rather than a deletion: the path is in older documentation, in
+// people's bookmarks, and in muscle memory.
+export default function MovedSectionAccess() {
+  redirect("/admin/roles?delegate=1");
 }

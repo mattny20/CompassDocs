@@ -4,6 +4,24 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.98.0] - 2026-08-02
+
+### Added
+- **Google Workspace directory sync works end to end** (Enterprise). Connect a
+  service account, test the connection, and pull people and groups — alongside
+  Microsoft 365 if you run both. Each provider owns the people it synced, so
+  connecting one never removes the other's. Settings → Directory now has a
+  Google panel with a connection test, a sync button, group import, and the
+  client ID and scopes to paste into Google's delegation screen.
+
+### Changed
+- **Section access has moved into Roles & permissions.** Announcements,
+  Compliance, and Training have been backed by real roles since 0.94, so the
+  separate page was a second view of the same thing — and a partial one: it
+  could never show someone who reached a section through a custom role. The
+  delegation shortcut now lives on the Assignments tab, where the full picture
+  is. The old link redirects, and the API behind it still works.
+
 ## [0.97.0] - 2026-08-02
 
 ### Added

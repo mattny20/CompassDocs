@@ -9,7 +9,13 @@ import type { SessionUser } from "@/lib/types";
 export const dynamic = "force-dynamic";
 
 // Configuration of delegated section access (admin only): who besides admins
-// can run Announcements and Compliance from the main navigation.
+// can run Announcements, Compliance, and Training from the main navigation.
+//
+// The settings PAGE was retired in 0.98 — it had become a second, partial view
+// of the role model. This endpoint stays: since 0.94 it reads and writes role
+// assignments of the seeded section roles, so it is an alias for an assignment
+// POST rather than a competing store, and removing it would break anything
+// scripted against it for no benefit.
 
 export async function GET() {
   const gate = await apiGuard("admin", "workspace.section_access_manage");

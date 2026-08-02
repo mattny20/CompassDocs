@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { ADMIN, login, api } from "./helpers";
 
-// The Google Workspace configuration surface (0.97).
+// The Google Workspace configuration surface (0.97) and its admin panel (0.98).
 //
 // 0.96 shipped the seams — the provider interface, source-scoped writes, the
 // google_path column, the SSO vendor discriminator — with nothing an admin
@@ -154,4 +154,65 @@ test("Users & roles shows the roles a person holds beyond their rung", async ({ 
     if (userId) await api(page, `/api/admin/users/${userId}`, { method: "DELETE" });
     await ctx.close();
   }
+});
+
+test("the Google panel is on the Directory page and offers the setup values", async ({
+  browser,
+}) => {
+  const ctx = await browser.newContext();
+  const page = await ctx.newPage();
+  await login(page, ADMIN);
+
+  // Edition-aware on purpose. CI runs the community build, where this panel is
+  // deliberately a one-line "enterprise feature" note — asserting the form
+  // fields unconditionally would pass only on an enterprise image and fail here
+  // for a reason that isn't a bug.
+  const state = await api(page, "/api/admin/directory/google");
+  const bundled = Boolean(state.body?.bundled);
+
+  await page.goto("/admin/directory");
+  await expect(page.getByRole("heading", { name: "Google Workspace sync" })).toBeVisible();
+
+  if (bundled) {
+    // The two fields an admin must fill — the second is the one people miss,
+    // and missing it produces a 403 that reads like a scope problem.
+    await expect(page.getByText("Service-account key (JSON)")).toBeVisible();
+    await expect(page.getByText("Administrator to impersonate")).toBeVisible();
+  } else {
+    // Scoped to the Google panel — the Microsoft one carries the same notice,
+    // so an unscoped match is ambiguous rather than wrong.
+    const panel = page
+      .locator("div")
+      .filter({ has: page.getByRole("heading", { name: "Google Workspace sync" }) })
+      .last();
+    await expect(panel.getByText(/enterprise feature/i)).toBeVisible();
+  }
+
+  await ctx.close();
+});
+
+test("Section access is folded into Roles & permissions", async ({ browser }) => {
+  const ctx = await browser.newContext();
+  const page = await ctx.newPage();
+  await login(page, ADMIN);
+
+  // The old path still works — it is in older docs and people's bookmarks —
+  // but it lands in the one place that holds the whole picture.
+  await page.goto("/admin/access");
+  expect(new URL(page.url()).pathname, "the retired page redirects").toBe("/admin/roles");
+
+  // And it is gone from the settings rail, so there is one route in, not two.
+  expect(
+    await page.locator('a[href="/admin/access"]').count(),
+    "no nav entry for the retired page"
+  ).toBe(0);
+
+  // The task it used to serve survives as a shortcut into the assignment form.
+  await page.getByRole("button", { name: "Assignments" }).click();
+  await expect(page.getByRole("heading", { name: "Delegate a section" })).toBeVisible();
+  for (const label of ["Announcements", "Compliance", "Training"]) {
+    await expect(page.getByRole("button", { name: label, exact: true })).toBeVisible();
+  }
+
+  await ctx.close();
 });
