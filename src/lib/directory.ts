@@ -12,9 +12,16 @@
 
 import { pool } from "./db";
 
+/**
+ * Where a directory row came from. "manual" rows are typed in by an admin;
+ * the rest are owned by a sync, which is what makes them deletable by that
+ * sync — and only by that sync (0.96).
+ */
+export type PersonSource = "manual" | "graph" | "google";
+
 export interface DirectoryPerson {
   id: number;
-  source: "manual" | "graph";
+  source: PersonSource;
   external_id: string | null;
   name: string;
   title: string;
@@ -451,9 +458,12 @@ export async function deletePerson(id: number): Promise<boolean> {
 
 // --- Graph sync ----------------------------------------------------------------
 
-export interface GraphPersonInput extends PersonInput {
+export interface ProviderPersonInput extends PersonInput {
   external_id: string;
 }
+
+/** Kept as the Microsoft-shaped alias so the EE overlay needs no coordinated release. */
+export type GraphPersonInput = ProviderPersonInput;
 
 /**
  * Replace the Graph-sourced portion of the directory with `people` (upsert by
@@ -463,6 +473,35 @@ export interface GraphPersonInput extends PersonInput {
  * synced row count.
  */
 export async function replaceGraphPeople(people: GraphPersonInput[]): Promise<number> {
+  const { upserted } = await replaceProviderPeople("graph", people);
+  return upserted;
+}
+
+/**
+ * Replace one provider's portion of the directory: upsert by external_id, then
+ * delete that provider's rows which have disappeared upstream. Manual rows,
+ * per-row `hidden` flags, assistant links, and custom values for keys the sync
+ * doesn't map are all preserved (jsonb merge — synced keys win).
+ *
+ * The `source` parameter is the whole point (0.96). Both the INSERT and the
+ * DELETE used to hardcode 'graph'; with a second provider writing to the same
+ * table that becomes "whichever directory synced last deletes the other one's
+ * people". Scoping the delete to the source doing the syncing is what makes two
+ * directories able to coexist.
+ *
+ * `maxDeleteFraction` is a safety valve on the delete. A misconfigured
+ * credential or a filter that suddenly matches nothing arrives here as an empty
+ * `people` array, which without a brake means "delete every synced person".
+ * When the proportion to remove exceeds the limit the delete is skipped, the
+ * upserts still commit, and the caller is told why — an operator can then look
+ * at it, rather than restoring a directory from a backup.
+ */
+export async function replaceProviderPeople(
+  source: Exclude<PersonSource, "manual">,
+  people: ProviderPersonInput[],
+  opts?: { maxDeleteFraction?: number }
+): Promise<{ upserted: number; deleted: number; abortedDelete?: string }> {
+  const maxFraction = opts?.maxDeleteFraction ?? 0.5;
   const client = await pool().connect();
   try {
     await client.query("BEGIN");
@@ -470,7 +509,7 @@ export async function replaceGraphPeople(people: GraphPersonInput[]): Promise<nu
       await client.query(
         `INSERT INTO directory_people
            (source, external_id, name, title, department, email, phone, mobile, office, photo, custom)
-         VALUES ('graph', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         VALUES ($11, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
          ON CONFLICT (external_id) WHERE external_id IS NOT NULL DO UPDATE SET
            name = EXCLUDED.name, title = EXCLUDED.title, department = EXCLUDED.department,
            email = EXCLUDED.email, phone = EXCLUDED.phone, mobile = EXCLUDED.mobile,
@@ -489,16 +528,40 @@ export async function replaceGraphPeople(people: GraphPersonInput[]): Promise<nu
           (p.office ?? "").trim(),
           p.photo ?? "",
           JSON.stringify(p.custom ?? {}),
+          source,
         ]
       );
     }
-    await client.query(
-      `DELETE FROM directory_people
-       WHERE source = 'graph' AND NOT (external_id = ANY($1::text[]))`,
-      [people.map((p) => p.external_id)]
+
+    const ids = people.map((p) => p.external_id);
+    const { rows: counts } = await client.query<{ total: string; doomed: string }>(
+      `SELECT count(*)::text AS total,
+              count(*) FILTER (WHERE NOT (external_id = ANY($2::text[])))::text AS doomed
+         FROM directory_people WHERE source = $1`,
+      [source, ids]
     );
+    const total = Number(counts[0]?.total ?? 0);
+    const doomed = Number(counts[0]?.doomed ?? 0);
+
+    let deleted = 0;
+    let abortedDelete: string | undefined;
+    if (doomed > 0 && total > 0 && doomed / total > maxFraction) {
+      abortedDelete =
+        `Skipped removing ${doomed} of ${total} synced people — that is more than ` +
+        `${Math.round(maxFraction * 100)}% of this directory. Check the connection and ` +
+        `filters, then sync again; the people that did arrive have been updated.`;
+    } else if (doomed > 0) {
+      const res = await client.query(
+        `DELETE FROM directory_people
+          WHERE source = $1 AND NOT (external_id = ANY($2::text[]))`,
+        [source, ids]
+      );
+      deleted = res.rowCount ?? 0;
+    }
+
     await client.query("COMMIT");
-    return people.length;
+    if (abortedDelete) console.warn(`[directory:${source}] ${abortedDelete}`);
+    return { upserted: people.length, deleted, abortedDelete };
   } catch (e) {
     await client.query("ROLLBACK").catch(() => {});
     throw e;

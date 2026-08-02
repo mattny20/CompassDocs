@@ -1,4 +1,15 @@
-I read the identity stack directly. Design below, grounded in the real signatures.
+> **Status (0.96).** The core seams below are implemented: the provider
+> interface (`src/lib/identity-provider.ts`), source-scoped people replacement
+> with a deletion brake (`replaceProviderPeople`), the `google_path` mapping
+> column, per-source group uniqueness, the SSO vendor discriminator, the sealed
+> Google credential key, and the four correctness fixes in §1 seams E and G.
+>
+> **Not yet implemented:** the Google client itself — OAuth against the service
+> account, `listPeople`/`listGroups`, the `/api/ee/google/*` endpoints and the
+> admin panel. Those live in the **compassdocs-ee overlay repo**, not here, and
+> are the companion piece to this release. Core carries the shapes and the write
+> paths so a downgrade to the community build leaves a directory that still
+> reads correctly.
 
 ---
 

@@ -4,6 +4,27 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.96.0] - 2026-08-02
+
+### Added
+- **Groundwork for Google Workspace alongside Microsoft.** CompassDocs can now
+  hold two corporate directories at once without them fighting: each owns its
+  own people and groups, has its own attribute mapping, and can be synced
+  independently. Sign-in gains a vendor choice, so Google no longer has to be
+  configured through an "Advanced" override field.
+- **A brake on directory removals.** If a sync returns far fewer people than the
+  directory currently holds — a bad credential, a filter that stopped matching —
+  the removals are skipped, the updates still apply, and the reason is logged.
+  A misconfiguration can no longer empty your directory.
+
+### Fixed
+- SCIM provisioning recorded every pushed user under the same generic provider,
+  so users from two different directories could be matched to each other.
+- The external-id lookup documented itself as case-insensitive while doing an
+  exact match. It is case-insensitive now, and can be scoped to one directory.
+- Group identifiers were required to be unique across all directories rather
+  than within one, which would have made the same team syncable from only one.
+
 ## [0.95.0] - 2026-08-02
 
 ### Added

@@ -307,7 +307,14 @@ const SCHEMA_SQL = `
     created_at timestamptz NOT NULL DEFAULT now(),
     last_synced_at timestamptz
   );
-  CREATE UNIQUE INDEX IF NOT EXISTS idx_groups_external ON groups(external_id) WHERE external_id IS NOT NULL;
+  -- Group external ids are unique per SOURCE, not globally (0.96). The old
+  -- index made "the same team, synced from two directories" unrepresentable —
+  -- an Entra GUID and a Google numeric id will not collide in practice, but the
+  -- constraint said they must not, which is a different claim. Safe to swap:
+  -- every non-null row today is source='entra'.
+  DROP INDEX IF EXISTS idx_groups_external;
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_groups_source_external
+    ON groups(source, external_id) WHERE external_id IS NOT NULL;
   CREATE TABLE IF NOT EXISTS group_members (
     group_id integer NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
     user_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -1032,6 +1039,13 @@ const SCHEMA_SQL = `
   ALTER TABLE announcements ADD COLUMN IF NOT EXISTS
     target_user_id integer REFERENCES users(id) ON DELETE CASCADE;
   ALTER TABLE announcements ADD COLUMN IF NOT EXISTS link text NOT NULL DEFAULT '';
+
+  -- A second provider's attribute path, beside graph_path (0.96). Not a rename:
+  -- graph_path is in the DirectorySettings API contract and the print-columns
+  -- validator, and the two are structurally different anyway —
+  -- onPremisesExtensionAttributes.extensionAttribute1 against
+  -- customSchemas.HR.employee_id. One column each, one input each in the mapper.
+  ALTER TABLE directory_fields ADD COLUMN IF NOT EXISTS google_path text NOT NULL DEFAULT '';
 
   -- --- Role-based access control (0.91) ------------------------------------
   --
@@ -2696,6 +2710,9 @@ const SENSITIVE_SETTINGS = new Set([
   // sealed like sso_client_secret. Existing plaintext rows auto-seal on next
   // boot via migrateSecuritySealing().
   "directory_graph_client_secret",
+  // Google Workspace service-account key (the whole JSON, including its
+  // private_key). Sealed for the same reason and auto-sealed on next boot.
+  "directory_google_service_account",
 ]);
 
 export async function getSetting(key: string): Promise<string | undefined> {
@@ -2811,12 +2828,33 @@ export async function createSsoUser(input: {
   return (await getUserById(r[0].id))!;
 }
 
-/** Case-insensitive lookup by external id (SCIM clients vary the casing). */
-export async function getUserByAnyExternalId(externalId: string): Promise<User | undefined> {
+/**
+ * Lookup by external id across every provider.
+ *
+ * Case-INSENSITIVE, which the comment here used to claim while the query did a
+ * plain equality. Entra sends lowercase GUIDs and Google sends digits, so the
+ * gap never bit — but a comment promising a behaviour the code doesn't have is
+ * a trap for the next person, and adding a second provider is exactly when
+ * someone would rely on it. Fixed rather than re-documented (0.96).
+ *
+ * `provider` scopes the search. SCIM's uniqueness check must pass its
+ * configured vendor: once two directories can write `external_id`, "is this id
+ * taken anywhere?" is the wrong question — a Google id colliding with an Entra
+ * id would refuse a legitimate account. Omitting it keeps the old cross-provider
+ * behaviour for callers that genuinely want it.
+ */
+export async function getUserByAnyExternalId(
+  externalId: string,
+  provider?: string
+): Promise<User | undefined> {
   return (
-    await q<User>(`SELECT ${USER_COLUMNS} FROM users WHERE external_id = $1 ORDER BY id LIMIT 1`, [
-      externalId,
-    ])
+    await q<User>(
+      `SELECT ${USER_COLUMNS} FROM users
+        WHERE lower(external_id) = lower($1)
+          AND ($2::text IS NULL OR auth_provider = $2)
+        ORDER BY id LIMIT 1`,
+      [externalId, provider ?? null]
+    )
   )[0];
 }
 
@@ -2827,11 +2865,26 @@ export async function scimCreateUser(input: {
   email: string;
   externalId: string | null;
   active: boolean;
+  /**
+   * Which directory pushed this user. Defaults to 'oidc' — a protocol rather
+   * than a provider, which is what this column held before 0.96 and why an
+   * Entra-provisioned user and a Google-signed-in user could land on the same
+   * value and cross-match in getUserByExternalId(). New installs should pass
+   * the configured vendor; the default keeps existing rows meaningful.
+   */
+  authProvider?: string;
 }): Promise<User> {
   const r = await q<{ id: number }>(
     `INSERT INTO users (username, email, name, role, status, auth_provider, external_id)
-     VALUES ($1,$2,$3,'viewer',$4,'oidc',$5) RETURNING id`,
-    [input.username, input.email, input.name, input.active ? "active" : "disabled", input.externalId]
+     VALUES ($1,$2,$3,'viewer',$4,$6,$5) RETURNING id`,
+    [
+      input.username,
+      input.email,
+      input.name,
+      input.active ? "active" : "disabled",
+      input.externalId,
+      input.authProvider ?? "oidc",
+    ]
   );
   // New members inherit any auto-assign training decks (best effort —
   // a failure here must never block account creation).
