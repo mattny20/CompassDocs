@@ -123,6 +123,7 @@ async function initialize(): Promise<void> {
     await migrateDelegationToAssignments(client);
     // After syncPresetRoles, which is what creates space-member/space-author.
     await migrateSpaceGrantsToAssignments(client);
+    await dropLegacySpaceGrantTables(client);
     await migrateVisibilityTiers(client);
     await migrateSecuritySealing(client);
     await migrateWeightedSearch(client);
@@ -322,12 +323,6 @@ const SCHEMA_SQL = `
     user_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     PRIMARY KEY (group_id, user_id)
   );
-  CREATE TABLE IF NOT EXISTS space_groups (
-    space_id integer NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
-    group_id integer NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
-    PRIMARY KEY (space_id, group_id)
-  );
-
   CREATE TABLE IF NOT EXISTS sessions (
     token text PRIMARY KEY,
     user_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -887,21 +882,6 @@ const SCHEMA_SQL = `
     PRIMARY KEY (link_id, group_id)
   );
 
-  -- Per-space edit rights. A space with no rows in either table is editable by
-  -- any editor+; with rows, only the listed users / group members may author in
-  -- it (admins always can). The org-level setting 'editors_edit_all' (default
-  -- on) short-circuits all of this back to "any editor edits any space".
-  CREATE TABLE IF NOT EXISTS space_editors (
-    space_id integer NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
-    user_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    PRIMARY KEY (space_id, user_id)
-  );
-  CREATE TABLE IF NOT EXISTS space_editor_groups (
-    space_id integer NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
-    group_id integer NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
-    PRIMARY KEY (space_id, group_id)
-  );
-
   -- Organization announcements: admin-posted messages shown on every user's
   -- dashboard until they expire, are archived by an admin, or the user
   -- dismisses them for themselves. Email/webhook delivery happens at post
@@ -1340,6 +1320,38 @@ async function migrateDelegationToAssignments(client: import("pg").PoolClient) {
 }
 
 /**
+ * The three legacy per-space grant tables, and the statement that turns each
+ * one into the equivalent role assignment. Shared by the 0.99 migration and by
+ * the 1.0 drop, so the sweep before the drop cannot drift from the migration
+ * it is double-checking.
+ */
+const LEGACY_SPACE_GRANT_COPIES: Record<string, string> = {
+  space_groups: `INSERT INTO role_assignments (role_id, group_id, scope_type, space_id)
+     SELECT r.id, sg.group_id, 'space', sg.space_id
+       FROM space_groups sg CROSS JOIN roles r WHERE r.key = 'space-member'
+     ON CONFLICT DO NOTHING`,
+  space_editors: `INSERT INTO role_assignments (role_id, user_id, scope_type, space_id)
+     SELECT r.id, se.user_id, 'space', se.space_id
+       FROM space_editors se CROSS JOIN roles r WHERE r.key = 'space-author'
+     ON CONFLICT DO NOTHING`,
+  space_editor_groups: `INSERT INTO role_assignments (role_id, group_id, scope_type, space_id)
+     SELECT r.id, seg.group_id, 'space', seg.space_id
+       FROM space_editor_groups seg CROSS JOIN roles r WHERE r.key = 'space-author'
+     ON CONFLICT DO NOTHING`,
+};
+
+/** Which of the legacy tables still exist in this database? */
+async function presentLegacyTables(client: import("pg").PoolClient): Promise<Set<string>> {
+  const { rows } = await client.query<{ table_name: string }>(
+    `SELECT table_name FROM information_schema.tables
+      WHERE table_schema = current_schema()
+        AND table_name = ANY($1::text[])`,
+    [Object.keys(LEGACY_SPACE_GRANT_COPIES)]
+  );
+  return new Set(rows.map((r) => r.table_name));
+}
+
+/**
  * Move per-space grants out of their three side tables and into role
  * assignments (0.99).
  *
@@ -1349,23 +1361,16 @@ async function migrateDelegationToAssignments(client: import("pg").PoolClient) {
  * says exactly the same thing, and unlike the tables it shows up in the roles
  * console, the effective-permission explainer, and the audit trail.
  *
- * The tables are left in place. They are no longer read or written, but a
- * workspace that rolls back to 0.98 needs its grants to still be there — and
- * this migration only ever inserts, so re-running it after a rollback is a
- * no-op rather than a duplication. Dropping them is a later release's job,
- * once the assignments have been the live source of truth for a while.
+ * Insert-only and ON CONFLICT DO NOTHING throughout, so running it twice is a
+ * no-op rather than a duplication. That is what lets dropLegacySpaceGrantTables
+ * re-run the same copies as a final sweep in 1.0 before the tables go.
  */
 async function migrateSpaceGrantsToAssignments(client: import("pg").PoolClient) {
   const done = await client.query("SELECT 1 FROM settings WHERE key = 'migrated_space_grants_rbac'");
   if (done.rowCount) return;
 
-  // If the tables predate this install they may not exist at all.
-  const { rows: present } = await client.query<{ table_name: string }>(
-    `SELECT table_name FROM information_schema.tables
-      WHERE table_schema = current_schema()
-        AND table_name IN ('space_groups','space_editors','space_editor_groups')`
-  );
-  const have = new Set(present.map((r) => r.table_name));
+  // A fresh 1.0 install never had these tables; an upgrade from 0.98 still does.
+  const have = await presentLegacyTables(client);
 
   const copy = async (sql: string, table: string) => {
     if (!have.has(table)) return 0;
@@ -1374,32 +1379,58 @@ async function migrateSpaceGrantsToAssignments(client: import("pg").PoolClient) 
   };
 
   let moved = 0;
-  moved += await copy(
-    `INSERT INTO role_assignments (role_id, group_id, scope_type, space_id)
-     SELECT r.id, sg.group_id, 'space', sg.space_id
-       FROM space_groups sg CROSS JOIN roles r WHERE r.key = 'space-member'
-     ON CONFLICT DO NOTHING`,
-    "space_groups"
-  );
-  moved += await copy(
-    `INSERT INTO role_assignments (role_id, user_id, scope_type, space_id)
-     SELECT r.id, se.user_id, 'space', se.space_id
-       FROM space_editors se CROSS JOIN roles r WHERE r.key = 'space-author'
-     ON CONFLICT DO NOTHING`,
-    "space_editors"
-  );
-  moved += await copy(
-    `INSERT INTO role_assignments (role_id, group_id, scope_type, space_id)
-     SELECT r.id, seg.group_id, 'space', seg.space_id
-       FROM space_editor_groups seg CROSS JOIN roles r WHERE r.key = 'space-author'
-     ON CONFLICT DO NOTHING`,
-    "space_editor_groups"
-  );
+  for (const [table, sql] of Object.entries(LEGACY_SPACE_GRANT_COPIES)) {
+    moved += await copy(sql, table);
+  }
 
   await client.query(
     "INSERT INTO settings (key, value) VALUES ('migrated_space_grants_rbac','1') ON CONFLICT (key) DO NOTHING"
   );
   console.log(`[rbac] migrated ${moved} per-space grant(s) into role assignments`);
+}
+
+/**
+ * Drop the three legacy per-space grant tables (1.0).
+ *
+ * 0.99 copied their contents into role assignments and stopped reading them;
+ * this removes them. Two things make that safe to do at boot:
+ *
+ *   - The copies run once more first, unconditionally. They are insert-only
+ *     with ON CONFLICT DO NOTHING, so the sweep costs one indexed anti-join
+ *     when there is nothing to move — and it means the drop is lossless by
+ *     construction rather than by trusting that the 0.99 marker was written
+ *     after a complete run. A tenant upgrading 0.98 -> 1.0 directly is
+ *     migrated by the call above and swept by this one.
+ *   - It refuses to drop anything if the seeded roles the grants were copied
+ *     INTO are missing. Without them the sweep silently moves nothing, and
+ *     dropping would discard live grants.
+ *
+ * This is the release's one-way door: a workspace that rolls back below 0.99
+ * after booting 1.0 loses its per-space grants, because the tables they lived
+ * in are gone. Called out in the changelog and the upgrade notes.
+ */
+async function dropLegacySpaceGrantTables(client: import("pg").PoolClient) {
+  const have = await presentLegacyTables(client);
+  if (have.size === 0) return;
+
+  const { rows: roles } = await client.query<{ key: string }>(
+    "SELECT key FROM roles WHERE key IN ('space-member','space-author')"
+  );
+  if (roles.length < 2) {
+    console.error(
+      "[rbac] refusing to drop the legacy space-grant tables: the space-member/space-author roles are missing, so the grants have nowhere to go"
+    );
+    return;
+  }
+
+  let swept = 0;
+  for (const [table, sql] of Object.entries(LEGACY_SPACE_GRANT_COPIES)) {
+    if (have.has(table)) swept += (await client.query(sql)).rowCount ?? 0;
+  }
+  if (swept) console.log(`[rbac] swept ${swept} straggling per-space grant(s) before the drop`);
+
+  for (const table of have) await client.query(`DROP TABLE IF EXISTS ${table}`);
+  console.log(`[rbac] dropped ${have.size} legacy per-space grant table(s)`);
 }
 
 async function migrateVisibilityTiers(client: import("pg").PoolClient) {
@@ -3063,13 +3094,11 @@ export async function deleteUser(id: number): Promise<boolean> {
   return (res.rowCount ?? 0) > 0;
 }
 
-export async function countAdmins(): Promise<number> {
-  return (
-    await q<{ n: number }>(
-      "SELECT COUNT(*)::int AS n FROM users WHERE role = 'admin' AND status = 'active'"
-    )
-  )[0].n;
-}
+// countAdmins() lived here until 1.0. Its callers — the demote/disable/delete
+// lockout guards — now ask countGlobalUserAdmins, which counts who still holds
+// the recovery permission rather than who has an 'admin' row. Removed rather
+// than deprecated: a function that answers "how many admins" with a role count
+// is exactly the thing the next lockout guard would reach for.
 
 // --- Personal API tokens (Claude connector / integrations) --------------------
 
@@ -3412,15 +3441,41 @@ const HOLDS_ON_SPACE = (permission: string, spaceCol: string, userCol: string) =
   )`;
 
 /**
+ * SQL predicate: does the user in column `userCol` hold `permission` globally?
+ *
+ * The counterpart to HOLDS_ON_SPACE, and the SQL half of the 1.0 port. These
+ * queries pick an audience rather than gate a request — who is notified, who is
+ * expected to acknowledge a policy, who may be reached for review — and every
+ * one of them spelled the admin bypass `u.role = 'admin'`. That is the last
+ * place the ladder decided anything: a custom role holding `space.read_all`
+ * could open a private space in the app and still be left out of its
+ * notifications, and no permission check anywhere would show it.
+ */
+const HOLDS_GLOBALLY = (permission: string, userCol: string) => `
+  EXISTS (
+    SELECT 1 FROM role_assignments ra
+      JOIN role_permissions rp ON rp.role_id = ra.role_id AND rp.permission = '${permission}'
+     WHERE ra.scope_type = 'global'
+       AND (ra.user_id = ${userCol}
+            OR ra.group_id IN (SELECT gm.group_id FROM group_members gm WHERE gm.user_id = ${userCol}))
+  )`;
+
+/**
  * The spaces a user may read, as a subquery. `userParam` is a placeholder this
  * module or its caller controls (`$1`, `u.id`, …) — never user input.
  *
  * Exported because the weekly digest needs the same set inline, and a second
  * hand-written copy of this join is how the digest and the app end up
  * disagreeing about who can see a private space.
+ *
+ * The `space.read_all` arm is 1.0: spaceScopeFor has always had it, this had
+ * not, so someone who could see every private space in the app got a digest
+ * covering only the public ones.
  */
 export function readableSpaceIdsSql(userParam: string): string {
   return `SELECT s.id FROM spaces s WHERE s.visibility IN ('public', 'internal')
+          UNION
+          SELECT s.id FROM spaces s WHERE ${HOLDS_GLOBALLY("space.read_all", userParam)}
           UNION
           SELECT g.space_id FROM (${GRANT_SUBJECTS("space.member")}) g
            WHERE g.user_id = ${userParam}
@@ -3756,7 +3811,7 @@ export async function listSubscriberIds(
        )
        AND (
          s.visibility IN ('public', 'internal')
-         OR u.role = 'admin'
+         OR ${HOLDS_GLOBALLY("space.read_all", "u.id")}
          OR ${HOLDS_ON_SPACE("space.member", "$1", "u.id")}
        )`,
     [spaceId, excludeUserId]
@@ -3775,7 +3830,14 @@ export async function listCommenterIds(docId: number, excludeUserId: number): Pr
   return rows.map((r) => r.user_id);
 }
 
-/** Active approvers/admins who can see the given space (review audience). */
+/**
+ * Active people who may review changes in the given space AND can see it.
+ *
+ * Both halves were role rungs until 1.0: `role IN ('approver','admin')` and
+ * `role = 'admin'`. Reviewing is now a permission, and it can be held on one
+ * space — so a space-scoped reviewer is finally in the audience for the space
+ * they actually review.
+ */
 export async function listApproverIdsForSpace(
   spaceId: number,
   excludeUserId: number
@@ -3783,9 +3845,13 @@ export async function listApproverIdsForSpace(
   const rows = await q<{ id: number }>(
     `SELECT u.id FROM users u
      JOIN spaces s ON s.id = $1
-     WHERE u.status = 'active' AND u.role IN ('approver', 'admin') AND u.id <> $2
+     WHERE u.status = 'active' AND u.id <> $2
        AND (
-         u.role = 'admin'
+         ${HOLDS_GLOBALLY("change_request.read", "u.id")}
+         OR ${HOLDS_ON_SPACE("change_request.read", "s.id", "u.id")}
+       )
+       AND (
+         ${HOLDS_GLOBALLY("space.read_all", "u.id")}
          OR s.visibility <> 'private'
          OR ${HOLDS_ON_SPACE("space.member", "s.id", "u.id")}
        )`,
@@ -3937,7 +4003,7 @@ export async function listSubscriberRecipients(
        )
        AND (
          s.visibility IN ('public', 'internal')
-         OR u.role = 'admin'
+         OR ${HOLDS_GLOBALLY("space.read_all", "u.id")}
          OR ${HOLDS_ON_SPACE("space.member", "$1", "u.id")}
        )`,
     [spaceId, excludeUserId]
@@ -3956,7 +4022,7 @@ export async function setAckRequired(docId: number, required: boolean): Promise<
 // count the same people.
 const ACK_VISIBILITY = `(
     s.visibility IN ('public', 'internal')
-    OR u.role = 'admin'
+    OR ${HOLDS_GLOBALLY("space.read_all", "u.id")}
     OR ${HOLDS_ON_SPACE("space.member", "s.id", "u.id")}
   )`;
 const ACK_ELIGIBLE = `u.status = 'active' AND ${ACK_VISIBILITY}`;
@@ -4104,7 +4170,7 @@ export async function ackStatusForDocument(docId: number): Promise<
      WHERE u.status = 'active'
        AND (
          s.visibility IN ('public', 'internal')
-         OR u.role = 'admin'
+         OR ${HOLDS_GLOBALLY("space.read_all", "u.id")}
          OR ${HOLDS_ON_SPACE("space.member", "s.id", "u.id")}
        )
      ORDER BY (a.acknowledged_at IS NULL) DESC, u.name`,
@@ -5893,14 +5959,14 @@ export async function listNewsletterComments(newsletterId: number): Promise<News
   );
 }
 
-/** Active users who can approve newsletters: capability holders plus admins. */
+/** Active people holding `newsletter.decide` — the newsletter review audience. */
 export async function listNewsletterApproverPool(): Promise<
   { id: number; name: string; email: string }[]
 > {
   return q(
-    `SELECT id, name, email FROM users
-     WHERE status = 'active' AND (newsletter_role = 'approver' OR role = 'admin')
-     ORDER BY name`
+    `SELECT u.id, u.name, u.email FROM users u
+      WHERE u.status = 'active' AND ${HOLDS_GLOBALLY("newsletter.decide", "u.id")}
+      ORDER BY u.name`
   );
 }
 

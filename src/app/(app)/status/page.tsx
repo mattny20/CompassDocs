@@ -1,7 +1,7 @@
 import { requireUser } from "@/lib/auth";
+import { userHolds } from "@/lib/access";
 import { listStatusServices, listStatusIncidents } from "@/lib/db";
 import { refreshDueStatuses, STATUS_CATALOG } from "@/lib/status";
-import { roleAtLeast } from "@/lib/types";
 import { Activity } from "lucide-react";
 import { StatusBoard } from "@/components/StatusBoard";
 import { PageContainer } from "@/components/PageWidth";
@@ -32,7 +32,7 @@ export default async function StatusPage() {
         incidents={incidents}
         catalog={STATUS_CATALOG}
         isAdmin={user.role === "admin"}
-        isApprover={roleAtLeast(user.role, "approver")}
+        canManageIncidents={await userHolds(user, "status.incident_manage", { legacyMin: "approver" })}
       />
     </PageContainer>
   );

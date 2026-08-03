@@ -10,7 +10,6 @@ import {
 } from "@/lib/db";
 import { editorsEditAll } from "@/lib/access";
 import { listTemplates } from "@/lib/doc-templates";
-import { roleAtLeast } from "@/lib/types";
 import { SpacesManager } from "@/components/SpacesManager";
 import { SettingsPage } from "@/components/SettingsPage";
 import { EVERY_SPACE_UNFILTERED } from "@/lib/space-scope";
@@ -43,9 +42,13 @@ export default async function SpacesPage() {
         source: g.source,
         member_count: g.member_count,
       }))}
-      // Only editor+ accounts make sense as per-space editors (admins bypass).
+      // Every active account, because a per-space grant now confers authoring
+      // on its own (1.0). Filtering this list to editor+ was correct while a
+      // grant only *unlocked* rights the rung already carried; it now prevents
+      // the exact thing the grant exists to do — give one person authoring in
+      // one space without promoting them everywhere.
       users={users
-        .filter((u) => u.status === "active" && roleAtLeast(u.role, "editor") && u.role !== "admin")
+        .filter((u) => u.status === "active")
         .map((u) => ({ id: u.id, name: u.name || u.username, role: u.role }))}
       templates={templates.map((t) => ({ id: t.id, name: t.name, hidden: t.hidden === 1 }))}
       initialSpaceGroups={spaceGroups}

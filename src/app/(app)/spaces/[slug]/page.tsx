@@ -14,9 +14,8 @@ import { SpaceViews } from "@/components/SpaceViews";
 import { EmptyState } from "@/components/form";
 import { PageContainer } from "@/components/PageWidth";
 import { requireUser } from "@/lib/auth";
-import { spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
+import { canPublishDirectly, canSeeDrafts, spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
 import { getAppSettings } from "@/lib/settings-store";
-import { roleAtLeast } from "@/lib/types";
 import { getApprovalMode } from "@/lib/db";
 import type { DocumentWithSpace } from "@/lib/types";
 
@@ -29,7 +28,7 @@ export default async function SpacePage({ params }: { params: Promise<{ slug: st
   if (!space) notFound();
   if (!scopeAllows(await spaceScopeFor(user), space.id)) notFound();
 
-  const isEditor = roleAtLeast(user.role, "editor");
+  const isEditor = await canSeeDrafts(user, space.id);
   const [docs, categories, sub, canAuthor] = await Promise.all([
     listDocumentsBySpace(space.id, isEditor),
     listSpaceCategories(space.id),
@@ -111,7 +110,7 @@ export default async function SpacePage({ params }: { params: Promise<{ slug: st
             defaultView={space.default_view ?? "cards"}
             nestedPages={nestedOn}
             bulk={isEditor && canAuthor}
-            canPublish={roleAtLeast(user.role, "approver") || (await getApprovalMode()) === "open"}
+            canPublish={await canPublishDirectly(user, space.id)}
             moveTargets={moveTargets}
           />
         )}

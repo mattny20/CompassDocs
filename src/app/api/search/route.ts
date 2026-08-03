@@ -2,8 +2,7 @@ import { NextResponse } from "next/server";
 import { hybridSearchDocuments } from "@/lib/embeddings";
 import { recordSearch } from "@/lib/analytics";
 import { getCurrentUser } from "@/lib/auth";
-import { roleAtLeast } from "@/lib/types";
-import { spaceScopeFor, scopeAllows } from "@/lib/access";
+import { canSeeDrafts, spaceScopeFor, scopeAllows } from "@/lib/access";
 import { searchRateLimited } from "@/lib/rate-limit";
 import { metric } from "@/lib/metrics";
 
@@ -24,7 +23,7 @@ export async function GET(req: Request) {
   if (!q) return NextResponse.json({ hits: [] });
   metric("search_requests");
 
-  const includeDrafts = roleAtLeast(user.role, "editor");
+  const includeDrafts = await canSeeDrafts(user);
   const scope = await spaceScopeFor(user);
 
   // Optional in-space search: the space must be within the user's scope.

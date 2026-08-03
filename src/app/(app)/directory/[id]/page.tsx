@@ -4,8 +4,7 @@ import { Mail, Phone, Smartphone, MapPin, UserRound, ArrowLeft, FileText } from 
 import { requireUser } from "@/lib/auth";
 import { getPersonById, listFields } from "@/lib/directory";
 import { listDocumentsByAuthor, listLinkedUserNames } from "@/lib/db";
-import { spaceScopeFor } from "@/lib/access";
-import { roleAtLeast } from "@/lib/types";
+import { canSeeDrafts, spaceScopeFor } from "@/lib/access";
 import { DocCard } from "@/components/DocCard";
 import { TagBadges } from "@/components/TagBadges";
 import { EmptyState } from "@/components/form";
@@ -33,7 +32,7 @@ export default async function PersonProfilePage({
   if (!person || person.hidden) notFound();
 
   const scope = await spaceScopeFor(user);
-  const isEditor = roleAtLeast(user.role, "editor");
+  const isEditor = await canSeeDrafts(user);
   const aliases = [...new Set([person.name, ...(await listLinkedUserNames(person.id))])];
   const [docs, fields] = await Promise.all([
     listDocumentsByAuthor(aliases, isEditor, scope),

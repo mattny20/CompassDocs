@@ -2,9 +2,8 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getDocument, getSpaceById } from "@/lib/db";
 import { recordView, touchView } from "@/lib/analytics";
-import { spaceScopeFor, scopeAllows } from "@/lib/access";
+import { canSeeDrafts, spaceScopeFor, scopeAllows } from "@/lib/access";
 import { getPublicSiteConfig } from "@/lib/public-site";
-import { roleAtLeast } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -45,7 +44,7 @@ export async function POST(req: Request) {
     if (!scopeAllows(await spaceScopeFor(user), doc.space_id)) {
       return NextResponse.json({ error: "Not found." }, { status: 404 });
     }
-    if (doc.status === "draft" && !roleAtLeast(user.role, "editor")) {
+    if (doc.status === "draft" && !(await canSeeDrafts(user, doc.space_id))) {
       return NextResponse.json({ error: "Not found." }, { status: 404 });
     }
     const viewId = await recordView(doc.id, user.id, "app");

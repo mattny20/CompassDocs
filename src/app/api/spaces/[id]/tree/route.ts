@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server";
 import { apiGuard } from "@/lib/api-auth";
 import { getSpaceById } from "@/lib/db";
-import { spaceScopeFor, scopeAllows } from "@/lib/access";
+import { canSeeDrafts, spaceScopeFor, scopeAllows } from "@/lib/access";
 import { getAppSettings } from "@/lib/settings-store";
 import { treeForSpace } from "@/lib/doc-tree";
-import { roleAtLeast } from "@/lib/types";
 import type { SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -24,6 +23,6 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   if (!space || !scopeAllows(await spaceScopeFor(user), space.id)) {
     return NextResponse.json({ error: "Not found." }, { status: 404 });
   }
-  const tree = await treeForSpace(space.id, roleAtLeast(user.role, "editor"));
+  const tree = await treeForSpace(space.id, await canSeeDrafts(user, space.id));
   return NextResponse.json({ tree });
 }

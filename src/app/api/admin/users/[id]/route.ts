@@ -4,10 +4,11 @@ import {
   updateUser,
   setUserPassword,
   deleteUser,
-  countAdmins,
+  pool,
   deleteUserSessions,
   disableTotp,
 } from "@/lib/db";
+import { countGlobalUserAdmins } from "@/lib/authz";
 import { hashPassword } from "@/lib/password";
 import { apiGuard } from "@/lib/api-auth";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
@@ -72,11 +73,21 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     return NextResponse.json({ error: "Invalid role." }, { status: 400 });
   }
 
-  // Never let the last active admin be demoted or disabled — avoids lockout.
+  // Never leave the workspace with nobody able to restore access.
+  //
+  // Until 1.0 this counted rows with role = 'admin', which asks the wrong
+  // question once roles are custom: a workspace where five people hold
+  // user.update_role through a custom role still could not demote its last
+  // legacy admin. The question that matters is whether anyone would be left
+  // holding the recovery permission — which is what the RBAC mutation paths
+  // have checked since 0.94.
   const demoting = role !== undefined && target.role === "admin" && role !== "admin";
-  const disabling = status === "disabled" && target.role === "admin";
-  if ((demoting || disabling) && (await countAdmins()) <= 1) {
-    return NextResponse.json({ error: "Can't remove the last admin." }, { status: 400 });
+  const disabling = status === "disabled" && target.status !== "disabled";
+  if ((demoting || disabling) && (await countGlobalUserAdmins(pool(), target.id)) === 0) {
+    return NextResponse.json(
+      { error: "That would leave nobody able to administer users." },
+      { status: 400 }
+    );
   }
 
   const updated = await updateUser(target.id, { role, status });
@@ -116,8 +127,11 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   if (target.id === admin.id) {
     return NextResponse.json({ error: "You can't delete your own account." }, { status: 400 });
   }
-  if (target.role === "admin" && (await countAdmins()) <= 1) {
-    return NextResponse.json({ error: "Can't delete the last admin." }, { status: 400 });
+  if ((await countGlobalUserAdmins(pool(), target.id)) === 0) {
+    return NextResponse.json(
+      { error: "That would leave nobody able to administer users." },
+      { status: 400 }
+    );
   }
 
   await deleteUser(target.id);

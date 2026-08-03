@@ -36,13 +36,14 @@ export function StatusBoard({
   incidents,
   catalog,
   isAdmin,
-  isApprover,
+  canManageIncidents,
 }: {
   services: StatusService[];
   incidents: StatusIncident[];
   catalog: CatalogEntry[];
   isAdmin: boolean;
-  isApprover: boolean;
+  /** Server-resolved `status.incident_manage`. */
+  canManageIncidents: boolean;
 }) {
   const router = useRouter();
   const fmt = useFormatDate();
@@ -144,7 +145,7 @@ export function StatusBoard({
             {services.length} service{services.length === 1 ? "" : "s"} tracked · checked about every 5 minutes
           </div>
         </div>
-        {isApprover && (
+        {canManageIncidents && (
           <button onClick={() => setDeclaring((v) => !v)} className={`${chipBtn} ml-auto`}>
             {"＋ Declare incident"}
           </button>
@@ -154,7 +155,7 @@ export function StatusBoard({
       {error && <div className="notice-error rounded-lg px-3 py-2 text-sm">{error}</div>}
 
       {/* Declare form */}
-      {declaring && isApprover && (
+      {declaring && canManageIncidents && (
         <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
           <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-slate-900">
             <Megaphone className="h-4 w-4 text-compass-600" /> Declare an incident
@@ -218,7 +219,7 @@ export function StatusBoard({
               {serviceName(inc.service_id)} — {inc.title}
             </span>
             <span className="text-xs text-slate-400">declared by {inc.created_by}</span>
-            {isApprover && (
+            {canManageIncidents && (
               <button
                 onClick={() => api("/api/status/incidents", { action: "resolve", incident_id: inc.id })}
                 disabled={busy}
@@ -240,7 +241,7 @@ export function StatusBoard({
               ))}
             </ol>
           )}
-          {isApprover && (
+          {canManageIncidents && (
             <div className="mt-3 flex gap-2">
               <input
                 value={updateDrafts[inc.id] ?? ""}

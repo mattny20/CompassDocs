@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { apiGuard } from "@/lib/api-auth";
-import { spaceScopeFor } from "@/lib/access";
+import { canSeeDrafts, spaceScopeFor } from "@/lib/access";
 import { listRecentlyViewedBy } from "@/lib/db";
 import { shareLinksEnabled } from "@/lib/shares";
-import { roleAtLeast } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -25,9 +24,9 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const limit = Math.min(12, Math.max(1, Number(searchParams.get("limit")) || 8));
 
-  const scope = await spaceScopeFor(gate);
+  const [scope, drafts] = await Promise.all([spaceScopeFor(gate), canSeeDrafts(gate)]);
   const [docs, shareLinks] = await Promise.all([
-    listRecentlyViewedBy(gate.id, scope, roleAtLeast(gate.role, "editor"), limit),
+    listRecentlyViewedBy(gate.id, scope, drafts, limit),
     shareLinksEnabled(),
   ]);
 

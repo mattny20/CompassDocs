@@ -5,8 +5,8 @@ import { EmptyState } from "@/components/form";
 import { PageContainer } from "@/components/PageWidth";
 import { listSpaces, getSpaceBySlug, getApprovalMode, listAllSpaceCategories } from "@/lib/db";
 import { requirePermission } from "@/lib/auth";
-import { editableScopeFor } from "@/lib/access";
-import { roleAtLeast, DOC_TYPE_LABEL } from "@/lib/types";
+import { canPublishDirectly, editableScopeFor } from "@/lib/access";
+import { DOC_TYPE_LABEL } from "@/lib/types";
 import { listTemplates, renderTemplate, type DocTemplate } from "@/lib/doc-templates";
 import { getAppSettings } from "@/lib/settings-store";
 import { formatDate } from "@/lib/format";
@@ -40,7 +40,7 @@ export default async function NewDocPage({
   const bySlug = space ? await getSpaceBySlug(space) : undefined;
   // Ignore a ?space= preselection the user can't author in.
   const preselected = bySlug && spaces.some((s) => s.id === bySlug.id) ? bySlug : undefined;
-  const canPublish = roleAtLeast(user.role, "approver") || (await getApprovalMode()) === "open";
+  const canPublish = await canPublishDirectly(user, preselected?.id);
 
   const templates = await listTemplates(false);
 

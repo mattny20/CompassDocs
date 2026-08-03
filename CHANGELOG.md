@@ -4,6 +4,78 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.0.0] - 2026-08-03
+
+The role ladder is gone. Everything CompassDocs decides about access is now a
+permission, held by a role, assigned to a person or a group — optionally on a
+single space.
+
+### Changed
+- **Seeing drafts and publishing without review are permissions.** These were
+  the last two questions still answered by the four-rung ladder, and they were
+  asked at about thirty-five places: search, the space list, the nested page
+  tree, the command palette's recent documents, relation and backlink pickers,
+  the Outlook add-in, the MCP connector, and the document page itself. None of
+  them consulted the permission model, so a custom role holding **Read drafts**
+  saw no drafts anywhere, and one holding **Publish document** still had its
+  work queued for review. Both now do exactly what they say.
+
+  Where the page or endpoint knows which space it is working in, the grant is
+  checked against that space — so a role granted on one space reveals drafts
+  there and nowhere else.
+
+  **If you use custom roles, this widens what they can do** — to what the role
+  already said. Nobody gains access they were not granted. Workspaces using
+  only the four built-in roles see no change: the built-in roles hold exactly
+  the permissions their rung used to imply.
+
+- **Notifications and rosters follow permissions too.** Six queries decided who
+  to notify, who is expected to acknowledge a policy, and who can be reached
+  for review by checking `role = 'admin'` directly in SQL. Somebody holding
+  "Read every space" through a custom role could open a private space and still
+  be left out of its notifications, with no permission check anywhere that
+  would have shown it. The weekly digest had the same gap and covered only
+  public spaces for them. Review notifications can now also be held per space,
+  so a reviewer scoped to one space is finally told about it.
+
+- **The last-admin guard asks the right question.** Demoting, disabling or
+  deleting a user was blocked by counting accounts with the `admin` rung. In a
+  workspace that has moved to custom roles that is the wrong count: five people
+  could hold "Change user roles" and the last legacy admin still could not be
+  demoted. The guard now asks whether anyone would be left who can restore
+  access — the same check every role edit and revocation has used since 0.94.
+
+- **Per-space editors can be anyone.** The Spaces admin screen only offered
+  accounts at editor rung or above as per-space editors. That was right while a
+  per-space grant merely unlocked rights the rung already carried; it now
+  prevents the thing the grant exists for. Any active account can be granted
+  authoring in a single space without being promoted anywhere else.
+
+### Removed
+- **The three legacy per-space grant tables** (`space_groups`, `space_editors`,
+  `space_editor_groups`). 0.99 copied them into role assignments and stopped
+  reading them; 1.0 deletes them. The copy runs once more at boot before the
+  drop, so nothing is lost even if a grant was written after the 0.99
+  migration recorded itself as done, and the drop refuses to proceed at all if
+  the roles the grants move into are missing.
+
+  **This is a one-way door.** A workspace that starts 1.0 and then rolls back
+  to 0.98 or earlier loses its per-space grants, because the tables they lived
+  in no longer exist. Take a backup before upgrading, as always — and if you
+  want to verify the migration first, run `tools/verify-rbac-migration.sql`
+  *before* the upgrade, while the original rows are still there to compare
+  against.
+
+### Notes
+- The `COMPASSDOCS_AUTHZ_LEGACY=1` break-glass remains, and now restores the
+  pre-1.0 behaviour at every one of the newly ported sites as well. It is there
+  so a workspace can recover from a bad role edit without database surgery or
+  an image rollback.
+- Roles → Health shows which route and permission pairs the two models disagree
+  about. Before 1.0 that was a porting scoreboard; now that nothing else
+  consults the ladder, a pair that starts differing without a role edit behind
+  it is worth reporting.
+
 ## [0.99.1] - 2026-08-03
 
 ### Fixed

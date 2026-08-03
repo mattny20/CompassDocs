@@ -14,17 +14,16 @@ import {
   Trash2,
   LoaderCircle,
 } from "lucide-react";
-import { roleAtLeast } from "@/lib/types";
-import type { Role } from "@/lib/types";
 import { PrintButton } from "./PrintButton";
 import { toast } from "./Toasts";
 
 export function DocActions({
   id,
   spaceSlug,
-  role,
+  canEdit,
+  canDelete,
+  canSaveAsTemplate = false,
   isPublished,
-  hasEditRights,
   isBranch = false,
   ack,
   sharePanel,
@@ -33,10 +32,17 @@ export function DocActions({
 }: {
   id: number;
   spaceSlug: string;
-  role: Role;
+  /**
+   * Both resolved on the server from permissions plus per-space edit rights.
+   * The client cannot answer either question — grants and space scope are not
+   * on the session — and before 1.0 this component guessed from the role rung,
+   * so a custom role with authoring rights saw a read-only toolbar.
+   */
+  canEdit: boolean;
+  canDelete: boolean;
+  /** Server-resolved `template.manage` — the button POSTs to an admin route. */
+  canSaveAsTemplate?: boolean;
   isPublished: boolean;
-  /** Server-resolved per-space edit rights (role alone isn't enough). */
-  hasEditRights: boolean;
   /** Branches can't be branched again. */
   isBranch?: boolean;
   /** Approver-side read-confirmation toggle (enterprise); omit to hide. */
@@ -71,11 +77,6 @@ export function DocActions({
       document.removeEventListener("keydown", onKey);
     };
   }, [popover]);
-
-  const canEdit = roleAtLeast(role, "editor") && hasEditRights;
-  const canDelete =
-    hasEditRights &&
-    (roleAtLeast(role, "approver") || (roleAtLeast(role, "editor") && !isPublished));
 
   async function onBranch() {
     setBranching(true);
@@ -236,7 +237,7 @@ export function DocActions({
           )}
         </button>
       )}
-      {role === "admin" && !isBranch && (
+      {canSaveAsTemplate && !isBranch && (
         <button
           onClick={onSaveAsTemplate}
           disabled={templating}

@@ -10,20 +10,23 @@ import {
   countMyOpenTraining,
 } from "@/lib/db";
 import { spaceScopeFor } from "@/lib/access";
-import { canUseNewsletter } from "@/lib/newsletter-access";
-import { canAccessSection } from "@/lib/section-access";
 import { featureEnabled } from "@/lib/ee";
 import { getAppSettings } from "@/lib/settings-store";
-import { roleAtLeast } from "@/lib/types";
+import type { NavCapabilities } from "@/lib/nav-capabilities";
 import type { SessionUser } from "@/lib/types";
 import { SidebarClient } from "./SidebarClient";
 
+// `caps` comes from the layout, which already resolved it for the command
+// palette. Recomputing here is how the sidebar and the palette used to be
+// able to disagree about the same user.
 export async function Sidebar({
   user,
+  caps,
   reviewCount,
   trashCount,
 }: {
   user: SessionUser;
+  caps: NavCapabilities;
   reviewCount: number;
   trashCount: number;
 }) {
@@ -49,14 +52,14 @@ export async function Sidebar({
       announcementCount={announcements.length + freshNewsletters.length}
       unreadNotifications={unreadNotifications}
       statusProblemCount={statusProblems.length}
-      showNewsletter={canUseNewsletter(user)}
-      showAnnouncements={await canAccessSection(user, "announcements")}
-      showCompliance={await canAccessSection(user, "compliance")}
-      showTraining={await featureEnabled("training")}
-      trainingCount={(await featureEnabled("training")) ? await countMyOpenTraining(user.id) : 0}
-      isEditor={roleAtLeast(user.role, "editor")}
-      isApprover={roleAtLeast(user.role, "approver")}
-      isAdmin={user.role === "admin"}
+      showNewsletter={caps.showNewsletter}
+      showAnnouncements={caps.showAnnouncements}
+      showCompliance={caps.showCompliance}
+      showTraining={caps.showTraining}
+      trainingCount={caps.showTraining ? await countMyOpenTraining(user.id) : 0}
+      isEditor={caps.isEditor}
+      isApprover={caps.isApprover}
+      isAdmin={caps.isAdmin}
       nestedPages={settings.nested_pages_enabled}
     />
   );

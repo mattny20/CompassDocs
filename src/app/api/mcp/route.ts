@@ -20,7 +20,6 @@ import {
   updateDocument,
   createChangeRequest,
   createAttachment,
-  getApprovalMode,
   createTrainingDeck,
   getTrainingDeck,
   listTrainingDecks,
@@ -39,8 +38,14 @@ import { notifyCrSubmitted } from "@/lib/notifications";
 import { notifySpaceSubscribers } from "@/lib/subscriptions";
 import { audit, actorFrom } from "@/lib/audit";
 import { saveUpload, sniffImage } from "@/lib/uploads";
-import { spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
-import { roleAtLeast } from "@/lib/types";
+import {
+  canSeeDrafts,
+  canPublishDirectly,
+  userHolds,
+  spaceScopeFor,
+  scopeAllows,
+  canEditSpace,
+} from "@/lib/access";
 import type { DocStatus, DocType, User } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -352,7 +357,9 @@ const TOOLS = [
 // --- Tool implementations ---------------------------------------------------------
 
 async function callTool(user: User, name: string, args: any, origin: string) {
-  const isEditor = roleAtLeast(user.role, "editor");
+  // Drafts across spaces. Per-document and per-space reads below narrow this
+  // to the space in hand; the writes re-check with canEditSpace either way.
+  const seeDrafts = await canSeeDrafts(user);
   // The connector acts as the user, so it sees exactly the spaces they can:
   // public ones plus private ones granted via their groups (admins see all).
   const scope = await spaceScopeFor(user);
@@ -372,9 +379,9 @@ async function callTool(user: User, name: string, args: any, origin: string) {
         if (!space || !scopeAllows(scope, space.id)) {
           return toolText(`No space with slug "${args.space}".`, true);
         }
-        docs = await listDocumentsBySpace(space.id, isEditor);
+        docs = await listDocumentsBySpace(space.id, await canSeeDrafts(user, space.id));
       } else {
-        docs = await listRecentDocuments(30, isEditor, scope);
+        docs = await listRecentDocuments(30, seeDrafts, scope);
       }
       return toolJson(
         docs.map((d) => ({
@@ -391,7 +398,7 @@ async function callTool(user: User, name: string, args: any, origin: string) {
 
     case "search_docs": {
       const { hybridSearchDocuments } = await import("@/lib/embeddings");
-      const hits = await hybridSearchDocuments(String(args?.query ?? ""), 15, isEditor, scope);
+      const hits = await hybridSearchDocuments(String(args?.query ?? ""), 15, seeDrafts, scope);
       return toolJson(
         hits.map((h) => ({
           id: h.id,
@@ -405,7 +412,11 @@ async function callTool(user: User, name: string, args: any, origin: string) {
 
     case "read_doc": {
       const doc = await getDocument(Number(args?.id));
-      if (!doc || !scopeAllows(scope, doc.space_id) || (doc.status === "draft" && !isEditor)) {
+      if (
+        !doc ||
+        !scopeAllows(scope, doc.space_id) ||
+        (doc.status === "draft" && !(await canSeeDrafts(user, doc.space_id)))
+      ) {
         return toolText(`No document with id ${args?.id}.`, true);
       }
       // Nested pages + backlinks context (each admin-gated).
@@ -415,7 +426,7 @@ async function callTool(user: User, name: string, args: any, origin: string) {
         const { ancestorsOf, childrenOf } = await import("@/lib/doc-tree");
         const [ancestors, children] = await Promise.all([
           ancestorsOf(doc.id),
-          childrenOf(doc.id, { includeDrafts: isEditor }),
+          childrenOf(doc.id, { includeDrafts: await canSeeDrafts(user, doc.space_id) }),
         ]);
         if (ancestors.length) {
           structure += `\n> path: ${[...ancestors].reverse().map((a) => `${a.title} (id ${a.id})`).join(" › ")}`;
@@ -426,7 +437,7 @@ async function callTool(user: User, name: string, args: any, origin: string) {
       }
       if (appSettings.backlinks_enabled && doc.branch_of === null) {
         const { backlinksFor } = await import("@/lib/backlinks");
-        const links = await backlinksFor(doc.id, scope, isEditor);
+        const links = await backlinksFor(doc.id, scope, seeDrafts);
         if (links.length) {
           structure += `\n> linked from: ${links.map((b) => `${b.title} (id ${b.id})`).join("; ")}`;
         }
@@ -461,8 +472,8 @@ async function callTool(user: User, name: string, args: any, origin: string) {
       return toolText(WRITING_GUIDE);
 
     case "create_doc": {
-      if (!isEditor) {
-        return toolText("Your role (viewer) can't create documents — ask an admin for editor access.", true);
+      if (!(await userHolds(user, "document.create"))) {
+        return toolText("You don't have permission to create documents — ask an admin for authoring access.", true);
       }
       const title = String(args?.title ?? "").trim();
       const markdown = String(args?.markdown ?? "");
@@ -502,7 +513,7 @@ async function callTool(user: User, name: string, args: any, origin: string) {
         });
       }
 
-      const canPublish = roleAtLeast(user.role, "approver") || (await getApprovalMode()) === "open";
+      const canPublish = await canPublishDirectly(user, spaceId);
       const wantPublish = args?.publish === true;
       const status: DocStatus = wantPublish && canPublish ? "published" : "draft";
 
@@ -569,8 +580,8 @@ async function callTool(user: User, name: string, args: any, origin: string) {
     }
 
     case "update_doc": {
-      if (!isEditor) {
-        return toolText("Your role (viewer) can't edit documents — ask an admin for editor access.", true);
+      if (!(await userHolds(user, "document.update"))) {
+        return toolText("You don't have permission to edit documents — ask an admin for authoring access.", true);
       }
       const existing = await getDocument(Number(args?.id));
       if (!existing || !scopeAllows(scope, existing.space_id)) {
@@ -611,7 +622,7 @@ async function callTool(user: User, name: string, args: any, origin: string) {
       // doc is published, or this edit would publish it) apply directly only
       // for approvers+ (or in open mode); otherwise they queue for review.
       const affectsLive = existing.status === "published" || proposed.status === "published";
-      const canPublish = roleAtLeast(user.role, "approver") || (await getApprovalMode()) === "open";
+      const canPublish = await canPublishDirectly(user, existing.space_id);
       if (affectsLive && !canPublish) {
         const kind = existing.status === "draft" ? "publish" : "edit";
         const crId = await createChangeRequest({
@@ -713,8 +724,8 @@ async function callTool(user: User, name: string, args: any, origin: string) {
     }
 
     case "add_image": {
-      if (!isEditor) {
-        return toolText("Your role (viewer) can't upload images — ask an admin for editor access.", true);
+      if (!(await userHolds(user, "document.update"))) {
+        return toolText("You don't have permission to upload images — ask an admin for authoring access.", true);
       }
       const doc = await getDocument(Number(args?.doc_id));
       if (!doc || !scopeAllows(scope, doc.space_id)) {

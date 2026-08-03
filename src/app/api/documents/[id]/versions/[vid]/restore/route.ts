@@ -4,14 +4,12 @@ import {
   getVersion,
   updateDocument,
   createChangeRequest,
-  getApprovalMode,
-} from "@/lib/db";
+  } from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
 import { notifyCrSubmitted } from "@/lib/notifications";
 import { requestOrigin } from "@/lib/oauth";
-import { roleAtLeast } from "@/lib/types";
-import { spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
+import { canPublishDirectly, spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
 import type { SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -60,7 +58,7 @@ export async function POST(
   }
   const note = `Restored version${label ? ` ${label}` : ""} from ${version.created_at.slice(0, 10)}`;
 
-  const canPublish = roleAtLeast(user.role, "approver") || (await getApprovalMode()) === "open";
+  const canPublish = await canPublishDirectly(user, doc.space_id);
   if (doc.status === "published" && !canPublish) {
     const crId = await createChangeRequest({
       document_id: doc.id,

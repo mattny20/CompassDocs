@@ -5,16 +5,14 @@ import {
   updateDocument,
   deleteDocument,
   createChangeRequest,
-  getApprovalMode,
-} from "@/lib/db";
+  } from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
 import { notifyWebhooks } from "@/lib/webhooks";
 import { notifyCrSubmitted } from "@/lib/notifications";
 import { notifySpaceSubscribers } from "@/lib/subscriptions";
 import { requestOrigin } from "@/lib/oauth";
-import { roleAtLeast } from "@/lib/types";
-import { spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
+import { userHolds, canPublishDirectly, canSeeDrafts, spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
 import type { DocType, DocStatus, SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -44,7 +42,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   if (!scopeAllows(await spaceScopeFor(user), doc.space_id)) {
     return NextResponse.json({ error: "Not found." }, { status: 404 });
   }
-  if (doc.status === "draft" && !roleAtLeast(user.role, "editor")) {
+  if (doc.status === "draft" && !(await canSeeDrafts(user, doc.space_id))) {
     return NextResponse.json({ error: "Not found." }, { status: 404 });
   }
   return NextResponse.json({ doc });
@@ -133,7 +131,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     existing.status === "published" ||
     proposed.status === "published" ||
     (existing.status === "draft" && existing.publish_at != null);
-  const canPublish = roleAtLeast(user.role, "approver") || (await getApprovalMode()) === "open";
+  const canPublish = await canPublishDirectly(user, existing.space_id);
 
   // Scheduled publish / auto-unpublish. Validated and authorized BEFORE any
   // write, so a bad date or missing right rejects the request while the
@@ -286,10 +284,20 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
     );
   }
 
-  // Editors may only delete drafts; deleting a published doc needs approver+.
-  if (doc.status === "published" && !roleAtLeast(user.role, "approver")) {
+  // The guard above admitted this request on `document.delete_draft`. Taking
+  // down something already live is the stronger right, so it is asked for
+  // separately — and NOT via the publish helper, which treats open approval
+  // mode as consent. Open mode means "no review step for publishing", not
+  // "anyone may delete live content".
+  if (
+    doc.status === "published" &&
+    !(await userHolds(user, "document.delete_published", {
+      spaceId: doc.space_id,
+      legacyMin: "approver",
+    }))
+  ) {
     return NextResponse.json(
-      { error: "Only approvers or admins can delete a published document." },
+      { error: "You don't have permission to delete a published document." },
       { status: 403 }
     );
   }

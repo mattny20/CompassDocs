@@ -2,12 +2,11 @@ import { NextResponse } from "next/server";
 import { Readable } from "stream";
 import { apiGuard } from "@/lib/api-auth";
 import { getCurrentUser } from "@/lib/auth";
-import { spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
+import { canSeeDrafts, spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
 import { getAttachment, getDocument, deleteAttachmentRow } from "@/lib/db";
 import { recordDownload } from "@/lib/analytics";
 import { getPublicSiteConfig } from "@/lib/public-site";
 import { uploadReadStream, deleteUpload, isInlineImage, isInlineVideo } from "@/lib/uploads";
-import { roleAtLeast } from "@/lib/types";
 import type { SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -30,7 +29,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     if (!scopeAllows(await spaceScopeFor(user), doc.space_id)) {
       return NextResponse.json({ error: "Not found." }, { status: 404 });
     }
-    if (doc.status === "draft" && !roleAtLeast(user.role, "editor")) {
+    if (doc.status === "draft" && !(await canSeeDrafts(user, doc.space_id))) {
       return NextResponse.json({ error: "Not found." }, { status: 404 });
     }
   } else {

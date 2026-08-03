@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server";
-import { getDocument, getSpaceById, updateDocument, getApprovalMode } from "@/lib/db";
+import { getDocument, getSpaceById, updateDocument } from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
 import { notifyWebhooks } from "@/lib/webhooks";
 import { notifySpaceSubscribers } from "@/lib/subscriptions";
 import { requestOrigin } from "@/lib/oauth";
-import { roleAtLeast } from "@/lib/types";
-import { spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
+import { canPublishDirectly, spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
 import type { DocType, DocStatus, SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -83,7 +82,6 @@ export async function POST(req: Request) {
     }
   }
 
-  const canPublish = roleAtLeast(user.role, "approver") || (await getApprovalMode()) === "open";
   const actorName = user.name || user.username;
 
   let updated = 0;
@@ -112,7 +110,7 @@ export async function POST(req: Request) {
     const wouldBeLive =
       action === "status" ? doc.status === "published" || newStatus === "published"
       : doc.status === "published";
-    if (wouldBeLive && !canPublish) {
+    if (wouldBeLive && !(await canPublishDirectly(user, doc.space_id))) {
       skipped.push({ id, title: doc.title, reason: "needs publish rights" });
       continue;
     }
