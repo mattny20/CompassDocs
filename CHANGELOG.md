@@ -4,6 +4,23 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.0.2] - 2026-08-03
+
+### Fixed
+- **The rest of the document blocks follow the page width.** 1.0.1 freed tables,
+  fenced code and diagrams from the reading measure but missed five block types,
+  so a page could render visibly ragged — a callout at the measure sitting
+  directly above a table spanning the column, an accordion half the width of the
+  code block above it.
+
+  Callouts, the accordion, tabs, the decision tree, video and embeds now follow
+  the content column like everything else that is a panel or a piece of media.
+  Body text is unchanged.
+
+  Containers mattered most: a table inside a tab or an accordion was capped by
+  its narrow parent as well as by its own width, so the same table rendered at
+  roughly half the size inside a tab as outside one.
+
 ## [1.0.1] - 2026-08-03
 
 ### Fixed
