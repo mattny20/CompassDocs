@@ -62,7 +62,15 @@ export function PageContainer({
 }) {
   const { width } = usePageWidth();
   return (
-    <div className={`mx-auto px-8 py-8 print:max-w-none ${WIDTH_CLASS[width]} ${className}`}>
+    // data-page-width drives the document reading measure in globals.css.
+    // Choosing a wider page is a request for density, so the measure widens
+    // with it rather than pinning text to one number at every setting — see
+    // STYLEGUIDE "Reading measure". The attribute is inert on pages that
+    // render no document body.
+    <div
+      data-page-width={width}
+      className={`mx-auto px-8 py-8 print:max-w-none ${WIDTH_CLASS[width]} ${className}`}
+    >
       {children}
     </div>
   );

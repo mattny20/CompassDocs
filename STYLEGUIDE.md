@@ -23,9 +23,10 @@ Every top-level page:
   (e.g. a reading column) are fine when deliberate.
 - The one such column is the **document reading measure**: put `doc-read` on
   the element wrapping the rendered document body, and `globals.css` caps the
-  direct children of `.doc-read .doc-prose` at `60ch` — see
-  [Reading measure](#reading-measure-rendered-documents) for which blocks opt
-  out and why the cap is on the children rather than the container. Only the
+  direct children of `.doc-read .doc-prose` at `var(--doc-measure)`, which
+  scales with the Normal/Wide/Full setting — see
+  [Reading measure](#reading-measure-rendered-documents) for the values, which
+  blocks opt out, and why the cap is on the children rather than the container. Only the
   document page, the share page and the public document page set `doc-read` —
   `.doc-prose` is shared with the tiptap editor and every other `MarkdownView`
   (editor preview, newsletter, training player, version history, review queue,
@@ -290,8 +291,31 @@ per-route variants:
 
 Document-reading surfaces — the document page, the share page, the public
 document page — set `.doc-read`. Inside it, **direct children of `.doc-prose`
-are capped at `60ch`**: that's the measure for body text (~75 characters), and
-it is deliberately narrower than the page.
+are capped at `var(--doc-measure)`** — the measure for body text, deliberately
+narrower than the page.
+
+The measure **scales with the page-width setting**, via `data-page-width` on
+`PageContainer`:
+
+| setting | cap | ≈ characters |
+| --- | --- | --- |
+| Normal | none (the column is already narrow) | ~71 |
+| Wide | `75ch` | ~98 |
+| Full | `90ch` | ~117 |
+
+One number could not serve all three. Pinned at `60ch`, someone who chose Full
+got text using 41% of the column with the rest empty — a control that visibly
+did nothing to what they were reading. Choosing a wider page *is* a request for
+density, so the measure widens with it, while staying bounded: uncapped, that
+column is ~190 characters at 2000px.
+
+Surfaces with no `data-page-width` ancestor — the share page, the public
+document page — fall back to `60ch` / ~78 characters. They have no preference
+to read, and legibility is the right default for an anonymous reader.
+
+Note `1ch` is the advance of "0", but the average prose glyph is narrower, so a
+`ch` value renders about 1.26x more characters than it names. Quote the
+character count, not the `ch`, when reasoning about legibility.
 
 The cap is on the children, not on `.doc-prose` itself. Capping the container
 also caps everything in it, which is what made a ten-column table scroll

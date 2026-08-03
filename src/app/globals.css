@@ -250,12 +250,36 @@ mark {
  * Capping the children instead keeps the measure exactly where it matters and
  * lets blocks that are wide by nature use the width the reader asked for. */
 .doc-read .doc-prose > * {
-  /* 60ch, not 78ch: `1ch` is the advance of "0" (8.69px here) but the average
-     prose glyph is 6.91px, so a ch value renders ~1.26x more characters than
-     it names. 78ch measured at ~98 characters per line — the number that made
-     this a bug. 60ch measures ~75, the top of the comfortable 45-75 band,
-     which suits a technical knowledge base with code and tables in it. */
-  max-width: 60ch;
+  max-width: var(--doc-measure, 60ch);
+}
+
+/* The measure scales with the page-width setting (1.0.3).
+ *
+ * A single number can't serve all three: pinned at 60ch, someone who chose
+ * Full got text using 41% of the column with the rest empty — a control that
+ * visibly did nothing to what they were reading. Choosing a wider page IS a
+ * request for density, so the measure widens with it, while staying bounded so
+ * it never becomes the 190-character line an uncapped column would give at
+ * 2000px.
+ *
+ * `1ch` is the advance of "0" (8.69px here) but the average prose glyph is
+ * 6.91px, so a ch value renders ~1.26x more characters than it names:
+ *
+ *   Normal  no cap    — the column is already narrow; text fills it
+ *   Wide    75ch      — ~98 characters
+ *   Full    90ch      — ~117 characters
+ *
+ * The default (no data-page-width ancestor) stays 60ch / ~78 characters: the
+ * share page and the public document page have no width preference to read,
+ * and legibility is the right default for an anonymous reader. */
+[data-page-width="normal"] {
+  --doc-measure: none;
+}
+[data-page-width="wide"] {
+  --doc-measure: 75ch;
+}
+[data-page-width="full"] {
+  --doc-measure: 90ch;
 }
 
 /* Blocks that are wide by nature: tables, fenced code, rendered diagrams. Each
