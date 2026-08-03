@@ -38,6 +38,22 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # Before the build, because these talk to the database directly and have
+      # no opinion about the server: a failure here is a data-layer failure and
+      # says so, instead of arriving 3 minutes later behind a build.
+      #
+      # The grep is not paranoia. `node --test` exits 0 when its file pattern
+      # matches nothing, so a renamed directory or a mistyped glob turns this
+      # step into a green tick that runs no tests at all — the one failure mode
+      # a test suite must not have.
+      - name: Integration tests (data layer)
+        run: |
+          set -o pipefail
+          npm run test:integration | tee "$RUNNER_TEMP/integration.log"
+          grep -qE '^# pass [1-9]' "$RUNNER_TEMP/integration.log" || {
+            echo "::error::integration suite reported no passing tests — did the file pattern match nothing?"
+            exit 1
+          }
       - run: npm run build
       - run: npx playwright install --with-deps chromium
       - name: Start server

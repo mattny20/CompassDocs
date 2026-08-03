@@ -865,8 +865,39 @@ export const NEWSLETTER_ROLES = {
 export type NewsletterRoleKey = keyof typeof NEWSLETTER_ROLES;
 export const NEWSLETTER_ROLE_KEYS = Object.keys(NEWSLETTER_ROLES) as NewsletterRoleKey[];
 
+/**
+ * The two roles that carry per-space grants (0.99).
+ *
+ * Space membership and per-space edit rights lived in three side tables —
+ * `space_groups`, `space_editors`, `space_editor_groups` — since long before
+ * roles existed. 0.95 taught the resolver to honour space-scoped assignments
+ * and unioned them with those tables, which made assignments *sufficient* to
+ * grant access but left the tables as a second, parallel source of truth. These
+ * roles are what the tables become: assigned at space scope, they say exactly
+ * what a row in each table used to say.
+ *
+ * They hold one permission each on purpose. A workspace that wants "read and
+ * write this space" assigns both, or builds a custom role — a combined
+ * "space collaborator" would be a third spelling of the same two grants, and
+ * the whole point of this change is to stop having several.
+ */
+export const SPACE_ROLES = {
+  "space-member": {
+    label: "Space member",
+    description: "Read a private space. Assign it on the space you mean.",
+    permissions: ["space.member"] as const satisfies readonly PermissionKey[],
+  },
+  "space-author": {
+    label: "Space author",
+    description: "Create and edit documents in a space. Assign it on the space you mean.",
+    permissions: ["space.author"] as const satisfies readonly PermissionKey[],
+  },
+};
+export type SpaceRoleKey = keyof typeof SPACE_ROLES;
+export const SPACE_ROLE_KEYS = Object.keys(SPACE_ROLES) as SpaceRoleKey[];
+
 /** Every seeded non-ladder role, in one place for the boot-time sync. */
 export const DELEGATED_ROLES: Record<
   string,
   { label: string; description: string; permissions: readonly PermissionKey[] }
-> = { ...SECTION_ROLES, ...NEWSLETTER_ROLES };
+> = { ...SECTION_ROLES, ...NEWSLETTER_ROLES, ...SPACE_ROLES };
