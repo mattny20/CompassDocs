@@ -1029,6 +1029,9 @@ function HealthTab() {
           Every guarded request still evaluates both, enforces the permission, and records whether
           the two matched. Disagreements are where a custom role has genuinely changed someone&rsquo;s
           access — expected once you start editing roles, and worth a look if you haven&rsquo;t.
+          Since 1.0 nothing else consults the ladder, so this is a regression detector rather than a
+          porting scoreboard: a pair that starts differing without anyone having edited a role is
+          worth reporting.
         </p>
         {shadow === null ? (
           <SectionEmpty>Checking…</SectionEmpty>
@@ -1046,14 +1049,26 @@ function HealthTab() {
               differing route/permission pairs
             </p>
             {disagreements.length > 0 && (
-              <ul className="mt-3 space-y-1 text-xs text-slate-500">
-                {disagreements.slice(0, 20).map((r, i) => (
-                  <li key={i}>
-                    <code>{r.permission}</code> — ladder {r.legacy_allowed ? "allowed" : "denied"},
-                    permissions {r.rbac_allowed ? "allow" : "deny"} ({r.hits} hits)
-                  </li>
-                ))}
-              </ul>
+              <>
+                <ul className="mt-3 space-y-1 text-xs text-slate-500">
+                  {disagreements.slice(0, 20).map((r, i) => (
+                    <li key={i}>
+                      <code>{r.permission}</code> — ladder {r.legacy_allowed ? "allowed" : "denied"},
+                      permissions {r.rbac_allowed ? "allow" : "deny"} ({r.hits} hits)
+                      {r.route && r.route !== r.permission ? (
+                        <span className="text-slate-400"> · {r.route}</span>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+                {/* Say so rather than trailing off — a silently cut list reads
+                    as "that's all of them". */}
+                {disagreements.length > 20 && (
+                  <p className="mt-2 text-xs text-slate-400">
+                    Showing the 20 busiest of {disagreements.length} differing pairs.
+                  </p>
+                )}
+              </>
             )}
           </>
         )}
