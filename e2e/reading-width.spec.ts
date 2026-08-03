@@ -10,9 +10,13 @@ import { ADMIN, login, api } from "./helpers";
 // both hit the same ceiling — so choosing Full moved nothing the reader was
 // looking at.
 //
-// Two assertions, because the fix has to hold in both directions: prose must
-// STILL be capped (or we're back to ~98-character lines), and wide blocks must
-// NOT be (or Full is decorative again).
+// Both directions have to hold, and a one-sided fix is how this comes back:
+// text must stay BOUNDED (uncapped, this column is ~190 characters at 2000px)
+// and panels must NOT be (or the width control is decorative again).
+//
+// Since 1.0.3 the bound scales with the setting — Normal fills the column,
+// Wide ~98 characters, Full ~117 — so the assertions are about ordering and
+// boundedness rather than one fixed number.
 
 const WIDE_TABLE = `Body text long enough to reach the measure. ${"Lorem ipsum dolor sit amet consectetur. ".repeat(10)}
 
@@ -69,17 +73,26 @@ test("the reading measure caps prose, and wide blocks use the full column", asyn
       });
     };
 
+    const normal = await measure("normal");
     const wide = await measure("wide");
     const full = await measure("full");
 
-    // The measure still holds: prose does not grow between Wide and Full.
-    expect(wide.para, "prose is capped at the measure").toBeLessThanOrEqual(600);
-    expect(full.para, "prose does not grow past the measure at Full").toBe(wide.para);
+    // The measure scales with the setting (1.0.3): a wider page is a request
+    // for density, so text widens with it. Pinned at one number, Full left
+    // text using 41% of the column and the width control did nothing visible
+    // to what the reader was actually reading.
+    expect(wide.para, "text widens from Normal to Wide").toBeGreaterThan(normal.para);
+    expect(full.para, "text widens from Wide to Full").toBeGreaterThan(wide.para);
 
-    // The column does grow, and the table grows with it — this is the part
-    // that was broken: the table used to be pinned to the prose measure.
+    // But it stays BOUNDED. Uncapped, this column is ~190 characters at this
+    // viewport — the failure the measure exists to prevent, and the reason
+    // "make text full width like the tables" is not the fix.
+    expect(full.para, "text never fills the column outright").toBeLessThan(full.table);
+
+    // The column grows, and the table grows with it — this is what 1.0.1
+    // fixed: the table used to be pinned to the prose measure.
     expect(full.table, "the table uses the wider column at Full").toBeGreaterThan(wide.table);
-    expect(full.table, "the table is wider than the prose measure").toBeGreaterThan(full.para);
+    expect(full.table, "the table is wider than the text").toBeGreaterThan(full.para);
 
     // And at Full this table fits outright, rather than hiding columns behind
     // a scrollbar with empty page sitting next to it.
@@ -180,7 +193,8 @@ test("every panel and media block follows the column, not the measure", async ({
       };
     });
 
-    expect(m.para, "prose keeps the measure").toBeLessThanOrEqual(600);
+    // Text stays bounded below the column; the panels below fill it exactly.
+    expect(m.para, "text does not fill the column").toBeLessThan(m.column!);
     for (const [name, w] of [
       ["callout", m.callout],
       ["table", m.table],
@@ -190,9 +204,14 @@ test("every panel and media block follows the column, not the measure", async ({
     ] as const) {
       expect(w, `${name} follows the content column`).toBe(m.column);
     }
-    // Not exact — the tab has padding — but it must be far wider than the
-    // measure, which is what a narrow container would have left it at.
-    expect(m.tableInTab, "a table inside a tab is not double-capped").toBeGreaterThan(m.para! + 200);
+    // Not exact — the tab has its own padding — but it must be within a hair of
+    // the column. Anchored to the column rather than to the text width, because
+    // the text width now moves with the setting and a proxy tied to it silently
+    // stops testing anything.
+    expect(
+      m.tableInTab,
+      "a table inside a tab gets the column, not the measure"
+    ).toBeGreaterThan(m.column * 0.9);
   } finally {
     if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
     await ctx.close();

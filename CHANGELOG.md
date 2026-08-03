@@ -4,6 +4,32 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.0.3] - 2026-08-03
+
+### Changed
+- **The reading measure now scales with the page-width setting.** Paragraphs and
+  bullet lists were capped at one width whatever you picked, so on a wide
+  monitor at **Full** the text used about 40% of the column while tables and
+  callouts beside it spanned all of it — the width control visibly did nothing
+  to the part you were actually reading.
+
+  Choosing a wider page is a request for density, so the measure widens too:
+
+  | Setting | Text | ≈ characters per line |
+  | --- | --- | --- |
+  | Normal | fills the column | ~71 |
+  | Wide | 75ch | ~98 |
+  | Full | 90ch | ~117 |
+
+  It stays bounded rather than uncapped on purpose. Letting text fill the column
+  outright is ~190 characters per line on a 2000px window — far past the point
+  where lines become hard to track, and the problem the measure was added to
+  solve in 0.88.
+
+  The share page and the public document page are unchanged at ~78 characters:
+  they have no width preference to read, and legibility is the right default for
+  an anonymous reader.
+
 ## [1.0.2] - 2026-08-03
 
 ### Fixed
