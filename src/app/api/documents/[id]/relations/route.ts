@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server";
 import { apiGuard } from "@/lib/api-auth";
 import { getDocument } from "@/lib/db";
-import { spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
+import { canSeeDrafts, spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
 import { relationsFor, addRelation, removeRelation, RELATION_KINDS } from "@/lib/relations";
 import type { RelationKind } from "@/lib/relations";
-import { roleAtLeast } from "@/lib/types";
 import type { NextRequest } from "next/server";
 import type { SessionUser } from "@/lib/types";
 
@@ -20,7 +19,7 @@ async function visibleDoc(user: SessionUser, id: number) {
   const doc = await getDocument(id);
   if (!doc || doc.branch_of !== null) return null;
   if (!scopeAllows(await spaceScopeFor(user), doc.space_id)) return null;
-  if (doc.status === "draft" && !roleAtLeast(user.role, "editor")) return null;
+  if (doc.status === "draft" && !(await canSeeDrafts(user, doc.space_id))) return null;
   return doc;
 }
 
@@ -35,7 +34,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const relations = await relationsFor(
     doc.id,
     await spaceScopeFor(user),
-    roleAtLeast(user.role, "editor")
+    await canSeeDrafts(user)
   );
   return NextResponse.json({ relations });
 }
@@ -75,7 +74,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const relations = await relationsFor(
     doc.id,
     await spaceScopeFor(user),
-    roleAtLeast(user.role, "editor")
+    await canSeeDrafts(user)
   );
   return NextResponse.json({ ok: true, relations }, { status: 201 });
 }
@@ -98,7 +97,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   const relations = await relationsFor(
     doc.id,
     await spaceScopeFor(user),
-    roleAtLeast(user.role, "editor")
+    await canSeeDrafts(user)
   );
   return NextResponse.json({ ok: true, relations });
 }

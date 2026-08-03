@@ -14,7 +14,7 @@ import {
 import { BranchBanner } from "@/components/BranchBanner";
 import { ViewTracker } from "@/components/ViewTracker";
 import { requireUser } from "@/lib/auth";
-import { spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
+import { userHolds, canPublishDirectly, canSeeDrafts, spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
 import { resolveAuthorPerson } from "@/lib/directory";
 import { featureEnabled } from "@/lib/ee";
 import { getCurrentAck, ackStatusForDocument } from "@/lib/db";
@@ -40,7 +40,6 @@ import { REVIEW_INTERVALS } from "@/lib/reviews";
 import { ShareCard } from "@/components/ShareCard";
 import { shareLinksEnabled, getActiveShare } from "@/lib/shares";
 import { Link2 } from "lucide-react";
-import { roleAtLeast } from "@/lib/types";
 import { timeAgo } from "@/lib/ui";
 
 export const dynamic = "force-dynamic";
@@ -53,13 +52,24 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
   const scope = await spaceScopeFor(user);
   if (!scopeAllows(scope, doc.space_id)) notFound();
 
-  const isStaff = roleAtLeast(user.role, "editor");
-  // Viewers may not see drafts.
+  // Two scopes of the same question: drafts of THIS document's space, and
+  // drafts anywhere — relations and backlinks reach into other spaces, and a
+  // grant on this space says nothing about those.
+  const [isStaff, seeDraftsAnywhere] = await Promise.all([
+    canSeeDrafts(user, doc.space_id),
+    canSeeDrafts(user),
+  ]);
   if (doc.status === "draft" && !isStaff) notFound();
 
   const versionCount = (await listVersions(doc.id)).length;
-  const relations = doc.branch_of === null ? await relationsFor(doc.id, scope, isStaff) : [];
-  const pending = roleAtLeast(user.role, "approver") ? await listPendingForDocument(doc.id) : [];
+  const relations =
+    doc.branch_of === null ? await relationsFor(doc.id, scope, seeDraftsAnywhere) : [];
+  const pending = (await userHolds(user, "change_request.read", {
+    spaceId: doc.space_id,
+    legacyMin: "approver",
+  }))
+    ? await listPendingForDocument(doc.id)
+    : [];
   const [settings, attachments, dmsLinks, authorPerson, ackEnabled, hasEditRights] =
     await Promise.all([
       getAppSettings(),
@@ -88,24 +98,43 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
     nestedOn ? ancestorsOf(doc.id) : Promise.resolve([]),
     nestedOn ? childrenOf(doc.id, { includeDrafts: isStaff }) : Promise.resolve([]),
     settings.backlinks_enabled && doc.branch_of === null
-      ? backlinksFor(doc.id, scope, isStaff)
+      ? backlinksFor(doc.id, scope, seeDraftsAnywhere)
       : Promise.resolve([]),
   ]);
   // Draft-branch context: the source doc for the banner, live branches for the note.
   const branchSource = doc.branch_of !== null ? await getDocument(doc.branch_of) : undefined;
   const branchCount = isStaff && doc.branch_of === null ? (await listBranches(doc.id)).length : 0;
   const mergeNeedsReview =
-    branchSource?.status === "published" &&
-    !roleAtLeast(user.role, "approver") &&
-    (await getApprovalMode()) === "strict";
-  const isApprover = roleAtLeast(user.role, "approver");
+    branchSource?.status === "published" && !(await canPublishDirectly(user, doc.space_id));
+  // The toolbar's two main decisions, resolved here rather than in the client
+  // component that renders them. canEditSpace already answers "may they author
+  // in this space" from permissions, so edit rights ARE the answer; deleting
+  // asks the same pair of permissions the DELETE route enforces, so the button
+  // and the request agree.
+  const canEdit = hasEditRights;
+  const canDelete =
+    hasEditRights &&
+    (await userHolds(
+      user,
+      doc.status === "published" ? "document.delete_published" : "document.delete_draft",
+      { spaceId: doc.space_id, legacyMin: doc.status === "published" ? "approver" : "editor" }
+    ));
+  // Three separate rights that were one rung before 1.0: seeing who has read a
+  // policy, deciding that one must be read, and minting a template.
+  const [canReadAckRoster, canRequireAck, canSaveAsTemplate] = await Promise.all([
+    userHolds(user, "document.ack_roster_read", { spaceId: doc.space_id, legacyMin: "approver" }),
+    userHolds(user, "document.ack_require", { spaceId: doc.space_id, legacyMin: "approver" }),
+    userHolds(user, "template.manage", { legacyMin: "admin" }),
+  ]);
   // Reader banner state + approver progress, only when the feature is licensed.
   const myAck =
     ackEnabled && doc.ack_required === 1 && doc.status === "published"
       ? await getCurrentAck(doc.id, user.id)
       : undefined;
   const ackRows =
-    ackEnabled && isApprover && doc.ack_required === 1 ? await ackStatusForDocument(doc.id) : [];
+    ackEnabled && canReadAckRoster && doc.ack_required === 1
+      ? await ackStatusForDocument(doc.id)
+      : [];
 
   return (
     <PageWidth>
@@ -142,12 +171,13 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
         <DocActions
           id={doc.id}
           spaceSlug={doc.space_slug}
-          role={user.role}
+          canEdit={canEdit}
+          canDelete={canDelete}
+          canSaveAsTemplate={canSaveAsTemplate}
           isPublished={doc.status === "published"}
-          hasEditRights={hasEditRights}
           isBranch={doc.branch_of !== null}
           ack={
-            ackEnabled && isApprover && doc.branch_of === null
+            ackEnabled && canRequireAck && doc.branch_of === null
               ? { required: doc.ack_required === 1 }
               : undefined
           }
@@ -231,9 +261,10 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
         <DocActions
           id={doc.id}
           spaceSlug={doc.space_slug}
-          role={user.role}
+          canEdit={canEdit}
+          canDelete={canDelete}
+          canSaveAsTemplate={canSaveAsTemplate}
           isPublished={doc.status === "published"}
-          hasEditRights={hasEditRights}
           isBranch={doc.branch_of !== null}
         />
       </StickyDocBar>
@@ -255,7 +286,7 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
               : undefined
           }
           ackProgress={
-            ackEnabled && isApprover && doc.ack_required === 1 && doc.status === "published"
+            ackEnabled && canReadAckRoster && doc.ack_required === 1 && doc.status === "published"
               ? {
                   ackedCount: ackRows.filter((r) => r.acknowledged_at).length,
                   requiredCount: ackRows.length,

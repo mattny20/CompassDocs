@@ -6,7 +6,6 @@ import { SettingsProvider } from "@/components/SettingsProvider";
 import { getAppSettings } from "@/lib/settings-store";
 import { settingsForUser } from "@/lib/format";
 import { countOpenSuggestions, countPendingChangeRequests, countTrashed } from "@/lib/db";
-import { roleAtLeast } from "@/lib/types";
 import { ToastHost } from "@/components/Toasts";
 import { CommandPalette } from "@/components/palette/CommandPalette";
 import { navCapabilities } from "@/lib/nav-capabilities";
@@ -19,15 +18,16 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // Force the first-login password change before anything else is usable.
   if (user.must_change_password) redirect("/account/password");
 
-  const isEditor = roleAtLeast(user.role, "editor");
-  const [reviewCount, trashCount, caps, paletteSpaces, workspaceSettings] = await Promise.all([
-    roleAtLeast(user.role, "approver")
+  // The badge counts are the capabilities they gate, so they follow rather
+  // than race them: no point counting a review queue the user cannot open.
+  const caps = await navCapabilities(user);
+  const [reviewCount, trashCount, paletteSpaces, workspaceSettings] = await Promise.all([
+    caps.isApprover
       ? Promise.all([countOpenSuggestions(), countPendingChangeRequests()]).then(
           ([a, b]) => a + b
         )
       : Promise.resolve(0),
-    isEditor ? countTrashed() : Promise.resolve(0),
-    navCapabilities(user),
+    caps.isEditor ? countTrashed() : Promise.resolve(0),
     spaceScopeFor(user).then((scope) => listSpaces(scope)),
     getAppSettings(),
   ]);
@@ -43,7 +43,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       >
         Skip to content
       </a>
-      <Sidebar user={user} reviewCount={reviewCount} trashCount={trashCount} />
+      <Sidebar user={user} caps={caps} reviewCount={reviewCount} trashCount={trashCount} />
       <main id="main" className="flex-1 overflow-y-auto print:overflow-visible">
         <SettingsProvider value={settings}>
         <WidthProvider initial={user.page_width}>{children}

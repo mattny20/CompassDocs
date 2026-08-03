@@ -4,9 +4,11 @@
 // into the db queries that list or read documents. Server-only.
 
 import "server-only";
+import { cache } from "react";
 import {
   accessibleSpaceIdsFor,
   editGrantedSpaceIdsFor,
+  getApprovalMode,
   getSetting,
   spaceEditGrantAllows,
 } from "./db";
@@ -119,6 +121,88 @@ export async function canEditSpace(
   if (!holds(grants, "document.update")) return false;
   if (await editorsEditAll()) return true;
   return spaceEditGrantAllows(spaceId, user.id);
+}
+
+// --- Draft visibility and direct publish -----------------------------------
+//
+// Two questions the app asks constantly, and until 1.0 asked by rung:
+// `roleAtLeast(role, "editor")` for "may they see drafts" and
+// `roleAtLeast(role, "approver") || approvalMode === "open"` for "may they
+// publish without review". Between them they accounted for about thirty-five
+// call sites — every one of which ignored the permission model, so a custom
+// role holding `document.read_draft` still saw no drafts anywhere.
+//
+// They live here, next to canEditSpace, because they are the same kind of
+// question and callers already look in this module for it. Both keep the
+// break-glass fallback, so COMPASSDOCS_AUTHZ_LEGACY=1 restores the exact
+// pre-1.0 behaviour at every one of those sites at once.
+
+/**
+ * Does this user hold `permission`, as a plain boolean?
+ *
+ * The page/route counterpart to v1Holds: for the handful of conditional checks
+ * that aren't the guard at the top of a handler — "deleting a *published* doc
+ * needs more than deleting a draft" — where apiGuard has already run with the
+ * baseline permission and only the extra one is in question.
+ *
+ * `legacyMin` is the ladder rung the site used before it was ported, so the
+ * break-glass path keeps the exact behaviour it had.
+ */
+export async function userHolds(
+  user: { id: number; role: Role },
+  permission: import("./permissions").PermissionKey,
+  opts?: { spaceId?: number; legacyMin?: Role }
+): Promise<boolean> {
+  const { grantsFor, admits, legacyAuthzEnforcement } = await import("./authz");
+  if (legacyAuthzEnforcement()) return roleAtLeast(user.role, opts?.legacyMin ?? "editor");
+  return admits(await grantsFor(user.id), permission, opts?.spaceId);
+}
+
+// getApprovalMode is an uncached settings read, and canPublishDirectly is
+// called per document in the bulk route (up to 200 in one request). Once per
+// request is enough — the mode cannot change mid-request.
+const approvalMode = cache(getApprovalMode);
+
+/**
+ * May this user see drafts and branch working copies?
+ *
+ * Pass `spaceId` wherever the caller knows it — a grant scoped to one space
+ * should not reveal drafts in another. Callers that genuinely ask across
+ * spaces (search, the palette's recents) omit it and get "anywhere", which is
+ * what `admits` does for an unscoped space-scoped question. That is no wider
+ * than the ladder it replaces: those queries are bounded by the user's
+ * SpaceScope either way, and previously *any* editor saw every draft in every
+ * space they could see.
+ */
+export async function canSeeDrafts(
+  user: { id: number; role: Role },
+  spaceId?: number
+): Promise<boolean> {
+  const { grantsFor, admits, legacyAuthzEnforcement } = await import("./authz");
+  if (legacyAuthzEnforcement()) return roleAtLeast(user.role, "editor");
+  return admits(await grantsFor(user.id), "document.read_draft", spaceId);
+}
+
+/**
+ * May this user publish straight to live, rather than queueing for review?
+ *
+ * Folds in the org approval mode, because every site that asked this asked it
+ * the same way: `roleAtLeast(role, "approver") || mode === "open"`. Open mode
+ * means the workspace has no review step at all, so it short-circuits the
+ * permission — that is what "open" has always meant.
+ *
+ * This answers *review bypass only*. It assumes the caller has established
+ * authoring rights separately (canEditSpace), exactly as the expression it
+ * replaces did — a false here means "queue it", not "refuse it".
+ */
+export async function canPublishDirectly(
+  user: { id: number; role: Role },
+  spaceId?: number
+): Promise<boolean> {
+  const { grantsFor, admits, legacyAuthzEnforcement } = await import("./authz");
+  if ((await approvalMode()) === "open") return true;
+  if (legacyAuthzEnforcement()) return roleAtLeast(user.role, "approver");
+  return admits(await grantsFor(user.id), "document.publish", spaceId);
 }
 
 /** "all" (admins) or the concrete list of space ids the user may author in. */

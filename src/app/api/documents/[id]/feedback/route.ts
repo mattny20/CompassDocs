@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { getDocument, pool } from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
-import { spaceScopeFor, scopeAllows } from "@/lib/access";
-import { roleAtLeast } from "@/lib/types";
+import { canSeeDrafts, spaceScopeFor, scopeAllows } from "@/lib/access";
 import type { SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -18,7 +17,7 @@ async function visibleDoc(user: SessionUser, idRaw: string) {
   if (!doc || !scopeAllows(await spaceScopeFor(user), doc.space_id)) return null;
   // Same gate as every other reader path: drafts are invisible below editor,
   // and draft branches are working copies — not something readers rate.
-  if (doc.status === "draft" && !roleAtLeast(user.role, "editor")) return null;
+  if (doc.status === "draft" && !(await canSeeDrafts(user, doc.space_id))) return null;
   if (doc.branch_of) return null;
   return doc;
 }

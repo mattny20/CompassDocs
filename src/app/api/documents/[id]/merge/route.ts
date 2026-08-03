@@ -4,15 +4,13 @@ import {
   updateDocument,
   deleteDocument,
   createChangeRequest,
-  getApprovalMode,
-} from "@/lib/db";
+  } from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
 import { notifySpaceSubscribers } from "@/lib/subscriptions";
 import { notifyCrSubmitted } from "@/lib/notifications";
 import { requestOrigin } from "@/lib/oauth";
-import { roleAtLeast } from "@/lib/types";
-import { spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
+import { canPublishDirectly, spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
 import type { SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -60,7 +58,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   }
   const versionNote = note || "Merged draft branch";
 
-  const canPublish = roleAtLeast(user.role, "approver") || (await getApprovalMode()) === "open";
+  const canPublish = await canPublishDirectly(user, source.space_id);
   if (source.status === "published" && !canPublish) {
     const crId = await createChangeRequest({
       document_id: source.id,

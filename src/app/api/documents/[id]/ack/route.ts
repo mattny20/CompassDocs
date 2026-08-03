@@ -4,7 +4,6 @@ import { apiGuard } from "@/lib/api-auth";
 import { spaceScopeFor, scopeAllows } from "@/lib/access";
 import { featureEnabled } from "@/lib/ee";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
-import { roleAtLeast } from "@/lib/types";
 import type { SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";

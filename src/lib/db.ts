@@ -3063,13 +3063,11 @@ export async function deleteUser(id: number): Promise<boolean> {
   return (res.rowCount ?? 0) > 0;
 }
 
-export async function countAdmins(): Promise<number> {
-  return (
-    await q<{ n: number }>(
-      "SELECT COUNT(*)::int AS n FROM users WHERE role = 'admin' AND status = 'active'"
-    )
-  )[0].n;
-}
+// countAdmins() lived here until 1.0. Its callers — the demote/disable/delete
+// lockout guards — now ask countGlobalUserAdmins, which counts who still holds
+// the recovery permission rather than who has an 'admin' row. Removed rather
+// than deprecated: a function that answers "how many admins" with a role count
+// is exactly the thing the next lockout guard would reach for.
 
 // --- Personal API tokens (Claude connector / integrations) --------------------
 
@@ -3412,15 +3410,41 @@ const HOLDS_ON_SPACE = (permission: string, spaceCol: string, userCol: string) =
   )`;
 
 /**
+ * SQL predicate: does the user in column `userCol` hold `permission` globally?
+ *
+ * The counterpart to HOLDS_ON_SPACE, and the SQL half of the 1.0 port. These
+ * queries pick an audience rather than gate a request — who is notified, who is
+ * expected to acknowledge a policy, who may be reached for review — and every
+ * one of them spelled the admin bypass `u.role = 'admin'`. That is the last
+ * place the ladder decided anything: a custom role holding `space.read_all`
+ * could open a private space in the app and still be left out of its
+ * notifications, and no permission check anywhere would show it.
+ */
+const HOLDS_GLOBALLY = (permission: string, userCol: string) => `
+  EXISTS (
+    SELECT 1 FROM role_assignments ra
+      JOIN role_permissions rp ON rp.role_id = ra.role_id AND rp.permission = '${permission}'
+     WHERE ra.scope_type = 'global'
+       AND (ra.user_id = ${userCol}
+            OR ra.group_id IN (SELECT gm.group_id FROM group_members gm WHERE gm.user_id = ${userCol}))
+  )`;
+
+/**
  * The spaces a user may read, as a subquery. `userParam` is a placeholder this
  * module or its caller controls (`$1`, `u.id`, …) — never user input.
  *
  * Exported because the weekly digest needs the same set inline, and a second
  * hand-written copy of this join is how the digest and the app end up
  * disagreeing about who can see a private space.
+ *
+ * The `space.read_all` arm is 1.0: spaceScopeFor has always had it, this had
+ * not, so someone who could see every private space in the app got a digest
+ * covering only the public ones.
  */
 export function readableSpaceIdsSql(userParam: string): string {
   return `SELECT s.id FROM spaces s WHERE s.visibility IN ('public', 'internal')
+          UNION
+          SELECT s.id FROM spaces s WHERE ${HOLDS_GLOBALLY("space.read_all", userParam)}
           UNION
           SELECT g.space_id FROM (${GRANT_SUBJECTS("space.member")}) g
            WHERE g.user_id = ${userParam}
@@ -3756,7 +3780,7 @@ export async function listSubscriberIds(
        )
        AND (
          s.visibility IN ('public', 'internal')
-         OR u.role = 'admin'
+         OR ${HOLDS_GLOBALLY("space.read_all", "u.id")}
          OR ${HOLDS_ON_SPACE("space.member", "$1", "u.id")}
        )`,
     [spaceId, excludeUserId]
@@ -3775,7 +3799,14 @@ export async function listCommenterIds(docId: number, excludeUserId: number): Pr
   return rows.map((r) => r.user_id);
 }
 
-/** Active approvers/admins who can see the given space (review audience). */
+/**
+ * Active people who may review changes in the given space AND can see it.
+ *
+ * Both halves were role rungs until 1.0: `role IN ('approver','admin')` and
+ * `role = 'admin'`. Reviewing is now a permission, and it can be held on one
+ * space — so a space-scoped reviewer is finally in the audience for the space
+ * they actually review.
+ */
 export async function listApproverIdsForSpace(
   spaceId: number,
   excludeUserId: number
@@ -3783,9 +3814,13 @@ export async function listApproverIdsForSpace(
   const rows = await q<{ id: number }>(
     `SELECT u.id FROM users u
      JOIN spaces s ON s.id = $1
-     WHERE u.status = 'active' AND u.role IN ('approver', 'admin') AND u.id <> $2
+     WHERE u.status = 'active' AND u.id <> $2
        AND (
-         u.role = 'admin'
+         ${HOLDS_GLOBALLY("change_request.read", "u.id")}
+         OR ${HOLDS_ON_SPACE("change_request.read", "s.id", "u.id")}
+       )
+       AND (
+         ${HOLDS_GLOBALLY("space.read_all", "u.id")}
          OR s.visibility <> 'private'
          OR ${HOLDS_ON_SPACE("space.member", "s.id", "u.id")}
        )`,
@@ -3937,7 +3972,7 @@ export async function listSubscriberRecipients(
        )
        AND (
          s.visibility IN ('public', 'internal')
-         OR u.role = 'admin'
+         OR ${HOLDS_GLOBALLY("space.read_all", "u.id")}
          OR ${HOLDS_ON_SPACE("space.member", "$1", "u.id")}
        )`,
     [spaceId, excludeUserId]
@@ -3956,7 +3991,7 @@ export async function setAckRequired(docId: number, required: boolean): Promise<
 // count the same people.
 const ACK_VISIBILITY = `(
     s.visibility IN ('public', 'internal')
-    OR u.role = 'admin'
+    OR ${HOLDS_GLOBALLY("space.read_all", "u.id")}
     OR ${HOLDS_ON_SPACE("space.member", "s.id", "u.id")}
   )`;
 const ACK_ELIGIBLE = `u.status = 'active' AND ${ACK_VISIBILITY}`;
@@ -4104,7 +4139,7 @@ export async function ackStatusForDocument(docId: number): Promise<
      WHERE u.status = 'active'
        AND (
          s.visibility IN ('public', 'internal')
-         OR u.role = 'admin'
+         OR ${HOLDS_GLOBALLY("space.read_all", "u.id")}
          OR ${HOLDS_ON_SPACE("space.member", "s.id", "u.id")}
        )
      ORDER BY (a.acknowledged_at IS NULL) DESC, u.name`,
@@ -5893,14 +5928,14 @@ export async function listNewsletterComments(newsletterId: number): Promise<News
   );
 }
 
-/** Active users who can approve newsletters: capability holders plus admins. */
+/** Active people holding `newsletter.decide` — the newsletter review audience. */
 export async function listNewsletterApproverPool(): Promise<
   { id: number; name: string; email: string }[]
 > {
   return q(
-    `SELECT id, name, email FROM users
-     WHERE status = 'active' AND (newsletter_role = 'approver' OR role = 'admin')
-     ORDER BY name`
+    `SELECT u.id, u.name, u.email FROM users u
+      WHERE u.status = 'active' AND ${HOLDS_GLOBALLY("newsletter.decide", "u.id")}
+      ORDER BY u.name`
   );
 }
 

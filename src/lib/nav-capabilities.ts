@@ -8,47 +8,55 @@ import "server-only";
 import { canAccessSection } from "./section-access";
 import { canUseNewsletter } from "./newsletter-access";
 import { featureEnabled } from "./ee";
-import { editableScopeFor } from "./access";
-import { roleAtLeast } from "./types";
+import { canSeeDrafts, editableScopeFor, userHolds } from "./access";
 import type { SessionUser } from "./types";
 import type { CapKey } from "./nav-items";
 import { NAV_ITEMS } from "./nav-items";
 import { PALETTE_COMMANDS } from "./palette-commands";
 
+// The names are historical — they were role rungs until 1.0, and the nav item
+// definitions key off them — but each is now a permission question.
 export interface NavCapabilities {
+  /** Sees drafts: the trash, draft badges, the staff-only nav rows. */
   isEditor: boolean;
+  /** Reviews queued changes. */
   isApprover: boolean;
   isAdmin: boolean;
   showNewsletter: boolean;
   showAnnouncements: boolean;
   showCompliance: boolean;
   showTraining: boolean;
-  /** Editor or better AND at least one space they may write in. */
+  /** Has at least one space they may write in. */
   canAuthor: boolean;
 }
 
 /**
  * True when the user has somewhere to put a new document. Computed rather than
- * assumed: offering "New document" to an editor with no grants walks them into
+ * assumed: offering "New document" to someone with no grants walks them into
  * the "No editable spaces" dead end.
+ *
+ * No separate rung check any more — editableScopeFor already returns nothing
+ * for a user with no authoring rights, and "all" for one holding
+ * space.author_all. Asking twice was how the two could disagree.
  */
 async function canAuthorFor(user: SessionUser): Promise<boolean> {
-  if (user.role === "admin") return true;
-  if (!roleAtLeast(user.role, "editor")) return false;
   const scope = await editableScopeFor(user);
   return scope === "all" || scope.length > 0;
 }
 
 export async function navCapabilities(user: SessionUser): Promise<NavCapabilities> {
-  const [showAnnouncements, showCompliance, showTraining, canAuthor] = await Promise.all([
-    canAccessSection(user, "announcements"),
-    canAccessSection(user, "compliance"),
-    featureEnabled("training"),
-    canAuthorFor(user),
-  ]);
+  const [showAnnouncements, showCompliance, showTraining, canAuthor, isEditor, isApprover] =
+    await Promise.all([
+      canAccessSection(user, "announcements"),
+      canAccessSection(user, "compliance"),
+      featureEnabled("training"),
+      canAuthorFor(user),
+      canSeeDrafts(user),
+      userHolds(user, "change_request.read", { legacyMin: "approver" }),
+    ]);
   return {
-    isEditor: roleAtLeast(user.role, "editor"),
-    isApprover: roleAtLeast(user.role, "approver"),
+    isEditor,
+    isApprover,
     isAdmin: user.role === "admin",
     showNewsletter: canUseNewsletter(user),
     showAnnouncements,

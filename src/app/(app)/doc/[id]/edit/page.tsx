@@ -7,8 +7,7 @@ import {
   isTrainingDeckDoc,
 } from "@/lib/db";
 import { requirePermission } from "@/lib/auth";
-import { spaceScopeFor, scopeAllows, canEditSpace, editableScopeFor } from "@/lib/access";
-import { roleAtLeast } from "@/lib/types";
+import { canPublishDirectly, spaceScopeFor, scopeAllows, canEditSpace, editableScopeFor } from "@/lib/access";
 import { getAppSettings } from "@/lib/settings-store";
 import { DocEditor } from "@/components/DocEditor";
 
@@ -28,7 +27,7 @@ export default async function EditDocPage({ params }: { params: Promise<{ id: st
   const categories = (await listAllSpaceCategories()).filter(
     (c) => spaceIds.has(c.space_id) || c.space_id === doc.space_id
   );
-  const canPublish = roleAtLeast(user.role, "approver") || (await getApprovalMode()) === "open";
+  const canPublish = await canPublishDirectly(user, doc.space_id);
   const settings = await getAppSettings();
 
   return (

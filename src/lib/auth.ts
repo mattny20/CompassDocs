@@ -139,12 +139,11 @@ export async function requireUser(): Promise<SessionUser> {
   return user;
 }
 
-/** For server components/pages: 404-style redirect home when under-privileged. */
-export async function requireRole(min: Role): Promise<SessionUser> {
-  const user = await requireUser();
-  if (!roleAtLeast(user.role, min)) redirect("/");
-  return user;
-}
+// requireRole(min) lived here until 1.0. Every page that used it now calls
+// requirePermission, which asks the same question the API asks; a page gated on
+// a rung would bounce someone the API would admit. Nothing calls it, so rather
+// than leave a working ladder gate lying around for the next page to reach for,
+// it is gone.
 
 /**
  * The page-level counterpart to `apiGuard(min, permission)`, and the reason it

@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { listRecentDocuments } from "@/lib/db";
-import { spaceScopeFor } from "@/lib/access";
+import { canSeeDrafts, spaceScopeFor } from "@/lib/access";
 import { getAppSettings } from "@/lib/settings-store";
-import { roleAtLeast } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -16,11 +15,7 @@ export async function GET() {
   if (!user) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
 
   const settings = await getAppSettings();
-  const recent = await listRecentDocuments(
-    6,
-    roleAtLeast(user.role, "editor"),
-    await spaceScopeFor(user)
-  );
+  const recent = await listRecentDocuments(6, await canSeeDrafts(user), await spaceScopeFor(user));
 
   return NextResponse.json({
     user: { name: user.name || user.username },

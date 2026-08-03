@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server";
 import { answerQuestion } from "@/lib/ai";
 import { recordSearch } from "@/lib/analytics";
-import { spaceScopeFor } from "@/lib/access";
+import { canSeeDrafts, spaceScopeFor } from "@/lib/access";
 import { crossOriginRejection } from "@/lib/api-auth";
 import { getCurrentUser } from "@/lib/auth";
 import { aiRateLimited } from "@/lib/rate-limit";
-import { roleAtLeast } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -30,7 +29,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Question is required." }, { status: 400 });
   }
 
-  const includeDrafts = roleAtLeast(user.role, "editor");
+  const includeDrafts = await canSeeDrafts(user);
   const result = await answerQuestion(question, includeDrafts, await spaceScopeFor(user));
   void recordSearch(user.id, question, result.sources.length, "ask").catch(() => {});
   return NextResponse.json(result);

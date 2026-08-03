@@ -16,8 +16,8 @@ import {
 } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { spaceScopeFor } from "@/lib/access";
+import { navCapabilities } from "@/lib/nav-capabilities";
 import { featureEnabled } from "@/lib/ee";
-import { roleAtLeast } from "@/lib/types";
 import { timeAgo } from "@/lib/ui";
 import { AnnouncementBoard } from "@/components/AnnouncementBoard";
 import { NewsletterBoard } from "@/components/NewsletterBoard";
@@ -42,8 +42,9 @@ export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
   const user = await requireUser();
-  const isEditor = roleAtLeast(user.role, "editor");
-  const isApprover = roleAtLeast(user.role, "approver");
+  // Same resolution the sidebar and palette use, so the dashboard cannot
+  // show a review queue the nav says you have no access to.
+  const { isEditor, isApprover } = await navCapabilities(user);
   const scope = await spaceScopeFor(user);
   const appSettings = await getAppSettings();
   const pendingAcks = (await featureEnabled("policy_ack"))

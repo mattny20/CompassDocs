@@ -8,12 +8,11 @@ import {
   listCommenterIds,
 } from "@/lib/db";
 import { notify } from "@/lib/notifications";
-import { spaceScopeFor, scopeAllows } from "@/lib/access";
+import { canSeeDrafts, spaceScopeFor, scopeAllows } from "@/lib/access";
 import { getAppSettings } from "@/lib/settings-store";
 import { findBlockedWord, notifyMentions, COMMENT_MAX_LEN } from "@/lib/comments";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
 import { requestOrigin } from "@/lib/oauth";
-import { roleAtLeast } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +28,7 @@ async function loadDocFor(userGate: Awaited<ReturnType<typeof apiGuard>>, idRaw:
   if (!scopeAllows(await spaceScopeFor(userGate), doc.space_id)) {
     return NextResponse.json({ error: "Document not found." }, { status: 404 });
   }
-  if (doc.status === "draft" && !roleAtLeast(userGate.role, "editor")) {
+  if (doc.status === "draft" && !(await canSeeDrafts(userGate, doc.space_id))) {
     return NextResponse.json({ error: "Document not found." }, { status: 404 });
   }
   return doc;

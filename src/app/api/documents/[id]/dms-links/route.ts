@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server";
 import { apiGuard } from "@/lib/api-auth";
 import { getDocument, listDmsLinks, addDmsLink } from "@/lib/db";
-import { spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
+import { canSeeDrafts, spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
 import { detectDmsSystem, validateDmsUrl, defaultDmsTitle } from "@/lib/dms";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
-import { roleAtLeast } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +17,7 @@ async function loadDocFor(gate: Awaited<ReturnType<typeof apiGuard>>, idRaw: str
   if (!scopeAllows(await spaceScopeFor(gate), doc.space_id)) {
     return NextResponse.json({ error: "Document not found." }, { status: 404 });
   }
-  if (doc.status === "draft" && !roleAtLeast(gate.role, "editor")) {
+  if (doc.status === "draft" && !(await canSeeDrafts(gate, doc.space_id))) {
     return NextResponse.json({ error: "Document not found." }, { status: 404 });
   }
   return doc;

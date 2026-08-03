@@ -2,10 +2,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getDocument, listVersions, listBranches, getApprovalMode } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
-import { spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
+import { canPublishDirectly, canSeeDrafts, spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
 import { getAppSettings } from "@/lib/settings-store";
 import { formatDateTime, settingsForUser } from "@/lib/format";
-import { roleAtLeast } from "@/lib/types";
 import { timeAgo } from "@/lib/ui";
 import { PageContainer } from "@/components/PageWidth";
 import { VersionHistory } from "@/components/VersionHistory";
@@ -18,17 +17,15 @@ export default async function HistoryPage({ params }: { params: Promise<{ id: st
   const doc = await getDocument(Number(id));
   if (!doc) notFound();
   if (!scopeAllows(await spaceScopeFor(user), doc.space_id)) notFound();
-  if (doc.status === "draft" && !roleAtLeast(user.role, "editor")) notFound();
+  if (doc.status === "draft" && !(await canSeeDrafts(user, doc.space_id))) notFound();
 
-  const [versions, branches, settings, hasEditRights, approvalMode] = await Promise.all([
+  const [versions, branches, settings, canEdit, canPublishDirect] = await Promise.all([
     listVersions(doc.id),
     listBranches(doc.id),
     getAppSettings(),
     canEditSpace(user, doc.space_id),
-    getApprovalMode(),
+    canPublishDirectly(user, doc.space_id),
   ]);
-  const canEdit = roleAtLeast(user.role, "editor") && hasEditRights;
-  const canPublishDirect = roleAtLeast(user.role, "approver") || approvalMode === "open";
 
   // Oldest = v1; the list arrives newest-first.
   const items = versions.map((v, i) => ({
