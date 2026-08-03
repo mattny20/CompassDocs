@@ -247,6 +247,35 @@ const SCHEMA_SQL = `
   );
   CREATE INDEX IF NOT EXISTS idx_doc_shares_doc ON doc_shares(document_id);
 
+  -- Image upload tickets (1.1): the handoff for "put this screenshot in the
+  -- doc" when the picture only exists in someone's chat window.
+  --
+  -- An MCP client cannot send us that image. A screenshot pasted into a
+  -- conversation reaches the model as vision input, not as a file it can read
+  -- back byte for byte, so add_image's base64 argument is unfillable for the
+  -- single most common request. (Even when the bytes ARE available the
+  -- argument is the wrong pipe: base64 inflates by a third, and a 300 KB
+  -- screenshot is ~400,000 characters in one tool call.)
+  --
+  -- So the model asks for a ticket instead and hands the human a link. Tickets
+  -- are single-use and short-lived: one image, then consumed. The token is the
+  -- only credential the drop page needs, which is why it is long, why it
+  -- expires, and why used_at is set in the same statement that claims it.
+  CREATE TABLE IF NOT EXISTS image_upload_tickets (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    token text NOT NULL UNIQUE,
+    document_id integer NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    created_by integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    -- Where the markdown goes once the file lands, if anywhere.
+    insert_mode text NOT NULL DEFAULT 'none',
+    alt text NOT NULL DEFAULT '',
+    created_at timestamptz NOT NULL DEFAULT now(),
+    expires_at timestamptz NOT NULL,
+    used_at timestamptz,
+    attachment_id integer
+  );
+  CREATE INDEX IF NOT EXISTS idx_image_tickets_doc ON image_upload_tickets(document_id);
+
   -- Automatic backlinks: one row per internal /doc/N link found in a
   -- document's content, refreshed on every save.
   CREATE TABLE IF NOT EXISTS doc_links (
