@@ -4,6 +4,29 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.99.0] - 2026-08-03
+
+### Changed
+- **Per-space access is role assignments, all the way down.** Space membership
+  and per-space edit rights were the last things still living in their own
+  tables (`space_groups`, `space_editors`, `space_editor_groups`) — read
+  alongside role assignments since 0.95, but never actually replaced by them.
+  They are now assignments of two seeded roles, **Space member** and **Space
+  author**, scoped to the space you grant them on. Existing grants migrate
+  automatically at first boot; the Spaces admin screen works exactly as before.
+  The difference is that a per-space grant now shows up in the roles console,
+  the effective-permission explainer, and the audit trail like every other
+  grant, instead of being invisible to all three.
+
+  The old tables are left in place, unread, so a workspace can still roll back
+  to 0.98. A later release removes them.
+
+### Added
+- An integration test suite (`npm run test:integration`) covering the directory
+  removal brake against a real PostgreSQL — including the case 0.98.1 fixed,
+  where re-running a sync could never clear a tripped brake. It runs in CI
+  ahead of the end-to-end suite.
+
 ## [0.98.2] - 2026-08-02
 
 ### Changed

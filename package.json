@@ -1,6 +1,6 @@
 {
   "name": "compassdocs",
-  "version": "0.98.2",
+  "version": "0.99.0",
   "private": true,
   "license": "AGPL-3.0-only",
   "scripts": {
@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:integration": "tsx --tsconfig ./tsconfig.test.json --test test/**/*.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
@@ -68,6 +69,7 @@
     "@types/react-dom": "^19.1.9",
     "postcss": "^8.5.23",
     "tailwindcss": "^4.3.3",
+    "tsx": "^4.23.5",
     "typescript": "^5.9.3"
   },
   "overrides": {

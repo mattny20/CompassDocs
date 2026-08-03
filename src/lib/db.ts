@@ -121,6 +121,8 @@ async function initialize(): Promise<void> {
     await syncPresetRoles(client);
     await migrateLadderToAssignments(client);
     await migrateDelegationToAssignments(client);
+    // After syncPresetRoles, which is what creates space-member/space-author.
+    await migrateSpaceGrantsToAssignments(client);
     await migrateVisibilityTiers(client);
     await migrateSecuritySealing(client);
     await migrateWeightedSearch(client);
@@ -1335,6 +1337,69 @@ async function migrateDelegationToAssignments(client: import("pg").PoolClient) {
     "INSERT INTO settings (key, value) VALUES ('migrated_delegation_rbac','1') ON CONFLICT (key) DO NOTHING"
   );
   console.log(`[rbac] migrated ${moved} delegated grant(s) into role assignments`);
+}
+
+/**
+ * Move per-space grants out of their three side tables and into role
+ * assignments (0.99).
+ *
+ * `space_groups` said "members of this group can read this private space";
+ * `space_editors` / `space_editor_groups` said "these people can author here".
+ * A space-scoped assignment of the seeded `space-member` / `space-author` role
+ * says exactly the same thing, and unlike the tables it shows up in the roles
+ * console, the effective-permission explainer, and the audit trail.
+ *
+ * The tables are left in place. They are no longer read or written, but a
+ * workspace that rolls back to 0.98 needs its grants to still be there — and
+ * this migration only ever inserts, so re-running it after a rollback is a
+ * no-op rather than a duplication. Dropping them is a later release's job,
+ * once the assignments have been the live source of truth for a while.
+ */
+async function migrateSpaceGrantsToAssignments(client: import("pg").PoolClient) {
+  const done = await client.query("SELECT 1 FROM settings WHERE key = 'migrated_space_grants_rbac'");
+  if (done.rowCount) return;
+
+  // If the tables predate this install they may not exist at all.
+  const { rows: present } = await client.query<{ table_name: string }>(
+    `SELECT table_name FROM information_schema.tables
+      WHERE table_schema = current_schema()
+        AND table_name IN ('space_groups','space_editors','space_editor_groups')`
+  );
+  const have = new Set(present.map((r) => r.table_name));
+
+  const copy = async (sql: string, table: string) => {
+    if (!have.has(table)) return 0;
+    const r = await client.query(sql);
+    return r.rowCount ?? 0;
+  };
+
+  let moved = 0;
+  moved += await copy(
+    `INSERT INTO role_assignments (role_id, group_id, scope_type, space_id)
+     SELECT r.id, sg.group_id, 'space', sg.space_id
+       FROM space_groups sg CROSS JOIN roles r WHERE r.key = 'space-member'
+     ON CONFLICT DO NOTHING`,
+    "space_groups"
+  );
+  moved += await copy(
+    `INSERT INTO role_assignments (role_id, user_id, scope_type, space_id)
+     SELECT r.id, se.user_id, 'space', se.space_id
+       FROM space_editors se CROSS JOIN roles r WHERE r.key = 'space-author'
+     ON CONFLICT DO NOTHING`,
+    "space_editors"
+  );
+  moved += await copy(
+    `INSERT INTO role_assignments (role_id, group_id, scope_type, space_id)
+     SELECT r.id, seg.group_id, 'space', seg.space_id
+       FROM space_editor_groups seg CROSS JOIN roles r WHERE r.key = 'space-author'
+     ON CONFLICT DO NOTHING`,
+    "space_editor_groups"
+  );
+
+  await client.query(
+    "INSERT INTO settings (key, value) VALUES ('migrated_space_grants_rbac','1') ON CONFLICT (key) DO NOTHING"
+  );
+  console.log(`[rbac] migrated ${moved} per-space grant(s) into role assignments`);
 }
 
 async function migrateVisibilityTiers(client: import("pg").PoolClient) {
@@ -3242,7 +3307,8 @@ export async function listGroups(): Promise<(Group & { member_count: number; spa
   return q(`
     SELECT g.*,
       (SELECT COUNT(*) FROM group_members gm WHERE gm.group_id = g.id)::int AS member_count,
-      (SELECT COUNT(*) FROM space_groups sg WHERE sg.group_id = g.id)::int AS space_count
+      (SELECT COUNT(*) FROM (${GRANT_SUBJECTS("space.member")}) sub
+        WHERE sub.group_id = g.id)::int AS space_count
     FROM groups g ORDER BY g.name`);
 }
 
@@ -3313,10 +3379,60 @@ export async function setGroupMembers(groupId: number, userIds: number[]): Promi
   }
 }
 
+// --- Per-space grants ------------------------------------------------------------
+//
+// Space membership and per-space edit rights are role assignments at space
+// scope (0.99). They used to be rows in `space_groups`, `space_editors` and
+// `space_editor_groups`; those tables are migrated once at boot and then never
+// read again. See migrateSpaceGrantsToAssignments for why they still exist.
+//
+// Everything below goes through these two fragments rather than hand-rolling
+// the join, because the join is the part that is easy to get subtly wrong: a
+// grant reaches a user either directly or through any group they belong to,
+// and it only counts when scoped to the space in question.
+
+/** Subjects holding `permission` on a space, as a subquery over role_assignments. */
+const GRANT_SUBJECTS = (permission: string) => `
+  SELECT ra.space_id, ra.user_id, ra.group_id
+    FROM role_assignments ra
+    JOIN role_permissions rp ON rp.role_id = ra.role_id AND rp.permission = '${permission}'
+   WHERE ra.scope_type = 'space' AND ra.space_id IS NOT NULL`;
+
+/**
+ * SQL predicate: does the user in column `userCol` hold `permission` on the
+ * space in column `spaceCol`? Both arguments are column references written by
+ * this module — never user input.
+ */
+const HOLDS_ON_SPACE = (permission: string, spaceCol: string, userCol: string) => `
+  EXISTS (
+    SELECT 1 FROM (${GRANT_SUBJECTS(permission)}) g
+     WHERE g.space_id = ${spaceCol}
+       AND (g.user_id = ${userCol}
+            OR g.group_id IN (SELECT gm.group_id FROM group_members gm WHERE gm.user_id = ${userCol}))
+  )`;
+
+/**
+ * The spaces a user may read, as a subquery. `userParam` is a placeholder this
+ * module or its caller controls (`$1`, `u.id`, …) — never user input.
+ *
+ * Exported because the weekly digest needs the same set inline, and a second
+ * hand-written copy of this join is how the digest and the app end up
+ * disagreeing about who can see a private space.
+ */
+export function readableSpaceIdsSql(userParam: string): string {
+  return `SELECT s.id FROM spaces s WHERE s.visibility IN ('public', 'internal')
+          UNION
+          SELECT g.space_id FROM (${GRANT_SUBJECTS("space.member")}) g
+           WHERE g.user_id = ${userParam}
+              OR g.group_id IN (SELECT gm.group_id FROM group_members gm
+                                 WHERE gm.user_id = ${userParam})`;
+}
+
 /** space_id → granted group ids, for the whole workspace (admin UI). */
 export async function listAllSpaceGroups(): Promise<Record<number, number[]>> {
   const rows = await q<{ space_id: number; group_id: number }>(
-    "SELECT space_id, group_id FROM space_groups ORDER BY space_id"
+    `SELECT g.space_id, g.group_id FROM (${GRANT_SUBJECTS("space.member")}) g
+      WHERE g.group_id IS NOT NULL ORDER BY g.space_id`
   );
   const map: Record<number, number[]> = {};
   for (const r of rows) (map[r.space_id] ??= []).push(r.group_id);
@@ -3325,19 +3441,71 @@ export async function listAllSpaceGroups(): Promise<Record<number, number[]>> {
 
 export async function getSpaceGroupIds(spaceId: number): Promise<number[]> {
   return (
-    await q<{ group_id: number }>("SELECT group_id FROM space_groups WHERE space_id = $1", [spaceId])
+    await q<{ group_id: number }>(
+      `SELECT g.group_id FROM (${GRANT_SUBJECTS("space.member")}) g
+        WHERE g.space_id = $1 AND g.group_id IS NOT NULL`,
+      [spaceId]
+    )
   ).map((r) => r.group_id);
 }
 
+/**
+ * Replace a space's granted groups.
+ *
+ * Scoped to *group* assignments of the seeded role: a user granted membership
+ * directly, or a group granted it through a custom role, is not this screen's
+ * to remove. The old table could not express either, so "delete every row for
+ * this space" was safe there and would be a silent revocation here.
+ */
 export async function setSpaceGroups(spaceId: number, groupIds: number[]): Promise<void> {
+  await setSpaceRoleGroups(spaceId, groupIds, "space-member");
+}
+
+/** Replace the space-scoped group assignments of one seeded role. */
+async function setSpaceRoleGroups(spaceId: number, groupIds: number[], roleKey: string) {
   const client = await pool().connect();
   try {
     await client.query("BEGIN");
-    await client.query("DELETE FROM space_groups WHERE space_id = $1", [spaceId]);
+    await client.query(
+      `DELETE FROM role_assignments ra USING roles r
+        WHERE ra.role_id = r.id AND r.key = $2
+          AND ra.scope_type = 'space' AND ra.space_id = $1 AND ra.group_id IS NOT NULL`,
+      [spaceId, roleKey]
+    );
     for (const gid of groupIds) {
       await client.query(
-        "INSERT INTO space_groups (space_id, group_id) VALUES ($1,$2) ON CONFLICT DO NOTHING",
-        [spaceId, gid]
+        `INSERT INTO role_assignments (role_id, group_id, scope_type, space_id)
+         SELECT r.id, $2, 'space', $1 FROM roles r WHERE r.key = $3
+         ON CONFLICT DO NOTHING`,
+        [spaceId, gid, roleKey]
+      );
+    }
+    await client.query("COMMIT");
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+/** Replace the space-scoped user assignments of one seeded role. */
+async function setSpaceRoleUsers(spaceId: number, userIds: number[], roleKey: string) {
+  const client = await pool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      `DELETE FROM role_assignments ra USING roles r
+        WHERE ra.role_id = r.id AND r.key = $2
+          AND ra.scope_type = 'space' AND ra.space_id = $1 AND ra.user_id IS NOT NULL`,
+      [spaceId, roleKey]
+    );
+    for (const uid of userIds) {
+      await client.query(
+        `INSERT INTO role_assignments (role_id, user_id, scope_type, space_id)
+         SELECT r.id, $2, 'space', $1 FROM roles r WHERE r.key = $3
+         ON CONFLICT DO NOTHING`,
+        [spaceId, uid, roleKey]
       );
     }
     await client.query("COMMIT");
@@ -3353,57 +3521,30 @@ export async function setSpaceGroups(spaceId: number, groupIds: number[]): Promi
 
 export async function getSpaceEditorUserIds(spaceId: number): Promise<number[]> {
   return (
-    await q<{ user_id: number }>("SELECT user_id FROM space_editors WHERE space_id = $1", [spaceId])
+    await q<{ user_id: number }>(
+      `SELECT g.user_id FROM (${GRANT_SUBJECTS("space.author")}) g
+        WHERE g.space_id = $1 AND g.user_id IS NOT NULL`,
+      [spaceId]
+    )
   ).map((r) => r.user_id);
 }
 
 export async function getSpaceEditorGroupIds(spaceId: number): Promise<number[]> {
   return (
     await q<{ group_id: number }>(
-      "SELECT group_id FROM space_editor_groups WHERE space_id = $1",
+      `SELECT g.group_id FROM (${GRANT_SUBJECTS("space.author")}) g
+        WHERE g.space_id = $1 AND g.group_id IS NOT NULL`,
       [spaceId]
     )
   ).map((r) => r.group_id);
 }
 
 export async function setSpaceEditors(spaceId: number, userIds: number[]): Promise<void> {
-  const client = await pool().connect();
-  try {
-    await client.query("BEGIN");
-    await client.query("DELETE FROM space_editors WHERE space_id = $1", [spaceId]);
-    for (const uid of userIds) {
-      await client.query(
-        "INSERT INTO space_editors (space_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING",
-        [spaceId, uid]
-      );
-    }
-    await client.query("COMMIT");
-  } catch (e) {
-    await client.query("ROLLBACK");
-    throw e;
-  } finally {
-    client.release();
-  }
+  await setSpaceRoleUsers(spaceId, userIds, "space-author");
 }
 
 export async function setSpaceEditorGroups(spaceId: number, groupIds: number[]): Promise<void> {
-  const client = await pool().connect();
-  try {
-    await client.query("BEGIN");
-    await client.query("DELETE FROM space_editor_groups WHERE space_id = $1", [spaceId]);
-    for (const gid of groupIds) {
-      await client.query(
-        "INSERT INTO space_editor_groups (space_id, group_id) VALUES ($1,$2) ON CONFLICT DO NOTHING",
-        [spaceId, gid]
-      );
-    }
-    await client.query("COMMIT");
-  } catch (e) {
-    await client.query("ROLLBACK");
-    throw e;
-  } finally {
-    client.release();
-  }
+  await setSpaceRoleGroups(spaceId, groupIds, "space-author");
 }
 
 /** All edit grants at once, for the admin spaces screen. */
@@ -3412,8 +3553,14 @@ export async function listAllSpaceEditorGrants(): Promise<{
   groups: Record<number, number[]>;
 }> {
   const [u, g] = await Promise.all([
-    q<{ space_id: number; user_id: number }>("SELECT space_id, user_id FROM space_editors"),
-    q<{ space_id: number; group_id: number }>("SELECT space_id, group_id FROM space_editor_groups"),
+    q<{ space_id: number; user_id: number }>(
+      `SELECT g.space_id, g.user_id FROM (${GRANT_SUBJECTS("space.author")}) g
+        WHERE g.user_id IS NOT NULL`
+    ),
+    q<{ space_id: number; group_id: number }>(
+      `SELECT g.space_id, g.group_id FROM (${GRANT_SUBJECTS("space.author")}) g
+        WHERE g.group_id IS NOT NULL`
+    ),
   ]);
   const users: Record<number, number[]> = {};
   const groups: Record<number, number[]> = {};
@@ -3426,16 +3573,21 @@ export async function listAllSpaceEditorGrants(): Promise<{
  * Whether the user may author in the space under per-space rules: true when
  * the space has no grants at all (unrestricted), or the user is granted
  * directly or via a group. Role and visibility are checked by the caller.
+ *
+ * The "no grants at all means anyone" arm is deliberately preserved from the
+ * `space_editors` era (0.99). It reads oddly against role assignments, where
+ * absence of a grant normally means no access — and it carries a real edge:
+ * removing a space's last editor does not lock the space down, it re-opens it
+ * to every editor. That is how per-space rights have behaved since 0.23, and
+ * changing it is a policy decision, not a side effect of moving where the rows
+ * live. Note it only bites at all when the org-level `editors_edit_all` switch
+ * is off; with the default on, callers never reach here.
  */
 export async function spaceEditGrantAllows(spaceId: number, userId: number): Promise<boolean> {
   const rows = await q<{ ok: boolean }>(
     `SELECT (
-       (NOT EXISTS (SELECT 1 FROM space_editors WHERE space_id = $1)
-        AND NOT EXISTS (SELECT 1 FROM space_editor_groups WHERE space_id = $1))
-       OR EXISTS (SELECT 1 FROM space_editors WHERE space_id = $1 AND user_id = $2)
-       OR EXISTS (SELECT 1 FROM space_editor_groups seg
-                    JOIN group_members gm ON gm.group_id = seg.group_id
-                  WHERE seg.space_id = $1 AND gm.user_id = $2)
+       NOT EXISTS (SELECT 1 FROM (${GRANT_SUBJECTS("space.author")}) g WHERE g.space_id = $1)
+       OR ${HOLDS_ON_SPACE("space.author", "$1", "$2")}
      ) AS ok`,
     [spaceId, userId]
   );
@@ -3446,14 +3598,11 @@ export async function spaceEditGrantAllows(spaceId: number, userId: number): Pro
 export async function editGrantedSpaceIdsFor(userId: number): Promise<number[]> {
   const rows = await q<{ id: number }>(
     `SELECT s.id FROM spaces s
-     WHERE NOT EXISTS (SELECT 1 FROM space_editors se WHERE se.space_id = s.id)
-       AND NOT EXISTS (SELECT 1 FROM space_editor_groups seg WHERE seg.space_id = s.id)
+      WHERE NOT EXISTS (SELECT 1 FROM (${GRANT_SUBJECTS("space.author")}) g WHERE g.space_id = s.id)
      UNION
-     SELECT space_id FROM space_editors WHERE user_id = $1
-     UNION
-     SELECT seg.space_id FROM space_editor_groups seg
-       JOIN group_members gm ON gm.group_id = seg.group_id
-     WHERE gm.user_id = $1`,
+     SELECT g.space_id FROM (${GRANT_SUBJECTS("space.author")}) g
+      WHERE g.user_id = $1
+         OR g.group_id IN (SELECT gm.group_id FROM group_members gm WHERE gm.user_id = $1)`,
     [userId]
   );
   return rows.map((r) => r.id);
@@ -3465,11 +3614,7 @@ export async function editGrantedSpaceIdsFor(userId: number): Promise<number[]> 
  */
 export async function accessibleSpaceIdsFor(userId: number): Promise<number[]> {
   const rows = await q<{ id: number }>(
-    `SELECT s.id FROM spaces s WHERE s.visibility IN ('public', 'internal')
-     UNION
-     SELECT sg.space_id FROM space_groups sg
-       JOIN group_members gm ON gm.group_id = sg.group_id
-     WHERE gm.user_id = $1`,
+    readableSpaceIdsSql("$1"),
     [userId]
   );
   return rows.map((r) => r.id);
@@ -3612,9 +3757,7 @@ export async function listSubscriberIds(
        AND (
          s.visibility IN ('public', 'internal')
          OR u.role = 'admin'
-         OR EXISTS (SELECT 1 FROM space_groups spg
-                    JOIN group_members gm2 ON gm2.group_id = spg.group_id
-                    WHERE spg.space_id = $1 AND gm2.user_id = u.id)
+         OR ${HOLDS_ON_SPACE("space.member", "$1", "u.id")}
        )`,
     [spaceId, excludeUserId]
   );
@@ -3644,9 +3787,7 @@ export async function listApproverIdsForSpace(
        AND (
          u.role = 'admin'
          OR s.visibility <> 'private'
-         OR EXISTS (SELECT 1 FROM space_groups sg
-                    JOIN group_members gm ON gm.group_id = sg.group_id
-                    WHERE sg.space_id = s.id AND gm.user_id = u.id)
+         OR ${HOLDS_ON_SPACE("space.member", "s.id", "u.id")}
        )`,
     [spaceId, excludeUserId]
   );
@@ -3797,9 +3938,7 @@ export async function listSubscriberRecipients(
        AND (
          s.visibility IN ('public', 'internal')
          OR u.role = 'admin'
-         OR EXISTS (SELECT 1 FROM space_groups spg
-                    JOIN group_members gm2 ON gm2.group_id = spg.group_id
-                    WHERE spg.space_id = $1 AND gm2.user_id = u.id)
+         OR ${HOLDS_ON_SPACE("space.member", "$1", "u.id")}
        )`,
     [spaceId, excludeUserId]
   );
@@ -3818,8 +3957,7 @@ export async function setAckRequired(docId: number, required: boolean): Promise<
 const ACK_VISIBILITY = `(
     s.visibility IN ('public', 'internal')
     OR u.role = 'admin'
-    OR EXISTS (SELECT 1 FROM space_groups sg JOIN group_members gm ON gm.group_id = sg.group_id
-               WHERE sg.space_id = s.id AND gm.user_id = u.id)
+    OR ${HOLDS_ON_SPACE("space.member", "s.id", "u.id")}
   )`;
 const ACK_ELIGIBLE = `u.status = 'active' AND ${ACK_VISIBILITY}`;
 
@@ -3967,8 +4105,7 @@ export async function ackStatusForDocument(docId: number): Promise<
        AND (
          s.visibility IN ('public', 'internal')
          OR u.role = 'admin'
-         OR EXISTS (SELECT 1 FROM space_groups sg JOIN group_members gm ON gm.group_id = sg.group_id
-                    WHERE sg.space_id = s.id AND gm.user_id = u.id)
+         OR ${HOLDS_ON_SPACE("space.member", "s.id", "u.id")}
        )
      ORDER BY (a.acknowledged_at IS NULL) DESC, u.name`,
     [docId]

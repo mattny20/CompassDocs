@@ -11,7 +11,7 @@
 // instances. Ticks later in the same ISO week still catch up missed sends.
 
 import "server-only";
-import { pool, getSetting } from "./db";
+import { pool, getSetting, readableSpaceIdsSql } from "./db";
 import { sendMail } from "./mailer";
 import { formatDate, settingsForUser } from "./format";
 import { smtpConfigured, getSmtpConfig } from "./smtp-config";
@@ -156,18 +156,12 @@ export async function maybeSendWeeklyDigests(now = new Date()): Promise<void> {
     claimedWeek = local.week;
     try {
       // Spaces this user can see: admins see all, others their grant set.
-      // Mirrors accessibleSpaceIdsFor(): non-private spaces plus private
-      // spaces granted via one of the user's groups.
+      // Shares readableSpaceIdsSql with accessibleSpaceIdsFor rather than
+      // restating the join — the two used to be hand-kept copies, which is a
+      // standing invitation for the digest to leak a private space the app
+      // would hide (or hide one it shows).
       const scopeFilter =
-        u.role === "admin"
-          ? ""
-          : ` AND d.space_id IN (
-               SELECT sp.id FROM spaces sp WHERE sp.visibility IN ('public','internal')
-               UNION
-               SELECT sg.space_id FROM space_groups sg
-                 JOIN group_members gm ON gm.group_id = sg.group_id
-               WHERE gm.user_id = $1
-             )`;
+        u.role === "admin" ? "" : ` AND d.space_id IN (${readableSpaceIdsSql("$1")})`;
 
       // 1) Updated this week in spaces the user subscribes to. "Subscribed"
       // means the same thing it means for per-change emails

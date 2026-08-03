@@ -1,0 +1,12 @@
+{
+  // Test-only view of the project: identical to tsconfig.json except that the
+  // `server-only` marker resolves to a harmless stub. Kept separate so the
+  // production build can never pick the stub up by accident.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./src/*"],
+      "server-only": ["./test/stubs/server-only.ts"]
+    }
+  }
+}

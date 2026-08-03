@@ -38,6 +38,11 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # Before the build, because these talk to the database directly and have
+      # no opinion about the server: a failure here is a data-layer failure and
+      # says so, instead of arriving 3 minutes later behind a build.
+      - name: Integration tests (data layer)
+        run: npm run test:integration
       - run: npm run build
       - run: npx playwright install --with-deps chromium
       - name: Start server
