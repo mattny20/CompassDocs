@@ -60,7 +60,13 @@ test("spacesWith: global reads as everywhere, scoped as a list", () => {
   assert.equal(spacesWith(globally, SPACE_KEY), "all");
   assert.deepEqual(spacesWith(inSpaceTwo, SPACE_KEY), [2]);
   assert.deepEqual(spacesWith(nobody, SPACE_KEY), []);
-  assert.deepEqual(spacesWith(grants([], [[SPACE_KEY, [5, 9]]]), SPACE_KEY).sort(), [5, 9]);
+
+  // Narrow before sorting: the return type is "all" | number[], and calling
+  // .sort() on the union is what made `tsc --noEmit` red in 1.0.0 even though
+  // the test passed. Numeric comparator, because the default is lexicographic.
+  const many = spacesWith(grants([], [[SPACE_KEY, [5, 9]]]), SPACE_KEY);
+  assert.notEqual(many, "all");
+  assert.deepEqual([...(many as number[])].sort((a, b) => a - b), [5, 9]);
 });
 
 test("holdsAnywhere: true for global or any single space", () => {

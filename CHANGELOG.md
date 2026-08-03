@@ -4,6 +4,31 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.0.1] - 2026-08-03
+
+### Fixed
+- **The page width setting now changes the document you're reading.** The
+  reading measure introduced in 0.88 capped the whole prose container rather
+  than the text inside it, which had two consequences. **Wide and Full rendered
+  the document body identically** — both hit the same ceiling, so choosing Full
+  moved nothing you were looking at. And anything wide by nature was squeezed
+  into that same column: a ten-column table or a long command line scrolled
+  sideways inside a narrow strip while the rest of the page sat empty beside it.
+
+  The measure now applies to the text, which is what it was for. Tables, fenced
+  code and rendered diagrams use the full column instead, so on a wide screen a
+  table that used to hide four columns behind a horizontal scroll simply fits.
+  Body text is unchanged at every setting — it was already at the measure and
+  stays there.
+
+  Nothing was ever unreachable: the hidden columns scrolled, they just gave no
+  sign they were there.
+
+- `tsc --noEmit` was failing on a type error in the 1.0.0 authorization test
+  (`spacesWith` returns `"all" | number[]`, and the test called `.sort()` on the
+  union). The test passed at runtime and the app build was unaffected, since
+  the build doesn't typecheck `test/`.
+
 ## [1.0.0] - 2026-08-03
 
 The role ladder is gone. Everything CompassDocs decides about access is now a
