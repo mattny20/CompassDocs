@@ -70,7 +70,7 @@ export function VideoPlayer({
     );
 
   return (
-    <figure className="my-4">
+    <figure className="doc-wide my-4">
       <div className="group relative">
         {player(false)}
         <button

@@ -185,7 +185,7 @@ export function DocTabs({ titles, children }: { titles: string[]; children: Reac
   }, [active, children]);
 
   return (
-    <div className="my-4 overflow-hidden rounded-lg border border-slate-200">
+    <div className="doc-wide my-4 overflow-hidden rounded-lg border border-slate-200">
       <div className="flex flex-wrap gap-1 border-b border-slate-200 bg-slate-50 px-2 pt-2">
         {titles.map((t, i) => (
           <button
@@ -251,7 +251,7 @@ export function DecisionTreeBlock({ code }: { code: string }) {
   }
 
   return (
-    <div className="my-4 rounded-lg border border-slate-200 bg-surface p-4 shadow-xs">
+    <div className="doc-wide my-4 rounded-lg border border-slate-200 bg-surface p-4 shadow-xs">
       <div className="mb-2 flex items-center justify-between gap-2">
         <span className="text-xs font-semibold uppercase tracking-wide text-compass-600">
           Decision guide

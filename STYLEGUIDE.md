@@ -22,14 +22,17 @@ Every top-level page:
   breaks the user's width preference. Narrow *content columns* inside a page
   (e.g. a reading column) are fine when deliberate.
 - The one such column is the **document reading measure**: put `doc-read` on
-  the element wrapping the rendered document body and `globals.css` caps
-  `.doc-read .doc-prose` at `78ch`. Only the document page, the share page
-  and the public document page set it — `.doc-prose` is shared with the
-  tiptap editor and every other `MarkdownView` (editor preview, newsletter,
-  training player, version history, review queue, AI answers), and those must
-  stay uncapped, so the cap lives on the scoping class, never on `.doc-prose`
-  itself. Everything outside the prose column — masthead, right rail, notice
-  strip, sticky bar — keeps the full Normal/Wide/Full width.
+  the element wrapping the rendered document body, and `globals.css` caps the
+  direct children of `.doc-read .doc-prose` at `60ch` — see
+  [Reading measure](#reading-measure-rendered-documents) for which blocks opt
+  out and why the cap is on the children rather than the container. Only the
+  document page, the share page and the public document page set `doc-read` —
+  `.doc-prose` is shared with the tiptap editor and every other `MarkdownView`
+  (editor preview, newsletter, training player, version history, review queue,
+  AI answers), and those must stay uncapped, so the cap lives on the scoping
+  class, never on `.doc-prose` itself. Everything outside the prose column —
+  masthead, right rail, notice strip, sticky bar — keeps the full
+  Normal/Wide/Full width.
 - **Every page title carries a lucide icon**, `h-6 w-6 text-compass-600`,
   before the text. Pick the icon once and keep it stable (it may also appear
   in navigation).
@@ -302,10 +305,20 @@ element:
 <div className="doc-wide md-filter-table">…</div>
 ```
 
-Carried today by the table wrapper (`FilterTable`), fenced code (`CodeBlock`)
-and rendered diagrams (`MermaidBlock`, `PlantUmlBlock`). A paragraph whose only
-child is an image gets the same treatment via `:has()` — markdown has nowhere
-else to put a figure.
+Carried today by every block that renders as a **panel or as media** rather
+than as running text: the table wrapper (`FilterTable`), fenced code
+(`CodeBlock`), rendered diagrams (`MermaidBlock`, `PlantUmlBlock`), callouts
+(`Callout`), the accordion (`DocDetails`), tabs (`DocTabs`), the decision tree
+(`DecisionTreeBlock`), video (`VideoPlayer`) and embeds (`SiteEmbed`). A
+paragraph whose only child is an image gets the same treatment via `:has()` —
+markdown has nowhere else to put a figure.
+
+The test is **what the block is**, not what's inside it. A callout holds prose
+but it is a bordered, tinted panel that interrupts the text; leaving it at the
+measure while the table above it spans the column is the raggedness this rule
+exists to prevent. Containers are the clearest case: a table inside a tab or an
+accordion is capped by its ancestor, so a narrow container silently halves
+every table in it.
 
 Rules:
 
@@ -314,8 +327,12 @@ Rules:
 - `doc-wide` removes the measure, not the column: a wide block still can't
   exceed whatever Normal/Wide/Full resolved to. Keep the block's own
   `overflow-x-auto` for the case where even that isn't enough.
-- Never put `doc-wide` on something whose content is prose. The measure exists
-  for text; a full-width paragraph is the bug this section prevents.
+- Never put `doc-wide` on the document's **running text** — paragraphs, lists,
+  headings, blockquotes. Those are what the measure is for, and a full-width
+  paragraph is the bug this section prevents.
+- A panel carrying long-form prose is a smell. Callouts are one to three
+  sentences by convention; if one grows into an essay, the fix is to promote it
+  out of the callout, not to re-narrow the panel.
 
 ## Print
 

@@ -67,7 +67,7 @@ export function Callout({
 }) {
   const s = CALLOUT_STYLE[kind] ?? CALLOUT_STYLE.note;
   return (
-    <div className={`md-callout-box my-4 rounded-lg border-l-4 border px-4 py-3 ${s.box}`}>
+    <div className={`doc-wide md-callout-box my-4 rounded-lg border-l-4 border px-4 py-3 ${s.box}`}>
       <div className={`mb-1 flex items-center gap-1.5 text-sm font-semibold ${s.title}`}>
         <s.Icon className="h-4 w-4 shrink-0" aria-hidden /> {title || s.defaultTitle}
       </div>
@@ -80,7 +80,7 @@ export function Callout({
 
 export function DocDetails({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <details className="my-3 rounded-lg border border-slate-200 bg-surface [&[open]>summary]:border-b [&[open]>summary]:border-slate-100">
+    <details className="doc-wide my-3 rounded-lg border border-slate-200 bg-surface [&[open]>summary]:border-b [&[open]>summary]:border-slate-100">
       <summary className="cursor-pointer select-none px-4 py-2.5 text-sm font-semibold text-slate-700 hover:text-compass-700 marker:text-compass-500">
         {title}
       </summary>
@@ -139,7 +139,7 @@ export function SiteEmbed({ src, height, title }: { src: string; height?: string
   }
   const h = Math.min(Math.max(Number(height) || 420, 160), 1200);
   return (
-    <figure className="my-4">
+    <figure className="doc-wide my-4">
       <iframe
         src={src}
         title={title || "Embedded page"}
