@@ -19,7 +19,7 @@ import {
   createDocument,
   updateDocument,
   createChangeRequest,
-  createAttachment,
+  getAttachment,
   createTrainingDeck,
   getTrainingDeck,
   listTrainingDecks,
@@ -37,7 +37,16 @@ import { notifyWebhooks } from "@/lib/webhooks";
 import { notifyCrSubmitted } from "@/lib/notifications";
 import { notifySpaceSubscribers } from "@/lib/subscriptions";
 import { audit, actorFrom } from "@/lib/audit";
-import { saveUpload, sniffImage } from "@/lib/uploads";
+import {
+  intakeFromBase64,
+  intakeFromUrl,
+  intakeFromAttachment,
+  storeImage,
+  withImagePlaced,
+  isInsertMode,
+  createUploadTicket,
+  type InsertMode,
+} from "@/lib/image-intake";
 import {
   canSeeDrafts,
   canPublishDirectly,
@@ -137,10 +146,11 @@ Accepts YouTube, Vimeo, Loom, or a direct video-file URL.
 ## Images
 Standard markdown images work: ![alt text](https://example.com/image.png).
 To reference an image already uploaded to this workspace, use its
-/api/attachments/… URL from the existing document markdown. To upload a NEW
-image (a screenshot, a diagram export), call the add_image tool with the
-document id and base64 data — it stores the file and returns the exact
-markdown snippet to place in the body.
+/api/attachments/… URL from the existing document markdown. To add a NEW image
+(a screenshot, a diagram export), call add_image — prefer source_url so the
+server fetches it, and set insert to place it in the body in the same call.
+If the picture only exists as something you can see in the conversation, call
+request_upload and give the person the drop link; base64 cannot carry it.
 
 ## Training decks
 A published document can be assigned as a training deck (Training tab).
@@ -294,19 +304,55 @@ const TOOLS = [
   {
     name: "add_image",
     description:
-      "Upload an image (screenshot, diagram export, photo) to a document as an attachment (requires editor or higher). Send the raw bytes base64-encoded; PNG, JPEG, GIF, and WebP are accepted — the type is detected from the bytes. Returns the attachment URL and the exact markdown snippet to place in the document body (the image is NOT inserted automatically — include the snippet where it belongs via create_doc/update_doc). Size is capped by the workspace's attachment limit.",
+      "Put an image (screenshot, diagram export, photo) into a document (requires authoring access). Give the image ONE of three ways: source_url — the server fetches it, which is the best option whenever the image has a public address, because the bytes never pass through this conversation and size stops being a problem; from_attachment_id — reuse an image already attached somewhere in this workspace; data — the raw bytes base64-encoded, which only works for small images because base64 inflates by a third and tool arguments are capped. If the picture exists only as something you can SEE (a screenshot pasted into this conversation), you cannot produce its bytes at any size — call request_upload instead and hand the person the link. PNG, JPEG, GIF, and WebP are accepted; the type is read from the bytes, not the filename. Set insert to place it in the body in the same call — with insert:\"none\" (the default) you get the markdown snippet back and must place it yourself.",
     inputSchema: {
       type: "object",
       properties: {
         doc_id: { type: "number", description: "Document the image belongs to (from list_docs / create_doc)." },
+        source_url: {
+          type: "string",
+          description:
+            "Public https URL of the image; the server fetches it. Preferred — no size limit beyond the workspace attachment cap. Must return the image file itself, not a page that displays it.",
+        },
+        from_attachment_id: {
+          type: "number",
+          description:
+            "Copy an image already attached to a document you can read (attachment id from a previous add_image or from the markdown URL /api/attachments/N).",
+        },
         data: {
           type: "string",
-          description: "The image bytes, base64-encoded. A data: URI is also accepted.",
+          description:
+            "The image bytes, base64-encoded (a data: URI is also accepted). Small images only — larger ones overrun the client's tool-argument cap. Use source_url or request_upload instead.",
+        },
+        insert: {
+          type: "string",
+          enum: ["none", "append", "top"],
+          description:
+            "Where to place the image in the document body: \"append\" at the end, \"top\" at the beginning, \"none\" (default) to leave the body alone and place the returned snippet yourself. append/top edit only the body text around it and are safe against concurrent edits.",
         },
         filename: { type: "string", description: "Display name, e.g. dashboard-screenshot.png. Optional." },
-        alt: { type: "string", description: "Alt text for the returned markdown snippet. Optional but recommended." },
+        alt: { type: "string", description: "Alt text for the image. Optional but recommended." },
       },
-      required: ["doc_id", "data"],
+      required: ["doc_id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "request_upload",
+    description:
+      "Get a single-use link the person can drop an image file into, which attaches it to a document and places it in the body automatically. Use this when the image cannot be sent as bytes or fetched from a URL — above all when it is a screenshot pasted into this conversation, which reaches you as a picture and has no byte form you can re-emit. Show the returned link and ask them to open it. The link works once, for this one document, and expires in an hour; nothing further is needed from you after they drop the file.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        doc_id: { type: "number", description: "Document the image should be added to." },
+        insert: {
+          type: "string",
+          enum: ["none", "append", "top"],
+          description: "Where to place the dropped image in the body. Default \"append\".",
+        },
+        alt: { type: "string", description: "Alt text for the image. Optional." },
+      },
+      required: ["doc_id"],
       additionalProperties: false,
     },
   },
@@ -735,63 +781,118 @@ async function callTool(user: User, name: string, args: any, origin: string) {
         return toolText("You don't have edit access to this document's space.", true);
       }
 
-      // Accept plain base64 or a data: URI; whitespace (line wraps) is fine.
-      let b64 = String(args?.data ?? "").trim();
-      const dataUri = b64.match(/^data:[^;,]*;base64,(.*)$/s);
-      if (dataUri) b64 = dataUri[1];
-      b64 = b64.replace(/\s+/g, "");
-      if (!b64 || !/^[A-Za-z0-9+/=_-]+$/.test(b64)) {
-        return toolText("data must be the image bytes, base64-encoded (a data: URI also works).", true);
-      }
-      let buf: Buffer;
-      try {
-        buf = Buffer.from(b64, "base64");
-      } catch {
-        return toolText("data is not valid base64.", true);
-      }
+      const insert: InsertMode = isInsertMode(args?.insert) ? args.insert : "none";
 
-      // The bytes decide the type — filenames and headers lie. Image-only on
-      // purpose: this is the screenshot path, not a general file uploader,
-      // and only these four types are served inline by /api/attachments.
-      const kind = sniffImage(buf);
-      if (!kind) {
+      // Three ways in, one validator. `data` is kept for small images, but it
+      // is the fragile one: base64 inflates by a third and clients cap tool
+      // arguments, so anything real overruns them — and a picture that only
+      // exists in the conversation has no byte form to send at all.
+      let intake: Awaited<ReturnType<typeof intakeFromBase64>>;
+      if (args?.source_url) {
+        intake = await intakeFromUrl(String(args.source_url));
+      } else if (args?.from_attachment_id !== undefined) {
+        // Scope check before the read: getAttachment takes an id, not a scope,
+        // so without this an id from another space would be copied out of it.
+        const srcAtt = await getAttachment(Number(args.from_attachment_id));
+        const srcDoc = srcAtt ? await getDocument(srcAtt.document_id) : undefined;
+        if (!srcAtt || !srcDoc || !scopeAllows(scope, srcDoc.space_id)) {
+          return toolText(`No attachment with id ${args.from_attachment_id}.`, true);
+        }
+        intake = await intakeFromAttachment(srcAtt.id);
+      } else if (args?.data) {
+        intake = await intakeFromBase64(String(args.data));
+      } else {
         return toolText(
-          "That doesn't look like a supported image. PNG, JPEG, GIF, and WebP are accepted (SVG is not).",
+          "Give the image one of three ways: `source_url` (we fetch it — best for anything with an address), " +
+            "`from_attachment_id` (reuse an image already in this workspace), or `data` (base64, small images only). " +
+            "If the picture only exists in this conversation, you cannot send its bytes — call `request_upload` " +
+            "to get a link the person can drop the file into.",
           true
         );
       }
-      const { max_attachment_mb } = await getAppSettings();
-      if (buf.length > max_attachment_mb * 1024 * 1024) {
-        return toolText(`Image exceeds the ${max_attachment_mb} MB attachment limit.`, true);
+      if (!intake.ok) return toolText(intake.error, true);
+
+      const att = await storeImage({
+        documentId: doc.id,
+        userId: user.id,
+        buf: intake.buf,
+        kind: intake.kind,
+        filename: args?.filename,
+      });
+      const alt = String(args?.alt ?? "").trim() || att.filename;
+      const markdown = `![${alt}](/api/attachments/${att.id})`;
+
+      // Place it, if asked. This is the step that used to be a separate
+      // update_doc and got skipped — or done as a whole-body rewrite that
+      // clobbered someone else's concurrent edit.
+      let placed = false;
+      if (insert !== "none") {
+        const fresh = await getDocument(doc.id);
+        if (fresh) {
+          await updateDocument(doc.id, {
+            content: withImagePlaced(fresh.content, markdown, insert),
+          });
+          placed = true;
+        }
       }
 
-      const requested = String(args?.filename ?? "").trim();
-      const filename = (
-        requested ? (requested.toLowerCase().endsWith(kind.ext) ? requested : requested + kind.ext) : `image${kind.ext}`
-      ).slice(0, 255);
-      const stored = await saveUpload(buf, kind.ext);
-      const att = await createAttachment({
-        document_id: doc.id,
-        filename,
-        stored_name: stored,
-        mime_type: kind.mime,
-        size: buf.length,
-        created_by: user.id,
-      });
       await audit({
         actor: actorFrom(user),
         action: "attachment.upload",
         targetType: "document",
         targetId: doc.id,
         targetLabel: doc.title,
-        details: { via: "mcp", filename, size: buf.length, mime: kind.mime },
+        details: {
+          via: "mcp",
+          filename: att.filename,
+          size: intake.buf.length,
+          mime: intake.kind.mime,
+          source: args?.source_url ? "url" : args?.from_attachment_id !== undefined ? "attachment" : "base64",
+          inserted: placed,
+        },
       });
       return toolJson({
         ok: true,
         attachment_id: att.id,
         url: `/api/attachments/${att.id}`,
-        markdown: `![${String(args?.alt ?? "").trim() || filename}](/api/attachments/${att.id})`,
-        note: "Place the markdown snippet in the document body (update_doc) where the image belongs — uploading alone does not display it.",
+        markdown,
+        inserted: placed,
+        note: placed
+          ? "The image is attached AND placed in the document body — nothing further to do."
+          : "Attached but NOT displayed yet. Either re-run with insert:\"append\", or put the markdown snippet in the body via update_doc.",
+      });
+    }
+
+    case "request_upload": {
+      // The handoff. When the picture exists only as something the person can
+      // see — a screenshot in this conversation, a file on their desktop —
+      // no tool argument can carry it. Hand them a link instead.
+      if (!(await userHolds(user, "document.update"))) {
+        return toolText("You don't have permission to add images — ask an admin for authoring access.", true);
+      }
+      const doc = await getDocument(Number(args?.doc_id));
+      if (!doc || !scopeAllows(scope, doc.space_id)) {
+        return toolText(`No document with id ${args?.doc_id}.`, true);
+      }
+      if (!(await canEditSpace(user, doc.space_id))) {
+        return toolText("You don't have edit access to this document's space.", true);
+      }
+      const ticket = await createUploadTicket({
+        documentId: doc.id,
+        userId: user.id,
+        insert: isInsertMode(args?.insert) ? args.insert : "append",
+        alt: String(args?.alt ?? ""),
+      });
+      const link = `${origin}/upload/${ticket.token}`;
+      return toolJson({
+        ok: true,
+        upload_url: link,
+        expires_at: ticket.expires_at,
+        document: doc.title,
+        note:
+          `Show this link to the person and ask them to open it and drop the image in: ${link} ` +
+          "It works once, for this document, and expires in an hour. The image is attached and placed automatically " +
+          "when they drop it — you do not need to call anything else afterwards.",
       });
     }
 
@@ -973,7 +1074,7 @@ async function handleRpc(user: User, msg: any, origin: string): Promise<unknown 
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: "CompassDocs", version: currentVersion() },
         instructions:
-          "CompassDocs is this team's knowledge base. Use search_docs/read_doc to look things up, create_doc to save a drafted article as markdown, and update_doc to revise, retitle, retag, move, or publish an existing one. Call list_spaces first when creating, to pick the right space. When drafting a document of a standard kind (runbook, SOP, policy, postmortem, meeting notes, decision record), call list_templates and follow the matching template's structure, passing template to create_doc. To put a screenshot or other image into a document, call add_image with the base64 bytes, then place the returned markdown snippet in the body. IMPORTANT: before writing or restructuring a document, call writing_guide — CompassDocs documents support rich interactive blocks well beyond plain markdown (callouts, tabs, accordions, checklists, Mermaid/PlantUML diagrams, decision trees, video/website embeds, auto-filterable tables), and good documents use them.",
+          "CompassDocs is this team's knowledge base. Use search_docs/read_doc to look things up, create_doc to save a drafted article as markdown, and update_doc to revise, retitle, retag, move, or publish an existing one. Call list_spaces first when creating, to pick the right space. When drafting a document of a standard kind (runbook, SOP, policy, postmortem, meeting notes, decision record), call list_templates and follow the matching template's structure, passing template to create_doc. To put an image into a document, call add_image with insert:\"append\" — pass source_url if the image has a public address, or from_attachment_id to reuse one already in the workspace; base64 data works only for small files. For a screenshot that exists only as a picture in the conversation there are no bytes you can send, so call request_upload and give the person the link it returns. IMPORTANT: before writing or restructuring a document, call writing_guide — CompassDocs documents support rich interactive blocks well beyond plain markdown (callouts, tabs, accordions, checklists, Mermaid/PlantUML diagrams, decision trees, video/website embeds, auto-filterable tables), and good documents use them.",
       });
     }
     case "ping":

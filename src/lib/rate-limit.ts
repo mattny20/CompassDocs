@@ -52,6 +52,17 @@ export function plantumlRateLimited(key: string): boolean {
   return limited(`puml:${key}`, 30, 60_000);
 }
 
+/**
+ * Image drop links (/upload/<token>): 20 attempts per minute per client IP.
+ *
+ * The token is the only credential these have, so the ceiling is what stops
+ * someone guessing at 24 random bytes — and 20/min is far above what a person
+ * dropping one screenshot ever needs.
+ */
+export function uploadTicketRateLimited(key: string): boolean {
+  return limited(`ticket:${key}`, 20, 60_000);
+}
+
 /** Public REST API (/api/v1): 120 requests per minute per token user. */
 export function apiV1RateLimited(key: string): boolean {
   return limited(`v1:${key}`, 120, 60_000);

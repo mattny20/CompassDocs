@@ -4,6 +4,49 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.1.0] - 2026-08-03
+
+### Added
+- **The MCP connector can actually add images now.** `add_image` accepted one
+  thing — the whole file base64-encoded inside a tool argument — and that fails
+  two independent ways. Base64 inflates by a third, so a 300 KB screenshot is
+  ~400,000 characters in one argument, well past the caps clients put on tool
+  input (a 10,000-character cap allows 7.3 KB, which is a favicon). And a
+  screenshot pasted into a conversation reaches the assistant as *vision* input:
+  there are no bytes for it to re-emit, at any size. That second one is the
+  commonest request there is, which is why the failures looked arbitrary —
+  sometimes a refusal, sometimes plausible-looking base64 that failed the type
+  sniff.
+
+  Three more ways in, all server-side, all through the same validator:
+
+  | | when to use it |
+  | --- | --- |
+  | `source_url` | the image has a public address — the server fetches it, so the bytes never touch the conversation and size stops mattering |
+  | `from_attachment_id` | reuse an image already in the workspace (copied, not shared, so deleting the original can't blank the copy) |
+  | `request_upload` | the picture only exists as something a person can see — returns a link they drop the file into |
+  | `data` | still there, still base64, still only sensible for small files |
+
+- **`insert`.** `add_image` can place the image in the body in the same call
+  (`"append"`, `"top"`, or `"none"` to keep the old behaviour of returning just
+  the snippet). Uploading and placing used to be two calls, and the second one
+  got skipped — or done as a whole-body rewrite that clobbered a concurrent
+  edit. `insert` appends or prepends and touches nothing else.
+
+- **Image drop links (`/upload/<token>`).** `request_upload` returns a link the
+  assistant hands to a person; they drag, paste, or choose a file and it is
+  attached and placed automatically. The page needs no login on purpose — the
+  screenshot is often on a different device from the session that asked for it.
+  What keeps it narrow: 24 random bytes, one document, one hour, one use (the
+  claim is an atomic `UPDATE`), image bytes only, rate-limited per IP, and the
+  upload is attributed and audited as the person who minted it.
+
+### Changed
+- The connector's tool descriptions and server instructions now steer toward
+  `source_url` and `request_upload` rather than base64, and the "no image given"
+  error says which of the four to use for a picture that only exists in the
+  conversation.
+
 ## [1.0.3] - 2026-08-03
 
 ### Changed

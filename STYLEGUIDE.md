@@ -41,6 +41,20 @@ Every top-level page:
   needs the gap). Card/section sub-descriptions use the smaller tier:
   `mt-0.5 text-xs text-slate-400`.
 
+### Standalone link pages (the one exception)
+
+Pages reached by an unauthenticated tokenized link — the share page
+(`/share/<token>`) and the image drop page (`/upload/<token>`) — sit outside
+the app shell and **do** hard-code a column (`mx-auto max-w-2xl`/`max-w-4xl`),
+with a `<Brand>` header instead of the sidebar. That is not a violation of the
+rule above: the rule protects a *preference*, and the person opening one of
+these links may have no account at all, so there is nothing to honor. They also
+skip the lucide page-title icon — the h1 is the thing itself (a document title,
+"Add an image to X"), not a navigation label.
+
+Keep this list closed. A page that a signed-in user reaches from the product is
+a top-level page and uses `PageContainer`, however standalone it feels.
+
 ## Sections and cards
 
 - Section: `rounded-xl border border-slate-200 bg-surface p-4 shadow-xs`
