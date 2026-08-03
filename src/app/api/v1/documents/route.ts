@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { v1Auth, v1Error } from "@/lib/v1-auth";
+import { v1Auth, v1Error, v1Requires, v1Holds } from "@/lib/v1-auth";
 import { v1Doc } from "@/lib/v1-serialize";
 import {
   listDocumentsV1,
@@ -9,7 +9,7 @@ import {
   getApprovalMode,
 } from "@/lib/db";
 import { spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
-import { roleAtLeast, type DocType } from "@/lib/types";
+import { type DocType } from "@/lib/types";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
 import { notifySpaceSubscribers } from "@/lib/subscriptions";
 import { requestOrigin } from "@/lib/oauth";
@@ -27,7 +27,10 @@ export async function GET(req: Request) {
   if (user instanceof NextResponse) return user;
   const url = new URL(req.url);
   const scope = await spaceScopeFor(user);
-  const isEditor = roleAtLeast(user.role, "editor");
+  // Drafts are their own permission. Space-scoped, but this listing can span
+  // spaces, so it asks the unscoped question: "may they see drafts anywhere?"
+  // — and the scope filter below still bounds which spaces' drafts appear.
+  const canSeeDrafts = await v1Holds(user, "document.read_draft");
 
   let spaceId: number | undefined;
   const spaceSlug = url.searchParams.get("space");
@@ -45,7 +48,7 @@ export async function GET(req: Request) {
     scope,
     spaceId,
     status,
-    includeDrafts: isEditor,
+    includeDrafts: canSeeDrafts,
     limit,
     offset,
   });
@@ -60,9 +63,6 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const user = await v1Auth(req, "write");
   if (user instanceof NextResponse) return user;
-  if (!roleAtLeast(user.role, "editor")) {
-    return v1Error(403, "Creating documents needs the editor role.");
-  }
 
   let body: Record<string, unknown>;
   try {
@@ -81,6 +81,14 @@ export async function POST(req: Request) {
   if (!space || !scopeAllows(await spaceScopeFor(user), space.id)) {
     return v1Error(404, "Space not found (pass its slug or id as 'space').");
   }
+  // Same pair the app's own create route uses: the permission, then the
+  // space's edit rights. Scoped to the space, so a role granted on one space
+  // authorises creating there and nowhere else.
+  const mayCreate = await v1Requires(user, "document.create", {
+    spaceId: space.id,
+    message: "You don't have permission to create documents.",
+  });
+  if (mayCreate) return mayCreate;
   if (!(await canEditSpace(user, space.id))) {
     return v1Error(403, "You don't have edit rights in that space.");
   }
@@ -91,7 +99,8 @@ export async function POST(req: Request) {
   if (!content.trim()) return v1Error(400, "'content' is required.");
   const type = DOC_TYPES.includes(body.type as DocType) ? (body.type as DocType) : "knowledge";
   const wantPublished = body.status !== "draft";
-  const canPublish = roleAtLeast(user.role, "approver") || (await getApprovalMode()) === "open";
+  const canPublish =
+    (await v1Holds(user, "document.publish", space.id)) || (await getApprovalMode()) === "open";
   const tags = Array.isArray(body.tags)
     ? body.tags.map((t) => String(t).trim()).filter(Boolean).slice(0, 20)
     : [];

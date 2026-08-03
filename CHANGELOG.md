@@ -4,6 +4,26 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.99.1] - 2026-08-03
+
+### Fixed
+- **Custom roles now work over the public REST API.** Every `/api/v1` endpoint
+  checked the old four-rung role ladder and consulted no permission at all, so
+  a custom role that worked perfectly in the app was ignored by the API: a
+  viewer granted "Create document" could create one through the web app and got
+  `403 Creating documents needs the editor role` through `POST
+  /api/v1/documents`. The API now asks the same question the rest of the app
+  asks — and asks it per space, so a role granted on one space authorises work
+  there and nowhere else.
+
+  Token scopes are unchanged and still apply independently: a read-only token
+  stays read-only however privileged its owner becomes.
+
+  **If you use custom roles, this widens what your API tokens can do** — to
+  exactly what the role already allowed everywhere else. Nobody gains access
+  they weren't already granted; the API stops ignoring the grant. Workspaces
+  using only the four built-in roles see no change.
+
 ## [0.99.0] - 2026-08-03
 
 ### Changed
