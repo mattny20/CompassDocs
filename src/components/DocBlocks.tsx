@@ -79,7 +79,7 @@ export function MermaidBlock({ code }: { code: string }) {
   return (
     <>
       <div
-        className="my-4 cursor-zoom-in overflow-x-auto rounded-lg border border-slate-200 bg-surface p-4 transition hover:border-compass-300 [&_svg]:mx-auto [&_svg]:max-w-full"
+        className="doc-wide my-4 cursor-zoom-in overflow-x-auto rounded-lg border border-slate-200 bg-surface p-4 transition hover:border-compass-300 [&_svg]:mx-auto [&_svg]:max-w-full"
         title="Click to zoom"
         onClick={() => setZoomed(true)}
         dangerouslySetInnerHTML={{ __html: svg }}
@@ -150,7 +150,7 @@ export function PlantUmlBlock({ code }: { code: string }) {
   return (
     <>
       <div
-        className="my-4 cursor-zoom-in overflow-x-auto rounded-lg border border-slate-200 bg-surface p-4 text-center transition hover:border-compass-300"
+        className="doc-wide my-4 cursor-zoom-in overflow-x-auto rounded-lg border border-slate-200 bg-surface p-4 text-center transition hover:border-compass-300"
         title="Click to zoom"
         onClick={() => setZoomed(true)}
       >
@@ -371,7 +371,7 @@ export function FilterTable({ children }: { children: React.ReactNode }) {
 
   const searchable = rowCount >= 4;
   return (
-    <div className="md-filter-table">
+    <div className="doc-wide md-filter-table">
       {searchable && (
         <div className="mb-1.5 flex items-center justify-between gap-2">
           <span className="relative">

@@ -238,7 +238,18 @@ mark {
  * capped; the masthead, right rail, notice strip and sticky bar keep the
  * full Normal/Wide/Full width the reader chose. `ch` scales with the prose
  * font-size, so the measure holds if the body size changes. */
-.doc-read .doc-prose {
+/* The measure applies to the TEXT, not the column (1.0.1).
+ *
+ * It used to cap `.doc-prose` itself, which capped everything inside it — so a
+ * ten-column table or a long command line was squeezed into 60ch and left to
+ * scroll sideways while the content column beside it sat empty. Worse, it made
+ * the Wide and Full page settings render the document body identically: both
+ * hit the same 60ch ceiling, so choosing Full moved nothing the reader was
+ * looking at.
+ *
+ * Capping the children instead keeps the measure exactly where it matters and
+ * lets blocks that are wide by nature use the width the reader asked for. */
+.doc-read .doc-prose > * {
   /* 60ch, not 78ch: `1ch` is the advance of "0" (8.69px here) but the average
      prose glyph is 6.91px, so a ch value renders ~1.26x more characters than
      it names. 78ch measured at ~98 characters per line — the number that made
@@ -247,10 +258,29 @@ mark {
   max-width: 60ch;
 }
 
+/* Blocks that are wide by nature: tables, fenced code, rendered diagrams. Each
+ * carries `doc-wide` from the component that renders it rather than being
+ * matched by shape here, so the opt-out is visible at the call site and a new
+ * block type has to ask for it deliberately.
+ *
+ * They still can't exceed the content column — `max-width: none` only removes
+ * the measure, and the column is whatever Normal/Wide/Full resolved to. Each
+ * keeps its own overflow-x for the case where even that isn't enough. */
+.doc-read .doc-prose > .doc-wide {
+  max-width: none;
+}
+
+/* An image alone in a paragraph is a figure, not a sentence — markdown just
+ * has nowhere else to put it. Paragraphs with text in them keep the measure. */
+.doc-read .doc-prose > p:has(> img:only-child),
+.doc-read .doc-prose > p:has(> a:only-child > img:only-child) {
+  max-width: none;
+}
+
 /* On paper the page box already provides the measure, and narrowing it further
    just wastes the sheet. */
 @media print {
-  .doc-read .doc-prose {
+  .doc-read .doc-prose > * {
     max-width: none;
   }
 }

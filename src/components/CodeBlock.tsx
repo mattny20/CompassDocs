@@ -62,7 +62,7 @@ export function CodeBlock({ language, code }: { language: string; code: string }
   }
 
   return (
-    <div className="code-block group my-4 overflow-hidden rounded-lg ring-1 ring-[#1e293b]/60">
+    <div className="doc-wide code-block group my-4 overflow-hidden rounded-lg ring-1 ring-[#1e293b]/60">
       <div className="flex items-center justify-between bg-[#1e293b] px-3 py-1.5">
         <span className="flex items-center gap-2 text-xs font-medium text-[#94a3b8]">
           {isRun ? (

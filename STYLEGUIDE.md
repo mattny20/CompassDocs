@@ -283,6 +283,40 @@ per-route variants:
   is open. Gate every binding on capability too: a shortcut for something
   the user can't reach must not be bound at all.
 
+## Reading measure (rendered documents)
+
+Document-reading surfaces — the document page, the share page, the public
+document page — set `.doc-read`. Inside it, **direct children of `.doc-prose`
+are capped at `60ch`**: that's the measure for body text (~75 characters), and
+it is deliberately narrower than the page.
+
+The cap is on the children, not on `.doc-prose` itself. Capping the container
+also caps everything in it, which is what made a ten-column table scroll
+sideways inside a 60ch column while the rest of the page sat empty — and made
+the Wide and Full page settings render the body identically.
+
+Blocks that are **wide by nature** opt out with `doc-wide` on their outermost
+element:
+
+```tsx
+<div className="doc-wide md-filter-table">…</div>
+```
+
+Carried today by the table wrapper (`FilterTable`), fenced code (`CodeBlock`)
+and rendered diagrams (`MermaidBlock`, `PlantUmlBlock`). A paragraph whose only
+child is an image gets the same treatment via `:has()` — markdown has nowhere
+else to put a figure.
+
+Rules:
+
+- Opt out at the **call site**, not by matching shape in CSS. A new block type
+  has to ask for the width deliberately.
+- `doc-wide` removes the measure, not the column: a wide block still can't
+  exceed whatever Normal/Wide/Full resolved to. Keep the block's own
+  `overflow-x-auto` for the case where even that isn't enough.
+- Never put `doc-wide` on something whose content is prose. The measure exists
+  for text; a full-width paragraph is the bug this section prevents.
+
 ## Print
 
 Pages people print for records (certificates, transcripts, status, the
