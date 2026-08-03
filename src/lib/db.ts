@@ -123,6 +123,7 @@ async function initialize(): Promise<void> {
     await migrateDelegationToAssignments(client);
     // After syncPresetRoles, which is what creates space-member/space-author.
     await migrateSpaceGrantsToAssignments(client);
+    await dropLegacySpaceGrantTables(client);
     await migrateVisibilityTiers(client);
     await migrateSecuritySealing(client);
     await migrateWeightedSearch(client);
@@ -322,12 +323,6 @@ const SCHEMA_SQL = `
     user_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     PRIMARY KEY (group_id, user_id)
   );
-  CREATE TABLE IF NOT EXISTS space_groups (
-    space_id integer NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
-    group_id integer NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
-    PRIMARY KEY (space_id, group_id)
-  );
-
   CREATE TABLE IF NOT EXISTS sessions (
     token text PRIMARY KEY,
     user_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -887,21 +882,6 @@ const SCHEMA_SQL = `
     PRIMARY KEY (link_id, group_id)
   );
 
-  -- Per-space edit rights. A space with no rows in either table is editable by
-  -- any editor+; with rows, only the listed users / group members may author in
-  -- it (admins always can). The org-level setting 'editors_edit_all' (default
-  -- on) short-circuits all of this back to "any editor edits any space".
-  CREATE TABLE IF NOT EXISTS space_editors (
-    space_id integer NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
-    user_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    PRIMARY KEY (space_id, user_id)
-  );
-  CREATE TABLE IF NOT EXISTS space_editor_groups (
-    space_id integer NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
-    group_id integer NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
-    PRIMARY KEY (space_id, group_id)
-  );
-
   -- Organization announcements: admin-posted messages shown on every user's
   -- dashboard until they expire, are archived by an admin, or the user
   -- dismisses them for themselves. Email/webhook delivery happens at post
@@ -1340,6 +1320,38 @@ async function migrateDelegationToAssignments(client: import("pg").PoolClient) {
 }
 
 /**
+ * The three legacy per-space grant tables, and the statement that turns each
+ * one into the equivalent role assignment. Shared by the 0.99 migration and by
+ * the 1.0 drop, so the sweep before the drop cannot drift from the migration
+ * it is double-checking.
+ */
+const LEGACY_SPACE_GRANT_COPIES: Record<string, string> = {
+  space_groups: `INSERT INTO role_assignments (role_id, group_id, scope_type, space_id)
+     SELECT r.id, sg.group_id, 'space', sg.space_id
+       FROM space_groups sg CROSS JOIN roles r WHERE r.key = 'space-member'
+     ON CONFLICT DO NOTHING`,
+  space_editors: `INSERT INTO role_assignments (role_id, user_id, scope_type, space_id)
+     SELECT r.id, se.user_id, 'space', se.space_id
+       FROM space_editors se CROSS JOIN roles r WHERE r.key = 'space-author'
+     ON CONFLICT DO NOTHING`,
+  space_editor_groups: `INSERT INTO role_assignments (role_id, group_id, scope_type, space_id)
+     SELECT r.id, seg.group_id, 'space', seg.space_id
+       FROM space_editor_groups seg CROSS JOIN roles r WHERE r.key = 'space-author'
+     ON CONFLICT DO NOTHING`,
+};
+
+/** Which of the legacy tables still exist in this database? */
+async function presentLegacyTables(client: import("pg").PoolClient): Promise<Set<string>> {
+  const { rows } = await client.query<{ table_name: string }>(
+    `SELECT table_name FROM information_schema.tables
+      WHERE table_schema = current_schema()
+        AND table_name = ANY($1::text[])`,
+    [Object.keys(LEGACY_SPACE_GRANT_COPIES)]
+  );
+  return new Set(rows.map((r) => r.table_name));
+}
+
+/**
  * Move per-space grants out of their three side tables and into role
  * assignments (0.99).
  *
@@ -1349,23 +1361,16 @@ async function migrateDelegationToAssignments(client: import("pg").PoolClient) {
  * says exactly the same thing, and unlike the tables it shows up in the roles
  * console, the effective-permission explainer, and the audit trail.
  *
- * The tables are left in place. They are no longer read or written, but a
- * workspace that rolls back to 0.98 needs its grants to still be there — and
- * this migration only ever inserts, so re-running it after a rollback is a
- * no-op rather than a duplication. Dropping them is a later release's job,
- * once the assignments have been the live source of truth for a while.
+ * Insert-only and ON CONFLICT DO NOTHING throughout, so running it twice is a
+ * no-op rather than a duplication. That is what lets dropLegacySpaceGrantTables
+ * re-run the same copies as a final sweep in 1.0 before the tables go.
  */
 async function migrateSpaceGrantsToAssignments(client: import("pg").PoolClient) {
   const done = await client.query("SELECT 1 FROM settings WHERE key = 'migrated_space_grants_rbac'");
   if (done.rowCount) return;
 
-  // If the tables predate this install they may not exist at all.
-  const { rows: present } = await client.query<{ table_name: string }>(
-    `SELECT table_name FROM information_schema.tables
-      WHERE table_schema = current_schema()
-        AND table_name IN ('space_groups','space_editors','space_editor_groups')`
-  );
-  const have = new Set(present.map((r) => r.table_name));
+  // A fresh 1.0 install never had these tables; an upgrade from 0.98 still does.
+  const have = await presentLegacyTables(client);
 
   const copy = async (sql: string, table: string) => {
     if (!have.has(table)) return 0;
@@ -1374,32 +1379,58 @@ async function migrateSpaceGrantsToAssignments(client: import("pg").PoolClient) 
   };
 
   let moved = 0;
-  moved += await copy(
-    `INSERT INTO role_assignments (role_id, group_id, scope_type, space_id)
-     SELECT r.id, sg.group_id, 'space', sg.space_id
-       FROM space_groups sg CROSS JOIN roles r WHERE r.key = 'space-member'
-     ON CONFLICT DO NOTHING`,
-    "space_groups"
-  );
-  moved += await copy(
-    `INSERT INTO role_assignments (role_id, user_id, scope_type, space_id)
-     SELECT r.id, se.user_id, 'space', se.space_id
-       FROM space_editors se CROSS JOIN roles r WHERE r.key = 'space-author'
-     ON CONFLICT DO NOTHING`,
-    "space_editors"
-  );
-  moved += await copy(
-    `INSERT INTO role_assignments (role_id, group_id, scope_type, space_id)
-     SELECT r.id, seg.group_id, 'space', seg.space_id
-       FROM space_editor_groups seg CROSS JOIN roles r WHERE r.key = 'space-author'
-     ON CONFLICT DO NOTHING`,
-    "space_editor_groups"
-  );
+  for (const [table, sql] of Object.entries(LEGACY_SPACE_GRANT_COPIES)) {
+    moved += await copy(sql, table);
+  }
 
   await client.query(
     "INSERT INTO settings (key, value) VALUES ('migrated_space_grants_rbac','1') ON CONFLICT (key) DO NOTHING"
   );
   console.log(`[rbac] migrated ${moved} per-space grant(s) into role assignments`);
+}
+
+/**
+ * Drop the three legacy per-space grant tables (1.0).
+ *
+ * 0.99 copied their contents into role assignments and stopped reading them;
+ * this removes them. Two things make that safe to do at boot:
+ *
+ *   - The copies run once more first, unconditionally. They are insert-only
+ *     with ON CONFLICT DO NOTHING, so the sweep costs one indexed anti-join
+ *     when there is nothing to move — and it means the drop is lossless by
+ *     construction rather than by trusting that the 0.99 marker was written
+ *     after a complete run. A tenant upgrading 0.98 -> 1.0 directly is
+ *     migrated by the call above and swept by this one.
+ *   - It refuses to drop anything if the seeded roles the grants were copied
+ *     INTO are missing. Without them the sweep silently moves nothing, and
+ *     dropping would discard live grants.
+ *
+ * This is the release's one-way door: a workspace that rolls back below 0.99
+ * after booting 1.0 loses its per-space grants, because the tables they lived
+ * in are gone. Called out in the changelog and the upgrade notes.
+ */
+async function dropLegacySpaceGrantTables(client: import("pg").PoolClient) {
+  const have = await presentLegacyTables(client);
+  if (have.size === 0) return;
+
+  const { rows: roles } = await client.query<{ key: string }>(
+    "SELECT key FROM roles WHERE key IN ('space-member','space-author')"
+  );
+  if (roles.length < 2) {
+    console.error(
+      "[rbac] refusing to drop the legacy space-grant tables: the space-member/space-author roles are missing, so the grants have nowhere to go"
+    );
+    return;
+  }
+
+  let swept = 0;
+  for (const [table, sql] of Object.entries(LEGACY_SPACE_GRANT_COPIES)) {
+    if (have.has(table)) swept += (await client.query(sql)).rowCount ?? 0;
+  }
+  if (swept) console.log(`[rbac] swept ${swept} straggling per-space grant(s) before the drop`);
+
+  for (const table of have) await client.query(`DROP TABLE IF EXISTS ${table}`);
+  console.log(`[rbac] dropped ${have.size} legacy per-space grant table(s)`);
 }
 
 async function migrateVisibilityTiers(client: import("pg").PoolClient) {

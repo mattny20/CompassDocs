@@ -7,8 +7,15 @@
 -- ladder, section-access settings, the newsletter column, and three per-space
 -- tables) and into role assignments. Each move ran once at boot, guarded by a
 -- marker in `settings`. This checks the result rather than the marker: it
--- compares what the assignments say against the original rows, which are
--- deliberately still present so exactly this comparison is possible.
+-- compares what the assignments say against the original rows wherever those
+-- rows still exist.
+--
+-- 1.0 drops the three per-space grant tables, so checks 2-4 only apply to a
+-- database that has not booted 1.0 yet. They are skipped rather than failed:
+-- an audit that starts erroring the day a table goes away is an audit that
+-- gets muted and then ignored. Run this BEFORE upgrading to 1.0 if you want
+-- the per-space comparison; after the upgrade the assignments are the only
+-- copy, and check 7 is the one that matters.
 --
 -- Every check should read OK. A FAIL is a grant that did not survive the move
 -- — which means someone has less access than they did before the upgrade, or
@@ -31,38 +38,6 @@ ladder AS (
          JOIN roles r ON r.id = ra.role_id
         WHERE ra.user_id = u.id AND ra.scope_type = 'global' AND r.key = u.role
      )
-),
--- 2-4. Per-space grants (0.99): every legacy row should have become an
--- assignment of the matching seeded role, scoped to the same space.
-sg AS (
-  SELECT count(*) AS missing
-    FROM space_groups l
-   WHERE NOT EXISTS (
-     SELECT 1 FROM role_assignments ra
-       JOIN roles r ON r.id = ra.role_id AND r.key = 'space-member'
-      WHERE ra.scope_type = 'space' AND ra.space_id = l.space_id
-        AND ra.group_id = l.group_id
-   )
-),
-se AS (
-  SELECT count(*) AS missing
-    FROM space_editors l
-   WHERE NOT EXISTS (
-     SELECT 1 FROM role_assignments ra
-       JOIN roles r ON r.id = ra.role_id AND r.key = 'space-author'
-      WHERE ra.scope_type = 'space' AND ra.space_id = l.space_id
-        AND ra.user_id = l.user_id
-   )
-),
-seg AS (
-  SELECT count(*) AS missing
-    FROM space_editor_groups l
-   WHERE NOT EXISTS (
-     SELECT 1 FROM role_assignments ra
-       JOIN roles r ON r.id = ra.role_id AND r.key = 'space-author'
-      WHERE ra.scope_type = 'space' AND ra.space_id = l.space_id
-        AND ra.group_id = l.group_id
-   )
 ),
 -- 5. Newsletter (0.94): the column and the assignment must agree.
 news AS (
@@ -111,15 +86,6 @@ SELECT * FROM (
   SELECT 1 AS ord, 'ladder role -> assignment'      AS check,
          (SELECT missing FROM ladder)::text AS detail,
          CASE WHEN (SELECT missing FROM ladder) = 0 THEN 'OK' ELSE 'FAIL - users with no matching role' END AS verdict
-  UNION ALL SELECT 2, 'space_groups -> space-member',
-         (SELECT missing FROM sg)::text,
-         CASE WHEN (SELECT missing FROM sg) = 0 THEN 'OK' ELSE 'FAIL - private-space read grants lost' END
-  UNION ALL SELECT 3, 'space_editors -> space-author',
-         (SELECT missing FROM se)::text,
-         CASE WHEN (SELECT missing FROM se) = 0 THEN 'OK' ELSE 'FAIL - per-space edit grants lost' END
-  UNION ALL SELECT 4, 'space_editor_groups -> space-author',
-         (SELECT missing FROM seg)::text,
-         CASE WHEN (SELECT missing FROM seg) = 0 THEN 'OK' ELSE 'FAIL - per-space group edit grants lost' END
   UNION ALL SELECT 5, 'newsletter column -> assignment',
          (SELECT missing FROM news)::text,
          CASE WHEN (SELECT missing FROM news) = 0 THEN 'OK' ELSE 'FAIL - newsletter grants lost' END
@@ -134,7 +100,35 @@ SELECT * FROM (
          CASE WHEN (SELECT n FROM marks) = 2 THEN 'OK' ELSE 'CHECK - a migration has not run' END
 ) t ORDER BY ord;
 
+-- Checks 2-4: only meaningful while the legacy tables are still present.
+SELECT to_regclass('public.space_groups') IS NOT NULL AS has_legacy \gset
+\if :has_legacy
+SELECT * FROM (
+  SELECT 2 AS ord, 'space_groups -> space-member' AS check,
+         (SELECT count(*) FROM space_groups l WHERE NOT EXISTS (
+            SELECT 1 FROM role_assignments ra
+              JOIN roles r ON r.id = ra.role_id AND r.key = 'space-member'
+             WHERE ra.scope_type = 'space' AND ra.space_id = l.space_id
+               AND ra.group_id = l.group_id))::text AS detail
+  UNION ALL SELECT 3, 'space_editors -> space-author',
+         (SELECT count(*) FROM space_editors l WHERE NOT EXISTS (
+            SELECT 1 FROM role_assignments ra
+              JOIN roles r ON r.id = ra.role_id AND r.key = 'space-author'
+             WHERE ra.scope_type = 'space' AND ra.space_id = l.space_id
+               AND ra.user_id = l.user_id))::text
+  UNION ALL SELECT 4, 'space_editor_groups -> space-author',
+         (SELECT count(*) FROM space_editor_groups l WHERE NOT EXISTS (
+            SELECT 1 FROM role_assignments ra
+              JOIN roles r ON r.id = ra.role_id AND r.key = 'space-author'
+             WHERE ra.scope_type = 'space' AND ra.space_id = l.space_id
+               AND ra.group_id = l.group_id))::text
+) t2 ORDER BY ord;
+\else
+\echo 'Checks 2-4 (per-space grant tables): n/a - dropped in 1.0.'
+\endif
+
 \echo ''
 \echo 'The "detail" column counts what is MISSING, except rows 7 and 8.'
+\echo 'A non-zero detail on checks 2-4 means a grant did not survive the move.'
 \echo 'Every verdict should read OK. Anything else: capture this output.'
 \echo ''
