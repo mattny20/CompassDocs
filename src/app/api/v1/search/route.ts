@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
-import { v1Auth, v1Error } from "@/lib/v1-auth";
+import { v1Auth, v1Error, v1Holds } from "@/lib/v1-auth";
 import { hybridSearchDocuments } from "@/lib/embeddings";
 import { spaceScopeFor } from "@/lib/access";
-import { roleAtLeast } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +21,7 @@ export async function GET(req: Request) {
   const hits = await hybridSearchDocuments(
     q,
     limit,
-    roleAtLeast(user.role, "editor"),
+    await v1Holds(user, "document.read_draft"),
     await spaceScopeFor(user)
   );
   return NextResponse.json({

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { v1Auth, v1Error } from "@/lib/v1-auth";
+import { v1Auth, v1Error, v1Requires, v1Holds, type V1User } from "@/lib/v1-auth";
 import { v1Doc } from "@/lib/v1-serialize";
 import {
   getDocument,
@@ -9,7 +9,7 @@ import {
   getApprovalMode,
 } from "@/lib/db";
 import { spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
-import { roleAtLeast, type DocType, type Role } from "@/lib/types";
+import { type DocType } from "@/lib/types";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
 import { notifySpaceSubscribers } from "@/lib/subscriptions";
 import { notifyCrSubmitted } from "@/lib/notifications";
@@ -19,13 +19,15 @@ export const dynamic = "force-dynamic";
 
 const DOC_TYPES: DocType[] = ["sop", "technical", "policy", "knowledge"];
 
-async function loadFor(user: { id: number; role: Role }, idRaw: string, needEdit: boolean) {
+async function loadFor(user: V1User, idRaw: string, needEdit: boolean) {
   const doc = await getDocument(Number(idRaw));
   if (!doc) return v1Error(404, "Document not found.");
   if (!scopeAllows(await spaceScopeFor(user), doc.space_id)) {
     return v1Error(404, "Document not found.");
   }
-  if (doc.status === "draft" && !roleAtLeast(user.role, "editor")) {
+  // 404 rather than 403 on drafts, deliberately: someone without draft access
+  // shouldn't learn that a draft exists at this id.
+  if (doc.status === "draft" && !(await v1Holds(user, "document.read_draft", doc.space_id))) {
     return v1Error(404, "Document not found.");
   }
   if (needEdit && !(await canEditSpace(user, doc.space_id))) {
@@ -52,12 +54,14 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const user = await v1Auth(req, "write");
   if (user instanceof NextResponse) return user;
-  if (!roleAtLeast(user.role, "editor")) {
-    return v1Error(403, "Editing documents needs the editor role.");
-  }
   const { id } = await ctx.params;
   const doc = await loadFor(user, id, true);
   if (doc instanceof NextResponse) return doc;
+  const mayEdit = await v1Requires(user, "document.update", {
+    spaceId: doc.space_id,
+    message: "You don't have permission to edit documents.",
+  });
+  if (mayEdit) return mayEdit;
 
   let body: Record<string, unknown>;
   try {
@@ -81,7 +85,9 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   };
 
   const affectsLive = doc.status === "published" || next.status === "published";
-  const canPublish = roleAtLeast(user.role, "approver") || (await getApprovalMode()) === "open";
+  const canPublish =
+    (await v1Holds(user, "document.publish", doc.space_id)) ||
+    (await getApprovalMode()) === "open";
 
   if (affectsLive && !canPublish) {
     const crId = await createChangeRequest({
@@ -153,12 +159,17 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const user = await v1Auth(req, "write");
   if (user instanceof NextResponse) return user;
-  if (!roleAtLeast(user.role, "editor")) {
-    return v1Error(403, "Deleting documents needs the editor role.");
-  }
   const { id } = await ctx.params;
   const doc = await loadFor(user, id, true);
   if (doc instanceof NextResponse) return doc;
+  // Trashing a draft and retiring a published document are separate rights,
+  // as they are everywhere else in the app.
+  const mayDelete = await v1Requires(
+    user,
+    doc.status === "published" ? "document.delete_published" : "document.delete_draft",
+    { spaceId: doc.space_id, message: "You don't have permission to delete that document." }
+  );
+  if (mayDelete) return mayDelete;
 
   await deleteDocument(doc.id);
   await audit({
