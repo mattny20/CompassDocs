@@ -4,6 +4,18 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.2.1] - 2026-09-25
+
+### Fixed
+- **Upgrading to 1.2.0 failed at boot on any workspace with provider-mapped
+  custom fields** (`column "k" does not exist`). The migration that moves a
+  sync's values out of the manual layer read `jsonb_each` with the wrong
+  column names; it only ran when a field had a Graph or Google mapping, which
+  the release verification database did not have. The statement is fixed, the
+  migration resumes from where it stopped (the steps before it were recorded
+  as done and are not repeated), and nothing written by 1.2.0 needs undoing.
+  Workspaces without mapped fields were never affected.
+
 ## [1.2.0] - 2026-09-25
 
 The directory becomes something you configure rather than something you
