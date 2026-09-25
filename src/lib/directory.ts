@@ -21,6 +21,7 @@
 
 import { pool, getSetting, setSetting } from "./db";
 import type { ProviderKey } from "./identity-provider";
+import { buildPeopleIndex } from "./directory-people-resolve";
 import {
   applyMapping,
   legacyPathMapping,
@@ -1108,19 +1109,14 @@ async function resolvePeopleFields(
     "SELECT id, synced FROM directory_people WHERE source = $1",
     [source]
   );
-  const index = await client.query<{ id: number; external_id: string | null; email: string }>(
-    "SELECT id, external_id, email FROM directory_people"
+  // Every handle a token could carry — object id, email, sign-in name, mail
+  // nickname, SAM account name, display name in either order, a DN's CN —
+  // see directory-people-resolve.ts. The stored records supply the
+  // provider-side handles; manual people resolve by email and name.
+  const index = await client.query<{ id: number; external_id: string | null; email: string; name: string; record: Record<string, unknown> | null }>(
+    "SELECT id, external_id, email, name, provider_record AS record FROM directory_people"
   );
-  const byExternal = new Map<string, number>();
-  const byEmail = new Map<string, number>();
-  for (const r of index.rows) {
-    if (r.external_id) byExternal.set(r.external_id.toLowerCase(), r.id);
-    if (r.email) byEmail.set(r.email.toLowerCase(), r.id);
-  }
-  const resolve = (token: string): number | undefined => {
-    const t = token.trim().toLowerCase();
-    return byExternal.get(t) ?? byEmail.get(t);
-  };
+  const people = buildPeopleIndex(index.rows);
 
   const syncedIds = rows.rows.map((r) => r.id);
   for (const f of peopleFields) {
@@ -1128,13 +1124,15 @@ async function resolvePeopleFields(
     let unresolvedCount = 0;
     const pairs: [number, number][] = [];
     for (const r of rows.rows) {
-      for (const token of splitMulti(r.synced?.[f.key] ?? "")) {
-        const other = resolve(token);
-        if (other === undefined) {
+      for (const { token, hit } of people.resolveList(r.synced?.[f.key] ?? "")) {
+        if (!hit || !("id" in hit)) {
           unresolvedCount++;
-          if (unresolvedSamples.length < 5) unresolvedSamples.push(token);
+          if (unresolvedSamples.length < 5) {
+            unresolvedSamples.push(hit && "ambiguous" in hit ? `${token} (${hit.ambiguous} people share this name)` : token);
+          }
           continue;
         }
+        const other = hit.id;
         if (other === r.id) continue;
         pairs.push(f.link_direction === "in" ? [other, r.id] : [r.id, other]);
       }

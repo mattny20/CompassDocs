@@ -240,7 +240,7 @@ function MappingEditor({
       )}
       <MappingRow value={mapping} onChange={(m) => { setMapping(m); setPreview(null); }} suggestions={suggestions} />
       {field.kind === "people" && mapping && (
-        <Field label="What the value names" help="A list of emails, sign-in names, or provider ids, separated by commas or semicolons.">
+        <Field label="What the value names" help="Emails, sign-in names, object ids, display names (either order), or distinguished names — separated by commas or semicolons. A name two people share links nobody and is reported.">
           <Select value={direction} onChange={(e) => setDirection(e.target.value as "out" | "in")} className="w-full">
             <option value="out">This person's {field.label.toLowerCase()}s (the value on an attorney lists their assistants)</option>
             <option value="in">The people this person is {field.label.toLowerCase()} to (the value on an assistant lists their attorneys)</option>

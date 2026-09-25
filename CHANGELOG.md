@@ -4,6 +4,20 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.2.6] - 2026-09-25
+
+### Fixed
+- **Assistants named by display name now link.** A people-field value only
+  resolved when it was an email or an Entra object id; a tenant whose
+  custom attribute holds "Dana Ruiz", "Ruiz, Dana", a sign-in name, a mail
+  nickname or SAM account name, a distinguished name
+  (`CN=Dana Ruiz,OU=…`) or "Dana Ruiz <dana@firm.com>" saw the mapping
+  preview fill and the sync report nearly every one unresolved, with no
+  links on the directory or the PDF. All of those forms resolve now,
+  against the synced records and against people typed in by hand; a name
+  two people share resolves to nobody and the sync report says so
+  ("(2 people share this name)") rather than guessing.
+
 ## [1.2.5] - 2026-09-25
 
 ### Added
