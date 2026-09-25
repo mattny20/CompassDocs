@@ -1354,7 +1354,7 @@ async function migrateDirectoryRegistry(client: import("pg").PoolClient) {
     if (keys.length) {
       const res = await client.query(
         `UPDATE directory_people
-            SET synced = synced || COALESCE((SELECT jsonb_object_agg(k, v) FROM jsonb_each(custom) WHERE k = ANY($1::text[])), '{}'::jsonb),
+            SET synced = synced || COALESCE((SELECT jsonb_object_agg(e.key, e.value) FROM jsonb_each(custom) AS e WHERE e.key = ANY($1::text[])), '{}'::jsonb),
                 custom = custom - $1::text[]
           WHERE source <> 'manual' AND custom ?| $1::text[]`,
         [keys]
