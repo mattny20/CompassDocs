@@ -203,4 +203,20 @@ test("the mapping preview runs without records and rejects a broken mapping", as
   expect(ok.status).toBe(200);
   expect(ok.body.preview.total).toBe(0);
   expect(ok.body.preview.filled).toBe(0);
+
+  // Reverting to "Not mapped" is a save without the provider, and it sticks:
+  // the field reads back unmapped, legacy column included (1.2.2).
+  const made = await api(page, "/api/admin/directory/fields", {
+    method: "POST",
+    body: { label: `E2E Revert ${STAMP}`, key: `e2e_pos_revert_${STAMP}`, mappings: { microsoft: { kind: "path", path: "officeLocation" } } },
+  });
+  expect(made.status).toBe(201);
+  expect(made.body.field.graph_path).toBe("officeLocation");
+  const cleared = await api(page, `/api/admin/directory/fields/${made.body.field.id}`, { method: "PATCH", body: { mappings: {} } });
+  expect(cleared.status).toBe(200);
+  expect(cleared.body.field.mappings).toEqual({});
+  expect(cleared.body.field.graph_path).toBe("");
+  const reread = (await api(page, "/api/admin/directory/fields")).body.fields.find((f: any) => f.id === made.body.field.id);
+  expect(reread.mappings).toEqual({});
+  await api(page, `/api/admin/directory/fields/${made.body.field.id}`, { method: "DELETE" });
 });

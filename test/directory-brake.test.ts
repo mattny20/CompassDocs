@@ -142,15 +142,23 @@ describe("directory removal brake", () => {
   test("the brake is scoped to one provider", async () => {
     // Microsoft and Google can both be connected; a Google sync collapsing to
     // nothing must not count, or delete, the people Microsoft owns.
-    await replaceProviderPeople(SOURCE, people(10));
-    const graphBefore = await pool().query<{ c: string }>(
-      "SELECT count(*)::text AS c FROM directory_people WHERE source = 'graph'"
+    // One Microsoft-owned row of this file's own. The registry test file
+    // syncs the graph source concurrently, so a count of every graph row is
+    // not stable between two queries; this row is.
+    await pool().query(
+      "INSERT INTO directory_people (source, external_id, name) VALUES ('graph', $1, 'Brake Graph Person')",
+      [`${PREFIX}graph`]
     );
-
-    await replaceProviderPeople(SOURCE, []);
-    const graphAfter = await pool().query<{ c: string }>(
-      "SELECT count(*)::text AS c FROM directory_people WHERE source = 'graph'"
-    );
-    assert.equal(graphAfter.rows[0].c, graphBefore.rows[0].c);
+    try {
+      await replaceProviderPeople(SOURCE, people(10));
+      await replaceProviderPeople(SOURCE, []);
+      const graph = await pool().query<{ c: string }>(
+        "SELECT count(*)::text AS c FROM directory_people WHERE source = 'graph' AND external_id = $1",
+        [`${PREFIX}graph`]
+      );
+      assert.equal(graph.rows[0].c, "1", "the other provider's person is untouched");
+    } finally {
+      await pool().query("DELETE FROM directory_people WHERE source = 'graph' AND external_id = $1", [`${PREFIX}graph`]);
+    }
   });
 });

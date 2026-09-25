@@ -593,7 +593,7 @@ function FieldRow({
           {f.multi ? <span className="text-slate-400"> · many</span> : null}
         </td>
         {providers.map((p) => {
-          const m = f.mappings[p] ?? (p === "microsoft" && f.graph_path ? { kind: "path" as const, path: f.graph_path } : p === "google" && f.google_path ? { kind: "path" as const, path: f.google_path } : undefined);
+          const m = f.mappings[p];
           return (
             <td key={p} className="px-3 py-2">
               <button type="button" className={`${linkBtn} text-left`} onClick={() => setOpen(open?.panel === "mapping" && open.provider === p ? null : { id: f.id, panel: "mapping", provider: p })}>

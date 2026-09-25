@@ -15,6 +15,7 @@ import {
   createField,
   createPerson,
   deleteField,
+  effectiveMapping,
   getPersonById,
   listFields,
   listPeople,
@@ -33,7 +34,7 @@ async function clean() {
     `${PREFIX}%`,
     `%@${DOMAIN}`,
   ]);
-  for (const key of ["rt_position", "rt_office_label", "rt_ext", "rt_legal_group"]) {
+  for (const key of ["rt_position", "rt_office_label", "rt_ext", "rt_legal_group", "rt_legacy"]) {
     const f = (await listFields()).find((x) => x.key === key);
     if (f) await deleteField(f.id);
   }
@@ -219,5 +220,34 @@ describe("directory registry", () => {
     assert.deepEqual(amy3.links.assistant ?? [], []);
 
     await updateField(assistant.id, { link_direction: "out", mappings: {} });
+  });
+
+  test("clearing a mapping clears it, including one that lived only in the legacy column", async () => {
+    const made = await createField({ label: "RT Legacy", key: "rt_legacy", mappings: { microsoft: { kind: "path", path: "onPremisesExtensionAttributes.extensionAttribute9" } } });
+    // A field mapped before 1.2 has the path column and an empty blob. It
+    // reads as one mapping, the same one the row and the editor show.
+    await pool().query("UPDATE directory_fields SET mappings = '{}'::jsonb WHERE id = $1", [made.id]);
+    const legacy = (await listFields()).find((x) => x.id === made.id)!;
+    assert.equal(legacy.graph_path, "onPremisesExtensionAttributes.extensionAttribute9");
+    assert.deepEqual(legacy.mappings.microsoft, { kind: "path", path: "onPremisesExtensionAttributes.extensionAttribute9" });
+
+    // "Not mapped" is a save without the provider. 1.2.0 kept the legacy
+    // column and read it back, so the property returned on the next load.
+    const cleared = (await updateField(made.id, { mappings: {} }))!;
+    assert.equal(cleared.mappings.microsoft, undefined);
+    assert.equal(cleared.graph_path, "");
+    assert.equal(effectiveMapping(cleared, "microsoft"), null);
+    const reread = (await listFields()).find((x) => x.id === made.id)!;
+    assert.equal(reread.mappings.microsoft, undefined, "stays cleared on re-read");
+
+    // Editing one provider leaves the other's mapping alone; a non-path
+    // mapping leaves the legacy column empty rather than stale.
+    const both = (await updateField(made.id, { mappings: { microsoft: { kind: "derive", rule: "initials" }, google: { kind: "path", path: "organizations[primary].title" } } }))!;
+    assert.equal(both.graph_path, "");
+    assert.equal(both.google_path, "organizations[primary].title");
+    const oneGone = (await updateField(made.id, { mappings: { google: both.mappings.google } }))!;
+    assert.equal(oneGone.mappings.microsoft, undefined);
+    assert.deepEqual(oneGone.mappings.google, { kind: "path", path: "organizations[primary].title" });
+    assert.equal(oneGone.google_path, "organizations[primary].title");
   });
 });
