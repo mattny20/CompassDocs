@@ -24,6 +24,7 @@ import {
   rawValue,
   resolveValues,
 } from "./directory-display";
+import { officeBlocksFor, type OfficeBlock, type OfficeConfig } from "./directory-offices";
 
 export interface ExportInput {
   preset: ExportPreset;
@@ -34,7 +35,11 @@ export interface ExportInput {
   logo: string | null;
   /** The "printed on" label, already formatted per workspace settings. */
   printedOn: string;
+  /** Office profiles; the PDF closes with one block per office that appears in it. */
+  offices?: OfficeConfig;
 }
+
+export type PreparedOffice = OfficeBlock;
 
 export interface PreparedColumn {
   key: string;
@@ -54,7 +59,10 @@ export interface PreparedExport {
   columns: PreparedColumn[];
   sections: PreparedSection[];
   total: number;
+  /** In the Office field's option order, then by first appearance. Empty unless the preset asks. */
+  offices: PreparedOffice[];
 }
+
 
 const PAPER: Record<ExportPreset["paper"], "LETTER" | "A4" | "LEGAL"> = {
   letter: "LETTER",
@@ -113,6 +121,7 @@ export function prepareExport(input: Omit<ExportInput, "logo" | "printedOn">): P
     columns,
     sections,
     total: visible.length,
+    offices: preset.office_info ? officeBlocksFor(visible, fields.find((f) => f.key === "office"), input.offices) : [],
   };
 }
 
@@ -195,6 +204,31 @@ function DirectoryDocument({ input, prepared }: { input: ExportInput; prepared: 
       fontSize: d.font - 1,
       color: "#94a3b8",
     },
+    officesHead: {
+      fontFamily: "Helvetica-Bold",
+      fontSize: d.head,
+      color: "#475569",
+      textTransform: "uppercase",
+      letterSpacing: 0.4,
+      marginTop: 16,
+      paddingTop: 6,
+      borderTopWidth: 1.2,
+      borderTopColor: "#94a3b8",
+    },
+    office: {
+      marginTop: 6,
+      padding: d.pad + 3,
+      borderWidth: 0.5,
+      borderColor: "#cbd5e1",
+      borderRadius: 3,
+      backgroundColor: "#f8fafc",
+    },
+    officeName: { fontFamily: "Helvetica-Bold", fontSize: d.font + 1, color: "#0f172a", marginBottom: 3 },
+    officeRows: { flexDirection: "row", flexWrap: "wrap" },
+    officeRow: { width: "50%", paddingRight: 8, marginBottom: 2 },
+    officeRowWide: { width: "100%", paddingRight: 8, marginBottom: 2 },
+    officeLabel: { fontFamily: "Helvetica-Bold", fontSize: d.font - 1, color: "#64748b" },
+    officeValue: { fontSize: d.font, color: "#1e293b" },
   });
 
   const width = (c: PreparedColumn) => `${((c.weight / totalWeight) * 100).toFixed(2)}%`;
@@ -252,6 +286,27 @@ function DirectoryDocument({ input, prepared }: { input: ExportInput; prepared: 
                 ))}
               </View>
             ))}
+          </View>
+        ))}
+
+        {/* Office blocks sit after the last row. Each is unbreakable: one that
+            does not fit in what is left of the page moves whole to the next.
+            The heading lives inside the first block's unit, so it moves with
+            it rather than being left alone at the foot of the previous page. */}
+        {prepared.offices.map((o, i) => (
+          <View key={o.name} wrap={false}>
+            {i === 0 ? <Text style={styles.officesHead}>Office information</Text> : null}
+            <View style={styles.office}>
+              <Text style={styles.officeName}>{o.name}</Text>
+              <View style={styles.officeRows}>
+                {o.rows.map((r) => (
+                  <View key={r.label} style={r.multiline ? styles.officeRowWide : styles.officeRow}>
+                    <Text style={styles.officeLabel}>{r.label}</Text>
+                    <Text style={styles.officeValue}>{r.value}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
           </View>
         ))}
 

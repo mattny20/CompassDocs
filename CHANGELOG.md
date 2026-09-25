@@ -4,6 +4,30 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.2.4] - 2026-09-25
+
+### Added
+- **Office profiles.** `Settings → Directory → Offices` describes each
+  office beyond the people in it — address, main phone, fax, hours, parking,
+  shared spaces by default, and any field an admin adds (multi-line or not,
+  in the order they print). Offices come from the Office field's options
+  and from the values people carry; one nobody is in yet can be added by
+  hand. A **PDF export closes with a block for every office that appears in
+  it** — the Phoenix sheet carries the Phoenix details, a firm-wide list
+  carries every office — placed after the last row; a block that does not
+  fit on the last page moves whole to the next. Each preset has an *Office
+  information* switch (on by default), and "what I see" exports honour it.
+
+### Changed
+- **Directory settings are pages now**: People, Fields, Offices, Export and
+  Sync each have a route under Settings → Directory with a tab row under the
+  section header, instead of one long page with a save button in every card.
+  Each page keeps one primary action; the Offices page saves fields and
+  values together. Bookmarks to `/admin/directory` still open People. The
+  settings rail stays lit for every page of the section.
+- The Style Guide now says when a settings section should split into pages
+  and where a card's primary action sits.
+
 ## [1.2.3] - 2026-09-25
 
 ### Added

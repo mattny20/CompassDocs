@@ -170,7 +170,7 @@ test("the Google panel is on the Directory page and offers the setup values", as
   const state = await api(page, "/api/admin/directory/google");
   const bundled = Boolean(state.body?.bundled);
 
-  await page.goto("/admin/directory");
+  await page.goto("/admin/directory/sync");
   await expect(page.getByRole("heading", { name: "Google Workspace sync" })).toBeVisible();
 
   if (bundled) {
