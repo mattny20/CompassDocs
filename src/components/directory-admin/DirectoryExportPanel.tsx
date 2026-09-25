@@ -36,6 +36,7 @@ const PRESET_BLANK: Omit<ExportPreset, "id" | "name"> = {
   footer_note: "",
   filename: "",
   office_info: true,
+  office_columns: 2,
   is_default: false,
 };
 
@@ -231,6 +232,16 @@ export function DirectoryExportPanel({
               <Toggle label="Printed date" checked={cur.printed_date} onChange={(v) => update({ printed_date: v })} />
               <Toggle label="Office information" help="Closes the PDF with the profile of every office that appears in it — set up under Offices." checked={cur.office_info} onChange={(v) => update({ office_info: v })} />
             </div>
+            {cur.office_info && (
+              <Field label="Office blocks per row" help="Side by side at the end of the PDF. One per row lays a block's fields two abreast.">
+                <Select value={String(cur.office_columns)} onChange={(e) => update({ office_columns: Number(e.target.value) as 1 | 2 | 3 | 4 })} className="w-full">
+                  <option value="1">One, full width</option>
+                  <option value="2">Two</option>
+                  <option value="3">Three</option>
+                  <option value="4">Four</option>
+                </Select>
+              </Field>
+            )}
             <Field label="Footer note" help="e.g. “Internal use only — do not distribute”."><TextInput value={cur.footer_note} onChange={(e) => update({ footer_note: e.target.value })} /></Field>
             <Field label="File name" help="Without extension; blank derives one from the title."><TextInput value={cur.filename} onChange={(e) => update({ filename: e.target.value })} placeholder="phone-directory" /></Field>
           </div>

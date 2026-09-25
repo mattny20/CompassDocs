@@ -4,6 +4,16 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.2.8] - 2026-09-25
+
+### Changed
+- **Office blocks stand side by side** at the end of the PDF — one to four
+  to a row, chosen per preset (two by default); a lone full-width block
+  lays its fields two abreast, narrower ones stack them. A row of blocks
+  moves whole to the next page when it does not fit. The **Export** menu on
+  the Directory page has an *Office information* switch for "what I see"
+  exports; each preset keeps its own.
+
 ## [1.2.7] - 2026-09-25
 
 ### Added
