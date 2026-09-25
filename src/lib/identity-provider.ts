@@ -44,6 +44,13 @@ export interface ProviderPerson {
   /** Cheap change check, so an unchanged photo isn't refetched every run. */
   photo_etag?: string;
   custom: Record<string, string>;
+  /**
+   * The raw user object as the provider returned it (1.2). When present, core
+   * applies the field mappings itself and `custom` is ignored — which is what
+   * lets a mapping be previewed and re-applied without another sync. Add
+   * `_groups`: the ids of the configured groups this person belongs to.
+   */
+  record?: Record<string, unknown> & { _groups?: string[] };
   /** The provider says this account is inactive (suspended/blocked/archived). */
   suspended: boolean;
 }

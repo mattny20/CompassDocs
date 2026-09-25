@@ -4,6 +4,105 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] - 2026-09-25
+
+The directory becomes something you configure rather than something you
+work around: every field is a row in a registry, every value can be mapped
+in from your identity system, and every view — including the PDF — reads the
+same configuration.
+
+### Added
+- **The directory registry.** `Settings → Directory → Directory fields` now
+  lists every attribute the directory shows, built-in columns included. A
+  field has a **kind** (text, choice, or people), optional **options** — an
+  ordered list of values with labels and aliases — and a **mapping** per
+  connected provider. Options are what give the directory an order: the
+  Groups view sections and the sort inside them follow the option order, so
+  "Attorneys, then Admin, IT, Accounting, Records" is a list an admin drags
+  into shape, not the alphabet. Labels turn a code into a name (`PHX1` shows
+  as "PHX1 – Phoenix"); aliases fold raw values into one option
+  (`*Attorney*`, `Partner`, `Of Counsel` → Attorney) without anyone editing
+  Entra. A **"Values seen in data"** harvester lists what the field actually
+  holds, with counts, and flags what matches no option.
+
+- **A mapping engine, with preview.** A mapping is no longer one property
+  name. It can read a property (dotted paths, array indexes, Google's
+  `[primary]` entries), **compose** several (`{officeLocation} – {city}`),
+  **extract** with a pattern (`x(\d{2,5})$` over the phone numbers),
+  fall through a list of **fallbacks**, derive **initials** or the local part
+  of an email, or read **group membership** — each provider group a person is
+  in contributes a value. Every mapping can be **previewed against the stored
+  records** before it is saved ("fills 84 of 96 — 3 would be empty", with
+  samples), and saving re-applies it to everyone immediately, with no resync.
+  The sync now keeps each person's raw provider record for exactly this.
+
+- **Two layers per person.** What a sync produced (`synced`) and what an admin
+  typed (`custom`) are stored separately; the admin's value wins per key, and
+  clearing it — "use synced value" — reveals the provider's again. Admins can
+  now open the editor for synced people: name, title and contact details stay
+  read-only (they belong to the provider), everything else is theirs and
+  survives every sync. This also fixes a bug where a value cleared in Entra
+  never cleared here.
+
+- **Assistants, properly.** The single assistant link is now a many-to-many
+  relation — one legal assistant supporting five attorneys is five links, an
+  attorney with a primary and a backup is two — shown from **both ends**:
+  "Assistant: Dana Ruiz" on the attorney, "Assists: Ortiz, Chen, Diaz" on
+  Dana. Both appear on cards, in the list (two columns), on profiles, in
+  exports and in search. Any field of kind *people* works this way, so a
+  "Supervising attorney" or "Backup assistant" field costs nothing extra.
+  From Entra, a people field maps to an attribute holding emails, sign-in
+  names or object ids (Graph has no assistant property), on either end — an
+  admin says whether the value on a person names *their* assistants or the
+  people *they* assist. Unresolved references are reported on the sync panel
+  and retried each run.
+
+- **Group by anything.** The Departments tab is now **Groups**: sections by
+  any field an admin marks *group by* — department, title, office, a
+  practice-group field — in option order, with an "attorneys first" order
+  inside each section when Title has options, and each attorney's assistants
+  named on their tile. Cards can be sectioned the same way. A filter menu
+  offers the grouped field's values.
+
+- **Pins.** Admins pin people to the top of every view (reception, IT, the
+  records desk), in an order they set; each person can also star their own.
+
+- **PDF and CSV export.** The Print button is now **Export**: server-rendered
+  PDFs from admin-defined **presets** — paper size (Letter, A4, Legal),
+  orientation, density, workspace logo, title and subtitle, columns and
+  order, sections by any group-by field, sort, a filter (one office's sheet),
+  photo thumbnails, a key-contacts section, a footer with the printed date,
+  "Page X of Y" and a confidentiality line, and a file name — plus **"What I
+  see"**, which exports exactly the people, columns and grouping on screen,
+  as PDF or CSV. The old print-columns setting migrates into the default
+  preset. Browser print remains as a fallback.
+
+- **Admin defaults for the on-screen list**: the default columns (Title is no
+  longer in the shipped default — it took the room contact details need) and
+  the field the Groups view opens on. The column menu shows how many people
+  have a value for each column, so a column that would be blank all the way
+  down says so first.
+
+- **A new hire typed in by hand is adopted by the sync** that later matches
+  their email — the same row, now owned by the provider — so links, pins and
+  manual values survive the first sync, and a community workspace that
+  licenses the sync does not end up with everyone twice.
+
+### Changed
+- **Chips are neutral by default and show the option's label**, never a raw
+  code. Fields that were tag-style before keep the accent colour; new ones opt
+  in, and an option can carry its own colour. A "Notary" field holding an
+  office code no longer renders as a red box saying `PHX1`.
+- Choosing a view no longer inherits the sort last clicked in the list — the
+  grouped views used to silently reorder by whatever column was last sorted.
+- Built-in field keys are reserved; an existing custom field keyed like one
+  is renamed (`department` → `department_custom`) at boot, with its values.
+
+### For the enterprise overlay
+- The sync may now hand core each person's raw provider record (`record`)
+  and let core apply the mappings; the previous `custom` path still works.
+  Core publishes the properties and group ids the current mappings need.
+
 ## [1.1.1] - 2026-09-25
 
 ### Fixed

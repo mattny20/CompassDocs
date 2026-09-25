@@ -6,8 +6,10 @@ const nextConfig = {
   // easy deploys on Railway / Render / Fly. Vercel ignores this and works too.
   output: "standalone",
   // Keep the Postgres driver out of the server bundle (it has optional native
-  // deps and dynamic requires); load it from node_modules at runtime.
-  serverExternalPackages: ["pg"],
+  // deps and dynamic requires); load it from node_modules at runtime. The PDF
+  // renderer likewise: it carries its own font and image decoders that do not
+  // survive bundling.
+  serverExternalPackages: ["pg", "@react-pdf/renderer"],
   async headers() {
     // Baseline hardening on every response. HSTS is a no-op over plain HTTP
     // (browsers ignore it), so it's safe to send unconditionally.

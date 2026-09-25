@@ -1,11 +1,16 @@
 import { NextResponse } from "next/server";
 import { apiGuard } from "@/lib/api-auth";
-import { updatePerson, deletePerson } from "@/lib/directory";
+import { getPersonById, updatePerson, deletePerson } from "@/lib/directory";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
+import { readPersonBody } from "../body";
 
 export const dynamic = "force-dynamic";
 
-/** Edit a directory entry (manual fields, or hide/show any entry). */
+/**
+ * Edit a directory entry. Manual rows take every field; synced rows take only
+ * what the admin owns — hidden, pin, the manual layer, manual links (see
+ * ./body.ts for the rule).
+ */
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const gate = await apiGuard("admin", "directory.person_manage");
   if (gate instanceof NextResponse) return gate;
@@ -21,20 +26,20 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
 
-  const person = await updatePerson(id, {
-    ...(body?.name !== undefined ? { name: String(body.name) } : {}),
-    ...(body?.title !== undefined ? { title: String(body.title) } : {}),
-    ...(body?.department !== undefined ? { department: String(body.department) } : {}),
-    ...(body?.email !== undefined ? { email: String(body.email) } : {}),
-    ...(body?.phone !== undefined ? { phone: String(body.phone) } : {}),
-    ...(body?.mobile !== undefined ? { mobile: String(body.mobile) } : {}),
-    ...(body?.office !== undefined ? { office: String(body.office) } : {}),
-    ...(body?.hidden !== undefined ? { hidden: Boolean(body.hidden) } : {}),
-    ...(body?.assistant_id !== undefined
-      ? { assistant_id: body.assistant_id === null ? null : Number(body.assistant_id) }
-      : {}),
-    ...(body?.custom !== undefined && typeof body.custom === "object" ? { custom: body.custom } : {}),
-  });
+  const existing = await getPersonById(id);
+  if (!existing) return NextResponse.json({ error: "Not found." }, { status: 404 });
+
+  let pinOrder = readPersonBody(body, existing.source).pin_order;
+  if (pinOrder === Number.MAX_SAFE_INTEGER) {
+    // "pinned: true" — append after the current last pin.
+    const { pool } = await import("@/lib/db");
+    const r = await pool().query<{ m: number | null }>("SELECT MAX(pin_order) AS m FROM directory_people");
+    pinOrder = (r.rows[0]?.m ?? -1) + 1;
+  }
+  const patch = readPersonBody(body, existing.source);
+  if (patch.pin_order !== undefined) patch.pin_order = pinOrder ?? null;
+
+  const person = await updatePerson(id, patch);
   if (!person) return NextResponse.json({ error: "Not found." }, { status: 404 });
 
   await audit({
@@ -43,12 +48,13 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     targetType: "directory_person",
     targetId: String(id),
     targetLabel: person.name,
+    details: { keys: Object.keys(patch), source: existing.source },
     ip: ipFrom(req),
   });
   return NextResponse.json({ person });
 }
 
-/** Remove a directory entry. (Graph entries reappear on the next sync — hide those instead.) */
+/** Remove a directory entry. (Synced entries reappear on the next sync — hide those instead.) */
 export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const gate = await apiGuard("admin", "directory.person_manage");
   if (gate instanceof NextResponse) return gate;

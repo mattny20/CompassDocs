@@ -1,25 +1,17 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Mail, Phone, Smartphone, MapPin, UserRound, ArrowLeft, FileText } from "lucide-react";
+import { Mail, Phone, Smartphone, MapPin, UserRound, Users, ArrowLeft, FileText } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { getPersonById, listFields } from "@/lib/directory";
 import { listDocumentsByAuthor, listLinkedUserNames } from "@/lib/db";
 import { canSeeDrafts, spaceScopeFor } from "@/lib/access";
 import { DocCard } from "@/components/DocCard";
-import { TagBadges } from "@/components/TagBadges";
+import { FieldChips } from "@/components/TagBadges";
 import { EmptyState } from "@/components/form";
 import { PageContainer } from "@/components/PageWidth";
+import { displayValue, initialsOf } from "@/lib/directory-display";
 
 export const dynamic = "force-dynamic";
-
-function initials(name: string): string {
-  return name
-    .split(/\s+/)
-    .map((w) => w[0])
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
-}
 
 export default async function PersonProfilePage({
   params,
@@ -38,13 +30,15 @@ export default async function PersonProfilePage({
     listDocumentsByAuthor(aliases, isEditor, scope),
     listFields(),
   ]);
+  const officeField = fields.find((f) => f.key === "office");
+  const office = officeField ? displayValue(officeField, person.office) : person.office;
+
+  // Custom values, with option labels applied; people fields render from links.
   const custom = fields
-    .map((f) => ({
-      label: f.label,
-      display: f.display,
-      value: (person.custom as Record<string, string>)?.[f.key],
-    }))
+    .filter((f) => !f.builtin && f.kind !== "people")
+    .map((f) => ({ field: f, value: person.custom?.[f.key] ?? "" }))
     .filter((f) => f.value);
+  const peopleFields = fields.filter((f) => f.kind === "people");
 
   return (
     <PageContainer>
@@ -66,7 +60,7 @@ export default async function PersonProfilePage({
             />
           ) : (
             <div className="grid h-20 w-20 place-items-center rounded-full bg-compass-100 text-2xl font-semibold text-compass-700">
-              {initials(person.name)}
+              {initialsOf(person.name)}
             </div>
           )}
           <div className="min-w-0 flex-1">
@@ -90,24 +84,39 @@ export default async function PersonProfilePage({
                   <Smartphone className="h-3.5 w-3.5" /> {person.mobile}
                 </a>
               )}
-              {person.office && (
+              {office && (
                 <span className="inline-flex items-center gap-1.5 text-slate-600">
-                  <MapPin className="h-3.5 w-3.5" /> {person.office}
-                </span>
-              )}
-              {person.assistant_name && (
-                <span className="inline-flex items-center gap-1.5 text-slate-600">
-                  <UserRound className="h-3.5 w-3.5" /> Assistant: {person.assistant_name}
+                  <MapPin className="h-3.5 w-3.5" /> {office}
                 </span>
               )}
             </div>
+
+            {/* People fields, both directions: "Assistant: Dana" on the
+                attorney, "Assists: Amy, Bob" on Dana. */}
+            {peopleFields.some((f) => (person.links[f.key] ?? []).length || (person.linked_by[f.key] ?? []).length) && (
+              <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1.5 text-sm">
+                {peopleFields.map((f) => (
+                  <PeopleLine key={`out-${f.key}`} icon={<UserRound className="h-3.5 w-3.5" />} label={f.label} refs={person.links[f.key] ?? []} />
+                ))}
+                {peopleFields.map((f) => (
+                  <PeopleLine key={`in-${f.key}`} icon={<Users className="h-3.5 w-3.5" />} label={f.inverse_label || `${f.label} to`} refs={person.linked_by[f.key] ?? []} />
+                ))}
+              </div>
+            )}
+
             {custom.length > 0 && (
               <dl className="mt-3 grid gap-x-8 gap-y-1 text-sm sm:grid-cols-2">
-                {custom.map((f) => (
-                  <div key={f.label} className="flex gap-2">
-                    <dt className="shrink-0 text-slate-400">{f.label}:</dt>
+                {custom.map(({ field, value }) => (
+                  <div key={field.key} className="flex gap-2">
+                    <dt className="shrink-0 text-slate-400">{field.label}:</dt>
                     <dd className="text-slate-700">
-                      {f.display === "tag" ? <TagBadges value={f.value!} size="md" /> : f.value}
+                      {field.display === "tag" ? (
+                        <FieldChips field={field} value={value} size="md" />
+                      ) : field.display === "phone" ? (
+                        <a href={`tel:${value}`} className="hover:underline">{displayValue(field, value)}</a>
+                      ) : (
+                        displayValue(field, value)
+                      )}
                     </dd>
                   </div>
                 ))}
@@ -134,5 +143,22 @@ export default async function PersonProfilePage({
         </div>
       )}
     </PageContainer>
+  );
+}
+
+function PeopleLine({ icon, label, refs }: { icon: React.ReactNode; label: string; refs: { id: number; name: string }[] }) {
+  if (refs.length === 0) return null;
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1.5 text-slate-600">
+      {icon} {label}:{" "}
+      {refs.map((r, i) => (
+        <span key={r.id}>
+          <Link href={`/directory/${r.id}`} className="font-medium text-compass-700 hover:underline">
+            {r.name}
+          </Link>
+          {i < refs.length - 1 ? "," : ""}
+        </span>
+      ))}
+    </span>
   );
 }

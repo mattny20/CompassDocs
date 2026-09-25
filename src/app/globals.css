@@ -727,3 +727,33 @@ mark {
   background: rgb(var(--compass-100));
   color: inherit;
 }
+
+/* Print always renders the light theme. A dark-mode page sent to the printer
+ * as-is comes out as white text on white paper; re-declaring the light tokens
+ * here (after the dark block, same specificity) wins by order. */
+@media print {
+  :root[data-theme="dark"] {
+    color-scheme: light;
+    --surface: 255 255 255;
+    --canvas: 255 255 255;
+    --slate-50: 248 250 252;
+    --slate-100: 241 245 249;
+    --slate-200: 226 232 240;
+    --slate-300: 203 213 225;
+    --slate-400: 148 163 184;
+    --slate-500: 90 105 128;
+    --slate-600: 71 85 105;
+    --slate-700: 51 65 85;
+    --slate-800: 30 41 59;
+    --slate-900: 15 23 42;
+    --slate-950: 2 6 23;
+    --compass-50: 237 245 251;
+    --compass-100: 212 230 245;
+  }
+  :root[data-theme="dark"] :is(.text-compass-600, .text-compass-700) {
+    color: rgb(39 95 153);
+  }
+  :root {
+    --canvas: 255 255 255;
+  }
+}
