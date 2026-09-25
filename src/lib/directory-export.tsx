@@ -138,7 +138,7 @@ function DirectoryDocument({ input, prepared }: { input: ExportInput; prepared: 
   const d = DENSITY[preset.density];
   const totalWeight = prepared.columns.reduce((s, c) => s + c.weight, 0) || 1;
   const photoCol = preset.photos ? d.photo + 6 : 0;
-  const twoUp = preset.page_columns === 2;
+  const twoUp = preset.page_columns > 1;
 
   const styles = StyleSheet.create({
     page: {
@@ -202,7 +202,7 @@ function DirectoryDocument({ input, prepared }: { input: ExportInput; prepared: 
       textAlign: "center",
       paddingTop: d.photo / 2 - (d.font - 2.5) / 2 - 1,
     },
-    columns: { flexDirection: "row", gap: 18 },
+    columns: { flexDirection: "row", gap: preset.page_columns === 3 ? 14 : 18 },
     column: { flex: 1 },
     footer: {
       position: "absolute",
@@ -360,8 +360,9 @@ function DirectoryDocument({ input, prepared }: { input: ExportInput; prepared: 
     );
   }
 
-  // Two columns per page: the table is dealt into columns of a known height
-  // (see directory-export-layout), and each page is laid out explicitly.
+  // Two or three columns per page: the table is dealt into columns of a
+  // known height (see directory-export-layout), and each page is laid out
+  // explicitly.
   const lines: ExportLine<DirectoryPerson>[] = [];
   for (const s of prepared.sections) {
     if (s.label !== null) lines.push({ kind: "section", label: s.label, count: s.rows.length });
@@ -376,7 +377,7 @@ function DirectoryDocument({ input, prepared }: { input: ExportInput; prepared: 
     photo: preset.photos ? d.photo : 0,
     hasSubtitle: Boolean(prepared.subtitle),
   });
-  const pages = planPages(lines, geometry);
+  const pages = planPages(lines, geometry, preset.page_columns);
 
   return (
     <Document {...docProps}>

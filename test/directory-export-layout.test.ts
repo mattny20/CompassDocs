@@ -45,6 +45,13 @@ describe("planPages", () => {
     assert.equal(pages[0].columns[1].lines.length, 4);
   });
 
+  test("three to a page when asked", () => {
+    const lines = Array.from({ length: 25 }, (_, i) => row(i));
+    const pages = planPages(lines, { slotsPerColumn: 10, sectionSlots: 2 }, 3);
+    assert.equal(pages.length, 1);
+    assert.deepEqual(pages[0].columns.map((c) => c.lines.length), [10, 10, 5]);
+  });
+
   test("an empty table is one page with one empty column", () => {
     assert.deepEqual(planPages([], { slotsPerColumn: 10, sectionSlots: 2 }), [{ columns: [{ lines: [] }] }]);
   });

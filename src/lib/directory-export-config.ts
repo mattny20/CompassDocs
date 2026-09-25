@@ -31,9 +31,10 @@ export interface ExportPreset {
   /** A second key the sort falls through to — "Office, then Title". "" for none. */
   sort2: string;
   sort2_dir: "asc" | "desc";
-  /** Lay the table out in two side-by-side columns on each page — a short
-   *  table (name, extension) fills a sheet instead of a strip down the left. */
-  page_columns: 1 | 2;
+  /** Lay the table out in two or three side-by-side columns on each page —
+   *  a short table (name, extension) fills a sheet instead of a strip down
+   *  the left. */
+  page_columns: 1 | 2 | 3;
   /** Shade every other row so the eye keeps its line across a wide page. */
   zebra: boolean;
   /** Only people whose field value matches — e.g. one office's sheet. */
@@ -117,7 +118,7 @@ export function sanitizePreset(raw: unknown, fields: DirectoryField[], fallbackI
     sort_dir: o.sort_dir === "desc" ? "desc" : "asc",
     sort2: sort2Key && valid.has(sort2Key) && sort2Key !== sortKey ? sort2Key : "",
     sort2_dir: o.sort2_dir === "desc" ? "desc" : "asc",
-    page_columns: Number(o.page_columns) === 2 ? 2 : 1,
+    page_columns: Number(o.page_columns) === 3 ? 3 : Number(o.page_columns) === 2 ? 2 : 1,
     zebra: o.zebra === undefined ? true : Boolean(o.zebra),
     filter: filterKey && filterValue && valid.has(filterKey) ? { key: filterKey, value: filterValue } : null,
     photos: Boolean(o.photos),
