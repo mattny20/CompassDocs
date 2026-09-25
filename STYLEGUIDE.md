@@ -231,6 +231,15 @@ inherit. Toasts and per-field validation errors are unrelated (see Feedback).
 `bg-amber-100 text-amber-700`, `bg-slate-100 text-slate-500`, or accent
 `bg-compass-50 text-compass-700`.
 
+**Attribute chips** (a directory field shown as chips, a tag list) are not
+status: render them with `FieldChips`, which shows the option's **label**
+(never a raw code — "Phoenix", not `PHX1`) in **neutral slate by default**.
+The accent is opt-in per field (`highlight`) and a colour is opt-in per
+option; a certification or a team must never read as an alert. The one
+place the *field's name* belongs next to its chips is a card, where the
+chips would otherwise be a bare word: render `label` in `text-xs
+text-slate-400` before them ("Notary · Phoenix").
+
 ## Feedback
 
 - Action results use **toasts** (bottom-right, auto-dismiss, ok/error
@@ -377,7 +386,20 @@ Rules:
 Pages people print for records (certificates, transcripts, status, the
 compliance matrix) hide their controls with `print:hidden` (buttons, search
 boxes, filters) and keep tables/breaks clean (`break-inside: avoid` for
-cards and images — see the `@media print` block in globals.css).
+cards and images — see the `@media print` block in globals.css). Printing
+always renders the **light** theme: the `@media print` block re-declares the
+light tokens and `color-scheme: light`, because a dark-mode page printed as-is
+is white text on white paper.
+
+**Exports are files, not print dialogs.** When something needs to leave the
+app as a document — the directory, a report — render it on the server
+(`@react-pdf/renderer` for PDF, plain text for CSV) from an admin-defined
+preset, behind an **Export ▾** menu that lists the presets, "What I see"
+(the current filter/columns/grouping), and "Print…" as the fallback. The
+browser print path can't honour paper size, logos or footers reliably across
+machines; a server-rendered file can. Route the values through the same
+display helpers the screen uses so a code that shows as a label on screen is
+a label on paper.
 
 ## Accessibility
 

@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { apiGuard } from "@/lib/api-auth";
-import { updateField, deleteField } from "@/lib/directory";
+import { updateField, deleteField, reapplyMappings } from "@/lib/directory";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
+import { readFieldBody } from "../body";
 
 export const dynamic = "force-dynamic";
 
@@ -20,15 +21,19 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
 
-  const field = await updateField(id, {
-    ...(body?.label !== undefined ? { label: String(body.label) } : {}),
-    ...(body?.graph_path !== undefined ? { graph_path: String(body.graph_path) } : {}),
-    ...(body?.google_path !== undefined ? { google_path: String(body.google_path) } : {}),
-    ...(body?.show_in_card !== undefined ? { show_in_card: Boolean(body.show_in_card) } : {}),
-    ...(body?.display !== undefined ? { display: body.display === "tag" ? ("tag" as const) : ("field" as const) } : {}),
-    ...(body?.sort !== undefined ? { sort: Number(body.sort) } : {}),
-  });
+  const input = readFieldBody(body);
+  const field = await updateField(id, input);
   if (!field) return NextResponse.json({ error: "Not found." }, { status: 404 });
+
+  // Mappings, options and direction all change what the stored records mean;
+  // re-derive the synced layer so the admin sees the effect immediately.
+  const touchesData =
+    input.mappings !== undefined ||
+    input.graph_path !== undefined ||
+    input.google_path !== undefined ||
+    input.link_direction !== undefined ||
+    input.multi !== undefined;
+  const applied = touchesData ? await reapplyMappings() : null;
 
   await audit({
     actor: actorFrom(gate),
@@ -36,9 +41,10 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     targetType: "directory_field",
     targetId: String(id),
     targetLabel: field.label,
+    details: { keys: Object.keys(input) },
     ip: ipFrom(req),
   });
-  return NextResponse.json({ field });
+  return NextResponse.json({ field, applied });
 }
 
 /** Delete a field definition and scrub its values from every person. */
@@ -50,7 +56,12 @@ export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }
   const id = Number.parseInt(idRaw, 10);
   if (!Number.isFinite(id)) return NextResponse.json({ error: "Bad id." }, { status: 400 });
 
-  const ok = await deleteField(id);
+  let ok: boolean;
+  try {
+    ok = await deleteField(id);
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message || "Could not delete the field." }, { status: 400 });
+  }
   if (!ok) return NextResponse.json({ error: "Not found." }, { status: 404 });
 
   await audit({

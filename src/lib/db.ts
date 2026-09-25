@@ -127,6 +127,7 @@ async function initialize(): Promise<void> {
     await migrateVisibilityTiers(client);
     await migrateSecuritySealing(client);
     await migrateWeightedSearch(client);
+    await migrateDirectoryRegistry(client);
     await seedIfEmpty(client);
     await bootstrapAuth(client);
   } finally {
@@ -1061,6 +1062,61 @@ const SCHEMA_SQL = `
   );
   CREATE INDEX IF NOT EXISTS idx_image_tickets_doc ON image_upload_tickets(document_id);
 
+  -- --- Directory registry (1.2) ----------------------------------------------
+  --
+  -- directory_fields stops being "a label plus a Graph path" and becomes the
+  -- directory's schema. Built-in columns (title, department, office, assistant)
+  -- are seeded as rows with builtin = 1 so the same machinery -- options with
+  -- an admin-defined order, value maps, mappings, group-by -- reaches them.
+  --   kind          text | choice | people
+  --   multi         a choice/people field can hold several values
+  --   group_by      offered in the directory's "Group by" menu
+  --   options       ordered [{value, label, matches[], color, hidden}]
+  --   value_format  raw | label | code_label  (how a value with an option shows)
+  --   show_with     render this field's chips beside another field's value
+  --   highlight     chips in the accent colour (existing tag fields keep it)
+  --   inverse_label people fields: the label on the other end ("Assists")
+  --   mappings      {microsoft?: Mapping, google?: Mapping} -- see
+  --                 directory-mapping.ts. graph_path/google_path stay as the
+  --                 legacy single-property form the older overlay reads.
+  ALTER TABLE directory_fields ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'text';
+  ALTER TABLE directory_fields ADD COLUMN IF NOT EXISTS multi integer NOT NULL DEFAULT 0;
+  ALTER TABLE directory_fields ADD COLUMN IF NOT EXISTS group_by integer NOT NULL DEFAULT 0;
+  ALTER TABLE directory_fields ADD COLUMN IF NOT EXISTS builtin integer NOT NULL DEFAULT 0;
+  ALTER TABLE directory_fields ADD COLUMN IF NOT EXISTS options jsonb NOT NULL DEFAULT '[]'::jsonb;
+  ALTER TABLE directory_fields ADD COLUMN IF NOT EXISTS value_format text NOT NULL DEFAULT 'raw';
+  ALTER TABLE directory_fields ADD COLUMN IF NOT EXISTS show_with text NOT NULL DEFAULT '';
+  ALTER TABLE directory_fields ADD COLUMN IF NOT EXISTS highlight integer NOT NULL DEFAULT 0;
+  ALTER TABLE directory_fields ADD COLUMN IF NOT EXISTS inverse_label text NOT NULL DEFAULT '';
+  ALTER TABLE directory_fields ADD COLUMN IF NOT EXISTS link_direction text NOT NULL DEFAULT 'out';
+  ALTER TABLE directory_fields ADD COLUMN IF NOT EXISTS mappings jsonb NOT NULL DEFAULT '{}'::jsonb;
+
+  -- Two layers per person. synced = what the provider's mappings produced on
+  -- the last run, replaced wholesale each sync; custom = what an admin typed,
+  -- which no sync ever writes. The effective value is custom over synced, per
+  -- key. provider_record is the raw user object the provider returned (minus
+  -- the photo), so a mapping can be previewed and re-applied without another
+  -- sync. pin_order is admin-owned like hidden: never named in the upsert.
+  ALTER TABLE directory_people ADD COLUMN IF NOT EXISTS synced jsonb NOT NULL DEFAULT '{}'::jsonb;
+  ALTER TABLE directory_people ADD COLUMN IF NOT EXISTS provider_record jsonb;
+  ALTER TABLE directory_people ADD COLUMN IF NOT EXISTS pin_order integer;
+
+  -- People-kind fields: a relation between two rows, queried from both ends,
+  -- owned by whoever wrote it. The old single assistant_id is folded in here by
+  -- migrateDirectoryRegistry and no longer read.
+  CREATE TABLE IF NOT EXISTS directory_person_links (
+    person_id integer NOT NULL REFERENCES directory_people(id) ON DELETE CASCADE,
+    field_key text NOT NULL,
+    target_id integer NOT NULL REFERENCES directory_people(id) ON DELETE CASCADE,
+    source text NOT NULL DEFAULT 'manual',
+    sort integer NOT NULL DEFAULT 0,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (person_id, field_key, target_id),
+    CHECK (person_id <> target_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_directory_links_target
+    ON directory_person_links(target_id, field_key);
+
   -- --- Role-based access control (0.91) ------------------------------------
   --
   -- Three tables. Roles hold permissions; assignments bind a role to a subject
@@ -1203,6 +1259,117 @@ async function migrateWeightedSearch(client: import("pg").PoolClient) {
     ) STORED;
     CREATE INDEX idx_documents_search ON documents USING gin(search);
   `);
+}
+
+/**
+ * Directory registry migrations (1.2). Every step is idempotent, and the two
+ * that would otherwise re-run on every boot -- folding assistant_id into the
+ * links table, splitting synced values out of custom -- are recorded in the
+ * settings table, because both copy data that an admin may then legitimately
+ * delete; re-running them at the next restart would resurrect it.
+ */
+const DIRECTORY_RESERVED_KEYS = [
+  "name", "title", "department", "email", "phone", "mobile", "office",
+  "assistant", "assists", "photo", "hidden", "source", "id",
+];
+const DIRECTORY_BUILTIN_FIELDS: {
+  key: string; label: string; kind: string; multi: number; group_by: number; inverse_label: string; sort: number;
+}[] = [
+  { key: "title", label: "Title", kind: "text", multi: 0, group_by: 1, inverse_label: "", sort: -40 },
+  { key: "department", label: "Department", kind: "text", multi: 0, group_by: 1, inverse_label: "", sort: -30 },
+  { key: "office", label: "Office", kind: "text", multi: 0, group_by: 1, inverse_label: "", sort: -20 },
+  { key: "assistant", label: "Assistant", kind: "people", multi: 1, group_by: 0, inverse_label: "Assists", sort: -10 },
+];
+
+async function migrateDirectoryRegistry(client: import("pg").PoolClient) {
+  const doneRow = await client.query<{ value: string }>(
+    "SELECT value FROM settings WHERE key = 'directory_migrations'"
+  );
+  const done = new Set<string>(
+    (() => {
+      try {
+        const parsed = JSON.parse(doneRow.rows[0]?.value ?? "[]");
+        return Array.isArray(parsed) ? parsed.map(String) : [];
+      } catch {
+        return [];
+      }
+    })()
+  );
+  const markDone = async (step: string) => {
+    done.add(step);
+    await client.query(
+      `INSERT INTO settings (key, value) VALUES ('directory_migrations', $1)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      [JSON.stringify([...done])]
+    );
+  };
+
+  // A custom field that happens to be keyed like a built-in column would shadow
+  // it the moment the built-in row exists. Rename it (and its values) instead
+  // of refusing to boot.
+  const clashes = await client.query<{ id: number; key: string }>(
+    "SELECT id, key FROM directory_fields WHERE builtin = 0 AND key = ANY($1::text[])",
+    [DIRECTORY_RESERVED_KEYS]
+  );
+  for (const row of clashes.rows) {
+    const next = `${row.key}_custom`;
+    console.warn(`[db] directory field "${row.key}" collides with a built-in column; renaming to "${next}"`);
+    await client.query("UPDATE directory_fields SET key = $2 WHERE id = $1", [row.id, next]);
+    for (const col of ["custom", "synced"]) {
+      await client.query(
+        `UPDATE directory_people SET ${col} = (${col} - $1::text) || jsonb_build_object($2::text, ${col}->$1::text)
+         WHERE ${col} ? $1::text`,
+        [row.key, next]
+      );
+    }
+  }
+
+  for (const f of DIRECTORY_BUILTIN_FIELDS) {
+    await client.query(
+      `INSERT INTO directory_fields (key, label, graph_path, google_path, show_in_card, sort, display, kind, multi, group_by, builtin, inverse_label)
+       VALUES ($1, $2, '', '', 0, $3, 'field', $4, $5, $6, 1, $7)
+       ON CONFLICT (key) DO UPDATE SET builtin = 1`,
+      [f.key, f.label, f.sort, f.kind, f.multi, f.group_by, f.inverse_label]
+    );
+  }
+
+  if (!done.has("links_v1")) {
+    const moved = await client.query(
+      `INSERT INTO directory_person_links (person_id, field_key, target_id, source, sort)
+       SELECT id, 'assistant', assistant_id, 'manual', 0 FROM directory_people
+       WHERE assistant_id IS NOT NULL AND assistant_id <> id
+       ON CONFLICT DO NOTHING`
+    );
+    if (moved.rowCount) console.log(`[db] directory: folded ${moved.rowCount} assistant link(s) into directory_person_links`);
+    await markDone("links_v1");
+  }
+
+  if (!done.has("synced_v1")) {
+    // Values the old sync wrote into custom for mapped keys belong in the synced
+    // layer, or they would shadow every future sync as "manual overrides".
+    const mapped = await client.query<{ key: string }>(
+      "SELECT key FROM directory_fields WHERE builtin = 0 AND (graph_path <> '' OR google_path <> '')"
+    );
+    const keys = mapped.rows.map((r) => r.key);
+    if (keys.length) {
+      const res = await client.query(
+        `UPDATE directory_people
+            SET synced = synced || COALESCE((SELECT jsonb_object_agg(k, v) FROM jsonb_each(custom) WHERE k = ANY($1::text[])), '{}'::jsonb),
+                custom = custom - $1::text[]
+          WHERE source <> 'manual' AND custom ?| $1::text[]`,
+        [keys]
+      );
+      if (res.rowCount) console.log(`[db] directory: moved mapped values into the synced layer for ${res.rowCount} people`);
+    }
+    await markDone("synced_v1");
+  }
+
+  if (!done.has("tag_highlight_v1")) {
+    // Chips default to neutral from 1.2; fields that were tags before keep the
+    // accent so nothing on an existing workspace changes colour.
+    await client.query("UPDATE directory_fields SET highlight = 1 WHERE display = 'tag' AND builtin = 0");
+    await markDone("tag_highlight_v1");
+  }
 }
 
 /**

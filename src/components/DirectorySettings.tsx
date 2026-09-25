@@ -1,14 +1,19 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { X } from "lucide-react";
+import { Pin, ArrowUp, ArrowDown } from "lucide-react";
 import { MsDeviceSetup } from "./MsDeviceSetup";
 import { EntityPicker } from "./EntityPicker";
 import { Field, Select, TextInput, Toggle } from "@/components/form";
 import { toast } from "@/components/Toasts";
-import type { DirectoryPerson, DirectoryField } from "@/lib/directory";
+import type { DirectoryPerson, DirectoryField, LinkRow, SyncReport } from "@/lib/directory";
+import type { ExportPreset } from "@/lib/directory-export-config";
 import { useFormatDate } from "./SettingsProvider";
+import { DirectoryFieldsPanel } from "./directory-admin/DirectoryFieldsPanel";
+import { DirectoryExportPanel } from "./directory-admin/DirectoryExportPanel";
+import { jsonFetch } from "./directory-admin/shared";
+import type { ProviderKey } from "@/lib/identity-provider";
 
 interface GraphState {
   enabled: boolean; // bundled AND licensed
@@ -32,96 +37,45 @@ interface GraphState {
 }
 
 const EMPTY_FORM = { name: "", title: "", department: "", email: "", phone: "", mobile: "", office: "" };
-
-// Common Graph user properties offered as mapping suggestions, plus the 15
-// Exchange custom attributes (onPremisesExtensionAttributes).
-const GRAPH_PATHS = [
-  "employeeId", "companyName", "employeeType", "faxNumber", "preferredLanguage",
-  "streetAddress", "city", "state", "postalCode", "country", "usageLocation",
-  "ageGroup", "mailNickname", "onPremisesSamAccountName", "onPremisesDistinguishedName",
-  ...Array.from({ length: 15 }, (_, i) => `onPremisesExtensionAttributes.extensionAttribute${i + 1}`),
-];
+const SOURCE_LABEL: Record<string, string> = { manual: "manual", graph: "Microsoft 365", google: "Google Workspace" };
 
 export function DirectorySettings({
   initialPeople,
   initialFields,
+  initialLinks,
+  initialListColumns,
+  initialGroupBy,
+  initialPresets,
   graph,
+  reports,
 }: {
   initialPeople: DirectoryPerson[];
   initialFields: DirectoryField[];
+  initialLinks: LinkRow[];
+  initialListColumns: string[];
+  initialGroupBy: string;
+  initialPresets: ExportPreset[];
   graph: GraphState;
+  reports: { graph: SyncReport | null; google: SyncReport | null };
 }) {
   const router = useRouter();
   const [people, setPeople] = useState(initialPeople);
+  const [links, setLinks] = useState(initialLinks);
   const [fields, setFields] = useState(initialFields);
-  const [form, setForm] = useState({ ...EMPTY_FORM });
-  const [formAssistant, setFormAssistant] = useState<string>("");
-  const [formCustom, setFormCustom] = useState<Record<string, string>>({});
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [busy, setBusy] = useState(false);
 
   async function refresh() {
-    const res = await fetch("/api/admin/directory/people");
-    if (res.ok) setPeople((await res.json()).people);
+    const r = await jsonFetch("/api/admin/directory/people");
+    if (r.ok) {
+      setPeople(r.data.people);
+      setLinks(r.data.links ?? []);
+    }
     router.refresh();
   }
 
-  async function savePerson(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    const res = await fetch(
-      editingId === null ? "/api/admin/directory/people" : `/api/admin/directory/people/${editingId}`,
-      {
-        method: editingId === null ? "POST" : "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...form,
-          assistant_id: formAssistant ? Number(formAssistant) : null,
-          custom: formCustom,
-        }),
-      }
-    );
-    setBusy(false);
-    if (!res.ok) {
-      toast("error", (await res.json().catch(() => ({})))?.error || "Could not save.");
-      return;
-    }
-    setForm({ ...EMPTY_FORM });
-    setFormAssistant("");
-    setFormCustom({});
-    setEditingId(null);
-    await refresh();
-  }
-
-  async function toggleHidden(p: DirectoryPerson) {
-    await fetch(`/api/admin/directory/people/${p.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ hidden: p.hidden === 0 }),
-    });
-    await refresh();
-  }
-
-  async function remove(p: DirectoryPerson) {
-    if (!confirm(`Remove ${p.name} from the directory?`)) return;
-    await fetch(`/api/admin/directory/people/${p.id}`, { method: "DELETE" });
-    await refresh();
-  }
-
-  function startEdit(p: DirectoryPerson) {
-    setEditingId(p.id);
-    setForm({
-      name: p.name,
-      title: p.title,
-      department: p.department,
-      email: p.email,
-      phone: p.phone,
-      mobile: p.mobile,
-      office: p.office,
-    });
-    setFormAssistant(p.assistant_id ? String(p.assistant_id) : "");
-    setFormCustom({ ...(p.custom ?? {}) });
-  }
+  // Mapping editors are offered for the bundled providers; the community
+  // build shows none, and keeps every other control — options, group-by,
+  // pins, presets — because none of them need a sync.
+  const providers: ProviderKey[] = graph.bundled ? ["microsoft", "google"] : [];
 
   return (
     <div className="space-y-6">
@@ -129,68 +83,246 @@ export function DirectorySettings({
         <p className="mt-1 text-sm text-slate-500">
           Manage the people directory that every signed-in user sees under{" "}
           <span className="font-medium">Directory</span>. Add entries by hand, or connect
-          Microsoft 365 to sync them automatically.
+          Microsoft 365 or Google Workspace to sync them — and map anything either one knows
+          into the fields below.
         </p>
       </div>
 
-      <GraphPanel graph={graph} onSynced={refresh} />
+      <GraphPanel graph={graph} onSynced={refresh} report={reports.graph} />
 
-      <FieldsPanel fields={fields} onChange={setFields} graphEnabled={graph.bundled} />
+      <DirectoryFieldsPanel fields={fields} onChange={(f) => { setFields(f); void refresh(); }} providers={providers} />
 
-      <PrintColumnsPanel />
+      <DirectoryExportPanel
+        fields={fields}
+        initialListColumns={initialListColumns}
+        initialGroupBy={initialGroupBy}
+        initialPresets={initialPresets}
+      />
 
-      {/* Manual entry form */}
+      <PeoplePanel people={people} links={links} fields={fields} onChange={refresh} />
+    </div>
+  );
+}
+
+// --- People -------------------------------------------------------------------------
+
+function PeoplePanel({
+  people,
+  links,
+  fields,
+  onChange,
+}: {
+  people: DirectoryPerson[];
+  links: LinkRow[];
+  fields: DirectoryField[];
+  onChange: () => Promise<void>;
+}) {
+  const [form, setForm] = useState({ ...EMPTY_FORM });
+  const [formCustom, setFormCustom] = useState<Record<string, string>>({});
+  const [revert, setRevert] = useState<Set<string>>(new Set());
+  const [formLinks, setFormLinks] = useState<Record<string, number[]>>({});
+  const [formLinkedBy, setFormLinkedBy] = useState<Record<string, number[]>>({});
+  const [editing, setEditing] = useState<DirectoryPerson | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const jsonbFields = useMemo(() => fields.filter((f) => !f.builtin && f.kind !== "people"), [fields]);
+  const peopleFields = useMemo(() => fields.filter((f) => f.kind === "people"), [fields]);
+  const pinned = useMemo(
+    () => people.filter((p) => p.pin_order != null).sort((a, b) => (a.pin_order ?? 0) - (b.pin_order ?? 0)),
+    [people]
+  );
+  const pickerOptions = useMemo(
+    () => people.map((p) => ({ id: p.id, label: p.name, sublabel: p.title || p.department || undefined })),
+    [people]
+  );
+  const synced = editing ? editing.source !== "manual" : false;
+
+  function reset() {
+    setEditing(null);
+    setForm({ ...EMPTY_FORM });
+    setFormCustom({});
+    setRevert(new Set());
+    setFormLinks({});
+    setFormLinkedBy({});
+  }
+
+  function startEdit(p: DirectoryPerson) {
+    setEditing(p);
+    setForm({ name: p.name, title: p.title, department: p.department, email: p.email, phone: p.phone, mobile: p.mobile, office: p.office });
+    setFormCustom({ ...(p.manual ?? {}) });
+    setRevert(new Set());
+    const out: Record<string, number[]> = {};
+    const inn: Record<string, number[]> = {};
+    for (const f of peopleFields) {
+      out[f.key] = links.filter((l) => l.source === "manual" && l.field_key === f.key && l.person_id === p.id).map((l) => l.target_id);
+      inn[f.key] = links.filter((l) => l.source === "manual" && l.field_key === f.key && l.target_id === p.id).map((l) => l.person_id);
+    }
+    setFormLinks(out);
+    setFormLinkedBy(inn);
+  }
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    // Send only what changed in the manual layer; a reverted key goes as null.
+    const custom: Record<string, string | null> = {};
+    const before = editing?.manual ?? {};
+    for (const f of jsonbFields) {
+      const v = formCustom[f.key] ?? "";
+      if (revert.has(f.key)) custom[f.key] = null;
+      else if ((before[f.key] ?? "") !== v && (v !== "" || before[f.key] !== undefined)) custom[f.key] = v;
+    }
+    const body: Record<string, unknown> = { custom, links: formLinks, linked_by: formLinkedBy };
+    if (!synced) Object.assign(body, form);
+    const r = editing
+      ? await jsonFetch(`/api/admin/directory/people/${editing.id}`, { method: "PATCH", body: JSON.stringify(body) })
+      : await jsonFetch("/api/admin/directory/people", { method: "POST", body: JSON.stringify(body) });
+    setBusy(false);
+    if (!r.ok) {
+      toast("error", r.data?.error || "Could not save.");
+      return;
+    }
+    toast("ok", editing ? "Saved." : "Added.");
+    reset();
+    await onChange();
+  }
+
+  async function patch(p: DirectoryPerson, body: Record<string, unknown>) {
+    const r = await jsonFetch(`/api/admin/directory/people/${p.id}`, { method: "PATCH", body: JSON.stringify(body) });
+    if (!r.ok) toast("error", r.data?.error || "Could not save.");
+    await onChange();
+  }
+  async function remove(p: DirectoryPerson) {
+    if (!confirm(`Remove ${p.name} from the directory?`)) return;
+    await jsonFetch(`/api/admin/directory/people/${p.id}`, { method: "DELETE" });
+    await onChange();
+  }
+  async function movePin(p: DirectoryPerson, dir: -1 | 1) {
+    const ids = pinned.map((x) => x.id);
+    const i = ids.indexOf(p.id);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= ids.length) return;
+    [ids[i], ids[j]] = [ids[j], ids[i]];
+    const r = await jsonFetch("/api/admin/directory/pins", { method: "PUT", body: JSON.stringify({ ids }) });
+    if (!r.ok) toast("error", r.data?.error || "Could not reorder.");
+    await onChange();
+  }
+
+  const syncedLinks = (p: DirectoryPerson, f: DirectoryField, direction: "out" | "in") =>
+    links
+      .filter((l) => l.source !== "manual" && l.field_key === f.key && (direction === "out" ? l.person_id === p.id : l.target_id === p.id))
+      .map((l) => people.find((x) => x.id === (direction === "out" ? l.target_id : l.person_id))?.name)
+      .filter(Boolean) as string[];
+
+  return (
+    <>
       <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
-        <h3 className="mb-3 font-semibold text-slate-900">
-          {editingId === null ? "Add a person" : "Edit person"}
-        </h3>
-        <form onSubmit={savePerson} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <TextInput placeholder="Name *" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
-          <TextInput placeholder="Title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
-          <TextInput placeholder="Department" value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })} />
-          <TextInput placeholder="Email" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-          <TextInput placeholder="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
-          <TextInput placeholder="Mobile" value={form.mobile} onChange={(e) => setForm({ ...form, mobile: e.target.value })} />
-          <TextInput placeholder="Office / location" value={form.office} onChange={(e) => setForm({ ...form, office: e.target.value })} />
-          {formAssistant ? (
-            <span className="inline-flex items-center gap-1.5 self-center rounded-lg border border-compass-200 bg-compass-50 px-3 py-2 text-sm font-medium text-compass-800">
-              <span className="truncate">
-                Assistant: {people.find((pp) => String(pp.id) === formAssistant)?.name ?? `#${formAssistant}`}
-              </span>
-              <button
-                type="button"
-                onClick={() => setFormAssistant("")}
-                aria-label="Clear assistant"
-                className="shrink-0 opacity-60 hover:opacity-100"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </span>
-          ) : (
-            <EntityPicker
-              options={people
-                .filter((pp) => pp.id !== editingId)
-                .map((pp) => ({ id: pp.id, label: pp.name, sublabel: pp.title || pp.department || undefined }))}
-              onPick={(id) => setFormAssistant(String(id))}
-              placeholder="Assistant — search people…"
-              emptyText="No people match."
-              maxVisible={10}
-            />
+        <h3 className="mb-1 font-semibold text-slate-900">{editing ? `Edit ${editing.name}` : "Add a person"}</h3>
+        {synced && editing && (
+          <p className="mb-3 text-xs text-slate-500">
+            Synced from {SOURCE_LABEL[editing.source]}. Name, title, contact details and office come from there; anything you
+            enter below is yours and survives every sync. Clear a field to fall back to the synced value.
+          </p>
+        )}
+        <form onSubmit={save} className="space-y-3">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {(["name", "title", "department", "email", "phone", "mobile", "office"] as const).map((k) => (
+              <TextInput
+                key={k}
+                placeholder={k === "name" ? "Name *" : k === "office" ? "Office / location" : k[0].toUpperCase() + k.slice(1)}
+                type={k === "email" ? "email" : "text"}
+                value={form[k]}
+                onChange={(e) => setForm({ ...form, [k]: e.target.value })}
+                required={k === "name"}
+                disabled={synced}
+                aria-label={k}
+              />
+            ))}
+          </div>
+
+          {jsonbFields.length > 0 && (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {jsonbFields.map((f) => {
+                const syncedValue = editing?.synced?.[f.key] ?? "";
+                const reverted = revert.has(f.key);
+                const listId = f.options.length ? `opts-${f.key}` : undefined;
+                return (
+                  <div key={f.key} className="min-w-0">
+                    <TextInput
+                      placeholder={f.label}
+                      value={reverted ? "" : formCustom[f.key] ?? ""}
+                      list={listId}
+                      onChange={(e) => {
+                        setFormCustom({ ...formCustom, [f.key]: e.target.value });
+                        if (reverted) setRevert((s) => { const n = new Set(s); n.delete(f.key); return n; });
+                      }}
+                      aria-label={f.label}
+                    />
+                    {listId && (
+                      <datalist id={listId}>
+                        {f.options.map((o) => (
+                          <option key={o.value} value={o.value}>{o.label ?? o.value}</option>
+                        ))}
+                      </datalist>
+                    )}
+                    {synced && syncedValue && (
+                      <p className="mt-0.5 truncate text-[11px] text-slate-400">
+                        synced: {syncedValue}
+                        {(formCustom[f.key] ?? "") !== "" && !reverted && (
+                          <>
+                            {" · "}
+                            <button type="button" className="text-compass-600 hover:underline" onClick={() => setRevert((s) => new Set(s).add(f.key))}>
+                              use synced value
+                            </button>
+                          </>
+                        )}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           )}
-          {fields.map((f) => (
-            <TextInput
-              key={f.key}
-              placeholder={f.label}
-              value={formCustom[f.key] ?? ""}
-              onChange={(e) => setFormCustom({ ...formCustom, [f.key]: e.target.value })}
-            />
-          ))}
+
+          {peopleFields.length > 0 && (
+            <div className="grid gap-3 lg:grid-cols-2">
+              {peopleFields.map((f) => (
+                <div key={f.key} className="space-y-2">
+                  <Field label={f.label} help={editing ? `${f.label}s of ${editing.name}` : undefined}>
+                    {editing && syncedLinks(editing, f, "out").length > 0 && (
+                      <p className="mb-1 text-[11px] text-slate-400">synced: {syncedLinks(editing, f, "out").join(", ")}</p>
+                    )}
+                    <EntityPicker
+                      options={pickerOptions.filter((o) => o.id !== editing?.id)}
+                      value={formLinks[f.key] ?? []}
+                      onChange={(ids) => setFormLinks({ ...formLinks, [f.key]: ids })}
+                      placeholder={`Add ${f.label.toLowerCase()}…`}
+                      emptyText="No people match."
+                    />
+                  </Field>
+                  <Field label={f.inverse_label || `${f.label} to`} help={editing ? `People ${editing.name} is ${f.label.toLowerCase()} to` : undefined}>
+                    {editing && syncedLinks(editing, f, "in").length > 0 && (
+                      <p className="mb-1 text-[11px] text-slate-400">synced: {syncedLinks(editing, f, "in").join(", ")}</p>
+                    )}
+                    <EntityPicker
+                      options={pickerOptions.filter((o) => o.id !== editing?.id)}
+                      value={formLinkedBy[f.key] ?? []}
+                      onChange={(ids) => setFormLinkedBy({ ...formLinkedBy, [f.key]: ids })}
+                      placeholder="Add people…"
+                      emptyText="No people match."
+                    />
+                  </Field>
+                </div>
+              ))}
+            </div>
+          )}
+
           <div className="flex gap-2">
             <button type="submit" disabled={busy} className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60">
-              {editingId === null ? "Add" : "Save"}
+              {editing ? "Save" : "Add"}
             </button>
-            {editingId !== null && (
-              <button type="button" className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50" onClick={() => { setEditingId(null); setForm({ ...EMPTY_FORM }); setFormAssistant(""); setFormCustom({}); }}>
+            {editing && (
+              <button type="button" className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50" onClick={reset}>
                 Cancel
               </button>
             )}
@@ -198,7 +330,6 @@ export function DirectorySettings({
         </form>
       </div>
 
-      {/* People table */}
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-surface shadow-xs">
         <table className="w-full text-sm">
           <thead>
@@ -207,15 +338,13 @@ export function DirectorySettings({
               <th className="px-4 py-2.5">Title / department</th>
               <th className="px-4 py-2.5">Contact</th>
               <th className="px-4 py-2.5">Source</th>
-              <th className="px-4 py-2.5"></th>
+              <th className="px-4 py-2.5" />
             </tr>
           </thead>
           <tbody>
             {people.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-slate-400">
-                  No directory entries yet.
-                </td>
+                <td colSpan={5} className="px-4 py-8 text-center text-slate-400">No directory entries yet.</td>
               </tr>
             )}
             {people.map((p) => (
@@ -223,26 +352,35 @@ export function DirectorySettings({
                 <td className="px-4 py-2.5 font-medium text-slate-900">
                   {p.name}
                   {p.hidden ? <span className="ml-2 rounded-sm bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">hidden</span> : null}
+                  {p.pin_order != null && (
+                    <span className="ml-2 inline-flex items-center gap-1 rounded-sm bg-compass-50 px-1.5 py-0.5 text-xs text-compass-700">
+                      <Pin className="h-3 w-3" /> pinned
+                      <button type="button" onClick={() => movePin(p, -1)} className="text-compass-400 hover:text-compass-700" data-tt="Move up" aria-label={`Move ${p.name} up among pinned`}><ArrowUp className="h-3 w-3" /></button>
+                      <button type="button" onClick={() => movePin(p, 1)} className="text-compass-400 hover:text-compass-700" data-tt="Move down" aria-label={`Move ${p.name} down among pinned`}><ArrowDown className="h-3 w-3" /></button>
+                    </span>
+                  )}
                 </td>
                 <td className="px-4 py-2.5 text-slate-500">
                   {p.title}
                   {p.title && p.department ? " · " : ""}
                   {p.department}
                 </td>
-                <td className="px-4 py-2.5 text-slate-500">
-                  {[p.email, p.phone || p.mobile].filter(Boolean).join(" · ")}
-                </td>
+                <td className="px-4 py-2.5 text-slate-500">{[p.email, p.phone || p.mobile].filter(Boolean).join(" · ")}</td>
                 <td className="px-4 py-2.5">
-                  <span className={`rounded-sm px-1.5 py-0.5 text-xs ${p.source === "graph" ? "bg-compass-50 text-compass-700" : "bg-slate-100 text-slate-500"}`}>
-                    {p.source === "graph" ? "Microsoft 365" : "manual"}
+                  <span className={`rounded-sm px-1.5 py-0.5 text-xs ${p.source !== "manual" ? "bg-compass-50 text-compass-700" : "bg-slate-100 text-slate-500"}`}>
+                    {SOURCE_LABEL[p.source] ?? p.source}
                   </span>
+                  {Object.keys(p.manual ?? {}).length > 0 && p.source !== "manual" && (
+                    <span className="ml-1 rounded-sm bg-amber-50 px-1.5 py-0.5 text-xs text-amber-700" data-tt="Has manual overrides">+ manual</span>
+                  )}
                 </td>
                 <td className="px-4 py-2.5 text-right">
                   <div className="flex justify-end gap-2 text-xs font-medium">
-                    {p.source === "manual" && (
-                      <button className="text-compass-600 hover:underline" onClick={() => startEdit(p)}>Edit</button>
-                    )}
-                    <button className="text-slate-500 hover:underline" onClick={() => toggleHidden(p)}>
+                    <button className="text-compass-600 hover:underline" onClick={() => startEdit(p)}>Edit</button>
+                    <button className="text-slate-500 hover:underline" onClick={() => patch(p, { pinned: p.pin_order == null })}>
+                      {p.pin_order == null ? "Pin" : "Unpin"}
+                    </button>
+                    <button className="text-slate-500 hover:underline" onClick={() => patch(p, { hidden: p.hidden === 0 })}>
                       {p.hidden ? "Show" : "Hide"}
                     </button>
                     {p.source === "manual" && (
@@ -255,11 +393,13 @@ export function DirectorySettings({
           </tbody>
         </table>
       </div>
-    </div>
+    </>
   );
 }
 
-function GraphPanel({ graph, onSynced }: { graph: GraphState; onSynced: () => void }) {
+// --- Microsoft 365 -------------------------------------------------------------------
+
+function GraphPanel({ graph, onSynced, report }: { graph: GraphState; onSynced: () => void; report: SyncReport | null }) {
   const fmt = useFormatDate();
   const [g, setG] = useState(graph);
   const [secret, setSecret] = useState("");
@@ -415,26 +555,10 @@ function GraphPanel({ graph, onSynced }: { graph: GraphState; onSynced: () => vo
       </div>
 
       <div className="mt-3 flex flex-wrap gap-4 text-sm text-slate-600">
-        <Toggle
-          label="Exclude guest accounts"
-          checked={!g.include_guests}
-          onChange={(next) => setG({ ...g, include_guests: !next })}
-        />
-        <Toggle
-          label="Require a job title"
-          checked={g.require_title}
-          onChange={(next) => setG({ ...g, require_title: next })}
-        />
-        <Toggle
-          label="Require a phone number"
-          checked={g.require_phone}
-          onChange={(next) => setG({ ...g, require_phone: next })}
-        />
-        <Toggle
-          label="Sync profile photos"
-          checked={g.photos}
-          onChange={(next) => setG({ ...g, photos: next })}
-        />
+        <Toggle label="Exclude guest accounts" checked={!g.include_guests} onChange={(next) => setG({ ...g, include_guests: !next })} />
+        <Toggle label="Require a job title" checked={g.require_title} onChange={(next) => setG({ ...g, require_title: next })} />
+        <Toggle label="Require a phone number" checked={g.require_phone} onChange={(next) => setG({ ...g, require_phone: next })} />
+        <Toggle label="Sync profile photos" checked={g.photos} onChange={(next) => setG({ ...g, photos: next })} />
       </div>
 
       <div className="mt-4 flex items-center gap-3">
@@ -472,263 +596,30 @@ function GraphPanel({ graph, onSynced }: { graph: GraphState; onSynced: () => vo
         <p className={`mt-3 text-xs ${g.last_sync.ok ? "text-slate-400" : "text-red-500"}`}>
           Last sync {fmt.dateTime(g.last_sync.at)} —{" "}
           {g.last_sync.ok ? `${g.last_sync.count} people` : `failed: ${g.last_sync.error}`}
+          {report && g.last_sync.ok ? (
+            <>
+              {" · "}
+              {report.records} with stored records
+              {report.adopted ? ` · adopted ${report.adopted} hand-typed ${report.adopted === 1 ? "entry" : "entries"}` : ""}
+            </>
+          ) : null}
         </p>
       )}
-    </div>
-  );
-}
-
-function FieldsPanel({
-  fields,
-  onChange,
-  graphEnabled,
-}: {
-  fields: DirectoryField[];
-  onChange: (f: DirectoryField[]) => void;
-  graphEnabled: boolean;
-}) {
-  const [label, setLabel] = useState("");
-  const [graphPath, setGraphPath] = useState("");
-  const [showInCard, setShowInCard] = useState(false);
-  const [display, setDisplay] = useState<"field" | "tag">("field");
-  const [busy, setBusy] = useState(false);
-
-  async function reload() {
-    const res = await fetch("/api/admin/directory/fields");
-    if (res.ok) onChange((await res.json()).fields);
-  }
-
-  async function add(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    const res = await fetch("/api/admin/directory/fields", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ label, graph_path: graphPath, show_in_card: showInCard, display }),
-    });
-    setBusy(false);
-    if (!res.ok) {
-      toast("error", (await res.json().catch(() => ({})))?.error || "Could not add the field.");
-      return;
-    }
-    setLabel("");
-    setGraphPath("");
-    setShowInCard(false);
-    setDisplay("field");
-    await reload();
-  }
-
-  async function patch(f: DirectoryField, body: Record<string, unknown>) {
-    await fetch(`/api/admin/directory/fields/${f.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    await reload();
-  }
-
-  async function removeField(f: DirectoryField) {
-    if (!confirm(`Delete the "${f.label}" field? Its values are removed from every person.`)) return;
-    await fetch(`/api/admin/directory/fields/${f.id}`, { method: "DELETE" });
-    await reload();
-  }
-
-  return (
-    <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
-      <h3 className="mb-1 font-semibold text-slate-900">Custom fields</h3>
-      <p className="mb-3 text-sm text-slate-500">
-        Extra directory attributes (e.g. cost center, pronouns, extension). Display each as a
-        plain <strong>field</strong> or as <strong>tags</strong> — comma-separated values shown
-        as badges, ideal for skills, certifications, or technologies. They appear in the list
-        view&rsquo;s column picker, optionally on cards, and are editable per person below.
-        {graphEnabled && (
-          <> Map a field to a Microsoft Graph property — including the Exchange custom attributes
-          (<code className="font-mono">extensionAttribute1–15</code>) — and the sync fills it
-          automatically.</>
-        )}
-      </p>
-
-      {fields.length > 0 && (
-        <div className="mb-3 overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-500">
-                <th className="px-3 py-2">Label</th>
-                <th className="px-3 py-2">Key</th>
-                <th className="px-3 py-2">Microsoft Graph mapping</th>
-                <th className="px-3 py-2">Display</th>
-                <th className="px-3 py-2">On cards</th>
-                <th className="px-3 py-2"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {fields.map((f) => (
-                <tr key={f.id} className="border-b border-slate-50">
-                  <td className="px-3 py-2 font-medium text-slate-900">{f.label}</td>
-                  <td className="px-3 py-2 font-mono text-xs text-slate-500">{f.key}</td>
-                  <td className="px-3 py-2">
-                    <TextInput
-                      className="max-w-xs font-mono text-xs"
-                      defaultValue={f.graph_path}
-                      list="graph-paths"
-                      placeholder="not mapped (manual only)"
-                      onBlur={(e) => {
-                        if (e.target.value.trim() !== f.graph_path) {
-                          patch(f, { graph_path: e.target.value.trim() });
-                        }
-                      }}
-                    />
-                  </td>
-                  <td className="px-3 py-2">
-                    <Select
-                      className="w-32 text-xs"
-                      value={f.display}
-                      onChange={(e) => patch(f, { display: e.target.value })}
-                    >
-                      <option value="field">Field</option>
-                      <option value="tag">Tags</option>
-                    </Select>
-                  </td>
-                  <td className="px-3 py-2">
-                    <input
-                      type="checkbox"
-                      checked={f.show_in_card === 1}
-                      onChange={(e) => patch(f, { show_in_card: e.target.checked })}
-                    />
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    <button className="text-xs font-medium text-red-600 hover:underline" onClick={() => removeField(f)}>
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {report?.unresolved?.length ? (
+        <div className="notice-warn mt-2 rounded-lg border p-3 text-xs">
+          <p className="font-medium">Some people references didn&rsquo;t match anyone:</p>
+          <ul className="mt-1 list-disc pl-4">
+            {report.unresolved.map((u) => (
+              <li key={u.field}>
+                <span className="font-mono">{u.field}</span>: {u.count} unresolved — e.g. {u.samples.join(", ")}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1 text-slate-500">
+            Usually someone the sync filters excluded, or an address that isn&rsquo;t the person&rsquo;s primary email. They are retried on every sync.
+          </p>
         </div>
-      )}
-
-      <form onSubmit={add} className="flex flex-wrap items-center gap-2">
-        <TextInput
-          className="w-44"
-          placeholder="New field label"
-          value={label}
-          onChange={(e) => setLabel(e.target.value)}
-          required
-        />
-        <TextInput
-          className="w-72 font-mono text-xs"
-          placeholder="Graph property (optional)"
-          value={graphPath}
-          onChange={(e) => setGraphPath(e.target.value)}
-          list="graph-paths"
-          spellCheck={false}
-        />
-        <datalist id="graph-paths">
-          {GRAPH_PATHS.map((g) => (
-            <option key={g} value={g} />
-          ))}
-        </datalist>
-        <Select
-          className="w-40"
-          value={display}
-          onChange={(e) => setDisplay(e.target.value as "field" | "tag")}
-          data-tt="Field shows as label + text; Tag splits comma-separated values into badges"
-        >
-          <option value="field">Field (text value)</option>
-          <option value="tag">Tags (badges)</option>
-        </Select>
-        <label className="flex items-center gap-1.5 text-sm text-slate-600">
-          <input type="checkbox" checked={showInCard} onChange={(e) => setShowInCard(e.target.checked)} />
-          Show on cards
-        </label>
-        <button type="submit" disabled={busy} className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60">
-          Add field
-        </button>
-      </form>
-    </div>
-  );
-}
-
-// --- Quick print directory columns ---------------------------------------------
-
-function PrintColumnsPanel() {
-  const [available, setAvailable] = useState<{ key: string; label: string }[]>([]);
-  const [columns, setColumns] = useState<string[]>([]);
-  const [loaded, setLoaded] = useState(false);
-
-  useEffect(() => {
-    fetch("/api/admin/directory/print-columns")
-      .then((r) => r.json())
-      .then((d) => {
-        setAvailable(d.available ?? []);
-        setColumns(d.columns ?? []);
-        setLoaded(true);
-      })
-      .catch(() => setLoaded(true));
-  }, []);
-
-  const label = (k: string) => available.find((a) => a.key === k)?.label ?? k;
-  const unused = available.filter((a) => !columns.includes(a.key));
-
-  async function save(next: string[]) {
-    setColumns(next);
-    const r = await fetch("/api/admin/directory/print-columns", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ columns: next }),
-    });
-    if (r.ok) toast("ok", "Print directory columns saved.");
-    else toast("error", "Could not save.");
-  }
-
-  function move(i: number, dir: -1 | 1) {
-    const next = [...columns];
-    const j = i + dir;
-    if (j < 0 || j >= next.length) return;
-    [next[i], next[j]] = [next[j], next[i]];
-    void save(next);
-  }
-
-  if (!loaded) return null;
-  return (
-    <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
-      <h3 className="mb-1 font-semibold text-slate-900">Quick print directory</h3>
-      <p className="mb-3 text-sm text-slate-500">
-        Anyone can print a phone directory from the Directory page. Choose which
-        columns it includes and their order — custom fields work too.
-      </p>
-      <div className="space-y-1">
-        {columns.map((k, i) => (
-          <div key={k} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-1.5 text-sm">
-            <span className="flex-1 font-medium text-slate-700">{label(k)}</span>
-            <button onClick={() => move(i, -1)} disabled={i === 0} data-tt="Move up" aria-label="Move up"
-              className="rounded-sm px-1.5 text-slate-400 hover:text-slate-600 disabled:opacity-30">↑</button>
-            <button onClick={() => move(i, 1)} disabled={i === columns.length - 1} data-tt="Move down" aria-label="Move down"
-              className="rounded-sm px-1.5 text-slate-400 hover:text-slate-600 disabled:opacity-30">↓</button>
-            <button
-              onClick={() => save(columns.filter((c) => c !== k))}
-              disabled={columns.length === 1}
-              data-tt="Remove column" aria-label="Remove column"
-              className="rounded-sm px-1.5 text-slate-400 hover:text-red-600 disabled:opacity-30"
-            >
-              ×
-            </button>
-          </div>
-        ))}
-      </div>
-      {unused.length > 0 && (
-        <Select
-          value=""
-          onChange={(e) => e.target.value && save([...columns, e.target.value])}
-          className="mt-2 w-64"
-        >
-          <option value="">+ Add a column…</option>
-          {unused.map((a) => (
-            <option key={a.key} value={a.key}>{a.label}</option>
-          ))}
-        </Select>
-      )}
+      ) : null}
     </div>
   );
 }

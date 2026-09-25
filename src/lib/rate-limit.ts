@@ -63,6 +63,15 @@ export function uploadTicketRateLimited(key: string): boolean {
   return limited(`ticket:${key}`, 20, 60_000);
 }
 
+/**
+ * Directory exports: 12 per minute per user. Rendering a PDF is the one
+ * request in the app that costs real CPU for a real fraction of a second, and
+ * nobody needs their phone list more than a few times a minute.
+ */
+export function exportRateLimited(key: string): boolean {
+  return limited(`export:${key}`, 12, 60_000);
+}
+
 /** Public REST API (/api/v1): 120 requests per minute per token user. */
 export function apiV1RateLimited(key: string): boolean {
   return limited(`v1:${key}`, 120, 60_000);

@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { apiGuard } from "@/lib/api-auth";
-import { listFields, createField } from "@/lib/directory";
+import { listFields, createField, reapplyMappings, type FieldInput } from "@/lib/directory";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
+import { readFieldBody } from "./body";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +12,7 @@ export async function GET() {
   return NextResponse.json({ fields: await listFields() });
 }
 
-/** Define a custom directory field (optionally mapped to a Graph property). */
+/** Define a directory field: its kind, options, display, and per-provider mappings. */
 export async function POST(req: Request) {
   const gate = await apiGuard("admin", "directory.field_manage");
   if (gate instanceof NextResponse) return gate;
@@ -26,14 +27,10 @@ export async function POST(req: Request) {
   if (!label) return NextResponse.json({ error: "Label is required." }, { status: 400 });
 
   try {
-    const field = await createField({
-      label,
-      key: body?.key ? String(body.key) : undefined,
-      graph_path: String(body?.graph_path ?? ""),
-      google_path: String(body?.google_path ?? ""),
-      show_in_card: Boolean(body?.show_in_card),
-      display: body?.display === "tag" ? "tag" : "field",
-    });
+    const input: FieldInput & { label: string } = { ...readFieldBody(body), label };
+    const field = await createField(input);
+    // A mapping takes effect on the stored records right away — no resync.
+    const applied = Object.keys(field.mappings).length ? await reapplyMappings() : null;
     await audit({
       actor: actorFrom(gate),
       action: "directory.field_added",
@@ -42,7 +39,7 @@ export async function POST(req: Request) {
       targetLabel: field.label,
       ip: ipFrom(req),
     });
-    return NextResponse.json({ field }, { status: 201 });
+    return NextResponse.json({ field, applied }, { status: 201 });
   } catch (e: any) {
     const msg = /duplicate key/.test(String(e?.message))
       ? "A field with that key already exists."
