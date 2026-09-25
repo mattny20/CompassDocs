@@ -42,7 +42,12 @@ const controlOk = "border-slate-200 focus:border-compass-400 focus:ring-compass-
 const controlErr = "border-red-300 focus:border-red-400 focus:ring-red-100";
 
 export function controlClass(hasError?: boolean, extra = ""): string {
-  return `${control} ${hasError ? controlErr : controlOk} ${extra}`.trim();
+  // The shared style is w-full; a caller's own width (`w-44`) must win, and
+  // the stylesheet's order says otherwise — w-full is emitted after the
+  // spacing-scale widths, so both classes together always came out full
+  // width. Drop the default when a width is given.
+  const base = /(^|\s)w-\S+/.test(extra) ? control.replace(/\bw-full\b/, "") : control;
+  return `${base} ${hasError ? controlErr : controlOk} ${extra}`.replace(/\s+/g, " ").trim();
 }
 
 type InputProps = React.InputHTMLAttributes<HTMLInputElement> & { hasError?: boolean };

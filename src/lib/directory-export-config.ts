@@ -38,6 +38,8 @@ export interface ExportPreset {
   footer_note: string;
   /** File name without extension; "" derives one from the name. */
   filename: string;
+  /** Close the PDF with the office profiles of every office that appears in it. */
+  office_info: boolean;
   is_default: boolean;
 }
 
@@ -59,6 +61,7 @@ export const PRESET_DEFAULTS: Omit<ExportPreset, "id" | "name"> = {
   printed_date: true,
   footer_note: "",
   filename: "",
+  office_info: true,
   is_default: false,
 };
 
@@ -106,6 +109,7 @@ export function sanitizePreset(raw: unknown, fields: DirectoryField[], fallbackI
     printed_date: o.printed_date === undefined ? true : Boolean(o.printed_date),
     footer_note: String(o.footer_note ?? "").trim().slice(0, 200),
     filename: slug(String(o.filename ?? "")).slice(0, 60),
+    office_info: o.office_info === undefined ? true : Boolean(o.office_info),
     is_default: Boolean(o.is_default),
   };
 }

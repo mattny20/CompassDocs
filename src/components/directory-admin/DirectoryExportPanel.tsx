@@ -31,6 +31,7 @@ const PRESET_BLANK: Omit<ExportPreset, "id" | "name"> = {
   printed_date: true,
   footer_note: "",
   filename: "",
+  office_info: true,
   is_default: false,
 };
 
@@ -140,13 +141,15 @@ export function DirectoryExportPanel({
         </p>
 
         <div className="mb-3 flex flex-wrap items-center gap-2">
-          <Select value={String(selected)} onChange={(e) => setSelected(Number(e.target.value))} className="w-64" aria-label="Preset">
-            {presets.map((p, i) => (
-              <option key={p.id} value={i}>
-                {p.name}{p.is_default ? " (default)" : ""}
-              </option>
-            ))}
-          </Select>
+          <div className="w-64">
+            <Select value={String(selected)} onChange={(e) => setSelected(Number(e.target.value))} aria-label="Preset">
+              {presets.map((p, i) => (
+                <option key={p.id} value={i}>
+                  {p.name}{p.is_default ? " (default)" : ""}
+                </option>
+              ))}
+            </Select>
+          </div>
           <button type="button" onClick={() => addPreset()} className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
             <span className="inline-flex items-center gap-1.5"><Plus className="h-4 w-4" /> New</span>
           </button>
@@ -204,6 +207,7 @@ export function DirectoryExportPanel({
               <Toggle label="Pinned people first" checked={cur.pinned_first} onChange={(v) => update({ pinned_first: v })} />
               <Toggle label="Page numbers" checked={cur.page_numbers} onChange={(v) => update({ page_numbers: v })} />
               <Toggle label="Printed date" checked={cur.printed_date} onChange={(v) => update({ printed_date: v })} />
+              <Toggle label="Office information" help="Closes the PDF with the profile of every office that appears in it — set up under Offices." checked={cur.office_info} onChange={(v) => update({ office_info: v })} />
             </div>
             <Field label="Footer note" help="e.g. “Internal use only — do not distribute”."><TextInput value={cur.footer_note} onChange={(e) => update({ footer_note: e.target.value })} /></Field>
             <Field label="File name" help="Without extension; blank derives one from the title."><TextInput value={cur.filename} onChange={(e) => update({ filename: e.target.value })} placeholder="phone-directory" /></Field>

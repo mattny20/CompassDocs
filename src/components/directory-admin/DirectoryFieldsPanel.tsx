@@ -451,15 +451,15 @@ function OptionsEditor({ field, onSaved }: { field: DirectoryField; onSaved: (f:
 }
 
 export function DirectoryFieldsPanel({
-  fields,
-  onChange,
+  initialFields,
   providers,
 }: {
-  fields: DirectoryField[];
-  onChange: (f: DirectoryField[]) => void;
+  initialFields: DirectoryField[];
   /** Providers whose mapping editor to show (the bundled ones). */
   providers: ProviderKey[];
 }) {
+  const [fields, setFields] = useState(initialFields);
+  const onChange = (f: DirectoryField[]) => setFields(f);
   const [label, setLabel] = useState("");
   const [kind, setKind] = useState<DirectoryField["kind"]>("text");
   const [display, setDisplay] = useState<DirectoryField["display"]>("field");
@@ -545,19 +545,25 @@ export function DirectoryFieldsPanel({
         </table>
       </div>
 
-      <form onSubmit={add} className="mt-3 flex flex-wrap items-center gap-2">
-        <TextInput className="w-44" placeholder="New field label" value={label} onChange={(e) => setLabel(e.target.value)} required />
-        <Select className="w-36" value={kind} onChange={(e) => setKind(e.target.value as DirectoryField["kind"])} data-tt="Text holds anything; Choice picks from the options you define; People links to other directory entries">
-          <option value="text">Text</option>
-          <option value="choice">Choice</option>
-          <option value="people">People</option>
-        </Select>
-        {kind !== "people" && (
-          <Select className="w-36" value={display} onChange={(e) => setDisplay(e.target.value as DirectoryField["display"])} data-tt="How the value renders">
-            <option value="field">Show as text</option>
-            <option value="tag">Show as chips</option>
-            <option value="phone">Phone number</option>
+      <form onSubmit={add} className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4">
+        <div className="w-52">
+          <TextInput placeholder="New field label" value={label} onChange={(e) => setLabel(e.target.value)} required aria-label="New field label" />
+        </div>
+        <div className="w-36">
+          <Select value={kind} onChange={(e) => setKind(e.target.value as DirectoryField["kind"])} data-tt="Text holds anything; Choice picks from the options you define; People links to other directory entries" aria-label="Kind">
+            <option value="text">Text</option>
+            <option value="choice">Choice</option>
+            <option value="people">People</option>
           </Select>
+        </div>
+        {kind !== "people" && (
+          <div className="w-40">
+            <Select value={display} onChange={(e) => setDisplay(e.target.value as DirectoryField["display"])} data-tt="How the value renders" aria-label="Display">
+              <option value="field">Show as text</option>
+              <option value="tag">Show as chips</option>
+              <option value="phone">Phone number</option>
+            </Select>
+          </div>
         )}
         <button type="submit" disabled={busy} className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60">
           Add field

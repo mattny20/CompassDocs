@@ -16,6 +16,7 @@ import { getSetting } from "@/lib/db";
 import { listFields, listPeople } from "@/lib/directory";
 import { defaultExportPreset, getExportPreset, sanitizePreset, type ExportPreset } from "@/lib/directory-export-config";
 import { exportFilename, renderDirectoryCsv, renderDirectoryPdf } from "@/lib/directory-export";
+import { getOfficeConfig } from "@/lib/directory-offices-store";
 import { getAppSettings } from "@/lib/settings-store";
 import { formatDate } from "@/lib/format";
 import { uploadReadStream } from "@/lib/uploads";
@@ -61,12 +62,12 @@ async function run(user: SessionUser, req: Request, params: Record<string, unkno
   const overrides: Record<string, unknown> = {};
   for (const k of [
     "columns", "group_by", "sort", "sort_dir", "paper", "orientation", "density",
-    "logo", "photos", "pinned_first", "page_numbers", "printed_date", "title", "subtitle", "footer_note",
+    "logo", "photos", "pinned_first", "page_numbers", "printed_date", "office_info", "title", "subtitle", "footer_note",
   ]) {
     if (params[k] !== undefined) overrides[k] = params[k];
   }
   if (typeof overrides.columns === "string") overrides.columns = overrides.columns.split(",").map((s) => s.trim());
-  for (const k of ["logo", "photos", "pinned_first", "page_numbers", "printed_date"]) {
+  for (const k of ["logo", "photos", "pinned_first", "page_numbers", "printed_date", "office_info"]) {
     if (typeof overrides[k] === "string") overrides[k] = overrides[k] === "1" || overrides[k] === "true";
   }
   if (params.filter_key !== undefined || params.filter_value !== undefined) {
@@ -111,6 +112,7 @@ async function run(user: SessionUser, req: Request, params: Record<string, unkno
     company,
     logo: preset.logo ? await logoDataUrl() : null,
     printedOn: formatDate(new Date().toISOString(), settings),
+    offices: preset.office_info ? await getOfficeConfig() : undefined,
   });
   return new Response(new Uint8Array(pdf), {
     headers: {

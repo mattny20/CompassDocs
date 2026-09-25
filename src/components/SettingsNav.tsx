@@ -27,7 +27,13 @@ function NavLink({ s, active }: { s: SettingsSection; active: boolean }) {
 }
 
 export function SettingsNav({ reachable }: { reachable: string[] }) {
-  const path = usePathname();
+  const pathname = usePathname();
+  // A section may have pages of its own (/admin/directory/fields); the rail
+  // entry stays lit for all of them. Longest match wins, or /admin (System)
+  // would claim every page.
+  const path =
+    SETTINGS_SECTIONS.filter((s) => pathname === s.href || pathname.startsWith(`${s.href}/`))
+      .sort((a, b) => b.href.length - a.href.length)[0]?.href ?? pathname;
   const [query, setQuery] = useState("");
   // The rail lists only what this user may open — the layout resolves that from
   // each section's permission, so a delegated role sees its one section rather

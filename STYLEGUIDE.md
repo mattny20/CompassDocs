@@ -178,6 +178,23 @@ focus):
   `<DangerZone><DangerAction label description>…</DangerAction></DangerZone>`
   (red-bordered card, one per page, at the bottom). Per-row destructive
   buttons in lists keep their strong `confirm()` instead.
+- **A section with several jobs gets pages, not a longer page.** When one
+  settings section holds distinct tasks (the directory: people, fields,
+  offices, export, sync), each task is a route under the section
+  (`/admin/directory/fields`) sharing a `layout.tsx` that renders the
+  `SettingsPage` header and a **sub-navigation row** — underline tabs
+  (`border-b-2`, active `border-compass-600 text-compass-700`, inactive
+  `border-transparent text-slate-500`), each with its lucide icon, in a
+  `<nav aria-label="…">` of `<Link aria-current="page">`s (they navigate, so
+  they are links, not `role="tab"`). The rail entry stays lit for every page
+  under the section. The signal that a page needs splitting: more than one
+  primary Save button visible at once, or a card the reader has to scroll to
+  find. See `components/directory-admin/DirectorySubnav.tsx`.
+- **One primary action per card, at its bottom-left**, `mt-4 flex
+  items-center gap-3`: the button, then the state (`Unsaved changes` in
+  `text-xs text-amber-600`, or `Saved` in `text-xs text-slate-400`). A page
+  whose cards are one document (office fields + office values) has one Save
+  below the cards, not one per card.
 
 ## Color and theming
 
