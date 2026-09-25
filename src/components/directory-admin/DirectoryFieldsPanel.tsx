@@ -23,9 +23,18 @@ const MICROSOFT_PATHS = [
   "mail", "userPrincipalName", "mailNickname", "givenName", "surname", "displayName",
   "businessPhones", "businessPhones.0", "businessPhones.1", "mobilePhone", "faxNumber",
   "onPremisesSamAccountName", "onPremisesDistinguishedName", "preferredLanguage", "usageLocation",
-  "manager.displayName", "manager.mail",
+  "manager.mail", "manager.userPrincipalName", "manager.displayName",
   ...Array.from({ length: 15 }, (_, i) => `onPremisesExtensionAttributes.extensionAttribute${i + 1}`),
 ];
+// Entra ID has no assistant attribute on a user — the AD `assistant` and
+// Exchange `msExchAssistantName` fields never reach Microsoft Graph. What a
+// tenant can put assistants in: an Exchange custom attribute (1–15), a
+// directory extension, or the manager relationship for the other direction.
+const MICROSOFT_PEOPLE_PATHS = [
+  "manager.mail", "manager.userPrincipalName",
+  ...Array.from({ length: 15 }, (_, i) => `onPremisesExtensionAttributes.extensionAttribute${i + 1}`),
+];
+const GOOGLE_PEOPLE_PATHS = ["relations.value", "relations[assistant].value", "relations[manager].value"];
 const GOOGLE_PATHS = [
   "organizations[primary].title", "organizations[primary].department", "organizations[primary].costCenter",
   "organizations[primary].description", "orgUnitPath", "phones.value", "phones[primary].value",
@@ -178,7 +187,10 @@ function MappingEditor({
   const [direction, setDirection] = useState(field.link_direction);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [busy, setBusy] = useState(false);
-  const suggestions = provider === "microsoft" ? MICROSOFT_PATHS : GOOGLE_PATHS;
+  const suggestions =
+    field.kind === "people"
+      ? provider === "microsoft" ? MICROSOFT_PEOPLE_PATHS : GOOGLE_PEOPLE_PATHS
+      : provider === "microsoft" ? MICROSOFT_PATHS : GOOGLE_PATHS;
   const valid = mapping ? parseMapping(mapping) : null;
 
   async function runPreview() {
@@ -218,6 +230,14 @@ function MappingEditor({
 
   return (
     <div className="space-y-3">
+      {field.kind === "people" && provider === "microsoft" && (
+        <p className="text-xs text-slate-500">
+          Entra ID has no assistant attribute, so there is nothing named “assistant” to pick. Map this field to wherever your
+          tenant keeps it: an Exchange custom attribute (<code className="font-mono">onPremisesExtensionAttributes.extensionAttribute1</code>…<code className="font-mono">15</code>)
+          holding the assistant’s email or sign-in name, or a directory extension (<code className="font-mono">extension_&lt;appId&gt;_assistant</code>).
+          <code className="font-mono"> manager.mail</code> maps the manager relationship. Not mapped means links are made by hand in People.
+        </p>
+      )}
       <MappingRow value={mapping} onChange={(m) => { setMapping(m); setPreview(null); }} suggestions={suggestions} />
       {field.kind === "people" && mapping && (
         <Field label="What the value names" help="A list of emails, sign-in names, or provider ids, separated by commas or semicolons.">

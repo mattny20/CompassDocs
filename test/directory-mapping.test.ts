@@ -39,6 +39,12 @@ const record = {
   businessPhones: ["+1 602 555 0100 x218"],
   onPremisesExtensionAttributes: { extensionAttribute3: "LIT; EST", extensionAttribute7: "" },
   organizations: [{ title: "Old", primary: false }, { title: "Paralegal", primary: true }],
+  relations: [
+    { value: "boss@firm.example", type: "manager" },
+    { value: "dana@firm.example", type: "assistant" },
+    { value: "sam@firm.example", type: "Assistant" },
+  ],
+  manager: { mail: "boss@firm.example", displayName: "Boss Person" },
   _groups: ["g-lit", "g-notary"],
 };
 
@@ -53,6 +59,17 @@ describe("valuesAtPath", () => {
     // Empty strings are not values — a blank extension attribute must not
     // count as "filled".
     assert.deepEqual(valuesAtPath(record, "onPremisesExtensionAttributes.extensionAttribute7"), []);
+  });
+
+  test("a typed pick keeps the elements whose type matches; a navigation object reads like any other", () => {
+    assert.deepEqual(valuesAtPath(record, "relations[assistant].value"), ["dana@firm.example", "sam@firm.example"], "case-insensitive");
+    assert.deepEqual(valuesAtPath(record, "relations[manager].value"), ["boss@firm.example"]);
+    assert.deepEqual(valuesAtPath(record, "relations[spouse].value"), [], "no match is empty, not the whole list");
+    assert.deepEqual(valuesAtPath(record, "officeLocation[work]"), [], "a scalar has no typed elements");
+    assert.deepEqual(valuesAtPath(record, "manager.mail"), ["boss@firm.example"]);
+    // The fetch layer asks for the top-level property, whatever the pick.
+    assert.deepEqual(mappingProperties({ kind: "path", path: "relations[assistant].value" }), ["relations"]);
+    assert.deepEqual(mappingProperties({ kind: "path", path: "manager.mail" }), ["manager"]);
   });
 });
 
