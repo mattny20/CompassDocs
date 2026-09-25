@@ -388,13 +388,26 @@ export function sanitizeOptions(raw: unknown): FieldOption[] {
 }
 
 function parseField(r: FieldRow): DirectoryField {
+  // A field mapped before 1.2 has only the legacy path column. Fold it into
+  // the blob here so every reader — the admin page, the editor, the sync —
+  // sees one mapping per provider, and clearing it clears both (the legacy
+  // columns are derived from the blob on write).
+  const mappings = parseFieldMappings(r.mappings);
+  if (!mappings.microsoft) {
+    const legacy = legacyPathMapping(r.graph_path);
+    if (legacy) mappings.microsoft = legacy;
+  }
+  if (!mappings.google) {
+    const legacy = legacyPathMapping(r.google_path);
+    if (legacy) mappings.google = legacy;
+  }
   return {
     ...r,
     kind: (FIELD_KINDS as string[]).includes(r.kind) ? r.kind : "text",
     display: (FIELD_DISPLAYS as string[]).includes(r.display) ? r.display : "field",
     value_format: (VALUE_FORMATS as string[]).includes(r.value_format) ? r.value_format : "raw",
     options: sanitizeOptions(r.options),
-    mappings: parseFieldMappings(r.mappings),
+    mappings,
     link_direction: r.link_direction === "in" ? "in" : "out",
   };
 }
@@ -409,11 +422,9 @@ export function jsonbFields(fields: DirectoryField[]): DirectoryField[] {
   return fields.filter((f) => !BUILTIN_FIELD_KEYS.has(f.key) && f.kind !== "people");
 }
 
-/** The mapping in force for a field and provider: the new blob, else the legacy path. */
+/** The mapping in force for a field and provider (parseField already folded the legacy path in). */
 export function effectiveMapping(field: DirectoryField, provider: ProviderKey): Mapping | null {
-  const m = field.mappings[provider];
-  if (m) return m;
-  return legacyPathMapping(provider === "microsoft" ? field.graph_path : field.google_path);
+  return field.mappings[provider] ?? null;
 }
 
 export interface FieldInput {
@@ -437,18 +448,20 @@ export interface FieldInput {
 }
 
 /**
- * Keep the legacy path columns in step with the mappings blob, so the older
- * enterprise overlay (which reads graph_path/google_path only) keeps working
- * for the mappings it can express and does nothing for the ones it can't.
+ * The legacy path columns are derived from the mappings blob on every write,
+ * so the older enterprise overlay (which reads graph_path/google_path only)
+ * keeps working for the mappings it can express and does nothing for the ones
+ * it can't. A provider missing from the blob clears its column: parseField
+ * folds a legacy-only mapping into the blob on read, so "missing" here always
+ * means the admin removed it (1.2.2 — it used to keep the old column, and
+ * "Not mapped" quietly came back as the property it had been).
  */
-function legacyColumnsFor(mappings: FieldMappings, current: { graph_path: string; google_path: string }, explicit: { graph_path?: string; google_path?: string }) {
-  const derive = (provider: ProviderKey, col: "graph_path" | "google_path") => {
-    if (explicit[col] !== undefined) return explicit[col]!.trim();
+function legacyColumnsFor(mappings: FieldMappings) {
+  const derive = (provider: ProviderKey) => {
     const m = mappings[provider];
-    if (m === undefined) return current[col];
-    return m.kind === "path" ? m.path : "";
+    return m?.kind === "path" ? m.path : "";
   };
-  return { graph_path: derive("microsoft", "graph_path"), google_path: derive("google", "google_path") };
+  return { graph_path: derive("microsoft"), google_path: derive("google") };
 }
 
 export async function createField(input: FieldInput & { label: string }): Promise<DirectoryField> {
@@ -461,7 +474,7 @@ export async function createField(input: FieldInput & { label: string }): Promis
   // there is one source of truth to read back.
   if (!mappings.microsoft && input.graph_path?.trim()) mappings.microsoft = { kind: "path", path: input.graph_path.trim() };
   if (!mappings.google && input.google_path?.trim()) mappings.google = { kind: "path", path: input.google_path.trim() };
-  const legacy = legacyColumnsFor(mappings, { graph_path: "", google_path: "" }, {});
+  const legacy = legacyColumnsFor(mappings);
   const res = await pool().query<FieldRow>(
     `INSERT INTO directory_fields
        (key, label, graph_path, google_path, show_in_card, sort, display, kind, multi, group_by, builtin,
@@ -510,7 +523,7 @@ export async function updateField(id: number, fields: FieldInput): Promise<Direc
       else delete mappings.google;
     }
   }
-  const legacy = legacyColumnsFor(mappings, cur, {});
+  const legacy = legacyColumnsFor(mappings);
   const res = await pool().query<FieldRow>(
     `UPDATE directory_fields SET
        label = $1, graph_path = $2, google_path = $3, show_in_card = $4, sort = $5, display = $6,

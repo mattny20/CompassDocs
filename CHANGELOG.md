@@ -4,6 +4,17 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.2.2] - 2026-09-25
+
+### Fixed
+- **"Not mapped" did not stick.** Saving a directory field's mapping as
+  *Not mapped (manual only)* cleared the new mapping but left the legacy
+  path column behind, and the field read that column back — so the property
+  returned on the next load. For fields mapped before 1.2 the editor also
+  opened on *Not mapped* while the row showed the mapping. The legacy column
+  now follows the mapping on every save, and a legacy-only mapping is read as
+  the one mapping it is.
+
 ## [1.2.1] - 2026-09-25
 
 ### Fixed
