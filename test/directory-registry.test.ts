@@ -246,6 +246,24 @@ describe("directory registry", () => {
     assert.equal(pat.assistant_name, "Lee Assistant, Max Assistant");
     assert.deepEqual(lee.linked_by.assistant?.map((l) => l.name), ["Pat Partner"], "the assistant sees who they assist");
     assert.equal(lee.links.assistant, undefined);
+
+    // What the attribute usually holds: a display name, "Last, First", a
+    // sign-in name, a DN. All resolve; a name two people share does not.
+    const outcome = await replaceProviderPeople(
+      SOURCE,
+      [
+        { external_id: `${PREFIX}pat`, name: "Pat Partner", email: `pat@${DOMAIN}`, record: { onPremisesExtensionAttributes: { extensionAttribute3: "Assistant, Lee; CN=Max Assistant,OU=Staff,DC=firm; Kim Twin" } } },
+        { external_id: `${PREFIX}lee`, name: "Lee Assistant", email: `lee@${DOMAIN}`, record: { userPrincipalName: `lee.assistant@${DOMAIN}` } },
+        { external_id: `${PREFIX}max`, name: "Max Assistant", email: `max@${DOMAIN}`, record: {} },
+        { external_id: `${PREFIX}kim1`, name: "Kim Twin", email: `kim1@${DOMAIN}`, record: {} },
+        { external_id: `${PREFIX}kim2`, name: "Kim Twin", email: `kim2@${DOMAIN}`, record: { onPremisesExtensionAttributes: { extensionAttribute3: `lee.assistant@${DOMAIN}` } } },
+      ],
+      { allowRemovals: true }
+    );
+    assert.deepEqual(outcome.unresolved, [{ field: "assistant", count: 1, samples: ["Kim Twin (2 people share this name)"] }]);
+    const again = await listPeople({ includeHidden: true });
+    assert.deepEqual(again.find((p) => p.external_id === `${PREFIX}pat`)!.links.assistant?.map((l) => l.name), ["Lee Assistant", "Max Assistant"]);
+    assert.deepEqual(again.find((p) => p.external_id === `${PREFIX}kim2`)!.links.assistant?.map((l) => l.name), ["Lee Assistant"], "a sign-in name resolves");
     await updateField(assistant.id, { link_direction: "out", mappings: {} });
   });
 
