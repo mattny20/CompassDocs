@@ -215,10 +215,11 @@ export function DirectoryExportPanel({
                 </Select>
               </Field>
             </div>
-            <Field label="Page layout" help="Two columns suit a short table — name and extension — that would otherwise run down the left of an empty page. Values are cut to one line.">
-              <Select value={String(cur.page_columns)} onChange={(e) => update({ page_columns: e.target.value === "2" ? 2 : 1 })} className="w-full">
+            <Field label="Page layout" help="Two or three columns suit a short table — name and extension — that would otherwise run down the left of an empty page. Values are cut to one line; three columns want landscape or very few columns.">
+              <Select value={String(cur.page_columns)} onChange={(e) => update({ page_columns: e.target.value === "3" ? 3 : e.target.value === "2" ? 2 : 1 })} className="w-full">
                 <option value="1">One table across the page</option>
                 <option value="2">Two columns, side by side</option>
+                <option value="3">Three columns, side by side</option>
               </Select>
             </Field>
             <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm">

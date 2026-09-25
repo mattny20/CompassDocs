@@ -4,6 +4,13 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.2.7] - 2026-09-25
+
+### Added
+- **Three-column PDF layout**, beside the two-column one — for a name-and-
+  extension list on landscape paper, or any table narrow enough to stand
+  three abreast.
+
 ## [1.2.6] - 2026-09-25
 
 ### Fixed
