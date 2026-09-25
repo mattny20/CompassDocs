@@ -28,6 +28,14 @@ export interface ExportPreset {
   group_by: string;
   sort: string;
   sort_dir: "asc" | "desc";
+  /** A second key the sort falls through to — "Office, then Title". "" for none. */
+  sort2: string;
+  sort2_dir: "asc" | "desc";
+  /** Lay the table out in two side-by-side columns on each page — a short
+   *  table (name, extension) fills a sheet instead of a strip down the left. */
+  page_columns: 1 | 2;
+  /** Shade every other row so the eye keeps its line across a wide page. */
+  zebra: boolean;
   /** Only people whose field value matches — e.g. one office's sheet. */
   filter: { key: string; value: string } | null;
   photos: boolean;
@@ -54,6 +62,10 @@ export const PRESET_DEFAULTS: Omit<ExportPreset, "id" | "name"> = {
   group_by: "",
   sort: "name",
   sort_dir: "asc",
+  sort2: "",
+  sort2_dir: "asc",
+  page_columns: 1,
+  zebra: true,
   filter: null,
   photos: false,
   pinned_first: false,
@@ -85,6 +97,7 @@ export function sanitizePreset(raw: unknown, fields: DirectoryField[], fallbackI
     : [...PRESET_DEFAULTS.columns].filter((k) => valid.has(k));
   const groupBy = String(o.group_by ?? "").trim();
   const sortKey = String(o.sort ?? "").trim();
+  const sort2Key = String(o.sort2 ?? "").trim();
   const filterRaw = o.filter && typeof o.filter === "object" ? (o.filter as Record<string, unknown>) : null;
   const filterKey = String(filterRaw?.key ?? "").trim();
   const filterValue = String(filterRaw?.value ?? "").trim().slice(0, 120);
@@ -102,6 +115,10 @@ export function sanitizePreset(raw: unknown, fields: DirectoryField[], fallbackI
     group_by: groupBy && fields.some((f) => f.key === groupBy && f.group_by) ? groupBy : "",
     sort: sortKey && valid.has(sortKey) ? sortKey : "name",
     sort_dir: o.sort_dir === "desc" ? "desc" : "asc",
+    sort2: sort2Key && valid.has(sort2Key) && sort2Key !== sortKey ? sort2Key : "",
+    sort2_dir: o.sort2_dir === "desc" ? "desc" : "asc",
+    page_columns: Number(o.page_columns) === 2 ? 2 : 1,
+    zebra: o.zebra === undefined ? true : Boolean(o.zebra),
     filter: filterKey && filterValue && valid.has(filterKey) ? { key: filterKey, value: filterValue } : null,
     photos: Boolean(o.photos),
     pinned_first: Boolean(o.pinned_first),

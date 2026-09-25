@@ -17,7 +17,7 @@ import type { DirectoryField, DirectoryPerson } from "./directory";
 import {
   cellValue,
   columnLabel,
-  comparePeople,
+  compareByKeys,
   groupPeople,
   initialsOf,
   pinnedFirst,
@@ -25,6 +25,7 @@ import {
   resolveValues,
 } from "./directory-display";
 import { officeBlocksFor, type OfficeBlock, type OfficeConfig } from "./directory-offices";
+import { columnGeometry, planPages, type ExportLine } from "./directory-export-layout";
 
 export interface ExportInput {
   preset: ExportPreset;
@@ -63,7 +64,6 @@ export interface PreparedExport {
   offices: PreparedOffice[];
 }
 
-
 const PAPER: Record<ExportPreset["paper"], "LETTER" | "A4" | "LEGAL"> = {
   letter: "LETTER",
   a4: "A4",
@@ -95,7 +95,12 @@ function matchesFilter(p: DirectoryPerson, filter: ExportPreset["filter"], field
 export function prepareExport(input: Omit<ExportInput, "logo" | "printedOn">): PreparedExport {
   const { preset, fields } = input;
   const visible = input.people.filter((p) => p.hidden !== 1 && matchesFilter(p, preset.filter, fields));
-  const sorted = [...visible].sort(comparePeople(fields, preset.sort, preset.sort_dir === "desc" ? -1 : 1));
+  const sorted = [...visible].sort(
+    compareByKeys(fields, [
+      { key: preset.sort, dir: preset.sort_dir === "desc" ? -1 : 1 },
+      { key: preset.sort2, dir: preset.sort2_dir === "desc" ? -1 : 1 },
+    ])
+  );
 
   const sections: PreparedSection[] = [];
   const { pinned, rest } = preset.pinned_first ? pinnedFirst(sorted) : { pinned: [], rest: sorted };
@@ -126,12 +131,14 @@ export function prepareExport(input: Omit<ExportInput, "logo" | "printedOn">): P
 }
 
 const RASTER = /^data:image\/(png|jpe?g);base64,/i;
+const ZEBRA = "#f5f7fa";
 
 function DirectoryDocument({ input, prepared }: { input: ExportInput; prepared: PreparedExport }) {
   const { preset, fields } = input;
   const d = DENSITY[preset.density];
   const totalWeight = prepared.columns.reduce((s, c) => s + c.weight, 0) || 1;
   const photoCol = preset.photos ? d.photo + 6 : 0;
+  const twoUp = preset.page_columns === 2;
 
   const styles = StyleSheet.create({
     page: {
@@ -166,7 +173,7 @@ function DirectoryDocument({ input, prepared }: { input: ExportInput; prepared: 
       fontFamily: "Helvetica-Bold",
       fontSize: d.font,
       color: "#0f172a",
-      backgroundColor: "#f1f5f9",
+      backgroundColor: "#e8edf3",
       paddingVertical: d.pad,
       paddingHorizontal: 4,
       marginTop: 6,
@@ -180,6 +187,7 @@ function DirectoryDocument({ input, prepared }: { input: ExportInput; prepared: 
       borderBottomColor: "#e2e8f0",
       paddingVertical: d.pad,
     },
+    rowShaded: { backgroundColor: ZEBRA },
     td: { paddingRight: 5 },
     name: { fontFamily: "Helvetica-Bold", color: "#0f172a" },
     photoCell: { width: photoCol, paddingRight: 6 },
@@ -194,6 +202,8 @@ function DirectoryDocument({ input, prepared }: { input: ExportInput; prepared: 
       textAlign: "center",
       paddingTop: d.photo / 2 - (d.font - 2.5) / 2 - 1,
     },
+    columns: { flexDirection: "row", gap: 18 },
+    column: { flex: 1 },
     footer: {
       position: "absolute",
       left: 36,
@@ -233,97 +243,167 @@ function DirectoryDocument({ input, prepared }: { input: ExportInput; prepared: 
 
   const width = (c: PreparedColumn) => `${((c.weight / totalWeight) * 100).toFixed(2)}%`;
 
+  const header = (
+    <View style={styles.header}>
+      {preset.logo && input.logo && RASTER.test(input.logo) ? <Image src={input.logo} style={styles.logo} /> : null}
+      <View>
+        <Text style={styles.title}>{prepared.title}</Text>
+        {prepared.subtitle ? <Text style={styles.subtitle}>{prepared.subtitle}</Text> : null}
+      </View>
+      <Text style={styles.count}>
+        {prepared.total} {prepared.total === 1 ? "person" : "people"}
+      </Text>
+    </View>
+  );
+
+  const thead = (
+    <View style={styles.thead}>
+      {preset.photos ? <View style={styles.photoCell} /> : null}
+      {prepared.columns.map((c) => (
+        <Text key={c.key} style={[styles.th, { width: width(c) }]}>
+          {c.label}
+        </Text>
+      ))}
+    </View>
+  );
+
+  // Alternate rows are shaded so the eye keeps its line across a wide page;
+  // the count restarts at every section, so a section always opens unshaded.
+  const row = (p: DirectoryPerson, index: number, key: string) => (
+    <View key={key} style={[styles.row, preset.zebra && index % 2 === 1 ? styles.rowShaded : {}]} wrap={false}>
+      {preset.photos ? (
+        <View style={styles.photoCell}>
+          {p.photo && RASTER.test(p.photo) ? (
+            <Image src={p.photo} style={styles.photo} />
+          ) : (
+            <Text style={styles.initials}>{initialsOf(p.name)}</Text>
+          )}
+        </View>
+      ) : null}
+      {prepared.columns.map((c) => (
+        <Text
+          key={c.key}
+          style={[styles.td, c.key === "name" ? styles.name : {}, { width: width(c) }, twoUp ? { textOverflow: "ellipsis" } : {}]}
+          {...(twoUp ? { maxLines: 1 } : {})}
+        >
+          {cellValue(p, c.key, fields)}
+        </Text>
+      ))}
+    </View>
+  );
+
+  const sectionHead = (label: string, count: number, key: string) => (
+    <View key={key} minPresenceAhead={40}>
+      <Text style={styles.section}>
+        {label} ({count})
+      </Text>
+    </View>
+  );
+
+  // Office blocks sit after the last row. Each is unbreakable: one that does
+  // not fit in what is left of the page moves whole to the next. The heading
+  // lives inside the first block's unit, so it moves with it rather than
+  // being left alone at the foot of the previous page.
+  const offices = prepared.offices.map((o, i) => (
+    <View key={o.name} wrap={false}>
+      {i === 0 ? <Text style={styles.officesHead}>Office information</Text> : null}
+      <View style={styles.office}>
+        <Text style={styles.officeName}>{o.name}</Text>
+        <View style={styles.officeRows}>
+          {o.rows.map((r) => (
+            <View key={r.label} style={r.multiline ? styles.officeRowWide : styles.officeRow}>
+              <Text style={styles.officeLabel}>{r.label}</Text>
+              <Text style={styles.officeValue}>{r.value}</Text>
+            </View>
+          ))}
+        </View>
+      </View>
+    </View>
+  ));
+
+  const footer = (
+    <View style={styles.footer} fixed>
+      <Text>{[preset.footer_note, input.company].filter(Boolean).join("  ·  ")}</Text>
+      <Text
+        render={({ pageNumber, totalPages }) =>
+          [
+            preset.printed_date ? `Printed ${input.printedOn}` : "",
+            preset.page_numbers ? `Page ${pageNumber} of ${totalPages}` : "",
+          ]
+            .filter(Boolean)
+            .join("  ·  ")
+        }
+      />
+    </View>
+  );
+
+  const docProps = { title: prepared.title, author: input.company, subject: "Directory", creator: "CompassDocs" };
+
+  if (!twoUp) {
+    return (
+      <Document {...docProps}>
+        <Page size={PAPER[preset.paper]} orientation={preset.orientation} style={styles.page}>
+          <View fixed>
+            {header}
+            {thead}
+          </View>
+          {prepared.sections.map((s, si) => (
+            <View key={si}>
+              {s.label !== null ? sectionHead(s.label, s.rows.length, `h-${si}`) : null}
+              {s.rows.map((p, ri) => row(p, ri, `${si}-${p.id}`))}
+            </View>
+          ))}
+          {offices}
+          {footer}
+        </Page>
+      </Document>
+    );
+  }
+
+  // Two columns per page: the table is dealt into columns of a known height
+  // (see directory-export-layout), and each page is laid out explicitly.
+  const lines: ExportLine<DirectoryPerson>[] = [];
+  for (const s of prepared.sections) {
+    if (s.label !== null) lines.push({ kind: "section", label: s.label, count: s.rows.length });
+    for (const p of s.rows) lines.push({ kind: "row", row: p });
+  }
+  const geometry = columnGeometry({
+    paper: preset.paper,
+    orientation: preset.orientation,
+    font: d.font,
+    pad: d.pad,
+    head: d.head,
+    photo: preset.photos ? d.photo : 0,
+    hasSubtitle: Boolean(prepared.subtitle),
+  });
+  const pages = planPages(lines, geometry);
+
   return (
-    <Document title={prepared.title} author={input.company} subject="Directory" creator="CompassDocs">
-      <Page size={PAPER[preset.paper]} orientation={preset.orientation} style={styles.page}>
-        <View fixed>
-          <View style={styles.header}>
-            {preset.logo && input.logo && RASTER.test(input.logo) ? (
-              <Image src={input.logo} style={styles.logo} />
-            ) : null}
-            <View>
-              <Text style={styles.title}>{prepared.title}</Text>
-              {prepared.subtitle ? <Text style={styles.subtitle}>{prepared.subtitle}</Text> : null}
-            </View>
-            <Text style={styles.count}>
-              {prepared.total} {prepared.total === 1 ? "person" : "people"}
-            </Text>
+    <Document {...docProps}>
+      {pages.map((pg, pi) => (
+        <Page key={pi} size={PAPER[preset.paper]} orientation={preset.orientation} style={styles.page}>
+          {header}
+          <View style={styles.columns}>
+            {pg.columns.map((col, ci) => {
+              let shade = 0;
+              return (
+                <View key={ci} style={styles.column}>
+                  {thead}
+                  {col.lines.map((line, li) => {
+                    if (line.kind === "section") {
+                      shade = 0;
+                      return sectionHead(line.label, line.count, `s-${pi}-${ci}-${li}`);
+                    }
+                    return row(line.row, shade++, `r-${pi}-${ci}-${line.row.id}`);
+                  })}
+                </View>
+              );
+            })}
           </View>
-          <View style={styles.thead}>
-            {preset.photos ? <View style={styles.photoCell} /> : null}
-            {prepared.columns.map((c) => (
-              <Text key={c.key} style={[styles.th, { width: width(c) }]}>
-                {c.label}
-              </Text>
-            ))}
-          </View>
-        </View>
-
-        {prepared.sections.map((s, si) => (
-          <View key={si}>
-            {s.label !== null ? (
-              <View minPresenceAhead={40}>
-                <Text style={styles.section}>
-                  {s.label} ({s.rows.length})
-                </Text>
-              </View>
-            ) : null}
-            {s.rows.map((p) => (
-              <View key={`${si}-${p.id}`} style={styles.row} wrap={false}>
-                {preset.photos ? (
-                  <View style={styles.photoCell}>
-                    {p.photo && RASTER.test(p.photo) ? (
-                      <Image src={p.photo} style={styles.photo} />
-                    ) : (
-                      <Text style={styles.initials}>{initialsOf(p.name)}</Text>
-                    )}
-                  </View>
-                ) : null}
-                {prepared.columns.map((c) => (
-                  <Text key={c.key} style={[styles.td, c.key === "name" ? styles.name : {}, { width: width(c) }]}>
-                    {cellValue(p, c.key, fields)}
-                  </Text>
-                ))}
-              </View>
-            ))}
-          </View>
-        ))}
-
-        {/* Office blocks sit after the last row. Each is unbreakable: one that
-            does not fit in what is left of the page moves whole to the next.
-            The heading lives inside the first block's unit, so it moves with
-            it rather than being left alone at the foot of the previous page. */}
-        {prepared.offices.map((o, i) => (
-          <View key={o.name} wrap={false}>
-            {i === 0 ? <Text style={styles.officesHead}>Office information</Text> : null}
-            <View style={styles.office}>
-              <Text style={styles.officeName}>{o.name}</Text>
-              <View style={styles.officeRows}>
-                {o.rows.map((r) => (
-                  <View key={r.label} style={r.multiline ? styles.officeRowWide : styles.officeRow}>
-                    <Text style={styles.officeLabel}>{r.label}</Text>
-                    <Text style={styles.officeValue}>{r.value}</Text>
-                  </View>
-                ))}
-              </View>
-            </View>
-          </View>
-        ))}
-
-        <View style={styles.footer} fixed>
-          <Text>{[preset.footer_note, input.company].filter(Boolean).join("  ·  ")}</Text>
-          <Text
-            render={({ pageNumber, totalPages }) =>
-              [
-                preset.printed_date ? `Printed ${input.printedOn}` : "",
-                preset.page_numbers ? `Page ${pageNumber} of ${totalPages}` : "",
-              ]
-                .filter(Boolean)
-                .join("  ·  ")
-            }
-          />
-        </View>
-      </Page>
+          {pi === pages.length - 1 ? offices : null}
+          {footer}
+        </Page>
+      ))}
     </Document>
   );
 }
