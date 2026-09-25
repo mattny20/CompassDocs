@@ -57,6 +57,7 @@ const LS_COLS = "compass_dir_cols_v2";
 const LS_GROUP = "compass_dir_group";
 const LS_CARDS_GROUP = "compass_dir_cards_group";
 const LS_MY_PINS = "compass_dir_mypins";
+const LS_OFFICE_INFO = "compass_dir_office_info";
 
 export interface ExportPresetSummary {
   id: string;
@@ -121,6 +122,7 @@ export function DirectoryClient({
   const [groupBy, setGroupBy] = useState(defaultGroupBy);
   const [cardsGroupBy, setCardsGroupBy] = useState("");
   const [myPins, setMyPins] = useState<number[]>([]);
+  const [officeInfo, setOfficeInfo] = useState(true);
   const [exporting, setExporting] = useState(false);
 
   const groupFields = useMemo(() => fields.filter((f) => f.group_by), [fields]);
@@ -147,6 +149,7 @@ export function DirectoryClient({
       const cg = localStorage.getItem(LS_CARDS_GROUP);
       if (cg !== null && (cg === "" || groupFields.some((f) => f.key === cg))) setCardsGroupBy(cg);
       setMyPins(readJson<number[]>(LS_MY_PINS, []).filter((n) => Number.isInteger(n)));
+      setOfficeInfo(readJson<boolean>(LS_OFFICE_INFO, true) !== false);
     } catch {
       /* first visit */
     }
@@ -291,6 +294,7 @@ export function DirectoryClient({
         sort: sortBy,
         sort_dir: sortDir === 1 ? "asc" : "desc",
         pinned_first: view !== "list" && pinned.length > 0,
+        office_info: officeInfo,
       },
       format
     );
@@ -633,6 +637,16 @@ export function DirectoryClient({
                 <Table2 className="h-4 w-4 text-slate-400" aria-hidden /> <span className="flex-1">What I see</span>
                 <span className="text-[11px] uppercase text-slate-400">CSV</span>
               </button>
+              <label className="flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50">
+                <input
+                  type="checkbox"
+                  checked={officeInfo}
+                  onChange={(e) => { setOfficeInfo(e.target.checked); writeJson(LS_OFFICE_INFO, e.target.checked); }}
+                  className="h-3.5 w-3.5 accent-compass-600"
+                />
+                <span className="flex-1">Office information</span>
+                <span className="text-[11px] uppercase text-slate-400">PDF</span>
+              </label>
               <div className="my-1 border-t border-slate-100" />
               <button className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50" onClick={() => { setExportOpen(false); window.print(); }}>
                 <Printer className="h-4 w-4 text-slate-400" aria-hidden /> Print…

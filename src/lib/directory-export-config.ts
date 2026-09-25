@@ -49,6 +49,8 @@ export interface ExportPreset {
   filename: string;
   /** Close the PDF with the office profiles of every office that appears in it. */
   office_info: boolean;
+  /** Office blocks side by side, 1–4 to a row; 1 lays a block's fields two abreast. */
+  office_columns: 1 | 2 | 3 | 4;
   is_default: boolean;
 }
 
@@ -75,6 +77,7 @@ export const PRESET_DEFAULTS: Omit<ExportPreset, "id" | "name"> = {
   footer_note: "",
   filename: "",
   office_info: true,
+  office_columns: 2,
   is_default: false,
 };
 
@@ -128,6 +131,7 @@ export function sanitizePreset(raw: unknown, fields: DirectoryField[], fallbackI
     footer_note: String(o.footer_note ?? "").trim().slice(0, 200),
     filename: slug(String(o.filename ?? "")).slice(0, 60),
     office_info: o.office_info === undefined ? true : Boolean(o.office_info),
+    office_columns: ([1, 2, 3, 4].includes(Number(o.office_columns)) ? Number(o.office_columns) : 2) as 1 | 2 | 3 | 4,
     is_default: Boolean(o.is_default),
   };
 }

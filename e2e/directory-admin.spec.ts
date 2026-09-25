@@ -63,6 +63,8 @@ test("office profiles round-trip and close the PDF for the offices in it", async
     // The two-column layout, a second sort key and unshaded rows all render.
     expect(await size("&page_columns=2&sort=office&sort2=title&sort2_dir=desc&zebra=0")).toBeGreaterThan(1500);
     expect(await size("&page_columns=3&columns=name,phone")).toBeGreaterThan(1500);
+    expect(await size("&office_columns=4")).toBeGreaterThan(1500);
+    expect(await size("&office_columns=1")).toBeGreaterThan(1500);
   } finally {
     await api(page, `/api/admin/directory/people/${person.id}`, { method: "DELETE" });
     const now = await api(page, "/api/admin/directory/offices");

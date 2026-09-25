@@ -62,7 +62,7 @@ async function run(user: SessionUser, req: Request, params: Record<string, unkno
   const overrides: Record<string, unknown> = {};
   for (const k of [
     "columns", "group_by", "sort", "sort_dir", "sort2", "sort2_dir", "paper", "orientation", "density", "page_columns",
-    "logo", "photos", "pinned_first", "page_numbers", "printed_date", "office_info", "zebra", "title", "subtitle", "footer_note",
+    "logo", "photos", "pinned_first", "page_numbers", "printed_date", "office_info", "office_columns", "zebra", "title", "subtitle", "footer_note",
   ]) {
     if (params[k] !== undefined) overrides[k] = params[k];
   }

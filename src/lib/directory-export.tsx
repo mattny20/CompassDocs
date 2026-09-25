@@ -225,8 +225,9 @@ function DirectoryDocument({ input, prepared }: { input: ExportInput; prepared: 
       borderTopWidth: 1.2,
       borderTopColor: "#94a3b8",
     },
+    officeRowOf: { flexDirection: "row", gap: 8, marginTop: 6 },
     office: {
-      marginTop: 6,
+      flex: 1,
       padding: d.pad + 3,
       borderWidth: 0.5,
       borderColor: "#cbd5e1",
@@ -304,19 +305,33 @@ function DirectoryDocument({ input, prepared }: { input: ExportInput; prepared: 
   // not fit in what is left of the page moves whole to the next. The heading
   // lives inside the first block's unit, so it moves with it rather than
   // being left alone at the foot of the previous page.
-  const offices = prepared.offices.map((o, i) => (
-    <View key={o.name} wrap={false}>
-      {i === 0 ? <Text style={styles.officesHead}>Office information</Text> : null}
-      <View style={styles.office}>
-        <Text style={styles.officeName}>{o.name}</Text>
-        <View style={styles.officeRows}>
-          {o.rows.map((r) => (
-            <View key={r.label} style={r.multiline ? styles.officeRowWide : styles.officeRow}>
-              <Text style={styles.officeLabel}>{r.label}</Text>
-              <Text style={styles.officeValue}>{r.value}</Text>
+  // Blocks stand `office_columns` abreast; a row of blocks is one unbreakable
+  // unit, and the heading rides with the first row. A lone full-width block
+  // lays its fields two to a line; narrower blocks stack them.
+  const perRow = preset.office_columns;
+  const officeRows: PreparedOffice[][] = [];
+  for (let i = 0; i < prepared.offices.length; i += perRow) officeRows.push(prepared.offices.slice(i, i + perRow));
+  const offices = officeRows.map((group, gi) => (
+    <View key={gi} wrap={false}>
+      {gi === 0 ? <Text style={styles.officesHead}>Office information</Text> : null}
+      <View style={styles.officeRowOf}>
+        {group.map((o) => (
+          <View key={o.name} style={styles.office}>
+            <Text style={styles.officeName}>{o.name}</Text>
+            <View style={styles.officeRows}>
+              {o.rows.map((r) => (
+                <View key={r.label} style={perRow === 1 && !r.multiline ? styles.officeRow : styles.officeRowWide}>
+                  <Text style={styles.officeLabel}>{r.label}</Text>
+                  <Text style={styles.officeValue}>{r.value}</Text>
+                </View>
+              ))}
             </View>
-          ))}
-        </View>
+          </View>
+        ))}
+        {/* Pad the last row so its blocks keep the width of a full row. */}
+        {Array.from({ length: perRow - group.length }, (_, i) => (
+          <View key={`pad-${i}`} style={{ flex: 1 }} />
+        ))}
       </View>
     </View>
   ));
