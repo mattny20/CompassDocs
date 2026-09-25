@@ -61,13 +61,13 @@ async function run(user: SessionUser, req: Request, params: Record<string, unkno
   // that is not a real column or option.
   const overrides: Record<string, unknown> = {};
   for (const k of [
-    "columns", "group_by", "sort", "sort_dir", "paper", "orientation", "density",
-    "logo", "photos", "pinned_first", "page_numbers", "printed_date", "office_info", "title", "subtitle", "footer_note",
+    "columns", "group_by", "sort", "sort_dir", "sort2", "sort2_dir", "paper", "orientation", "density", "page_columns",
+    "logo", "photos", "pinned_first", "page_numbers", "printed_date", "office_info", "zebra", "title", "subtitle", "footer_note",
   ]) {
     if (params[k] !== undefined) overrides[k] = params[k];
   }
   if (typeof overrides.columns === "string") overrides.columns = overrides.columns.split(",").map((s) => s.trim());
-  for (const k of ["logo", "photos", "pinned_first", "page_numbers", "printed_date", "office_info"]) {
+  for (const k of ["logo", "photos", "pinned_first", "page_numbers", "printed_date", "office_info", "zebra"]) {
     if (typeof overrides[k] === "string") overrides[k] = overrides[k] === "1" || overrides[k] === "true";
   }
   if (params.filter_key !== undefined || params.filter_value !== undefined) {

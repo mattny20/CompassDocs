@@ -248,6 +248,16 @@ export function groupPeople<P extends PersonLike>(people: P[], field: FieldLike)
  * because the admin said so, not because of the alphabet.
  */
 export function comparePeople(fields: FieldLike[], sortKey: string, dir: 1 | -1 = 1) {
+  return compareByKeys(fields, [{ key: sortKey, dir }]);
+}
+
+export interface SortKey {
+  key: string;
+  dir: 1 | -1;
+}
+
+/** One key's ordering, with no tie-break — chained by compareByKeys. */
+function compareOnKey(fields: FieldLike[], sortKey: string, dir: 1 | -1) {
   const field = fields.find((f) => f.key === sortKey);
   return (a: PersonLike, b: PersonLike): number => {
     const va = cellValue(a, sortKey, fields);
@@ -261,9 +271,28 @@ export function comparePeople(fields: FieldLike[], sortKey: string, dir: 1 | -1 
       const ib = rb?.index ?? Number.POSITIVE_INFINITY;
       if (ia !== ib) return (ia < ib ? -1 : 1) * dir;
     }
-    const c = va.localeCompare(vb, undefined, { sensitivity: "base" });
-    if (c !== 0) return c * dir;
-    return a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) * dir;
+    return va.localeCompare(vb, undefined, { sensitivity: "base" }) * dir;
+  };
+}
+
+/**
+ * Order people by several keys in turn — "Office, then Title, then name" —
+ * each with its own direction. Keys that are blank or repeat an earlier one
+ * are skipped; the name always breaks the final tie, in the first key's
+ * direction, so an export is stable run to run.
+ */
+export function compareByKeys(fields: FieldLike[], keys: SortKey[]) {
+  const seen = new Set<string>();
+  const chain = keys
+    .filter((k) => k.key && !seen.has(k.key) && seen.add(k.key))
+    .map((k) => compareOnKey(fields, k.key, k.dir));
+  const nameDir = keys[0]?.dir ?? 1;
+  return (a: PersonLike, b: PersonLike): number => {
+    for (const cmp of chain) {
+      const c = cmp(a, b);
+      if (c !== 0) return c;
+    }
+    return a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) * nameDir;
   };
 }
 

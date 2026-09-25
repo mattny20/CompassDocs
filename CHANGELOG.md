@@ -4,6 +4,23 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.2.5] - 2026-09-25
+
+### Added
+- **Two-column PDF layout.** A preset can lay the table out in two columns
+  side by side, so a short table — name and extension — fills the sheet
+  instead of running down the left of an empty page. Rows are dealt into
+  columns of a known height for the paper, orientation and density; a
+  section header never sits alone at the foot of a column; values are cut
+  to one line. The office blocks still close the last page.
+- **Alternate rows shaded** on the PDF (on by default for every preset, with
+  a switch), so the eye keeps its line across a wide page.
+- **"Then by" sort.** A second sort key breaks ties in the first — Office,
+  then Title — each with its own direction; the name always breaks the
+  final tie. The sort menus group keys as Built-in / Fields / Links, so a
+  synced custom field is as easy to pick as Name; a field with options
+  sorts in the admin's order.
+
 ## [1.2.4] - 2026-09-25
 
 ### Added

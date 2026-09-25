@@ -60,6 +60,8 @@ test("office profiles round-trip and close the PDF for the offices in it", async
     const withOffices = await size("");
     const without = await size("&office_info=0");
     expect(withOffices).toBeGreaterThan(without);
+    // The two-column layout, a second sort key and unshaded rows all render.
+    expect(await size("&page_columns=2&sort=office&sort2=title&sort2_dir=desc&zebra=0")).toBeGreaterThan(1500);
   } finally {
     await api(page, `/api/admin/directory/people/${person.id}`, { method: "DELETE" });
     const now = await api(page, "/api/admin/directory/offices");

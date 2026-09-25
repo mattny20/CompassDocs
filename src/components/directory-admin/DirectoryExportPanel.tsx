@@ -24,6 +24,10 @@ const PRESET_BLANK: Omit<ExportPreset, "id" | "name"> = {
   group_by: "",
   sort: "name",
   sort_dir: "asc",
+  sort2: "",
+  sort2_dir: "asc",
+  page_columns: 1,
+  zebra: true,
   filter: null,
   photos: false,
   pinned_first: false,
@@ -48,6 +52,16 @@ export function DirectoryExportPanel({
 }) {
   const available = useMemo(() => availableColumns(fields), [fields]);
   const groupFields = useMemo(() => fields.filter((f) => f.group_by), [fields]);
+  // Sort keys grouped so a synced custom field is as easy to find as Name.
+  const sortGroups = useMemo(() => {
+    const builtin = new Set(["name", "title", "department", "email", "phone", "mobile", "office"]);
+    const isLink = (k: string) => k === "assists" || k.endsWith(":in") || fields.some((f) => f.key === k && f.kind === "people");
+    return [
+      { label: "Built-in", keys: available.filter((c) => builtin.has(c.key)) },
+      { label: "Fields", keys: available.filter((c) => !builtin.has(c.key) && !isLink(c.key)) },
+      { label: "Links", keys: available.filter((c) => !builtin.has(c.key) && isLink(c.key)) },
+    ].filter((g) => g.keys.length);
+  }, [available, fields]);
 
   // --- list defaults ---
   const [columns, setColumns] = useState(initialListColumns);
@@ -201,7 +215,14 @@ export function DirectoryExportPanel({
                 </Select>
               </Field>
             </div>
+            <Field label="Page layout" help="Two columns suit a short table — name and extension — that would otherwise run down the left of an empty page. Values are cut to one line.">
+              <Select value={String(cur.page_columns)} onChange={(e) => update({ page_columns: e.target.value === "2" ? 2 : 1 })} className="w-full">
+                <option value="1">One table across the page</option>
+                <option value="2">Two columns, side by side</option>
+              </Select>
+            </Field>
             <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm">
+              <Toggle label="Shade alternate rows" checked={cur.zebra} onChange={(v) => update({ zebra: v })} />
               <Toggle label="Workspace logo" checked={cur.logo} onChange={(v) => update({ logo: v })} />
               <Toggle label="Photos" checked={cur.photos} onChange={(v) => update({ photos: v })} />
               <Toggle label="Pinned people first" checked={cur.pinned_first} onChange={(v) => update({ pinned_first: v })} />
@@ -225,11 +246,15 @@ export function DirectoryExportPanel({
                   ))}
                 </Select>
               </Field>
-              <Field label="Sort by">
+              <Field label="Sort by" help="Any field, synced or typed; a field with options sorts in their order.">
                 <div className="flex gap-1">
-                  <Select value={cur.sort} onChange={(e) => update({ sort: e.target.value })} className="w-full">
-                    {available.map((c) => (
-                      <option key={c.key} value={c.key}>{c.label}</option>
+                  <Select value={cur.sort} onChange={(e) => update({ sort: e.target.value, ...(cur.sort2 === e.target.value ? { sort2: "" } : {}) })} className="w-full">
+                    {sortGroups.map((g) => (
+                      <optgroup key={g.label} label={g.label}>
+                        {g.keys.map((c) => (
+                          <option key={c.key} value={c.key}>{c.label}</option>
+                        ))}
+                      </optgroup>
                     ))}
                   </Select>
                   <Select value={cur.sort_dir} onChange={(e) => update({ sort_dir: e.target.value as "asc" | "desc" })} className="w-20" aria-label="Direction">
@@ -239,6 +264,24 @@ export function DirectoryExportPanel({
                 </div>
               </Field>
             </div>
+            <Field label="Then by" help="Breaks ties in the first sort — Office, then Title. Name always comes last.">
+              <div className="flex gap-1">
+                <Select value={cur.sort2} onChange={(e) => update({ sort2: e.target.value })} className="w-full">
+                  <option value="">— nothing —</option>
+                  {sortGroups.map((g) => (
+                    <optgroup key={g.label} label={g.label}>
+                      {g.keys.filter((c) => c.key !== cur.sort).map((c) => (
+                        <option key={c.key} value={c.key}>{c.label}</option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </Select>
+                <Select value={cur.sort2_dir} onChange={(e) => update({ sort2_dir: e.target.value as "asc" | "desc" })} className="w-20" aria-label="Direction of the second sort" disabled={!cur.sort2}>
+                  <option value="asc">A→Z</option>
+                  <option value="desc">Z→A</option>
+                </Select>
+              </div>
+            </Field>
             <Field label="Only people where" help="e.g. Office = PHX1 for one office's sheet. Leave blank for everyone.">
               <div className="flex gap-1">
                 <Select value={cur.filter?.key ?? ""} onChange={(e) => update({ filter: e.target.value ? { key: e.target.value, value: cur.filter?.value ?? "" } : null })} className="w-40" aria-label="Filter field">
