@@ -20,8 +20,9 @@ import type { ProviderKey } from "./identity-provider";
 export type ProviderRecord = Record<string, unknown> & { _groups?: string[] };
 
 export type Mapping =
-  /** One property, dotted; arrays index numerically (`businessPhones.1`) or by
-   *  `[primary]` (Google's `organizations[primary].title`). */
+  /** One property, dotted; arrays index numerically (`businessPhones.1`), by
+   *  `[primary]` (Google's `organizations[primary].title`), or by type
+   *  (`relations[assistant].value`, `phones[work].value`). */
   | { kind: "path"; path: string }
   /** A template with `{path}` placeholders. Separators next to an empty
    *  placeholder are dropped, so `{officeLocation} – {city}` with no city is
@@ -60,8 +61,13 @@ export function valuesAtPath(record: unknown, path: string): string[] {
   if (segs.length === 0) return [];
   let cur: unknown[] = [record];
   for (const rawSeg of segs) {
-    const primary = rawSeg.endsWith("[primary]");
-    const seg = primary ? rawSeg.slice(0, -"[primary]".length) : rawSeg;
+    // `phones[primary]` picks the element flagged primary (or the first);
+    // `relations[assistant]` keeps the elements whose `type` is "assistant" —
+    // Google's shape for relations, phones, emails and addresses.
+    const sel = /^([^[\]]+)\[([^[\]]+)\]$/.exec(rawSeg);
+    const seg = sel ? sel[1] : rawSeg;
+    const primary = sel?.[2] === "primary";
+    const typed = sel && !primary ? sel[2].toLowerCase() : null;
     const next: unknown[] = [];
     for (const c of cur) {
       if (c == null) continue;
@@ -86,6 +92,10 @@ export function valuesAtPath(record: unknown, path: string): string[] {
       if (primary) {
         if (!Array.isArray(v) || v.length === 0) continue;
         v = v.find((e) => e && typeof e === "object" && (e as { primary?: boolean }).primary) ?? v[0];
+      } else if (typed) {
+        if (!Array.isArray(v)) continue;
+        v = v.filter((e) => e && typeof e === "object" && String((e as { type?: unknown }).type ?? "").toLowerCase() === typed);
+        if ((v as unknown[]).length === 0) continue;
       }
       if (v != null) next.push(v);
     }
@@ -266,7 +276,7 @@ export function initialsFromName(name: string): string {
 export function mappingProperties(m: Mapping | null | undefined, depth = 0): string[] {
   if (!m || depth > MAX_DEPTH) return [];
   const top = (path: string) => {
-    const first = String(path ?? "").split(".")[0]?.replace(/\[primary\]$/, "").trim();
+    const first = String(path ?? "").split(".")[0]?.replace(/\[[^[\]]*\]$/, "").trim();
     return first && first !== "_groups" ? [first] : [];
   };
   switch (m.kind) {

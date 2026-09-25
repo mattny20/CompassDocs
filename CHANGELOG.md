@@ -4,6 +4,26 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.2.3] - 2026-09-25
+
+### Added
+- **Manager from Entra ID.** A mapping that reads `manager.*` (`manager.mail`,
+  `manager.userPrincipalName`, `manager.displayName`) now works: the
+  enterprise sync expands the manager relationship, which Graph never returns
+  from a plain property list. A people field mapped to `manager.mail` gives a
+  "Reports to" link, or the other way round with the direction set to "the
+  people this person is … to".
+- **Typed picks in a path.** `relations[assistant].value`,
+  `phones[work].value` — a bracketed word other than `primary` keeps the
+  array elements whose `type` matches, which is how Google Workspace stores
+  relations, phones, emails and addresses.
+
+### Changed
+- The mapping editor for a people field says up front that Entra ID has no
+  assistant attribute and lists where a tenant keeps one (Exchange custom
+  attributes 1–15, a directory extension, the manager relationship); the
+  suggestions for a people field are those, not the text-field properties.
+
 ## [1.2.2] - 2026-09-25
 
 ### Fixed

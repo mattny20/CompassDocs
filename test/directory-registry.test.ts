@@ -222,6 +222,33 @@ describe("directory registry", () => {
     await updateField(assistant.id, { link_direction: "out", mappings: {} });
   });
 
+  test("a people field mapped to an extension attribute links outward from the person who carries it", async () => {
+    // The Entra shape: no assistant property, so the assistant's email (or
+    // object id) sits in an Exchange custom attribute on the attorney.
+    const assistant = (await listFields()).find((x) => x.key === "assistant")!;
+    await updateField(assistant.id, {
+      link_direction: "out",
+      mappings: { microsoft: { kind: "path", path: "onPremisesExtensionAttributes.extensionAttribute3" } },
+    });
+    await replaceProviderPeople(
+      SOURCE,
+      [
+        { external_id: `${PREFIX}pat`, name: "Pat Partner", email: `pat@${DOMAIN}`, record: { onPremisesExtensionAttributes: { extensionAttribute3: `lee@${DOMAIN}; ${PREFIX}max` } } },
+        { external_id: `${PREFIX}lee`, name: "Lee Assistant", email: `lee@${DOMAIN}`, record: { onPremisesExtensionAttributes: { extensionAttribute3: null } } },
+        { external_id: `${PREFIX}max`, name: "Max Assistant", email: `max@${DOMAIN}`, record: {} },
+      ],
+      { allowRemovals: true }
+    );
+    const all = await listPeople({ includeHidden: true });
+    const pat = all.find((p) => p.external_id === `${PREFIX}pat`)!;
+    const lee = all.find((p) => p.external_id === `${PREFIX}lee`)!;
+    assert.deepEqual(pat.links.assistant?.map((l) => l.name), ["Lee Assistant", "Max Assistant"], "email and object id both resolve");
+    assert.equal(pat.assistant_name, "Lee Assistant, Max Assistant");
+    assert.deepEqual(lee.linked_by.assistant?.map((l) => l.name), ["Pat Partner"], "the assistant sees who they assist");
+    assert.equal(lee.links.assistant, undefined);
+    await updateField(assistant.id, { link_direction: "out", mappings: {} });
+  });
+
   test("clearing a mapping clears it, including one that lived only in the legacy column", async () => {
     const made = await createField({ label: "RT Legacy", key: "rt_legacy", mappings: { microsoft: { kind: "path", path: "onPremisesExtensionAttributes.extensionAttribute9" } } });
     // A field mapped before 1.2 has the path column and an empty blob. It
