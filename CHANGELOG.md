@@ -4,6 +4,17 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.1.1] - 2026-09-25
+
+### Fixed
+- **Fresh installs of 1.1.0 could not start.** The `image_upload_tickets` table
+  added in 1.1.0 was declared in the schema before the `users` and `documents`
+  tables it references. Every existing database already had both, so upgrades
+  were unaffected and the release verification — run against a long-lived
+  database — passed; a brand-new database failed at boot with
+  `relation "users" does not exist`. The table is now declared after its
+  dependencies, and the schema is verified against an empty database.
+
 ## [1.1.0] - 2026-08-03
 
 ### Added
