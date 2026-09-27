@@ -31,6 +31,10 @@ What each person may see, and directories that deliver themselves.
   send is the next slot, not the one that just passed; one instance runs
   it, and the Export page shows when each preset last went out.
 
+### Changed
+- The per-user export limit is 30 a minute (was 12): an admin trying
+  presets, a zip per office and a who's who in one sitting fits.
+
 ## [1.3.3] - 2026-09-27
 
 Who reports to whom.
