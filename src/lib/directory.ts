@@ -23,6 +23,7 @@ import { pool, getSetting, setSetting } from "./db";
 import type { ProviderKey } from "./identity-provider";
 import { buildPeopleIndex } from "./directory-people-resolve";
 import { normalizePhoto } from "./directory-photos";
+import { parseVisibility, parseColumnVisibility, type Visibility, type ColumnVisibility } from "./directory-visibility";
 import {
   applyMapping,
   legacyPathMapping,
@@ -118,6 +119,8 @@ export interface DirectoryField extends FieldLike {
   mappings: FieldMappings;
   /** Date fields: what the date means — "", "start" or "birthday". */
   date_role: string;
+  /** Who sees the value: everyone signed in, or admins only (1.3.4). */
+  visibility: Visibility;
 }
 
 // Link aggregates are correlated subqueries rather than joins so a person with
@@ -337,7 +340,7 @@ export async function listDepartments(): Promise<string[]> {
 // --- Field definitions (the registry) -----------------------------------------------
 
 const FIELD_COLS =
-  "id, key, label, graph_path, google_path, show_in_card, sort, display, kind, multi, group_by, builtin, options, value_format, show_with, highlight, inverse_label, link_direction, mappings, date_role";
+  "id, key, label, graph_path, google_path, show_in_card, sort, display, kind, multi, group_by, builtin, options, value_format, show_with, highlight, inverse_label, link_direction, mappings, date_role, visibility";
 const KEY_RE = /^[a-z0-9_]{1,40}$/;
 export const FIELD_KINDS: FieldKind[] = ["text", "choice", "people", "date"];
 export const FIELD_DISPLAYS: FieldDisplay[] = ["field", "tag", "phone"];
@@ -417,6 +420,7 @@ function parseField(r: FieldRow): DirectoryField {
     mappings,
     link_direction: r.link_direction === "in" ? "in" : "out",
     date_role: r.date_role === "start" || r.date_role === "birthday" ? r.date_role : "",
+    visibility: parseVisibility(r.visibility),
   };
 }
 
@@ -454,6 +458,7 @@ export interface FieldInput {
   link_direction?: "out" | "in";
   mappings?: unknown;
   date_role?: string;
+  visibility?: string;
 }
 
 /**
@@ -487,9 +492,9 @@ export async function createField(input: FieldInput & { label: string }): Promis
   const res = await pool().query<FieldRow>(
     `INSERT INTO directory_fields
        (key, label, graph_path, google_path, show_in_card, sort, display, kind, multi, group_by, builtin,
-        options, value_format, show_with, highlight, inverse_label, link_direction, mappings, date_role)
+        options, value_format, show_with, highlight, inverse_label, link_direction, mappings, date_role, visibility)
      VALUES ($1, $2, $3, $4, $5, COALESCE((SELECT MAX(sort)+1 FROM directory_fields WHERE builtin = 0), 0),
-             $6, $7, $8, $9, 0, $10, $11, $12, $13, $14, $15, $16, $17)
+             $6, $7, $8, $9, 0, $10, $11, $12, $13, $14, $15, $16, $17, $18)
      RETURNING ${FIELD_COLS}`,
     [
       key,
@@ -509,6 +514,7 @@ export async function createField(input: FieldInput & { label: string }): Promis
       input.link_direction === "in" ? "in" : "out",
       JSON.stringify(mappings),
       dateRole(input.date_role, kind),
+      parseVisibility(input.visibility),
     ]
   );
   return parseField(res.rows[0]);
@@ -544,8 +550,8 @@ export async function updateField(id: number, fields: FieldInput): Promise<Direc
     `UPDATE directory_fields SET
        label = $1, graph_path = $2, google_path = $3, show_in_card = $4, sort = $5, display = $6,
        kind = $7, multi = $8, group_by = $9, options = $10, value_format = $11, show_with = $12,
-       highlight = $13, inverse_label = $14, link_direction = $15, mappings = $16, date_role = $17
-     WHERE id = $18 RETURNING ${FIELD_COLS}`,
+       highlight = $13, inverse_label = $14, link_direction = $15, mappings = $16, date_role = $17, visibility = $18
+     WHERE id = $19 RETURNING ${FIELD_COLS}`,
     [
       (fields.label ?? cur.label).trim().slice(0, 80) || cur.label,
       legacy.graph_path,
@@ -564,6 +570,7 @@ export async function updateField(id: number, fields: FieldInput): Promise<Direc
       fields.link_direction === undefined ? cur.link_direction : fields.link_direction === "in" ? "in" : "out",
       JSON.stringify(mappings),
       dateRole(fields.date_role === undefined ? cur.date_role : fields.date_role, kind),
+      fields.visibility === undefined ? cur.visibility : parseVisibility(fields.visibility),
       id,
     ]
   );
@@ -730,6 +737,18 @@ export async function updatePerson(
   );
   await writeManualLinks(id, fields.links, fields.linked_by);
   return getPerson(id);
+}
+
+/** The 240px photos of a set of people, by id — the who's-who PDF. Missing ones are absent. */
+export async function personPhotoLargeMap(ids: number[]): Promise<Map<number, string>> {
+  const out = new Map<number, string>();
+  if (!ids.length) return out;
+  const res = await pool().query<{ id: number; photo_large: string }>(
+    "SELECT id, photo_large FROM directory_people WHERE id = ANY($1::int[]) AND photo_large <> ''",
+    [ids]
+  );
+  for (const r of res.rows) out.set(r.id, r.photo_large);
+  return out;
 }
 
 /** The 240px photo of a person, "" when there is none. Never on the list row. */
@@ -1480,6 +1499,22 @@ export async function getGroupByDefault(fields?: DirectoryField[]): Promise<stri
 
 export async function setGroupByDefault(key: string): Promise<void> {
   await setSetting("directory_group_by_default", key.trim());
+}
+
+/** Which contact columns (email, phone, mobile) are for admins only. */
+export async function getColumnVisibility(): Promise<ColumnVisibility> {
+  const raw = await getSetting("directory_column_visibility");
+  try {
+    return parseColumnVisibility(raw ? JSON.parse(raw) : {});
+  } catch {
+    return {};
+  }
+}
+
+export async function setColumnVisibility(raw: unknown): Promise<ColumnVisibility> {
+  const parsed = parseColumnVisibility(raw);
+  await setSetting("directory_column_visibility", JSON.stringify(parsed));
+  return parsed;
 }
 
 // --- Print / export compatibility --------------------------------------------------------

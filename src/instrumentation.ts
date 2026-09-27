@@ -45,6 +45,13 @@ export async function register() {
     } catch (e) {
       console.error("[directory] scheduler error:", e);
     }
+    // Export presets that email themselves (weekly / monthly), one instance.
+    try {
+      const { runScheduledDirectoryExports } = await import("./lib/directory-export-schedule");
+      await runScheduledDirectoryExports();
+    } catch (e) {
+      console.error("[directory] export scheduler error:", e);
+    }
     // Housekeeping: purge expired sessions / OAuth codes so they don't
     // accumulate forever. Plain deletes — safe to run from every instance.
     try {

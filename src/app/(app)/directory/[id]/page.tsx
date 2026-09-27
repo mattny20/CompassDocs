@@ -6,6 +6,7 @@ import { requireUser } from "@/lib/auth";
 import { getPersonById, listFields, listPeople, personPhotoLarge } from "@/lib/directory";
 import { buildOrgChart, chainAbove, managerField, peersOf, teamBelow } from "@/lib/directory-org";
 import { TeamBlock } from "@/components/directory/TeamBlock";
+import { peopleForViewer, personForViewer, viewerScope } from "@/lib/directory-viewer";
 import { getOfficeConfig } from "@/lib/directory-offices-store";
 import { officeBlock, officeKeyOf, officeProfileFor } from "@/lib/directory-offices";
 import { listDocumentsByAuthor, listLinkedUserNames, getSetting } from "@/lib/db";
@@ -28,21 +29,24 @@ export default async function PersonProfilePage({
 }) {
   const user = await requireUser();
   const id = Number((await params).id);
-  const person = Number.isInteger(id) ? await getPersonById(id) : undefined;
-  if (!person || person.hidden) notFound();
+  const stored = Number.isInteger(id) ? await getPersonById(id) : undefined;
+  if (!stored || stored.hidden) notFound();
+  const scope = await viewerScope(user, await listFields());
+  const person = personForViewer(scope, stored);
 
-  const scope = await spaceScopeFor(user);
+  const spaces = await spaceScopeFor(user);
   const isEditor = await canSeeDrafts(user);
   const aliases = [...new Set([person.name, ...(await listLinkedUserNames(person.id))])];
-  const [docs, fields, offices, settings, domain, large, everyone] = await Promise.all([
-    listDocumentsByAuthor(aliases, isEditor, scope),
-    listFields(),
+  const [docs, offices, settings, domain, large, allPeople] = await Promise.all([
+    listDocumentsByAuthor(aliases, isEditor, spaces),
     getOfficeConfig(),
     getAppSettings(),
     getSetting("custom_domain"),
     personPhotoLarge(person.id),
     listPeople(),
   ]);
+  const fields = scope.fields;
+  const everyone = peopleForViewer(scope, allPeople);
   // Where they sit in the org chart, when the directory has one.
   const mf = managerField(fields);
   const chart = mf ? buildOrgChart(everyone, fields) : null;

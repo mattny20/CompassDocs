@@ -756,6 +756,12 @@ function FieldRow({
                     <TextInput className="w-40" defaultValue={f.inverse_label} onBlur={(e) => e.target.value.trim() !== f.inverse_label && patch(f, { inverse_label: e.target.value.trim() })} />
                   </Field>
                 )}
+                <Field label="Who sees it" help="Admins only keeps the value out of the directory, profiles, exports and contact cards for everyone else.">
+                  <Select className="w-40" value={f.visibility} onChange={(e) => patch(f, { visibility: e.target.value })} aria-label="Who sees it">
+                    <option value="everyone">Everyone signed in</option>
+                    <option value="admins">Admins only</option>
+                  </Select>
+                </Field>
               </div>
             )}
           </td>

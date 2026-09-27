@@ -4,7 +4,7 @@
 
 import { NextResponse } from "next/server";
 import { apiGuard } from "@/lib/api-auth";
-import { getGroupByDefault, getListColumns, listFields, setGroupByDefault, setListColumns } from "@/lib/directory";
+import { getColumnVisibility, getGroupByDefault, getListColumns, listFields, setColumnVisibility, setGroupByDefault, setListColumns } from "@/lib/directory";
 import { availableColumns } from "@/lib/directory-display";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
 
@@ -17,6 +17,7 @@ export async function GET() {
   return NextResponse.json({
     columns: await getListColumns(fields),
     group_by: await getGroupByDefault(fields),
+    column_visibility: await getColumnVisibility(),
     available: availableColumns(fields),
     group_by_fields: fields.filter((f) => f.group_by).map((f) => ({ key: f.key, label: f.label })),
   });
@@ -43,12 +44,13 @@ export async function PUT(req: Request) {
     }
   }
   if (body?.group_by !== undefined) await setGroupByDefault(String(body.group_by ?? ""));
+  if (body?.column_visibility !== undefined) await setColumnVisibility(body.column_visibility);
   await audit({
     actor: actorFrom(gate),
     action: "settings.directory_list",
-    details: { columns, group_by: body?.group_by },
+    details: { columns, group_by: body?.group_by, column_visibility: body?.column_visibility },
     ip: ipFrom(req),
   });
   const fields = await listFields();
-  return NextResponse.json({ ok: true, columns: await getListColumns(fields), group_by: await getGroupByDefault(fields) });
+  return NextResponse.json({ ok: true, columns: await getListColumns(fields), group_by: await getGroupByDefault(fields), column_visibility: await getColumnVisibility() });
 }

@@ -73,6 +73,10 @@ export interface ExportPresetSummary {
   id: string;
   name: string;
   is_default: boolean;
+  /** "cards" for a who's who; the menu says so. */
+  layout?: "table" | "cards";
+  /** Set when the preset makes a zip with one file per value. */
+  split_by?: string;
 }
 
 function Avatar({ p, size = 12 }: { p: DirectoryPerson; size?: 10 | 12 }) {
@@ -112,6 +116,7 @@ export function DirectoryClient({
   isAdmin = false,
   initialView,
   focus,
+  hiddenColumns = [],
 }: {
   initialPeople: DirectoryPerson[];
   fields: DirectoryField[];
@@ -126,6 +131,8 @@ export function DirectoryClient({
   initialView?: View;
   /** ?focus= on the URL: the org chart opens to this person. */
   focus?: number;
+  /** Contact columns this viewer may not see (their values arrive blank). */
+  hiddenColumns?: string[];
 }) {
   const [q, setQ] = useState("");
   const [filterValue, setFilterValue] = useState("");
@@ -210,7 +217,7 @@ export function DirectoryClient({
     writeJson(LS_MY_PINS, next);
   }
 
-  const allColumns = useMemo(() => availableColumns(fields), [fields]);
+  const allColumns = useMemo(() => availableColumns(fields).filter((c) => !hiddenColumns.includes(c.key)), [fields, hiddenColumns]);
   const activeColumns = useMemo(
     () => cols.map((k) => allColumns.find((c) => c.key === k)).filter((c): c is { key: string; label: string } => !!c),
     [allColumns, cols]
@@ -672,10 +679,10 @@ export function DirectoryClient({
           {exportOpen && (
             <div className="absolute right-0 z-20 mt-1 w-64 rounded-lg border border-slate-200 bg-surface p-1 shadow-lg">
               {presets.map((pr) => (
-                <button key={pr.id} className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50" onClick={() => exportNow({ preset: pr.id }, "pdf")}>
-                  <FileText className="h-4 w-4 text-slate-400" aria-hidden />
+                <button key={pr.id} className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50" onClick={() => exportNow({ preset: pr.id }, "pdf")} data-tt={pr.split_by ? "A zip with one PDF per value" : pr.layout === "cards" ? "Photo cards" : ""}>
+                  {pr.layout === "cards" ? <LayoutGrid className="h-4 w-4 text-slate-400" aria-hidden /> : <FileText className="h-4 w-4 text-slate-400" aria-hidden />}
                   <span className="flex-1 truncate">{pr.name}</span>
-                  <span className="text-[11px] uppercase text-slate-400">PDF</span>
+                  <span className="text-[11px] uppercase text-slate-400">{pr.split_by ? "ZIP" : "PDF"}</span>
                 </button>
               ))}
               <div className="my-1 border-t border-slate-100" />

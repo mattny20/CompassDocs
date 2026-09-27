@@ -6,6 +6,7 @@
 // The pre-1.2 single "print columns" setting migrates into the first preset
 // on first read, so a workspace that had configured its phone list keeps it.
 
+import { sanitizeSchedule, stampSchedule, SCHEDULE_OFF, type ExportSchedule } from "./directory-export-schedule-rules";
 import { getSetting, setSetting } from "./db";
 import { listFields, validColumnKeys, type DirectoryField } from "./directory";
 
@@ -51,6 +52,14 @@ export interface ExportPreset {
   office_info: boolean;
   /** Office blocks side by side, 1–4 to a row; 1 lays a block's fields two abreast. */
   office_columns: 1 | 2 | 3 | 4;
+  /** "table" is the sheet; "cards" is the who's who — photo cards in a grid. */
+  layout: "table" | "cards";
+  /** Cards to a row in the who's-who layout. */
+  cards_per_row: 2 | 3 | 4 | 5;
+  /** A group_by field key: one file per value, zipped. "" for one file. */
+  split_by: string;
+  /** Email the file on a schedule. */
+  schedule: ExportSchedule;
   is_default: boolean;
 }
 
@@ -78,6 +87,10 @@ export const PRESET_DEFAULTS: Omit<ExportPreset, "id" | "name"> = {
   filename: "",
   office_info: true,
   office_columns: 2,
+  layout: "table",
+  cards_per_row: 4,
+  split_by: "",
+  schedule: SCHEDULE_OFF,
   is_default: false,
 };
 
@@ -132,6 +145,13 @@ export function sanitizePreset(raw: unknown, fields: DirectoryField[], fallbackI
     filename: slug(String(o.filename ?? "")).slice(0, 60),
     office_info: o.office_info === undefined ? true : Boolean(o.office_info),
     office_columns: ([1, 2, 3, 4].includes(Number(o.office_columns)) ? Number(o.office_columns) : 2) as 1 | 2 | 3 | 4,
+    layout: o.layout === "cards" ? "cards" : "table",
+    cards_per_row: ([2, 3, 4, 5].includes(Number(o.cards_per_row)) ? Number(o.cards_per_row) : 4) as 2 | 3 | 4 | 5,
+    split_by: (() => {
+      const k = String(o.split_by ?? "").trim();
+      return k && fields.some((f) => f.key === k && f.group_by) ? k : "";
+    })(),
+    schedule: sanitizeSchedule(o.schedule),
     is_default: Boolean(o.is_default),
   };
 }
@@ -176,7 +196,14 @@ export async function listExportPresets(fields?: DirectoryField[]): Promise<Expo
 export async function saveExportPresets(raw: unknown, fields?: DirectoryField[]): Promise<ExportPreset[]> {
   const all = fields ?? (await listFields());
   if (!Array.isArray(raw) || raw.length === 0) throw new Error("At least one export preset is required.");
-  const presets = raw.slice(0, MAX_PRESETS).map((p, i) => sanitizePreset(p, all, `preset-${i + 1}`));
+  // A schedule that was just set, or moved, starts from now: its first send
+  // is the next slot, not the one that already passed this period.
+  const before = new Map((await listExportPresets(all)).map((p) => [p.id, p]));
+  const now = new Date();
+  const presets = raw.slice(0, MAX_PRESETS).map((p, i) => {
+    const s = sanitizePreset(p, all, `preset-${i + 1}`);
+    return { ...s, schedule: stampSchedule(s.schedule, before.get(s.id)?.schedule, now) };
+  });
   const seen = new Set<string>();
   const unique = presets.map((p, i) => {
     let id = p.id;

@@ -11,6 +11,7 @@ import { officeBlock, officeKeyOf, officeProfileFor } from "@/lib/directory-offi
 import { getAppSettings } from "@/lib/settings-store";
 import { buildVCard, vcardFilename } from "@/lib/vcard";
 import { personPhotoLarge } from "@/lib/directory";
+import { personForViewer, viewerScope } from "@/lib/directory-viewer";
 
 export const dynamic = "force-dynamic";
 
@@ -19,16 +20,20 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   if (gate instanceof NextResponse) return gate;
   const { id } = await params;
   const personId = Number(id);
-  const person = Number.isInteger(personId) ? await getPersonById(personId) : undefined;
-  if (!person || person.hidden) return NextResponse.json({ error: "Not found." }, { status: 404 });
+  const stored = Number.isInteger(personId) ? await getPersonById(personId) : undefined;
+  if (!stored || stored.hidden) return NextResponse.json({ error: "Not found." }, { status: 404 });
 
-  const [fields, offices, settings, domain, large] = await Promise.all([
+  const [allFields, offices, settings, domain, large] = await Promise.all([
     listFields(),
     getOfficeConfig(),
     getAppSettings(),
     getSetting("custom_domain"),
     personPhotoLarge(personId),
   ]);
+  // The card carries only what this viewer may see on the profile.
+  const scope = await viewerScope(gate, allFields);
+  const fields = scope.fields;
+  const person = personForViewer(scope, stored);
   const officeField = fields.find((f) => f.key === "office");
   const profile = officeProfileFor(offices, officeKeyOf(person.office, officeField));
   const block = profile ? officeBlock(profile, offices.fields, officeField) : null;

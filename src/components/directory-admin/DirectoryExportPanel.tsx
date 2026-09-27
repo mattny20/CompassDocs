@@ -10,6 +10,7 @@ import type { DirectoryField } from "@/lib/directory";
 import type { ExportPreset } from "@/lib/directory-export-config";
 import { availableColumns } from "@/lib/directory-display";
 import { Field, Select, TextInput, Toggle } from "@/components/form";
+import { describeSchedule, WEEKDAYS, type ExportSchedule } from "@/lib/directory-export-schedule-rules";
 import { toast } from "@/components/Toasts";
 import { OrderedKeyList, jsonFetch } from "./shared";
 
@@ -37,6 +38,10 @@ const PRESET_BLANK: Omit<ExportPreset, "id" | "name"> = {
   filename: "",
   office_info: true,
   office_columns: 2,
+  layout: "table",
+  cards_per_row: 4,
+  split_by: "",
+  schedule: { frequency: "off", day: 1, hour: 6, recipients: [], format: "pdf" },
   is_default: false,
 };
 
@@ -45,11 +50,17 @@ export function DirectoryExportPanel({
   initialListColumns,
   initialGroupBy,
   initialPresets,
+  smtpConfigured = false,
+  runLog = {},
 }: {
   fields: DirectoryField[];
   initialListColumns: string[];
   initialGroupBy: string;
   initialPresets: ExportPreset[];
+  /** Whether scheduled emails can be sent at all. */
+  smtpConfigured?: boolean;
+  /** When each preset last went out on its schedule. */
+  runLog?: Record<string, { at: string; ok: boolean; detail?: string }>;
 }) {
   const available = useMemo(() => availableColumns(fields), [fields]);
   const groupFields = useMemo(() => fields.filter((f) => f.group_by), [fields]);
@@ -89,6 +100,10 @@ export function DirectoryExportPanel({
   function update(patch: Partial<ExportPreset>) {
     setPresets((ps) => ps.map((p, i) => (i === selected ? { ...p, ...patch } : p)));
     setDirty(true);
+  }
+  const [recipientsText, setRecipientsText] = useState<Record<string, string>>({});
+  function updateSchedule(patch: Partial<ExportSchedule>) {
+    update({ schedule: { ...cur.schedule, ...patch } });
   }
   function addPreset(from?: ExportPreset) {
     const base = from ? { ...from, is_default: false } : { ...PRESET_BLANK };
@@ -216,6 +231,24 @@ export function DirectoryExportPanel({
                 </Select>
               </Field>
             </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Layout" help="The sheet is a table. The who's who is a grid of photo cards — name, title and the other columns under each photo.">
+                <Select value={cur.layout} onChange={(e) => update({ layout: e.target.value === "cards" ? "cards" : "table" })} className="w-full">
+                  <option value="table">Table (the sheet)</option>
+                  <option value="cards">Photo cards (who's who)</option>
+                </Select>
+              </Field>
+              {cur.layout === "cards" && (
+                <Field label="Cards per row" help="Four suits portrait letter; five wants landscape.">
+                  <Select value={String(cur.cards_per_row)} onChange={(e) => update({ cards_per_row: Number(e.target.value) as 2 | 3 | 4 | 5 })} className="w-full">
+                    {[2, 3, 4, 5].map((n) => (
+                      <option key={n} value={n}>{n}</option>
+                    ))}
+                  </Select>
+                </Field>
+              )}
+            </div>
+            {cur.layout !== "cards" && (
             <Field label="Page layout" help="Two or three columns suit a short table — name and extension — that would otherwise run down the left of an empty page. Values are cut to one line; three columns want landscape or very few columns.">
               <Select value={String(cur.page_columns)} onChange={(e) => update({ page_columns: e.target.value === "3" ? 3 : e.target.value === "2" ? 2 : 1 })} className="w-full">
                 <option value="1">One table across the page</option>
@@ -223,8 +256,9 @@ export function DirectoryExportPanel({
                 <option value="3">Three columns, side by side</option>
               </Select>
             </Field>
+            )}
             <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm">
-              <Toggle label="Shade alternate rows" checked={cur.zebra} onChange={(v) => update({ zebra: v })} />
+              {cur.layout !== "cards" && <Toggle label="Shade alternate rows" checked={cur.zebra} onChange={(v) => update({ zebra: v })} />}
               <Toggle label="Workspace logo" checked={cur.logo} onChange={(v) => update({ logo: v })} />
               <Toggle label="Photos" checked={cur.photos} onChange={(v) => update({ photos: v })} />
               <Toggle label="Pinned people first" checked={cur.pinned_first} onChange={(v) => update({ pinned_first: v })} />
@@ -294,6 +328,65 @@ export function DirectoryExportPanel({
                 </Select>
               </div>
             </Field>
+            <Field label="One file per" help="Instead of one document, a zip with one for each value — every office its own sheet. Each file's title carries the value.">
+              <Select value={cur.split_by} onChange={(e) => update({ split_by: e.target.value })} className="w-full">
+                <option value="">— one file —</option>
+                {groupFields.map((f) => (
+                  <option key={f.key} value={f.key}>{f.label}</option>
+                ))}
+              </Select>
+            </Field>
+            <div className="rounded-lg border border-slate-200 p-3">
+              <p className="mb-2 text-sm font-medium text-slate-800">Email it on a schedule</p>
+              <p className="mb-3 text-xs text-slate-500">
+                {smtpConfigured
+                  ? "The file this preset makes, sent as an attachment — a monthly directory to the office managers, a weekly who's who to reception."
+                  : "SMTP is not set up (Settings → Notifications); the schedule is kept but nothing is sent until it is."}
+              </p>
+              <div className="grid gap-3 sm:grid-cols-4">
+                <Field label="How often">
+                  <Select value={cur.schedule.frequency} onChange={(e) => updateSchedule({ frequency: e.target.value as ExportSchedule["frequency"], day: e.target.value === "weekly" ? 1 : 1 })} className="w-full">
+                    <option value="off">Never</option>
+                    <option value="weekly">Every week</option>
+                    <option value="monthly">Every month</option>
+                  </Select>
+                </Field>
+                <Field label={cur.schedule.frequency === "monthly" ? "Day of the month" : "Day"}>
+                  <Select value={String(cur.schedule.day)} onChange={(e) => updateSchedule({ day: Number(e.target.value) })} className="w-full" disabled={cur.schedule.frequency === "off"}>
+                    {cur.schedule.frequency === "monthly"
+                      ? Array.from({ length: 28 }, (_, i) => i + 1).map((n) => <option key={n} value={n}>{n}</option>)
+                      : WEEKDAYS.map((w, i) => <option key={w} value={i}>{w}</option>)}
+                  </Select>
+                </Field>
+                <Field label="At (UTC)">
+                  <Select value={String(cur.schedule.hour)} onChange={(e) => updateSchedule({ hour: Number(e.target.value) })} className="w-full" disabled={cur.schedule.frequency === "off"}>
+                    {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>)}
+                  </Select>
+                </Field>
+                <Field label="As">
+                  <Select value={cur.schedule.format} onChange={(e) => updateSchedule({ format: e.target.value === "csv" ? "csv" : "pdf" })} className="w-full" disabled={cur.schedule.frequency === "off"}>
+                    <option value="pdf">PDF</option>
+                    <option value="csv">CSV</option>
+                  </Select>
+                </Field>
+              </div>
+              <div className="mt-3">
+                <Field label="Send to" help="Comma-separated email addresses.">
+                  <TextInput
+                    value={recipientsText[cur.id] ?? cur.schedule.recipients.join(", ")}
+                    onChange={(e) => setRecipientsText({ ...recipientsText, [cur.id]: e.target.value })}
+                    onBlur={(e) => updateSchedule({ recipients: e.target.value.split(/[,;\s]+/).map((s) => s.trim()).filter(Boolean) })}
+                    placeholder="office-manager@firm.com, reception@firm.com"
+                    disabled={cur.schedule.frequency === "off"}
+                  />
+                </Field>
+              </div>
+              <p className="mt-2 text-xs text-slate-500">
+                {describeSchedule(cur.schedule)}
+                {cur.schedule.frequency !== "off" && cur.schedule.recipients.length === 0 ? " — add a recipient." : ""}
+                {runLog[cur.id] ? ` · Last ${runLog[cur.id].ok ? "sent" : "failed"} ${new Date(runLog[cur.id].at).toUTCString().replace(/:\d\d GMT$/, " UTC")}${runLog[cur.id].detail ? ` (${runLog[cur.id].detail})` : ""}` : ""}
+              </p>
+            </div>
             <Field label="Only people where" help="e.g. Office = PHX1 for one office's sheet. Leave blank for everyone.">
               <div className="flex gap-1">
                 <Select value={cur.filter?.key ?? ""} onChange={(e) => update({ filter: e.target.value ? { key: e.target.value, value: cur.filter?.value ?? "" } : null })} className="w-40" aria-label="Filter field">

@@ -1106,6 +1106,7 @@ const SCHEMA_SQL = `
   -- something (start date, birthday) -- see directory-display milestones.
   ALTER TABLE directory_people ADD COLUMN IF NOT EXISTS photo_large text NOT NULL DEFAULT '';
   ALTER TABLE directory_fields ADD COLUMN IF NOT EXISTS date_role text NOT NULL DEFAULT '';
+  ALTER TABLE directory_fields ADD COLUMN IF NOT EXISTS visibility text NOT NULL DEFAULT 'everyone';
 
   -- People-kind fields: a relation between two rows, queried from both ends,
   -- owned by whoever wrote it. The old single assistant_id is folded in here by

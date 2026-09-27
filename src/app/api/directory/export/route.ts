@@ -14,12 +14,11 @@ import { NextResponse } from "next/server";
 import { apiGuard } from "@/lib/api-auth";
 import { getSetting } from "@/lib/db";
 import { listFields, listPeople } from "@/lib/directory";
+import { peopleForViewer, viewerScope } from "@/lib/directory-viewer";
 import { defaultExportPreset, getExportPreset, sanitizePreset, type ExportPreset } from "@/lib/directory-export-config";
-import { exportFilename, renderDirectoryCsv, renderDirectoryPdf } from "@/lib/directory-export";
-import { getOfficeConfig } from "@/lib/directory-offices-store";
+import { exportFilename } from "@/lib/directory-export";
+import { renderExportFile } from "@/lib/directory-export-run";
 import { getAppSettings } from "@/lib/settings-store";
-import { formatDate } from "@/lib/format";
-import { uploadReadStream } from "@/lib/uploads";
 import { exportRateLimited } from "@/lib/rate-limit";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
 import type { SessionUser } from "@/lib/types";
@@ -29,30 +28,15 @@ export const dynamic = "force-dynamic";
 // the edge runtime.
 export const runtime = "nodejs";
 
-const RASTER_LOGO = /^image\/(png|jpeg)$/;
-
-/** The workspace logo as a data: URL when it is a format the PDF can draw. */
-async function logoDataUrl(): Promise<string | null> {
-  const [file, mime] = await Promise.all([getSetting("logo_file"), getSetting("logo_mime")]);
-  if (!file || !mime || !RASTER_LOGO.test(mime)) return null;
-  const stream = uploadReadStream(file);
-  if (!stream) return null;
-  const chunks: Buffer[] = [];
-  try {
-    for await (const c of stream) chunks.push(c as Buffer);
-  } catch {
-    return null;
-  }
-  const buf = Buffer.concat(chunks);
-  if (buf.length === 0 || buf.length > 1024 * 1024) return null;
-  return `data:${mime};base64,${buf.toString("base64")}`;
-}
-
 async function run(user: SessionUser, req: Request, params: Record<string, unknown>): Promise<Response> {
   if (exportRateLimited(String(user.id))) {
     return NextResponse.json({ error: "Too many exports — wait a minute and try again." }, { status: 429 });
   }
-  const fields = await listFields();
+  // A viewer's export carries only what the viewer may see: admin-only
+  // fields drop out of the registry (so out of the preset's columns) and
+  // restricted contact columns are removed below.
+  const scope = await viewerScope(user, await listFields());
+  const fields = scope.fields;
   const base = params.preset
     ? (await getExportPreset(String(params.preset), fields)) ?? (await defaultExportPreset(fields))
     : await defaultExportPreset(fields);
@@ -63,6 +47,7 @@ async function run(user: SessionUser, req: Request, params: Record<string, unkno
   for (const k of [
     "columns", "group_by", "sort", "sort_dir", "sort2", "sort2_dir", "paper", "orientation", "density", "page_columns",
     "logo", "photos", "pinned_first", "page_numbers", "printed_date", "office_info", "office_columns", "zebra", "title", "subtitle", "footer_note",
+    "layout", "cards_per_row", "split_by",
   ]) {
     if (params[k] !== undefined) overrides[k] = params[k];
   }
@@ -73,12 +58,14 @@ async function run(user: SessionUser, req: Request, params: Record<string, unkno
   if (params.filter_key !== undefined || params.filter_value !== undefined) {
     overrides.filter = { key: params.filter_key, value: params.filter_value };
   }
-  const preset: ExportPreset = sanitizePreset({ ...base, ...overrides }, fields, base.id);
+  const sanitized = sanitizePreset({ ...base, ...overrides }, fields, base.id);
+  const columns = sanitized.columns.filter((c) => !scope.hidden.has(c));
+  const preset: ExportPreset = { ...sanitized, columns: columns.length ? columns : ["name"] };
 
   const wanted = String(params.format ?? "pdf").toLowerCase();
   const format: "pdf" | "csv" | "vcf" = wanted === "csv" ? "csv" : wanted === "vcf" ? "vcf" : "pdf";
   const q = typeof params.q === "string" && params.q.trim() ? params.q.trim().slice(0, 80) : undefined;
-  let people = await listPeople({ q });
+  let people = peopleForViewer(scope, await listPeople({ q }));
   if (Array.isArray(params.ids)) {
     const wanted = new Set(params.ids.map(Number).filter((n) => Number.isInteger(n)));
     if (wanted.size) people = people.filter((p) => wanted.has(p.id));
@@ -112,31 +99,16 @@ async function run(user: SessionUser, req: Request, params: Record<string, unkno
     ip: ipFrom(req),
   });
 
-  if (format === "csv") {
-    const csv = renderDirectoryCsv({ preset, people, fields, company });
-    return new Response(csv, {
-      headers: {
-        "Content-Type": "text/csv; charset=utf-8",
-        "Content-Disposition": `attachment; filename="${filename}"`,
-        "Cache-Control": "private, no-store",
-      },
-    });
-  }
-
-  const pdf = await renderDirectoryPdf({
-    preset,
-    people,
-    fields,
-    company,
-    logo: preset.logo ? await logoDataUrl() : null,
-    printedOn: formatDate(new Date().toISOString(), settings),
-    offices: preset.office_info ? await getOfficeConfig() : undefined,
-  });
-  return new Response(new Uint8Array(pdf), {
+  // split=0 asks for one file from a preset that would otherwise zip one
+  // per office; split=office (any group_by key) asks for the zip ad hoc.
+  const splitParam = params.split === undefined ? undefined : String(params.split);
+  const runPreset = splitParam === undefined ? preset : { ...preset, split_by: splitParam === "0" || splitParam === "" ? "" : splitParam };
+  const file = await renderExportFile({ preset: sanitizePreset(runPreset, fields, preset.id), format, people, fields });
+  return new Response(new Uint8Array(file.body), {
     headers: {
-      "Content-Type": "application/pdf",
-      "Content-Length": String(pdf.length),
-      "Content-Disposition": `attachment; filename="${filename}"`,
+      "Content-Type": file.mime,
+      "Content-Length": String(file.body.length),
+      "Content-Disposition": `attachment; filename="${file.filename}"`,
       "Cache-Control": "private, no-store",
       "X-Content-Type-Options": "nosniff",
     },

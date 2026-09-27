@@ -4,6 +4,37 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.3.4] - 2026-09-27
+
+What each person may see, and directories that deliver themselves.
+
+### Added
+- **Who sees a field.** Every field — and each of the contact columns
+  email, phone and mobile — can be for *everyone signed in* or *admins
+  only*. An admin-only value is stripped on the server before it reaches
+  the directory, a profile, the people API, an export, a contact card or
+  the Columns menu, so a mobile number the whole firm should not have
+  never leaves the building. Set per field in its row under Fields, and
+  for the contact columns in the new *Contact details* block there.
+- **One file per office.** A preset can make a zip with one PDF (or CSV)
+  per value of any group-by field — every office its own sheet, each
+  titled with the office — from the Export menu (marked *ZIP*) or ad hoc
+  with `split=office` on the export route.
+- **Who's who.** A preset's layout can be *photo cards*: a grid of two to
+  five cards a row, each with the person's 240px photo (or initials),
+  name, title and the other columns underneath, in the preset's sections
+  and order, with the office blocks still closing the document.
+- **Presets that email themselves.** Each preset can go out weekly (on a
+  weekday) or monthly (on a day of the month) at a UTC hour, as PDF or
+  CSV, to the recipients you list — the same file the button makes, as an
+  attachment. A schedule starts from the moment it is saved, so the first
+  send is the next slot, not the one that just passed; one instance runs
+  it, and the Export page shows when each preset last went out.
+
+### Changed
+- The per-user export limit is 30 a minute (was 12): an admin trying
+  presets, a zip per office and a who's who in one sitting fits.
+
 ## [1.3.3] - 2026-09-27
 
 Who reports to whom.
