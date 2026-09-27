@@ -458,7 +458,7 @@ export function renderDirectoryCsv(input: Omit<ExportInput, "logo" | "printedOn"
 }
 
 /** A file name for the export: the preset's, else derived from its title. */
-export function exportFilename(preset: ExportPreset, company: string, ext: "pdf" | "csv"): string {
+export function exportFilename(preset: ExportPreset, company: string, ext: "pdf" | "csv" | "vcf"): string {
   const base =
     preset.filename ||
     (preset.title || `${company} directory`)

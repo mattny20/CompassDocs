@@ -75,7 +75,8 @@ async function run(user: SessionUser, req: Request, params: Record<string, unkno
   }
   const preset: ExportPreset = sanitizePreset({ ...base, ...overrides }, fields, base.id);
 
-  const format = String(params.format ?? "pdf").toLowerCase() === "csv" ? "csv" : "pdf";
+  const wanted = String(params.format ?? "pdf").toLowerCase();
+  const format: "pdf" | "csv" | "vcf" = wanted === "csv" ? "csv" : wanted === "vcf" ? "vcf" : "pdf";
   const q = typeof params.q === "string" && params.q.trim() ? params.q.trim().slice(0, 80) : undefined;
   let people = await listPeople({ q });
   if (Array.isArray(params.ids)) {
@@ -86,6 +87,23 @@ async function run(user: SessionUser, req: Request, params: Record<string, unkno
   const settings = await getAppSettings();
   const company = settings.company_name || "Company";
   const filename = exportFilename(preset, company, format);
+
+  // Contact cards: one .vcf holding every exported person, in the export's
+  // order, with each office's address and main line on its people.
+  if (format === "vcf") {
+    const { renderDirectoryVcf } = await import("@/lib/directory-export-vcf");
+    await audit({ actor: actorFrom(user), action: "directory.exported", details: { format, preset: preset.id, people: people.length }, ip: ipFrom(req) });
+    const domain = (await getSetting("custom_domain"))?.trim();
+    const text = await renderDirectoryVcf({ preset, people, fields, company, origin: domain ? `https://${domain}` : new URL(req.url).origin });
+    return new Response(text, {
+      headers: {
+        "Content-Type": "text/vcard; charset=utf-8",
+        "Content-Disposition": `attachment; filename="${filename}"`,
+        "Cache-Control": "private, no-store",
+        "X-Content-Type-Options": "nosniff",
+      },
+    });
+  }
 
   await audit({
     actor: actorFrom(user),

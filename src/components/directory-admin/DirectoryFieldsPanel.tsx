@@ -23,7 +23,7 @@ const MICROSOFT_PATHS = [
   "mail", "userPrincipalName", "mailNickname", "givenName", "surname", "displayName",
   "businessPhones", "businessPhones.0", "businessPhones.1", "mobilePhone", "faxNumber",
   "onPremisesSamAccountName", "onPremisesDistinguishedName", "preferredLanguage", "usageLocation",
-  "manager.mail", "manager.userPrincipalName", "manager.displayName",
+  "manager.mail", "manager.userPrincipalName", "manager.displayName", "employeeHireDate", "birthday",
   ...Array.from({ length: 15 }, (_, i) => `onPremisesExtensionAttributes.extensionAttribute${i + 1}`),
 ];
 // Entra ID has no assistant attribute on a user — the AD `assistant` and
@@ -42,7 +42,7 @@ const GOOGLE_PATHS = [
   "relations.value", "name.givenName", "name.familyName", "primaryEmail", "customSchemas.HR.employee_id",
 ];
 
-const KIND_LABEL: Record<string, string> = { text: "Text", choice: "Choice", people: "People" };
+const KIND_LABEL: Record<string, string> = { text: "Text", choice: "Choice", people: "People", date: "Date" };
 const DISPLAY_LABEL: Record<string, string> = { field: "Text", tag: "Chips", phone: "Phone" };
 
 type MappingMode = "none" | "path" | "compose" | "extract" | "first" | "groups" | "derive";
@@ -187,6 +187,19 @@ function MappingEditor({
   const [direction, setDirection] = useState(field.link_direction);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [busy, setBusy] = useState(false);
+  const [props, setProps] = useState<{ path: string; count: number; sample: string }[] | null>(null);
+  const [propsOpen, setPropsOpen] = useState(false);
+  async function loadProps() {
+    if (props) {
+      setPropsOpen((o) => !o);
+      return;
+    }
+    const r = await jsonFetch(`/api/admin/directory/fields/preview?provider=${provider}`);
+    if (r.ok) {
+      setProps(r.data.properties ?? []);
+      setPropsOpen(true);
+    }
+  }
   const suggestions =
     field.kind === "people"
       ? provider === "microsoft" ? MICROSOFT_PEOPLE_PATHS : GOOGLE_PEOPLE_PATHS
@@ -254,8 +267,38 @@ function MappingEditor({
         <button type="button" onClick={save} disabled={busy} className="rounded-lg bg-compass-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60">
           Save mapping
         </button>
+        <button type="button" onClick={loadProps} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50" aria-expanded={propsOpen}>
+          What the records hold
+        </button>
         {mapping && !valid && <span className="text-xs text-amber-600">Incomplete — fill in every part.</span>}
       </div>
+      {propsOpen && props && (
+        <div className="rounded-lg bg-slate-50 p-3 text-xs dark:bg-slate-800/50">
+          {props.length === 0 ? (
+            <p className="text-slate-500">No stored records for this provider yet — run a sync first.</p>
+          ) : (
+            <>
+              <p className="mb-1.5 font-medium text-slate-700">
+                Properties in the stored records, with how many people carry a value. Click one to map it.
+              </p>
+              <ul className="flex flex-wrap gap-1.5">
+                {props.slice(0, 120).map((pr) => (
+                  <li key={pr.path}>
+                    <button
+                      type="button"
+                      onClick={() => { setMapping({ kind: "path", path: pr.path }); setPreview(null); }}
+                      className="rounded-full border border-slate-200 bg-surface px-2 py-0.5 font-mono text-[11px] text-slate-600 hover:border-compass-300 hover:text-compass-700"
+                      data-tt={pr.sample ? `e.g. ${pr.sample}` : undefined}
+                    >
+                      {pr.path} <span className="text-slate-400">×{pr.count}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
+      )}
       {preview && (
         <div className="rounded-lg bg-slate-50 p-3 text-sm dark:bg-slate-800/50">
           {preview.total === 0 ? (
@@ -475,7 +518,7 @@ export function DirectoryFieldsPanel({
     setBusy(true);
     const r = await jsonFetch("/api/admin/directory/fields", {
       method: "POST",
-      body: JSON.stringify({ label, kind, display, multi: kind === "people", group_by: kind === "choice", show_in_card: kind !== "people" }),
+      body: JSON.stringify({ label, kind, display: kind === "date" ? "field" : display, multi: kind === "people", group_by: kind === "choice", show_in_card: kind !== "people" }),
     });
     setBusy(false);
     if (!r.ok) {
@@ -554,9 +597,10 @@ export function DirectoryFieldsPanel({
             <option value="text">Text</option>
             <option value="choice">Choice</option>
             <option value="people">People</option>
+            <option value="date">Date</option>
           </Select>
         </div>
-        {kind !== "people" && (
+        {kind !== "people" && kind !== "date" && (
           <div className="w-40">
             <Select value={display} onChange={(e) => setDisplay(e.target.value as DirectoryField["display"])} data-tt="How the value renders" aria-label="Display">
               <option value="field">Show as text</option>
@@ -672,7 +716,17 @@ function FieldRow({
                   <Select className="w-36" value={f.kind} onChange={(e) => patch(f, { kind: e.target.value })} aria-label="Kind">
                     <option value="text">Text</option>
                     <option value="choice">Choice</option>
+                    <option value="date">Date</option>
                   </Select>
+                )}
+                {f.kind === "date" && (
+                  <Field label="This date is" help="A start date shows tenure on profiles and “Started this month” on the directory; a birthday shows the month’s birthdays.">
+                    <Select className="w-44" value={f.date_role} onChange={(e) => patch(f, { date_role: e.target.value })} aria-label="Date role">
+                      <option value="">— just a date —</option>
+                      <option value="start">The start date</option>
+                      <option value="birthday">A birthday</option>
+                    </Select>
+                  </Field>
                 )}
                 {f.kind !== "people" && (
                   <Select className="w-36" value={f.display} onChange={(e) => patch(f, { display: e.target.value })} aria-label="Display">

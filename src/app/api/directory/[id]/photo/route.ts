@@ -4,9 +4,10 @@ import { visiblePersonPhoto } from "@/lib/directory";
 
 export const dynamic = "force-dynamic";
 
-// Photos are stored as data: URLs on directory_people.photo. Serve the decoded
-// bytes so a people typeahead can show avatars without inflating every JSON
-// response by ~270 KB per person.
+// Photos are stored as data: URLs on directory_people: a 48px thumbnail every
+// list row carries, and (since 1.3) a 240px copy for the profile page and
+// contact card, served here with ?size=large. Serving the decoded bytes keeps
+// avatars out of every JSON response.
 //
 // Script-safety policy matches attachments and link icons: raster formats only,
 // nosniff, and a locked-down CSP so nothing can execute even if the stored
@@ -21,9 +22,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 
   const { id } = await params;
   const personId = Number(id);
+  const size = new URL(req.url).searchParams.get("size") === "large" ? "large" : "thumb";
   // visiblePersonPhoto enforces hidden = 0 and photo <> '' in SQL, so a hidden
   // person is indistinguishable from a missing one here.
-  const row = Number.isInteger(personId) ? await visiblePersonPhoto(personId) : undefined;
+  const row = Number.isInteger(personId) ? await visiblePersonPhoto(personId, size) : undefined;
   if (!row) return NextResponse.json({ error: "Not found." }, { status: 404 });
 
   const parsed = DATA_URL.exec(row.photo);
@@ -34,7 +36,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const bytes = Buffer.from(parsed[2], "base64");
   if (bytes.length === 0) return NextResponse.json({ error: "Not found." }, { status: 404 });
 
-  const etag = `W/"p${personId}-${Math.floor((Date.parse(row.updated_at) || 0) / 1000)}"`;
+  const etag = `W/"p${personId}-${size}-${Math.floor((Date.parse(row.updated_at) || 0) / 1000)}"`;
   if (req.headers.get("if-none-match") === etag) {
     return new Response(null, {
       status: 304,

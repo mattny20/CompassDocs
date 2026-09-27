@@ -22,6 +22,7 @@
 import { pool, getSetting, setSetting } from "./db";
 import type { ProviderKey } from "./identity-provider";
 import { buildPeopleIndex } from "./directory-people-resolve";
+import { normalizePhoto } from "./directory-photos";
 import {
   applyMapping,
   legacyPathMapping,
@@ -115,6 +116,8 @@ export interface DirectoryField extends FieldLike {
    *  the people whose target X is ("in")? */
   link_direction: "out" | "in";
   mappings: FieldMappings;
+  /** Date fields: what the date means — "", "start" or "birthday". */
+  date_role: string;
 }
 
 // Link aggregates are correlated subqueries rather than joins so a person with
@@ -308,12 +311,15 @@ export async function searchPeopleTypeahead(
  * Rows with no photo are treated as absent so the caller 404s uniformly.
  */
 export async function visiblePersonPhoto(
-  id: number
+  id: number,
+  size: "thumb" | "large" = "thumb"
 ): Promise<{ photo: string; updated_at: string } | undefined> {
   if (!Number.isInteger(id)) return undefined;
+  // The large copy falls back to the thumbnail for rows synced before 1.3.
+  const col = size === "large" ? "CASE WHEN p.photo_large <> '' THEN p.photo_large ELSE p.photo END" : "p.photo";
   return (
     await pool().query<{ photo: string; updated_at: string }>(
-      `SELECT p.photo, p.updated_at FROM directory_people p
+      `SELECT ${col} AS photo, p.updated_at FROM directory_people p
        WHERE p.id = $1 AND p.hidden = 0 AND p.photo <> '' LIMIT 1`,
       [id]
     )
@@ -331,9 +337,9 @@ export async function listDepartments(): Promise<string[]> {
 // --- Field definitions (the registry) -----------------------------------------------
 
 const FIELD_COLS =
-  "id, key, label, graph_path, google_path, show_in_card, sort, display, kind, multi, group_by, builtin, options, value_format, show_with, highlight, inverse_label, link_direction, mappings";
+  "id, key, label, graph_path, google_path, show_in_card, sort, display, kind, multi, group_by, builtin, options, value_format, show_with, highlight, inverse_label, link_direction, mappings, date_role";
 const KEY_RE = /^[a-z0-9_]{1,40}$/;
-export const FIELD_KINDS: FieldKind[] = ["text", "choice", "people"];
+export const FIELD_KINDS: FieldKind[] = ["text", "choice", "people", "date"];
 export const FIELD_DISPLAYS: FieldDisplay[] = ["field", "tag", "phone"];
 export const VALUE_FORMATS: ValueFormat[] = ["raw", "label", "code_label"];
 /** Keys a custom field can never take — they are columns, or derived. */
@@ -410,6 +416,7 @@ function parseField(r: FieldRow): DirectoryField {
     options: sanitizeOptions(r.options),
     mappings,
     link_direction: r.link_direction === "in" ? "in" : "out",
+    date_role: r.date_role === "start" || r.date_role === "birthday" ? r.date_role : "",
   };
 }
 
@@ -446,6 +453,7 @@ export interface FieldInput {
   inverse_label?: string;
   link_direction?: "out" | "in";
   mappings?: unknown;
+  date_role?: string;
 }
 
 /**
@@ -479,9 +487,9 @@ export async function createField(input: FieldInput & { label: string }): Promis
   const res = await pool().query<FieldRow>(
     `INSERT INTO directory_fields
        (key, label, graph_path, google_path, show_in_card, sort, display, kind, multi, group_by, builtin,
-        options, value_format, show_with, highlight, inverse_label, link_direction, mappings)
+        options, value_format, show_with, highlight, inverse_label, link_direction, mappings, date_role)
      VALUES ($1, $2, $3, $4, $5, COALESCE((SELECT MAX(sort)+1 FROM directory_fields WHERE builtin = 0), 0),
-             $6, $7, $8, $9, 0, $10, $11, $12, $13, $14, $15, $16)
+             $6, $7, $8, $9, 0, $10, $11, $12, $13, $14, $15, $16, $17)
      RETURNING ${FIELD_COLS}`,
     [
       key,
@@ -500,9 +508,16 @@ export async function createField(input: FieldInput & { label: string }): Promis
       String(input.inverse_label ?? "").trim().slice(0, 80),
       input.link_direction === "in" ? "in" : "out",
       JSON.stringify(mappings),
+      dateRole(input.date_role, kind),
     ]
   );
   return parseField(res.rows[0]);
+}
+
+/** A date role only means something on a date field. */
+function dateRole(v: string | undefined, kind: FieldKind): string {
+  if (kind !== "date") return "";
+  return v === "start" || v === "birthday" ? v : "";
 }
 
 export async function updateField(id: number, fields: FieldInput): Promise<DirectoryField | undefined> {
@@ -529,8 +544,8 @@ export async function updateField(id: number, fields: FieldInput): Promise<Direc
     `UPDATE directory_fields SET
        label = $1, graph_path = $2, google_path = $3, show_in_card = $4, sort = $5, display = $6,
        kind = $7, multi = $8, group_by = $9, options = $10, value_format = $11, show_with = $12,
-       highlight = $13, inverse_label = $14, link_direction = $15, mappings = $16
-     WHERE id = $17 RETURNING ${FIELD_COLS}`,
+       highlight = $13, inverse_label = $14, link_direction = $15, mappings = $16, date_role = $17
+     WHERE id = $18 RETURNING ${FIELD_COLS}`,
     [
       (fields.label ?? cur.label).trim().slice(0, 80) || cur.label,
       legacy.graph_path,
@@ -548,6 +563,7 @@ export async function updateField(id: number, fields: FieldInput): Promise<Direc
       fields.inverse_label === undefined ? cur.inverse_label : String(fields.inverse_label).trim().slice(0, 80),
       fields.link_direction === undefined ? cur.link_direction : fields.link_direction === "in" ? "in" : "out",
       JSON.stringify(mappings),
+      dateRole(fields.date_role === undefined ? cur.date_role : fields.date_role, kind),
       id,
     ]
   );
@@ -602,6 +618,8 @@ export interface PersonInput {
   mobile?: string;
   office?: string;
   photo?: string;
+  /** The 240px copy; "" when only a thumbnail exists. */
+  photo_large?: string;
   /** Manual custom values; null removes a key (reverts to the synced value). */
   custom?: Record<string, string | null>;
   /** Manual outgoing links per people field: the complete list of target ids. */
@@ -657,8 +675,8 @@ export async function createPerson(input: PersonInput): Promise<DirectoryPerson>
   const { set } = await sanitizeCustom(input.custom);
   const res = await pool().query<{ id: number }>(
     `INSERT INTO directory_people
-       (source, name, title, department, email, phone, mobile, office, photo, custom, pin_order)
-     VALUES ('manual', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+       (source, name, title, department, email, phone, mobile, office, photo, photo_large, custom, pin_order)
+     VALUES ('manual', $1, $2, $3, $4, $5, $6, $7, $8, $11, $9, $10) RETURNING id`,
     [
       input.name.trim(),
       (input.title ?? "").trim(),
@@ -670,6 +688,7 @@ export async function createPerson(input: PersonInput): Promise<DirectoryPerson>
       input.photo ?? "",
       JSON.stringify(set),
       input.pin_order ?? null,
+      input.photo_large ?? "",
     ]
   );
   const id = res.rows[0].id;
@@ -691,7 +710,7 @@ export async function updatePerson(
     `UPDATE directory_people SET
        name = $1, title = $2, department = $3, email = $4, phone = $5,
        mobile = $6, office = $7, photo = $8, hidden = $9, custom = $10, pin_order = $11,
-       updated_at = now()
+       photo_large = $13, updated_at = now()
      WHERE id = $12`,
     [
       (fields.name ?? existing.name).trim(),
@@ -706,10 +725,26 @@ export async function updatePerson(
       JSON.stringify(manual),
       fields.pin_order === undefined ? existing.pin_order : fields.pin_order,
       id,
+      fields.photo_large ?? (fields.photo === undefined ? undefined : "") ?? await personPhotoLarge(id),
     ]
   );
   await writeManualLinks(id, fields.links, fields.linked_by);
   return getPerson(id);
+}
+
+/** The 240px photo of a person, "" when there is none. Never on the list row. */
+export async function personPhotoLarge(id: number): Promise<string> {
+  const r = await pool().query<{ photo_large: string }>("SELECT photo_large FROM directory_people WHERE id = $1", [id]);
+  return r.rows[0]?.photo_large ?? "";
+}
+
+/** Replace both sizes of a person's photo (an upload), or clear them. */
+export async function setPersonPhoto(id: number, photo: { thumb: string; large: string } | null): Promise<boolean> {
+  const r = await pool().query(
+    "UPDATE directory_people SET photo = $2, photo_large = $3, updated_at = now() WHERE id = $1",
+    [id, photo?.thumb ?? "", photo?.large ?? ""]
+  );
+  return (r.rowCount ?? 0) > 0;
 }
 
 export async function deletePerson(id: number): Promise<boolean> {
@@ -996,6 +1031,9 @@ export async function replaceProviderPeople(
     await client.query("BEGIN");
     for (const p of people) {
       const applied = p.record ? applyFieldMappings(fields, provider, p.record) : { synced: p.custom ?? {}, columns: {} };
+      // Whatever size the provider sent becomes the two we keep; an image we
+      // cannot decode is dropped rather than stored as a broken data: URL.
+      const photos = p.photo ? (await normalizePhoto(p.photo)) ?? { thumb: "", large: "" } : { thumb: "", large: "" };
       const email = (p.email ?? "").trim();
       if (email) {
         const adoption = await client.query(
@@ -1010,14 +1048,15 @@ export async function replaceProviderPeople(
       }
       await client.query(
         `INSERT INTO directory_people
-           (source, external_id, name, title, department, email, phone, mobile, office, photo, synced, provider_record)
-         VALUES ($11, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $12)
+           (source, external_id, name, title, department, email, phone, mobile, office, photo, synced, provider_record, photo_large)
+         VALUES ($11, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $12, $13)
          ON CONFLICT (external_id) WHERE external_id IS NOT NULL DO UPDATE SET
            source = EXCLUDED.source,
            name = EXCLUDED.name, title = EXCLUDED.title, department = EXCLUDED.department,
            email = EXCLUDED.email, phone = EXCLUDED.phone, mobile = EXCLUDED.mobile,
            office = EXCLUDED.office,
            photo = CASE WHEN EXCLUDED.photo <> '' THEN EXCLUDED.photo ELSE directory_people.photo END,
+           photo_large = CASE WHEN EXCLUDED.photo <> '' THEN EXCLUDED.photo_large ELSE directory_people.photo_large END,
            synced = EXCLUDED.synced,
            provider_record = EXCLUDED.provider_record,
            updated_at = now()`,
@@ -1030,10 +1069,11 @@ export async function replaceProviderPeople(
           (p.phone ?? "").trim(),
           (p.mobile ?? "").trim(),
           (applied.columns.office ?? p.office ?? "").trim(),
-          p.photo ?? "",
+          photos.thumb,
           JSON.stringify(applied.synced),
           source,
           stripRecord(p.record),
+          photos.large,
         ]
       );
     }
@@ -1201,6 +1241,40 @@ export async function reapplyMappings(): Promise<{ updated: number; unresolved: 
     client.release();
   }
   return { updated, unresolved };
+}
+
+/**
+ * What the stored records for a provider actually contain: every top-level
+ * property (and the members of one-level objects such as
+ * onPremisesExtensionAttributes) with how many records carry a value. The
+ * mapping editor lists these so an admin picks a property they have, not one
+ * they hope for.
+ */
+export async function recordProperties(provider: ProviderKey): Promise<{ path: string; count: number; sample: string }[]> {
+  const source = SOURCE_OF_PROVIDER[provider];
+  const rows = await pool().query<{ provider_record: ProviderRecord }>(
+    "SELECT provider_record FROM directory_people WHERE source = $1 AND provider_record IS NOT NULL",
+    [source]
+  );
+  const counts = new Map<string, { count: number; sample: string }>();
+  const note = (path: string, v: unknown) => {
+    if (v == null || v === "" || (Array.isArray(v) && v.length === 0)) return;
+    const cur = counts.get(path) ?? { count: 0, sample: "" };
+    cur.count++;
+    if (!cur.sample) cur.sample = (typeof v === "object" ? JSON.stringify(v) : String(v)).slice(0, 60);
+    counts.set(path, cur);
+  };
+  for (const r of rows.rows) {
+    for (const [k, v] of Object.entries(r.provider_record)) {
+      if (k === "_groups") continue;
+      if (v && typeof v === "object" && !Array.isArray(v)) {
+        for (const [k2, v2] of Object.entries(v as Record<string, unknown>)) note(`${k}.${k2}`, v2);
+      } else {
+        note(k, v);
+      }
+    }
+  }
+  return [...counts.entries()].map(([path, c]) => ({ path, ...c })).sort((a, b) => b.count - a.count || a.path.localeCompare(b.path));
 }
 
 export interface MappingPreview {

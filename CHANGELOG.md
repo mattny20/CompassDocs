@@ -4,6 +4,38 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.3.0] - 2026-09-27
+
+Reaching a person, not just finding them.
+
+### Added
+- **Save contact.** Every profile has a contact card (.vcf) — name, title,
+  company and department, work and mobile numbers as typed, email, the
+  office's address, main line and fax from its profile, a link to the
+  profile, the assistant and card fields as notes, and the photo — and a
+  **QR code** a phone camera scans to add the person with no app and no
+  account. The Export menu adds **Contacts (VCF)** for everyone on screen,
+  and a preset can be exported as one; each office's address rides on its
+  people.
+- **Teams and Outlook.** People synced from Microsoft 365 get *Chat in
+  Teams* and *Schedule a meeting* on their profile and card.
+- **Bigger photos.** The sync now stores a 240px copy beside the 48px
+  thumbnail; the profile page shows it, the contact card carries it, lists
+  stay light. Admins can **upload a photo** for anyone on the People page
+  (cropped square, both sizes made on the server); a provider's photo
+  replaces it on the next sync.
+- **Date fields.** A field can be a *Date* (ISO, "5/1/2020", "May 1, 2020"
+  and Graph's `employeeHireDate` all read; shown as "May 1, 2020"; sorts
+  chronologically). A date field can mean *the start date* — profiles show
+  "Since May 2020 · 6 years", the directory opens with **Started this
+  month** and **Anniversaries** — or *a birthday*, for **Birthdays this
+  month**. All three strips appear only when there is someone to show.
+- **What the records hold.** The mapping editor lists every property the
+  stored records actually contain, with how many people carry a value and a
+  sample; click one to map it. Suggestions add `employeeHireDate`.
+- "No office / No department" sections on the Groups view link admins
+  straight to the people missing the value.
+
 ## [1.2.8] - 2026-09-25
 
 ### Changed

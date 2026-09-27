@@ -19,6 +19,11 @@ import {
   FileText,
   Table2,
   ChevronDown,
+  Contact,
+  MessageSquare,
+  CalendarDays,
+  Cake,
+  PartyPopper,
 } from "lucide-react";
 import type { DirectoryPerson, DirectoryField } from "@/lib/directory";
 import {
@@ -32,6 +37,7 @@ import {
   pinnedFirst,
   rawValue,
   resolveValues,
+  milestonesFor,
 } from "@/lib/directory-display";
 import { EmptyState } from "./form";
 import { FieldChips } from "./TagBadges";
@@ -235,6 +241,11 @@ export function DirectoryClient({
     [fields, titleField]
   );
 
+  // Who started, marks an anniversary, or has a birthday this month — from
+  // everyone, not the current filter, so the strip is the same for all.
+  const milestones = useMemo(() => milestonesFor(initialPeople, fields, new Date()), [initialPeople, fields]);
+  const hasMilestones = milestones.started.length + milestones.anniversaries.length + milestones.birthdays.length > 0;
+
   const grouped = useMemo(() => {
     const f = view === "groups" ? groupField : cardsGroupField;
     if (!f) return null;
@@ -252,7 +263,7 @@ export function DirectoryClient({
     }
   }
 
-  async function exportNow(body: Record<string, unknown>, format: "pdf" | "csv") {
+  async function exportNow(body: Record<string, unknown>, format: "pdf" | "csv" | "vcf") {
     setExportOpen(false);
     setExporting(true);
     try {
@@ -284,7 +295,7 @@ export function DirectoryClient({
   }
 
   /** "What I see": the people on screen, with the screen's columns and grouping. */
-  function whatISee(format: "pdf" | "csv") {
+  function whatISee(format: "pdf" | "csv" | "vcf") {
     const groupedField = view === "groups" ? groupField : view === "cards" ? cardsGroupField : undefined;
     return exportNow(
       {
@@ -373,6 +384,21 @@ export function DirectoryClient({
     return (
       <div className="relative flex min-w-0 gap-3 rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <div className="absolute right-2 top-2 flex items-center gap-0.5">
+          {p.source === "graph" && p.email && (
+            <a
+              href={`https://teams.microsoft.com/l/chat/0/0?users=${encodeURIComponent(p.email)}`}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-sm p-1 text-slate-300 hover:text-compass-600"
+              data-tt="Chat in Teams"
+              aria-label={`Chat with ${p.name} in Teams`}
+            >
+              <MessageSquare className="h-3.5 w-3.5" />
+            </a>
+          )}
+          <a href={`/api/directory/${p.id}/vcard`} className="rounded-sm p-1 text-slate-300 hover:text-compass-600" data-tt="Save contact" aria-label={`Save ${p.name} as a contact`}>
+            <Contact className="h-3.5 w-3.5" />
+          </a>
           {p.pin_order != null && <Pin className="h-3.5 w-3.5 text-compass-500" aria-label="Pinned by an admin" />}
           <PinButton p={p} />
         </div>
@@ -482,13 +508,22 @@ export function DirectoryClient({
     );
   };
 
-  const SectionHeader = ({ label, count, icon }: { label: string; count: number; icon?: React.ReactNode }) => (
+  const SectionHeader = ({ label, count, icon, fixHref }: { label: string; count: number; icon?: React.ReactNode; fixHref?: string }) => (
     <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
       {icon}
       {label}
       <span className="text-xs font-normal text-slate-400">({count})</span>
+      {fixHref && (
+        <Link href={fixHref} className="ml-1 text-xs font-medium normal-case tracking-normal text-compass-600 hover:underline">
+          Fill these in
+        </Link>
+      )}
     </h2>
   );
+  // The "No office" section is a to-do list for an admin; link it to the
+  // People page filtered to exactly those people.
+  const fixLink = (g: { key: string }, f: DirectoryField | undefined) =>
+    isAdmin && !g.key && f ? `/admin/directory?missing=${encodeURIComponent(f.key)}` : undefined;
 
   const tileGrid = "grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5";
   const cardGrid = "grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5";
@@ -637,6 +672,10 @@ export function DirectoryClient({
                 <Table2 className="h-4 w-4 text-slate-400" aria-hidden /> <span className="flex-1">What I see</span>
                 <span className="text-[11px] uppercase text-slate-400">CSV</span>
               </button>
+              <button className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50" onClick={() => whatISee("vcf")}>
+                <Contact className="h-4 w-4 text-slate-400" aria-hidden /> <span className="flex-1">What I see, as contacts</span>
+                <span className="text-[11px] uppercase text-slate-400">VCF</span>
+              </button>
               <label className="flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50">
                 <input
                   type="checkbox"
@@ -659,6 +698,20 @@ export function DirectoryClient({
           {people.length} {people.length === 1 ? "person" : "people"}
         </span>
       </div>
+
+      {hasMilestones && view !== "list" && !q && (
+        <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {milestones.started.length > 0 && (
+            <MilestoneCard icon={<PartyPopper className="h-4 w-4 text-emerald-600" />} title="Started this month" items={milestones.started.map((m) => ({ id: m.person.id, name: m.person.name, detail: m.person.title }))} />
+          )}
+          {milestones.anniversaries.length > 0 && (
+            <MilestoneCard icon={<CalendarDays className="h-4 w-4 text-compass-600" />} title="Work anniversaries" items={milestones.anniversaries.map((m) => ({ id: m.person.id, name: m.person.name, detail: `${m.years} ${m.years === 1 ? "year" : "years"}` }))} />
+          )}
+          {milestones.birthdays.length > 0 && (
+            <MilestoneCard icon={<Cake className="h-4 w-4 text-amber-500" />} title="Birthdays this month" items={milestones.birthdays.map((m) => ({ id: m.person.id, name: m.person.name, detail: `on the ${ordinal(m.day)}` }))} />
+          )}
+        </div>
+      )}
 
       {people.length === 0 ? (
         initialPeople.length === 0 ? (
@@ -710,7 +763,7 @@ export function DirectoryClient({
           {pinnedSections(Tile, tileGrid)}
           {(grouped ?? []).map((g) => (
             <div key={g.key || "__none"}>
-              <SectionHeader label={g.label} count={g.members.length} />
+              <SectionHeader label={g.label} count={g.members.length} fixHref={fixLink(g, groupField)} />
               <div className={tileGrid}>{g.members.map((p) => <Tile key={p.id} p={p} />)}</div>
             </div>
           ))}
@@ -721,7 +774,7 @@ export function DirectoryClient({
           {pinnedSections(Card, cardGrid)}
           {grouped.map((g) => (
             <div key={g.key || "__none"}>
-              <SectionHeader label={g.label} count={g.members.length} />
+              <SectionHeader label={g.label} count={g.members.length} fixHref={fixLink(g, cardsGroupField)} />
               <div className={cardGrid}>{g.members.map((p) => <Card key={p.id} p={p} />)}</div>
             </div>
           ))}
@@ -738,6 +791,38 @@ export function DirectoryClient({
             <div className={cardGrid}>{people.map((p) => <Card key={p.id} p={p} />)}</div>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+function ordinal(n: number): string {
+  const s = ["th", "st", "nd", "rd"];
+  const v = n % 100;
+  return `${n}${s[(v - 20) % 10] ?? s[v] ?? s[0]}`;
+}
+
+/** One of the month's strips: a heading and the people, five at a time. */
+function MilestoneCard({ icon, title, items }: { icon: React.ReactNode; title: string; items: { id: number; name: string; detail: string }[] }) {
+  const [all, setAll] = useState(false);
+  const shown = all ? items : items.slice(0, 5);
+  return (
+    <div className="rounded-xl border border-slate-200 bg-surface p-3 shadow-xs">
+      <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+        {icon} {title} <span className="font-normal text-slate-400">({items.length})</span>
+      </p>
+      <ul className="space-y-0.5 text-sm">
+        {shown.map((it) => (
+          <li key={it.id} className="flex items-baseline justify-between gap-2">
+            <Link href={`/directory/${it.id}`} className="truncate font-medium text-slate-800 hover:text-compass-700">{it.name}</Link>
+            <span className="shrink-0 text-xs text-slate-400">{it.detail}</span>
+          </li>
+        ))}
+      </ul>
+      {items.length > 5 && (
+        <button type="button" onClick={() => setAll((a) => !a)} className="mt-1 text-xs font-medium text-compass-600 hover:underline">
+          {all ? "Show fewer" : `Show all ${items.length}`}
+        </button>
       )}
     </div>
   );
