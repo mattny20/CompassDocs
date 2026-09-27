@@ -4,6 +4,20 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.3.5] - 2026-09-27
+
+### Added
+- **Teams presence** (Enterprise). *Show Teams presence* on the Microsoft
+  365 sync settings puts a live dot on every synced person's avatar —
+  cards, list rows, grouped tiles — and a badge beside the name on their
+  profile: Available, Busy, In a meeting, Presenting, Do not disturb,
+  Away, Offline, with the detail on hover. Read from Microsoft 365 while
+  the page is open (one batched request a minute for the whole page,
+  cached briefly on the server), never stored. Needs the
+  `Presence.Read.All` application permission; the one-click setup now
+  grants it, a hand-made registration adds it under API permissions.
+  Off by default.
+
 ## [1.3.4] - 2026-09-27
 
 What each person may see, and directories that deliver themselves.

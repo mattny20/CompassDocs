@@ -5,6 +5,8 @@ import { listExportPresets } from "@/lib/directory-export-config";
 import { cellValue, columnLabel } from "@/lib/directory-display";
 import { DirectoryClient, type View } from "@/components/DirectoryClient";
 import { peopleForViewer, viewerScope } from "@/lib/directory-viewer";
+import { getDirectoryGraphConfig } from "@/lib/directory-config";
+import { eePresent, featureEnabled } from "@/lib/ee";
 import { PageContainer } from "@/components/PageWidth";
 import { getAppSettings } from "@/lib/settings-store";
 import { formatDate } from "@/lib/format";
@@ -31,6 +33,8 @@ export default async function DirectoryPage({ searchParams }: { searchParams: Pr
   const people = peopleForViewer(scope, allPeople);
   const defaultColumns = allColumns.filter((c) => !scope.hidden.has(c));
   const hiddenColumns = [...scope.hidden];
+  // Teams presence (Enterprise): only when bundled, licensed and switched on.
+  const presence = eePresent() && (await featureEnabled("directory_sync")) && (await getDirectoryGraphConfig()).presence;
 
   // Browser print (Export → Print…) still renders the default preset's columns
   // as a plain table; the PDF export is the first-class path.
@@ -57,6 +61,7 @@ export default async function DirectoryPage({ searchParams }: { searchParams: Pr
           initialView={initialView}
           focus={Number.isInteger(focus) && focus > 0 ? focus : undefined}
           hiddenColumns={hiddenColumns}
+          presence={presence}
         />
       </div>
 

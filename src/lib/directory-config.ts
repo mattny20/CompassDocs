@@ -17,6 +17,7 @@ const KEYS = {
   requireTitle: "directory_require_title",
   requirePhone: "directory_require_phone",
   photos: "directory_photos",
+  presence: "directory_presence",
   lastSync: "directory_last_sync",
 } as const;
 
@@ -29,13 +30,15 @@ export interface DirectoryGraphConfig {
   requireTitle: boolean; // default false
   requirePhone: boolean; // default false
   photos: boolean; // default true
+  /** Show Teams presence on synced people (needs Presence.Read.All). Default off. */
+  presence: boolean;
 }
 
 /** Kept as the Microsoft-shaped alias; the shape itself is shared (0.98.1). */
 export type DirectorySyncStatus = ProviderSyncStatus;
 
 export async function getDirectoryGraphConfig(): Promise<DirectoryGraphConfig> {
-  const [tenant, clientId, clientSecret, group, guests, title, phone, photos] =
+  const [tenant, clientId, clientSecret, group, guests, title, phone, photos, presence] =
     await Promise.all([
       getSetting(KEYS.tenant),
       getSetting(KEYS.clientId),
@@ -45,6 +48,7 @@ export async function getDirectoryGraphConfig(): Promise<DirectoryGraphConfig> {
       getSetting(KEYS.requireTitle),
       getSetting(KEYS.requirePhone),
       getSetting(KEYS.photos),
+      getSetting(KEYS.presence),
     ]);
   return {
     tenant: tenant?.trim() || "",
@@ -55,6 +59,7 @@ export async function getDirectoryGraphConfig(): Promise<DirectoryGraphConfig> {
     requireTitle: title === "1",
     requirePhone: phone === "1",
     photos: photos !== "0",
+    presence: presence === "1",
   };
 }
 
@@ -71,6 +76,7 @@ export async function updateDirectoryGraphConfig(
   if (patch.requireTitle !== undefined) await setSetting(KEYS.requireTitle, bool(patch.requireTitle));
   if (patch.requirePhone !== undefined) await setSetting(KEYS.requirePhone, bool(patch.requirePhone));
   if (patch.photos !== undefined) await setSetting(KEYS.photos, bool(patch.photos));
+  if (patch.presence !== undefined) await setSetting(KEYS.presence, bool(patch.presence));
 }
 
 export async function getDirectorySyncStatus(): Promise<DirectorySyncStatus | null> {
