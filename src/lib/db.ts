@@ -1276,7 +1276,7 @@ async function migrateWeightedSearch(client: import("pg").PoolClient) {
  */
 const DIRECTORY_RESERVED_KEYS = [
   "name", "title", "department", "email", "phone", "mobile", "office",
-  "assistant", "assists", "photo", "hidden", "source", "id",
+  "assistant", "assists", "photo", "hidden", "source", "id", "manager", "reports",
 ];
 const DIRECTORY_BUILTIN_FIELDS: {
   key: string; label: string; kind: string; multi: number; group_by: number; inverse_label: string; sort: number;
@@ -1285,6 +1285,8 @@ const DIRECTORY_BUILTIN_FIELDS: {
   { key: "department", label: "Department", kind: "text", multi: 0, group_by: 1, inverse_label: "", sort: -30 },
   { key: "office", label: "Office", kind: "text", multi: 0, group_by: 1, inverse_label: "", sort: -20 },
   { key: "assistant", label: "Assistant", kind: "people", multi: 1, group_by: 0, inverse_label: "Assists", sort: -10 },
+  // 1.3.3: the org chart's edge. One manager per person; the inverse is the team.
+  { key: "manager", label: "Reports to", kind: "people", multi: 0, group_by: 0, inverse_label: "Direct reports", sort: -5 },
 ];
 
 async function migrateDirectoryRegistry(client: import("pg").PoolClient) {
@@ -1368,6 +1370,19 @@ async function migrateDirectoryRegistry(client: import("pg").PoolClient) {
       if (res.rowCount) console.log(`[db] directory: moved mapped values into the synced layer for ${res.rowCount} people`);
     }
     await markDone("synced_v1");
+  }
+
+  if (!done.has("manager_mappings_v1")) {
+    // Reports to fills itself from the identity system unless an admin says
+    // otherwise: Graph's manager relationship, Google's manager relation.
+    // Seeded once, so clearing the mapping under Fields sticks.
+    await client.query(
+      `UPDATE directory_fields
+          SET mappings = '{"microsoft":{"kind":"path","path":"manager.mail"},"google":{"kind":"path","path":"relations[manager].value"}}'::jsonb,
+              graph_path = 'manager.mail', google_path = 'relations[manager].value'
+        WHERE key = 'manager' AND builtin = 1 AND mappings = '{}'::jsonb AND graph_path = '' AND google_path = ''`
+    );
+    await markDone("manager_mappings_v1");
   }
 
   if (!done.has("tag_highlight_v1")) {

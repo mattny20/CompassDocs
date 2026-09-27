@@ -3,7 +3,9 @@ import { notFound } from "next/navigation";
 import QRCode from "qrcode";
 import { Mail, Phone, Smartphone, MapPin, UserRound, Users, ArrowLeft, FileText, Building2, CalendarDays } from "lucide-react";
 import { requireUser } from "@/lib/auth";
-import { getPersonById, listFields, personPhotoLarge } from "@/lib/directory";
+import { getPersonById, listFields, listPeople, personPhotoLarge } from "@/lib/directory";
+import { buildOrgChart, chainAbove, managerField, peersOf, teamBelow } from "@/lib/directory-org";
+import { TeamBlock } from "@/components/directory/TeamBlock";
 import { getOfficeConfig } from "@/lib/directory-offices-store";
 import { officeBlock, officeKeyOf, officeProfileFor } from "@/lib/directory-offices";
 import { listDocumentsByAuthor, listLinkedUserNames, getSetting } from "@/lib/db";
@@ -32,14 +34,23 @@ export default async function PersonProfilePage({
   const scope = await spaceScopeFor(user);
   const isEditor = await canSeeDrafts(user);
   const aliases = [...new Set([person.name, ...(await listLinkedUserNames(person.id))])];
-  const [docs, fields, offices, settings, domain, large] = await Promise.all([
+  const [docs, fields, offices, settings, domain, large, everyone] = await Promise.all([
     listDocumentsByAuthor(aliases, isEditor, scope),
     listFields(),
     getOfficeConfig(),
     getAppSettings(),
     getSetting("custom_domain"),
     personPhotoLarge(person.id),
+    listPeople(),
   ]);
+  // Where they sit in the org chart, when the directory has one.
+  const mf = managerField(fields);
+  const chart = mf ? buildOrgChart(everyone, fields) : null;
+  const chain = chart ? chainAbove(chart, person.id) : [];
+  const teamLevels = chart ? teamBelow(chart, person.id) : [];
+  const reports = teamLevels[0]?.people ?? [];
+  const teamSize = teamLevels.reduce((n, l) => n + l.people.length, 0);
+  const peers = chart ? peersOf(chart, person.id) : [];
   const officeField = fields.find((f) => f.key === "office");
   const office = officeField ? displayValue(officeField, person.office) : person.office;
   const profile = officeProfileFor(offices, officeKeyOf(person.office, officeField));
@@ -51,7 +62,8 @@ export default async function PersonProfilePage({
     .filter((f) => !f.builtin && f.kind !== "people")
     .map((f) => ({ field: f, value: person.custom?.[f.key] ?? "" }))
     .filter((f) => f.value);
-  const peopleFields = fields.filter((f) => f.kind === "people");
+  // The manager field renders as the Team block below, not as a line here.
+  const peopleFields = fields.filter((f) => f.kind === "people" && !(mf && f.key === mf.key));
   const startField = fields.find((f) => f.kind === "date" && f.date_role === "start");
   const start = startField ? parseDateValue(person.custom?.[startField.key] ?? "") : null;
   const tenure = start && start.y ? tenureLabel(start.y, start.m, start.d) : "";
@@ -174,8 +186,19 @@ export default async function PersonProfilePage({
           </div>
         </div>
 
+        {mf && (
+          <TeamBlock
+            person={person}
+            chain={chain}
+            reports={reports}
+            teamSize={teamSize}
+            peers={peers}
+            labels={{ manager: mf.label, reports: mf.inverse_label || "Direct reports" }}
+          />
+        )}
+
         {block && block.rows.length > 0 && (
-          <div className="mt-5 rounded-lg border border-slate-100 bg-slate-50/60 p-4 dark:bg-slate-800/40">
+          <div className="mt-5 rounded-lg border border-slate-100 bg-slate-50 p-4">
             <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
               <Building2 className="h-3.5 w-3.5 text-compass-600" aria-hidden /> {block.name} office
             </p>

@@ -24,6 +24,7 @@ import {
   CalendarDays,
   Cake,
   PartyPopper,
+  Network,
 } from "lucide-react";
 import type { DirectoryPerson, DirectoryField } from "@/lib/directory";
 import {
@@ -40,6 +41,8 @@ import {
   milestonesFor,
 } from "@/lib/directory-display";
 import { EmptyState } from "./form";
+import { OrgChart } from "./directory/OrgChart";
+import { managerField } from "@/lib/directory-org";
 import { FieldChips } from "./TagBadges";
 import { toast } from "./Toasts";
 
@@ -48,11 +51,12 @@ const field =
 const menuBtn =
   "rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50";
 
-type View = "cards" | "list" | "groups";
+export type View = "cards" | "list" | "groups" | "org";
 const VIEWS: { id: View; label: string; icon: React.ReactNode }[] = [
   { id: "cards", label: "Cards", icon: <LayoutGrid className="h-4 w-4" /> },
   { id: "list", label: "List", icon: <ListIcon className="h-4 w-4" /> },
   { id: "groups", label: "Groups", icon: <Building2 className="h-4 w-4" /> },
+  { id: "org", label: "Org chart", icon: <Network className="h-4 w-4" /> },
 ];
 
 // Storage keys. Columns got a new key in 1.2: the old hard-coded default was
@@ -106,6 +110,8 @@ export function DirectoryClient({
   defaultGroupBy,
   presets,
   isAdmin = false,
+  initialView,
+  focus,
 }: {
   initialPeople: DirectoryPerson[];
   fields: DirectoryField[];
@@ -116,10 +122,17 @@ export function DirectoryClient({
   presets: ExportPresetSummary[];
   /** Admins get a link to Settings → Directory from the empty state. */
   isAdmin?: boolean;
+  /** ?view= on the URL: opens this view for this visit without changing the remembered one. */
+  initialView?: View;
+  /** ?focus= on the URL: the org chart opens to this person. */
+  focus?: number;
 }) {
   const [q, setQ] = useState("");
   const [filterValue, setFilterValue] = useState("");
-  const [view, setView] = useState<View>("cards");
+  const [view, setView] = useState<View>(initialView ?? "cards");
+  // The org chart is a view only when the registry has a Reports to field.
+  const hasOrg = useMemo(() => !!managerField(fields), [fields]);
+  const views = useMemo(() => (hasOrg ? VIEWS : VIEWS.filter((v) => v.id !== "org")), [hasOrg]);
   const [cols, setCols] = useState<string[]>(defaultColumns);
   const [colsOpen, setColsOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
@@ -146,7 +159,9 @@ export function DirectoryClient({
   useEffect(() => {
     try {
       const v = localStorage.getItem(LS_VIEW);
-      if (v && VIEWS.some((x) => x.id === v)) setView(v as View);
+      if (initialView) {
+        /* the URL chose this visit's view */
+      } else if (v && views.some((x) => x.id === v)) setView(v as View);
       else if (v === "departments") setView("groups");
       const c = readJson<string[] | null>(LS_COLS, null);
       if (Array.isArray(c) && c.length) setCols(c);
@@ -594,7 +609,7 @@ export function DirectoryClient({
         )}
 
         <div className="flex overflow-hidden rounded-lg border border-slate-200">
-          {VIEWS.map((v) => (
+          {views.map((v) => (
             <button
               key={v.id}
               onClick={() => saveView(v.id)}
@@ -699,7 +714,7 @@ export function DirectoryClient({
         </span>
       </div>
 
-      {hasMilestones && view !== "list" && !q && (
+      {hasMilestones && (view === "cards" || view === "groups") && !q && (
         <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {milestones.started.length > 0 && (
             <MilestoneCard icon={<PartyPopper className="h-4 w-4 text-emerald-600" />} title="Started this month" items={milestones.started.map((m) => ({ id: m.person.id, name: m.person.name, detail: m.person.title }))} />
@@ -728,6 +743,9 @@ export function DirectoryClient({
         ) : (
           <EmptyState icon={<UserSearch />} title="No one matches your search" body="Try a shorter name, or clear the filter." />
         )
+      ) : view === "org" ? (
+        /* ----------------------------- ORG CHART -------------------------- */
+        <OrgChart people={initialPeople} fields={fields} matches={q.trim() || filterValue ? new Set(people.map((p) => p.id)) : null} focusId={focus} isAdmin={isAdmin} />
       ) : view === "list" ? (
         /* ------------------------------ LIST ------------------------------ */
         <div className="overflow-x-auto rounded-xl border border-slate-200 bg-surface shadow-xs">

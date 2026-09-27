@@ -10,6 +10,7 @@
 
 import { matchOption, rawValue, type FieldLike, type PersonLike } from "./directory-display";
 import type { SyncReport } from "./directory";
+import { buildOrgChart, managerField } from "./directory-org";
 
 export interface HealthFinding {
   id: string;
@@ -100,6 +101,24 @@ export function directoryHealth<P extends PersonLike>(input: HealthInput<P>): He
       href: "/admin/directory",
       samples: sample(dupes.map((v) => `${v[0]} ×${v.length}`)),
     });
+  }
+
+  // Reporting lines that loop: the org chart cuts them, the profile page
+  // would otherwise climb forever.
+  if (managerField(input.fields)) {
+    const chart = buildOrgChart(visible, input.fields);
+    if (chart.cycles.length) {
+      const name = (id: number) => chart.byId.get(id)?.person.name ?? `#${id}`;
+      out.push({
+        id: "org-cycles",
+        severity: "warn",
+        count: chart.cycles.length,
+        title: `${chart.cycles.length} reporting ${chart.cycles.length === 1 ? "line loops" : "lines loop"}`,
+        detail: "Someone reports, through others, to themselves. The org chart breaks each loop at one person; fix the Reports to value on one of them.",
+        href: "/admin/directory",
+        samples: sample(chart.cycles.map((c) => [...c, c[0]].map(name).join(" → "))),
+      });
+    }
   }
 
   // What the last sync could not resolve.

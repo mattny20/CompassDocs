@@ -257,8 +257,9 @@ export function DirectoryPeoplePanel({
                     <EntityPicker
                       options={pickerOptions.filter((o) => o.id !== editing?.id)}
                       value={formLinks[f.key] ?? []}
-                      onChange={(ids) => setFormLinks({ ...formLinks, [f.key]: ids })}
-                      placeholder={`Add ${f.label.toLowerCase()}…`}
+                      // A single-valued field (Reports to) keeps the latest pick only.
+                      onChange={(ids) => setFormLinks({ ...formLinks, [f.key]: f.multi ? ids : ids.slice(-1) })}
+                      placeholder={f.multi ? `Add ${f.label.toLowerCase()}…` : `Pick ${f.label.toLowerCase()}…`}
                       emptyText="No people match."
                     />
                   </Field>

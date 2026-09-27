@@ -107,7 +107,22 @@ describe("directory registry migration (1.1 → 1.2)", () => {
     assert.deepEqual(links.rows, [{ person_id: attorney, field_key: "assistant", target_id: assistant, source: "manual" }]);
 
     const marker = await db.query<{ value: string }>("SELECT value FROM settings WHERE key = 'directory_migrations'");
-    assert.deepEqual(JSON.parse(marker.rows[0].value).sort(), ["links_v1", "synced_v1", "tag_highlight_v1"]);
+    assert.deepEqual(JSON.parse(marker.rows[0].value).sort(), ["links_v1", "manager_mappings_v1", "synced_v1", "tag_highlight_v1"]);
+
+    // 1.3.3: Reports to is seeded as a built-in, single-valued people field
+    // mapped to each provider's manager relationship — once, so clearing
+    // the mapping later sticks.
+    const manager = await db.query<{ kind: string; multi: number; builtin: number; inverse_label: string; mappings: unknown; graph_path: string }>(
+      "SELECT kind, multi, builtin, inverse_label, mappings, graph_path FROM directory_fields WHERE key = 'manager'"
+    );
+    assert.equal(manager.rows.length, 1);
+    assert.equal(manager.rows[0].kind, "people");
+    assert.equal(manager.rows[0].multi, 0);
+    assert.equal(manager.rows[0].builtin, 1);
+    assert.equal(manager.rows[0].inverse_label, "Direct reports");
+    assert.deepEqual(manager.rows[0].mappings, { microsoft: { kind: "path", path: "manager.mail" }, google: { kind: "path", path: "relations[manager].value" } });
+    assert.equal(manager.rows[0].graph_path, "manager.mail");
+    await db.query("UPDATE directory_fields SET mappings = '{}'::jsonb, graph_path = '', google_path = '' WHERE key = 'manager'");
 
     // A third boot is a no-op: recorded steps do not run again, so a value
     // an admin later moves or deletes is not resurrected.
@@ -116,5 +131,7 @@ describe("directory registry migration (1.1 → 1.2)", () => {
     assert.ok(third.ok, `boot on a migrated database succeeds:\n${third.out}`);
     const again = await db.query<{ synced: Record<string, string> }>("SELECT synced FROM directory_people WHERE id = $1", [assistant]);
     assert.deepEqual(again.rows[0].synced, {}, "synced_v1 did not run a second time");
+    const cleared = await db.query<{ mappings: unknown }>("SELECT mappings FROM directory_fields WHERE key = 'manager'");
+    assert.deepEqual(cleared.rows[0].mappings, {}, "a cleared Reports to mapping is not re-seeded");
   });
 });
