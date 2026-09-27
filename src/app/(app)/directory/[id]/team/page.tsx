@@ -12,15 +12,19 @@ import { PageContainer } from "@/components/PageWidth";
 import { EmptyState } from "@/components/form";
 import { ChainLine, PersonTile } from "@/components/directory/TeamBlock";
 import { ExportPeopleButtons } from "@/components/directory/ExportPeopleButtons";
+import { peopleForViewer, personForViewer, viewerScope } from "@/lib/directory-viewer";
 
 export const dynamic = "force-dynamic";
 
 export default async function TeamPage({ params }: { params: Promise<{ id: string }> }) {
-  await requireUser();
+  const user = await requireUser();
   const id = Number((await params).id);
-  const person = Number.isInteger(id) ? await getPersonById(id) : undefined;
-  if (!person || person.hidden) notFound();
-  const [fields, people] = await Promise.all([listFields(), listPeople()]);
+  const stored = Number.isInteger(id) ? await getPersonById(id) : undefined;
+  if (!stored || stored.hidden) notFound();
+  const scope = await viewerScope(user, await listFields());
+  const fields = scope.fields;
+  const person = personForViewer(scope, stored);
+  const people = peopleForViewer(scope, await listPeople());
   const mf = managerField(fields);
   const chart = mf ? buildOrgChart(people, fields) : null;
   const chain = chart ? chainAbove(chart, id) : [];

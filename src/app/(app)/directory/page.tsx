@@ -4,6 +4,7 @@ import { listPeople, listFields, getListColumns, getGroupByDefault } from "@/lib
 import { listExportPresets } from "@/lib/directory-export-config";
 import { cellValue, columnLabel } from "@/lib/directory-display";
 import { DirectoryClient, type View } from "@/components/DirectoryClient";
+import { peopleForViewer, viewerScope } from "@/lib/directory-viewer";
 import { PageContainer } from "@/components/PageWidth";
 import { getAppSettings } from "@/lib/settings-store";
 import { formatDate } from "@/lib/format";
@@ -16,14 +17,20 @@ export default async function DirectoryPage({ searchParams }: { searchParams: Pr
   // /directory?view=org&focus=12 — a profile's "Open in org chart".
   const initialView = (["cards", "list", "groups", "org"] as const).find((v) => v === sp.view) as View | undefined;
   const focus = Number(sp.focus);
-  const fields = await listFields();
-  const [people, defaultColumns, defaultGroupBy, presets, settings] = await Promise.all([
+  // What this viewer may see: admin-only fields and restricted contact
+  // columns are stripped here, before anything reaches the browser.
+  const scope = await viewerScope(user, await listFields());
+  const fields = scope.fields;
+  const [allPeople, allColumns, defaultGroupBy, presets, settings] = await Promise.all([
     listPeople(),
     getListColumns(fields),
     getGroupByDefault(fields),
     listExportPresets(fields),
     getAppSettings(),
   ]);
+  const people = peopleForViewer(scope, allPeople);
+  const defaultColumns = allColumns.filter((c) => !scope.hidden.has(c));
+  const hiddenColumns = [...scope.hidden];
 
   // Browser print (Export → Print…) still renders the default preset's columns
   // as a plain table; the PDF export is the first-class path.
@@ -45,10 +52,11 @@ export default async function DirectoryPage({ searchParams }: { searchParams: Pr
           fields={fields}
           defaultColumns={defaultColumns}
           defaultGroupBy={defaultGroupBy}
-          presets={presets.map((p) => ({ id: p.id, name: p.name, is_default: p.is_default }))}
+          presets={presets.map((p) => ({ id: p.id, name: p.name, is_default: p.is_default, layout: p.layout, split_by: p.split_by }))}
           isAdmin={user.role === "admin"}
           initialView={initialView}
           focus={Number.isInteger(focus) && focus > 0 ? focus : undefined}
+          hiddenColumns={hiddenColumns}
         />
       </div>
 
@@ -63,7 +71,7 @@ export default async function DirectoryPage({ searchParams }: { searchParams: Pr
         <table className="w-full border-collapse text-xs">
           <thead>
             <tr className="border-b-2 border-slate-300 text-left">
-              {printPreset.columns.map((c) => (
+              {printPreset.columns.filter((c) => !scope.hidden.has(c)).map((c) => (
                 <th key={c} className="py-1 pr-4 font-semibold text-slate-700">
                   {columnLabel(c, fields)}
                 </th>
@@ -73,7 +81,7 @@ export default async function DirectoryPage({ searchParams }: { searchParams: Pr
           <tbody>
             {printable.map((p) => (
               <tr key={p.id} className="break-inside-avoid border-b border-slate-200">
-                {printPreset.columns.map((c) => (
+                {printPreset.columns.filter((c) => !scope.hidden.has(c)).map((c) => (
                   <td key={c} className="py-1 pr-4 align-top text-slate-700">
                     {cellValue(p, c, fields)}
                   </td>

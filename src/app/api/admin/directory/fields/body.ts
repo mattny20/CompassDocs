@@ -25,5 +25,6 @@ export function readFieldBody(body: Record<string, unknown>): FieldInput {
   if (body.link_direction !== undefined) out.link_direction = body.link_direction === "in" ? "in" : "out";
   if (body.mappings !== undefined) out.mappings = body.mappings;
   if (body.date_role !== undefined) out.date_role = String(body.date_role ?? "");
+  if (body.visibility !== undefined) out.visibility = String(body.visibility ?? "");
   return out;
 }

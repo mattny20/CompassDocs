@@ -38,6 +38,8 @@ export interface ExportInput {
   printedOn: string;
   /** Office profiles; the PDF closes with one block per office that appears in it. */
   offices?: OfficeConfig;
+  /** 240px photos by person id, for the who's-who layout; the row thumbnail is the fallback. */
+  photosLarge?: Map<number, string>;
 }
 
 export type PreparedOffice = OfficeBlock;
@@ -138,7 +140,8 @@ function DirectoryDocument({ input, prepared }: { input: ExportInput; prepared: 
   const d = DENSITY[preset.density];
   const totalWeight = prepared.columns.reduce((s, c) => s + c.weight, 0) || 1;
   const photoCol = preset.photos ? d.photo + 6 : 0;
-  const twoUp = preset.page_columns > 1;
+  const twoUp = preset.page_columns > 1 && preset.layout !== "cards";
+  const cardPhoto = Math.round(d.photo * 2.4);
 
   const styles = StyleSheet.create({
     page: {
@@ -240,6 +243,34 @@ function DirectoryDocument({ input, prepared }: { input: ExportInput; prepared: 
     officeRowWide: { width: "100%", paddingRight: 8, marginBottom: 2 },
     officeLabel: { fontFamily: "Helvetica-Bold", fontSize: d.font - 1, color: "#64748b" },
     officeValue: { fontSize: d.font, color: "#1e293b" },
+    // The who's who: photo cards in a grid.
+    cardRow: { flexDirection: "row", gap: 8, marginTop: 8 },
+    card: {
+      flex: 1,
+      padding: d.pad + 4,
+      borderWidth: 0.5,
+      borderColor: "#cbd5e1",
+      borderRadius: 4,
+      backgroundColor: "#ffffff",
+      alignItems: "center",
+    },
+    cardPhoto: { width: cardPhoto, height: cardPhoto, borderRadius: cardPhoto / 2, objectFit: "cover", marginBottom: 5 },
+    cardInitials: {
+      width: cardPhoto,
+      height: cardPhoto,
+      borderRadius: cardPhoto / 2,
+      backgroundColor: "#e2e8f0",
+      color: "#475569",
+      fontFamily: "Helvetica-Bold",
+      fontSize: cardPhoto / 2.6,
+      textAlign: "center",
+      paddingTop: cardPhoto / 2 - cardPhoto / 5.2 - 1,
+      marginBottom: 5,
+    },
+    cardName: { fontFamily: "Helvetica-Bold", fontSize: d.font + 1.5, color: "#0f172a", textAlign: "center" },
+    cardTitle: { fontSize: d.font, color: "#334155", textAlign: "center", marginTop: 1 },
+    cardLine: { fontSize: d.font - 0.5, color: "#475569", textAlign: "center", marginTop: 1.5 },
+    cardLabel: { color: "#94a3b8" },
   });
 
   const width = (c: PreparedColumn) => `${((c.weight / totalWeight) * 100).toFixed(2)}%`;
@@ -353,6 +384,69 @@ function DirectoryDocument({ input, prepared }: { input: ExportInput; prepared: 
   );
 
   const docProps = { title: prepared.title, author: input.company, subject: "Directory", creator: "CompassDocs" };
+
+  if (preset.layout === "cards") {
+    // The who's who: each section's people dealt into rows of cards; a row is
+    // one unbreakable unit and the section heading rides with its first row.
+    const perRow = preset.cards_per_row;
+    const plain = new Set(["name", "title", "department", "email", "phone", "mobile", "office"]);
+    const card = (p: DirectoryPerson) => {
+      const photo = preset.photos ? input.photosLarge?.get(p.id) || p.photo : "";
+      const lines = prepared.columns
+        .filter((c) => c.key !== "name")
+        .map((c) => ({ key: c.key, label: c.label, value: cellValue(p, c.key, fields) }))
+        .filter((l) => l.value);
+      return (
+        <View key={p.id} style={styles.card}>
+          {preset.photos ? (
+            photo && RASTER.test(photo) ? (
+              <Image src={photo} style={styles.cardPhoto} />
+            ) : (
+              <Text style={styles.cardInitials}>{initialsOf(p.name)}</Text>
+            )
+          ) : null}
+          <Text style={styles.cardName}>{p.name}</Text>
+          {lines.map((l) =>
+            l.key === "title" || l.key === "department" ? (
+              <Text key={l.key} style={styles.cardTitle}>{l.value}</Text>
+            ) : (
+              <Text key={l.key} style={styles.cardLine}>
+                {plain.has(l.key) ? null : <Text style={styles.cardLabel}>{l.label}: </Text>}
+                {l.value}
+              </Text>
+            )
+          )}
+        </View>
+      );
+    };
+    const blocks: React.ReactNode[] = [];
+    prepared.sections.forEach((s, si) => {
+      for (let i = 0; i < s.rows.length; i += perRow) {
+        const group = s.rows.slice(i, i + perRow);
+        blocks.push(
+          <View key={`${si}-${i}`} wrap={false}>
+            {i === 0 && s.label !== null ? sectionHead(s.label, s.rows.length, `h-${si}`) : null}
+            <View style={styles.cardRow}>
+              {group.map(card)}
+              {Array.from({ length: perRow - group.length }, (_, k) => (
+                <View key={`pad-${k}`} style={{ flex: 1 }} />
+              ))}
+            </View>
+          </View>
+        );
+      }
+    });
+    return (
+      <Document {...docProps}>
+        <Page size={PAPER[preset.paper]} orientation={preset.orientation} style={styles.page}>
+          <View fixed>{header}</View>
+          {blocks}
+          {offices}
+          {footer}
+        </Page>
+      </Document>
+    );
+  }
 
   if (!twoUp) {
     return (
