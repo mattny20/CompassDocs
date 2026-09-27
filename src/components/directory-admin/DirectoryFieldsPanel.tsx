@@ -273,7 +273,7 @@ function MappingEditor({
         {mapping && !valid && <span className="text-xs text-amber-600">Incomplete — fill in every part.</span>}
       </div>
       {propsOpen && props && (
-        <div className="rounded-lg bg-slate-50 p-3 text-xs dark:bg-slate-800/50">
+        <div className="rounded-lg bg-slate-50 p-3 text-xs">
           {props.length === 0 ? (
             <p className="text-slate-500">No stored records for this provider yet — run a sync first.</p>
           ) : (
@@ -300,7 +300,7 @@ function MappingEditor({
         </div>
       )}
       {preview && (
-        <div className="rounded-lg bg-slate-50 p-3 text-sm dark:bg-slate-800/50">
+        <div className="rounded-lg bg-slate-50 p-3 text-sm">
           {preview.total === 0 ? (
             <p className="text-slate-500">No stored records for this provider yet — run a sync, then preview.</p>
           ) : (
@@ -453,7 +453,7 @@ function OptionsEditor({ field, onSaved }: { field: DirectoryField; onSaved: (f:
         </button>
       </div>
       {seen && (
-        <div className="rounded-lg bg-slate-50 p-3 text-xs dark:bg-slate-800/50">
+        <div className="rounded-lg bg-slate-50 p-3 text-xs">
           {seen.length === 0 ? (
             <p className="text-slate-500">Nobody has a value for this field yet.</p>
           ) : (
@@ -699,7 +699,7 @@ function FieldRow({
         </td>
       </tr>
       {open && (
-        <tr className="border-b border-slate-100 bg-slate-50/60 dark:bg-slate-800/30">
+        <tr className="border-b border-slate-100 bg-slate-50/60">
           <td colSpan={cols} className="px-3 py-3">
             {open.panel === "mapping" && open.provider && (
               <div className="max-w-3xl">

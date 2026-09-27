@@ -4,6 +4,33 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.3.1] - 2026-09-27
+
+The directory as something an admin runs, not just fills.
+
+### Added
+- **Directory health.** The People page opens with what the data says
+  needs a hand: people with no office, title, phone or email; values an
+  option list does not know; two people with the same name; people
+  references the last sync could not match; a sync that has not run in a
+  while; hidden entries; people without a photo. Each finding counts,
+  names a few examples, and links to the page that fixes it.
+- **Import from CSV.** Paste or upload the export's format, or any
+  spreadsheet with a name or email column. CompassDocs reads the columns
+  and suggests a target for each, shows what every row would do — add,
+  update, unchanged, or a problem it names — and writes nothing until
+  you say so. Rows match people by email, then by exact name; a synced
+  person takes the manual layer only, and new rows are manual entries.
+- **Preview a sync** (Enterprise). *Preview* beside *Sync now* fetches
+  from the tenant or the Workspace account and shows who would be added,
+  changed (and which fields), removed or adopted — without writing
+  anything. A real sync now reports the same breakdown when it finishes.
+- **Scheduled syncs with a report** (Enterprise). Each provider can sync
+  every hour or every day at an hour you pick; one instance runs it. After
+  each scheduled run an email goes to the recipients you set with what
+  changed, what could not be matched, and whether the removal brake held
+  anything back. Quiet runs are silent unless you ask otherwise.
+
 ## [1.3.0] - 2026-09-27
 
 Reaching a person, not just finding them.

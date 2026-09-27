@@ -295,4 +295,67 @@ describe("directory registry", () => {
     assert.deepEqual(oneGone.mappings.google, { kind: "path", path: "organizations[primary].title" });
     assert.equal(oneGone.google_path, "organizations[primary].title");
   });
+
+  test("a dry run reports adds, changes, removals and adoptions without writing", async () => {
+    // Start from a known synced set, plus a hand-typed person the sync
+    // would adopt by email.
+    await replaceProviderPeople(
+      SOURCE,
+      [
+        { external_id: `${PREFIX}dry-keep`, name: "Dry Keep", email: `dry.keep@${DOMAIN}`, title: "Clerk", record: {} },
+        { external_id: `${PREFIX}dry-change`, name: "Dry Change", email: `dry.change@${DOMAIN}`, title: "Clerk", record: {} },
+        { external_id: `${PREFIX}dry-gone`, name: "Dry Gone", email: `dry.gone@${DOMAIN}`, record: {} },
+      ],
+      { allowRemovals: true }
+    );
+    const manual = await createPerson({ name: "Dry Manual", email: `dry.manual@${DOMAIN}` });
+    const countBefore = (await pool().query("SELECT count(*)::int AS n FROM directory_people WHERE email LIKE $1", [`%@${DOMAIN}`])).rows[0].n;
+
+    const dry = await replaceProviderPeople(
+      SOURCE,
+      [
+        { external_id: `${PREFIX}dry-keep`, name: "Dry Keep", email: `dry.keep@${DOMAIN}`, title: "Clerk", record: {} },
+        { external_id: `${PREFIX}dry-change`, name: "Dry Change", email: `dry.change@${DOMAIN}`, title: "Senior Clerk", record: {} },
+        { external_id: `${PREFIX}dry-new`, name: "Dry New", email: `dry.new@${DOMAIN}`, record: {} },
+        { external_id: `${PREFIX}dry-manual`, name: "Dry Manual", email: `dry.manual@${DOMAIN}`, record: {} },
+      ],
+      { dryRun: true, allowRemovals: true }
+    );
+    assert.equal(dry.upserted, 0);
+    assert.equal(dry.deleted, 0);
+    assert.deepEqual(dry.preview.adds.map((p) => p.name), ["Dry New"]);
+    assert.deepEqual(dry.preview.changes.map((p) => [p.name, p.changed]), [["Dry Change", ["title"]]]);
+    // Other suites share the source; only this suite's rows are judged.
+    assert.deepEqual(dry.preview.removals.filter((p) => p.email.endsWith(`@${DOMAIN}`)).map((p) => p.name), ["Dry Gone"]);
+    assert.deepEqual(dry.preview.adoptions.map((p) => p.name), ["Dry Manual"]);
+    assert.equal(dry.preview.unchanged, 1);
+
+    // Nothing moved: same rows, same values, the manual entry still manual.
+    const countAfter = (await pool().query("SELECT count(*)::int AS n FROM directory_people WHERE email LIKE $1", [`%@${DOMAIN}`])).rows[0].n;
+    assert.equal(countAfter, countBefore);
+    const all = await listPeople({ includeHidden: true });
+    assert.equal(all.find((p) => p.external_id === `${PREFIX}dry-change`)!.title, "Clerk");
+    assert.ok(all.find((p) => p.external_id === `${PREFIX}dry-gone`), "the removal was only reported");
+    assert.equal(all.find((p) => p.id === manual.id)!.source, "manual");
+    assert.equal(all.find((p) => p.external_id === `${PREFIX}dry-new`), undefined);
+
+    // The same call for real carries the same preview and applies it.
+    const real = await replaceProviderPeople(
+      SOURCE,
+      [
+        { external_id: `${PREFIX}dry-keep`, name: "Dry Keep", email: `dry.keep@${DOMAIN}`, title: "Clerk", record: {} },
+        { external_id: `${PREFIX}dry-change`, name: "Dry Change", email: `dry.change@${DOMAIN}`, title: "Senior Clerk", record: {} },
+        { external_id: `${PREFIX}dry-new`, name: "Dry New", email: `dry.new@${DOMAIN}`, record: {} },
+        { external_id: `${PREFIX}dry-manual`, name: "Dry Manual", email: `dry.manual@${DOMAIN}`, record: {} },
+      ],
+      { allowRemovals: true }
+    );
+    assert.deepEqual(real.preview.adds.map((p) => p.name), ["Dry New"]);
+    assert.equal(real.deleted, 1);
+    assert.equal(real.adopted, 1);
+    const after = await listPeople({ includeHidden: true });
+    assert.equal(after.find((p) => p.external_id === `${PREFIX}dry-change`)!.title, "Senior Clerk");
+    assert.equal(after.find((p) => p.external_id === `${PREFIX}dry-gone`), undefined);
+    assert.equal(after.find((p) => p.id === manual.id)!.source, SOURCE);
+  });
 });

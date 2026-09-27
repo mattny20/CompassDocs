@@ -11,6 +11,7 @@
 import { useState } from "react";
 import { CheckCircle2, Copy, Loader2, Plug, RefreshCw, Trash2, TriangleAlert } from "lucide-react";
 import { toast } from "@/components/Toasts";
+import { SyncPreview, type SyncPreviewData } from "./directory-admin/SyncPreview";
 import { DangerAction, DangerZone, Field, TextInput, Toggle, controlClass } from "@/components/form";
 
 export interface GoogleState {
@@ -108,6 +109,14 @@ export function GoogleDirectoryPanel({ initial }: { initial: GoogleState }) {
     if (data) setProbe({ ok: Boolean(data.ok), detail: String(data.detail ?? "") });
   }
 
+  const [preview, setPreview] = useState<{ data: SyncPreviewData; blocked?: { doomed: number; total: number; message?: string } | null; dryRun: boolean } | null>(null);
+  async function previewSync() {
+    const data = await post("/api/ee/google/sync", "preview", { dry_run: true });
+    if (!data) return;
+    if (data.preview) setPreview({ data: data.preview, blocked: data.blocked ?? null, dryRun: true });
+    else toast("error", "This enterprise build does not report a preview yet — update the image.");
+  }
+
   async function runSync(allowRemovals = false) {
     const data = await post(
       "/api/ee/google/sync",
@@ -124,6 +133,7 @@ export function GoogleDirectoryPanel({ initial }: { initial: GoogleState }) {
         `Synced ${data.count} ${data.count === 1 ? "person" : "people"}` +
           (data.deleted ? `, removed ${data.deleted}.` : ".")
       );
+    if (data.preview) setPreview({ data: data.preview, blocked: data.blocked ?? null, dryRun: false });
     const fresh = await fetch("/api/admin/directory/google");
     if (fresh.ok) setState(await fresh.json());
   }
@@ -272,6 +282,15 @@ export function GoogleDirectoryPanel({ initial }: { initial: GoogleState }) {
           <button
             type="button"
             className={secondary}
+            onClick={previewSync}
+            disabled={busy !== "" || !state.configured}
+            data-tt="Fetch from Workspace and show what a sync would add, change and remove — without writing anything"
+          >
+            {busy === "preview" ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null} Preview
+          </button>
+          <button
+            type="button"
+            className={secondary}
             onClick={importGroups}
             disabled={busy !== "" || !state.configured}
           >
@@ -323,6 +342,8 @@ export function GoogleDirectoryPanel({ initial }: { initial: GoogleState }) {
           </div>
         )}
 
+        {preview && <SyncPreview preview={preview.data} blocked={preview.blocked} dryRun={preview.dryRun} />}
+
         {state.last_sync && (
           <p className="mt-3 text-sm text-slate-500">
             Last sync {state.last_sync.ok ? "succeeded" : "failed"}
@@ -373,7 +394,7 @@ function CopyRow({ label, value, mono }: { label: string; value: string; mono?: 
       <span className="mb-1 block text-xs font-medium text-slate-500">{label}</span>
       <div className="flex items-center gap-2">
         <code
-          className={`min-w-0 flex-1 truncate rounded-lg bg-slate-50 px-2 py-1.5 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-200 ${
+          className={`min-w-0 flex-1 truncate rounded-lg bg-slate-50 px-2 py-1.5 text-xs text-slate-700 ${
             mono ? "font-mono" : ""
           }`}
         >

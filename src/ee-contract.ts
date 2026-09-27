@@ -25,6 +25,37 @@ export interface EnterpriseEdition {
    * so exports of any size stay memory-bounded.
    */
   exportAuditLog?(opts: AuditExportOptions): Promise<Response>;
+
+  /**
+   * Run (or preview) a directory sync for one provider, gated by the
+   * `directory_sync` entitlement. Core's scheduler calls this on the hour;
+   * the admin buttons go through dispatch(). Absent in the community stub.
+   */
+  runDirectorySync?(provider: DirectorySyncProvider, opts?: DirectorySyncOptions): Promise<DirectorySyncSummary>;
+}
+
+export type DirectorySyncProvider = "microsoft" | "google";
+
+export interface DirectorySyncOptions {
+  /** One run with the removal brake off. */
+  allowRemovals?: boolean;
+  /** Compute what would change and write nothing. */
+  dryRun?: boolean;
+}
+
+export interface DirectorySyncSummary {
+  count: number;
+  deleted: number;
+  warning?: string;
+  blocked?: { doomed: number; total: number };
+  /** Present on a dry run, and on a real run when the core reports it. */
+  preview?: {
+    adds: { name: string; email: string }[];
+    changes: { name: string; email: string; changed?: string[] }[];
+    removals: { name: string; email: string }[];
+    adoptions: { name: string; email: string }[];
+    unchanged: number;
+  };
 }
 
 export interface AuditExportOptions {

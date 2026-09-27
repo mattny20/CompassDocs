@@ -37,6 +37,14 @@ export async function register() {
     } catch (e) {
       console.error("[training] scheduler error:", e);
     }
+    // Scheduled directory syncs (Enterprise): each provider on its own
+    // schedule, one instance at a time, with an emailed report.
+    try {
+      const { runScheduledDirectorySyncs } = await import("./lib/directory-schedule");
+      await runScheduledDirectorySyncs();
+    } catch (e) {
+      console.error("[directory] scheduler error:", e);
+    }
     // Housekeeping: purge expired sessions / OAuth codes so they don't
     // accumulate forever. Plain deletes — safe to run from every instance.
     try {
