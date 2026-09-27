@@ -7,7 +7,7 @@
 // office or adding a synonym to a position takes effect immediately, with no
 // resync and no rewrite of anyone's row.
 
-export type FieldKind = "text" | "choice" | "people";
+export type FieldKind = "text" | "choice" | "people" | "date";
 export type FieldDisplay = "field" | "tag" | "phone";
 export type ValueFormat = "raw" | "label" | "code_label";
 
@@ -27,6 +27,8 @@ export interface FieldLike {
   key: string;
   label: string;
   kind: FieldKind;
+  /** For date fields: what the date means — "" | "start" | "birthday". */
+  date_role?: string;
   multi: number;
   builtin: number;
   group_by: number;
@@ -130,7 +132,8 @@ export function resolveValues(field: Pick<FieldLike, "options" | "value_format" 
 }
 
 /** One token, formatted per the field's value_format. */
-export function formatValue(field: Pick<FieldLike, "options" | "value_format">, raw: string): string {
+export function formatValue(field: Pick<FieldLike, "options" | "value_format"> & { kind?: FieldKind }, raw: string): string {
+  if (field.kind === "date") return formatDateValue(raw);
   const r = resolveValue(field, raw);
   if (r.index === Number.POSITIVE_INFINITY) return r.raw;
   switch (field.value_format) {
@@ -144,7 +147,7 @@ export function formatValue(field: Pick<FieldLike, "options" | "value_format">, 
 }
 
 /** The whole value as one display string. */
-export function displayValue(field: Pick<FieldLike, "options" | "value_format" | "multi">, raw: string): string {
+export function displayValue(field: Pick<FieldLike, "options" | "value_format" | "multi"> & { kind?: FieldKind }, raw: string): string {
   return resolveValues(field, raw)
     .map((r) => formatValue(field, r.raw))
     .join(", ");
@@ -264,6 +267,13 @@ function compareOnKey(fields: FieldLike[], sortKey: string, dir: 1 | -1) {
     const vb = cellValue(b, sortKey, fields);
     // Empties last regardless of direction — a blank office is not "before A".
     if (!va !== !vb) return va ? -1 : 1;
+    if (field?.kind === "date") {
+      const da = parseDateValue(rawValue(a, sortKey));
+      const db = parseDateValue(rawValue(b, sortKey));
+      const ka = da ? da.y * 10000 + da.m * 100 + da.d : Number.POSITIVE_INFINITY;
+      const kb = db ? db.y * 10000 + db.m * 100 + db.d : Number.POSITIVE_INFINITY;
+      if (ka !== kb) return (ka < kb ? -1 : 1) * dir;
+    }
     if (field && field.options.length) {
       const ra = resolveValues(field, rawValue(a, sortKey))[0];
       const rb = resolveValues(field, rawValue(b, sortKey))[0];
@@ -351,5 +361,100 @@ export function availableColumns(fields: FieldLike[]): { key: string; label: str
     out.push({ key: f.key, label: f.label });
     if (f.kind === "people") out.push({ key: f.key === "assistant" ? "assists" : `${f.key}:in`, label: f.inverse_label || `${f.label} (inverse)` });
   }
+  return out;
+}
+
+// --- Dates -------------------------------------------------------------------
+
+export interface DateParts {
+  y: number;
+  m: number;
+  d: number;
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/**
+ * A date as a provider or an admin writes it: ISO ("2020-05-01",
+ * "2020-05-01T00:00:00Z" — Graph's employeeHireDate), US "5/1/2020", or
+ * "May 1, 2020". Null when it is none of those. Year-less "05-01" counts as
+ * a birthday with year 0.
+ */
+export function parseDateValue(raw: string): DateParts | null {
+  const s = String(raw ?? "").trim();
+  if (!s) return null;
+  let m = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T\s].*)?$/.exec(s);
+  if (m) return check(Number(m[1]), Number(m[2]), Number(m[3]));
+  m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s);
+  if (m) return check(Number(m[3]), Number(m[1]), Number(m[2]));
+  m = /^(\d{1,2})-(\d{1,2})$/.exec(s);
+  if (m) return check(0, Number(m[1]), Number(m[2]));
+  m = /^([A-Za-z]{3,9})\.?\s+(\d{1,2}),?\s+(\d{4})$/.exec(s);
+  if (m) {
+    const mi = MONTHS.findIndex((x) => m![1].toLowerCase().startsWith(x.toLowerCase()));
+    if (mi >= 0) return check(Number(m[3]), mi + 1, Number(m[2]));
+  }
+  const t = Date.parse(s);
+  if (!Number.isNaN(t)) {
+    const dt = new Date(t);
+    return { y: dt.getUTCFullYear(), m: dt.getUTCMonth() + 1, d: dt.getUTCDate() };
+  }
+  return null;
+}
+
+function check(y: number, m: number, d: number): DateParts | null {
+  if (m < 1 || m > 12 || d < 1 || d > 31) return null;
+  return { y, m, d };
+}
+
+/** "May 1, 2020"; a year-less date reads "May 1"; unparseable text is shown as is. */
+export function formatDateValue(raw: string): string {
+  const p = parseDateValue(raw);
+  if (!p) return String(raw ?? "").trim();
+  return p.y ? `${MONTHS[p.m - 1]} ${p.d}, ${p.y}` : `${MONTHS[p.m - 1]} ${p.d}`;
+}
+
+export interface Milestone<P extends PersonLike> {
+  person: P;
+  /** Years completed this month (0 for "started this month"; birthdays carry no years). */
+  years: number;
+  /** Day of month, for ordering. */
+  day: number;
+}
+
+export interface Milestones<P extends PersonLike> {
+  started: Milestone<P>[];
+  anniversaries: Milestone<P>[];
+  birthdays: Milestone<P>[];
+}
+
+/**
+ * Who started, marks an anniversary, or has a birthday this month, from the
+ * fields an admin flagged as a start date or birthday. Start dates in the
+ * future are ignored (a hire not yet here is not "new"). Ordered by day.
+ */
+export function milestonesFor<P extends PersonLike>(people: P[], fields: FieldLike[], now: Date): Milestones<P> {
+  const y = now.getFullYear();
+  const mo = now.getMonth() + 1;
+  const starts = fields.filter((f) => f.kind === "date" && f.date_role === "start");
+  const bdays = fields.filter((f) => f.kind === "date" && f.date_role === "birthday");
+  const out: Milestones<P> = { started: [], anniversaries: [], birthdays: [] };
+  for (const p of people) {
+    for (const f of starts) {
+      const d = parseDateValue(p.custom?.[f.key] ?? "");
+      if (!d || d.m !== mo || !d.y) continue;
+      if (d.y === y) out.started.push({ person: p, years: 0, day: d.d });
+      else if (d.y < y) out.anniversaries.push({ person: p, years: y - d.y, day: d.d });
+    }
+    for (const f of bdays) {
+      const d = parseDateValue(p.custom?.[f.key] ?? "");
+      if (!d || d.m !== mo) continue;
+      out.birthdays.push({ person: p, years: 0, day: d.d });
+    }
+  }
+  const byDay = (a: Milestone<P>, b: Milestone<P>) => a.day - b.day || a.person.name.localeCompare(b.person.name);
+  out.started.sort(byDay);
+  out.anniversaries.sort(byDay);
+  out.birthdays.sort(byDay);
   return out;
 }

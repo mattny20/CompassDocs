@@ -1,9 +1,21 @@
 import { NextResponse } from "next/server";
 import { apiGuard } from "@/lib/api-auth";
-import { previewMapping } from "@/lib/directory";
+import { previewMapping, recordProperties } from "@/lib/directory";
 import { parseMapping } from "@/lib/directory-mapping";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * What the stored records actually contain — property paths with how many
+ * records fill them and a sample — so the mapping editor offers what a
+ * tenant has rather than what Graph documents.
+ */
+export async function GET(req: Request) {
+  const gate = await apiGuard("admin", "directory.field_manage");
+  if (gate instanceof NextResponse) return gate;
+  const provider = new URL(req.url).searchParams.get("provider") === "google" ? "google" : "microsoft";
+  return NextResponse.json({ provider, properties: await recordProperties(provider) });
+}
 
 /**
  * Run a candidate mapping over the stored provider records — nothing is

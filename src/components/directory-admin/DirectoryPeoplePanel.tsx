@@ -6,11 +6,13 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Pin, ArrowUp, ArrowDown } from "lucide-react";
+import { Pin, ArrowUp, ArrowDown, Camera, Trash2 } from "lucide-react";
 import { EntityPicker } from "@/components/EntityPicker";
 import { Field, TextInput } from "@/components/form";
 import { toast } from "@/components/Toasts";
+import Link from "next/link";
 import type { DirectoryPerson, DirectoryField, LinkRow } from "@/lib/directory";
+import { rawValue } from "@/lib/directory-display";
 import { jsonFetch } from "./shared";
 
 const EMPTY_FORM = { name: "", title: "", department: "", email: "", phone: "", mobile: "", office: "" };
@@ -20,13 +22,22 @@ export function DirectoryPeoplePanel({
   initialPeople,
   initialLinks,
   fields,
+  missing = "",
 }: {
   initialPeople: DirectoryPerson[];
   initialLinks: LinkRow[];
   fields: DirectoryField[];
+  /** A field key: show only the people with no value for it. */
+  missing?: string;
 }) {
   const router = useRouter();
-  const [people, setPeople] = useState(initialPeople);
+  const [people, setAllPeople] = useState(initialPeople);
+  const missingField = missing ? fields.find((f) => f.key === missing) : undefined;
+  const shown = useMemo(
+    () => (missingField ? people.filter((p) => !rawValue(p, missingField.key).trim() && !(p.links[missingField.key] ?? []).length) : people),
+    [people, missingField]
+  );
+  const setPeople = setAllPeople;
   const [links, setLinks] = useState(initialLinks);
   async function onChange() {
     const r = await jsonFetch("/api/admin/directory/people");
@@ -106,6 +117,28 @@ export function DirectoryPeoplePanel({
     await onChange();
   }
 
+  async function uploadPhoto(p: DirectoryPerson, file: File) {
+    const form = new FormData();
+    form.append("photo", file);
+    const res = await fetch(`/api/admin/directory/people/${p.id}/photo`, { method: "POST", body: form });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      toast("error", data?.error || "Could not save the photo.");
+      return;
+    }
+    toast("ok", "Photo saved.");
+    setEditing({ ...p, photo: data.photo });
+    await onChange();
+  }
+  async function clearPhoto(p: DirectoryPerson) {
+    const res = await fetch(`/api/admin/directory/people/${p.id}/photo`, { method: "DELETE" });
+    if (!res.ok) {
+      toast("error", "Could not remove the photo.");
+      return;
+    }
+    setEditing({ ...p, photo: "" });
+    await onChange();
+  }
   async function patch(p: DirectoryPerson, body: Record<string, unknown>) {
     const r = await jsonFetch(`/api/admin/directory/people/${p.id}`, { method: "PATCH", body: JSON.stringify(body) });
     if (!r.ok) toast("error", r.data?.error || "Could not save.");
@@ -167,9 +200,11 @@ export function DirectoryPeoplePanel({
                 const listId = f.options.length ? `opts-${f.key}` : undefined;
                 return (
                   <div key={f.key} className="min-w-0">
+                    {f.kind === "date" && <span className="mb-1 block text-xs font-medium text-slate-500">{f.label}</span>}
                     <TextInput
                       placeholder={f.label}
-                      value={reverted ? "" : formCustom[f.key] ?? ""}
+                      type={f.kind === "date" ? "date" : "text"}
+                      value={reverted ? "" : f.kind === "date" ? (formCustom[f.key] ?? "").slice(0, 10) : formCustom[f.key] ?? ""}
                       list={listId}
                       onChange={(e) => {
                         setFormCustom({ ...formCustom, [f.key]: e.target.value });
@@ -236,6 +271,29 @@ export function DirectoryPeoplePanel({
             </div>
           )}
 
+          {editing && (
+            <div className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-100 px-3 py-2">
+              {editing.photo ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={editing.photo} alt="" className="h-10 w-10 rounded-full object-cover" />
+              ) : (
+                <div className="grid h-10 w-10 place-items-center rounded-full bg-slate-100 text-xs font-semibold text-slate-500">—</div>
+              )}
+              <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                <Camera className="h-4 w-4" /> {editing.photo ? "Replace photo" : "Add a photo"}
+                <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" className="sr-only" onChange={(e) => e.target.files?.[0] && uploadPhoto(editing, e.target.files[0])} />
+              </label>
+              {editing.photo && (
+                <button type="button" onClick={() => clearPhoto(editing)} className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-red-600">
+                  <Trash2 className="h-3.5 w-3.5" /> Remove
+                </button>
+              )}
+              <span className="text-xs text-slate-400">
+                Cropped square; stored at 48px for lists and 240px for the profile and contact card.
+                {synced ? " A photo from the provider replaces it on the next sync." : ""}
+              </span>
+            </div>
+          )}
           <div className="flex gap-2">
             <button type="submit" disabled={busy} className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60">
               {editing ? "Save" : "Add"}
@@ -249,6 +307,14 @@ export function DirectoryPeoplePanel({
         </form>
       </div>
 
+      {missingField && (
+        <div className="notice-warn flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm">
+          <span>
+            Showing the {shown.length} {shown.length === 1 ? "person" : "people"} with no <span className="font-medium">{missingField.label.toLowerCase()}</span>.
+          </span>
+          <Link href="/admin/directory" className="font-medium underline">Show everyone</Link>
+        </div>
+      )}
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-surface shadow-xs">
         <table className="w-full text-sm">
           <thead>
@@ -261,12 +327,12 @@ export function DirectoryPeoplePanel({
             </tr>
           </thead>
           <tbody>
-            {people.length === 0 && (
+            {shown.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-slate-400">No directory entries yet.</td>
+                <td colSpan={5} className="px-4 py-8 text-center text-slate-400">{missingField ? `Everyone has a ${missingField.label.toLowerCase()}.` : "No directory entries yet."}</td>
               </tr>
             )}
-            {people.map((p) => (
+            {shown.map((p) => (
               <tr key={p.id} className={`border-b border-slate-50 ${p.hidden ? "opacity-45" : ""}`}>
                 <td className="px-4 py-2.5 font-medium text-slate-900">
                   {p.name}

@@ -1100,6 +1100,12 @@ const SCHEMA_SQL = `
   ALTER TABLE directory_people ADD COLUMN IF NOT EXISTS synced jsonb NOT NULL DEFAULT '{}'::jsonb;
   ALTER TABLE directory_people ADD COLUMN IF NOT EXISTS provider_record jsonb;
   ALTER TABLE directory_people ADD COLUMN IF NOT EXISTS pin_order integer;
+  -- 1.3: the 48px thumbnail stays in photo (every list row carries it); a
+  -- 240px copy for profiles and contact cards lives apart so listing the
+  -- directory never ships it. A field can be a date, and a date can mean
+  -- something (start date, birthday) -- see directory-display milestones.
+  ALTER TABLE directory_people ADD COLUMN IF NOT EXISTS photo_large text NOT NULL DEFAULT '';
+  ALTER TABLE directory_fields ADD COLUMN IF NOT EXISTS date_role text NOT NULL DEFAULT '';
 
   -- People-kind fields: a relation between two rows, queried from both ends,
   -- owned by whoever wrote it. The old single assistant_id is folded in here by
