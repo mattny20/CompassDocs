@@ -4,6 +4,18 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.3.2] - 2026-09-27
+
+### Security
+- **Dependency updates.** Next.js 16.2 → 16.3.6 (fixes an unauthenticated
+  remote code execution in the image optimisation API, GHSA-2xp9-vwfh-vxw4,
+  and CVE-2026-75604), nodemailer 9.0 → 9.1.1 (address-parser denial of
+  service and recipient-domain bypasses), sharp 0.35.3 → 0.35.5 (libheif),
+  and the js-yaml, nanoid, @xmldom/xmldom, mermaid and DOMPurify advisories
+  in the tree. No code changes. The remaining advisory in the tree is a
+  moderate one in Tiptap 2 whose fix is the Tiptap 3 major, which will ship
+  with an editor upgrade rather than a patch.
+
 ## [1.3.1] - 2026-09-27
 
 The directory as something an admin runs, not just fills.
