@@ -11,6 +11,7 @@ import { Field, TextInput, Toggle } from "@/components/form";
 import { toast } from "@/components/Toasts";
 import type { SyncReport } from "@/lib/directory";
 import { useFormatDate } from "@/components/SettingsProvider";
+import { SyncPreview, type SyncPreviewData } from "./SyncPreview";
 
 interface GraphState {
   enabled: boolean; // bundled AND licensed
@@ -40,6 +41,25 @@ export function MicrosoftSyncPanel({ graph, report }: { graph: GraphState; repor
   const [secret, setSecret] = useState("");
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [preview, setPreview] = useState<{ data: SyncPreviewData; blocked?: { doomed: number; total: number; message?: string } | null; dryRun: boolean } | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+
+  async function previewSync() {
+    setPreviewing(true);
+    const res = await fetch("/api/ee/directory/sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dry_run: true }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setPreviewing(false);
+    if (!res.ok) {
+      toast("error", data?.error || "Preview failed.");
+      return;
+    }
+    if (data?.preview) setPreview({ data: data.preview, blocked: data.blocked ?? null, dryRun: true });
+    else toast("error", "This enterprise build does not report a preview yet — update the image.");
+  }
 
   if (!g.bundled) {
     return (
@@ -113,6 +133,7 @@ export function MicrosoftSyncPanel({ graph, report }: { graph: GraphState; repor
     // The brake tripping is a success with a caveat — the upserts committed.
     if (data?.warning) toast("error", data.warning);
     else toast("ok", `Synced ${data?.count ?? "?"} people from Microsoft 365.`);
+    if (data?.preview) setPreview({ data: data.preview, blocked: data.blocked ?? null, dryRun: false });
     const fresh = await fetch("/api/admin/directory/graph");
     if (fresh.ok) setG(await fresh.json());
     router.refresh();
@@ -203,7 +224,11 @@ export function MicrosoftSyncPanel({ graph, report }: { graph: GraphState; repor
         <button onClick={() => syncNow()} disabled={syncing || !g.tenant || !g.client_id || !(g.has_secret || secret)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50" data-tt={!g.tenant || !g.client_id ? "Save the tenant, client ID, and secret first" : ""} aria-label={!g.tenant || !g.client_id ? "Save the tenant, client ID, and secret first" : ""}>
           {syncing ? "Syncing…" : "Sync now"}
         </button>
+        <button onClick={previewSync} disabled={previewing || syncing || !g.tenant || !g.client_id || !(g.has_secret || secret)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50" data-tt="Fetch from the tenant and show what a sync would add, change and remove — without writing anything">
+          {previewing ? "Previewing…" : "Preview"}
+        </button>
       </div>
+      {preview && <SyncPreview preview={preview.data} blocked={preview.blocked} dryRun={preview.dryRun} />}
 
       {g.last_sync?.blocked && (
         <div className="notice-warn mt-3 rounded-lg border p-3 text-sm">

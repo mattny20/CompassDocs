@@ -12,8 +12,11 @@ import { Field, TextInput } from "@/components/form";
 import { toast } from "@/components/Toasts";
 import Link from "next/link";
 import type { DirectoryPerson, DirectoryField, LinkRow } from "@/lib/directory";
+import type { HealthFinding } from "@/lib/directory-health";
 import { rawValue } from "@/lib/directory-display";
 import { jsonFetch } from "./shared";
+import { DirectoryHealthCard } from "./DirectoryHealthCard";
+import { DirectoryImportPanel } from "./DirectoryImportPanel";
 
 const EMPTY_FORM = { name: "", title: "", department: "", email: "", phone: "", mobile: "", office: "" };
 const SOURCE_LABEL: Record<string, string> = { manual: "manual", graph: "Microsoft 365", google: "Google Workspace" };
@@ -23,12 +26,15 @@ export function DirectoryPeoplePanel({
   initialLinks,
   fields,
   missing = "",
+  health = [],
 }: {
   initialPeople: DirectoryPerson[];
   initialLinks: LinkRow[];
   fields: DirectoryField[];
   /** A field key: show only the people with no value for it. */
   missing?: string;
+  /** What the data says needs a hand — computed on the server per render. */
+  health?: HealthFinding[];
 }) {
   const router = useRouter();
   const [people, setAllPeople] = useState(initialPeople);
@@ -168,6 +174,8 @@ export function DirectoryPeoplePanel({
 
   return (
     <>
+      {!missingField && <DirectoryHealthCard findings={health} />}
+      {!missingField && <DirectoryImportPanel fields={fields} onImported={onChange} />}
       <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <h3 className="mb-1 font-semibold text-slate-900">{editing ? `Edit ${editing.name}` : "Add a person"}</h3>
         {synced && editing && (

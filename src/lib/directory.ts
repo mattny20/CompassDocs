@@ -887,6 +887,86 @@ export interface ReplaceOutcome {
   blocked?: RemovalBlocked;
   /** People-field tokens that matched nobody, per field. */
   unresolved: UnresolvedReport[];
+  /** What this run changed (or, on a dry run, would change). */
+  preview: SyncPreview;
+}
+
+/** One person in a sync preview, enough to recognise them. */
+export interface PreviewPerson {
+  name: string;
+  email: string;
+  /** For changes: which columns differ. */
+  changed?: string[];
+}
+
+/**
+ * The difference between what a provider sent and what is stored for it —
+ * computed before anything is written, so a dry run can show it and a real
+ * run can report it. Removals are the rows the provider stopped returning,
+ * whether or not the brake lets them go.
+ */
+export interface SyncPreview {
+  adds: PreviewPerson[];
+  changes: PreviewPerson[];
+  removals: PreviewPerson[];
+  adoptions: PreviewPerson[];
+  unchanged: number;
+}
+
+const PREVIEW_COLUMNS = ["name", "title", "department", "email", "phone", "mobile", "office"] as const;
+
+async function previewProviderPeople(
+  source: Exclude<PersonSource, "manual">,
+  people: ProviderPersonInput[],
+  fields: DirectoryField[]
+): Promise<SyncPreview> {
+  const provider = PROVIDER_OF_SOURCE[source];
+  const existing = await pool().query<{
+    external_id: string; name: string; title: string; department: string; email: string; phone: string; mobile: string; office: string; synced: Record<string, string>;
+  }>(
+    "SELECT external_id, name, title, department, email, phone, mobile, office, synced FROM directory_people WHERE source = $1 AND external_id IS NOT NULL",
+    [source]
+  );
+  const manual = await pool().query<{ email: string; name: string }>(
+    "SELECT lower(email) AS email, name FROM directory_people WHERE source = 'manual' AND external_id IS NULL AND email <> ''"
+  );
+  const manualByEmail = new Map(manual.rows.map((r) => [r.email, r.name]));
+  const byExternal = new Map(existing.rows.map((r) => [r.external_id, r]));
+  const incoming = new Set<string>();
+  const out: SyncPreview = { adds: [], changes: [], removals: [], adoptions: [], unchanged: 0 };
+  for (const p of people) {
+    incoming.add(p.external_id);
+    const applied = p.record ? applyFieldMappings(fields, provider, p.record) : { synced: p.custom ?? {}, columns: {} };
+    const next = {
+      name: p.name.trim(),
+      title: (applied.columns.title ?? p.title ?? "").trim(),
+      department: (applied.columns.department ?? p.department ?? "").trim(),
+      email: (p.email ?? "").trim(),
+      phone: (p.phone ?? "").trim(),
+      mobile: (p.mobile ?? "").trim(),
+      office: (applied.columns.office ?? p.office ?? "").trim(),
+    };
+    const cur = byExternal.get(p.external_id);
+    if (!cur) {
+      const adopt = next.email && manualByEmail.get(next.email.toLowerCase());
+      if (adopt) out.adoptions.push({ name: next.name, email: next.email });
+      else out.adds.push({ name: next.name, email: next.email });
+      continue;
+    }
+    const changed: string[] = PREVIEW_COLUMNS.filter((c) => (cur[c] ?? "") !== next[c]);
+    const curSynced = cur.synced ?? {};
+    const keys = new Set([...Object.keys(curSynced), ...Object.keys(applied.synced)]);
+    for (const k of keys) if ((curSynced[k] ?? "") !== (applied.synced[k] ?? "")) changed.push(k);
+    if (changed.length) out.changes.push({ name: next.name, email: next.email, changed });
+    else out.unchanged++;
+  }
+  for (const r of existing.rows) if (!incoming.has(r.external_id)) out.removals.push({ name: r.name, email: r.email });
+  const byName = (a: PreviewPerson, b: PreviewPerson) => a.name.localeCompare(b.name);
+  out.adds.sort(byName);
+  out.changes.sort(byName);
+  out.removals.sort(byName);
+  out.adoptions.sort(byName);
+  return out;
 }
 
 /**
@@ -1020,11 +1100,22 @@ function stripRecord(record: ProviderRecord | undefined): string | null {
 export async function replaceProviderPeople(
   source: Exclude<PersonSource, "manual">,
   people: ProviderPersonInput[],
-  opts?: { maxDeleteFraction?: number; allowRemovals?: boolean }
+  opts?: { maxDeleteFraction?: number; allowRemovals?: boolean; dryRun?: boolean }
 ): Promise<ReplaceOutcome> {
   const maxFraction = opts?.allowRemovals ? 1 : opts?.maxDeleteFraction ?? 0.5;
   const provider = PROVIDER_OF_SOURCE[source];
   const fields = await listFields();
+  // The diff first, from what is stored now: a dry run stops here and shows
+  // it; a real run carries it into the report.
+  const preview = await previewProviderPeople(source, people, fields);
+  if (opts?.dryRun) {
+    const total = preview.unchanged + preview.changes.length + preview.removals.length;
+    const blocked =
+      preview.removals.length > 0 && total > 0 && preview.removals.length / total > maxFraction
+        ? { doomed: preview.removals.length, total, message: `${preview.removals.length} of ${total} synced people would be removed — more than ${Math.round(maxFraction * 100)}%, so a real run would keep them unless removals are allowed.` }
+        : undefined;
+    return { upserted: 0, deleted: 0, adopted: 0, unresolved: [], preview, blocked };
+  }
   const client = await pool().connect();
   let adopted = 0;
   try {
@@ -1119,7 +1210,7 @@ export async function replaceProviderPeople(
       records: people.filter((p) => p.record).length,
     };
     await setSetting(`directory_sync_report_${source}`, JSON.stringify(report));
-    return { upserted: people.length, deleted, adopted, blocked, unresolved };
+    return { upserted: people.length, deleted, adopted, blocked, unresolved, preview };
   } catch (e) {
     await client.query("ROLLBACK").catch(() => {});
     throw e;

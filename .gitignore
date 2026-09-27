@@ -32,3 +32,7 @@ next-env.d.ts
 
 # Private enterprise overlay (compassdocs-ee) — never committed to the OSS repo
 /ee/
+
+# Playwright output
+/test-results/
+/playwright-report/
