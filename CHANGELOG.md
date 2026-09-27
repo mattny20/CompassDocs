@@ -4,6 +4,30 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.3.3] - 2026-09-27
+
+Who reports to whom.
+
+### Added
+- **Reports to.** A built-in people field, one manager per person, with
+  *Direct reports* as its other end. On Enterprise it fills itself from
+  the identity system — Microsoft's manager relationship
+  (`manager.mail`) and Google's manager relation — unless you clear the
+  mapping under Fields. Set it by hand on the People page, or import a
+  *Reports to* column from a CSV. Both ends show on cards, profiles, the
+  list and every export.
+- **Org chart.** A fourth view of the directory: the heads of the
+  company at the top, each person's reports beneath, three levels open
+  and the rest a click away, with a badge for the size of each team.
+  Search keeps the matches and the line above each; people not yet in a
+  reporting line sit in their own section. A reporting line that loops is
+  broken at one person and said so.
+- **Team on the profile.** Every profile shows the chain above the person
+  (top of the company first), the people alongside them, and their direct
+  reports, with *Open in org chart* and a **team page** — everyone below
+  them, level by level, exportable as PDF, CSV or contact cards.
+- **Directory health** flags reporting lines that loop.
+
 ## [1.3.2] - 2026-09-27
 
 ### Security

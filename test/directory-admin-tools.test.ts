@@ -76,6 +76,21 @@ describe("parseCsv", () => {
   });
 });
 
+describe("directoryHealth: org chart", () => {
+  test("a reporting loop is a finding that names the loop; a clean tree is not", () => {
+    const fields = [field("manager", { kind: "people", label: "Reports to", inverse_label: "Direct reports" })];
+    const a = person("Ann Loop", { id: 1, links: { manager: [{ id: 2, name: "Bo Loop" }] } });
+    const b = person("Bo Loop", { id: 2, links: { manager: [{ id: 1, name: "Ann Loop" }] } });
+    const c = person("Cy Clean", { id: 3, links: { manager: [{ id: 1, name: "Ann Loop" }] } });
+    const loop = directoryHealth({ people: [a, b, c] as any, fields, reports: { graph: null, google: null }, lastSync: {} }).find((f) => f.id === "org-cycles");
+    assert.ok(loop);
+    assert.equal(loop!.count, 1);
+    assert.deepEqual(loop!.samples, ["Ann Loop → Bo Loop → Ann Loop"]);
+    const clean = directoryHealth({ people: [a, c] as any, fields, reports: { graph: null, google: null }, lastSync: {} }).find((f) => f.id === "org-cycles");
+    assert.equal(clean, undefined);
+  });
+});
+
 // --- Scheduled syncs: when a provider is due, and the report ---------------
 
 import { isSyncDue, parseRecipients, syncReportEmail } from "../src/lib/directory-schedule-rules";

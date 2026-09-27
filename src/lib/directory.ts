@@ -345,10 +345,10 @@ export const VALUE_FORMATS: ValueFormat[] = ["raw", "label", "code_label"];
 /** Keys a custom field can never take — they are columns, or derived. */
 export const RESERVED_FIELD_KEYS = new Set([
   "name", "title", "department", "email", "phone", "mobile", "office",
-  "assistant", "assists", "photo", "hidden", "source", "id",
+  "assistant", "assists", "photo", "hidden", "source", "id", "manager", "reports",
 ]);
 /** Built-in rows the registry seeds; their key and kind are fixed. */
-export const BUILTIN_FIELD_KEYS = new Set(["title", "department", "office", "assistant"]);
+export const BUILTIN_FIELD_KEYS = new Set(["title", "department", "office", "assistant", "manager"]);
 
 type FieldRow = Omit<DirectoryField, "options" | "mappings" | "link_direction"> & {
   options: unknown;
@@ -805,13 +805,16 @@ async function writeManualLinks(
   linkedBy?: Record<string, number[]>
 ): Promise<void> {
   if (!links && !linkedBy) return;
-  const peopleKeys = new Set((await listFields()).filter((f) => f.kind === "people").map((f) => f.key));
+  const peopleFields = (await listFields()).filter((f) => f.kind === "people");
+  const peopleKeys = new Set(peopleFields.map((f) => f.key));
+  const single = new Set(peopleFields.filter((f) => !f.multi).map((f) => f.key));
   const client = await pool().connect();
   try {
     await client.query("BEGIN");
     for (const [key, ids] of Object.entries(links ?? {})) {
       if (!peopleKeys.has(key)) continue;
-      const targets = [...new Set(ids.map(Number).filter((n) => Number.isInteger(n) && n !== personId))];
+      // A single-valued field (Reports to) keeps the first target only.
+      const targets = [...new Set(ids.map(Number).filter((n) => Number.isInteger(n) && n !== personId))].slice(0, single.has(key) ? 1 : undefined);
       await client.query(
         "DELETE FROM directory_person_links WHERE source = 'manual' AND field_key = $1 AND person_id = $2",
         [key, personId]
