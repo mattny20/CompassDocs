@@ -25,6 +25,7 @@ interface GraphState {
   require_title: boolean;
   require_phone: boolean;
   photos: boolean;
+  presence?: boolean;
   last_sync: {
     at: string;
     ok: boolean;
@@ -104,6 +105,7 @@ export function MicrosoftSyncPanel({ graph, report }: { graph: GraphState; repor
         require_title: g.require_title,
         require_phone: g.require_phone,
         photos: g.photos,
+        presence: Boolean(g.presence),
       }),
     });
     setSaving(false);
@@ -215,6 +217,12 @@ export function MicrosoftSyncPanel({ graph, report }: { graph: GraphState; repor
         <Toggle label="Require a job title" checked={g.require_title} onChange={(next) => setG({ ...g, require_title: next })} />
         <Toggle label="Require a phone number" checked={g.require_phone} onChange={(next) => setG({ ...g, require_phone: next })} />
         <Toggle label="Sync profile photos" checked={g.photos} onChange={(next) => setG({ ...g, photos: next })} />
+        <Toggle
+          label="Show Teams presence"
+          help="A dot on cards and profiles — available, busy, in a meeting, away — read live from Microsoft 365 while the page is open. Needs the Presence.Read.All application permission on the app registration; the automatic setup grants it, a hand-made one adds it under API permissions."
+          checked={Boolean(g.presence)}
+          onChange={(next) => setG({ ...g, presence: next })}
+        />
       </div>
 
       <div className="mt-4 flex items-center gap-3">

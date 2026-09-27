@@ -42,6 +42,7 @@ import {
 } from "@/lib/directory-display";
 import { EmptyState } from "./form";
 import { OrgChart } from "./directory/OrgChart";
+import { PresenceDot, presenceLabel, usePresence, type PresenceEntry } from "./directory/Presence";
 import { managerField } from "@/lib/directory-org";
 import { FieldChips } from "./TagBadges";
 import { toast } from "./Toasts";
@@ -79,9 +80,9 @@ export interface ExportPresetSummary {
   split_by?: string;
 }
 
-function Avatar({ p, size = 12 }: { p: DirectoryPerson; size?: 10 | 12 }) {
+function Avatar({ p, size = 12, presence }: { p: DirectoryPerson; size?: 10 | 12; presence?: PresenceEntry }) {
   const cls = size === 12 ? "h-12 w-12" : "h-10 w-10";
-  return p.photo ? (
+  const face = p.photo ? (
     // eslint-disable-next-line @next/next/no-img-element
     <img src={p.photo} alt="" className={`${cls} flex-none rounded-full object-cover`} />
   ) : (
@@ -90,6 +91,14 @@ function Avatar({ p, size = 12 }: { p: DirectoryPerson; size?: 10 | 12 }) {
     >
       {initialsOf(p.name)}
     </div>
+  );
+  if (!presence) return face;
+  const label = presenceLabel(presence);
+  return (
+    <span className={`relative block flex-none ${cls}`} data-tt={label} role="img" aria-label={`${p.name}: ${label}`}>
+      {face}
+      <PresenceDot presence={presence} size={size === 12 ? "md" : "sm"} />
+    </span>
   );
 }
 
@@ -117,6 +126,7 @@ export function DirectoryClient({
   initialView,
   focus,
   hiddenColumns = [],
+  presence = false,
 }: {
   initialPeople: DirectoryPerson[];
   fields: DirectoryField[];
@@ -133,7 +143,12 @@ export function DirectoryClient({
   focus?: number;
   /** Contact columns this viewer may not see (their values arrive blank). */
   hiddenColumns?: string[];
+  /** Teams presence is on for this workspace (Enterprise): poll it for synced people. */
+  presence?: boolean;
 }) {
+  // Presence for everyone the Microsoft sync owns, refreshed while the tab is open.
+  const presenceIds = useMemo(() => initialPeople.filter((p) => p.source === "graph").map((p) => p.id), [initialPeople]);
+  const presenceMap = usePresence(presenceIds, presence);
   const [q, setQ] = useState("");
   const [filterValue, setFilterValue] = useState("");
   const [view, setView] = useState<View>(initialView ?? "cards");
@@ -337,7 +352,7 @@ export function DirectoryClient({
     if (key === "name") {
       return (
         <Link href={`/directory/${p.id}`} className="flex items-center gap-2 font-medium text-slate-900 hover:text-compass-700">
-          <Avatar p={p} size={10} />
+          <Avatar p={p} size={10} presence={presenceMap[p.id]} />
           {p.name}
         </Link>
       );
@@ -424,7 +439,7 @@ export function DirectoryClient({
           {p.pin_order != null && <Pin className="h-3.5 w-3.5 text-compass-500" aria-label="Pinned by an admin" />}
           <PinButton p={p} />
         </div>
-        <Avatar p={p} />
+        <Avatar p={p} presence={presenceMap[p.id]} />
         <div className="min-w-0 pr-8">
           <Link href={`/directory/${p.id}`} className="block truncate font-semibold text-slate-900 hover:text-compass-700">
             {p.name}
@@ -512,7 +527,7 @@ export function DirectoryClient({
         href={`/directory/${p.id}`}
         className="flex min-w-0 items-center gap-3 rounded-lg border border-slate-200 bg-surface px-3 py-2 hover:border-compass-300"
       >
-        <Avatar p={p} size={10} />
+        <Avatar p={p} size={10} presence={presenceMap[p.id]} />
         <div className="min-w-0">
           <p className="truncate text-sm font-medium text-slate-900">{p.name}</p>
           <p className="truncate text-xs text-slate-500">

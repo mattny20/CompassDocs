@@ -31,6 +31,7 @@ async function view() {
     require_title: cfg.requireTitle,
     require_phone: cfg.requirePhone,
     photos: cfg.photos,
+    presence: cfg.presence,
     last_sync: status,
   };
 }
@@ -65,6 +66,7 @@ export async function PATCH(req: Request) {
     ...(body?.require_title !== undefined ? { requireTitle: Boolean(body.require_title) } : {}),
     ...(body?.require_phone !== undefined ? { requirePhone: Boolean(body.require_phone) } : {}),
     ...(body?.photos !== undefined ? { photos: Boolean(body.photos) } : {}),
+    ...(body?.presence !== undefined ? { presence: Boolean(body.presence) } : {}),
   });
 
   await audit({

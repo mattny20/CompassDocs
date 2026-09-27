@@ -7,6 +7,9 @@ import { getPersonById, listFields, listPeople, personPhotoLarge } from "@/lib/d
 import { buildOrgChart, chainAbove, managerField, peersOf, teamBelow } from "@/lib/directory-org";
 import { TeamBlock } from "@/components/directory/TeamBlock";
 import { peopleForViewer, personForViewer, viewerScope } from "@/lib/directory-viewer";
+import { PresenceBadge } from "@/components/directory/Presence";
+import { getDirectoryGraphConfig } from "@/lib/directory-config";
+import { eePresent, featureEnabled } from "@/lib/ee";
 import { getOfficeConfig } from "@/lib/directory-offices-store";
 import { officeBlock, officeKeyOf, officeProfileFor } from "@/lib/directory-offices";
 import { listDocumentsByAuthor, listLinkedUserNames, getSetting } from "@/lib/db";
@@ -86,6 +89,7 @@ export default async function PersonProfilePage({
   const qr = await QRCode.toDataURL(qrCard, { margin: 1, width: 220, errorCorrectionLevel: "M" }).catch(() => "");
   const photoUrl = person.photo ? `/api/directory/${person.id}/photo?size=large&v=${Math.floor((Date.parse(person.updated_at) || 0) / 1000)}` : "";
   const isMicrosoft = person.source === "graph";
+  const presence = isMicrosoft && eePresent() && (await featureEnabled("directory_sync")) && (await getDirectoryGraphConfig()).presence;
 
   return (
     <PageContainer>
@@ -115,7 +119,10 @@ export default async function PersonProfilePage({
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
-                <h1 className="text-2xl font-bold text-slate-900">{person.name}</h1>
+                <h1 className="flex flex-wrap items-center gap-2 text-2xl font-bold text-slate-900">
+                  {person.name}
+                  {presence && <PresenceBadge personId={person.id} enabled name={person.name} />}
+                </h1>
                 <p className="text-slate-500">
                   {[person.title, person.department].filter(Boolean).join(" · ") || "—"}
                 </p>
