@@ -259,7 +259,7 @@ export function OutlookPane() {
 
           {answer && (
             <div className="mt-3 rounded-lg border border-compass-100 bg-compass-50/50 p-3">
-              <div className="prose prose-sm max-w-none text-[13px] leading-snug text-slate-700">
+              <div className="prose prose-sm max-w-none text-[0.8125rem] leading-snug text-slate-700">
                 <ReactMarkdown>{answer.answer}</ReactMarkdown>
               </div>
               {answer.sources.length > 0 && (

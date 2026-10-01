@@ -96,7 +96,7 @@ export function EmailTemplate({ raw }: { raw: string }) {
       )}
 
       {/* Body — proportional font, exactly as it will read in a mail client. */}
-      <div className="whitespace-pre-wrap bg-surface px-4 py-3 text-[15px] leading-relaxed text-slate-800">
+      <div className="whitespace-pre-wrap bg-surface px-4 py-3 text-[0.9375rem] leading-relaxed text-slate-800">
         {body || full}
       </div>
     </div>

@@ -98,7 +98,7 @@ export function SubPages({
                 {p.title}
               </Link>
               {p.status === "draft" && (
-                <span className="shrink-0 rounded-full bg-slate-100 px-1.5 text-[10px] font-medium uppercase text-slate-500">
+                <span className="shrink-0 rounded-full bg-slate-100 px-1.5 text-3xs font-medium uppercase text-slate-500">
                   Draft
                 </span>
               )}

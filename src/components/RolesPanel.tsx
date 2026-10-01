@@ -550,7 +550,7 @@ function RolesTab({
                                   <span className="block text-sm text-slate-800">
                                     {p.label}
                                     {p.scope === "space" && (
-                                      <span className="ml-1.5 rounded bg-slate-200 px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                                      <span className="ml-1.5 rounded bg-slate-200 px-1 py-0.5 text-3xs font-medium uppercase tracking-wide text-slate-600 dark:bg-slate-700 dark:text-slate-300">
                                         per space
                                       </span>
                                     )}
@@ -811,7 +811,7 @@ function AssignmentsTab({
                   <tr key={a.id} className="border-b border-slate-100 last:border-b-0">
                     <td className="px-4 py-2">
                       <span className="text-slate-800">{a.subject}</span>
-                      <span className="ml-1.5 rounded bg-slate-100 px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-500 dark:bg-slate-700 dark:text-slate-300">
+                      <span className="ml-1.5 rounded bg-slate-100 px-1 py-0.5 text-3xs font-medium uppercase tracking-wide text-slate-500 dark:bg-slate-700 dark:text-slate-300">
                         {a.subject_kind}
                       </span>
                     </td>

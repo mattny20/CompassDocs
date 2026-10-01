@@ -136,7 +136,7 @@ export function NotificationsBell({ initialUnread }: { initialUnread: number }) 
       >
         <Bell className="h-4 w-4" aria-hidden />
         {unread > 0 && (
-          <span className="absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-compass-600 px-1 text-[10px] font-semibold leading-none text-white">
+          <span className="absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-compass-600 px-1 text-3xs font-semibold leading-none text-white">
             {unread > 99 ? "99+" : unread}
           </span>
         )}

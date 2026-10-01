@@ -358,7 +358,7 @@ export function SmtpPanel({ initial }: { initial: SmtpState }) {
         <button onClick={save} disabled={busy} className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60">
           {busy ? "Working…" : "Save"}
         </button>
-        <TextInput className="max-w-[220px]" value={testTo} onChange={(e) => setTestTo(e.target.value)} placeholder="you@acme.com" spellCheck={false} />
+        <TextInput className="max-w-55" value={testTo} onChange={(e) => setTestTo(e.target.value)} placeholder="you@acme.com" spellCheck={false} />
         <button onClick={test} disabled={busy || !testTo || !s.configured} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">
           Send test email
         </button>

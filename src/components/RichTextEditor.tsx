@@ -516,7 +516,7 @@ export function RichTextEditor({
     editorProps: {
       attributes: {
         // Reuse the app's document styling so editing looks like the rendered doc.
-        class: "doc-prose min-h-[420px] px-5 py-4 focus:outline-hidden",
+        class: "doc-prose min-h-[26.25rem] px-5 py-4 focus:outline-hidden",
       },
       // Pasted or dropped screenshots upload as attachments and insert inline.
       handlePaste: (view, event) => {
@@ -555,7 +555,7 @@ export function RichTextEditor({
   }, [value, editor]);
 
   if (!editor) {
-    return <div className="min-h-[420px] px-5 py-4 text-sm text-slate-400">Loading editor…</div>;
+    return <div className="min-h-[26.25rem] px-5 py-4 text-sm text-slate-400">Loading editor…</div>;
   }
 
   return (
@@ -1315,7 +1315,7 @@ function Btn({
       }`}
     >
       {children}
-      <span className="pointer-events-none absolute left-1/2 top-full z-30 mt-1.5 hidden max-w-56 -translate-x-1/2 whitespace-normal rounded-md bg-slate-900 px-2 py-1 text-center text-[11px] font-medium leading-snug text-slate-50 shadow-md group-hover:block group-focus-visible:block">
+      <span className="pointer-events-none absolute left-1/2 top-full z-30 mt-1.5 hidden max-w-56 -translate-x-1/2 whitespace-normal rounded-md bg-slate-900 px-2 py-1 text-center text-2xs font-medium leading-snug text-slate-50 shadow-md group-hover:block group-focus-visible:block">
         {label}
       </span>
     </button>

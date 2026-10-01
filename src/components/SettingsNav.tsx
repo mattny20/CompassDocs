@@ -83,7 +83,7 @@ export function SettingsNav({ reachable }: { reachable: string[] }) {
           <nav className="hidden sm:flex sm:flex-col sm:gap-1">
             {groups.map((g) => (
               <div key={g.label} className="flex flex-col gap-1">
-                <p className="mb-0.5 mt-3 px-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400 first:mt-1">
+                <p className="mb-0.5 mt-3 px-3 text-2xs font-semibold uppercase tracking-wide text-slate-400 first:mt-1">
                   {g.label}
                 </p>
                 {g.sections.map((s) => (

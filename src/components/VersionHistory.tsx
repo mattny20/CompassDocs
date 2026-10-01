@@ -66,7 +66,7 @@ const CELL: Record<string, string> = {
 
 function LineNo({ n }: { n?: number }) {
   return (
-    <td className="w-10 select-none border-r border-slate-100 px-1 py-0 text-right align-top text-[11px] leading-5 text-slate-300">
+    <td className="w-10 select-none border-r border-slate-100 px-1 py-0 text-right align-top text-2xs leading-5 text-slate-300">
       {n ?? ""}
     </td>
   );
@@ -78,7 +78,7 @@ function FoldRow({ hidden, cols, onExpand }: { hidden: number; cols: number; onE
       <td colSpan={cols} className="bg-slate-50/80 px-2 py-0.5 text-center">
         <button
           onClick={onExpand}
-          className="text-[11px] font-medium text-compass-600 hover:underline"
+          className="text-2xs font-medium text-compass-600 hover:underline"
         >
           ⋯ {hidden} unchanged line{hidden === 1 ? "" : "s"} — show
         </button>
@@ -309,7 +309,7 @@ export function VersionHistory({
               </div>
             </div>
           )}
-          <div className="max-h-[540px] overflow-auto">
+          <div className="max-h-[33.75rem] overflow-auto">
             {mode === "rendered" && blockRows ? (
               <RenderedDiff
                 blocks={blockRows}
@@ -394,12 +394,12 @@ export function VersionHistory({
                 <span className="font-medium text-slate-800">
                   v{v.rev}
                   {isCurrent && (
-                    <span className="ml-1.5 rounded-full bg-compass-100 px-1.5 py-0.5 text-[10px] font-semibold text-compass-700 dark:bg-compass-900/60">
+                    <span className="ml-1.5 rounded-full bg-compass-100 px-1.5 py-0.5 text-3xs font-semibold text-compass-700 dark:bg-compass-900/60">
                       Current
                     </span>
                   )}
                   {v.restored_from !== null && (
-                    <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/50">
+                    <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-3xs font-semibold text-amber-700 dark:bg-amber-900/50">
                       Restored
                     </span>
                   )}
@@ -517,7 +517,7 @@ function RenderedDiff({
       {chunks.map((c, ci) =>
         c.fold !== undefined ? (
           <div key={`f${ci}`} className="rounded-md bg-slate-50/80 py-1 text-center">
-            <button onClick={onExpand} className="text-[11px] font-medium text-compass-600 hover:underline">
+            <button onClick={onExpand} className="text-2xs font-medium text-compass-600 hover:underline">
               ⋯ {c.fold} unchanged section{c.fold === 1 ? "" : "s"} — show
             </button>
           </div>
@@ -525,7 +525,7 @@ function RenderedDiff({
           (c.rows ?? []).map((b) => (
             <div key={b.key} className={tint[b.type]}>
               {b.type === "del" && (
-                <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-red-500">
+                <div className="mb-1 text-3xs font-semibold uppercase tracking-wide text-red-500">
                   Removed
                 </div>
               )}

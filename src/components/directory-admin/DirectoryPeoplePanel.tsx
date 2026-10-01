@@ -228,7 +228,7 @@ export function DirectoryPeoplePanel({
                       </datalist>
                     )}
                     {synced && syncedValue && (
-                      <p className="mt-0.5 truncate text-[11px] text-slate-400">
+                      <p className="mt-0.5 truncate text-2xs text-slate-400">
                         synced: {syncedValue}
                         {(formCustom[f.key] ?? "") !== "" && !reverted && (
                           <>
@@ -252,7 +252,7 @@ export function DirectoryPeoplePanel({
                 <div key={f.key} className="space-y-2">
                   <Field label={f.label} help={editing ? `${f.label}s of ${editing.name}` : undefined}>
                     {editing && syncedLinks(editing, f, "out").length > 0 && (
-                      <p className="mb-1 text-[11px] text-slate-400">synced: {syncedLinks(editing, f, "out").join(", ")}</p>
+                      <p className="mb-1 text-2xs text-slate-400">synced: {syncedLinks(editing, f, "out").join(", ")}</p>
                     )}
                     <EntityPicker
                       options={pickerOptions.filter((o) => o.id !== editing?.id)}
@@ -265,7 +265,7 @@ export function DirectoryPeoplePanel({
                   </Field>
                   <Field label={f.inverse_label || `${f.label} to`} help={editing ? `People ${editing.name} is ${f.label.toLowerCase()} to` : undefined}>
                     {editing && syncedLinks(editing, f, "in").length > 0 && (
-                      <p className="mb-1 text-[11px] text-slate-400">synced: {syncedLinks(editing, f, "in").join(", ")}</p>
+                      <p className="mb-1 text-2xs text-slate-400">synced: {syncedLinks(editing, f, "in").join(", ")}</p>
                     )}
                     <EntityPicker
                       options={pickerOptions.filter((o) => o.id !== editing?.id)}

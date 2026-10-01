@@ -30,6 +30,13 @@
   --color-compass-900: rgb(var(--compass-900));
 
   --font-sans: var(--font-sans), system-ui, sans-serif;
+
+  /* Two steps below text-xs for chips, keycaps and captions. Font-size only
+   * (no --text-*--line-height) so they behave exactly like the arbitrary
+   * text-[11px] / text-[10px] they replaced: line-height is inherited. rem,
+   * not px, so they follow the root scale (STYLEGUIDE §Scaling). */
+  --text-2xs: 0.6875rem;
+  --text-3xs: 0.625rem;
 }
 
 /*
@@ -156,7 +163,8 @@ mark {
 
 /* Rendered markdown ("prose") styling — self-contained, no plugin needed. */
 .doc-prose {
-  @apply text-[16px] leading-7 text-slate-700;
+  /* 1rem, not 16px: the body must follow the root scale with the UI. */
+  @apply text-base leading-7 text-slate-700;
 }
 .doc-prose h1 {
   @apply mb-4 mt-8 text-2xl font-bold text-slate-900 first:mt-0;
@@ -186,14 +194,14 @@ mark {
   @apply my-4 border-l-4 border-compass-200 bg-compass-50/60 py-1 pl-4 text-slate-600;
 }
 .doc-prose code {
-  @apply rounded-sm bg-slate-100 px-1.5 py-0.5 font-mono text-[13px] text-pink-700;
+  @apply rounded-sm bg-slate-100 px-1.5 py-0.5 font-mono text-[0.8125rem] text-pink-700;
 }
 :root[data-theme="dark"] .doc-prose code {
   @apply text-pink-300;
 }
 /* Code blocks stay dark in both themes (literal, immune to the neutral flip). */
 .doc-prose pre {
-  @apply my-4 overflow-x-auto rounded-lg p-4 text-[13px] leading-6;
+  @apply my-4 overflow-x-auto rounded-lg p-4 text-[0.8125rem] leading-6;
   background: #0f172a;
   color: #e2e8f0;
 }
@@ -563,17 +571,19 @@ mark {
 [data-tt]::after {
   content: attr(data-tt);
   position: absolute;
-  bottom: calc(100% + 7px);
+  /* rem throughout (0.4375rem = 7px at the default root) so the bubble
+   * scales with the interface instead of staying 12px on a 2560 panel. */
+  bottom: calc(100% + 0.4375rem);
   left: 50%;
   /* Tier 60: above the saturated z-50 layer (toasts, lightbox, sidebar
    * drawer) and below the command palette at z-[70]. */
   z-index: 60;
-  transform: translateX(-50%) translateY(2px);
-  padding: 4px 9px;
-  border-radius: 7px;
+  transform: translateX(-50%) translateY(0.125rem);
+  padding: 0.25rem 0.5625rem;
+  border-radius: 0.4375rem;
   background: rgb(15 23 42 / 0.94);
   color: #f8fafc;
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 500;
   letter-spacing: 0;
   line-height: 1.35;
@@ -592,8 +602,8 @@ mark {
 }
 [data-tt][data-tt-pos="bottom"]::after {
   bottom: auto;
-  top: calc(100% + 7px);
-  transform: translateX(-50%) translateY(-2px);
+  top: calc(100% + 0.4375rem);
+  transform: translateX(-50%) translateY(-0.125rem);
 }
 [data-tt][data-tt-pos="bottom"]:hover::after,
 [data-tt][data-tt-pos="bottom"]:focus-visible::after {
@@ -689,14 +699,16 @@ mark {
   align-items: center;
   justify-content: center;
   min-width: 1.35em;
-  padding: 1px 5px;
+  /* Size and radius in rem so the cap scales with the root; the 1px border
+   * and shadow are hairlines and stay px (STYLEGUIDE §Scaling). */
+  padding: 0.0625rem 0.3125rem;
   border: 1px solid rgb(var(--slate-200));
-  border-radius: 5px;
+  border-radius: 0.3125rem;
   background: rgb(var(--canvas));
   box-shadow: 0 1px 0 rgb(var(--slate-200));
   color: rgb(var(--slate-500));
   font-family: inherit;
-  font-size: 11px;
+  font-size: 0.6875rem;
   font-weight: 500;
   line-height: 1.45;
   white-space: nowrap;
@@ -716,8 +728,8 @@ mark {
 .cmd-snippet mark {
   background: rgb(var(--compass-100));
   color: inherit;
-  border-radius: 3px;
-  padding: 0 2px;
+  border-radius: 0.1875rem;
+  padding: 0 0.125rem;
   font-weight: 600;
 }
 /* Repeated under the dark selector on purpose. `:root[data-theme="dark"] mark`

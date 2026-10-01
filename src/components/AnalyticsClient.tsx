@@ -366,7 +366,7 @@ function DocDrilldown({ docId, days, onClose }: { docId: number; days: number; o
               ].map(([label, v]) => (
                 <div key={label as string} className="rounded-lg border border-slate-200 bg-slate-50/70 px-2.5 py-2 text-center">
                   <div className="text-base font-bold text-slate-800">{v as any}</div>
-                  <div className="text-[10px] uppercase tracking-wide text-slate-400">{label as string}</div>
+                  <div className="text-3xs uppercase tracking-wide text-slate-400">{label as string}</div>
                 </div>
               ))}
             </div>

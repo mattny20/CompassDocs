@@ -151,7 +151,7 @@ export function ShortcutSheet({
     <div className="pb-2">
       {shown.map((group) => (
         <section key={group.title}>
-          <h3 className="px-4 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+          <h3 className="px-4 pb-1 pt-3 text-2xs font-semibold uppercase tracking-wide text-slate-400">
             {group.title}
           </h3>
           {group.note && !needle && (

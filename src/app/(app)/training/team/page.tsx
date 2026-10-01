@@ -66,7 +66,7 @@ export default async function TrainingTeamPage() {
                   done · {open.length} open
                 </span>
                 {overdue.length > 0 && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-medium text-red-700">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-2xs font-medium text-red-700">
                     <CircleAlert className="h-3 w-3" /> {overdue.length} overdue
                   </span>
                 )}
@@ -77,7 +77,7 @@ export default async function TrainingTeamPage() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="border-b border-slate-100 text-left text-[11px] uppercase tracking-wide text-slate-400">
+                      <tr className="border-b border-slate-100 text-left text-2xs uppercase tracking-wide text-slate-400">
                         <th className="px-4 py-1.5">Person</th>
                         <th className="px-2 py-1.5">Training</th>
                         <th className="px-2 py-1.5">Status</th>

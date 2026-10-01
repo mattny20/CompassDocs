@@ -153,7 +153,7 @@ export function ApiTokens({
               Claude Desktop setup (mcpServers entry)
             </summary>
             <div className="mt-2">
-              <pre className="overflow-x-auto rounded-sm bg-[#0f172a] p-2 text-[11px] leading-4 text-[#e2e8f0]">
+              <pre className="overflow-x-auto rounded-sm bg-[#0f172a] p-2 text-2xs leading-4 text-[#e2e8f0]">
                 {claudeConfig}
               </pre>
               <button

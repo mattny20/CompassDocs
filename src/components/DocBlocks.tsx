@@ -383,7 +383,7 @@ export function FilterTable({ children }: { children: React.ReactNode }) {
               className="w-48 rounded-md border border-slate-200 bg-surface py-1 pl-7 pr-2 text-xs text-slate-700 placeholder:text-slate-400 focus:border-compass-400 focus:outline-hidden"
             />
           </span>
-          <span className="flex items-center gap-1 text-[11px] text-slate-400">
+          <span className="flex items-center gap-1 text-2xs text-slate-400">
             <ArrowUpDown className="h-3 w-3" /> click a header to sort ·{" "}
             {query ? `${shown}/${rowCount} rows` : `${rowCount} rows`}
           </span>

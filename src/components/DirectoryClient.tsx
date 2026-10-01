@@ -697,21 +697,21 @@ export function DirectoryClient({
                 <button key={pr.id} className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50" onClick={() => exportNow({ preset: pr.id }, "pdf")} data-tt={pr.split_by ? "A zip with one PDF per value" : pr.layout === "cards" ? "Photo cards" : ""}>
                   {pr.layout === "cards" ? <LayoutGrid className="h-4 w-4 text-slate-400" aria-hidden /> : <FileText className="h-4 w-4 text-slate-400" aria-hidden />}
                   <span className="flex-1 truncate">{pr.name}</span>
-                  <span className="text-[11px] uppercase text-slate-400">{pr.split_by ? "ZIP" : "PDF"}</span>
+                  <span className="text-2xs uppercase text-slate-400">{pr.split_by ? "ZIP" : "PDF"}</span>
                 </button>
               ))}
               <div className="my-1 border-t border-slate-100" />
               <button className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50" onClick={() => whatISee("pdf")}>
                 <FileText className="h-4 w-4 text-slate-400" aria-hidden /> <span className="flex-1">What I see</span>
-                <span className="text-[11px] uppercase text-slate-400">PDF</span>
+                <span className="text-2xs uppercase text-slate-400">PDF</span>
               </button>
               <button className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50" onClick={() => whatISee("csv")}>
                 <Table2 className="h-4 w-4 text-slate-400" aria-hidden /> <span className="flex-1">What I see</span>
-                <span className="text-[11px] uppercase text-slate-400">CSV</span>
+                <span className="text-2xs uppercase text-slate-400">CSV</span>
               </button>
               <button className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50" onClick={() => whatISee("vcf")}>
                 <Contact className="h-4 w-4 text-slate-400" aria-hidden /> <span className="flex-1">What I see, as contacts</span>
-                <span className="text-[11px] uppercase text-slate-400">VCF</span>
+                <span className="text-2xs uppercase text-slate-400">VCF</span>
               </button>
               <label className="flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50">
                 <input
@@ -721,7 +721,7 @@ export function DirectoryClient({
                   className="h-3.5 w-3.5 accent-compass-600"
                 />
                 <span className="flex-1">Office information</span>
-                <span className="text-[11px] uppercase text-slate-400">PDF</span>
+                <span className="text-2xs uppercase text-slate-400">PDF</span>
               </label>
               <div className="my-1 border-t border-slate-100" />
               <button className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50" onClick={() => { setExportOpen(false); window.print(); }}>

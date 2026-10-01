@@ -264,7 +264,7 @@ export function Attachments({
             >
               {badge ? (
                 <span
-                  className={`grid h-8 w-8 shrink-0 place-items-center rounded-sm text-[11px] font-bold text-white ${badge.cls}`}
+                  className={`grid h-8 w-8 shrink-0 place-items-center rounded-sm text-2xs font-bold text-white ${badge.cls}`}
                   title={badge.label}
                 >
                   {badge.short}

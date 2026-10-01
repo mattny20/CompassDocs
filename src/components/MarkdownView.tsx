@@ -65,7 +65,7 @@ export function MarkdownView({
               return (
                 <div
                   aria-hidden
-                  className="my-5 flex select-none items-center gap-3 text-[11px] font-semibold uppercase tracking-widest text-compass-600"
+                  className="my-5 flex select-none items-center gap-3 text-2xs font-semibold uppercase tracking-widest text-compass-600"
                 >
                   <span className="h-0 flex-1 border-t-2 border-dashed border-compass-300" />
                   Slide break

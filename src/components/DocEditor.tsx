@@ -1038,10 +1038,10 @@ export function DocEditor({
                 }
               }}
               placeholder="# Start writing…  (paste or drop a screenshot to insert it)"
-              className="h-[420px] w-full resize-y rounded-b-lg px-4 py-3 font-mono text-sm text-slate-700 outline-hidden"
+              className="h-[26.25rem] w-full resize-y rounded-b-lg px-4 py-3 font-mono text-sm text-slate-700 outline-hidden"
             />
           ) : (
-            <div className="min-h-[420px] px-5 py-4">
+            <div className="min-h-[26.25rem] px-5 py-4">
               {content.trim() ? (
                 // Training docs (an existing deck, or a doc being authored with a
                 // compliance block) preview --- as labeled slide-break markers.
@@ -1242,7 +1242,7 @@ function ProofPanel({
           {proof.changes!.map((c, i) => (
             <li key={i} className="rounded-lg border border-slate-200 bg-surface p-2.5 text-sm">
               <div className="mb-1 flex items-center gap-2">
-                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-2xs font-medium uppercase tracking-wide text-slate-500">
                   {c.type}
                 </span>
                 {c.note && <span className="text-xs text-slate-500">{c.note}</span>}

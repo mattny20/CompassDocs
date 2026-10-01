@@ -287,7 +287,7 @@ function MappingEditor({
                     <button
                       type="button"
                       onClick={() => { setMapping({ kind: "path", path: pr.path }); setPreview(null); }}
-                      className="rounded-full border border-slate-200 bg-surface px-2 py-0.5 font-mono text-[11px] text-slate-600 hover:border-compass-300 hover:text-compass-700"
+                      className="rounded-full border border-slate-200 bg-surface px-2 py-0.5 font-mono text-2xs text-slate-600 hover:border-compass-300 hover:text-compass-700"
                       data-tt={pr.sample ? `e.g. ${pr.sample}` : undefined}
                     >
                       {pr.path} <span className="text-slate-400">×{pr.count}</span>
@@ -467,12 +467,12 @@ function OptionsEditor({ field, onSaved }: { field: DirectoryField; onSaved: (f:
                   return (
                     <li key={v.value} className={`flex items-center gap-1 rounded-full border px-2 py-0.5 ${hit ? "border-slate-200 text-slate-400" : "border-amber-300 bg-amber-50 text-amber-800"}`}>
                       <span>{v.value}</span>
-                      <span className="text-[10px] opacity-70">×{v.count}</span>
+                      <span className="text-3xs opacity-70">×{v.count}</span>
                       {!hit && (
                         <>
                           <button type="button" onClick={() => addOption(v.value)} className="ml-1 font-medium hover:underline" data-tt="Add as its own option" aria-label={`Add ${v.value} as an option`}>+ option</button>
                           {options.length > 0 && (
-                            <Select className="h-5 w-24 py-0 text-[10px]" value="" onChange={(e) => { const i = Number(e.target.value); if (Number.isInteger(i)) addAlias(i, v.value); }} aria-label={`Fold ${v.value} into an option`}>
+                            <Select className="h-5 w-24 py-0 text-3xs" value="" onChange={(e) => { const i = Number(e.target.value); if (Number.isInteger(i)) addAlias(i, v.value); }} aria-label={`Fold ${v.value} into an option`}>
                               <option value="">fold into…</option>
                               {options.map((o, i) => (
                                 <option key={i} value={i}>{o.label || o.value}</option>
@@ -653,9 +653,9 @@ function FieldRow({
             onBlur={() => labelDraft.trim() && labelDraft !== f.label && patch(f, { label: labelDraft.trim() })}
             aria-label={`Label for ${f.key}`}
           />
-          <div className="mt-0.5 font-mono text-[11px] text-slate-400">
+          <div className="mt-0.5 font-mono text-2xs text-slate-400">
             {f.key}
-            {f.builtin ? <span className="ml-1 rounded-sm bg-slate-100 px-1 text-[10px] uppercase text-slate-500">built-in</span> : null}
+            {f.builtin ? <span className="ml-1 rounded-sm bg-slate-100 px-1 text-3xs uppercase text-slate-500">built-in</span> : null}
           </div>
         </td>
         <td className="px-3 py-2 text-slate-600">
@@ -667,7 +667,7 @@ function FieldRow({
           return (
             <td key={p} className="px-3 py-2">
               <button type="button" className={`${linkBtn} text-left`} onClick={() => setOpen(open?.panel === "mapping" && open.provider === p ? null : { id: f.id, panel: "mapping", provider: p })}>
-                {m ? <span className="font-mono text-[11px] text-slate-600">{describeMapping(m)}</span> : <span className="text-slate-400">not mapped</span>}
+                {m ? <span className="font-mono text-2xs text-slate-600">{describeMapping(m)}</span> : <span className="text-slate-400">not mapped</span>}
               </button>
             </td>
           );

@@ -459,7 +459,7 @@ function Overview({
                   {r.name}
                 </Link>
                 <span className="min-w-0 flex-1 truncate text-slate-500">{r.deck}</span>
-                <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${REASON_LABEL[r.reason].cls}`}>
+                <span className={`rounded-full px-2 py-0.5 text-2xs font-medium ${REASON_LABEL[r.reason].cls}`}>
                   {REASON_LABEL[r.reason].text}
                   {r.reason === "overdue" && r.due_at ? ` · ${fmtDay(r.due_at)}` : ""}
                   {r.reason === "failed_quiz" && r.quiz_total ? ` · ${r.quiz_score}/${r.quiz_total}` : ""}
@@ -608,7 +608,7 @@ function Evidence({ onError, onNotice }: { onError: (s: string) => void; onNotic
           {snapshots.slice(0, 8).map((s) => (
             <li key={s.id} className="flex flex-wrap items-center gap-2 px-3 py-1.5 text-sm">
               <span
-                className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                className={`rounded-full px-2 py-0.5 text-2xs font-medium ${
                   s.kind === "monthly" ? "bg-compass-50 text-compass-700" : "bg-slate-100 text-slate-500"
                 }`}
               >
@@ -618,7 +618,7 @@ function Evidence({ onError, onNotice }: { onError: (s: string) => void; onNotic
               {s.taken_by && s.taken_by !== "scheduled" && (
                 <span className="text-xs text-slate-400">by {s.taken_by}</span>
               )}
-              <code className="min-w-0 flex-1 truncate text-right text-[11px] text-slate-400" title={s.sha256}>
+              <code className="min-w-0 flex-1 truncate text-right text-2xs text-slate-400" title={s.sha256}>
                 {s.sha256.slice(0, 16)}…
               </code>
               <a
@@ -886,7 +886,7 @@ function MatrixView() {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-slate-100 text-left text-[11px] uppercase tracking-wide text-slate-400">
+              <tr className="border-b border-slate-100 text-left text-2xs uppercase tracking-wide text-slate-400">
                 <th className="sticky left-0 bg-surface px-4 py-2">Person</th>
                 {data.decks.map((d) => (
                   <th key={d.id} className="max-w-40 truncate px-2 py-2" title={d.title}>
@@ -909,7 +909,7 @@ function MatrixView() {
                   {p.cells.map((c, i) => (
                     <td key={i} className="px-2 py-1.5">
                       {c ? (
-                        <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${CELL_STYLE[c]}`}>
+                        <span className={`rounded-full px-2 py-0.5 text-2xs font-medium ${CELL_STYLE[c]}`}>
                           {CELL_SHORT[c]}
                         </span>
                       ) : (
@@ -1148,13 +1148,13 @@ function ManageDecks({
                     <span className="min-w-0 flex-1 truncate font-medium text-slate-800">
                       {d.title}
                       {d.active === 0 && (
-                        <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium uppercase text-slate-500">
+                        <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-2xs font-medium uppercase text-slate-500">
                           inactive
                         </span>
                       )}
                     </span>
                     {d.tag && (
-                      <span className="rounded-full bg-compass-50 px-2 py-0.5 text-[11px] font-medium text-compass-700">
+                      <span className="rounded-full bg-compass-50 px-2 py-0.5 text-2xs font-medium text-compass-700">
                         {d.tag}
                       </span>
                     )}
@@ -1395,7 +1395,7 @@ function ProgramRow({
           <div className="flex items-center gap-2 font-medium text-slate-800">
             {program.name}
             {program.active === 0 && (
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium uppercase text-slate-500">
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-2xs font-medium uppercase text-slate-500">
                 inactive
               </span>
             )}
@@ -1973,7 +1973,7 @@ function PeopleTable({
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-slate-100 text-left text-[11px] uppercase tracking-wide text-slate-400">
+              <tr className="border-b border-slate-100 text-left text-2xs uppercase tracking-wide text-slate-400">
                 <th className="w-8 px-3 py-1.5"></th>
                 <th className="px-2 py-1.5">Person</th>
                 <th className="px-2 py-1.5">Status</th>
@@ -2011,7 +2011,7 @@ function PeopleTable({
                     </td>
                     <td className="px-2 py-1.5">
                       <span
-                        className={`rounded-full px-2 py-0.5 text-[11px] font-medium capitalize ${
+                        className={`rounded-full px-2 py-0.5 text-2xs font-medium capitalize ${
                           st === "completed"
                             ? "bg-emerald-100 text-emerald-700"
                             : st === "waived"

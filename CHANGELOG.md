@@ -4,6 +4,29 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.4.0] - 2026-10-01
+
+First of the interface-scaling releases. Nothing looks different yet: this
+release moves every pixel-pinned size onto the rem scale so that 1.4.1 can
+grow the whole interface with the monitor from one rule.
+
+### Changed
+- Two new text steps, `text-2xs` (11px) and `text-3xs` (10px), replace the
+  arbitrary `text-[11px]` / `text-[10px]` on chips, keycaps, captions and
+  tags across the app; the document body is `1rem` instead of `16px`, code
+  `0.8125rem` instead of `13px`; tooltips and palette keycaps are sized in
+  rem; the editor height, the users-table minimum width, the version-compare
+  pane and the toggle knob are on the spacing scale. Pixel-identical at the
+  default root size.
+- STYLEGUIDE gains a *Scaling* section (rem only, the px allow-list) and
+  `test/style-scale.test.ts` fails the build on a new px literal.
+
+### Security
+- Dependency updates for advisories published this week: nodemailer
+  10.0.13 (address-parser denial of service, GHSA-prgh-xp8r-p3m5 and
+  GHSA-v53p-9fqp-m79j) and undici 8.11.2 (CVE-2026-19534, CVE-2026-84961
+  and eight related fixes).
+
 ## [1.3.5] - 2026-09-27
 
 ### Added

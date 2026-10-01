@@ -39,11 +39,11 @@ function TreeRow({ node, depth }: { node: TreeNode; depth: number }) {
         ) : (
           <span className="w-4 shrink-0" aria-hidden />
         )}
-        <Link href={`/doc/${node.id}`} className="min-w-0 flex-1 truncate text-[13px]" data-tt={node.title} aria-label={node.title}>
+        <Link href={`/doc/${node.id}`} className="min-w-0 flex-1 truncate text-[0.8125rem]" data-tt={node.title} aria-label={node.title}>
           {node.title}
         </Link>
         {node.status === "draft" && (
-          <span className="shrink-0 rounded-full bg-slate-100 px-1 text-[9px] font-medium uppercase text-slate-500">
+          <span className="shrink-0 rounded-full bg-slate-100 px-1 text-[0.5625rem] font-medium uppercase text-slate-500">
             D
           </span>
         )}
