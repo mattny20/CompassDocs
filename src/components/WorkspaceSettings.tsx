@@ -16,7 +16,7 @@ import {
 } from "@/lib/settings";
 import type { AppSettings } from "@/lib/settings";
 import { toast } from "@/components/Toasts";
-import { Field, TextInput, Select, Textarea, Toggle } from "@/components/form";
+import { Field, TextInput, Select, Textarea, Toggle, rangeError } from "@/components/form";
 import { contrastRatio, solidAccent } from "@/lib/theme";
 
 // IANA zones the runtime knows about, with a couple of common ones pinned first.
@@ -92,7 +92,21 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
     }
   }
 
+  // Bounded numbers validate inline (STYLEGUIDE §Forms): the server used to
+  // clamp 5000 days to 3650 and the toast still said "saved".
+  const errors = {
+    trash_retention_days: rangeError(s.trash_retention_days, TRASH_RETENTION_MIN, TRASH_RETENTION_MAX),
+    max_attachment_mb: rangeError(s.max_attachment_mb, ATTACHMENT_MB_MIN, ATTACHMENT_MB_MAX),
+    max_video_mb: rangeError(s.max_video_mb, 1, 2048),
+    session_timeout_minutes: rangeError(s.session_timeout_minutes, SESSION_TIMEOUT_MIN, SESSION_TIMEOUT_MAX),
+  };
+  const invalid = Object.values(errors).some(Boolean);
+
   async function save() {
+    if (invalid) {
+      toast("error", "Fix the highlighted fields first.");
+      return;
+    }
     setSaving(true);
     const res = await fetch("/api/admin/settings", {
       method: "PATCH",
@@ -307,8 +321,10 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
           Days to keep deleted documents in the Trash before they&rsquo;re permanently
           removed. Set to 0 to keep them until deleted by hand.
         </p>
-        <div className="max-w-xs">
+        <div>
           <Field
+            size="xs"
+            error={errors.trash_retention_days}
             label={
               <>
                 Days ({TRASH_RETENTION_MIN}–{TRASH_RETENTION_MAX})
@@ -333,8 +349,10 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
           Maximum size for a single file attached to a document.
         </p>
         <div className="flex flex-wrap gap-4">
-          <div className="max-w-xs">
+          <div>
             <Field
+              size="sm"
+              error={errors.max_attachment_mb}
               label={
                 <>
                   Max size in MB ({ATTACHMENT_MB_MIN}–{ATTACHMENT_MB_MAX})
@@ -350,8 +368,8 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
               />
             </Field>
           </div>
-          <div className="max-w-xs">
-            <Field label="Max video size in MB (1–2048)">
+          <div>
+            <Field label="Max video size in MB (1–2048)" size="sm" error={errors.max_video_mb}>
               <TextInput
                 type="number"
                 min={1}
@@ -459,8 +477,10 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
         <p className="mb-3 text-sm text-slate-500">
           Signed-in users are logged out after this many minutes of inactivity.
         </p>
-        <div className="max-w-xs">
+        <div>
           <Field
+            size="xs"
+            error={errors.session_timeout_minutes}
             label={
               <>
                 Minutes ({SESSION_TIMEOUT_MIN}–{SESSION_TIMEOUT_MAX})

@@ -7,6 +7,7 @@
 import { buttonClass } from "@/components/Button";
 import { Spinner } from "@/components/Spinner";
 import { chipClass } from "@/components/Chip";
+import { controlClass } from "@/components/form";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -118,8 +119,9 @@ export function StatusBoard({
     }
   }
 
-  const input =
-    "rounded-lg border border-slate-200 bg-surface px-3 py-1.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-compass-400 focus:outline-none";
+  // w-auto: these sit in flex rows at their natural width; the textarea
+  // below opts back into w-full.
+  const input = controlClass(false, "w-auto px-3", true);
   const btn = buttonClass("primary", "md", "print:hidden");
   const chipBtn = buttonClass("secondary", "sm", "print:hidden");
 
@@ -196,7 +198,7 @@ export function StatusBoard({
             onChange={(e) => setIncBody(e.target.value)}
             placeholder="First update (optional) — what you know, what to do meanwhile…"
             rows={2}
-            className={`${input} mt-2 w-full`}
+            className={controlClass(false, "mt-2 px-3", true)}
           />
           <div className="mt-2 flex gap-2">
             <button onClick={declare} disabled={busy} className={btn}>

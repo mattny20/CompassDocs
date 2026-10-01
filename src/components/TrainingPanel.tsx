@@ -40,7 +40,7 @@ import {
   X,
 } from "lucide-react";
 import { EntityPicker, type PickerOption } from "@/components/EntityPicker";
-import { EmptyState, SectionEmpty } from "@/components/form";
+import { EmptyState, SectionEmpty, Select, TextInput } from "@/components/form";
 import { PageHeader } from "@/components/PageHeader";
 import { toast } from "@/components/Toasts";
 import { useFormatDate } from "@/components/SettingsProvider";
@@ -853,11 +853,12 @@ function MatrixView() {
         </div>
         <div className="relative ml-auto min-w-44 print:hidden">
           <Search className="pointer-events-none absolute left-2.5 top-2 h-4 w-4 text-slate-400" />
-          <input
+          <TextInput
+            dense
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Find a person…"
-            className="w-full rounded-lg border border-slate-200 bg-surface py-1.5 pl-8 pr-3 text-sm outline-hidden placeholder:text-slate-400 focus:border-compass-400"
+            className="pl-8 pr-3"
           />
         </div>
         <a
@@ -1036,13 +1037,14 @@ function ManageDecks({
           </div>
           <label className="flex items-center gap-1.5 text-sm text-slate-600">
             Due within
-            <input
+            <TextInput
+              dense
               type="number"
               min={1}
               max={365}
               value={dueDays}
               onChange={(e) => setDueDays(e.target.value)}
-              className="w-16 rounded-lg border border-slate-200 bg-surface px-2 py-1.5 text-sm outline-hidden focus:border-compass-400"
+              className="w-16 px-2"
             />
             days
           </label>
@@ -1086,11 +1088,12 @@ function ManageDecks({
           <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-4 py-3">
             <div className="relative min-w-56 flex-1 sm:max-w-xs">
               <Search className="pointer-events-none absolute left-2.5 top-2 h-4 w-4 text-slate-400" />
-              <input
+              <TextInput
+                dense
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search decks…"
-                className="w-full rounded-lg border border-slate-200 bg-surface py-1.5 pl-8 pr-3 text-sm outline-hidden placeholder:text-slate-400 focus:border-compass-400"
+                className="pl-8 pr-3"
               />
             </div>
             {tags.map((t) => (
@@ -1104,17 +1107,18 @@ function ManageDecks({
                 {t}
               </button>
             ))}
-            <select
+            <Select
+              dense
               value={sort}
               onChange={(e) => setSort(e.target.value as DeckSort)}
               aria-label="Sort decks"
-              className="ml-auto rounded-lg border border-slate-200 bg-surface px-2 py-1.5 text-sm text-slate-600 outline-hidden focus:border-compass-400"
+              className="ml-auto w-auto px-2"
             >
               <option value="created">Newest first</option>
               <option value="title">Title A–Z</option>
               <option value="progress">Lowest completion</option>
               <option value="overdue">Most overdue</option>
-            </select>
+            </Select>
           </div>
           <ul className="divide-y divide-slate-100">
             {visible.map((d) => {
@@ -1268,11 +1272,12 @@ function Programs({
 
       {creating && (
         <div className="mt-3 space-y-2 rounded-lg border border-slate-200 p-3">
-          <input
+          <TextInput
+            dense
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Program name (e.g. New starter onboarding)"
-            className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-1.5 text-sm outline-hidden focus:border-compass-400"
+            className="px-3"
           />
           <EntityPicker
             options={deckOpts}
@@ -1458,10 +1463,11 @@ function ProgramRow({
 
       {editing && (
         <div className="mt-3 space-y-2 rounded-lg border border-slate-100 p-3">
-          <input
+          <TextInput
+            dense
             value={editName}
             onChange={(e) => setEditName(e.target.value)}
-            className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-1.5 text-sm outline-hidden focus:border-compass-400"
+            className="px-3"
           />
           <EntityPicker
             options={deckOpts}
@@ -1648,7 +1654,8 @@ function DeckCard({
       <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-slate-600">
         <label className="flex items-center gap-1.5">
           Due within
-          <input
+          <TextInput
+            dense
             type="number"
             min={1}
             max={365}
@@ -1659,13 +1666,14 @@ function DeckCard({
               const v = due.trim() === "" ? null : Math.min(365, Math.max(1, Number(due) || 0)) || null;
               if (v !== deck.due_days) void patch({ due_days: v });
             }}
-            className="w-16 rounded-lg border border-slate-200 bg-surface px-2 py-1 text-sm outline-hidden focus:border-compass-400"
+            className="w-16 px-2 py-1"
           />
           days
         </label>
         <label className="flex items-center gap-1.5">
           Quiz pass
-          <input
+          <TextInput
+            dense
             type="number"
             min={1}
             max={100}
@@ -1675,13 +1683,14 @@ function DeckCard({
               const v = Math.min(100, Math.max(1, Number(passPct) || deck.pass_pct));
               if (v !== deck.pass_pct) void patch({ pass_pct: v });
             }}
-            className="w-16 rounded-lg border border-slate-200 bg-surface px-2 py-1 text-sm outline-hidden focus:border-compass-400"
+            className="w-16 px-2 py-1"
           />
           %
         </label>
         <label className="flex items-center gap-1.5">
           Recertify every
-          <input
+          <TextInput
+            dense
             type="number"
             min={1}
             max={60}
@@ -1692,20 +1701,21 @@ function DeckCard({
               const v = recert.trim() === "" ? null : Math.min(60, Math.max(1, Number(recert) || 0)) || null;
               if (v !== deck.recert_months) void patch({ recert_months: v });
             }}
-            className="w-16 rounded-lg border border-slate-200 bg-surface px-2 py-1 text-sm outline-hidden focus:border-compass-400"
+            className="w-16 px-2 py-1"
           />
           months
         </label>
         <label className="flex items-center gap-1.5">
           Tag
-          <input
+          <TextInput
+            dense
             value={tag}
             placeholder="e.g. Safety"
             onChange={(e) => setTag(e.target.value)}
             onBlur={() => {
               if (tag.trim() !== deck.tag) void patch({ tag: tag.trim() });
             }}
-            className="w-28 rounded-lg border border-slate-200 bg-surface px-2 py-1 text-sm outline-hidden focus:border-compass-400"
+            className="w-28 px-2 py-1"
           />
         </label>
         <label className="flex items-center gap-1.5">
@@ -1895,11 +1905,12 @@ function PeopleTable({
         ))}
         <div className="relative ml-auto min-w-44">
           <Search className="pointer-events-none absolute left-2.5 top-1.5 h-3.5 w-3.5 text-slate-400" />
-          <input
+          <TextInput
+            dense
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Find a person…"
-            className="w-full rounded-lg border border-slate-200 bg-surface py-1 pl-7 pr-2 text-sm outline-hidden placeholder:text-slate-400 focus:border-compass-400"
+            className="py-1 pl-7 pr-2"
           />
         </div>
       </div>

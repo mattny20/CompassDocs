@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { buttonClass } from "@/components/Button";
 import { CopyButton } from "@/components/CopyButton";
+import { controlClass } from "@/components/form";
 import { useRouter } from "next/navigation";
 import {
   ChevronDown,
@@ -193,7 +194,7 @@ export function Attachments({
             onChange={(e) => setLinkUrl(e.target.value)}
             placeholder="https://acme.sharepoint.com/… or iManage / NetDocuments link"
             required
-            className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-1.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-compass-400 focus:outline-none"
+            className={controlClass(false, "px-3", true)}
           />
           <input
             type="text"
@@ -201,7 +202,7 @@ export function Attachments({
             onChange={(e) => setLinkTitle(e.target.value)}
             placeholder="Display name (optional)"
             maxLength={200}
-            className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-1.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-compass-400 focus:outline-none"
+            className={controlClass(false, "px-3", true)}
           />
           <div className="flex items-center gap-2">
             <button

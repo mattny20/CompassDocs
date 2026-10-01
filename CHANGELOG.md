@@ -4,6 +4,41 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.7.0] - 2026-10-02
+
+Forms, part one: fields that assistive tech understands, one input recipe,
+and controls that are as wide as what goes in them.
+
+### Added
+- **Fields speak for themselves.** Every labelled field links its help or
+  error text to its control (aria-describedby, aria-invalid), and an error
+  is announced the moment it appears — there was not a single one of either
+  in the product before. A form-level failure (a wrong password, a server
+  that said no) is an alert, not a silent red box.
+- **Bounded numbers validate inline.** Trash retention, attachment and
+  video sizes and the session timeout show "Must be between 0 and 3650"
+  under the field instead of letting the server clamp the value while the
+  toast says "saved"; Save refuses with a reason while a field is wrong.
+  The add-user form checks the username, email and password rules the API
+  enforces before it sends anything, and focuses the first problem.
+- **A width scale for single-line controls** (xs / sm / md / lg / full):
+  a number is 160px, a name or password 448px, a URL or key 576px, so a
+  display-name field no longer runs 2,000px across a 2560 screen with a
+  switch 1,950px from its label. Toggle rows are bounded by default.
+
+### Changed
+- Login, setup, change-password, add-user, API tokens, licence, profile,
+  preferences and the Outlook add-in forms are built on the shared field
+  controls — same label size, same focus, same disabled look — with every
+  autocomplete, input mode and length attribute kept. Setup focuses its
+  first field. The Outlook sign-in form has real labels, its header uses
+  the workspace accent instead of a hard-coded blue, and a server error
+  during search says so instead of "No results".
+- The 55 hand-rolled input class strings across the product (editor
+  settings, training, newsletters, audit filters, search boxes, pickers)
+  now come from one recipe, with a compact variant for table rows and
+  toolbars. A hand-written input fails the build.
+
 ## [1.6.3] - 2026-10-01
 
 The component system, part four: working states, feedback, hit areas.

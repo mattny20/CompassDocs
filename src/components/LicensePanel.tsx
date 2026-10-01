@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { buttonClass } from "@/components/Button";
 import { LoadingRow } from "@/components/Spinner";
 import { toast } from "@/components/Toasts";
-import { DangerZone, DangerAction } from "@/components/form";
+import { DangerZone, DangerAction, controlClass } from "@/components/form";
 
 interface FeatureRow {
   key: string;
@@ -24,8 +24,7 @@ interface LicenseView {
   features: FeatureRow[];
 }
 
-const field =
-  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
+const field = controlClass(false);
 
 const STATUS_TONE: Record<string, string> = {
   active: "bg-emerald-100 text-emerald-700",
@@ -199,6 +198,7 @@ export function LicensePanel() {
             <textarea
               value={key}
               onChange={(e) => setKey(e.target.value)}
+              aria-label="License key"
               className={`${field} h-24 font-mono text-xs`}
               placeholder="Paste your license key…"
               spellCheck={false}

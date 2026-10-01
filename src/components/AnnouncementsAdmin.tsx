@@ -10,6 +10,7 @@ import { useRouter } from "next/navigation";
 import { Megaphone, TriangleAlert, Siren, Archive, ArchiveRestore, Trash2, Check } from "lucide-react";
 import { useFormatDate } from "./SettingsProvider";
 import { PageHeader } from "@/components/PageHeader";
+import { controlClass } from "@/components/form";
 
 interface AnnouncementRow {
   id: number;
@@ -29,8 +30,7 @@ interface GroupLite {
   member_count: number;
 }
 
-const field =
-  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
+const field = controlClass(false);
 
 const LEVELS = [
   { value: "info", label: "Info", icon: <Megaphone className="h-3.5 w-3.5" />, cls: "border-compass-400 bg-compass-50 text-compass-700 dark:text-compass-300" },

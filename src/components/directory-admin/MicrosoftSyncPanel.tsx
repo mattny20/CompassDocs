@@ -203,8 +203,9 @@ export function MicrosoftSyncPanel({ graph, report }: { graph: GraphState; repor
         </Field>
       </div>
 
-      <div className="mt-3 max-w-md">
+      <div className="mt-3">
         <Field
+          size="md"
           label={
             <>
               Limit to an Entra group <span className="text-slate-500">(optional — group object ID)</span>

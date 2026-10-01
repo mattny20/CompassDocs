@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { buttonClass } from "@/components/Button";
 import { LoadingRow } from "@/components/Spinner";
+import { Field, FormError, TextInput } from "@/components/form";
 import Script from "next/script";
 import ReactMarkdown from "react-markdown";
 import { Search, Sparkles, ExternalLink, CornerDownLeft, LogOut, Check } from "lucide-react";
@@ -77,6 +78,7 @@ export function OutlookPane() {
   const [answer, setAnswer] = useState<Answer | null>(null);
   const [busy, setBusy] = useState<"" | "search" | "ask">("");
   const [flash, setFlash] = useState("");
+  const [failed, setFailed] = useState("");
   const [compose, setCompose] = useState(false);
 
   const load = useCallback(async () => {
@@ -111,8 +113,16 @@ export function OutlookPane() {
     if (!q.trim()) return;
     setBusy("search");
     setAnswer(null);
-    const res = await fetch(`/api/search?q=${encodeURIComponent(q)}&limit=8`);
-    setHits(res.ok ? (await res.json()).hits : []);
+    setFailed("");
+    try {
+      const res = await fetch(`/api/search?q=${encodeURIComponent(q)}&limit=8`);
+      if (!res.ok) throw new Error(`Search failed (${res.status}).`);
+      setHits((await res.json()).hits);
+    } catch (e) {
+      // A server error is not "No results" — say what happened.
+      setHits(null);
+      setFailed(e instanceof Error ? e.message : "Search failed.");
+    }
     setBusy("");
   }
 
@@ -120,14 +130,21 @@ export function OutlookPane() {
     if (!q.trim()) return;
     setBusy("ask");
     setHits(null);
-    const res = await fetch("/api/ai-search", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question: q }),
-    });
-    const data = res.ok ? await res.json() : null;
-    setAnswer(data && data.answer ? { answer: data.answer, sources: data.sources ?? [] } : null);
-    if (data && !data.answer) setHits(data.sources ?? []);
+    setFailed("");
+    try {
+      const res = await fetch("/api/ai-search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question: q }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || `Ask failed (${res.status}).`);
+      setAnswer(data && data.answer ? { answer: data.answer, sources: data.sources ?? [] } : null);
+      if (data && !data.answer) setHits(data.sources ?? []);
+    } catch (e) {
+      setAnswer(null);
+      setFailed(e instanceof Error ? e.message : "Ask failed.");
+    }
     setBusy("");
   }
 
@@ -183,8 +200,8 @@ export function OutlookPane() {
   const header = useMemo(
     () => (
       <div
-        className="flex items-center justify-between px-3 py-2 text-white"
-        style={{ background: summary?.accent || "#2e75bd" }}
+        className="flex items-center justify-between bg-compass-600 px-3 py-2 text-white"
+        style={summary?.accent ? { background: summary.accent } : undefined}
       >
         <span className="flex items-center gap-2 text-sm font-semibold">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -242,11 +259,13 @@ export function OutlookPane() {
             }}
             className="flex gap-1.5"
           >
-            <input
+            <TextInput
               value={q}
               onChange={(e) => setQ(e.target.value)}
+              aria-label="Search or ask a question"
               placeholder="Search or ask a question…"
-              className="min-w-0 flex-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm focus:border-compass-400 focus:outline-hidden"
+              dense
+              className="min-w-0 flex-1"
             />
             <button type="submit" data-tt="Search" aria-label="Search" disabled={!!busy} className="rounded-lg border border-slate-200 px-2 hover:bg-slate-50">
               <Search className="h-4 w-4 text-slate-500" />
@@ -257,6 +276,7 @@ export function OutlookPane() {
           </form>
 
           {flash && <p className="notice-ok mt-2 rounded-sm px-2 py-1 text-xs">{flash}</p>}
+          <FormError className="mt-2">{failed}</FormError>
           {busy && <p className="mt-3 text-sm text-slate-500">{busy === "ask" ? "Thinking…" : "Searching…"}</p>}
 
           {answer && (
@@ -422,22 +442,23 @@ export function AddinAuthClient({ authed }: { authed: boolean }) {
           </p>
         ) : (
           <form onSubmit={submit} className="space-y-3">
-            {error && <p className="text-sm text-red-600">{error}</p>}
-            <input
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="Username"
-              autoComplete="username"
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-compass-400 focus:outline-hidden"
-            />
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Password"
-              autoComplete="current-password"
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-compass-400 focus:outline-hidden"
-            />
+            <FormError>{error}</FormError>
+            <Field label="Username">
+              <TextInput
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                autoComplete="username"
+                autoFocus
+              />
+            </Field>
+            <Field label="Password">
+              <TextInput
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
+              />
+            </Field>
             <button
               disabled={busy || !username || !password}
               className={buttonClass("primary", "md", "w-full")}

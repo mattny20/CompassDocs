@@ -210,8 +210,9 @@ export function SsoSettings({ initial }: { initial: SsoState }) {
           </label>
         </div>
 
-        <div className="mt-3 max-w-md">
+        <div className="mt-3">
           <Field
+            size="lg"
             label={
               <>
                 Allowed email domains{" "}
@@ -236,8 +237,9 @@ export function SsoSettings({ initial }: { initial: SsoState }) {
           {showAdvanced ? "▾" : "▸"} Advanced
         </button>
         {showAdvanced && (
-          <div className="mt-2 max-w-xl">
+          <div className="mt-2">
             <Field
+              size="lg"
               label={
                 <>
                   Custom OIDC authority{" "}

@@ -8,6 +8,7 @@
 import { useRef, useState } from "react";
 import { Spinner } from "@/components/Spinner";
 import { buttonClass } from "@/components/Button";
+import { Field, TextInput } from "@/components/form";
 import { toast } from "@/components/Toasts";
 import { useRouter } from "next/navigation";
 import { Upload, X } from "lucide-react";
@@ -102,9 +103,6 @@ export function ProfileForm({
     if (await patch({ avatar: "" })) setAvatar("");
   }
 
-  const input =
-    "w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-compass-400 focus:outline-none disabled:bg-slate-50 disabled:text-slate-500";
-
   return (
     <div className="space-y-4">
       <div className="rounded-xl border border-slate-200 bg-surface p-5 shadow-xs">
@@ -155,36 +153,32 @@ export function ProfileForm({
           </p>
         )}
         <div className="space-y-3">
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-500">Display name</span>
-            <input
+          <Field label="Display name" size="md" error={!managed && !name.trim() ? "A display name is required." : undefined}>
+            <TextInput
               value={name}
               onChange={(e) => setName(e.target.value)}
               disabled={managed || busy}
               maxLength={80}
               required
-              className={input}
             />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-500">Email</span>
-            <input
+          </Field>
+          <Field label="Email" size="md">
+            <TextInput
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               disabled={managed || busy}
               maxLength={200}
               placeholder="you@example.com"
-              className={input}
             />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-500">Username</span>
-            <input value={username} disabled className={input} />
-            <span className="mt-1 block text-xs text-slate-500">
-              Usernames are permanent — they anchor history, comments, and sign-in.
-            </span>
-          </label>
+          </Field>
+          <Field
+            label="Username"
+            size="md"
+            help="Usernames are permanent — they anchor history, comments, and sign-in."
+          >
+            <TextInput value={username} disabled readOnly />
+          </Field>
         </div>
         {!managed && (
           <div className="mt-4 flex items-center gap-3">

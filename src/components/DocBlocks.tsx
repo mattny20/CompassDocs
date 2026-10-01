@@ -7,6 +7,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Spinner } from "@/components/Spinner";
+import { controlClass } from "@/components/form";
 import { RotateCcw, ArrowLeft, Search, ArrowUpDown } from "lucide-react";
 import { parseDecisionTree } from "@/lib/doc-blocks";
 import { Lightbox } from "./Lightbox";
@@ -381,7 +382,7 @@ export function FilterTable({ children }: { children: React.ReactNode }) {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Filter rows…"
-              className="w-48 rounded-md border border-slate-200 bg-surface py-1 pl-7 pr-2 text-xs text-slate-700 placeholder:text-slate-400 focus:border-compass-400 focus:outline-hidden"
+              className={controlClass(false, "w-48 rounded-md py-1 pl-7 pr-2 text-xs")}
             />
           </span>
           <span className="flex items-center gap-1 text-2xs text-slate-500">

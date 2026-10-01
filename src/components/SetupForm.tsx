@@ -2,11 +2,11 @@
 
 import { useState } from "react";
 import { buttonClass } from "@/components/Button";
+import { Field, FormError, Select, TextInput, Textarea } from "@/components/form";
 import { useRouter } from "next/navigation";
 import type { SecureCookieMode, TlsMode } from "@/lib/settings";
 
-const field =
-  "w-full rounded-lg border border-slate-200 px-3 py-2 outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
+const optional = <span className="font-normal text-slate-500">(optional)</span>;
 
 export function SetupForm({
   enterprise = false,
@@ -73,125 +73,97 @@ export function SetupForm({
 
   return (
     <form onSubmit={submit} className="space-y-4">
-      {error && (
-        <div className="notice-error rounded-lg border px-3 py-2 text-sm">
-          {error}
-        </div>
-      )}
+      <FormError>{error}</FormError>
 
-      <label className="block">
-        <span className="mb-1 block text-sm font-medium text-slate-600">
-          Company / workspace name <span className="font-normal text-slate-500">(optional)</span>
-        </span>
-        <input
+      <Field label={<>Company / workspace name {optional}</>}>
+        <TextInput
           value={companyName}
           onChange={(e) => setCompanyName(e.target.value)}
+          autoFocus
           placeholder="CompassDocs"
           maxLength={80}
-          className={field}
         />
-      </label>
+      </Field>
 
       <div className="border-t border-slate-100 pt-4">
         <p className="mb-3 text-sm font-medium text-slate-700">Your admin account</p>
         <div className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
-            <label className="block">
-              <span className="mb-1 block text-sm font-medium text-slate-600">Full name</span>
-              <input
+            <Field label="Full name">
+              <TextInput
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 autoComplete="name"
                 placeholder="Jane Doe"
-                className={field}
               />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-sm font-medium text-slate-600">Username</span>
-              <input
+            </Field>
+            <Field label="Username">
+              <TextInput
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                autoFocus
                 autoComplete="username"
                 placeholder="jane"
-                className={field}
               />
-            </label>
+            </Field>
           </div>
-          <label className="block">
-            <span className="mb-1 block text-sm font-medium text-slate-600">
-              Email <span className="font-normal text-slate-500">(optional)</span>
-            </span>
-            <input
+          <Field label={<>Email {optional}</>}>
+            <TextInput
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               autoComplete="email"
               placeholder="jane@company.com"
-              className={field}
             />
-          </label>
+          </Field>
           <div className="grid gap-4 sm:grid-cols-2">
-            <label className="block">
-              <span className="mb-1 block text-sm font-medium text-slate-600">Password</span>
-              <input
+            <Field label="Password" error={password && password.length < 8 ? "At least 8 characters." : undefined}>
+              <TextInput
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="new-password"
                 placeholder="At least 8 characters"
-                className={field}
               />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-sm font-medium text-slate-600">Confirm password</span>
-              <input
+            </Field>
+            <Field label="Confirm password" error={confirm && confirm !== password ? "Passwords don't match." : undefined}>
+              <TextInput
                 type="password"
                 value={confirm}
                 onChange={(e) => setConfirm(e.target.value)}
                 autoComplete="new-password"
-                className={field}
               />
-            </label>
+            </Field>
           </div>
         </div>
       </div>
 
       <div className="border-t border-slate-100 pt-4">
-        <label className="block">
-          <span className="mb-1 block text-sm font-medium text-slate-600">
-            Anthropic API key <span className="font-normal text-slate-500">(optional)</span>
-          </span>
-          <input
+        <Field
+          label={<>Anthropic API key {optional}</>}
+          help="Enables AI answers and proofreading. Search works without it — you can also add or change the key later under Settings → AI."
+        >
+          <TextInput
             type="password"
             value={anthropicKey}
             onChange={(e) => setAnthropicKey(e.target.value)}
             autoComplete="off"
             placeholder="sk-ant-…"
             spellCheck={false}
-            className={field}
           />
-          <span className="mt-1 block text-xs text-slate-500">
-            Enables AI answers and proofreading. Search works without it — you can also add or
-            change the key later under Settings → AI.
-          </span>
-        </label>
+        </Field>
       </div>
 
       {enterprise && (
         <div className="border-t border-slate-100 pt-4">
-          <label className="block">
-            <span className="mb-1 block text-sm font-medium text-slate-600">
-              Enterprise license key <span className="font-normal text-slate-500">(optional)</span>
-            </span>
-            <textarea
+          <Field label={<>Enterprise license key {optional}</>}>
+            <Textarea
               value={licenseKey}
               onChange={(e) => setLicenseKey(e.target.value)}
               placeholder="Paste your license key to activate Enterprise features now — or add it later under Settings → License."
-              className={`${field} h-20 font-mono text-xs`}
+              className="h-20 font-mono text-xs"
               spellCheck={false}
             />
-          </label>
+          </Field>
         </div>
       )}
 
@@ -203,44 +175,44 @@ export function SetupForm({
             under Settings → Domain &amp; HTTPS.
           </p>
           <div className="space-y-3">
-            <label className="block">
-              <span className="mb-1 block text-sm font-medium text-slate-600">Domain</span>
-              <input
+            <Field label="Domain">
+              <TextInput
                 value={domain}
                 onChange={(e) => setDomain(e.target.value)}
                 placeholder="docs.example.com"
                 autoCapitalize="none"
                 autoCorrect="off"
                 spellCheck={false}
-                className={field}
               />
-            </label>
+            </Field>
             {domain.trim() && (
-              <label className="block">
-                <span className="mb-1 block text-sm font-medium text-slate-600">HTTPS</span>
-                <select
-                  value={tlsMode}
-                  onChange={(e) => setTlsMode(e.target.value as TlsMode)}
-                  className={field}
+              <>
+                <Field
+                  label="HTTPS"
+                  help={
+                    <>
+                      Automatic HTTPS needs a <strong>public</strong> domain resolving to this
+                      server with ports 80/443 reachable. Use self-signed for internal/LAN domains.
+                    </>
+                  }
                 >
-                  <option value="auto">Automatic HTTPS — Let&rsquo;s Encrypt (public DNS)</option>
-                  <option value="internal">Self-signed — internal CA (LAN / internal DNS)</option>
-                  <option value="off">Plain HTTP (TLS handled elsewhere)</option>
-                </select>
+                  <Select value={tlsMode} onChange={(e) => setTlsMode(e.target.value as TlsMode)}>
+                    <option value="auto">Automatic HTTPS — Let&rsquo;s Encrypt (public DNS)</option>
+                    <option value="internal">Self-signed — internal CA (LAN / internal DNS)</option>
+                    <option value="off">Plain HTTP (TLS handled elsewhere)</option>
+                  </Select>
+                </Field>
                 {tlsMode === "auto" && (
-                  <input
-                    type="email"
-                    value={tlsEmail}
-                    onChange={(e) => setTlsEmail(e.target.value)}
-                    placeholder="admin@example.com (optional, for renewal notices)"
-                    className={`${field} mt-2`}
-                  />
+                  <Field label={<>Contact email {optional}</>} help="For certificate renewal notices.">
+                    <TextInput
+                      type="email"
+                      value={tlsEmail}
+                      onChange={(e) => setTlsEmail(e.target.value)}
+                      placeholder="admin@example.com"
+                    />
+                  </Field>
                 )}
-                <span className="mt-1 block text-xs text-slate-500">
-                  Automatic HTTPS needs a <strong>public</strong> domain resolving to this server
-                  with ports 80/443 reachable. Use self-signed for internal/LAN domains.
-                </span>
-              </label>
+              </>
             )}
           </div>
         </div>
@@ -248,25 +220,25 @@ export function SetupForm({
 
       {!proxyManaged && (
         <div className="border-t border-slate-100 pt-4">
-          <label className="block">
-            <span className="mb-1 block text-sm font-medium text-slate-600">
-              How will you reach this server?
-            </span>
-            <select
+          <Field
+            label="How will you reach this server?"
+            help={
+              <>
+                Controls the login cookie&rsquo;s <code className="font-mono">Secure</code> flag.
+                Leave on Automatic unless you&rsquo;re sure — you can change it later under
+                Settings → Domain &amp; HTTPS.
+              </>
+            }
+          >
+            <Select
               value={secureCookies}
               onChange={(e) => setSecureCookies(e.target.value as SecureCookieMode)}
-              className={field}
             >
               <option value="auto">Automatic — detect HTTP vs HTTPS (recommended)</option>
               <option value="always">Always over HTTPS (I have a certificate)</option>
               <option value="never">Plain HTTP only (internal / no HTTPS)</option>
-            </select>
-            <span className="mt-1 block text-xs text-slate-500">
-              Controls the login cookie&rsquo;s <code className="font-mono">Secure</code> flag.
-              Leave on Automatic unless you&rsquo;re sure — you can change it later under
-              Settings → Domain &amp; HTTPS.
-            </span>
-          </label>
+            </Select>
+          </Field>
         </div>
       )}
 

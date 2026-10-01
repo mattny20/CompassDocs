@@ -155,6 +155,14 @@ describe("style drift guard", () => {
     assert.deepEqual(hits, [], `hand-written spinner — use <Spinner> / <LoadingRow>:\n${hits.join("\n")}`);
   });
 
+  test("one input recipe (§Forms)", () => {
+    // focus:border-compass-400 / focus:ring-compass-100 were the signature of
+    // the seven drifted copies of the input recipe; controlClass() paints
+    // focus:border-compass-500 and nothing else.
+    const hits = offenders(/focus:border-compass-400|focus:ring-compass-100/, (file) => file.endsWith(".tsx"));
+    assert.deepEqual(hits, [], `hand-written input — use <TextInput>/<Select>/<Textarea> or controlClass():\n${hits.join("\n")}`);
+  });
+
   test("bg-white only where white is literal (brand tiles, QR, media stages, email previews)", () => {
     const ALLOW = [
       "components/Brand.tsx",

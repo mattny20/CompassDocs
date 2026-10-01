@@ -6,6 +6,7 @@
 import { useState } from "react";
 import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
+import { controlClass } from "@/components/form";
 import Link from "next/link";
 import { BellOff, BellRing, UsersRound } from "lucide-react";
 import { toast } from "./Toasts";
@@ -162,7 +163,7 @@ export function NotificationsPanel({
               setWebhookSaved(null);
             }}
             placeholder="https://hooks.slack.com/services/…"
-            className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-surface px-3 py-1.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-compass-400 focus:outline-none"
+            className={controlClass(false, "min-w-0 flex-1 py-1.5")}
           />
           <button
             onClick={saveWebhook}

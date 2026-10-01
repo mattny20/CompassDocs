@@ -199,8 +199,8 @@ export function AiSettings({ initial }: { initial: AiState }) {
               </p>
             )}
 
-            <div className="max-w-md">
-              <Field label={hasKey ? "Replace key" : "API key"}>
+            <div>
+              <Field label={hasKey ? "Replace key" : "API key"} size="lg">
                 <TextInput
                   type="password"
                   value={apiKey}
@@ -221,8 +221,8 @@ export function AiSettings({ initial }: { initial: AiState }) {
               Which Claude model answers questions and proofreads. Opus is the most capable; Haiku is
               the fastest and cheapest.
             </p>
-            <div className="max-w-md">
-              <Field label="Model">
+            <div>
+              <Field label="Model" size="md">
                 <Select value={model} onChange={(e) => setModel(e.target.value)}>
                   {modelOptions.map((m) => (
                     <option key={m.value} value={m.value}>

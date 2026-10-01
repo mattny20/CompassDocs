@@ -8,7 +8,7 @@ import { useRef, useState } from "react";
 import { buttonClass } from "@/components/Button";
 import Link from "next/link";
 import { Mail, Plus, X, Image as ImageIcon } from "lucide-react";
-import { Field, TextInput } from "@/components/form";
+import { Field, Select, TextInput } from "@/components/form";
 
 interface PersonRow {
   id: number;
@@ -260,18 +260,19 @@ export function NewsletterPeople({
                 aria-label="Outer background color"
                 className="h-8 w-12 cursor-pointer rounded-md border border-slate-200 bg-surface p-0.5"
               />
-              <select
+              <Select
+                dense
                 value={appearance.body_texture}
                 onChange={(e) => saveAppearance({ body_texture: e.target.value })}
                 title="Outer background texture"
                 aria-label="Outer background texture"
-                className="rounded-lg border border-slate-200 bg-surface px-2 py-1.5 text-sm outline-hidden focus:border-compass-400"
+                className="w-auto px-2"
               >
                 <option value="none">No texture</option>
                 <option value="dots">Dots</option>
                 <option value="grid">Grid</option>
                 <option value="stripes">Stripes</option>
-              </select>
+              </Select>
               {(appearance.body_bg !== "#f1f5f9" || appearance.body_texture !== "none") && (
                 <button
                   onClick={() => saveAppearance({ body_bg: "#f1f5f9", body_texture: "none" })}
@@ -288,18 +289,19 @@ export function NewsletterPeople({
               <span className="mb-1 block text-xs font-medium text-slate-500">
                 Top padding
               </span>
-              <select
+              <Select
+                dense
                 value={appearance.header_pad}
                 onChange={(e) => saveAppearance({ header_pad: Number(e.target.value) })}
                 title="Space above the header image"
                 aria-label="Header image top padding"
-                className="rounded-lg border border-slate-200 bg-surface px-2 py-1.5 text-sm outline-hidden focus:border-compass-400"
+                className="w-auto px-2"
               >
                 <option value={0}>None</option>
                 <option value={5}>5 px</option>
                 <option value={10}>10 px</option>
                 <option value={15}>15 px</option>
-              </select>
+              </Select>
             </div>
           )}
           {appearance.header_image && (
@@ -471,16 +473,17 @@ export function NewsletterPeople({
                   {r.role === "admin" ? (
                     <span className="text-slate-500">Full access (admin)</span>
                   ) : (
-                    <select
+                    <Select
+                      dense
                       value={r.newsletter_role}
                       disabled={busyId === r.id}
                       onChange={(e) => setRole(r.id, e.target.value)}
-                      className="rounded-lg border border-slate-200 bg-surface px-2 py-1.5 text-sm outline-hidden focus:border-compass-400"
+                      className="w-auto px-2"
                     >
                       <option value="none">None</option>
                       <option value="contributor">Contributor</option>
                       <option value="approver">Approver</option>
-                    </select>
+                    </Select>
                   )}
                 </td>
               </tr>

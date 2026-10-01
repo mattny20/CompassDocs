@@ -11,6 +11,7 @@ import { usePathname } from "next/navigation";
 import { Search } from "lucide-react";
 import { SETTINGS_GROUPS, SETTINGS_SECTIONS } from "@/lib/settings-sections";
 import { RailGroupLabel, RailLink } from "./RailLink";
+import { controlClass } from "@/components/form";
 
 export function SettingsNav({ reachable }: { reachable: string[] }) {
   const pathname = usePathname();
@@ -44,7 +45,7 @@ export function SettingsNav({ reachable }: { reachable: string[] }) {
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search settings…"
           aria-label="Search settings"
-          className="w-full rounded-lg border border-slate-200 bg-surface py-1.5 pl-8 pr-2 text-sm outline-hidden placeholder:text-slate-400 focus:border-compass-400"
+          className={controlClass(false, "py-1.5 pl-8 pr-2")}
         />
       </label>
 

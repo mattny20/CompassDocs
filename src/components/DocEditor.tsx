@@ -6,7 +6,7 @@ import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ChevronDown, ClipboardCheck, House, ListChecks, ShieldCheck, Sparkles, SquareSplitVertical, Table as TableIcon, X } from "lucide-react";
-import { EmptyState } from "./form";
+import { EmptyState, Select, TextInput } from "./form";
 import { Popover } from "./Popover";
 import { EntityPicker } from "./EntityPicker";
 import { MarkdownView } from "./MarkdownView";
@@ -686,7 +686,7 @@ export function DocEditor({
         className="space-y-4"
         style={{ "--rte-sticky-top": `${headerH}px` } as React.CSSProperties}
       >
-        <input
+        <TextInput
           value={title}
           onChange={(e) => {
             markDirty();
@@ -694,12 +694,12 @@ export function DocEditor({
           }}
           placeholder="Document title"
           aria-label="Document title"
-          className="w-full rounded-lg border border-slate-200 bg-surface px-4 py-3 text-lg font-semibold text-slate-900 outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100"
+          className="px-4 py-3 text-lg font-semibold text-slate-900"
         />
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <Field label="Space">
-            <select
+            <Select
               value={spaceId}
               onChange={(e) => {
                 const next = Number(e.target.value);
@@ -709,14 +709,13 @@ export function DocEditor({
                   setCategoryId(null);
                 }
               }}
-              className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-hidden focus:border-compass-400"
             >
               {spaces.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.icon} {s.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>
           {nestedEnabled && parentOptions.length > 0 && (
             <Field label="Parent page">
@@ -753,13 +752,12 @@ export function DocEditor({
           )}
           {categories.some((c) => c.space_id === spaceId) && (
             <Field label="Category">
-              <select
+              <Select
                 value={categoryId ?? ""}
                 onChange={(e) => {
                   markDirty();
                   setCategoryId(e.target.value ? Number(e.target.value) : null);
                 }}
-                className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-hidden focus:border-compass-400"
               >
                 <option value="">General</option>
                 {categories
@@ -769,61 +767,57 @@ export function DocEditor({
                       {c.name}
                     </option>
                   ))}
-              </select>
+              </Select>
             </Field>
           )}
           <Field label="Type">
-            <select
+            <Select
               value={type}
               onChange={(e) => {
                 markDirty();
                 setType(e.target.value as DocType);
               }}
-              className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-hidden focus:border-compass-400"
             >
               {DOC_TYPES.map((t) => (
                 <option key={t.value} value={t.value}>
                   {t.label}
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>
           <Field label="Status">
-            <select
+            <Select
               value={status}
               onChange={(e) => {
                 markDirty();
                 setStatus(e.target.value as DocStatus);
               }}
-              className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-hidden focus:border-compass-400"
             >
               <option value="draft">Draft</option>
               <option value="published">Published</option>
-            </select>
+            </Select>
           </Field>
           {canPublish && docId && status === "draft" && (
             <Field label="Publish automatically at (optional)">
-              <input
+              <TextInput
                 type="datetime-local"
                 value={publishAt}
                 onChange={(e) => {
                   markDirty();
                   setPublishAt(e.target.value);
                 }}
-                className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-hidden focus:border-compass-400"
               />
             </Field>
           )}
           {canPublish && docId && status === "published" && (
             <Field label="Unpublish automatically at (optional)">
-              <input
+              <TextInput
                 type="datetime-local"
                 value={archiveAt}
                 onChange={(e) => {
                   markDirty();
                   setArchiveAt(e.target.value);
                 }}
-                className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-hidden focus:border-compass-400"
               />
             </Field>
           )}
@@ -838,32 +832,30 @@ export function DocEditor({
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Summary">
-            <input
+            <TextInput
               value={summary}
               onChange={(e) => {
                 markDirty();
                 setSummary(e.target.value);
               }}
               placeholder="One-line description for cards & search"
-              className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-hidden focus:border-compass-400"
             />
           </Field>
           <Field label="Tags (comma separated)">
-            <input
+            <TextInput
               value={tags}
               onChange={(e) => {
                 markDirty();
                 setTags(e.target.value);
               }}
               placeholder="deploy, ci-cd, release"
-              className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-hidden focus:border-compass-400"
             />
           </Field>
         </div>
 
         {mode === "edit" && (
           <Field label="Change note (shown in version history)">
-            <input
+            <TextInput
               value={changeNote}
               onChange={(e) => {
                 markDirty();
@@ -871,7 +863,6 @@ export function DocEditor({
               }}
               placeholder="What changed and why? e.g. Updated escalation contacts for Q3"
               maxLength={200}
-              className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-hidden focus:border-compass-400"
             />
           </Field>
         )}

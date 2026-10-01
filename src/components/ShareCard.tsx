@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import { Spinner } from "@/components/Spinner";
 import { buttonClass } from "@/components/Button";
 import { CopyButton } from "@/components/CopyButton";
+import { controlClass } from "@/components/form";
 import { Link as LinkIcon, RefreshCw, Share2, X } from "lucide-react";
 import { useFormatDate } from "./SettingsProvider";
 
@@ -129,7 +130,7 @@ export function ShareCard({
             value={expiry}
             onChange={(e) => setExpiry(e.target.value)}
             aria-label="Link expiry"
-            className="w-full rounded-lg border border-slate-200 bg-surface px-2.5 py-1.5 text-sm outline-hidden focus:border-compass-400"
+            className={controlClass(false, "", true)}
           >
             {EXPIRY_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>

@@ -27,6 +27,7 @@ import { RichTextEditor } from "./RichTextEditor";
 import { MarkdownView } from "./MarkdownView";
 import { StatusBadge } from "./NewsletterList";
 import { useFormatDate } from "./SettingsProvider";
+import { controlClass } from "@/components/form";
 
 interface NewsletterDetail {
   id: number;
@@ -95,8 +96,7 @@ interface ApproverLite {
   email: string;
 }
 
-const field =
-  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
+const field = controlClass(false);
 
 export function NewsletterWorkspace({
   initial,
@@ -479,7 +479,7 @@ export function NewsletterWorkspace({
                 <select
                   value={fromAddress}
                   onChange={(e) => setFromAddress(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 bg-surface px-2 py-1.5 text-sm outline-hidden focus:border-compass-400"
+                  className={controlClass(false, "px-2", true)}
                 >
                   <option value="">Workspace default</option>
                   {fromAddresses.map((f) => (
@@ -498,7 +498,7 @@ export function NewsletterWorkspace({
                 <select
                   value={archiveSpaceId ?? ""}
                   onChange={(e) => setArchiveSpaceId(e.target.value ? Number(e.target.value) : null)}
-                  className="w-full rounded-lg border border-slate-200 bg-surface px-2 py-1.5 text-sm outline-hidden focus:border-compass-400"
+                  className={controlClass(false, "px-2", true)}
                 >
                   <option value="">No archive</option>
                   {spaces.map((s) => (

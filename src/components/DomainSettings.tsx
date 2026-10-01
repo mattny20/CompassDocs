@@ -153,8 +153,8 @@ export function DomainSettings({ initial }: { initial: DomainState }) {
           Point an A/AAAA DNS record for this hostname at your server, then enter it here. Leave
           blank to serve on any hostname over plain HTTP.
         </p>
-        <div className="max-w-md">
-          <Field label="Domain">
+        <div>
+          <Field label="Domain" size="md">
             <TextInput
               value={domain}
               onChange={(e) => setDomain(e.target.value)}
@@ -197,8 +197,9 @@ export function DomainSettings({ initial }: { initial: DomainState }) {
 
         {/* Let's Encrypt email */}
         {mode === "auto" && (
-          <div className="mt-4 max-w-md">
+          <div className="mt-4">
             <Field
+              size="md"
               label={
                 <>
                   Contact email <span className="text-slate-500">(optional, for renewal notices)</span>

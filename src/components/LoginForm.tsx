@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { ArrowLeft } from "lucide-react";
 import { buttonClass } from "@/components/Button";
+import { Field, FormError, TextInput } from "@/components/form";
 import { useRouter } from "next/navigation";
 
 export function LoginForm({ next = "/" }: { next?: string }) {
@@ -47,52 +49,41 @@ export function LoginForm({ next = "/" }: { next?: string }) {
 
   return (
     <form onSubmit={submit} className="space-y-4">
-      {error && (
-        <div className="notice-error rounded-lg border px-3 py-2 text-sm">
-          {error}
-        </div>
-      )}
+      <FormError>{error}</FormError>
       {!needsTotp ? (
         <>
-          <label className="block">
-            <span className="mb-1 block text-sm font-medium text-slate-600">Username</span>
-            <input
+          <Field label="Username">
+            <TextInput
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               autoFocus
               autoComplete="username"
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100"
             />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-sm font-medium text-slate-600">Password</span>
-            <input
+          </Field>
+          <Field label="Password">
+            <TextInput
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="current-password"
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100"
             />
-          </label>
+          </Field>
         </>
       ) : (
-        <label className="block">
-          <span className="mb-1 block text-sm font-medium text-slate-600">
-            Two-factor code
-          </span>
-          <input
+        <Field
+          label="Two-factor code"
+          help="From your authenticator app — or one of your recovery codes."
+        >
+          <TextInput
             value={totpCode}
             onChange={(e) => setTotpCode(e.target.value)}
             autoFocus
             inputMode="numeric"
             autoComplete="one-time-code"
             placeholder="6-digit code or recovery code"
-            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-center font-mono tracking-widest outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100"
+            className="text-center font-mono tracking-widest"
           />
-          <span className="mt-1 block text-xs text-slate-500">
-            From your authenticator app — or one of your recovery codes.
-          </span>
-        </label>
+        </Field>
       )}
       <button
         type="submit"
@@ -109,9 +100,9 @@ export function LoginForm({ next = "/" }: { next?: string }) {
             setTotpCode("");
             setError("");
           }}
-          className="w-full text-center text-xs font-medium text-slate-500 hover:text-slate-600"
+          className="inline-flex w-full items-center justify-center gap-1 text-center text-xs font-medium text-slate-500 hover:text-slate-600"
         >
-          ← Back
+          <ArrowLeft className="h-3.5 w-3.5" aria-hidden /> Back
         </button>
       )}
     </form>

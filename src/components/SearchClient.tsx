@@ -6,7 +6,7 @@ import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import Link from "next/link";
 import { SearchX, Sparkles, X } from "lucide-react";
-import { EmptyState } from "./form";
+import { EmptyState, TextInput } from "./form";
 import { MarkdownView } from "./MarkdownView";
 import { PageContainer } from "./PageWidth";
 import { PageHeader } from "@/components/PageHeader";
@@ -104,13 +104,13 @@ export function SearchClient({
       />
 
       <form onSubmit={onSubmit} className="mb-6 flex gap-2">
-        <input
+        <TextInput
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           autoFocus
           aria-label="Ask a question or search by keyword"
           placeholder="e.g. How do I roll back a bad deploy?"
-          className="flex-1 rounded-lg border border-slate-200 bg-surface px-4 py-2.5 text-slate-800 outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100"
+          className="flex-1 px-4 py-2.5 text-base"
         />
         <button
           type="submit"

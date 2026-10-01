@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { buttonClass } from "@/components/Button";
 import { Chip, labelCase } from "@/components/Chip";
 import { Table, Th, Td, TABLE_HEAD_ROW, TR } from "@/components/Table";
@@ -9,6 +9,7 @@ import { useRouter } from "next/navigation";
 import { ROLE_ORDER, ROLE_LABEL, ROLE_BLURB } from "@/lib/types";
 import type { User, Role } from "@/lib/types";
 import { toast } from "@/components/Toasts";
+import { Field, Select, TextInput } from "@/components/form";
 
 export function UsersClient({
   users,
@@ -123,12 +124,12 @@ function UserTable({
 
   return (
     <div>
-      <input
+      <TextInput
         value={query}
         onChange={(e) => onQueryChange(e.target.value)}
         placeholder="Search by name, username, email, or role…"
         aria-label="Search users"
-        className="mb-3 w-full max-w-sm rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-hidden placeholder:text-slate-400 focus:border-compass-400"
+        className="mb-3 max-w-sm"
       />
     {/* Scrolls rather than clips: below ~1180px the Status and Actions columns
         (Reset password / Disable / Delete) used to be unreachable entirely. */}
@@ -162,18 +163,19 @@ function UserTable({
                 <div className="text-xs text-slate-500">@{u.username}</div>
               </Td>
               <Td>
-                <select
+                <Select
                   value={u.role}
                   onChange={(e) => changeRole(u.id, e.target.value as Role)}
                   aria-label={`Role for ${u.name || u.username}`}
-                  className="rounded-md border border-slate-200 bg-surface px-2 py-1 text-sm outline-hidden focus:border-compass-400"
+                  dense
+                  className="w-auto rounded-md px-2 py-1"
                 >
                   {ROLE_ORDER.map((r) => (
                     <option key={r} value={r}>
                       {ROLE_LABEL[r]}
                     </option>
                   ))}
-                </select>
+                </Select>
                 {(extraRoles?.[u.id] ?? []).length > 0 && (
                   <div className="mt-1 flex flex-wrap gap-1">
                     {extraRoles![u.id].map((label) => (
@@ -235,6 +237,8 @@ function UserTable({
   );
 }
 
+const USERNAME_RE = /^[a-z0-9._-]{3,32}$/;
+
 function CreateUser() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -244,9 +248,35 @@ function CreateUser() {
   const [role, setRole] = useState<Role>("viewer");
   const [password, setPassword] = useState("");
   const [saving, setSaving] = useState(false);
+  const [tried, setTried] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const formRef = useRef<HTMLFormElement>(null);
+
+  // Once the errors have rendered, focus the first invalid control.
+  useEffect(() => {
+    if (attempt > 0) formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
+  }, [attempt]);
+
+  // The same rules the API enforces, shown inline once a submit has been
+  // attempted — before, the server clamped and the toast said "created".
+  const errors = {
+    username: !username.trim()
+      ? "A username is required."
+      : !USERNAME_RE.test(username.trim().toLowerCase())
+        ? "3–32 characters: letters, numbers, dot, dash, underscore."
+        : undefined,
+    email: email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? "That doesn't look like an email address." : undefined,
+    password: password.length < 6 ? "At least 6 characters." : undefined,
+  };
+  const invalid = Boolean(errors.username || errors.email || errors.password);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    setTried(true);
+    if (invalid) {
+      setAttempt((n) => n + 1);
+      return;
+    }
     setSaving(true);
     const res = await fetch("/api/admin/users", {
       method: "POST",
@@ -265,6 +295,7 @@ function CreateUser() {
     setEmail("");
     setPassword("");
     setRole("viewer");
+    setTried(false);
     setOpen(false);
     router.refresh();
   }
@@ -280,44 +311,54 @@ function CreateUser() {
     );
   }
 
-  const field =
-    "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
-
   return (
-    <form onSubmit={submit} className="mt-4 rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
+    <form ref={formRef} onSubmit={submit} noValidate className="mt-4 rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
       <h3 className="mb-3 font-semibold text-slate-900">Add a user</h3>
       <div className="grid gap-3 sm:grid-cols-2">
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-slate-500">Username</span>
-          <input value={username} onChange={(e) => setUsername(e.target.value)} className={field} placeholder="jdoe" />
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-slate-500">Full name</span>
-          <input value={name} onChange={(e) => setName(e.target.value)} className={field} placeholder="Jane Doe" />
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-slate-500">Email</span>
-          <input value={email} onChange={(e) => setEmail(e.target.value)} className={field} placeholder="jane@company.com" />
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-slate-500">Role</span>
-          <select value={role} onChange={(e) => setRole(e.target.value as Role)} className={field}>
+        <Field label="Username" error={tried ? errors.username : undefined}>
+          <TextInput
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder="jdoe"
+            autoComplete="off"
+            autoCapitalize="none"
+            spellCheck={false}
+            autoFocus
+          />
+        </Field>
+        <Field label="Full name">
+          <TextInput value={name} onChange={(e) => setName(e.target.value)} placeholder="Jane Doe" autoComplete="off" />
+        </Field>
+        <Field label="Email" error={tried ? errors.email : undefined}>
+          <TextInput
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="jane@company.com"
+            autoComplete="off"
+          />
+        </Field>
+        <Field label="Role">
+          <Select value={role} onChange={(e) => setRole(e.target.value as Role)}>
             {ROLE_ORDER.map((r) => (
               <option key={r} value={r}>
                 {ROLE_LABEL[r]} — {ROLE_BLURB[r]}
               </option>
             ))}
-          </select>
-        </label>
-        <label className="block sm:col-span-2">
-          <span className="mb-1 block text-xs font-medium text-slate-500">Temporary password</span>
-          <input
+          </Select>
+        </Field>
+        <Field
+          label="Temporary password"
+          className="sm:col-span-2"
+          error={tried ? errors.password : undefined}
+          help="At least 6 characters — the user changes it on first login."
+        >
+          <TextInput
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className={field}
-            placeholder="At least 6 characters — user changes it on first login"
+            autoComplete="new-password"
           />
-        </label>
+        </Field>
       </div>
       <div className="mt-3 flex gap-2">
         <button
@@ -330,7 +371,7 @@ function CreateUser() {
         <button
           type="button"
           onClick={() => setOpen(false)}
-          className="rounded-lg px-4 py-2 text-sm text-slate-500 hover:bg-slate-100"
+          className={buttonClass("ghost")}
         >
           Cancel
         </button>
