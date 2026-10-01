@@ -9,6 +9,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { Search } from "lucide-react";
+import { TextInput } from "@/components/form";
 import { getPublicSiteConfig } from "@/lib/public-site";
 import { getAppSettings } from "@/lib/settings-store";
 import { listPublicSpaces } from "@/lib/db";
@@ -46,11 +47,12 @@ export default async function PublicLayout({ children }: { children: React.React
           <form action="/public/search" className="ml-auto flex min-w-50 flex-1 sm:max-w-xs">
             <div className="relative w-full">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input
+              <TextInput
                 type="search"
                 name="q"
+                aria-label="Search the docs"
                 placeholder="Search the docs…"
-                className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm outline-hidden focus:border-compass-400 focus:bg-surface focus:ring-2 focus:ring-compass-100"
+                className="bg-slate-50 py-2 pl-9 pr-3 focus:bg-surface"
               />
             </div>
           </form>

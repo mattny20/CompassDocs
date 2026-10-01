@@ -6,6 +6,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { buttonClass } from "@/components/Button";
+import { controlClass } from "@/components/form";
 import { Film, UploadCloud, X } from "lucide-react";
 import { videoEmbedUrl } from "@/lib/doc-blocks";
 
@@ -127,7 +128,7 @@ export function VideoInsertDialog({
             setError("");
           }}
           placeholder="https://www.youtube.com/watch?v=… or paste any supported link"
-          className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-compass-400 focus:outline-none"
+          className={controlClass(false)}
         />
         <p className="mt-1 min-h-4 text-xs">
           {src.trim() &&
@@ -167,7 +168,7 @@ export function VideoInsertDialog({
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           maxLength={200}
-          className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm text-slate-800 focus:border-compass-400 focus:outline-none"
+          className={controlClass(false)}
         />
 
         <label className="mb-1 mt-2 block text-xs font-medium text-slate-500">
@@ -178,7 +179,7 @@ export function VideoInsertDialog({
           value={poster}
           onChange={(e) => setPoster(e.target.value)}
           placeholder="https://… or /api/attachments/…"
-          className="w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-compass-400 focus:outline-none"
+          className={controlClass(false)}
         />
 
         {error && <p className="mt-2 text-sm text-red-600">{error}</p>}

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, X } from "lucide-react";
+import { controlClass } from "@/components/form";
 
 // Scalable user/group picker for the Settings pages: a searchable combobox
 // that stays fast and uncluttered with thousands of entries. Type to filter
@@ -153,7 +154,7 @@ export function EntityPicker({
           placeholder={placeholder}
           role="combobox"
           aria-expanded={open}
-          className="w-full rounded-lg border border-slate-200 bg-surface py-2 pl-8 pr-3 text-sm outline-hidden placeholder:text-slate-400 focus:border-compass-400 disabled:opacity-60"
+          className={controlClass(false, "pl-8 pr-3")}
         />
       </div>
 

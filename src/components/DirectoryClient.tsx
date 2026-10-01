@@ -40,7 +40,7 @@ import {
   resolveValues,
   milestonesFor,
 } from "@/lib/directory-display";
-import { EmptyState } from "./form";
+import { EmptyState, controlClass } from "./form";
 import { Popover, MenuItem, MenuSeparator } from "./Popover";
 import { Table, Th, Td, TABLE_HEAD_ROW, TR } from "./Table";
 import { OrgChart } from "./directory/OrgChart";
@@ -50,8 +50,8 @@ import { FieldChips } from "./TagBadges";
 import { toast } from "./Toasts";
 import { iconButtonClass } from "./Button";
 
-const field =
-  "rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
+// w-auto: these sit in a flex-wrap toolbar at their intrinsic width.
+const field = controlClass(false, "w-auto");
 const menuBtn =
   "rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50";
 /** The trailing PDF/ZIP/CSV/VCF tag on an export row, right-aligned inside
@@ -601,7 +601,7 @@ export function DirectoryClient({
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search people…"
           aria-label="Search people"
-          className={`${field} w-64`}
+          className={controlClass(false, "w-64")}
           autoFocus
         />
         {groupFields.length > 0 && (

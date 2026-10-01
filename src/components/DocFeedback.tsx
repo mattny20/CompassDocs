@@ -6,6 +6,7 @@
 
 import { useEffect, useState } from "react";
 import { buttonClass } from "@/components/Button";
+import { controlClass } from "@/components/form";
 import { ThumbsUp, ThumbsDown } from "lucide-react";
 
 interface Summary {
@@ -114,7 +115,7 @@ export function DocFeedback({ docId }: { docId: number }) {
             onChange={(e) => setNote(e.target.value)}
             maxLength={500}
             placeholder="What's missing or wrong? (optional)"
-            className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-sm outline-hidden focus:border-compass-400"
+            className={controlClass(false, "min-w-0 flex-1 px-3", true)}
           />
           <button
             type="submit"

@@ -5,6 +5,7 @@ import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import { Table, Th, Td, TABLE_HEAD_ROW, TR } from "@/components/Table";
 import { busyClass } from "@/components/Spinner";
+import { controlClass } from "@/components/form";
 import { toast } from "@/components/Toasts";
 import { useFormatDate } from "./SettingsProvider";
 
@@ -180,7 +181,7 @@ export function AuditLog({
                 setFrom(e.target.value);
                 load(0, category, e.target.value, to);
               }}
-              className="rounded-lg border border-slate-200 bg-surface px-2 py-1.5 text-sm text-slate-700 outline-hidden focus:border-compass-400"
+              className={controlClass(false, "w-auto px-2", true)}
             />
           </label>
           <label className="flex items-center gap-1.5 text-xs text-slate-500">
@@ -192,7 +193,7 @@ export function AuditLog({
                 setTo(e.target.value);
                 load(0, category, from, e.target.value);
               }}
-              className="rounded-lg border border-slate-200 bg-surface px-2 py-1.5 text-sm text-slate-700 outline-hidden focus:border-compass-400"
+              className={controlClass(false, "w-auto px-2", true)}
             />
           </label>
           <select
@@ -201,7 +202,7 @@ export function AuditLog({
               setCategory(e.target.value);
               load(0, e.target.value);
             }}
-            className="rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm outline-hidden focus:border-compass-400"
+            className={controlClass(false, "w-auto")}
           >
             <option value="">All categories</option>
             {initial.categories.map((c) => (

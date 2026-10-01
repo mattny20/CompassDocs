@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { buttonClass } from "@/components/Button";
+import { controlClass } from "@/components/form";
 import { Check, Lightbulb } from "lucide-react";
 
 export function SuggestBox({ documentId }: { documentId: number }) {
@@ -68,7 +69,7 @@ export function SuggestBox({ documentId }: { documentId: number }) {
             autoFocus
             rows={3}
             placeholder="e.g. Step 4 is out of date — the canary now bakes for 15 minutes, not 10."
-            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100"
+            className={controlClass(false)}
           />
           <div className="mt-2 flex items-center gap-2">
             <button

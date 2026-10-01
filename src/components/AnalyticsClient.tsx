@@ -34,6 +34,7 @@ import {
 } from "lucide-react";
 import { useFormatDate } from "./SettingsProvider";
 import { PageHeader } from "@/components/PageHeader";
+import { controlClass } from "@/components/form";
 
 type Kpis = Record<string, number>;
 interface SeriesPoint {
@@ -439,8 +440,7 @@ export function AnalyticsClient() {
   }, [load]);
 
   const k = data?.kpis ?? {};
-  const select =
-    "rounded-lg border border-slate-200 bg-surface px-2.5 py-1.5 text-sm text-slate-600 outline-hidden focus:border-compass-400";
+  const select = controlClass(false, "w-auto", true);
 
   const trendRows = useMemo(
     () =>
@@ -505,7 +505,7 @@ export function AnalyticsClient() {
           value={tag}
           onChange={(e) => setTag(e.target.value)}
           placeholder="Filter by tag…"
-          className={`${select} w-36 placeholder:text-slate-400`}
+          className={controlClass(false, "w-36", true)}
         />
         {filtered && (
           <button

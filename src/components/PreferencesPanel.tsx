@@ -7,6 +7,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Monitor, Moon, Sun } from "lucide-react";
+import { Field, FormError, Select } from "./form";
 import { WidthPreference } from "./PageWidth";
 import { Segmented, type SegmentedOption } from "./Segmented";
 import { applyThemePref, storeThemePref, type Pref } from "./ThemeToggle";
@@ -92,9 +93,6 @@ export function PreferencesPanel({
     await patch({ ui_scale: next });
   }
 
-  const select =
-    "w-full rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm text-slate-800 focus:border-compass-400 focus:outline-none";
-
   return (
     <div className="space-y-4">
       <div className="rounded-xl border border-slate-200 bg-surface p-5 shadow-xs">
@@ -130,15 +128,13 @@ export function PreferencesPanel({
           The weekly digest arrives Monday morning in your zone.
         </p>
         <div className="grid gap-3 sm:grid-cols-2">
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-500">Time zone</span>
-            <select
+          <Field label="Time zone">
+            <Select
               value={timezone}
               onChange={(e) => {
                 setTimezone(e.target.value);
                 void patch({ timezone: e.target.value });
               }}
-              className={select}
             >
               <option value="">Workspace default ({workspaceTimezone || "UTC"})</option>
               {zones.map((z) => (
@@ -146,28 +142,26 @@ export function PreferencesPanel({
                   {z.replaceAll("_", " ")}
                 </option>
               ))}
-            </select>
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-500">Date format</span>
-            <select
+            </Select>
+          </Field>
+          <Field label="Date format">
+            <Select
               value={dateFormat}
               onChange={(e) => {
                 const df = e.target.value as Df;
                 setDateFormat(df);
                 void patch({ date_format: df });
               }}
-              className={select}
             >
               {DATE_FORMATS.map((df) => (
                 <option key={df} value={df}>
                   {df === "auto" ? "Workspace default" : dfExample(df)}
                 </option>
               ))}
-            </select>
-          </label>
+            </Select>
+          </Field>
         </div>
-        {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+        <FormError className="mt-3">{error}</FormError>
       </div>
     </div>
   );

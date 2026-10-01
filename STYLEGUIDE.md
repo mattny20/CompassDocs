@@ -260,14 +260,10 @@ focus):
   red text stays only for field-level validation; persistent status banners
   (license expiry, TLS state, import results) stay inline — they're state,
   not feedback.
-- **Form controls come from `components/form`**: `<Field label help error>`
-  wrapping `<TextInput/>`, `<Select/>`, or `<Textarea/>`; boolean settings
-  use `<Toggle label help checked onChange/>`. Don't hand-roll input
-  classes — pass per-instance extras (`font-mono`, heights) via
-  `className`, and cap a control's width with a wrapper div (the shared
-  style is `w-full`). Keep raw-but-`controlClass()`-styled inputs only for
-  compact placeholder-only add-forms and table-row controls. Checkbox
-  *lists*, radio groups, and composite pickers stay as they are.
+- **Form controls come from `components/form`** — see §Forms. `<Field label
+  help error size>` wrapping `<TextInput/>`, `<Select/>`, or `<Textarea/>`;
+  boolean settings use `<Toggle label help checked onChange/>`. Never
+  hand-roll an input class (the guard fails the build).
 - Settings pages honor the account width preference like every other page —
   `SettingsPage` adds **no** width cap of its own. A readable column here
   would silently override Normal/Wide/Full (this shipped once, in 0.85.0);
@@ -293,6 +289,56 @@ focus):
   `text-xs text-amber-600`, or `Saved` in `text-xs text-slate-500`). A page
   whose cards are one document (office fields + office values) has one Save
   below the cards, not one per card.
+
+## Forms
+
+One field recipe, one input recipe, one width scale. Everything lives in
+`components/form`.
+
+- **`<Field label help error size className>`** wraps one control. The
+  label is the control's accessible name; the help or error line is its
+  *description* — Field generates the ids and hands `aria-describedby` and
+  `aria-invalid` to the control through context, so a call site writes
+  nothing. An `error` replaces the help, turns the border red and is
+  announced (`role="alert"`) the moment it appears. Validation is inline:
+  bounded numbers use `rangeError(value, min, max)`; rule checks (a
+  username pattern, a minimum length) run on the client with the same
+  rules the API enforces, shown once a submit has been attempted
+  (`tried`), and the first invalid control is focused. Never let the
+  server clamp a value and then toast "saved".
+- **`<FormError>`** is the banner for a failure that belongs to the whole
+  form — a wrong password, a server refusal. It is an alert, renders
+  nothing while empty (so it can sit in the markup unconditionally), and
+  is the only inline error that is not a field's.
+- **`<TextInput>`, `<Select>`, `<Textarea>`** are the controls (forwarding
+  refs; every native attribute passes through — keep `autoComplete`,
+  `inputMode`, `type`, `maxLength`, `spellCheck`). `dense` is the compact
+  variant for table rows and toolbars (`px-2.5 py-1.5`). A search box with
+  an icon inset or a control outside a Field (a filter in a toolbar) uses
+  the same component with `aria-label` and padding extras, or
+  `controlClass(hasError, extra, dense)` on a raw element when a component
+  can't be used. Extras that set a width, padding, radius, text size or
+  surface replace the recipe's own (`w-16`, `pl-8 pr-3`, `rounded-md`,
+  `text-xs`, `bg-canvas`); `w-auto` keeps an inline select at its
+  intrinsic width. Focus is the global outline (§Focus): the recipe paints
+  `focus:border-compass-500` and nothing else — `focus:ring-*` and
+  `focus:border-compass-400` are the retired recipe and fail the build.
+- **Width scale.** A single-line control is as wide as what goes in it:
+  `size="xs"` (10rem — a number, a short code), `sm` (16rem — a label, a
+  username), `md` (28rem — a name, an email, a password), `lg` (36rem — a
+  URL, a key), `full` (the default: grid cells, textareas, anything in a
+  narrow card). The size is a cap on the Field, so a grid cell or a flex
+  row still governs. `<Toggle>` takes the same scale and defaults to `lg`
+  so the switch sits near its label; pass `size="full"` only inside a
+  bounded card. Never wrap a Field in a `max-w-*` div — that is what the
+  prop is for.
+- **Labels** are `text-xs font-medium text-slate-500`, above the control;
+  an optional field says so in the label (`(optional)`) rather than with a
+  placeholder. Placeholders are examples, never the label: a control with
+  no visible label needs `aria-label`.
+- Checkbox *lists*, radio groups and composite pickers (EntityPicker,
+  SpaceIconPicker) keep their own markup; their text inputs still use the
+  recipe.
 
 ## Wayfinding: back links and breadcrumbs
 

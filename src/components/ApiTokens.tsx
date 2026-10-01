@@ -7,6 +7,7 @@
 import { useState } from "react";
 import { buttonClass } from "@/components/Button";
 import { CopyButton } from "@/components/CopyButton";
+import { controlClass } from "@/components/form";
 import type { ApiToken } from "@/lib/db";
 import { useFormatDate } from "./SettingsProvider";
 
@@ -17,8 +18,7 @@ interface Connection {
   last_used_at: string | null;
 }
 
-const field =
-  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
+const field = controlClass(false);
 
 export function ApiTokens({
   initial,
@@ -157,6 +157,7 @@ export function ApiTokens({
             className={field}
             value={name}
             onChange={(e) => setName(e.target.value)}
+            aria-label="Token name"
             placeholder="Token name (e.g. Claude Desktop on my Mac)"
             maxLength={60}
           />

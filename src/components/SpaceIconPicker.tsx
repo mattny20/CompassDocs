@@ -6,6 +6,7 @@
 // keywords next to each emoji; any emoji can still be typed by hand.
 
 import { useMemo, useState } from "react";
+import { controlClass } from "@/components/form";
 
 type IconEntry = { e: string; k: string };
 type Category = { label: string; icons: IconEntry[] };
@@ -153,12 +154,12 @@ export function SpaceIconPicker({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search icons… (rocket, security, training)"
-          className="flex-1 rounded-md border border-slate-200 px-2.5 py-1.5 text-sm outline-hidden focus:border-compass-400"
+          className={controlClass(false, "flex-1 rounded-md", true)}
         />
         <input
           value={value}
           onChange={(e) => onChange(e.target.value.slice(0, 8))}
-          className="h-9 w-14 rounded-md border border-slate-200 px-2 text-center text-lg outline-hidden focus:border-compass-400"
+          className={controlClass(false, "h-9 w-14 rounded-md px-2 py-0 text-center text-lg")}
           aria-label="Custom emoji"
           title="Type or paste any emoji"
         />

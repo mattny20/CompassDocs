@@ -23,6 +23,7 @@ import { MarkdownView } from "@/components/MarkdownView";
 import { isTypingTarget } from "@/lib/hotkeys";
 import { overlayOpen } from "@/lib/overlay-stack";
 import { useFormatDate } from "@/components/SettingsProvider";
+import { controlClass } from "@/components/form";
 
 export interface PlayerQuizQuestion {
   text: string;
@@ -298,7 +299,7 @@ export function TrainingPlayer({
                   onChange={(e) => setTypedName(e.target.value)}
                   placeholder={signature?.expectedName}
                   aria-label="Type your full name to sign"
-                  className="mt-2 w-full rounded-lg border border-slate-200 bg-surface px-3 py-1.5 text-sm outline-hidden focus:border-compass-400"
+                  className={controlClass(false, "mt-2 px-3", true)}
                 />
                 {signature?.passwordRequired && (
                   <input
@@ -308,7 +309,7 @@ export function TrainingPlayer({
                     placeholder="Account password"
                     aria-label="Re-enter your account password to sign"
                     autoComplete="current-password"
-                    className="mt-2 w-full rounded-lg border border-slate-200 bg-surface px-3 py-1.5 text-sm outline-hidden focus:border-compass-400"
+                    className={controlClass(false, "mt-2 px-3", true)}
                   />
                 )}
               </div>

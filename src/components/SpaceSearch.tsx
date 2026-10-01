@@ -8,7 +8,7 @@ import { chipClass } from "@/components/Chip";
 import Link from "next/link";
 import { Search, SearchX, X } from "lucide-react";
 import { TypeBadge } from "./Badges";
-import { EmptyState } from "./form";
+import { EmptyState, TextInput } from "./form";
 import { safeSnippet } from "@/lib/snippet";
 
 interface Hit {
@@ -73,12 +73,12 @@ export function SpaceSearch({
     <>
       <div className="relative mb-6">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-        <input
+        <TextInput
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder={`Search in ${spaceName}…`}
           aria-label={`Search documents in ${spaceName}`}
-          className="w-full rounded-xl border border-slate-200 bg-surface py-2.5 pl-10 pr-10 text-sm shadow-xs outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100"
+          className="rounded-xl py-2.5 pl-10 pr-10 shadow-xs"
         />
         {query && (
           <button

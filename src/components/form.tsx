@@ -1,79 +1,206 @@
 "use client";
 
-// Shared form primitives for settings pages (STYLEGUIDE.md "Settings pages"):
-// one way to render a labeled control with help text and a field-level error.
-// Field wraps any control; TextInput/Select/Textarea are the standard styled
-// controls; Toggle is a switch for boolean options. Inline errors here are
-// field validation — action results still go through components/Toasts.
+// Shared form primitives (STYLEGUIDE.md "Forms"): one way to render a
+// labeled control with help text and a field-level error, and one input
+// recipe. Field wraps any control and — through context, so call sites
+// need no wiring — hands the control its description (help or error) and
+// its invalid state; errors are announced. TextInput/Select/Textarea are
+// the standard styled controls; Toggle is a switch for boolean options;
+// FormError is the banner for a failure that belongs to the whole form
+// (wrong password). Inline errors here are field validation — action
+// results still go through components/Toasts.
 
-import { forwardRef, useId } from "react";
+import { createContext, forwardRef, useContext, useId } from "react";
 import Link from "next/link";
 import { buttonClass } from "./Button";
+
+/* ---------------------------------------------------------------------------
+ * Width scale. Single-line controls have a natural width: a number is a few
+ * digits, a name or password a few words, a URL or key a line. Left at
+ * w-full they run to the page edge — 2,000px at 2560 Full — so Field and
+ * Toggle take a size. Field defaults to full (nothing moves until a call
+ * site opts in); Toggle defaults to lg so the switch sits near its label.
+ * Grid cells and flex rows keep their own widths: a size is a *cap*.
+ * ------------------------------------------------------------------------ */
+const SIZE = {
+  /** A number, a short code: 10rem. */
+  xs: "max-w-40",
+  /** A label, a username: 16rem. */
+  sm: "max-w-64",
+  /** A name, an email, a password: 28rem. */
+  md: "max-w-md",
+  /** A URL, a key, a long sentence: 36rem. */
+  lg: "max-w-xl",
+  full: "",
+} as const;
+export type FieldSize = keyof typeof SIZE;
+
+type FieldA11y = { describedBy?: string; invalid: boolean };
+const FieldContext = createContext<FieldA11y | null>(null);
 
 export function Field({
   label,
   help,
   error,
+  size = "full",
+  className = "",
   children,
 }: {
   label: React.ReactNode;
   /** Muted line under the control; hidden while an error is shown. */
   help?: React.ReactNode;
-  /** Field-level validation error (red, replaces help). */
+  /** Field-level validation error (red, replaces help, announced). */
   error?: React.ReactNode;
+  /** Width cap for a single-line control (see the scale above). */
+  size?: FieldSize;
+  className?: string;
   children: React.ReactNode;
 }) {
+  const id = useId();
+  const helpId = `${id}-help`;
+  const errorId = `${id}-error`;
+  const describedBy = error ? errorId : help ? helpId : undefined;
   return (
-    <label className="block">
-      <span className="mb-1 block text-xs font-medium text-slate-500">{label}</span>
-      {children}
-      {error ? (
-        <span className="mt-1 block text-xs text-red-600">{error}</span>
-      ) : help ? (
-        <span className="mt-1 block text-xs text-slate-500">{help}</span>
-      ) : null}
-    </label>
+    <FieldContext.Provider value={{ describedBy, invalid: Boolean(error) }}>
+      <div className={`${SIZE[size]} ${className}`.trim()}>
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-slate-500">{label}</span>
+          {children}
+        </label>
+        {error ? (
+          <span id={errorId} role="alert" className="mt-1 block text-xs text-red-600">
+            {error}
+          </span>
+        ) : help ? (
+          <span id={helpId} className="mt-1 block text-xs text-slate-500">
+            {help}
+          </span>
+        ) : null}
+      </div>
+    </FieldContext.Provider>
   );
+}
+
+/**
+ * A failure that belongs to the whole form rather than one field — a wrong
+ * password, a server that said no. Announced (alert) the moment it appears;
+ * renders nothing while empty, so it can sit in the markup unconditionally.
+ */
+export function FormError({
+  children,
+  className = "",
+}: {
+  children?: React.ReactNode;
+  className?: string;
+}) {
+  if (!children) return null;
+  return (
+    <div role="alert" className={`notice-error rounded-lg border px-3 py-2 text-sm ${className}`.trim()}>
+      {children}
+    </div>
+  );
+}
+
+/** Inline validation for a bounded whole number ("Days (0–3650)"). */
+export function rangeError(value: number | string, min: number, max: number): string | undefined {
+  const n = typeof value === "number" ? value : Number(value);
+  if (value === "" || Number.isNaN(n)) return "Enter a number.";
+  if (!Number.isInteger(n)) return "Whole numbers only.";
+  if (n < min || n > max) return `Must be between ${min} and ${max}.`;
+  return undefined;
 }
 
 // Keyboard focus is the global :focus-visible outline (globals.css, STYLEGUIDE
 // §Focus) — one indicator, not outline + a 1.3:1 ring that nobody could see.
 // The border still tints on focus so a mouse click reads as "active" too.
 const control = "w-full rounded-lg border bg-surface px-3 py-2 text-sm placeholder:text-slate-400 disabled:opacity-50";
+const controlDense = "w-full rounded-lg border bg-surface px-2.5 py-1.5 text-sm placeholder:text-slate-400 disabled:opacity-50";
 const controlOk = "border-slate-200 focus:border-compass-500";
 const controlErr = "border-red-300 focus:border-red-400";
 
-export function controlClass(hasError?: boolean, extra = ""): string {
-  // The shared style is w-full; a caller's own width (`w-44`) must win, and
-  // the stylesheet's order says otherwise — w-full is emitted after the
-  // spacing-scale widths, so both classes together always came out full
-  // width. Drop the default when a width is given.
-  const base = /(^|\s)w-\S+/.test(extra) ? control.replace(/\bw-full\b/, "") : control;
+// A caller's own width, padding, radius, size or surface must win over the
+// shared default, and the stylesheet's order says otherwise (w-full is
+// emitted after w-44, so both together always came out full width). Drop
+// the default of any family the extras set.
+const FAMILIES: [RegExp, RegExp][] = [
+  [/(^|\s)w-\S+/, /\bw-full\b/],
+  [/(^|\s)(?:p|px|pl|pr)-\S+/, /\bpx-[\d.]+\b/],
+  [/(^|\s)(?:p|py|pt|pb)-\S+/, /\bpy-[\d.]+\b/],
+  [/(^|\s)rounded(?:-\S+)?(?=\s|$)/, /\brounded-lg\b/],
+  [/(^|\s)text-(?:2xs|3xs|xs|sm|base|lg|xl|\[[^\]]+\])\b/, /\btext-sm\b/],
+  [/(^|\s)bg-\S+/, /\bbg-surface\b/],
+];
+
+export function controlClass(hasError?: boolean, extra = "", dense = false): string {
+  let base = dense ? controlDense : control;
+  for (const [inExtra, inBase] of FAMILIES) if (inExtra.test(extra)) base = base.replace(inBase, "");
   return `${base} ${hasError ? controlErr : controlOk} ${extra}`.replace(/\s+/g, " ").trim();
 }
 
-type InputProps = React.InputHTMLAttributes<HTMLInputElement> & { hasError?: boolean };
+/** The description and invalid state a wrapping Field hands its control. */
+function useFieldA11y<P extends { hasError?: boolean; "aria-describedby"?: string; "aria-invalid"?: React.AriaAttributes["aria-invalid"] }>(
+  props: P
+): { hasError: boolean; describedBy?: string; invalid?: React.AriaAttributes["aria-invalid"] } {
+  const ctx = useContext(FieldContext);
+  const hasError = props.hasError ?? ctx?.invalid ?? false;
+  return {
+    hasError,
+    describedBy: props["aria-describedby"] ?? ctx?.describedBy,
+    invalid: props["aria-invalid"] ?? (hasError ? true : undefined),
+  };
+}
+
+type ControlExtras = { hasError?: boolean; /** Compact padding for table rows and toolbars. */ dense?: boolean };
+
+type InputProps = React.InputHTMLAttributes<HTMLInputElement> & ControlExtras;
 export const TextInput = forwardRef<HTMLInputElement, InputProps>(function TextInput(
-  { hasError, className = "", ...props },
+  { hasError, dense, className = "", ...props },
   ref
 ) {
-  return <input ref={ref} className={controlClass(hasError, className)} {...props} />;
+  const a = useFieldA11y({ hasError, ...props });
+  return (
+    <input
+      ref={ref}
+      className={controlClass(a.hasError, className, dense)}
+      {...props}
+      aria-describedby={a.describedBy}
+      aria-invalid={a.invalid}
+    />
+  );
 });
 
-type SelectProps = React.SelectHTMLAttributes<HTMLSelectElement> & { hasError?: boolean };
+type SelectProps = React.SelectHTMLAttributes<HTMLSelectElement> & ControlExtras;
 export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select(
-  { hasError, className = "", ...props },
+  { hasError, dense, className = "", ...props },
   ref
 ) {
-  return <select ref={ref} className={controlClass(hasError, className)} {...props} />;
+  const a = useFieldA11y({ hasError, ...props });
+  return (
+    <select
+      ref={ref}
+      className={controlClass(a.hasError, className, dense)}
+      {...props}
+      aria-describedby={a.describedBy}
+      aria-invalid={a.invalid}
+    />
+  );
 });
 
-type TextareaProps = React.TextareaHTMLAttributes<HTMLTextAreaElement> & { hasError?: boolean };
+type TextareaProps = React.TextareaHTMLAttributes<HTMLTextAreaElement> & ControlExtras;
 export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function Textarea(
-  { hasError, className = "", ...props },
+  { hasError, dense, className = "", ...props },
   ref
 ) {
-  return <textarea ref={ref} className={controlClass(hasError, className)} {...props} />;
+  const a = useFieldA11y({ hasError, ...props });
+  return (
+    <textarea
+      ref={ref}
+      className={controlClass(a.hasError, className, dense)}
+      {...props}
+      aria-describedby={a.describedBy}
+      aria-invalid={a.invalid}
+    />
+  );
 });
 
 /** A labeled switch for boolean settings. Label first, switch aligned right. */
@@ -83,25 +210,36 @@ export function Toggle({
   checked,
   onChange,
   disabled,
+  size = "lg",
+  className = "",
 }: {
   label: React.ReactNode;
   help?: React.ReactNode;
   checked: boolean;
   onChange: (next: boolean) => void;
   disabled?: boolean;
+  /** Width cap for the row; lg by default so the switch stays near its label. */
+  size?: FieldSize;
+  className?: string;
 }) {
   const id = useId();
+  const helpId = `${id}-help`;
   return (
-    <div className="flex items-start justify-between gap-4">
+    <div className={`flex items-start justify-between gap-4 ${SIZE[size]} ${className}`.trim()}>
       <label htmlFor={id} className="min-w-0 cursor-pointer">
         <span className="block text-sm font-medium text-slate-800">{label}</span>
-        {help && <span className="mt-0.5 block text-xs text-slate-500">{help}</span>}
+        {help && (
+          <span id={helpId} className="mt-0.5 block text-xs text-slate-500">
+            {help}
+          </span>
+        )}
       </label>
       <button
         id={id}
         type="button"
         role="switch"
         aria-checked={checked}
+        aria-describedby={help ? helpId : undefined}
         disabled={disabled}
         onClick={() => onChange(!checked)}
         // 44×24: a target that passes WCAG 2.5.8 and stays easy to hit on

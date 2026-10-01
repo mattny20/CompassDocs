@@ -190,8 +190,8 @@ export function SamlPanel({ initial }: { initial: SamlState }) {
                 </Field>
               </div>
             </div>
-            <div className="sm:max-w-xs">
-              <Field label="Login button label">
+            <div>
+              <Field label="Login button label" size="sm">
                 <TextInput
                   type="text"
                   value={s.button_label}

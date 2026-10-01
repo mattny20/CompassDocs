@@ -7,11 +7,11 @@
 import { useState } from "react";
 import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
+import { controlClass } from "@/components/form";
 import type { SessionInfo } from "@/lib/db";
 import { useFormatDate } from "./SettingsProvider";
 
-const field =
-  "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
+const field = controlClass(false);
 
 interface TotpState {
   enabled: boolean;
