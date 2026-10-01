@@ -10,13 +10,36 @@ Every top-level page:
 
 ```tsx
 <PageContainer>                       {/* honors the Normal/Wide/Full account setting */}
-  <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900">
-    <SomeIcon className="h-6 w-6 text-compass-600" /> Page title
-  </h1>
-  <p className="mb-6 mt-1 text-sm text-slate-500">One-sentence subtitle.</p>
+  <PageHeader icon={<SomeIcon />} title="Page title" subtitle="One-sentence subtitle."
+              back={{ href, label }} actions={<Button …/>} />
   …content…
 </PageContainer>
 ```
+
+`components/PageHeader` renders the h1 (`text-2xl font-bold` with the 24px
+icon), the subtitle, an optional back link above and an actions slot to the
+right. `SettingsPage` and `AccountPage` render it for you. Never hand-write
+a page title; a guard test fails the build on an `<h1` outside the
+documented exceptions.
+
+**The heading ladder** — one size per level, so readers get a size-to-level
+mapping as they move from Dashboard to Space to Document to Settings:
+
+| Level | Element | Recipe | Where |
+| --- | --- | --- | --- |
+| Page title | `h1` via PageHeader | `text-2xl font-bold` + 24px icon | every top-level page, settings and account sections |
+| Document title | `h1` | `text-3xl font-bold tracking-tight`, no icon | the document page, share page, public document — the document is the thing itself |
+| Section heading | `h2` | `text-lg font-semibold` | a group of cards within a page |
+| Card title | `h3` | `text-sm font-semibold text-slate-900` | one card |
+| Eyebrow / group label | `RAIL_GROUP_TEXT` | `text-2xs uppercase tracking-wider text-slate-500` | rail groups, the Settings and Account eyebrows |
+
+Documented exceptions: the dashboard greeting (an `h1` with no icon,
+because it is a greeting), the editor's sticky bar (the document title is
+the editable field), and the two mastheads — a space (its 48px icon tile)
+and a person (their photo) — where the tile or photo stands in for the
+24px lucide icon. Standalone surfaces outside the shell (setup, sign-in,
+the forced password change, OAuth consent, error pages, the public site)
+keep their own titles.
 
 - **Never hard-code a page width** (`max-w-*` on the page wrapper) — that
   breaks the user's width preference. Narrow *content columns* inside a page
@@ -134,11 +157,25 @@ token itself; that would collapse it into `slate-500` for icons too.
 
 ## Buttons
 
-- Primary: `bg-compass-600 … text-white hover:bg-compass-700 font-semibold`.
-- Secondary: `border border-slate-200 text-slate-600 hover:bg-slate-50
-  font-medium`.
-- Destructive hover: `hover-danger` (a tint in both themes — never a bare
-  `hover:bg-red-50`, which paints a pale slab in dark mode).
+Every text button comes from `components/Button`: `<Button variant size
+busy icon href>` (a `<button>`, or a `<Link>` when `href` is set), or
+`buttonClass(variant, size, extra)` where the element must stay bare (a
+form `<button>` with a ref, a menu item). The review that produced it
+measured 41 distinct primary recipes across 79 sites; a guard test now fails
+the build on a primary recipe written outside the module.
+
+- Variants: `primary` (`bg-compass-600 text-white font-semibold`),
+  `secondary` (bordered, `font-medium`), `ghost` (text only, tinted hover),
+  `danger` (red border and ink, `hover-danger`). Destructive hover is always
+  `hover-danger` — never a bare `hover:bg-red-50`, which paints a pale slab
+  in dark mode.
+- Sizes have **fixed heights** so adjacent controls line up: `sm` (h-7,
+  `text-xs`, row actions in tables), `md` (h-9, the default), `lg` (h-10,
+  hero and sign-in actions).
+- `busy` shows a spinner before the label, keeps the label and disables the
+  control; `icon` takes a lucide element and sizes it.
+- Radius scale: cards `rounded-xl`, controls `rounded-lg`, small controls
+  `rounded-md`, chips `rounded-full`.
 - Prefer **icon buttons with tooltips** where the action is obvious from the
   icon (toolbars, table row actions, dense UI); keep icon + text where the
   action is rare or destructive.

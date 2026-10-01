@@ -5,6 +5,7 @@
 // secret (write-only), and an enable switch per integration.
 
 import { useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { toast } from "@/components/Toasts";
 import { TextInput, Toggle } from "@/components/form";
 
@@ -92,7 +93,7 @@ export function ChatAskPanel({ initial, baseUrl }: { initial: Config; baseUrl: s
             <button
               onClick={() => save({ slack_signing_secret: slackSecret }, "Slack signing secret saved.")}
               disabled={saving || !slackSecret.trim()}
-              className="shrink-0 rounded-lg bg-compass-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-50"
+              className={buttonClass("primary")}
             >
               Save
             </button>
@@ -150,7 +151,7 @@ export function ChatAskPanel({ initial, baseUrl }: { initial: Config; baseUrl: s
             <button
               onClick={() => save({ teams_hmac_secret: teamsSecret }, "Teams security token saved.")}
               disabled={saving || !teamsSecret.trim()}
-              className="shrink-0 rounded-lg bg-compass-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-50"
+              className={buttonClass("primary")}
             >
               Save
             </button>

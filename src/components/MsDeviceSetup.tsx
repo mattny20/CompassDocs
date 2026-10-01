@@ -6,6 +6,7 @@
 // signing in, then refetches the panel's state and hands it to the caller.
 
 import { useRef, useState } from "react";
+import { buttonClass } from "@/components/Button";
 
 export function MsDeviceSetup({
   startUrl,
@@ -120,7 +121,7 @@ export function MsDeviceSetup({
           <button
             onClick={begin}
             disabled={phase === "starting"}
-            className="rounded-lg bg-compass-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60"
+            className={buttonClass("primary")}
           >
             {phase === "starting" ? "Contacting Microsoft…" : "Set up automatically with Microsoft"}
           </button>

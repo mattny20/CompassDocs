@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import { toast } from "@/components/Toasts";
 
@@ -199,7 +200,7 @@ export function MigrateImport({ spaces }: { spaces: SpaceOpt[] }) {
           <button
             onClick={runImport}
             disabled={busy || (dest === "new" && !newName.trim())}
-            className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-compass-700 disabled:opacity-50"
+            className={buttonClass("primary")}
           >
             {busy ? "Importing…" : `Import ${preview.pageCount} page${preview.pageCount === 1 ? "" : "s"}`}
           </button>

@@ -5,6 +5,7 @@
 // user sees before they change anything for themselves.
 
 import { useMemo, useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { Download, Copy, Plus, Trash2 } from "lucide-react";
 import type { DirectoryField } from "@/lib/directory";
 import type { ExportPreset } from "@/lib/directory-export-config";
@@ -157,7 +158,7 @@ export function DirectoryExportPanel({
             </Select>
           </Field>
         </div>
-        <button type="button" onClick={saveList} disabled={savingList} className="mt-3 rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60">
+        <button type="button" onClick={saveList} disabled={savingList} className={buttonClass("primary", "md", "mt-3")}>
           {savingList ? "Saving…" : "Save defaults"}
         </button>
       </div>
@@ -180,17 +181,17 @@ export function DirectoryExportPanel({
               ))}
             </Select>
           </div>
-          <button type="button" onClick={() => addPreset()} className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+          <button type="button" onClick={() => addPreset()} className={buttonClass("secondary")}>
             <span className="inline-flex items-center gap-1.5"><Plus className="h-4 w-4" /> New</span>
           </button>
-          <button type="button" onClick={() => addPreset(cur)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+          <button type="button" onClick={() => addPreset(cur)} className={buttonClass("secondary")}>
             <span className="inline-flex items-center gap-1.5"><Copy className="h-4 w-4" /> Duplicate</span>
           </button>
           <button type="button" onClick={removePreset} disabled={presets.length <= 1} className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-red-600 hover-danger disabled:opacity-40">
             <span className="inline-flex items-center gap-1.5"><Trash2 className="h-4 w-4" /> Delete</span>
           </button>
           {!cur.is_default && (
-            <button type="button" onClick={makeDefault} className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+            <button type="button" onClick={makeDefault} className={buttonClass("secondary")}>
               Make default
             </button>
           )}
@@ -401,7 +402,7 @@ export function DirectoryExportPanel({
           </div>
         </div>
         <div className="mt-4 flex items-center gap-3">
-          <button type="button" onClick={savePresets} disabled={savingPresets || !dirty} className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60">
+          <button type="button" onClick={savePresets} disabled={savingPresets || !dirty} className={buttonClass("primary")}>
             {savingPresets ? "Saving…" : "Save presets"}
           </button>
           {dirty && <span className="text-xs ink-warn">Unsaved changes</span>}

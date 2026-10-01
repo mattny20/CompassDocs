@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
-import { Download } from "lucide-react";
-import { BackLink } from "@/components/BackLink";
+import { buttonClass } from "@/components/Button";
+import { ClipboardCheck, Download } from "lucide-react";
+import { PageHeader } from "@/components/PageHeader";
 import { requirePermission } from "@/lib/auth";
 import { getDocument, ackStatusForDocument } from "@/lib/db";
 import { spaceScopeFor, scopeAllows } from "@/lib/access";
@@ -37,24 +38,26 @@ export default async function AcknowledgementsPage({
 
   return (
     <PageContainer>
-      <BackLink href={`/doc/${doc.id}`} label={doc.title} />
-
-      <div className="mb-6 flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Read confirmations</h1>
-          <p className="mt-1 text-sm text-slate-500">
+      <PageHeader
+        back={{ href: `/doc/${doc.id}`, label: doc.title }}
+        icon={<ClipboardCheck />}
+        title="Read confirmations"
+        subtitle={
+          <>
             {acked.length} of {rows.length} people have confirmed the current revision
             (as of {formatDateTime(doc.updated_at, settingsForUser(settings, user))}). Editing the document asks
             everyone again.
-          </p>
-        </div>
-        <a
-          href={`/api/documents/${doc.id}/acknowledgements?format=csv`}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
-        >
-          <Download className="h-4 w-4" /> Export CSV
-        </a>
-      </div>
+          </>
+        }
+        actions={
+          <a
+            href={`/api/documents/${doc.id}/acknowledgements?format=csv`}
+            className={buttonClass("secondary")}
+          >
+            <Download className="h-4 w-4" /> Export CSV
+          </a>
+        }
+      />
 
       <div className="mb-4 h-2 overflow-hidden rounded-full bg-slate-100">
         <div

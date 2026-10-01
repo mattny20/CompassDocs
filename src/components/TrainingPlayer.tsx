@@ -5,6 +5,7 @@
 // confirmation is recorded server-side with the doc version.
 
 import { useCallback, useEffect, useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { PageContainer } from "@/components/PageWidth";
 import { useRouter } from "next/navigation";
 import {
@@ -222,7 +223,7 @@ export function TrainingPlayer({
         <button
           onClick={() => router.push("/training")}
           data-tt="Your place is saved — pick up where you left off any time (Esc)" aria-label="Your place is saved — pick up where you left off any time (Esc)"
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+          className={buttonClass("secondary")}
         >
           <X className="h-4 w-4" /> {done ? "Exit" : "Save & exit"}
         </button>
@@ -278,7 +279,7 @@ export function TrainingPlayer({
                 <button
                   onClick={() => void submitQuiz()}
                   disabled={quizBusy}
-                  className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+                  className={buttonClass("secondary", "md", "mt-2")}
                 >
                   {quizBusy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ListChecks className="h-4 w-4" />}
                   {quizResult ? "Resubmit answers" : "Submit answers"}
@@ -339,7 +340,7 @@ export function TrainingPlayer({
                       ? "Sign above to confirm"
                       : undefined
                 }
-                className="mt-5 inline-flex items-center gap-2 rounded-lg bg-compass-600 px-5 py-2 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60"
+                className={buttonClass("primary", "lg", "mt-5")}
               >
                 {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
                 I confirm — mark complete
@@ -400,7 +401,7 @@ export function TrainingPlayer({
         <button
           onClick={() => go(idx - 1)}
           disabled={idx === 0}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3.5 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+          className={buttonClass("secondary")}
         >
           <ArrowLeft className="h-4 w-4" /> Back
         </button>
@@ -410,7 +411,7 @@ export function TrainingPlayer({
         <button
           onClick={() => go(idx + 1)}
           disabled={onGate}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-compass-600 px-3.5 py-1.5 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-40"
+          className={buttonClass("primary")}
         >
           Next <ArrowRight className="h-4 w-4" />
         </button>

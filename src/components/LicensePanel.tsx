@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { toast } from "@/components/Toasts";
 import { DangerZone, DangerAction } from "@/components/form";
 
@@ -205,7 +206,7 @@ export function LicensePanel() {
               <button
                 onClick={save}
                 disabled={saving || !key.trim()}
-                className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-compass-700 disabled:opacity-60"
+                className={buttonClass("primary")}
               >
                 {saving ? "Saving…" : "Activate"}
               </button>
@@ -221,7 +222,7 @@ export function LicensePanel() {
                 <button
                   onClick={remove}
                   disabled={saving}
-                  className="rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 hover-danger disabled:opacity-60"
+                  className={buttonClass("danger")}
                 >
                   Remove license
                 </button>

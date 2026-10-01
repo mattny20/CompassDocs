@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { buttonClass } from "@/components/Button";
 import { FileQuestion, House, Search } from "lucide-react";
 import { PageContainer } from "@/components/PageWidth";
 
@@ -26,13 +27,13 @@ export default function AppNotFound() {
         <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
           <Link
             href="/"
-            className="inline-flex items-center gap-1.5 rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-compass-700"
+            className={buttonClass("primary")}
           >
             <House className="h-4 w-4" /> Back to dashboard
           </Link>
           <Link
             href="/search"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-surface px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+            className={buttonClass("secondary")}
           >
             <Search className="h-4 w-4" /> Search documents
           </Link>

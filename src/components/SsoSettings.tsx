@@ -5,6 +5,7 @@
 // license nudge; licensed → the OIDC configuration form.
 
 import { useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { MsDeviceSetup } from "./MsDeviceSetup";
 import { Field, TextInput, Toggle } from "@/components/form";
 import { toast } from "@/components/Toasts";
@@ -290,14 +291,14 @@ export function SsoSettings({ initial }: { initial: SsoState }) {
           <button
             onClick={save}
             disabled={saving}
-            className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60"
+            className={buttonClass("primary")}
           >
             {saving ? "Saving…" : "Save"}
           </button>
           {s.sso_enabled && configured && (
             <a
               href="/api/ee/sso/login"
-              className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              className={buttonClass("secondary")}
             >
               Test sign-in
             </a>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { Check, CircleAlert, LoaderCircle, RefreshCw, Sparkles } from "lucide-react";
 import { toast } from "@/components/Toasts";
 import { Field, TextInput, Select } from "@/components/form";
@@ -214,21 +215,21 @@ export function SemanticSearchPanel({ initial }: { initial: Status }) {
         <button
           onClick={() => send(payload(), "Semantic search settings saved.").then(() => setApiKey(""))}
           disabled={busy}
-          className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-compass-700 disabled:opacity-60"
+          className={buttonClass("primary")}
         >
           {busy ? "Working…" : "Save"}
         </button>
         <button
           onClick={() => send(payload({ action: "test" }), "Connection works.")}
           disabled={busy || provider === "off"}
-          className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+          className={buttonClass("secondary")}
         >
           Test connection
         </button>
         <button
           onClick={() => send({ action: "reindex" }, "Rebuild started.")}
           disabled={busy || !configured || !status.pgvector || status.reindex.running}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+          className={buttonClass("secondary")}
         >
           <RefreshCw className="h-4 w-4" /> Rebuild index
         </button>

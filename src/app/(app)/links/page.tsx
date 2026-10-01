@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { buttonClass } from "@/components/Button";
 import { ExternalLink, Plus, SquareArrowOutUpRight, Link2 } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { listLinkCategories, listLinksVisibleTo } from "@/lib/db";
@@ -6,6 +7,7 @@ import type { QuickLink } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings-store";
 import { EmptyState } from "@/components/form";
 import { PageContainer } from "@/components/PageWidth";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Links" };
@@ -35,24 +37,21 @@ export default async function LinksPage() {
 
   return (
     <PageContainer>
-      <div className="mb-6 flex items-start justify-between gap-4">
-        <div>
-          <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900">
-            <Link2 className="h-6 w-6 text-compass-600" /> Links
-          </h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Shortcuts to the tools and sites your team uses.
-          </p>
-        </div>
-        {user.role === "admin" && (
-          <Link
-            href="/admin/links"
-            className="shrink-0 rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
-          >
-            Manage links
-          </Link>
-        )}
-      </div>
+      <PageHeader
+        icon={<Link2 />}
+        title="Links"
+        subtitle="Shortcuts to the tools and sites your team uses."
+        actions={
+          user.role === "admin" && (
+            <Link
+              href="/admin/links"
+              className={buttonClass("secondary")}
+            >
+              Manage links
+            </Link>
+          )
+        }
+      />
 
       {sections.length === 0 && (
         <EmptyState

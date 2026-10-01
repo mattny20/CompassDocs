@@ -4,6 +4,7 @@ import { listTrashedDocuments, purgeExpiredTrash } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings-store";
 import { TrashClient } from "@/components/TrashClient";
 import { PageContainer } from "@/components/PageWidth";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Trash" };
@@ -22,20 +23,21 @@ export default async function TrashPage() {
 
   return (
     <PageContainer>
-      <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900">
-        <Trash2 className="h-6 w-6 text-compass-600" /> Trash
-      </h1>
-      <p className="mb-6 mt-1 text-sm text-slate-500">
-        {retention > 0 ? (
-          <>
-            Deleted documents are kept here and can be restored. They&rsquo;re
-            permanently removed <strong>{retention}</strong> day{retention === 1 ? "" : "s"} after
-            being trashed.
-          </>
-        ) : (
-          <>Deleted documents are kept here until permanently removed. Auto-purge is off.</>
-        )}
-      </p>
+      <PageHeader
+        icon={<Trash2 />}
+        title="Trash"
+        subtitle={
+          retention > 0 ? (
+            <>
+              Deleted documents are kept here and can be restored. They&rsquo;re
+              permanently removed <strong>{retention}</strong> day{retention === 1 ? "" : "s"} after
+              being trashed.
+            </>
+          ) : (
+            <>Deleted documents are kept here until permanently removed. Auto-purge is off.</>
+          )
+        }
+      />
 
       <TrashClient
         docs={docs.map((d) => ({

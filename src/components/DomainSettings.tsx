@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import { toast } from "@/components/Toasts";
 import type { TlsMode, SecureCookieMode } from "@/lib/settings";
@@ -283,7 +284,7 @@ export function DomainSettings({ initial }: { initial: DomainState }) {
         <button
           onClick={save}
           disabled={saving}
-          className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-compass-700 disabled:opacity-60"
+          className={buttonClass("primary")}
         >
           {saving ? "Saving…" : "Save & apply"}
         </button>

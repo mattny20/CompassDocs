@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { buttonClass } from "@/components/Button";
 import { notFound } from "next/navigation";
 import { FileText, Plus } from "lucide-react";
 import {
@@ -82,7 +83,7 @@ export default async function SpacePage({ params }: { params: Promise<{ slug: st
           {isEditor && canAuthor && (
             <Link
               href={`/doc/new?space=${space.slug}`}
-              className="whitespace-nowrap rounded-lg bg-compass-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-compass-700"
+              className={buttonClass("primary")}
             >
               ＋ New in {space.name}
             </Link>

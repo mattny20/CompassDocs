@@ -9,6 +9,7 @@
 // would crush the content), and expanding it floats the full sidebar over the
 // page with a backdrop instead of squeezing the layout.
 
+import { buttonClass } from "@/components/Button";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { RAIL_GROUP_TEXT, railIconClass, railRowClass } from "./RailLink";
@@ -461,9 +462,7 @@ export function SidebarClient({
             data-tt="New document"
             data-tt-pos={collapsed ? "right" : undefined}
             aria-label="New document"
-            className={`flex w-full items-center justify-center gap-1.5 rounded-lg bg-compass-600 text-sm font-semibold text-white shadow-xs transition hover:bg-compass-700 ${
-              collapsed ? "px-0 py-2" : "px-3 py-2"
-            }`}
+            className={buttonClass("primary", "md", collapsed ? "w-full px-0" : "w-full")}
           >
             {collapsed ? (
               <Plus className="h-4 w-4" />

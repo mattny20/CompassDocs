@@ -14,6 +14,7 @@
 // and a search box filters across key, label, and description at once.
 
 import { useEffect, useMemo, useState } from "react";
+import { buttonClass } from "@/components/Button";
 import {
   AlertTriangle,
   Check,
@@ -84,10 +85,8 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "health", label: "Health" },
 ];
 
-const primary =
-  "inline-flex items-center gap-1.5 rounded-lg bg-compass-600 px-3 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-compass-700 disabled:opacity-50";
-const secondary =
-  "inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50";
+const primary = buttonClass("primary");
+const secondary = buttonClass("secondary");
 
 /**
  * The three sections that used to have their own settings page (0.98). They are
@@ -581,7 +580,7 @@ function RolesTab({
                   type="button"
                   onClick={remove}
                   disabled={busy}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 hover-danger disabled:opacity-50"
+                  className={buttonClass("danger")}
                 >
                   <Trash2 className="h-4 w-4" aria-hidden /> Delete role
                 </button>

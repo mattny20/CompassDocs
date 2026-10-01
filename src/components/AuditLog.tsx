@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { useFormatDate } from "./SettingsProvider";
 
 interface AuditRow {
@@ -212,7 +213,7 @@ export function AuditLog({
           <button
             onClick={() => load(page, category)}
             disabled={loading}
-            className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+            className={buttonClass("secondary")}
           >
             {loading ? "…" : "Refresh"}
           </button>
@@ -310,14 +311,14 @@ export function AuditLog({
             <button
               onClick={() => load(page - 1, category)}
               disabled={page <= 0 || loading}
-              className="rounded-lg border border-slate-200 px-3 py-1.5 font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+              className={buttonClass("secondary")}
             >
               ← Newer
             </button>
             <button
               onClick={() => load(page + 1, category)}
               disabled={page >= pages - 1 || loading}
-              className="rounded-lg border border-slate-200 px-3 py-1.5 font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+              className={buttonClass("secondary")}
             >
               Older →
             </button>

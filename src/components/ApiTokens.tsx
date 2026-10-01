@@ -5,6 +5,7 @@
 // connector; afterwards only the prefix is visible.
 
 import { useState } from "react";
+import { buttonClass } from "@/components/Button";
 import type { ApiToken } from "@/lib/db";
 import { useFormatDate } from "./SettingsProvider";
 
@@ -114,7 +115,7 @@ export function ApiTokens({
               </code>
               <button
                 onClick={() => copy(mcpUrl, "mcp")}
-                className="shrink-0 rounded-lg bg-compass-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-compass-700"
+                className={buttonClass("primary", "sm")}
               >
                 {copied === "mcp" ? "Copied ✓" : "Copy"}
               </button>
@@ -185,7 +186,7 @@ export function ApiTokens({
           <button
             type="submit"
             disabled={busy}
-            className="shrink-0 rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60"
+            className={buttonClass("primary")}
           >
             {busy ? "Creating…" : "Create token"}
           </button>
@@ -240,7 +241,7 @@ export function ApiTokens({
                 );
                 if (res.ok) setConnections(connections.filter((x) => x.client_id !== c.client_id));
               }}
-              className="shrink-0 rounded-lg border border-red-200 px-2.5 py-1 text-xs font-medium text-red-600 hover-danger"
+              className={buttonClass("danger", "sm")}
             >
               Disconnect
             </button>
@@ -276,7 +277,7 @@ function TokenRow({ t, onRevoke }: { t: ApiToken; onRevoke: () => void }) {
       </div>
       <button
         onClick={onRevoke}
-        className="shrink-0 rounded-lg border border-red-200 px-2.5 py-1 text-xs font-medium text-red-600 hover-danger"
+        className={buttonClass("danger", "sm")}
       >
         Revoke
       </button>

@@ -5,6 +5,7 @@ import { refreshDueStatuses, STATUS_CATALOG } from "@/lib/status";
 import { Activity } from "lucide-react";
 import { StatusBoard } from "@/components/StatusBoard";
 import { PageContainer } from "@/components/PageWidth";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Status" };
@@ -21,13 +22,16 @@ export default async function StatusPage() {
 
   return (
     <PageContainer>
-      <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900">
-        <Activity className="h-6 w-6 text-compass-600" /> Service status
-      </h1>
-      <p className="mb-6 mt-1 text-sm text-slate-500">
-        The tools this organization relies on — vendor status pages, checked automatically,
-        plus incidents declared for internal systems.
-      </p>
+      <PageHeader
+        icon={<Activity />}
+        title="Service status"
+        subtitle={
+          <>
+            The tools this organization relies on — vendor status pages, checked automatically,
+            plus incidents declared for internal systems.
+          </>
+        }
+      />
       <StatusBoard
         services={services}
         incidents={incidents}

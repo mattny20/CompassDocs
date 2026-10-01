@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 
 export function LoginForm({ next = "/" }: { next?: string }) {
@@ -96,7 +97,7 @@ export function LoginForm({ next = "/" }: { next?: string }) {
       <button
         type="submit"
         disabled={loading || (needsTotp && !totpCode)}
-        className="w-full rounded-lg bg-compass-600 px-4 py-2 font-semibold text-white shadow-xs transition hover:bg-compass-700 disabled:opacity-60"
+        className={buttonClass("primary", "md", "w-full")}
       >
         {loading ? "Signing in…" : needsTotp ? "Verify" : "Sign in"}
       </button>

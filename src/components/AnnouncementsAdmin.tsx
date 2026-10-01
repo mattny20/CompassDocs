@@ -5,9 +5,11 @@
 // chat webhooks are optional extra deliveries chosen per post.
 
 import { useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import { Megaphone, TriangleAlert, Siren, Archive, ArchiveRestore, Trash2 } from "lucide-react";
 import { useFormatDate } from "./SettingsProvider";
+import { PageHeader } from "@/components/PageHeader";
 
 interface AnnouncementRow {
   id: number;
@@ -128,16 +130,12 @@ export function AnnouncementsAdmin({
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900">
-          <Megaphone className="h-6 w-6 text-compass-600" /> Announcements
-        </h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Post a message to every user&apos;s dashboard. Optionally, also send it by email
-          (to everyone or to selected groups) and to your chat webhooks — the dashboard
-          message always shows for all users either way.
-        </p>
-      </div>
+      <PageHeader
+        icon={<Megaphone />}
+        title="Announcements"
+        subtitle="Post a message to every user's dashboard. Optionally, also send it by email (to everyone or to selected groups) and to your chat webhooks — the dashboard message always shows for all users either way."
+        className=""
+      />
 
       {/* Compose */}
       <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
@@ -245,7 +243,7 @@ export function AnnouncementsAdmin({
           <button
             onClick={post}
             disabled={busy || !title.trim() || !message.trim()}
-            className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-compass-700 disabled:opacity-50"
+            className={buttonClass("primary")}
           >
             {busy ? "Posting…" : "Post announcement"}
           </button>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { buttonClass } from "@/components/Button";
 
 interface ReleaseInfo {
   tag: string;
@@ -127,7 +128,7 @@ export function UpdatePanel() {
         <button
           onClick={() => load(true)}
           disabled={loading}
-          className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+          className={buttonClass("secondary")}
         >
           {loading ? "Checking…" : "Check now"}
         </button>
@@ -165,7 +166,7 @@ export function UpdatePanel() {
               {status.oneClick && (
                 <button
                   onClick={updateNow}
-                  className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-xs transition hover:bg-compass-700"
+                  className={buttonClass("primary")}
                 >
                   Update to {status.latest.tag} now
                 </button>

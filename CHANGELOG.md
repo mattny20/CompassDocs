@@ -4,6 +4,28 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.6.0] - 2026-10-01
+
+The component system, part one: one button, one page title.
+
+### Changed
+- **One button.** Every text button now comes from one recipe
+  (`Button` / `buttonClass`): primary, secondary, ghost and danger
+  variants; three sizes with fixed heights so adjacent controls line up
+  (row actions in tables are the small size, forms and headers the
+  default, sign-in and hero actions the large one); a busy state that
+  keeps the label. The 41 slightly different primary recipes measured in
+  the review — different heights, weights, radii and disabled opacities,
+  eight of them too light to read — are gone, and a guard test fails the
+  build on a new one.
+- **One page title.** Every top-level page renders its title through
+  `PageHeader` (icon, title, subtitle, back link, actions), so the heading
+  ladder is real: page title, document title, section heading, card
+  title, eyebrow. The three training sub-pages that used a smaller title
+  and the pages that lacked an icon (New document, Version history, Read
+  confirmations) now match the rest. A guard test fails the build on a
+  hand-written page title.
+
 ## [1.5.2] - 2026-10-01
 
 Account inside the shell, one segmented control, back links, the inbox.

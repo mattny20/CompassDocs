@@ -5,6 +5,7 @@
 // "New sub-page" shortcut that lands in the editor with the parent preset.
 
 import { useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ChevronDown, ChevronRight, ChevronUp, FileText, ListTree } from "lucide-react";
@@ -77,7 +78,7 @@ export function SubPages({
           <Link
             href={`/doc/new?space=${spaceSlug}&parent=${parentId}`}
             data-tt="New sub-page" aria-label="New sub-page"
-            className="shrink-0 whitespace-nowrap rounded-lg border border-slate-200 bg-surface px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+            className={buttonClass("secondary", "sm")}
           >
             {"＋ New"}
           </Link>

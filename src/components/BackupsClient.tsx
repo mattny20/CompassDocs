@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import { toast } from "@/components/Toasts";
 import { Field, Select, TextInput } from "@/components/form";
@@ -129,7 +130,7 @@ export function BackupsClient({
             <button
               onClick={saveSchedule}
               disabled={savingSchedule}
-              className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-compass-700 disabled:opacity-60"
+              className={buttonClass("primary")}
             >
               {savingSchedule ? "Saving…" : "Save"}
             </button>
@@ -165,7 +166,7 @@ export function BackupsClient({
           <button
             onClick={backupNow}
             disabled={busy === "__create__"}
-            className="rounded-lg bg-compass-600 px-3 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-compass-700 disabled:opacity-60"
+            className={buttonClass("primary")}
           >
             {busy === "__create__" ? "Backing up…" : "Back up now"}
           </button>
@@ -188,21 +189,21 @@ export function BackupsClient({
                 <div className="flex shrink-0 gap-1.5 text-xs">
                   <a
                     href={`/api/backups/${b.name}`}
-                    className="rounded-md border border-slate-200 px-2 py-1 font-medium text-slate-600 hover:bg-slate-50"
+                    className={buttonClass("secondary", "sm")}
                   >
                     Download
                   </a>
                   <button
                     onClick={() => restore(b)}
                     disabled={busy === b.name}
-                    className="rounded-md border border-amber-200 px-2 py-1 font-medium text-amber-700 hover:bg-amber-50 disabled:opacity-50"
+                    className={buttonClass("secondary", "sm")}
                   >
                     Restore
                   </button>
                   <button
                     onClick={() => remove(b)}
                     disabled={busy === b.name}
-                    className="rounded-md border border-red-200 px-2 py-1 font-medium text-red-600 hover-danger disabled:opacity-50"
+                    className={buttonClass("danger", "sm")}
                   >
                     Delete
                   </button>

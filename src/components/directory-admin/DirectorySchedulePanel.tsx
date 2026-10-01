@@ -4,6 +4,7 @@
 // buttons stay for "now"; this is "every night at three, and tell me".
 
 import { useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { CalendarClock } from "lucide-react";
 import { Field, Select, TextInput, Toggle } from "@/components/form";
 import { toast } from "@/components/Toasts";
@@ -96,7 +97,7 @@ export function DirectorySchedulePanel({ initial, smtpConfigured }: { initial: S
         <Toggle label="Email even when nothing changed" checked={s.report_quiet} onChange={(v) => set({ report_quiet: v })} />
       </div>
       <div className="mt-4 flex items-center gap-3">
-        <button type="button" onClick={save} disabled={saving || !dirty} className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60">
+        <button type="button" onClick={save} disabled={saving || !dirty} className={buttonClass("primary")}>
           {saving ? "Saving…" : "Save schedule"}
         </button>
         {dirty ? <span className="text-xs ink-warn">Unsaved changes</span> : <span className="text-xs text-slate-500">Saved</span>}

@@ -6,6 +6,7 @@
 // from the clipboard — which is the case this whole feature exists for.
 
 import { useEffect, useRef, useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { CheckCircle2, ImageUp, Loader2, TriangleAlert } from "lucide-react";
 
 type State =
@@ -161,7 +162,7 @@ export function UploadDrop({
             <button
               type="button"
               onClick={() => fileRef.current?.click()}
-              className="mt-4 rounded-lg bg-compass-600 px-4 py-2 text-sm font-medium text-white hover:bg-compass-700"
+              className={buttonClass("primary", "md", "mt-4")}
             >
               Choose a file
             </button>

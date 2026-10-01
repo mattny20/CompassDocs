@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ListChecks, ShieldCheck, SquareSplitVertical, Table as TableIcon, X } from "lucide-react";
@@ -593,13 +594,13 @@ export function DocEditor({
         <div className="mt-6 flex justify-center gap-2">
           <Link
             href={`/doc/${submittedDocId}`}
-            className="rounded-lg border border-slate-200 bg-surface px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+            className={buttonClass("secondary")}
           >
             View document
           </Link>
           <Link
             href="/"
-            className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white hover:bg-compass-700"
+            className={buttonClass("primary")}
           >
             Back to dashboard
           </Link>
@@ -631,14 +632,14 @@ export function DocEditor({
                 e.preventDefault();
               }
             }}
-            className="rounded-lg border border-slate-200 bg-surface px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+            className={buttonClass("secondary")}
           >
             Cancel
           </Link>
           <button
             onClick={save}
             disabled={saving}
-            className="rounded-lg bg-compass-600 px-4 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-compass-700 disabled:opacity-60"
+            className={buttonClass("primary")}
           >
             {saving
               ? "Saving…"
@@ -1149,7 +1150,7 @@ function AssistPanel({
           <button
             type="button"
             onClick={onApply}
-            className="rounded-md bg-compass-600 px-3 py-1 text-sm font-semibold text-white hover:bg-compass-700"
+            className={buttonClass("primary")}
           >
             {applyLabel}
           </button>
@@ -1215,14 +1216,14 @@ function ProofPanel({
           {hasChanges && (
             <button
               onClick={onApply}
-              className="rounded-lg bg-compass-600 px-3 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-compass-700"
+              className={buttonClass("primary")}
             >
               Apply polished version
             </button>
           )}
           <button
             onClick={onDismiss}
-            className="rounded-lg border border-slate-200 bg-surface px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+            className={buttonClass("secondary")}
           >
             Dismiss
           </button>

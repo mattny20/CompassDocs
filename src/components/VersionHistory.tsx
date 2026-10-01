@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -243,7 +244,7 @@ export function VersionHistory({
             <button
               onClick={createBranch}
               disabled={branching}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-compass-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-compass-700 disabled:opacity-60"
+              className={buttonClass("primary", "sm")}
             >
               {branching ? (
                 <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
@@ -419,7 +420,7 @@ export function VersionHistory({
                         ? "Submits to the review queue"
                         : "Make this the current version"
                     }
-                    className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                    className={buttonClass("secondary", "sm")}
                   >
                     {restoring === v.id ? (
                       <LoaderCircle className="h-3 w-3 animate-spin" />

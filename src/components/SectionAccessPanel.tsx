@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { GraduationCap, Megaphone, ShieldCheck } from "lucide-react";
 import { EntityPicker } from "@/components/EntityPicker";
 import { toast } from "@/components/Toasts";
@@ -139,7 +140,7 @@ export function SectionAccessPanel({
               <button
                 onClick={() => save(s)}
                 disabled={busyKey === s.key}
-                className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-medium text-white hover:bg-compass-700 disabled:opacity-60"
+                className={buttonClass("primary")}
               >
                 {busyKey === s.key ? "Saving…" : "Save"}
               </button>

@@ -6,6 +6,7 @@
 // re-renders the layout's count).
 
 import { useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import { BellOff, CheckCheck, LoaderCircle } from "lucide-react";
 import { EmptyState } from "./form";
@@ -124,7 +125,7 @@ export function NotificationsInbox({
           <button
             onClick={loadOlder}
             disabled={busy !== null}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-surface px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-60"
+            className={buttonClass("secondary")}
           >
             {busy === "older" && <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden />}
             Load older

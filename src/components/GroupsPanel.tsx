@@ -5,6 +5,7 @@
 // import them from Microsoft Entra and keep membership in sync.
 
 import { useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import { UsersRound, RefreshCw, CloudDownload, Trash2, Pencil, X } from "lucide-react";
 import { EntityPicker } from "@/components/EntityPicker";
@@ -113,7 +114,7 @@ export function GroupsPanel({
         <button
           onClick={create}
           disabled={busy}
-          className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-compass-700 disabled:opacity-60"
+          className={buttonClass("primary")}
         >
           Create group
         </button>
@@ -260,7 +261,7 @@ function GroupCard({
             onToggle();
             if (!expanded && members === null) void load();
           }}
-          className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+          className={buttonClass("secondary")}
         >
           {expanded ? "Close" : "Members"}
         </button>
@@ -413,7 +414,7 @@ function EntraSection({
             <button
               onClick={syncAll}
               disabled={busy}
-              className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+              className={buttonClass("secondary")}
             >
               <RefreshCw className={`h-3.5 w-3.5 ${busy ? "animate-spin" : ""}`} />
               Sync now
@@ -421,7 +422,7 @@ function EntraSection({
             <button
               onClick={browse}
               disabled={busy}
-              className="rounded-lg bg-compass-600 px-3 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-compass-700 disabled:opacity-60"
+              className={buttonClass("primary")}
             >
               Browse groups
             </button>
@@ -483,7 +484,7 @@ function EntraSection({
             <button
               onClick={importPicked}
               disabled={busy || picked.length === 0}
-              className="rounded-lg bg-compass-600 px-3 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-compass-700 disabled:opacity-60"
+              className={buttonClass("primary")}
             >
               {busy ? "Importing…" : `Import ${picked.length || ""} selected`}
             </button>
@@ -492,7 +493,7 @@ function EntraSection({
                 setBrowsing(false);
                 setAvailable(null);
               }}
-              className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+              className={buttonClass("secondary")}
             >
               Cancel
             </button>

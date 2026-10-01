@@ -5,6 +5,7 @@
 // and one-click reminders to stragglers. Enterprise (policy_ack).
 
 import { useCallback, useEffect, useState } from "react";
+import { buttonClass } from "@/components/Button";
 import Link from "next/link";
 import {
   ShieldCheck,
@@ -23,6 +24,7 @@ import {
   X,
 } from "lucide-react";
 import { EntityPicker } from "@/components/EntityPicker";
+import { PageHeader } from "@/components/PageHeader";
 import { timeAgo } from "@/lib/ui";
 import { useFormatDate } from "./SettingsProvider";
 
@@ -121,7 +123,7 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
         extra={
           <a
             href="/api/admin/compliance?format=csv"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+            className={buttonClass("secondary")}
           >
             <Download className="h-4 w-4" /> Export CSV
           </a>
@@ -203,7 +205,7 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
               <button
                 onClick={() => candidate && act(Number(candidate), "request", "Acknowledgement requested")}
                 disabled={!candidate || busy !== null}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-compass-600 px-3.5 py-1.5 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60"
+                className={buttonClass("primary")}
               >
                 {busy?.startsWith("request") ? (
                   <LoaderCircle className="h-4 w-4 animate-spin" />
@@ -275,7 +277,7 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
                               onClick={() => act(d.id, "remind", "Reminder sent")}
                               disabled={busy !== null}
                               data-tt="Notify everyone who hasn't acknowledged yet"
-                              className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                              className={buttonClass("secondary", "sm")}
                             >
                               {busy === `remind-${d.id}` ? (
                                 <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
@@ -375,20 +377,19 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
 
 function Header({ extra }: { extra?: React.ReactNode }) {
   return (
-    <div className="mb-5 flex items-start justify-between gap-3">
-      <div>
-        <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900">
-          <ShieldCheck className="h-6 w-6 text-compass-600" /> Compliance
+    <PageHeader
+      icon={<ShieldCheck />}
+      title={
+        <>
+          Compliance{" "}
           <span className="rounded-full bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-700 dark:bg-violet-900/50 dark:text-violet-300">
             Enterprise
           </span>
-        </h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Acknowledgement progress across every policy — who has read what, and who still owes a
-          confirmation.
-        </p>
-      </div>
-      {extra}
-    </div>
+        </>
+      }
+      subtitle="Acknowledgement progress across every policy — who has read what, and who still owes a confirmation."
+      actions={extra}
+      className="mb-5"
+    />
   );
 }

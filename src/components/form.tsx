@@ -8,6 +8,7 @@
 
 import { forwardRef, useId } from "react";
 import Link from "next/link";
+import { buttonClass } from "./Button";
 
 export function Field({
   label,
@@ -153,9 +154,7 @@ export type EmptyAction = { label: string; icon?: React.ReactNode } & (
   | { onClick: () => void; href?: never }
 );
 
-const emptyActionClass =
-  "inline-flex items-center gap-1.5 rounded-lg bg-compass-600 px-4 py-2 text-sm " +
-  "font-semibold text-white shadow-xs hover:bg-compass-700";
+const emptyActionClass = buttonClass("primary");
 
 /** The primary button inside an empty state — the same recipe as any primary. */
 function EmptyActionButton({ action }: { action: EmptyAction }) {

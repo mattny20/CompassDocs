@@ -4,6 +4,7 @@
 // main Training tab so long-retired material doesn't clutter the dashboard.
 
 import { useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import { Archive, ArchiveRestore, GraduationCap, LoaderCircle, Trash2, Users } from "lucide-react";
 import { useFormatDate } from "./SettingsProvider";
@@ -80,7 +81,7 @@ export function ArchivedDecks({ decks }: { decks: ArchivedDeck[] }) {
                 })
               }
               disabled={busyId === d.id}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-compass-600 px-3 py-1.5 font-semibold text-white hover:bg-compass-700 disabled:opacity-60"
+              className={buttonClass("primary")}
             >
               {busyId === d.id ? (
                 <LoaderCircle className="h-4 w-4 animate-spin" />

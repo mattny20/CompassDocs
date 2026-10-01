@@ -7,6 +7,7 @@
 // windows and plain browsers those hide and everything opens in a new tab.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { buttonClass } from "@/components/Button";
 import Script from "next/script";
 import ReactMarkdown from "react-markdown";
 import { Search, Sparkles, ExternalLink, CornerDownLeft, LogOut } from "lucide-react";
@@ -221,7 +222,7 @@ export function OutlookPane() {
           </p>
           <button
             onClick={signIn}
-            className="w-full rounded-lg bg-compass-600 px-3 py-2 text-sm font-semibold text-white hover:bg-compass-700"
+            className={buttonClass("primary", "md", "w-full")}
           >
             Sign in to CompassDocs
           </button>
@@ -249,7 +250,7 @@ export function OutlookPane() {
             <button type="submit" data-tt="Search" aria-label="Search" disabled={!!busy} className="rounded-lg border border-slate-200 px-2 hover:bg-slate-50">
               <Search className="h-4 w-4 text-slate-500" />
             </button>
-            <button type="button" data-tt="Ask AI" aria-label="Ask AI" disabled={!!busy} onClick={ask} className="rounded-lg bg-compass-600 px-2 text-white hover:bg-compass-700">
+            <button type="button" data-tt="Ask AI" aria-label="Ask AI" disabled={!!busy} onClick={ask} className={buttonClass("primary")}>
               <Sparkles className="h-4 w-4" />
             </button>
           </form>
@@ -280,7 +281,7 @@ export function OutlookPane() {
               {compose && (
                 <button
                   onClick={insertAnswer}
-                  className="mt-2 flex items-center gap-1 rounded-lg bg-compass-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-compass-700"
+                  className={buttonClass("primary", "sm", "mt-2")}
                 >
                   <CornerDownLeft className="h-3.5 w-3.5" /> Insert answer into email
                 </button>
@@ -438,7 +439,7 @@ export function AddinAuthClient({ authed }: { authed: boolean }) {
             />
             <button
               disabled={busy || !username || !password}
-              className="w-full rounded-lg bg-compass-600 px-3 py-2 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-50"
+              className={buttonClass("primary", "md", "w-full")}
             >
               {busy ? "Signing in…" : "Sign in"}
             </button>

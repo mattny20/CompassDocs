@@ -5,6 +5,7 @@
 // copy it, see how often it's been opened, revoke or regenerate it.
 
 import { useEffect, useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { Check, Copy, Link as LinkIcon, LoaderCircle, RefreshCw, Share2, X } from "lucide-react";
 import { useFormatDate } from "./SettingsProvider";
 
@@ -122,14 +123,14 @@ export function ShareCard({
               onClick={create}
               disabled={busy}
               data-tt="Replace with a fresh link (the old one stops working)"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+              className={buttonClass("secondary", "sm")}
             >
               <RefreshCw className="h-3 w-3" /> Regenerate
             </button>
             <button
               onClick={revoke}
               disabled={busy}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-medium text-red-600 hover-danger disabled:opacity-60"
+              className={buttonClass("danger", "sm")}
             >
               <X className="h-3 w-3" /> Revoke
             </button>
@@ -156,7 +157,7 @@ export function ShareCard({
           <button
             onClick={create}
             disabled={busy}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-compass-600 px-3 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-compass-700 disabled:opacity-60"
+            className={buttonClass("primary")}
           >
             {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <LinkIcon className="h-4 w-4" />}
             Create share link

@@ -6,6 +6,7 @@
 // people actually carry, and an admin can add one nobody is in yet.
 
 import { useMemo, useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { ArrowDown, ArrowUp, Building2, Plus, Trash2, X } from "lucide-react";
 import type { FieldOption } from "@/lib/directory-display";
 import {
@@ -257,7 +258,7 @@ export function DirectoryOfficesPanel({
           <div className="w-64">
             <TextInput value={newOffice} onChange={(e) => setNewOffice(e.target.value)} placeholder="An office nobody is in yet" aria-label="New office" />
           </div>
-          <button type="submit" className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+          <button type="submit" className={buttonClass("secondary")}>
             <span className="inline-flex items-center gap-1.5"><Plus className="h-4 w-4" /> Add office</span>
           </button>
         </form>
@@ -303,7 +304,7 @@ export function DirectoryOfficesPanel({
           <div className="w-64">
             <TextInput value={newField} onChange={(e) => setNewField(e.target.value)} placeholder="New field, e.g. Mail stop" aria-label="New office field" />
           </div>
-          <button type="submit" disabled={config.fields.length >= MAX_OFFICE_FIELDS} className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40">
+          <button type="submit" disabled={config.fields.length >= MAX_OFFICE_FIELDS} className={buttonClass("secondary")}>
             <span className="inline-flex items-center gap-1.5"><Plus className="h-4 w-4" /> Add field</span>
           </button>
           {config.fields.length === 0 && (
@@ -315,7 +316,7 @@ export function DirectoryOfficesPanel({
       </div>
 
       <div className="flex items-center gap-3">
-        <button type="button" onClick={save} disabled={saving || !dirty} className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60">
+        <button type="button" onClick={save} disabled={saving || !dirty} className={buttonClass("primary")}>
           {saving ? "Saving…" : "Save offices"}
         </button>
         {dirty ? <span className="text-xs ink-warn">Unsaved changes</span> : <span className="text-xs text-slate-500">Saved</span>}

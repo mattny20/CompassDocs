@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { buttonClass } from "@/components/Button";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ClipboardList, House } from "lucide-react";
@@ -132,7 +133,7 @@ export function ReviewClient({
                     <button
                       onClick={() => reviewCr(cr.id, "reject")}
                       disabled={busy === `cr-${cr.id}`}
-                      className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+                      className={buttonClass("secondary")}
                     >
                       Reject
                     </button>
@@ -186,7 +187,7 @@ export function ReviewClient({
                     <button
                       onClick={() => reviewSug(sg.id, "dismiss")}
                       disabled={busy === `sg-${sg.id}`}
-                      className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+                      className={buttonClass("secondary")}
                     >
                       Dismiss
                     </button>

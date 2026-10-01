@@ -2,6 +2,7 @@ import { Bell } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { listNotificationsFor, unreadNotificationCount } from "@/lib/db";
 import { PageContainer } from "@/components/PageWidth";
+import { PageHeader } from "@/components/PageHeader";
 import { NotificationsInbox } from "@/components/NotificationsInbox";
 
 export const dynamic = "force-dynamic";
@@ -21,12 +22,11 @@ export default async function NotificationsPage() {
 
   return (
     <PageContainer>
-      <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900">
-        <Bell className="h-6 w-6 text-compass-600" aria-hidden /> Notifications
-      </h1>
-      <p className="mb-6 mt-1 text-sm text-slate-500">
-        Mentions, comments, review requests and reminders — newest first.
-      </p>
+      <PageHeader
+        icon={<Bell />}
+        title="Notifications"
+        subtitle="Mentions, comments, review requests and reminders — newest first."
+      />
       <NotificationsInbox
         initial={more ? rows.slice(0, PAGE) : rows}
         initialMore={more}

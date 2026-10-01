@@ -7,6 +7,7 @@
 // into something an office manager can drive.
 
 import { useEffect, useMemo, useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { Plus, Sparkles, Trash2 } from "lucide-react";
 import type { DirectoryField } from "@/lib/directory";
 import { describeMapping, parseMapping, type Mapping } from "@/lib/directory-mapping";
@@ -261,13 +262,13 @@ function MappingEditor({
         </Field>
       )}
       <div className="flex flex-wrap items-center gap-2">
-        <button type="button" onClick={runPreview} disabled={!valid || busy} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+        <button type="button" onClick={runPreview} disabled={!valid || busy} className={buttonClass("secondary")}>
           <span className="inline-flex items-center gap-1.5"><Sparkles className="h-3.5 w-3.5" /> Preview</span>
         </button>
-        <button type="button" onClick={save} disabled={busy} className="rounded-lg bg-compass-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60">
+        <button type="button" onClick={save} disabled={busy} className={buttonClass("primary")}>
           Save mapping
         </button>
-        <button type="button" onClick={loadProps} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50" aria-expanded={propsOpen}>
+        <button type="button" onClick={loadProps} className={buttonClass("secondary")} aria-expanded={propsOpen}>
           What the records hold
         </button>
         {mapping && !valid && <span className="text-xs ink-warn">Incomplete — fill in every part.</span>}
@@ -436,11 +437,11 @@ function OptionsEditor({ field, onSaved }: { field: DirectoryField; onSaved: (f:
           className="flex items-center gap-2"
         >
           <TextInput name="v" className="w-44 text-xs" placeholder="New option value" aria-label="New option" />
-          <button type="submit" className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50">
+          <button type="submit" className={buttonClass("secondary", "sm")}>
             <span className="inline-flex items-center gap-1"><Plus className="h-3.5 w-3.5" /> Add</span>
           </button>
         </form>
-        <button type="button" onClick={harvest} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50">
+        <button type="button" onClick={harvest} className={buttonClass("secondary", "sm")}>
           Values seen in data
         </button>
         <Select value={format} onChange={(e) => setFormat(e.target.value as typeof format)} className="w-44 text-xs" aria-label="How a matched value shows">
@@ -448,7 +449,7 @@ function OptionsEditor({ field, onSaved }: { field: DirectoryField; onSaved: (f:
           <option value="label">Show the label</option>
           <option value="code_label">Show "value – label"</option>
         </Select>
-        <button type="button" onClick={save} disabled={busy} className="rounded-lg bg-compass-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60">
+        <button type="button" onClick={save} disabled={busy} className={buttonClass("primary")}>
           Save options
         </button>
       </div>
@@ -609,7 +610,7 @@ export function DirectoryFieldsPanel({
             </Select>
           </div>
         )}
-        <button type="submit" disabled={busy} className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60">
+        <button type="submit" disabled={busy} className={buttonClass("primary")}>
           Add field
         </button>
       </form>

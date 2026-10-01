@@ -5,6 +5,7 @@
 // Approver (review, approve, send). Admins always have full access.
 
 import { useRef, useState } from "react";
+import { buttonClass } from "@/components/Button";
 import Link from "next/link";
 import { Mail, Plus, X, Image as ImageIcon } from "lucide-react";
 import { Field, TextInput } from "@/components/form";
@@ -179,7 +180,7 @@ export function NewsletterPeople({
               <button
                 onClick={() => saveAppearance({ width: Number(widthDraft) })}
                 disabled={appearanceBusy || Number(widthDraft) === appearance.width}
-                className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                className={buttonClass("secondary")}
               >
                 Save
               </button>
@@ -191,7 +192,7 @@ export function NewsletterPeople({
               <button
                 onClick={() => headerFileRef.current?.click()}
                 disabled={appearanceBusy}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                className={buttonClass("secondary")}
               >
                 <ImageIcon className="h-4 w-4" />
                 {appearance.header_image ? "Replace…" : "Upload…"}
@@ -238,7 +239,7 @@ export function NewsletterPeople({
                 <button
                   onClick={() => saveAppearance({ header_bg: "" })}
                   disabled={appearanceBusy}
-                  className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                  className={buttonClass("secondary", "sm")}
                 >
                   Clear
                 </button>
@@ -275,7 +276,7 @@ export function NewsletterPeople({
                 <button
                   onClick={() => saveAppearance({ body_bg: "#f1f5f9", body_texture: "none" })}
                   disabled={appearanceBusy}
-                  className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                  className={buttonClass("secondary", "sm")}
                 >
                   Reset
                 </button>
@@ -425,7 +426,7 @@ export function NewsletterPeople({
           <button
             onClick={() => saveSenders([...senders, newSender])}
             disabled={senderBusy || !newSender.trim()}
-            className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+            className={buttonClass("secondary")}
           >
             <Plus className="h-4 w-4" /> Add
           </button>

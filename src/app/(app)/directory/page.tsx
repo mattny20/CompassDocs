@@ -8,6 +8,7 @@ import { peopleForViewer, viewerScope } from "@/lib/directory-viewer";
 import { getDirectoryGraphConfig } from "@/lib/directory-config";
 import { eePresent, featureEnabled } from "@/lib/ee";
 import { PageContainer } from "@/components/PageWidth";
+import { PageHeader } from "@/components/PageHeader";
 import { getAppSettings } from "@/lib/settings-store";
 import { formatDate } from "@/lib/format";
 
@@ -46,12 +47,11 @@ export default async function DirectoryPage({ searchParams }: { searchParams: Pr
     <PageContainer>
       {/* Screen: the interactive directory (any view) — never printed. */}
       <div className="print:hidden">
-        <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900">
-          <BookUser className="h-6 w-6 text-compass-600" /> Directory
-        </h1>
-        <p className="mb-6 mt-1 text-sm text-slate-500">
-          Find a colleague — search by name, title, department, or email.
-        </p>
+        <PageHeader
+          icon={<BookUser />}
+          title="Directory"
+          subtitle="Find a colleague — search by name, title, department, or email."
+        />
         <DirectoryClient
           initialPeople={people}
           fields={fields}

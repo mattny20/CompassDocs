@@ -6,6 +6,7 @@
 // workspace brand logo, or a custom uploaded image.
 
 import { useRef, useState } from "react";
+import { buttonClass } from "@/components/Button";
 import {
   Plus,
   Pencil,
@@ -292,7 +293,7 @@ export function LinksAdmin({
           <button
             onClick={addCategory}
             disabled={busy || !newCategory.trim()}
-            className="rounded-lg bg-compass-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-50"
+            className={buttonClass("primary")}
           >
             Add
           </button>
@@ -305,7 +306,7 @@ export function LinksAdmin({
           <h2 className="font-semibold text-slate-900">All links</h2>
           <button
             onClick={startNew}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-compass-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-compass-700"
+            className={buttonClass("primary")}
           >
             <Plus className="h-4 w-4" /> Add link
           </button>
@@ -576,14 +577,14 @@ function LinkForm({
         <button
           onClick={onSave}
           disabled={busy}
-          className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60"
+          className={buttonClass("primary")}
         >
           {busy ? "Saving…" : editingLink ? "Save changes" : "Add link"}
         </button>
         <button
           onClick={onCancel}
           disabled={busy}
-          className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+          className={buttonClass("secondary")}
         >
           Cancel
         </button>
