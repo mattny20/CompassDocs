@@ -7,6 +7,7 @@
 // persisting it to the account via the preferences API.
 
 import { createContext, useContext, useState } from "react";
+import { Segmented } from "./Segmented";
 
 export type Width = "normal" | "wide" | "full";
 
@@ -80,73 +81,27 @@ export function PageContainer({
   );
 }
 
-/** Compact Normal/Wide/Full switch; changes apply app-wide and persist. */
+/** Compact Normal/Wide/Full switch on document pages; changes apply
+ *  app-wide and persist. */
 export function WidthToggle() {
   const { width, setWidth } = usePageWidth();
   return (
-    <div
-      className="flex items-center gap-0.5 rounded-lg border border-slate-200 bg-surface p-0.5 print:hidden"
-      role="group"
-      aria-label="Page width"
-    >
-      {OPTIONS.map((o) => (
-        <button
-          key={o.value}
-          onClick={() => setWidth(o.value)}
-          data-tt={`${o.label} width (applies everywhere)`} aria-label={`${o.label} width (applies everywhere)`}
-          className={`rounded-md px-2 py-1 text-xs font-medium transition ${
-            width === o.value
-              ? "bg-compass-50 text-compass-700"
-              : "text-slate-500 hover:bg-slate-50 hover:text-slate-600"
-          }`}
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
+    <Segmented
+      size="sm"
+      label="Page width"
+      options={OPTIONS.map((o) => ({ ...o, hint: `${o.label} width (applies everywhere)` }))}
+      value={width}
+      onChange={setWidth}
+      className="print:hidden"
+    />
   );
 }
 
-/** Standalone width picker for the account page (outside the provider). */
-export function WidthPreference({ initial }: { initial: Width }) {
-  const [width, setWidthState] = useState<Width>(initial);
-  const [saved, setSaved] = useState(false);
-
-  async function pick(w: Width) {
-    setWidthState(w);
-    setSaved(false);
-    const res = await fetch("/api/account/preferences", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ page_width: w }),
-    }).catch(() => null);
-    if (res?.ok) setSaved(true);
-  }
-
-  return (
-    <div className="flex items-center gap-3">
-      <div
-        className="flex items-center gap-0.5 rounded-lg border border-slate-200 bg-surface p-0.5"
-        role="group"
-        aria-label="Page width preference"
-      >
-        {OPTIONS.map((o) => (
-          <button
-            key={o.value}
-            onClick={() => pick(o.value)}
-            className={`rounded-md px-3 py-1 text-sm font-medium transition ${
-              width === o.value
-                ? "bg-compass-600 text-white shadow-xs"
-                : "text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-            }`}
-          >
-            {o.label}
-          </button>
-        ))}
-      </div>
-      {saved && <span className="text-sm text-green-600">✓ Saved</span>}
-    </div>
-  );
+/** The account Preferences picker: the same live context, so the page
+ *  re-flows as the choice is made — that is the preview. */
+export function WidthPreference() {
+  const { width, setWidth } = usePageWidth();
+  return <Segmented label="Page width preference" options={OPTIONS} value={width} onChange={setWidth} />;
 }
 
 /** Back-compat wrapper for the document page: container + top-right toggle. */

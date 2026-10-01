@@ -1,3 +1,4 @@
+import { AccountPage } from "@/components/AccountPage";
 import { requireUser } from "@/lib/auth";
 import { getUserById } from "@/lib/db";
 import { ProfileForm } from "@/components/ProfileForm";
@@ -16,9 +17,7 @@ export default async function ProfilePage() {
   const provider = me?.auth_provider ?? "local";
 
   return (
-    <section>
-      <h2 className="mb-1 font-semibold text-slate-900">Profile</h2>
-      <p className="mb-3 text-sm text-slate-500">Who you are across the workspace.</p>
+    <AccountPage href="/account">
       <ProfileForm
         initialName={me?.name ?? ""}
         initialEmail={me?.email ?? ""}
@@ -27,6 +26,6 @@ export default async function ProfilePage() {
         managed={provider !== "local"}
         providerLabel={PROVIDER_LABEL[provider] ?? "your identity provider"}
       />
-    </section>
+    </AccountPage>
   );
 }

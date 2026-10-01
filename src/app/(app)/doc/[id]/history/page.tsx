@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { BackLink } from "@/components/BackLink";
 import { notFound } from "next/navigation";
 import { getDocument, listVersions, listBranches, getApprovalMode } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
@@ -50,11 +50,7 @@ export default async function HistoryPage({ params }: { params: Promise<{ id: st
 
   return (
     <PageContainer>
-      <div className="mb-4 flex items-center gap-1.5 text-sm text-slate-500">
-        <Link href={`/doc/${doc.id}`} className="hover:text-slate-600">
-          ← Back to document
-        </Link>
-      </div>
+      <BackLink href={`/doc/${doc.id}`} label={doc.title} />
       <h1 className="mb-1 text-2xl font-bold text-slate-900">Version history</h1>
       <p className="mb-6 text-slate-500">
         {doc.title}

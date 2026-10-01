@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import QRCode from "qrcode";
-import { Mail, Phone, Smartphone, MapPin, UserRound, Users, ArrowLeft, FileText, Building2, CalendarDays } from "lucide-react";
+import { Mail, Phone, Smartphone, MapPin, UserRound, Users, FileText, Building2, CalendarDays } from "lucide-react";
+import { BackLink } from "@/components/BackLink";
 import { requireUser } from "@/lib/auth";
 import { getPersonById, listFields, listPeople, personPhotoLarge } from "@/lib/directory";
 import { buildOrgChart, chainAbove, managerField, peersOf, teamBelow } from "@/lib/directory-org";
@@ -101,12 +102,7 @@ export default async function PersonProfilePage({
 
   return (
     <PageContainer>
-      <Link
-        href="/directory"
-        className="mb-4 inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-600"
-      >
-        <ArrowLeft className="h-3.5 w-3.5" /> Directory
-      </Link>
+      <BackLink href="/directory" label="Directory" />
 
       <div className="rounded-xl border border-slate-200 bg-surface p-6 shadow-xs">
         <div className="flex flex-wrap items-start gap-5">

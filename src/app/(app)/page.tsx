@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { getAppSettings } from "@/lib/settings-store";
 import { PageContainer } from "@/components/PageWidth";
-import { Kbd } from "@/components/palette/Kbd";
+import { askLabel } from "@/lib/nav-items";
 import {
   listSpaces,
   listRecentDocuments,
@@ -26,7 +26,6 @@ import { StatusBadge } from "@/components/Badges";
 import { listReviewsDue } from "@/lib/reviews";
 import { formatDate, settingsForUser } from "@/lib/format";
 import {
-  Search,
   Sparkles,
   TriangleAlert,
   CalendarClock,
@@ -87,17 +86,16 @@ export default async function DashboardPage() {
       {/* Greeting + hero search */}
       <header className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <DashboardGreeting name={user.name || user.username} />
+        {/* The Ask entry — not a second search box. Ctrl K is the palette
+            (sidebar trigger), so no keycap here; the width follows the page
+            instead of a fixed 24rem that truncated the copy at 1920+. */}
         <Link
           href="/search"
-          className="group flex w-full items-center gap-2.5 rounded-xl border border-slate-200 bg-surface px-4 py-3 text-slate-500 shadow-xs transition hover:border-compass-300 hover:shadow-md sm:w-96"
+          className="group flex w-full items-center gap-2.5 rounded-xl border border-slate-200 bg-surface px-4 py-3 text-slate-500 shadow-xs transition hover:border-compass-300 hover:shadow-md sm:w-auto sm:min-w-80 sm:max-w-2xl sm:flex-1"
         >
-          <Search className="h-4 w-4 shrink-0" aria-hidden />
-          <span className="flex-1 truncate text-sm">
-            Search, or ask {appSettings.company_name} anything…
-          </span>
           <Sparkles className="h-4 w-4 shrink-0 text-compass-500" aria-hidden />
-          <span className="hidden sm:block">
-            <Kbd keys={["Mod", "K"]} />
+          <span className="flex-1 truncate text-sm">
+            {askLabel(appSettings.company_name)} anything — or search by keyword…
           </span>
         </Link>
       </header>

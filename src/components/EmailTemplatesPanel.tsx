@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
+import { BackLink } from "@/components/BackLink";
 import {
-  ArrowLeft,
   AtSign,
   BellRing,
   Braces,
@@ -143,12 +142,7 @@ export function EmailTemplatesPanel({ initial }: { initial: Template[] }) {
   return (
     <div className="space-y-4">
       <div>
-        <Link
-          href="/admin/notifications"
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-slate-700"
-        >
-          <ArrowLeft className="h-4 w-4" /> Notifications
-        </Link>
+        <BackLink href="/admin/notifications" label="Notifications" className="" />
         {/* This page sits under the Notifications section but is its own
             route, so it carries the page-title h1 itself (the console layout
             renders only an eyebrow). */}

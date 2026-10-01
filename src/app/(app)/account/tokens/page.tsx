@@ -1,3 +1,4 @@
+import { AccountPage } from "@/components/AccountPage";
 import { requireUser } from "@/lib/auth";
 import { listApiTokens, listOAuthGrants } from "@/lib/db";
 import { ROLE_LABEL } from "@/lib/types";
@@ -14,15 +15,16 @@ export default async function ApiTokensPage() {
   ]);
 
   return (
-    <section>
-      <h2 className="mb-1 font-semibold text-slate-900">API tokens</h2>
-      <p className="mb-3 text-sm text-slate-500">
-        Personal tokens for the Claude connector and other integrations. They act as you,
-        with your role ({ROLE_LABEL[user.role]}).
-      </p>
+    <AccountPage
+      href="/account/tokens"
+      description={
+        <>Personal tokens for the Claude connector and other integrations. They act as you,
+        with your role ({ROLE_LABEL[user.role]}).</>
+      }
+    >
       <div className="rounded-xl border border-slate-200 bg-surface p-5 shadow-xs">
         <ApiTokens initial={tokens} initialConnections={connections} />
       </div>
-    </section>
+    </AccountPage>
   );
 }

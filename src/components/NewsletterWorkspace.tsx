@@ -7,9 +7,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
+import { BackLink } from "@/components/BackLink";
 import {
-  ArrowLeft,
   Send,
   FlaskConical,
   CheckCircle2,
@@ -384,12 +383,11 @@ export function NewsletterWorkspace({
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <Link
+          <BackLink
             href={hasModuleAccess ? "/newsletter" : "/"}
-            className="inline-flex items-center gap-1 text-sm font-medium text-slate-500 hover:text-compass-600"
-          >
-            <ArrowLeft className="h-4 w-4" /> {hasModuleAccess ? "Newsletter" : "Dashboard"}
-          </Link>
+            label={hasModuleAccess ? "Newsletter" : "Dashboard"}
+            className=""
+          />
           <StatusBadge status={n.status} />
           <span className="text-xs text-slate-500">
             by {n.author_name}

@@ -8,10 +8,11 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Monitor, Moon, Sun } from "lucide-react";
 import { WidthPreference } from "./PageWidth";
+import { Segmented, type SegmentedOption } from "./Segmented";
 import { applyThemePref, storeThemePref, type Pref } from "./ThemeToggle";
 import { UI_SCALES, applyUiScale, storeUiScale, type UiScale } from "./UiScale";
 
-const THEMES: { value: Pref; label: string; icon: typeof Sun }[] = [
+const THEMES: SegmentedOption<Pref>[] = [
   { value: "light", label: "Light", icon: Sun },
   { value: "dark", label: "Dark", icon: Moon },
   { value: "system", label: "Auto", icon: Monitor },
@@ -36,14 +37,12 @@ function dfExample(df: Df): string {
 
 export function PreferencesPanel({
   initialTheme,
-  initialWidth,
   initialScale = "default",
   initialTimezone,
   initialDateFormat,
   workspaceTimezone,
 }: {
   initialTheme: Pref;
-  initialWidth: "normal" | "wide" | "full";
   initialScale?: UiScale;
   initialTimezone: string;
   initialDateFormat: Df;
@@ -103,55 +102,20 @@ export function PreferencesPanel({
         <p className="mb-3 text-sm text-slate-500">
           Saved to your account, so it follows you to any browser you sign in from.
         </p>
-        <div className="inline-flex rounded-lg border border-slate-200 p-0.5" role="radiogroup" aria-label="Theme">
-          {THEMES.map((t) => {
-            const Icon = t.icon;
-            const active = theme === t.value;
-            return (
-              <button
-                key={t.value}
-                role="radio"
-                aria-checked={active}
-                onClick={() => pickTheme(t.value)}
-                className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition ${
-                  active ? "bg-compass-600 text-white" : "text-slate-600 hover:bg-slate-100"
-                }`}
-              >
-                <Icon className="h-3.5 w-3.5" /> {t.label}
-              </button>
-            );
-          })}
-        </div>
+        <Segmented options={THEMES} value={theme} onChange={pickTheme} label="Theme" />
         <div className="mt-4 border-t border-slate-100 pt-4">
           <span className="mb-2 block text-xs font-medium text-slate-500">
             Page width — how wide pages render across the whole app
           </span>
-          <WidthPreference initial={initialWidth} />
+          {/* Inside the app shell the width context is live: picking a width
+              re-flows this page at once, which is the preview. */}
+          <WidthPreference />
         </div>
         <div className="mt-4 border-t border-slate-100 pt-4">
           <span className="mb-2 block text-xs font-medium text-slate-500">
             Interface scale — the size of everything, text and controls alike
           </span>
-          <div className="inline-flex rounded-lg border border-slate-200 p-0.5" role="radiogroup" aria-label="Interface scale">
-            {UI_SCALES.map((s) => {
-              const active = scale === s.value;
-              return (
-                <button
-                  key={s.value}
-                  type="button"
-                  role="radio"
-                  aria-checked={active}
-                  onClick={() => pickScale(s.value)}
-                  data-tt={s.hint}
-                  className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
-                    active ? "bg-compass-600 text-white" : "text-slate-600 hover:bg-slate-100"
-                  }`}
-                >
-                  {s.label}
-                </button>
-              );
-            })}
-          </div>
+          <Segmented options={UI_SCALES} value={scale} onChange={pickScale} label="Interface scale" />
           <p className="mt-2 text-xs text-slate-500">
             Default already grows with your monitor. Pick Large or Larger on a 32-inch or ultrawide
             screen, Compact to fit more on a laptop. Browser zoom still works on top.

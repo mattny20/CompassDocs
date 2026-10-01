@@ -165,7 +165,9 @@ focus):
   running off-screen; `data-tt-wrap`
   on a label longer than a few words so it wraps instead of becoming a
   450px pill. One tooltip per control: never add a hand-rolled hover span
-  beside `data-tt`.
+  beside `data-tt`. A control with `aria-expanded="true"` shows no tooltip
+  (the open panel is the label), so a popup trigger keeps `data-tt` and
+  sets `aria-expanded` rather than toggling the attribute.
 - **Icon-only controls must also carry `aria-label`** (matching the tooltip
   text) — `data-tt` is presentation, not an accessible name. Elements with
   visible text must NOT get `aria-label` (it would override the text).
@@ -236,6 +238,37 @@ focus):
   `text-xs text-amber-600`, or `Saved` in `text-xs text-slate-500`). A page
   whose cards are one document (office fields + office values) has one Save
   below the cards, not one per card.
+
+## Wayfinding: back links and breadcrumbs
+
+- **Sub-pages get one back link**, `<BackLink href label>` from
+  `components/BackLink`, above the page title: an arrow and the
+  destination's own name ("Directory", the document's title), never "Back
+  to X". Default `mb-4`; pass `className=""` inside a flex row. Hidden in
+  print.
+- **Nested places get one breadcrumb trail**, `<Breadcrumbs items trailing>`
+  from `components/Breadcrumbs` (the document page, the public document
+  page): a named landmark, separators hidden from readers, long titles
+  truncated with a tooltip (`title`), an optional right-aligned control.
+  Never hand-roll either.
+
+## Segmented controls
+
+- A choice of two to five options where exactly one is on (theme, page
+  width, interface scale, the document width switch) is
+  `<Segmented options value onChange label size>` from
+  `components/Segmented`: a `radiogroup` with a roving tabindex, arrows
+  move the choice, the current option is `bg-compass-50 text-compass-700`.
+  `size="sm"` for toolbars. Options may carry an icon and a `hint`
+  (tooltip). Never write a second recipe, filled or tinted.
+
+## Account pages
+
+- Account settings sit inside the app shell under `(app)/account`, framed
+  like the console: an "Account" eyebrow, the rail (`AccountNav`, rows from
+  `components/RailLink`) and `<AccountPage href>` rendering the section's
+  icon, label and description from `lib/account-sections.ts` as the page's
+  `h1`. The forced password change (`/account/password`) stays standalone.
 
 ## Rails and navigation rows
 

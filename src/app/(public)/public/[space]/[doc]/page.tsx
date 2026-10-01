@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import {
@@ -50,20 +50,13 @@ export default async function PublicDocPage({
   return (
     <article>
       <ViewTracker docId={doc.id} />
-      <nav aria-label="Breadcrumb" className="mb-4 flex items-center text-sm text-slate-500 print:hidden">
-        <span>
-          <Link href="/public" className="hover:text-compass-700">
-            Home
-          </Link>
-          {" / "}
-          <Link href={`/public/${space.slug}`} className="hover:text-compass-700">
-            {space.name}
-          </Link>
-        </span>
-        <span className="ml-auto">
-          <PrintButton compact />
-        </span>
-      </nav>
+      <Breadcrumbs
+        items={[
+          { href: "/public", label: "Home" },
+          { href: `/public/${space.slug}`, label: space.name },
+        ]}
+        trailing={<PrintButton compact />}
+      />
 
       <h1 className="text-3xl font-bold text-slate-900">{doc.title}</h1>
       <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-500">

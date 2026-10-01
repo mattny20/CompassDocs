@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
-import Link from "next/link";
-import { ArrowLeft, Download, GraduationCap } from "lucide-react";
+import { Download, GraduationCap } from "lucide-react";
+import { BackLink } from "@/components/BackLink";
 import { requireUser } from "@/lib/auth";
 import { canAccessSection } from "@/lib/section-access";
 import { featureEnabled } from "@/lib/ee";
@@ -33,12 +33,7 @@ export default async function TrainingPersonPage({ params }: { params: Promise<{
     <PageContainer>
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <Link
-            href="/training"
-            className="inline-flex items-center gap-1 text-sm font-medium text-compass-600 hover:underline print:hidden"
-          >
-            <ArrowLeft className="h-4 w-4" /> Training
-          </Link>
+          <BackLink href="/training" label="Training" className="" />
           <h1 className="mt-1 flex items-center gap-2 text-xl font-bold tracking-tight text-slate-900">
             <GraduationCap className="h-5 w-5 text-compass-600" /> Training transcript — {person.name}
           </h1>

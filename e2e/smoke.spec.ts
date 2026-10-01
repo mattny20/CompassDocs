@@ -35,7 +35,7 @@ test("admin signs in and sees the dashboard hub", async ({ page }) => {
   await login(page, ADMIN);
   // Greeting header + hero search are the dashboard's spine.
   await expect(page.locator("h1")).toContainText(/,/);
-  await expect(page.getByText(/Search, or ask/)).toBeVisible();
+  await expect(page.getByRole("link", { name: /^Ask .* anything/ })).toBeVisible();
   // Seeded example spaces render in the spaces column.
   await expect(page.locator("text=Spaces").first()).toBeVisible();
 });

@@ -2,49 +2,22 @@
 
 // The sidebar bell: unread badge, a dropdown of recent notifications, and
 // mark-read plumbing. Polls the unread count once a minute; the full list
-// loads on open so the common case (no clicks) costs one tiny request.
+// loads on open so the common case (no clicks) costs one tiny request. The
+// dropdown's footer leads to the full inbox (/notifications, with history)
+// and to notification preferences; rows are NotificationRow, shared with
+// the inbox page.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import {
-  Bell,
-  CheckCheck,
-  MessageSquareText,
-  MessageCircle,
-  FileText,
-  GitPullRequest,
-  CheckCircle2,
-  CalendarClock,
-  ClipboardCheck,
-} from "lucide-react";
-import { timeAgo } from "@/lib/ui";
-
+import { Bell, CheckCheck } from "lucide-react";
 import { overlayOpen } from "@/lib/overlay-stack";
-interface Item {
-  id: number;
-  kind: string;
-  title: string;
-  body: string;
-  link: string;
-  actor_name: string;
-  created_at: string;
-  read_at: string | null;
-}
-
-const KIND_ICON: Record<string, React.ReactNode> = {
-  mention: <MessageSquareText className="h-4 w-4" aria-hidden />,
-  comment: <MessageCircle className="h-4 w-4" aria-hidden />,
-  doc_update: <FileText className="h-4 w-4" aria-hidden />,
-  cr_submitted: <GitPullRequest className="h-4 w-4" aria-hidden />,
-  cr_resolved: <CheckCircle2 className="h-4 w-4" aria-hidden />,
-  review_due: <CalendarClock className="h-4 w-4" aria-hidden />,
-  ack_requested: <ClipboardCheck className="h-4 w-4" aria-hidden />,
-};
+import { NotificationRow, type NotificationItem } from "./NotificationRow";
 
 export function NotificationsBell({ initialUnread }: { initialUnread: number }) {
   const [unread, setUnread] = useState(initialUnread);
   const [open, setOpen] = useState(false);
-  const [items, setItems] = useState<Item[] | null>(null);
+  const [items, setItems] = useState<NotificationItem[] | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
@@ -120,7 +93,7 @@ export function NotificationsBell({ initialUnread }: { initialUnread: number }) 
     }
   }
 
-  function openItem(item: Item) {
+  function openItem(item: NotificationItem) {
     setOpen(false);
     setItems((prev) =>
       prev
@@ -140,7 +113,7 @@ export function NotificationsBell({ initialUnread }: { initialUnread: number }) 
         data-tt-pos="bottom"
         aria-label={unread > 0 ? `Notifications, ${unread} unread` : "Notifications"}
         aria-expanded={open}
-        aria-haspopup="true"
+        aria-haspopup="dialog"
         // A finger-sized target on phones; desktop geometry unchanged.
         className="relative rounded-md p-3.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 sm:p-1.5"
       >
@@ -153,7 +126,11 @@ export function NotificationsBell({ initialUnread }: { initialUnread: number }) 
       </button>
 
       {open && (
-        <div className="absolute left-0 top-full z-50 mt-2 w-80 overflow-hidden rounded-xl border border-slate-200 bg-surface shadow-xl">
+        <div
+          role="dialog"
+          aria-label="Notifications"
+          className="absolute left-0 top-full z-50 mt-2 w-80 overflow-hidden rounded-xl border border-slate-200 bg-surface shadow-xl"
+        >
           <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
             <span className="text-sm font-semibold text-slate-900">Notifications</span>
             {unread > 0 && (
@@ -175,39 +152,24 @@ export function NotificationsBell({ initialUnread }: { initialUnread: number }) 
               </p>
             )}
             {items?.map((item) => (
-              <button
-                key={item.id}
-                onClick={() => openItem(item)}
-                className={`flex w-full items-start gap-2.5 px-3 py-2.5 text-left transition hover:bg-slate-50 ${
-                  item.read_at ? "opacity-70" : ""
-                }`}
-              >
-                <span
-                  className={`mt-0.5 shrink-0 ${item.read_at ? "text-slate-300" : "text-compass-500"}`}
-                >
-                  {KIND_ICON[item.kind] ?? <Bell className="h-4 w-4" aria-hidden />}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span
-                    className={`block text-sm ${item.read_at ? "text-slate-600" : "font-medium text-slate-900"}`}
-                  >
-                    {!item.read_at && <span className="sr-only">Unread: </span>}
-                    {item.title}
-                  </span>
-                  {item.body && (
-                    <span className="mt-0.5 line-clamp-2 block text-xs text-slate-500">
-                      {item.body}
-                    </span>
-                  )}
-                  <span className="mt-0.5 block text-xs text-slate-500">
-                    {timeAgo(item.created_at)}
-                  </span>
-                </span>
-                {!item.read_at && (
-                  <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-compass-500" aria-hidden />
-                )}
-              </button>
+              <NotificationRow key={item.id} item={item} onOpen={openItem} dense />
             ))}
+          </div>
+          <div className="flex items-center justify-between border-t border-slate-100 px-3 py-2 text-xs">
+            <Link
+              href="/notifications"
+              onClick={() => setOpen(false)}
+              className="font-medium text-compass-600 hover:text-compass-700"
+            >
+              See all notifications
+            </Link>
+            <Link
+              href="/account/notifications"
+              onClick={() => setOpen(false)}
+              className="text-slate-500 hover:text-slate-700"
+            >
+              Preferences
+            </Link>
           </div>
         </div>
       )}

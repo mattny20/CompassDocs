@@ -1,8 +1,8 @@
 import { notFound } from "next/navigation";
 
-import Link from "next/link";
 import { PageContainer } from "@/components/PageWidth";
-import { ArrowLeft, CircleAlert, CircleCheck, Users } from "lucide-react";
+import { CircleAlert, CircleCheck, Users } from "lucide-react";
+import { BackLink } from "@/components/BackLink";
 import { requireUser } from "@/lib/auth";
 import { featureEnabled } from "@/lib/ee";
 import { userLeadGroups, teamTrainingRows, type TeamTrainingRow } from "@/lib/db";
@@ -37,12 +37,7 @@ export default async function TrainingTeamPage() {
   return (
     <PageContainer>
       <div className="mb-5">
-        <Link
-          href="/training"
-          className="inline-flex items-center gap-1 text-sm font-medium text-compass-600 hover:underline"
-        >
-          <ArrowLeft className="h-4 w-4" /> Training
-        </Link>
+        <BackLink href="/training" label="Training" className="" />
         <h1 className="mt-2 flex items-center gap-2 text-xl font-bold tracking-tight text-slate-900">
           <Users className="h-5 w-5 text-compass-600" /> Your team&apos;s training
         </h1>

@@ -1,6 +1,6 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Download } from "lucide-react";
+import { Download } from "lucide-react";
+import { BackLink } from "@/components/BackLink";
 import { requirePermission } from "@/lib/auth";
 import { getDocument, ackStatusForDocument } from "@/lib/db";
 import { spaceScopeFor, scopeAllows } from "@/lib/access";
@@ -37,12 +37,7 @@ export default async function AcknowledgementsPage({
 
   return (
     <PageContainer>
-      <Link
-        href={`/doc/${doc.id}`}
-        className="mb-4 inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-600"
-      >
-        <ArrowLeft className="h-3.5 w-3.5" /> {doc.title}
-      </Link>
+      <BackLink href={`/doc/${doc.id}`} label={doc.title} />
 
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>

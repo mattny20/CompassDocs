@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { PageWidth } from "@/components/PageWidth";
 import { notFound } from "next/navigation";
 import {
@@ -148,24 +149,14 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
   return (
     <PageWidth>
       <ViewTracker docId={doc.id} />
-      <nav aria-label="Breadcrumb" className="mb-4 flex items-center gap-1.5 text-sm text-slate-500 print:hidden">
-        <Link href="/" className="hover:text-slate-600">
-          Home
-        </Link>
-        <span aria-hidden>/</span>
-        <Link href={`/spaces/${doc.space_slug}`} className="hover:text-slate-600">
-          {doc.space_icon} {doc.space_name}
-        </Link>
-        {/* Ancestor pages, outermost first (nested pages). */}
-        {[...ancestors].reverse().map((a) => (
-          <span key={a.id} className="flex min-w-0 items-center gap-1.5">
-            <span aria-hidden>/</span>
-            <Link href={`/doc/${a.id}`} className="max-w-48 truncate hover:text-slate-600" data-tt={a.title} aria-label={a.title}>
-              {a.title}
-            </Link>
-          </span>
-        ))}
-      </nav>
+      <Breadcrumbs
+        items={[
+          { href: "/", label: "Home" },
+          { href: `/spaces/${doc.space_slug}`, label: `${doc.space_icon} ${doc.space_name}` },
+          // Ancestor pages, outermost first (nested pages).
+          ...[...ancestors].reverse().map((a) => ({ href: `/doc/${a.id}`, label: a.title, title: a.title })),
+        ]}
+      />
 
       {/* Masthead: pure typography — badges, title, one meta line, summary as
           a plain lede. Workflow state lives in the single notice strip below. */}
