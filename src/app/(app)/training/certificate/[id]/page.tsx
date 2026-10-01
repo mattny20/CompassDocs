@@ -80,7 +80,7 @@ export default async function TrainingCertificatePage({
           {a.content_sha256 ? (
             <>
               <div className="text-right text-slate-400">Content SHA-256</div>
-              <div className="break-all text-left font-mono text-[11px] text-slate-500">
+              <div className="break-all text-left font-mono text-2xs text-slate-500">
                 {a.content_sha256}
               </div>
             </>

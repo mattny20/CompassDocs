@@ -106,7 +106,7 @@ export default async function HealthPage() {
             {/* Amber tiles keep light backgrounds in dark mode, so the label
                 must use a static amber ink there rather than themed slate. */}
             <div
-              className={`mt-1 text-[11px] font-medium leading-tight ${
+              className={`mt-1 text-2xs font-medium leading-tight ${
                 s.count > 0 ? "text-amber-800" : "text-slate-600"
               }`}
             >

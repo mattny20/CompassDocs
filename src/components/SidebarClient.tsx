@@ -126,6 +126,10 @@ export function SidebarClient({
   }, []);
 
   useEffect(() => {
+    // Deliberately px: this must equal Tailwind's `md` breakpoint (48rem of
+    // the INITIAL font size = 768px). rem inside a media query resolves
+    // against the browser default, never the fluid root rule in globals.css,
+    // so neither side moves when the interface scales (STYLEGUIDE §Scaling).
     const mq = window.matchMedia("(max-width: 767px)");
     const apply = () => {
       setIsSmall(mq.matches);

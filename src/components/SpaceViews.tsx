@@ -268,7 +268,7 @@ function CardSubs({ parentId, map }: { parentId: number; map: Map<number, Docume
               {k.title}
             </span>
             {k.status === "draft" && (
-              <span className="shrink-0 rounded-full bg-slate-100 px-1.5 text-[10px] font-medium uppercase text-slate-500">
+              <span className="shrink-0 rounded-full bg-slate-100 px-1.5 text-3xs font-medium uppercase text-slate-500">
                 Draft
               </span>
             )}
@@ -471,7 +471,7 @@ function TableView({
         </div>
       )}
     <div className="overflow-x-auto rounded-xl border border-slate-200 bg-surface">
-      <table className="w-full min-w-[640px] text-sm">
+      <table className="w-full min-w-[40rem] text-sm">
         <thead className="border-b border-slate-100">
           <tr>
             {bulk && (
@@ -676,7 +676,7 @@ function TreeNode({
             <ChevronRight className={`h-3.5 w-3.5 transition-transform ${expanded ? "rotate-90" : ""}`} />
           </button>
         ) : (
-          <span className="w-[18px]" />
+          <span className="w-4.5" />
         )}
         <div className="min-w-0 flex-1">
           <DocRowLink d={d} />

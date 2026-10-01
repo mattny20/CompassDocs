@@ -129,7 +129,11 @@ export function DocLinkSuggest({ editor }: { editor: Editor }) {
   }, [active, hits, sel, pick]);
 
   if (!active) return null;
-  const x = Math.min(active.x, (typeof window !== "undefined" ? window.innerWidth : 1200) - 340);
+  // The popover is w-80 (20rem) plus a gutter; measure the root so the clamp
+  // follows the interface scale instead of assuming a 16px rem.
+  const rem =
+    typeof document !== "undefined" ? parseFloat(getComputedStyle(document.documentElement).fontSize) || 16 : 16;
+  const x = Math.min(active.x, (typeof window !== "undefined" ? window.innerWidth : 1200) - 21.25 * rem);
 
   return (
     <div
@@ -172,7 +176,7 @@ export function DocLinkSuggest({ editor }: { editor: Editor }) {
           ))}
         </ul>
       )}
-      <p className="border-t border-slate-100 px-3 py-1 text-[11px] text-slate-400">
+      <p className="border-t border-slate-100 px-3 py-1 text-2xs text-slate-400">
         ↑↓ to choose · Enter to link · Esc to dismiss
       </p>
     </div>

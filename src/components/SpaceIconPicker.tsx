@@ -171,7 +171,7 @@ export function SpaceIconPicker({
         ) : (
           results.map((c) => (
             <div key={c.label} className="mb-1.5">
-              <div className="px-1 pb-1 text-[11px] font-medium uppercase tracking-wide text-slate-400">
+              <div className="px-1 pb-1 text-2xs font-medium uppercase tracking-wide text-slate-400">
                 {c.label}
               </div>
               <div className="flex flex-wrap gap-0.5">

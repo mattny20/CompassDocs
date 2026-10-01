@@ -12,7 +12,7 @@ import { CHIP_COLORS, resolveValues, splitMulti, type FieldLike } from "@/lib/di
 export const splitTags = splitMulti;
 
 function chipClass(size: "sm" | "md", tone: string): string {
-  const base = size === "md" ? "rounded-full px-2.5 py-0.5 text-xs font-medium" : "rounded-full px-2 py-px text-[11px] font-medium";
+  const base = size === "md" ? "rounded-full px-2.5 py-0.5 text-xs font-medium" : "rounded-full px-2 py-px text-2xs font-medium";
   return `${base} ${CHIP_COLORS[tone] ?? CHIP_COLORS.slate}`;
 }
 

@@ -167,7 +167,7 @@ export const PaletteRow = memo(function PaletteRow({
         ) : isPerson ? (
           <span
             aria-hidden
-            className="grid h-5 w-5 place-items-center rounded-full bg-compass-100 text-[10px] font-semibold text-compass-700"
+            className="grid h-5 w-5 place-items-center rounded-full bg-compass-100 text-3xs font-semibold text-compass-700"
           >
             {initialsOf(item.label)}
           </span>

@@ -243,7 +243,7 @@ inherit. Toasts and per-field validation errors are unrelated (see Feedback).
 
 ## Status chips
 
-`rounded-full px-2 py-0.5 text-[11px] font-medium` + a semantic pair:
+`rounded-full px-2 py-0.5 text-2xs font-medium` + a semantic pair:
 `bg-emerald-100 text-emerald-700`, `bg-red-100 text-red-700`,
 `bg-amber-100 text-amber-700`, `bg-slate-100 text-slate-500`, or accent
 `bg-compass-50 text-compass-700`.
@@ -397,6 +397,30 @@ Rules:
 - A panel carrying long-form prose is a smell. Callouts are one to three
   sentences by convention; if one grows into an essay, the fix is to promote it
   out of the callout, not to re-narrow the panel.
+
+## Scaling
+
+The interface is sized in **rem, never px**, so one root rule can scale the
+whole product with the monitor. Tailwind v4 already emits spacing, widths,
+icons and the text scale in rem; the house rules keep hand-written sizes on
+the same footing:
+
+- Font sizes come from the scale: `text-xs` and up, plus the two small steps
+  `text-2xs` (11px at a 16px root — chips, keycaps, captions) and `text-3xs`
+  (10px — tiny tags). Never `text-[11px]`. An odd size that has no step is
+  written in rem (`text-[0.8125rem]`), never px.
+- Dimensions use the spacing scale (`w-4.5`, `max-w-55`, `min-w-[45rem]`),
+  never `h-[420px]` / `min-w-[720px]`. Hand-written CSS in `globals.css`
+  follows the same rule (tooltip padding, keycap radius, measures in `ch`).
+- **Allowed in px**, because they are hairlines or belong to another medium:
+  `1px`/`2px` borders, rings, `shadow-xs`, `outline-offset`, the scrim blur;
+  `vw`/`vh` overlay bounds; geometry and `<text>` inside an `<svg>`; email
+  HTML (`lib/newsletter`, `lib/digest`); react-pdf exports (points); and the
+  sidebar's `matchMedia("(max-width: 767px)")`, which must equal Tailwind's
+  `md` breakpoint — rem in a media query resolves against the browser default,
+  so breakpoints never move when the root scales.
+- `test/style-scale.test.ts` fails the build on a new px literal outside that
+  allow-list.
 
 ## Print
 

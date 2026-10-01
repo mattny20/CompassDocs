@@ -124,7 +124,7 @@ function TwoFactor({ initial }: { initial: TotpState }) {
           <div className="flex flex-wrap items-start gap-4">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={qr} alt="Scan with your authenticator app" className="rounded-lg ring-1 ring-slate-200" />
-            <div className="min-w-[240px] flex-1 space-y-2 text-sm text-slate-600">
+            <div className="min-w-60 flex-1 space-y-2 text-sm text-slate-600">
               <p>
                 1. Scan the QR code with your authenticator app (1Password, Google Authenticator,
                 Microsoft Authenticator, …).
@@ -136,7 +136,7 @@ function TwoFactor({ initial }: { initial: TotpState }) {
               <p>2. Enter the 6-digit code it shows:</p>
               <div className="flex gap-2">
                 <input
-                  className={`${field} max-w-[160px] text-center font-mono tracking-widest`}
+                  className={`${field} max-w-40 text-center font-mono tracking-widest`}
                   value={code}
                   onChange={(e) => setCode(e.target.value)}
                   inputMode="numeric"
@@ -171,7 +171,7 @@ function TwoFactor({ initial }: { initial: TotpState }) {
           <p className="mt-1 text-xs">
             Each works exactly once if you lose your authenticator.
           </p>
-          <pre className="mt-2 grid grid-cols-2 gap-x-6 rounded-sm bg-white p-3 font-mono text-[13px] leading-6 ring-1 ring-amber-200 sm:grid-cols-4">
+          <pre className="mt-2 grid grid-cols-2 gap-x-6 rounded-sm bg-white p-3 font-mono text-[0.8125rem] leading-6 ring-1 ring-amber-200 sm:grid-cols-4">
             {recovery.join("\n")}
           </pre>
           <div className="mt-2 flex gap-2">
@@ -198,7 +198,7 @@ function TwoFactor({ initial }: { initial: TotpState }) {
           </p>
           <div className="mt-2 flex gap-2">
             <input
-              className={`${field} max-w-[220px] text-center font-mono`}
+              className={`${field} max-w-55 text-center font-mono`}
               value={disableCode}
               onChange={(e) => setDisableCode(e.target.value)}
               placeholder="code to turn off"

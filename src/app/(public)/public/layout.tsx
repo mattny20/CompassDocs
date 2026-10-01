@@ -43,7 +43,7 @@ export default async function PublicLayout({ children }: { children: React.React
             <span className="text-lg font-bold text-slate-900">{settings.company_name}</span>
           </Link>
 
-          <form action="/public/search" className="ml-auto flex min-w-[200px] flex-1 sm:max-w-xs">
+          <form action="/public/search" className="ml-auto flex min-w-50 flex-1 sm:max-w-xs">
             <div className="relative w-full">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input

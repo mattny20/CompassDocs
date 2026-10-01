@@ -129,7 +129,7 @@ function UserTable({
     {/* Scrolls rather than clips: below ~1180px the Status and Actions columns
         (Reset password / Disable / Delete) used to be unreachable entirely. */}
     <div className="overflow-x-auto rounded-xl border border-slate-200 bg-surface shadow-xs">
-      <table className="w-full min-w-[720px] text-sm">
+      <table className="w-full min-w-[45rem] text-sm">
         <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-400">
           <tr>
             <th className="px-4 py-2 font-medium">User</th>
@@ -175,7 +175,7 @@ function UserTable({
                     {extraRoles![u.id].map((label) => (
                       <span
                         key={label}
-                        className="rounded bg-compass-50 px-1.5 py-0.5 text-[11px] font-medium text-compass-700"
+                        className="rounded bg-compass-50 px-1.5 py-0.5 text-2xs font-medium text-compass-700"
                       >
                         {label}
                       </span>

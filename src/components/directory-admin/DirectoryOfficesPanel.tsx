@@ -277,7 +277,7 @@ export function DirectoryOfficesPanel({
               <div className="w-56">
                 <TextInput value={f.label} onChange={(e) => updateField(i, { label: e.target.value })} aria-label={`Label for ${f.key}`} />
               </div>
-              <span className="font-mono text-[11px] text-slate-400">{f.key}</span>
+              <span className="font-mono text-2xs text-slate-400">{f.key}</span>
               <Toggle label="Multi-line" checked={f.multiline} onChange={(v) => updateField(i, { multiline: v })} />
               <span className="ml-auto flex items-center gap-1">
                 <button type="button" onClick={() => moveField(i, -1)} disabled={i === 0} className="rounded-sm p-1 text-slate-400 hover:text-slate-600 disabled:opacity-30" data-tt="Move up" aria-label={`Move ${f.label} up`}>

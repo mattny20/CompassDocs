@@ -443,7 +443,7 @@ export function CommandPaletteClient({
         <div className="flex items-center gap-2 border-b border-slate-100 px-3">
           <Search className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
           {mode !== "all" && (
-            <span className="shrink-0 rounded-full bg-compass-50 px-2 py-0.5 text-[11px] font-medium text-compass-700">
+            <span className="shrink-0 rounded-full bg-compass-50 px-2 py-0.5 text-2xs font-medium text-compass-700">
               {MODE_LABEL[mode]}
             </span>
           )}
@@ -481,7 +481,7 @@ export function CommandPaletteClient({
           ) : (
             groups.map((g) => (
               <div key={g.kind}>
-                <p className="px-3 pb-0.5 pt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                <p className="px-3 pb-0.5 pt-2 text-2xs font-semibold uppercase tracking-wide text-slate-400">
                   {GROUP_LABEL[g.kind]}
                 </p>
                 {g.items.map((item) => {
@@ -512,7 +512,7 @@ export function CommandPaletteClient({
           )}
         </div>
 
-        <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-3 py-2 text-[11px] text-slate-400">
+        <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-3 py-2 text-2xs text-slate-400">
           <span className="flex items-center gap-3">
             <span className="flex items-center gap-1">
               <ArrowUp className="h-3 w-3" aria-hidden />
