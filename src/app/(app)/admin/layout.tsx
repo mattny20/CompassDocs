@@ -3,6 +3,7 @@ import { Settings } from "lucide-react";
 import { requireUser, reachableSettingsSections } from "@/lib/auth";
 import { SettingsNav } from "@/components/SettingsNav";
 import { PageContainer } from "@/components/PageWidth";
+import { RAIL_GROUP_TEXT } from "@/components/RailLink";
 
 export const dynamic = "force-dynamic";
 
@@ -17,12 +18,20 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
   return (
     <PageContainer>
-      <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900">
-        <Settings className="h-6 w-6 text-compass-600" /> Settings
-      </h1>
-      <p className="mb-6 mt-1 text-sm text-slate-500">Manage your workspace, users, and system.</p>
+      {/* An eyebrow, not a heading: the section (SettingsPage) is the page's
+          h1. "Settings — Manage your workspace" on every admin page pushed the
+          first control 250px down and gave the console two h1-sized titles. */}
+      <p className={`mb-4 flex items-center gap-1.5 ${RAIL_GROUP_TEXT}`}>
+        <Settings className="h-3.5 w-3.5" aria-hidden /> Settings
+      </p>
       <div className="flex flex-col gap-6 sm:flex-row sm:gap-8">
-        <SettingsNav reachable={reachable} />
+        {/* Sticky and self-scrolling: the 20-entry rail stays put while a long
+            page (Workspace, Notifications, Backups) scrolls, and fits a
+            900px-tall laptop by scrolling inside its own box. self-start is
+            what lets a flex child stick at all. */}
+        <div className="shrink-0 sm:sticky sm:top-6 sm:max-h-[calc(100vh-3rem)] sm:self-start sm:overflow-y-auto sm:overscroll-contain">
+          <SettingsNav reachable={reachable} />
+        </div>
         <div className="min-w-0 flex-1">{children}</div>
       </div>
     </PageContainer>

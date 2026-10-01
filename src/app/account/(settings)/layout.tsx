@@ -54,7 +54,7 @@ export default async function AccountLayout({ children }: { children: React.Reac
           </span>
         </div>
 
-        <div className="md:grid md:grid-cols-[11rem_1fr] md:items-start md:gap-8">
+        <div className="md:grid md:grid-cols-[var(--container-rail)_1fr] md:items-start md:gap-8">
           <div className="mb-4 md:mb-0">
             <AccountNav />
           </div>

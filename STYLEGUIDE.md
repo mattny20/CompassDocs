@@ -181,7 +181,17 @@ focus):
 - Every `/admin/*` page wraps its content in `<SettingsPage href="/admin/…">`
   — the header (icon + label + description) comes from
   `lib/settings-sections.ts`, the same source the nav uses. Never hand-write
-  a settings page header.
+  a settings page header. **The section is the page's `h1`** at the page-title
+  size (`text-2xl font-bold`, 24px icon); the console layout above it renders
+  only a small "Settings" eyebrow, never a second heading, so a page has one
+  `h1` and the first control sits near the top. A routed page that lives
+  under a section without the `SettingsPage` header (email templates) renders
+  that `h1` itself.
+- The settings rail is sticky and self-scrolling (`sm:sticky sm:top-6
+  sm:max-h-[calc(100vh-3rem)] sm:self-start sm:overflow-y-auto` on its
+  wrapper in `admin/layout.tsx`): it stays put while a long page scrolls and
+  fits a 900px-tall laptop by scrolling inside its own box. Its rows are the
+  shared rail recipe below, in the dense size.
 - New sections register in `settings-sections.ts` (pick the group:
   Platform / Content / People & access / AI / Operations) — that's the only
   place a section's identity lives.
@@ -226,6 +236,28 @@ focus):
   `text-xs text-amber-600`, or `Saved` in `text-xs text-slate-500`). A page
   whose cards are one document (office fields + office values) has one Save
   below the cards, not one per card.
+
+## Rails and navigation rows
+
+The sidebar, the settings rail and the account rail share one row recipe,
+`components/RailLink`: `rounded-lg px-3 text-sm font-medium`, current page
+`bg-compass-50 text-compass-700` with `aria-current="page"`, otherwise
+`text-slate-600 hover:bg-slate-100 hover:text-slate-800`; the icon is
+`h-4 w-4`, `text-compass-600` when current and `text-slate-400` otherwise; the
+label truncates (`min-w-0 flex-1 truncate`). Two sizes: `py-2` in the sidebar
+and `py-1.5` (`dense`) in the settings and account rails. Group labels
+(`RailGroupLabel`, or `RAIL_GROUP_TEXT` on a heading) are
+`text-2xs font-semibold uppercase tracking-wider text-slate-500`.
+
+- Settings and account rails render `<RailLink href icon label active>`; the
+  sidebar composes `railRowClass(active, { collapsed })` and
+  `railIconClass(active)` because its rows also carry tooltips, badges and
+  the collapsed layout. Never write a fourth recipe.
+- Shell widths are tokens in `globals.css` (`--container-sidebar` 16rem,
+  `--container-sidebar-rail` 4rem, `--container-rail` 13rem → `w-sidebar`,
+  `w-sidebar-rail`, `w-rail`, or `var(--container-rail)` in a grid template),
+  so the sidebar and the rails grow together with the interface scale. The
+  collapsed rail's right-placed tooltip offset assumes the 4rem token.
 
 ## Color and theming
 
