@@ -143,6 +143,18 @@ describe("style drift guard", () => {
     assert.deepEqual(hits, [], `hand-written floating panel — use <Popover> (shadow-float):\n${hits.join("\n")}`);
   });
 
+  test("one spinner (§Loading)", () => {
+    // A rotating refresh icon on a Refresh button is the one idiom that is
+    // not a spinner.
+    const hits = offenders(/\banimate-spin\b/, (file, line) =>
+      file.endsWith(".tsx") &&
+      !file.endsWith("components/Spinner.tsx") &&
+      !file.endsWith("components/PendingLink.tsx") &&
+      !/RefreshCw/.test(line)
+    );
+    assert.deepEqual(hits, [], `hand-written spinner — use <Spinner> / <LoadingRow>:\n${hits.join("\n")}`);
+  });
+
   test("bg-white only where white is literal (brand tiles, QR, media stages, email previews)", () => {
     const ALLOW = [
       "components/Brand.tsx",

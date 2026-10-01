@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Spinner } from "@/components/Spinner";
 import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import { PageHeader } from "@/components/PageHeader";
@@ -9,7 +10,6 @@ import {
   BellRing,
   Braces,
   FileText,
-  LoaderCircle,
   Mail,
   RotateCcw,
   ShieldCheck,
@@ -243,7 +243,7 @@ export function EmailTemplatesPanel({ initial }: { initial: Template[] }) {
                           </>
                         ) : (
                           <div className="flex items-center gap-2 py-8 text-sm text-slate-500">
-                            <LoaderCircle className="h-4 w-4 animate-spin" /> Rendering preview…
+                            <Spinner /> Rendering preview…
                           </div>
                         )}
                       </div>

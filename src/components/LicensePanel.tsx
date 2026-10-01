@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { buttonClass } from "@/components/Button";
+import { LoadingRow } from "@/components/Spinner";
 import { toast } from "@/components/Toasts";
 import { DangerZone, DangerAction } from "@/components/form";
 
@@ -93,7 +94,7 @@ export function LicensePanel() {
         </p>
       </div>
 
-      {loading && <p className="text-sm text-slate-500">Loading…</p>}
+      {loading && <LoadingRow />}
 
       {v && (
         <>

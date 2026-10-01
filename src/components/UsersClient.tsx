@@ -133,7 +133,7 @@ function UserTable({
     {/* Scrolls rather than clips: below ~1180px the Status and Actions columns
         (Reset password / Disable / Delete) used to be unreachable entirely. */}
     <div className="rounded-xl border border-slate-200 bg-surface shadow-xs">
-      <Table scroll minWidth="45rem">
+      <Table scroll minWidth="45rem" aria-busy={busyId !== null}>
         <thead className={TABLE_HEAD_ROW}>
           <tr>
             <Th>User</Th>

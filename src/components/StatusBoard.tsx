@@ -5,6 +5,7 @@
 // management. Data arrives server-rendered; mutations refresh the route.
 
 import { buttonClass } from "@/components/Button";
+import { Spinner } from "@/components/Spinner";
 import { chipClass } from "@/components/Chip";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -16,7 +17,6 @@ import {
   Wrench,
   CircleHelp,
   ExternalLink,
-  LoaderCircle,
   Megaphone,
   Plus,
   Trash2,
@@ -200,7 +200,7 @@ export function StatusBoard({
           />
           <div className="mt-2 flex gap-2">
             <button onClick={declare} disabled={busy} className={btn}>
-              {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : "Declare"}
+              {busy ? <Spinner /> : "Declare"}
             </button>
             <button onClick={() => setDeclaring(false)} className="px-2 text-sm text-slate-500 hover:text-slate-700">
               Cancel

@@ -329,7 +329,7 @@ export function DirectoryPeoplePanel({
         </div>
       )}
       <div className="rounded-xl border border-slate-200 bg-surface shadow-xs">
-        <Table scroll>
+        <Table scroll aria-busy={busy}>
           <thead className={TABLE_HEAD_ROW}>
             <tr>
               <Th>Name</Th>

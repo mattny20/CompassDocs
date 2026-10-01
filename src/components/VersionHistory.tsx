@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { Spinner } from "@/components/Spinner";
 import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
@@ -9,7 +10,6 @@ import {
   BookOpenText,
   GitBranch,
   History,
-  LoaderCircle,
   RotateCcw,
   Columns2,
   AlignJustify,
@@ -248,7 +248,7 @@ export function VersionHistory({
               className={buttonClass("primary", "sm")}
             >
               {branching ? (
-                <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                <Spinner size="sm" />
               ) : (
                 <GitBranch className="h-3.5 w-3.5" />
               )}
@@ -424,7 +424,7 @@ export function VersionHistory({
                     className={buttonClass("secondary", "sm")}
                   >
                     {restoring === v.id ? (
-                      <LoaderCircle className="h-3 w-3 animate-spin" />
+                      <Spinner size="sm" />
                     ) : (
                       <RotateCcw className="h-3 w-3" />
                     )}

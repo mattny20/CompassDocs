@@ -8,7 +8,7 @@
 // controls rounded-md, chips rounded-full.
 
 import Link from "next/link";
-import { LoaderCircle } from "lucide-react";
+import { Spinner } from "./Spinner";
 import type { ComponentProps, ReactNode } from "react";
 
 export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
@@ -37,6 +37,18 @@ export function buttonClass(variant: ButtonVariant = "primary", size: ButtonSize
   return `${BASE} ${SIZE[size]} ${VARIANT[variant]} ${extra}`.trim();
 }
 
+/** Icon-only controls (STYLEGUIDE §Buttons): a square box no smaller than
+ *  28px (WCAG 2.5.8), `quiet` for toolbars and rows, `bordered` where it
+ *  stands alone. The caller supplies data-tt and aria-label. */
+export function iconButtonClass(variant: "quiet" | "bordered" = "quiet", size: "sm" | "md" = "sm", extra = ""): string {
+  const box = size === "sm" ? "h-7 w-7 [&>svg]:h-4 [&>svg]:w-4" : "h-9 w-9 [&>svg]:h-4 [&>svg]:w-4";
+  const look =
+    variant === "bordered"
+      ? "rounded-lg border border-slate-200 bg-surface text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+      : "rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-700";
+  return `inline-flex shrink-0 items-center justify-center transition disabled:cursor-not-allowed disabled:opacity-60 ${box} ${look} ${extra}`.trim();
+}
+
 type Common = {
   variant?: ButtonVariant;
   size?: ButtonSize;
@@ -59,7 +71,7 @@ export function Button(props: ButtonProps | LinkProps) {
   const body = (
     <>
       {busy ? (
-        <LoaderCircle className={`animate-spin ${size === "sm" ? "h-3.5 w-3.5" : "h-4 w-4"}`} aria-hidden />
+        <Spinner size={size === "sm" ? "sm" : "md"} />
       ) : (
         icon && (
           <span className={`shrink-0 ${glyph}`} aria-hidden>

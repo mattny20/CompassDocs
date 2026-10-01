@@ -189,6 +189,11 @@ the build on a primary recipe written outside the module.
   control; `icon` takes a lucide element and sizes it.
 - Radius scale: cards `rounded-xl`, controls `rounded-lg`, small controls
   `rounded-md`, chips `rounded-full`.
+- **Icon-only controls** use `iconButtonClass("quiet" | "bordered", "sm" |
+  "md")`: a square box of at least 28px (WCAG 2.5.8 and a 2560 panel), the
+  icon centred, `data-tt` plus `aria-label` from the caller. Never a bare
+  `p-0.5` / `p-1` around a 14px glyph. The `Toggle` is 44×24 with a visible
+  off track.
 - Prefer **icon buttons with tooltips** where the action is obvious from the
   icon (toolbars, table row actions, dense UI); keep icon + text where the
   action is rare or destructive.
@@ -462,8 +467,38 @@ text-slate-500` before them ("Notary · Phoenix").
   Trash); dense admin lists use icon buttons with a separator before
   Delete (People admin).
 
+## Loading
+
+- **One spinner**: `<Spinner size label>` from `components/Spinner`
+  (lucide `LoaderCircle`, sm / md / lg, exempt from reduced motion because
+  a frozen spinner reads as a hang). Inside a control that already says
+  "Saving…" it needs no label; standing alone it carries one. A rotating
+  `RefreshCw` on a Refresh button is the one other spinning glyph.
+- **One loading row**: `<LoadingRow>` for a list or table still loading
+  (centred, `role="status"`). A region that is *refreshing* keeps its
+  content, dims with `busyClass(busy)` and carries `aria-busy`.
+- **Pending navigation**: sidebar and rail rows render `<LinkPending />`
+  inside their `<Link>`; it shows a small spinner after 150 ms while the
+  router fetches, so a click never looks ignored and a fast navigation
+  never flashes.
+- **Route skeletons** (`loading.tsx`) exist for the dashboard, a space, the
+  directory and analytics (`components/Skeleton`): the page's shape, inside
+  a `PageContainer` so nothing shifts, one `role="status"` with the
+  message, **no real heading** (every spec and the login helper wait on
+  the real `h1`). Never under `/admin`, where a permission redirect would
+  replace the skeleton a moment later — which is why the dashboard page
+  lives in its own `(home)` route group.
+
 ## Feedback
 
+- Two live regions are always mounted by `ToastHost` — `role="status"`
+  (polite) for successes and `role="alert"` (assertive) for errors — so the
+  first toast is an announcement, not a region that appears with its text
+  already inside. Errors stay longer; timers pause on hover; each toast has
+  an icon and a 28px dismiss target. No inline "✓ Saved" flashes: `toast()`.
+- **Copying a value** is `<CopyButton text label iconOnly>` from
+  `components/CopyButton`: Copy → Copied with a check and a polite
+  announcement, back after two seconds. Never a hand-rolled copy handler.
 - Action results use **toasts** (bottom-right, auto-dismiss, ok/error
   styling) — not top-of-page notices that scroll out of view.
 - Errors render in red (`text-red-600`); never show a failure in the

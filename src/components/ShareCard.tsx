@@ -5,8 +5,10 @@
 // copy it, see how often it's been opened, revoke or regenerate it.
 
 import { useEffect, useState } from "react";
+import { Spinner } from "@/components/Spinner";
 import { buttonClass } from "@/components/Button";
-import { Check, Copy, Link as LinkIcon, LoaderCircle, RefreshCw, Share2, X } from "lucide-react";
+import { CopyButton } from "@/components/CopyButton";
+import { Link as LinkIcon, RefreshCw, Share2, X } from "lucide-react";
 import { useFormatDate } from "./SettingsProvider";
 
 interface ShareInfo {
@@ -36,7 +38,6 @@ export function ShareCard({
   const [share, setShare] = useState<ShareInfo | null>(initial);
   const [expiry, setExpiry] = useState("");
   const [busy, setBusy] = useState(false);
-  const [copied, setCopied] = useState(false);
   const [error, setError] = useState("");
   // Origin resolves client-side only, keeping SSR and hydration in sync.
   const [origin, setOrigin] = useState("");
@@ -74,17 +75,6 @@ export function ShareCard({
       );
   }
 
-  async function copy() {
-    if (!share) return;
-    try {
-      await navigator.clipboard.writeText(`${location.origin}${share.url}`);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      /* clipboard blocked */
-    }
-  }
-
   return (
     <section>
       <h2 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-500">
@@ -102,14 +92,7 @@ export function ShareCard({
               aria-label="Share link URL"
               className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs text-slate-600"
             />
-            <button
-              onClick={copy}
-              data-tt={copied ? "Copied!" : "Copy link"}
-              aria-label="Copy share link"
-              className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-            >
-              {copied ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}
-            </button>
+            <CopyButton text={() => `${location.origin}${share.url}`} label="Copy link" iconOnly />
           </div>
           <p className="text-xs text-slate-500">
             Anyone with this link can read the current published version.{" "}
@@ -159,7 +142,7 @@ export function ShareCard({
             disabled={busy}
             className={buttonClass("primary")}
           >
-            {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <LinkIcon className="h-4 w-4" />}
+            {busy ? <Spinner /> : <LinkIcon className="h-4 w-4" />}
             Create share link
           </button>
         </div>

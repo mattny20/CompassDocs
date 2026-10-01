@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Spinner } from "@/components/Spinner";
 import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
+import { CopyButton } from "@/components/CopyButton";
 import { Check } from "lucide-react";
 
 interface ReleaseInfo {
@@ -30,7 +32,6 @@ export function UpdatePanel() {
   const [status, setStatus] = useState<UpdateStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [copied, setCopied] = useState(false);
   // idle → updating (poked the updater; app may vanish) → done (came back newer)
   const [updating, setUpdating] = useState<"idle" | "updating" | "done" | "timeout">("idle");
   const [updatedTo, setUpdatedTo] = useState("");
@@ -93,13 +94,6 @@ export function UpdatePanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function copy() {
-    if (!status) return;
-    navigator.clipboard?.writeText(status.upgradeCommand);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1400);
-  }
-
   const available = status?.updateAvailable;
 
   return (
@@ -142,7 +136,7 @@ export function UpdatePanel() {
         <div className="mt-3 space-y-3 text-sm">
           {updating === "updating" && (
             <div className="flex items-center gap-2 rounded-lg bg-compass-50 px-3 py-2.5 text-sm text-compass-800">
-              <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-compass-500 border-t-transparent" aria-hidden />
+              <Spinner size="sm" />
               Updating — pulling the new image and restarting. This page will confirm when the
               app is back (usually under a minute).
             </div>
@@ -178,15 +172,7 @@ export function UpdatePanel() {
                   <span className="text-xs font-medium text-slate-500">
                     Update (from your install folder)
                   </span>
-                  <button onClick={copy} className="inline-flex items-center gap-1.5 text-xs font-medium text-compass-600 hover:underline">
-                    {copied ? (
-                      <>
-                        <Check className="h-4 w-4" aria-hidden /> Copied
-                      </>
-                    ) : (
-                      "Copy"
-                    )}
-                  </button>
+                  <CopyButton text={status.upgradeCommand} label="Copy" variant="ghost" size="sm" />
                 </div>
                 <pre className="overflow-x-auto rounded-lg bg-[#0f172a] px-3 py-2.5 font-mono text-xs text-[#f1f5f9]">
                   {status.upgradeCommand}

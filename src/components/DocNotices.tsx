@@ -6,6 +6,7 @@
 // row per notice, so document workflow state stops competing with the content.
 
 import { useState } from "react";
+import { Spinner } from "@/components/Spinner";
 import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -15,7 +16,6 @@ import {
   FileCheck,
   GitBranch,
   Hourglass,
-  LoaderCircle,
   ShieldCheck,
   SquarePen,
 } from "lucide-react";
@@ -95,7 +95,7 @@ export function DocNotices({
               disabled={busy}
               className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-amber-600 px-3.5 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-amber-700 disabled:opacity-60"
             >
-              {busy && <LoaderCircle className="h-3.5 w-3.5 animate-spin" />}
+              {busy && <Spinner size="sm" />}
               I&apos;ve read and understood this
             </button>
             {error && <span className="w-full text-xs text-red-600">{error}</span>}
@@ -162,7 +162,7 @@ export function DocNotices({
               disabled={reviewBusy}
               className={buttonClass("secondary")}
             >
-              {reviewBusy && <LoaderCircle className="h-3.5 w-3.5 animate-spin" />}
+              {reviewBusy && <Spinner size="sm" />}
               Mark as reviewed
             </button>
           )}

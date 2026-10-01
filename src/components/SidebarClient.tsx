@@ -9,12 +9,13 @@
 // would crush the content), and expanding it floats the full sidebar over the
 // page with a backdrop instead of squeezing the layout.
 
-import { buttonClass } from "@/components/Button";
+import { buttonClass, iconButtonClass } from "@/components/Button";
 import { chipClass } from "@/components/Chip";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { RAIL_GROUP_TEXT, railIconClass, railRowClass } from "./RailLink";
 import { askLabel } from "@/lib/nav-items";
+import { LinkPending } from "./PendingLink";
 import { usePathname } from "next/navigation";
 import {
   Activity,
@@ -391,7 +392,7 @@ export function SidebarClient({
               href="/admin/spaces"
               data-tt="Manage spaces"
               aria-label="Manage spaces"
-              className="-my-1 rounded-md p-1 text-slate-500 transition hover:bg-slate-100 hover:text-compass-600"
+              className={iconButtonClass("quiet", "sm", "-my-1")}
             >
               <Plus className="h-4 w-4" aria-hidden />
             </Link>
@@ -422,10 +423,10 @@ export function SidebarClient({
                   }
                   data-tt={openSpaces.has(s.id) ? "Collapse pages" : "Show pages"}
                   aria-label={`${openSpaces.has(s.id) ? "Collapse" : "Expand"} pages in ${s.name}`}
-                  className="ml-1 rounded-sm p-0.5 text-slate-400 hover:text-slate-600"
+                  className={iconButtonClass("quiet", "sm", "ml-0.5")}
                 >
                   <ChevronRight
-                    className={`h-3.5 w-3.5 transition-transform ${openSpaces.has(s.id) ? "rotate-90" : ""}`}
+                    className={`transition-transform ${openSpaces.has(s.id) ? "rotate-90" : ""}`}
                   />
                 </button>
               )}
@@ -515,6 +516,7 @@ function NavLink({
     >
       <span className={railIconClass(active)}>{icon}</span>
       {!collapsed && <span className="min-w-0 flex-1 truncate">{label}</span>}
+      {!collapsed && <LinkPending />}
       {badge ? (
         collapsed ? (
           <span className="absolute right-2 top-1.5 h-2 w-2 rounded-full bg-compass-500" aria-hidden />

@@ -6,8 +6,8 @@
 // "Bcc:" lines become header fields; everything after is the body, shown in
 // a normal (proportional) font the way it'll read in a mail client.
 
-import { useState } from "react";
-import { Check, Mail } from "lucide-react";
+import { Mail } from "lucide-react";
+import { CopyButton } from "@/components/CopyButton";
 
 const HEADER_KEYS = ["subject", "to", "cc", "bcc"] as const;
 type HeaderKey = (typeof HEADER_KEYS)[number];
@@ -37,28 +37,6 @@ export function parseEmailTemplate(raw: string): {
   return { headers, body: lines.slice(i).join("\n") };
 }
 
-function CopyButton({ label, text }: { label: string; text: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <button
-      onClick={async () => {
-        try {
-          await navigator.clipboard.writeText(text);
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1600);
-        } catch {}
-      }}
-      className={`inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-xs font-medium transition ${
-        copied
-          ? "text-emerald-600 dark:text-emerald-400"
-          : "text-compass-700 hover:bg-compass-100 dark:text-compass-300 dark:hover:bg-white/10"
-      }`}
-    >
-      {copied ? <><Check className="h-3.5 w-3.5" aria-hidden /> Copied</> : label}
-    </button>
-  );
-}
-
 export function EmailTemplate({ raw }: { raw: string }) {
   const { headers, body } = parseEmailTemplate(raw);
   const subject = headers.find((h) => h.key === "subject")?.value ?? "";
@@ -73,9 +51,14 @@ export function EmailTemplate({ raw }: { raw: string }) {
           Email template
         </span>
         <span className="flex items-center gap-0.5">
-          {subject && <CopyButton label="Copy subject" text={subject} />}
-          {headers.length > 0 && <CopyButton label="Copy body" text={body} />}
-          <CopyButton label={headers.length > 0 ? "Copy all" : "Copy"} text={headers.length > 0 ? full : body || full} />
+          {subject && <CopyButton text={subject} label="Copy subject" variant="ghost" size="sm" />}
+          {headers.length > 0 && <CopyButton text={body} label="Copy body" variant="ghost" size="sm" />}
+          <CopyButton
+            text={headers.length > 0 ? full : body || full}
+            label={headers.length > 0 ? "Copy all" : "Copy"}
+            variant="ghost"
+            size="sm"
+          />
         </span>
       </div>
 

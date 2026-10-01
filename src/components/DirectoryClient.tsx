@@ -48,6 +48,7 @@ import { PresenceDot, presenceLabel, usePresence, type PresenceEntry } from "./d
 import { managerField } from "@/lib/directory-org";
 import { FieldChips } from "./TagBadges";
 import { toast } from "./Toasts";
+import { iconButtonClass } from "./Button";
 
 const field =
   "rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
@@ -414,7 +415,7 @@ export function DirectoryClient({
         data-tt={on ? "Unpin from my pins" : "Pin to my pins"}
         aria-label={on ? `Unpin ${p.name}` : `Pin ${p.name}`}
         aria-pressed={on}
-        className={`rounded-sm p-1 ${on ? "text-amber-500" : "text-slate-300 hover:text-slate-500"}`}
+        className={iconButtonClass("quiet", "sm", on ? "text-amber-500" : "text-slate-300 hover:text-slate-500")}
       >
         <Star className={size} fill={on ? "currentColor" : "none"} />
       </button>
@@ -433,21 +434,21 @@ export function DirectoryClient({
               href={`https://teams.microsoft.com/l/chat/0/0?users=${encodeURIComponent(p.email)}`}
               target="_blank"
               rel="noreferrer"
-              className="rounded-sm p-1 text-slate-300 hover:text-compass-600"
+              className={iconButtonClass("quiet", "sm", "text-slate-300 hover:text-compass-600")}
               data-tt="Chat in Teams"
               aria-label={`Chat with ${p.name} in Teams`}
             >
               <MessageSquare className="h-3.5 w-3.5" />
             </a>
           )}
-          <a href={`/api/directory/${p.id}/vcard`} className="rounded-sm p-1 text-slate-300 hover:text-compass-600" data-tt="Save contact" aria-label={`Save ${p.name} as a contact`}>
+          <a href={`/api/directory/${p.id}/vcard`} className={iconButtonClass("quiet", "sm", "text-slate-300 hover:text-compass-600")} data-tt="Save contact" aria-label={`Save ${p.name} as a contact`}>
             <Contact className="h-3.5 w-3.5" />
           </a>
           {p.pin_order != null && <Pin className="h-3.5 w-3.5 text-compass-500" aria-label="Pinned by an admin" />}
           <PinButton p={p} />
         </div>
         <Avatar p={p} presence={presenceMap[p.id]} />
-        <div className="min-w-0 pr-8">
+        <div className="min-w-0 pr-16">
           <Link href={`/directory/${p.id}`} className="block truncate font-semibold text-slate-900 hover:text-compass-700">
             {p.name}
           </Link>

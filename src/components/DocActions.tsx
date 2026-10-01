@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { Spinner } from "@/components/Spinner";
 import Link from "next/link";
 import { useCallback, useRef, useState } from "react";
 import {
@@ -12,7 +13,6 @@ import {
   Share2,
   ShieldCheck,
   Trash2,
-  LoaderCircle,
 } from "lucide-react";
 import { PrintButton } from "./PrintButton";
 import { Popover } from "./Popover";
@@ -222,7 +222,7 @@ export function DocActions({
           }`}
         >
           {ackBusy ? (
-            <LoaderCircle className="h-4 w-4 animate-spin" />
+            <Spinner />
           ) : (
             <ShieldCheck className="h-4 w-4" />
           )}
@@ -246,7 +246,7 @@ export function DocActions({
           className={iconBtn + " disabled:opacity-50"}
         >
           {branching ? (
-            <LoaderCircle className="h-4 w-4 animate-spin" />
+            <Spinner />
           ) : (
             <GitBranch className="h-4 w-4" />
           )}
@@ -261,7 +261,7 @@ export function DocActions({
           className={iconBtn + " disabled:opacity-50"}
         >
           {templating ? (
-            <LoaderCircle className="h-4 w-4 animate-spin" />
+            <Spinner />
           ) : (
             <LayoutTemplate className="h-4 w-4" />
           )}
@@ -280,7 +280,7 @@ export function DocActions({
           aria-label="Move document to Trash"
           className="inline-flex items-center rounded-lg border border-red-200 bg-surface p-2 text-red-600 hover-danger disabled:opacity-50 dark:border-red-800/70"
         >
-          {deleting ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+          {deleting ? <Spinner /> : <Trash2 className="h-4 w-4" />}
         </button>
       )}
     </div>

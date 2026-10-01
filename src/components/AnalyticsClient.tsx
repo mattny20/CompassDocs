@@ -7,6 +7,7 @@
 // author, and tag. Charts are hand-rolled SVG so the design stays native.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { LoadingRow, Spinner } from "@/components/Spinner";
 import { buttonClass } from "@/components/Button";
 import Link from "next/link";
 import {
@@ -24,7 +25,6 @@ import {
   Minus,
   Flame,
   Moon,
-  LoaderCircle,
   X,
   ArrowUpRight,
   UserPen,
@@ -334,9 +334,7 @@ function DocDrilldown({ docId, days, onClose }: { docId: number; days: number; o
         {error ? (
           <p className="text-sm text-red-600">{error}</p>
         ) : !data ? (
-          <div className="flex items-center gap-2 py-10 text-sm text-slate-500">
-            <LoaderCircle className="h-4 w-4 animate-spin" /> Loading…
-          </div>
+          <LoadingRow className="py-10" />
         ) : (
           <>
             <div className="mb-3 flex items-start justify-between gap-3">
@@ -522,7 +520,7 @@ export function AnalyticsClient() {
             <FilterX className="h-3.5 w-3.5" /> Clear
           </button>
         )}
-        {loading && <LoaderCircle className="h-4 w-4 animate-spin text-slate-400" />}
+        {loading && <Spinner className="text-slate-400" />}
       </div>
 
       {error && (

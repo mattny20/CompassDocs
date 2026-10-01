@@ -4,6 +4,35 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.6.3] - 2026-10-01
+
+The component system, part four: working states, feedback, hit areas.
+
+### Added
+- **You can see that something is happening.** Sidebar and settings rows
+  show a small spinner while the next page loads (after a short delay, so
+  fast clicks never flash it); the dashboard, a space, the directory and
+  analytics show the shape of the page while their data loads; tables
+  that are refreshing dim and say so to screen readers; one spinner and
+  one loading row replace the five loader styles; the audit log says
+  when a filter fails.
+- **Toasts that screen readers hear.** Success and error regions are
+  always present, so the first toast is an announcement rather than a
+  box that appears with its text already inside; errors use the alert
+  role and stay longer; timers pause while the pointer is over a toast;
+  each carries an icon and a dismiss target you can hit. The inline
+  "Saved" flash on the profile is a toast like everything else.
+- **One copy button.** Copy → Copied with a check and an announcement,
+  at every place a value is copied (share links, tokens, the Claude
+  connector URL and config, SCIM endpoints, role ids, attachments, code
+  blocks, the update command).
+
+### Changed
+- **Targets you can hit.** Every icon-only control sits in a box at least
+  28px square (sidebar "manage spaces", the page-tree chevrons, directory
+  card actions, toast dismiss); the Toggle grows to 44×24 with a visible
+  off state. "Remove key" on the AI page moves into a danger zone.
+
 ## [1.6.2] - 2026-10-01
 
 The component system, part three: tables, icons, floating panels.

@@ -6,8 +6,7 @@
 // runbooks and step-by-step procedures. Purely presentational: nothing is ever
 // executed.
 
-import { useState } from "react";
-import { Check } from "lucide-react";
+import { CopyButton } from "@/components/CopyButton";
 
 const RUN_LANGS = new Set([
   "run",
@@ -49,18 +48,9 @@ const LANG_LABEL: Record<string, string> = {
 };
 
 export function CodeBlock({ language, code }: { language: string; code: string }) {
-  const [copied, setCopied] = useState(false);
   const lang = language.toLowerCase();
   const isRun = RUN_LANGS.has(lang);
   const label = LANG_LABEL[lang] || language || "code";
-
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(code.replace(/\n$/, ""));
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1600);
-    } catch {}
-  }
 
   return (
     <div className="doc-wide code-block group my-4 overflow-hidden rounded-lg ring-1 ring-[#1e293b]/60">
@@ -80,22 +70,15 @@ export function CodeBlock({ language, code }: { language: string; code: string }
           ) : null}
           {label}
         </span>
-        <button
-          onClick={copy}
-          className={`inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-xs font-medium transition ${
-            copied ? "text-emerald-400" : "text-[#94a3b8] hover:bg-[#334155] hover:text-[#e2e8f0]"
-          }`}
-        >
-          {copied ? (
-            <>
-              <Check className="h-4 w-4" aria-hidden /> Copied
-            </>
-          ) : isRun ? (
-            "Copy commands"
-          ) : (
-            "Copy"
-          )}
-        </button>
+        {/* The header is always dark, so the ghost ink is pinned to the
+            slate-on-navy values rather than the themed slate ramp. */}
+        <CopyButton
+          text={() => code.replace(/\n$/, "")}
+          label={isRun ? "Copy commands" : "Copy"}
+          variant="ghost"
+          size="sm"
+          className="text-[#94a3b8]! hover:bg-[#334155]! hover:text-[#e2e8f0]!"
+        />
       </div>
       <pre className="my-0! rounded-none!">
         <code>{code}</code>

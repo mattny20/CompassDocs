@@ -1,9 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { Spinner } from "@/components/Spinner";
 import { EnterpriseBadge } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
-import { Copy, KeyRound, LoaderCircle, RefreshCw } from "lucide-react";
+import { CopyButton } from "@/components/CopyButton";
+import { KeyRound, RefreshCw } from "lucide-react";
 import { timeAgo } from "@/lib/ui";
 import { Toggle } from "@/components/form";
 import { toast } from "@/components/Toasts";
@@ -24,7 +26,6 @@ export function ScimPanel({ initial }: { initial: ScimStatus }) {
   const [status, setStatus] = useState<ScimStatus>(initial);
   const [freshToken, setFreshToken] = useState("");
   const [busy, setBusy] = useState(false);
-  const [copied, setCopied] = useState<"url" | "token" | null>(null);
 
   async function call(method: "POST" | "PATCH", body?: unknown) {
     setBusy(true);
@@ -49,12 +50,6 @@ export function ScimPanel({ initial }: { initial: ScimStatus }) {
     } finally {
       setBusy(false);
     }
-  }
-
-  function copy(text: string, which: "url" | "token") {
-    void navigator.clipboard?.writeText(text);
-    setCopied(which);
-    setTimeout(() => setCopied(null), 1500);
   }
 
   return (
@@ -98,12 +93,7 @@ export function ScimPanel({ initial }: { initial: ScimStatus }) {
               <code className="flex-1 truncate rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-700">
                 {status.base_url}
               </code>
-              <button
-                onClick={() => copy(status.base_url, "url")}
-                className={buttonClass("secondary", "sm")}
-              >
-                <Copy className="h-3.5 w-3.5" /> {copied === "url" ? "Copied" : "Copy"}
-              </button>
+              <CopyButton text={status.base_url} label="Copy" size="sm" />
             </div>
           </div>
 
@@ -116,12 +106,7 @@ export function ScimPanel({ initial }: { initial: ScimStatus }) {
                 <code className="flex-1 break-all rounded-md bg-surface/70 px-2.5 py-1.5 text-xs text-slate-800">
                   {freshToken}
                 </code>
-                <button
-                  onClick={() => copy(freshToken, "token")}
-                  className="inline-flex shrink-0 items-center gap-1 rounded-md border border-emerald-300 px-2.5 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100 dark:text-emerald-300"
-                >
-                  <Copy className="h-3.5 w-3.5" /> {copied === "token" ? "Copied" : "Copy"}
-                </button>
+                <CopyButton text={freshToken} label="Copy" size="sm" />
               </div>
             </div>
           ) : (
@@ -142,7 +127,7 @@ export function ScimPanel({ initial }: { initial: ScimStatus }) {
                 className={buttonClass("primary")}
               >
                 {busy ? (
-                  <LoaderCircle className="h-4 w-4 animate-spin" />
+                  <Spinner />
                 ) : (
                   <RefreshCw className="h-4 w-4" />
                 )}

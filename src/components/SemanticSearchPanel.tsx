@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Spinner } from "@/components/Spinner";
 import { buttonClass } from "@/components/Button";
-import { Check, CircleAlert, LoaderCircle, RefreshCw, Sparkles } from "lucide-react";
+import { Check, CircleAlert, RefreshCw, Sparkles } from "lucide-react";
 import { toast } from "@/components/Toasts";
 import { Field, TextInput, Select } from "@/components/form";
 
@@ -137,7 +138,7 @@ export function SemanticSearchPanel({ initial }: { initial: Status }) {
 
       {status.reindex.running && (
         <div className="mb-3 flex items-center gap-2 rounded-lg border border-compass-100 bg-compass-50 px-3 py-2 text-sm text-compass-700">
-          <LoaderCircle className="h-4 w-4 animate-spin" />
+          <Spinner />
           Rebuilding index… {status.reindex.done} / {status.reindex.total} documents
         </div>
       )}

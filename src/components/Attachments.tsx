@@ -2,14 +2,13 @@
 
 import { useRef, useState } from "react";
 import { buttonClass } from "@/components/Button";
+import { CopyButton } from "@/components/CopyButton";
 import { useRouter } from "next/navigation";
 import {
-  Check,
   ChevronDown,
   ChevronRight,
   ExternalLink,
   FileText,
-  Link2,
   Paperclip,
   Plus,
   Trash2,
@@ -72,7 +71,6 @@ export function Attachments({
   const fileInput = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
-  const [copied, setCopied] = useState<number | null>(null);
   const [linkFormOpen, setLinkFormOpen] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
   const [linkTitle, setLinkTitle] = useState("");
@@ -137,18 +135,6 @@ export function Attachments({
     if (!confirm(`Delete attachment "${a.filename}"?`)) return;
     const res = await fetch(`/api/attachments/${a.id}`, { method: "DELETE" });
     if (res.ok) router.refresh();
-  }
-
-  async function copyLink(a: Att) {
-    // A plain URL — paste it anywhere. (Embedding an image in the doc is
-    // easier done by pasting the image straight into the editor.)
-    try {
-      await navigator.clipboard.writeText(`${location.origin}/api/attachments/${a.id}`);
-      setCopied(a.id);
-      setTimeout(() => setCopied(null), 1500);
-    } catch {
-      /* clipboard blocked */
-    }
   }
 
   return (
@@ -346,18 +332,14 @@ export function Attachments({
               <div className="text-xs text-slate-500">{bytes(a.size)}</div>
             </div>
             <div className="flex shrink-0 items-center gap-0.5">
-              <button
-                onClick={() => copyLink(a)}
-                data-tt={copied === a.id ? "Copied!" : "Copy link"}
-                aria-label={`Copy link to ${a.filename}`}
-                className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-              >
-                {copied === a.id ? (
-                  <Check className="h-4 w-4 text-emerald-600" />
-                ) : (
-                  <Link2 className="h-4 w-4" />
-                )}
-              </button>
+              {/* A plain URL — paste it anywhere. (Embedding an image in the
+                  doc is easier done by pasting the image straight into the
+                  editor.) */}
+              <CopyButton
+                text={() => `${location.origin}/api/attachments/${a.id}`}
+                label="Copy link"
+                iconOnly
+              />
               {canEdit && (
                 <button
                   onClick={() => remove(a)}
