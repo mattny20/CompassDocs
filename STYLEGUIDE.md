@@ -40,6 +40,16 @@ Every top-level page:
   class, never on `.doc-prose` itself. Everything outside the prose column —
   masthead, right rail, notice strip, sticky bar — keeps the full
   Normal/Wide/Full width.
+- **Document title.** Every page exports `metadata` (or `generateMetadata`)
+  with a page-specific title; the root layout's template appends the
+  workspace name, so the tab reads "Users & roles — Acme". Admin pages use
+  `settingsMetadata(href)` from `lib/settings-sections` with the same href
+  they hand `SettingsPage`; dynamic pages read the entity through
+  `lib/page-data` (per-request `cache()`) so the title and the body share
+  one query, with a plain fallback ("Document") when it is missing. Auth
+  surfaces add `robots: { index: false, follow: false }`. Never set
+  `document.title` from a client component. `e2e/smoke.spec.ts` asserts the
+  pattern.
 - **Every page title carries a lucide icon**, `h-6 w-6 text-compass-600`,
   before the text. Pick the icon once and keep it stable (it may also appear
   in navigation).
@@ -127,7 +137,8 @@ token itself; that would collapse it into `slate-500` for icons too.
 - Primary: `bg-compass-600 … text-white hover:bg-compass-700 font-semibold`.
 - Secondary: `border border-slate-200 text-slate-600 hover:bg-slate-50
   font-medium`.
-- Destructive hover: `hover:bg-red-50 hover:text-red-600`.
+- Destructive hover: `hover-danger` (a tint in both themes — never a bare
+  `hover:bg-red-50`, which paints a pale slab in dark mode).
 - Prefer **icon buttons with tooltips** where the action is obvious from the
   icon (toolbars, table row actions, dense UI); keep icon + text where the
   action is rare or destructive.
@@ -145,7 +156,16 @@ focus):
 ```
 
 - `data-tt="Label"` on the element itself; `data-tt-pos="bottom"` when the
-  element sits near the top of the viewport.
+  element sits near the top of the viewport or under a sticky bar (the
+  sidebar header, the editor toolbar); `data-tt-pos="right"` in the collapsed
+  sidebar rail, where the bubble is the only label and must escape the
+  rail's scroll container (it is `position: fixed` there);
+  `data-tt-align="start"` on an element flush with the left edge of the
+  viewport (the sidebar brand) so a long label grows rightwards instead of
+  running off-screen; `data-tt-wrap`
+  on a label longer than a few words so it wraps instead of becoming a
+  450px pill. One tooltip per control: never add a hand-rolled hover span
+  beside `data-tt`.
 - **Icon-only controls must also carry `aria-label`** (matching the tooltip
   text) — `data-tt` is presentation, not an accessible name. Elements with
   visible text must NOT get `aria-label` (it would override the text).
@@ -516,6 +536,15 @@ display helpers the screen uses so a code that shows as a label on screen is
 a label on paper.
 
 ## Accessibility
+
+- **Landmarks are named.** Every `<nav>` and `<aside>` carries a unique
+  `aria-label` ("Main", "Spaces", "Sidebar", "Settings sections",
+  "Breadcrumb"); breadcrumb separators are `aria-hidden`; a lone back link is
+  a `<div>`, not a navigation landmark. `<main id="main">` is focusable
+  (`tabIndex={-1}`) so the skip link really lands.
+- **Badges have a noun.** A count badge carries a visually hidden noun
+  ("3 pending reviews"); a collapsed rail folds it into the link's
+  `aria-label`. Unread items say "Unread:" for readers, not just bold.
 
 - Interactive icon-only elements: `aria-label` always.
 - Keyboard: anything hoverable must be reachable and reveal its tooltip on

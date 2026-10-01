@@ -5,7 +5,9 @@ import { listPublicSpaces } from "@/lib/db";
 import { PublicSitePanel } from "@/components/PublicSitePanel";
 import { SettingsPage } from "@/components/SettingsPage";
 
+import { settingsMetadata } from "@/lib/settings-sections";
 export const dynamic = "force-dynamic";
+export const metadata = settingsMetadata("/admin/public-site");
 
 export default async function PublicSiteAdminPage() {
   await requireSettingsSection("/admin/public-site");

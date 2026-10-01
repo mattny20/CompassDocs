@@ -6,6 +6,7 @@ import { TrashClient } from "@/components/TrashClient";
 import { PageContainer } from "@/components/PageWidth";
 
 export const dynamic = "force-dynamic";
+export const metadata = { title: "Trash" };
 
 export default async function TrashPage() {
   // Editors and up can see the Trash; permanent deletion is gated to admins

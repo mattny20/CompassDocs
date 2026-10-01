@@ -3,6 +3,7 @@ import { getUserById } from "@/lib/db";
 import { ProfileForm } from "@/components/ProfileForm";
 
 export const dynamic = "force-dynamic";
+export const metadata = { title: "Profile" };
 
 const PROVIDER_LABEL: Record<string, string> = {
   saml: "your single sign-on provider",

@@ -4,6 +4,7 @@ import { NotificationMatrix } from "@/components/NotificationMatrix";
 import { NotificationsPanel } from "@/components/NotificationsPanel";
 
 export const dynamic = "force-dynamic";
+export const metadata = { title: "Notification settings" };
 
 export default async function NotificationsPage() {
   const user = await requireUser();

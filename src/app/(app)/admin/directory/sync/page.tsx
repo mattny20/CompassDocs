@@ -16,7 +16,9 @@ import { MicrosoftSyncPanel } from "@/components/directory-admin/MicrosoftSyncPa
 import { GoogleDirectoryPanel } from "@/components/GoogleDirectoryPanel";
 import { DirectorySchedulePanel } from "@/components/directory-admin/DirectorySchedulePanel";
 
+import { settingsMetadata } from "@/lib/settings-sections";
 export const dynamic = "force-dynamic";
+export const metadata = settingsMetadata("/admin/directory", "Sync");
 
 export default async function DirectorySyncPage() {
   await requireSettingsSection("/admin/directory");

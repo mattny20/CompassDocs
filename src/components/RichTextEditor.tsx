@@ -1308,16 +1308,18 @@ function Btn({
       type="button"
       onClick={onClick}
       data-tt={label}
+      // Below the control, like the font select beside it, so no bubble lands
+      // on the sticky Save row; long labels wrap instead of becoming a 450px
+      // pill. One tooltip — the hand-rolled span this used to carry made two.
+      data-tt-pos="bottom"
+      data-tt-wrap={label.length > 32 ? "" : undefined}
       aria-label={label}
       aria-pressed={active}
-      className={`group relative flex h-8 min-w-8 items-center justify-center rounded-md px-2 text-sm font-medium transition ${
+      className={`flex h-8 min-w-8 items-center justify-center rounded-md px-2 text-sm font-medium transition ${
         active ? "bg-compass-100 text-compass-700" : "text-slate-500 hover:bg-slate-100"
       }`}
     >
       {children}
-      <span className="pointer-events-none absolute left-1/2 top-full z-30 mt-1.5 hidden max-w-56 -translate-x-1/2 whitespace-normal rounded-md bg-slate-900 px-2 py-1 text-center text-2xs font-medium leading-snug text-slate-50 shadow-md group-hover:block group-focus-visible:block">
-        {label}
-      </span>
     </button>
   );
 }

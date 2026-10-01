@@ -23,7 +23,15 @@ import { displayValue, initialsOf, formatDateValue, parseDateValue } from "@/lib
 import { buildVCard } from "@/lib/vcard";
 import { ProfileActions } from "@/components/directory/ProfileActions";
 
+import type { Metadata } from "next";
+import { cachedPerson } from "@/lib/page-data";
 export const dynamic = "force-dynamic";
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const id = Number((await params).id);
+  const person = Number.isInteger(id) ? await cachedPerson(id).catch(() => undefined) : undefined;
+  return { title: person?.name ? `${person.name}` : "Person" };
+}
 
 export default async function PersonProfilePage({
   params,
@@ -32,7 +40,7 @@ export default async function PersonProfilePage({
 }) {
   const user = await requireUser();
   const id = Number((await params).id);
-  const stored = Number.isInteger(id) ? await getPersonById(id) : undefined;
+  const stored = Number.isInteger(id) ? await cachedPerson(id) : undefined;
   if (!stored || stored.hidden) notFound();
   const scope = await viewerScope(user, await listFields());
   const person = personForViewer(scope, stored);

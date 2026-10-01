@@ -5,7 +5,9 @@ import { WorkspaceSettings } from "@/components/WorkspaceSettings";
 import { ApprovalWorkflow } from "@/components/ApprovalWorkflow";
 import { SettingsPage } from "@/components/SettingsPage";
 
+import { settingsMetadata } from "@/lib/settings-sections";
 export const dynamic = "force-dynamic";
+export const metadata = settingsMetadata("/admin/workspace");
 
 export default async function WorkspacePage() {
   await requireSettingsSection("/admin/workspace");

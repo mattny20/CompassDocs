@@ -6,7 +6,9 @@ import { PERMISSIONS } from "@/lib/permissions";
 import { RolesPanel } from "@/components/RolesPanel";
 import { SettingsPage } from "@/components/SettingsPage";
 
+import { settingsMetadata } from "@/lib/settings-sections";
 export const dynamic = "force-dynamic";
+export const metadata = settingsMetadata("/admin/roles");
 
 export default async function RolesAdminPage() {
   await requireSettingsSection("/admin/roles");

@@ -11,6 +11,7 @@ import { Brand } from "@/components/Brand";
 import { ROLE_LABEL } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
+export const metadata = { title: "Authorize app", robots: { index: false, follow: false } };
 
 export default async function AuthorizePage({
   searchParams,

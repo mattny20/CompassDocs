@@ -12,6 +12,7 @@ import { formatDate } from "@/lib/format";
 import { PrintButton } from "@/components/PrintButton";
 
 export const dynamic = "force-dynamic";
+export const metadata = { title: "Certificate" };
 
 // Printable certificate for a real completion (waived records don't earn
 // one). Visible to the person who completed it and to training managers.

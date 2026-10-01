@@ -5,7 +5,9 @@ import { DirectoryFieldsPanel } from "@/components/directory-admin/DirectoryFiel
 import { ContactVisibilityPanel } from "@/components/directory-admin/ContactVisibilityPanel";
 import type { ProviderKey } from "@/lib/identity-provider";
 
+import { settingsMetadata } from "@/lib/settings-sections";
 export const dynamic = "force-dynamic";
+export const metadata = settingsMetadata("/admin/directory", "Fields");
 
 export default async function DirectoryFieldsPage() {
   await requireSettingsSection("/admin/directory");

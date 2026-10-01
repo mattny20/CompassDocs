@@ -38,9 +38,11 @@ export function Brand({
   );
 
   return (
-    <span className={layout === "col" ? "flex flex-col items-center" : "flex items-center gap-2"}>
+    <span className={layout === "col" ? "flex flex-col items-center" : "flex min-w-0 items-center gap-2"}>
       {mark}
-      {showName && <span className={nameCls}>{name}</span>}
+      {/* Row layout truncates: a 16-character firm name used to collide with
+          the bell in the sidebar header (the login column keeps it whole). */}
+      {showName && <span className={`${nameCls} ${layout === "row" ? "min-w-0 truncate" : ""}`}>{name}</span>}
     </span>
   );
 }

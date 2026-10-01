@@ -6,6 +6,7 @@ import { SetupForm } from "@/components/SetupForm";
 import { Brand } from "@/components/Brand";
 
 export const dynamic = "force-dynamic";
+export const metadata = { title: "Set up workspace", robots: { index: false, follow: false } };
 
 export default async function SetupPage() {
   // Once an admin exists, setup is done — send people to sign in.

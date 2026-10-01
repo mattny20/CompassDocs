@@ -4,7 +4,9 @@ import { getOfficeConfig } from "@/lib/directory-offices-store";
 import { officeKeyOf } from "@/lib/directory-offices";
 import { DirectoryOfficesPanel } from "@/components/directory-admin/DirectoryOfficesPanel";
 
+import { settingsMetadata } from "@/lib/settings-sections";
 export const dynamic = "force-dynamic";
+export const metadata = settingsMetadata("/admin/directory", "Offices");
 
 export default async function DirectoryOfficesPage() {
   await requireSettingsSection("/admin/directory");

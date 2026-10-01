@@ -2,7 +2,9 @@ import { requirePermission } from "@/lib/auth";
 import { EMAIL_TEMPLATES, templateOverride } from "@/lib/email-templates";
 import { EmailTemplatesPanel } from "@/components/EmailTemplatesPanel";
 
+import { settingsMetadata } from "@/lib/settings-sections";
 export const dynamic = "force-dynamic";
+export const metadata = settingsMetadata("/admin/notifications", "Templates");
 
 export default async function EmailTemplatesPage() {
   await requirePermission("admin", "integration.email_template_manage");

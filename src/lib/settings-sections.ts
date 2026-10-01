@@ -103,3 +103,16 @@ export const SETTINGS_SECTIONS: SettingsSection[] = SETTINGS_GROUPS.flatMap((g) 
 export function settingsSection(href: string): SettingsSection | undefined {
   return SETTINGS_SECTIONS.find((s) => s.href === href);
 }
+
+/**
+ * The document title for a settings page — the section's label, with an
+ * optional sub-page name in front ("Fields · Directory"). Every admin page
+ * exports `metadata = settingsMetadata(href)` with the same href it hands
+ * SettingsPage, so the tab, history and the header can never disagree
+ * (STYLEGUIDE §Page skeleton, "Document title"). The root layout's template
+ * appends the workspace name.
+ */
+export function settingsMetadata(href: string, sub?: string): { title: string } {
+  const label = settingsSection(href)?.label ?? "Settings";
+  return { title: sub ? `${sub} · ${label}` : label };
+}

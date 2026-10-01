@@ -11,7 +11,9 @@ import { AiSettings } from "@/components/AiSettings";
 import { SemanticSearchPanel } from "@/components/SemanticSearchPanel";
 import { SettingsPage } from "@/components/SettingsPage";
 
+import { settingsMetadata } from "@/lib/settings-sections";
 export const dynamic = "force-dynamic";
+export const metadata = settingsMetadata("/admin/ai");
 
 export default async function AiPage() {
   await requireSettingsSection("/admin/ai");

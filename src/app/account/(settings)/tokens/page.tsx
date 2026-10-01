@@ -4,6 +4,7 @@ import { ROLE_LABEL } from "@/lib/types";
 import { ApiTokens } from "@/components/ApiTokens";
 
 export const dynamic = "force-dynamic";
+export const metadata = { title: "API tokens" };
 
 export default async function ApiTokensPage() {
   const user = await requireUser();

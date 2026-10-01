@@ -13,7 +13,10 @@ export function PaletteTrigger({ collapsed = false }: { collapsed?: boolean }) {
     return (
       <button
         onClick={() => openPalette()}
-        data-tt="Search (Mod K)"
+        // The chord is shown in the expanded trigger; "Mod" is not a key
+        // anyone has, and resolving it at render would mismatch hydration.
+        data-tt="Search"
+        data-tt-pos="right"
         aria-label="Search"
         className="flex w-full items-center justify-center rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
       >

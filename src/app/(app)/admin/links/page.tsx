@@ -4,7 +4,9 @@ import { getAppSettings } from "@/lib/settings-store";
 import { LinksAdmin } from "@/components/LinksAdmin";
 import { SettingsPage } from "@/components/SettingsPage";
 
+import { settingsMetadata } from "@/lib/settings-sections";
 export const dynamic = "force-dynamic";
+export const metadata = settingsMetadata("/admin/links");
 
 export default async function LinksAdminPage() {
   await requireSettingsSection("/admin/links");

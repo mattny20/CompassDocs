@@ -11,12 +11,20 @@ import { canPublishDirectly, spaceScopeFor, scopeAllows, canEditSpace, editableS
 import { getAppSettings } from "@/lib/settings-store";
 import { DocEditor } from "@/components/DocEditor";
 
+import type { Metadata } from "next";
+import { cachedDocument } from "@/lib/page-data";
 export const dynamic = "force-dynamic";
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await params;
+  const doc = await cachedDocument(Number(id)).catch(() => undefined);
+  return { title: doc?.title ? `Edit · ${doc.title}` : "Edit document" };
+}
 
 export default async function EditDocPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requirePermission("editor", "document.update");
   const { id } = await params;
-  const doc = await getDocument(Number(id));
+  const doc = await cachedDocument(Number(id));
   if (!doc) notFound();
   const scope = await spaceScopeFor(user);
   if (!scopeAllows(scope, doc.space_id)) notFound();

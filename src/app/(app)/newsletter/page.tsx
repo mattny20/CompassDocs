@@ -6,6 +6,7 @@ import { PageContainer } from "@/components/PageWidth";
 import { NewsletterList } from "@/components/NewsletterList";
 
 export const dynamic = "force-dynamic";
+export const metadata = { title: "Newsletter" };
 
 // The newsletter workspace: contributors see their own pieces plus the sent
 // history; approvers and admins see everything.

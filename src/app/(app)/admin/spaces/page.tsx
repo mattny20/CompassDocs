@@ -14,7 +14,9 @@ import { SpacesManager } from "@/components/SpacesManager";
 import { SettingsPage } from "@/components/SettingsPage";
 import { EVERY_SPACE_UNFILTERED } from "@/lib/space-scope";
 
+import { settingsMetadata } from "@/lib/settings-sections";
 export const dynamic = "force-dynamic";
+export const metadata = settingsMetadata("/admin/spaces");
 
 export default async function SpacesPage() {
   await requireSettingsSection("/admin/spaces");

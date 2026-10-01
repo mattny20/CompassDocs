@@ -7,7 +7,9 @@ import { BackupsClient } from "@/components/BackupsClient";
 import { BackupDestinations } from "@/components/BackupDestinations";
 import { SettingsPage } from "@/components/SettingsPage";
 
+import { settingsMetadata } from "@/lib/settings-sections";
 export const dynamic = "force-dynamic";
+export const metadata = settingsMetadata("/admin/backups");
 
 export default async function BackupsPage() {
   await requireSettingsSection("/admin/backups");

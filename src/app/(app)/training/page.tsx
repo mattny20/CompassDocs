@@ -6,6 +6,7 @@ import { TrainingPanel } from "@/components/TrainingPanel";
 import { PageContainer } from "@/components/PageWidth";
 
 export const dynamic = "force-dynamic";
+export const metadata = { title: "Training" };
 
 // Training home: everyone sees their own assignments; admins plus anyone
 // granted the Training section (Settings → Section access) also get the

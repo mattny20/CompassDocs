@@ -7,7 +7,9 @@ import { UpdatePanel } from "@/components/UpdatePanel";
 import { DiagnosticsPanel } from "@/components/DiagnosticsPanel";
 import { SettingsPage } from "@/components/SettingsPage";
 
+import { settingsMetadata } from "@/lib/settings-sections";
 export const dynamic = "force-dynamic";
+export const metadata = settingsMetadata("/admin");
 
 export default async function SystemPage() {
   await requireSettingsSection("/admin");

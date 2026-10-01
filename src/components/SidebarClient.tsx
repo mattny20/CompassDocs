@@ -170,16 +170,29 @@ export function SidebarClient({
     });
   }
 
-  // Anything role-gated beyond the everyday items folds under "More".
-  const hasMoreItems =
-    showNewsletter || isApprover || showAnnouncements || showCompliance || isEditor || isAdmin;
+  // Less-used destinations fold under "More". Settings is NOT in the fold:
+  // it is pinned for admins so every /admin page lights its row. A folded
+  // destination that is the current page is always rendered and the toggle
+  // disappears — the fold must never hide where you are.
+  const folded = [
+    { href: "/newsletter", icon: <Mail className="h-4 w-4" />, label: "Newsletter", show: showNewsletter },
+    { href: "/analytics", icon: <ChartColumn className="h-4 w-4" />, label: "Analytics", show: isApprover },
+    { href: "/announcements", icon: <Megaphone className="h-4 w-4" />, label: "Announcements", show: showAnnouncements },
+    { href: "/compliance", icon: <ShieldCheck className="h-4 w-4" />, label: "Compliance", show: showCompliance },
+    { href: "/trash", icon: <Trash2 className="h-4 w-4" />, label: "Trash", show: isEditor },
+  ].filter((i) => i.show);
+  const hasMoreItems = folded.length > 0;
+  const activeFolded = folded.some((i) => isActivePath(pathname, i.href));
+  const showFold = moreOpen || activeFolded;
 
   const moreLabel = moreOpen ? "Less" : "More";
   const moreToggle = (
     <button
       onClick={toggleMore}
       aria-expanded={moreOpen}
+      aria-controls="sidebar-more"
       data-tt={collapsed ? moreLabel : undefined}
+      data-tt-pos="right"
       aria-label={collapsed ? moreLabel : undefined}
       className={`relative flex w-full items-center rounded-md py-2 font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-600 ${
         collapsed ? "justify-center px-0" : "gap-2 px-3"
@@ -217,7 +230,7 @@ export function SidebarClient({
       data-app-sidebar
       role={overlay ? "dialog" : undefined}
       aria-modal={overlay ? true : undefined}
-      aria-label={overlay ? "Main navigation" : undefined}
+      aria-label={overlay ? "Main navigation" : "Sidebar"}
       onClickCapture={(e) => {
         // Navigating from the overlay should also close it.
         if (overlay && (e.target as HTMLElement).closest("a")) setCollapsed(true);
@@ -233,7 +246,13 @@ export function SidebarClient({
         }`}
       >
         {!collapsed && (
-          <Link href="/" className="flex min-w-0 items-center gap-2">
+          <Link
+            href="/"
+            data-tt={companyName}
+            data-tt-pos="bottom"
+            data-tt-align="start"
+            className="flex min-w-0 items-center gap-2"
+          >
             <Brand name={companyName} logoUrl={logoUrl} />
           </Link>
         )}
@@ -242,6 +261,7 @@ export function SidebarClient({
           <button
             onClick={toggle}
             data-tt={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            data-tt-pos={collapsed ? "right" : "bottom"}
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             // A finger-sized target on phones; desktop geometry unchanged.
             className="rounded-md p-3.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 sm:p-1.5"
@@ -253,7 +273,7 @@ export function SidebarClient({
 
       {collapsed && (
         <div className="flex flex-col items-center gap-2 border-b border-slate-100 py-3">
-          <Link href="/" data-tt={companyName} aria-label={companyName}>
+          <Link href="/" data-tt={companyName} data-tt-pos="right" aria-label={companyName}>
             <Brand name={companyName} logoUrl={logoUrl} showName={false} />
           </Link>
           <NotificationsBell initialUnread={unreadNotifications} />
@@ -269,7 +289,7 @@ export function SidebarClient({
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       {/* shrink-0: the nav keeps its height and the Spaces list below it owns
           the scroll, instead of nav items being squeezed below the fold. */}
-      <nav className={`shrink-0 text-sm ${collapsed ? "px-2 pt-3" : "px-3"} pb-2`}>
+      <nav aria-label="Main" className={`shrink-0 text-sm ${collapsed ? "px-2 pt-3" : "px-3"} pb-2`}>
         <NavLink
           href="/"
           icon={<Home className="h-4 w-4" />}
@@ -277,6 +297,7 @@ export function SidebarClient({
           collapsed={collapsed}
           active={isActivePath(pathname, "/")}
           badge={announcementCount}
+          badgeLabel="new announcements"
         />
         <NavLink
           href="/search"
@@ -306,6 +327,7 @@ export function SidebarClient({
           collapsed={collapsed}
           active={isActivePath(pathname, "/status")}
           badge={statusProblemCount}
+          badgeLabel="service problems"
         />
         {showTraining && (
           <NavLink
@@ -315,6 +337,7 @@ export function SidebarClient({
             collapsed={collapsed}
             active={isActivePath(pathname, "/training")}
             badge={trainingCount}
+            badgeLabel="open assignments"
           />
         )}
         {isApprover && (
@@ -325,57 +348,10 @@ export function SidebarClient({
             collapsed={collapsed}
             active={isActivePath(pathname, "/review")}
             badge={reviewCount}
+            badgeLabel="pending reviews"
           />
         )}
-        {/* The toggle sits where "More" was when folded, but drops below the
-            expanded items when open — so "Less" ends the list it controls. */}
-        {hasMoreItems && !moreOpen && moreToggle}
-        {moreOpen && showNewsletter && (
-          <NavLink
-            href="/newsletter"
-            icon={<Mail className="h-4 w-4" />}
-            label="Newsletter"
-            collapsed={collapsed}
-            active={isActivePath(pathname, "/newsletter")}
-          />
-        )}
-        {moreOpen && isApprover && (
-          <NavLink
-            href="/analytics"
-            icon={<ChartColumn className="h-4 w-4" />}
-            label="Analytics"
-            collapsed={collapsed}
-            active={isActivePath(pathname, "/analytics")}
-          />
-        )}
-        {moreOpen && showAnnouncements && (
-          <NavLink
-            href="/announcements"
-            icon={<Megaphone className="h-4 w-4" />}
-            label="Announcements"
-            collapsed={collapsed}
-            active={isActivePath(pathname, "/announcements")}
-          />
-        )}
-        {moreOpen && showCompliance && (
-          <NavLink
-            href="/compliance"
-            icon={<ShieldCheck className="h-4 w-4" />}
-            label="Compliance"
-            collapsed={collapsed}
-            active={isActivePath(pathname, "/compliance")}
-          />
-        )}
-        {moreOpen && isEditor && (
-          <NavLink
-            href="/trash"
-            icon={<Trash2 className="h-4 w-4" />}
-            label="Trash"
-            collapsed={collapsed}
-            active={isActivePath(pathname, "/trash")}
-          />
-        )}
-        {moreOpen && isAdmin && (
+        {isAdmin && (
           <NavLink
             href="/admin"
             icon={<Settings className="h-4 w-4" />}
@@ -384,26 +360,45 @@ export function SidebarClient({
             active={isActivePath(pathname, "/admin")}
           />
         )}
-        {hasMoreItems && moreOpen && moreToggle}
+        {/* The toggle sits where "More" was when folded, but drops below the
+            expanded items when open — so "Less" ends the list it controls. On
+            a folded page there is nothing to collapse, so there is no toggle. */}
+        {hasMoreItems && !activeFolded && !moreOpen && moreToggle}
+        {showFold && (
+          <div id="sidebar-more">
+            {folded.map((i) => (
+              <NavLink
+                key={i.href}
+                href={i.href}
+                icon={i.icon}
+                label={i.label}
+                collapsed={collapsed}
+                active={isActivePath(pathname, i.href)}
+              />
+            ))}
+          </div>
+        )}
+        {hasMoreItems && !activeFolded && moreOpen && moreToggle}
       </nav>
 
       {!collapsed && (
         <div className="mt-2 flex items-center justify-between px-5 pb-1">
-          <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Spaces</span>
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500">Spaces</h2>
           {isAdmin && (
             <Link
               href="/admin/spaces"
-              data-tt="Manage spaces" aria-label="Manage spaces"
-              className="text-slate-500 transition hover:text-compass-600"
+              data-tt="Manage spaces"
+              aria-label="Manage spaces"
+              className="-my-1 rounded-md p-1 text-slate-500 transition hover:bg-slate-100 hover:text-compass-600"
             >
-              ＋
+              <Plus className="h-4 w-4" aria-hidden />
             </Link>
           )}
         </div>
       )}
       {collapsed && <div className="mt-2 border-t border-slate-100 pt-2" />}
 
-      <nav className={`pb-4 text-sm ${collapsed ? "px-2" : "px-3"}`}>
+      <nav aria-label="Spaces" className={`pb-4 text-sm ${collapsed ? "px-2" : "px-3"}`}>
         {spaces.map((s) => {
           const active = isActivePath(pathname, `/spaces/${s.slug}`);
           return (
@@ -435,6 +430,7 @@ export function SidebarClient({
               <Link
                 href={`/spaces/${s.slug}`}
                 data-tt={s.name}
+                data-tt-pos={collapsed ? "right" : undefined}
                 // Collapsed, the only visible content is the space's emoji —
                 // which a screen reader announces by its Unicode name.
                 aria-label={collapsed ? s.name : undefined}
@@ -462,7 +458,9 @@ export function SidebarClient({
         <div className={`border-t border-slate-100 ${collapsed ? "p-2" : "p-3"}`}>
           <Link
             href="/doc/new"
-            data-tt="New document" aria-label="New document"
+            data-tt="New document"
+            data-tt-pos={collapsed ? "right" : undefined}
+            aria-label="New document"
             className={`flex w-full items-center justify-center gap-1.5 rounded-lg bg-compass-600 text-sm font-semibold text-white shadow-xs transition hover:bg-compass-700 ${
               collapsed ? "px-0 py-2" : "px-3 py-2"
             }`}
@@ -471,7 +469,7 @@ export function SidebarClient({
               <Plus className="h-4 w-4" />
             ) : (
               <>
-                <span className="text-base leading-none">＋</span> New document
+                <Plus className="h-4 w-4" aria-hidden /> New document
               </>
             )}
           </Link>
@@ -491,6 +489,7 @@ function NavLink({
   collapsed,
   active = false,
   badge,
+  badgeLabel = "waiting",
 }: {
   href: string;
   icon: React.ReactNode;
@@ -499,28 +498,32 @@ function NavLink({
   /** This row is the page we're on. */
   active?: boolean;
   badge?: number;
+  /** What the badge counts, for screen readers: "3 pending reviews". */
+  badgeLabel?: string;
 }) {
   return (
     <Link
       href={href}
       data-tt={collapsed ? label : undefined}
+      data-tt-pos={collapsed ? "right" : undefined}
       // Collapsed there is no visible text, so the tooltip's label has to be
-      // mirrored as the accessible name. Expanded, the text is the name and an
-      // aria-label would override it.
-      aria-label={collapsed ? label : undefined}
+      // mirrored as the accessible name (with the badge, which is a bare dot).
+      // Expanded, the text is the name and an aria-label would override it.
+      aria-label={collapsed ? (badge ? `${label}, ${badge} ${badgeLabel}` : label) : undefined}
       aria-current={active ? "page" : undefined}
       className={`relative flex items-center rounded-md py-2 font-medium ${
         active ? "bg-compass-50 text-compass-700" : "text-slate-600 hover:bg-slate-100"
       } ${collapsed ? "justify-center px-0" : "gap-2 px-3"}`}
     >
       <span className={active ? "" : "text-slate-400"}>{icon}</span>
-      {!collapsed && <span className="flex-1">{label}</span>}
+      {!collapsed && <span className="min-w-0 flex-1 truncate">{label}</span>}
       {badge ? (
         collapsed ? (
-          <span className="absolute right-2 top-1.5 h-2 w-2 rounded-full bg-compass-500" />
+          <span className="absolute right-2 top-1.5 h-2 w-2 rounded-full bg-compass-500" aria-hidden />
         ) : (
           <span className="rounded-full bg-compass-100 px-1.5 text-xs font-semibold text-compass-700">
             {badge}
+            <span className="sr-only"> {badgeLabel}</span>
           </span>
         )
       ) : null}

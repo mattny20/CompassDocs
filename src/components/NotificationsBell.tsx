@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { timeAgo } from "@/lib/ui";
 
+import { overlayOpen } from "@/lib/overlay-stack";
 interface Item {
   id: number;
   kind: string;
@@ -44,6 +45,7 @@ export function NotificationsBell({ initialUnread }: { initialUnread: number }) 
   const [unread, setUnread] = useState(initialUnread);
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<Item[] | null>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
@@ -72,7 +74,12 @@ export function NotificationsBell({ initialUnread }: { initialUnread: number }) 
       if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
     }
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
+      // A palette opened on top owns Escape (STYLEGUIDE §Keyboard shortcuts);
+      // otherwise close and hand focus back to the bell.
+      if (e.key === "Escape" && !overlayOpen()) {
+        setOpen(false);
+        btnRef.current?.focus();
+      }
     }
     document.addEventListener("mousedown", onClick);
     document.addEventListener("keydown", onKey);
@@ -127,10 +134,13 @@ export function NotificationsBell({ initialUnread }: { initialUnread: number }) 
   return (
     <div className="relative" ref={boxRef}>
       <button
+        ref={btnRef}
         onClick={() => setOpen((v) => !v)}
         data-tt="Notifications"
+        data-tt-pos="bottom"
         aria-label={unread > 0 ? `Notifications, ${unread} unread` : "Notifications"}
         aria-expanded={open}
+        aria-haspopup="true"
         // A finger-sized target on phones; desktop geometry unchanged.
         className="relative rounded-md p-3.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 sm:p-1.5"
       >
@@ -181,6 +191,7 @@ export function NotificationsBell({ initialUnread }: { initialUnread: number }) 
                   <span
                     className={`block text-sm ${item.read_at ? "text-slate-600" : "font-medium text-slate-900"}`}
                   >
+                    {!item.read_at && <span className="sr-only">Unread: </span>}
                     {item.title}
                   </span>
                   {item.body && (

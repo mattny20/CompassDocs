@@ -50,7 +50,7 @@ export default async function PublicDocPage({
   return (
     <article>
       <ViewTracker docId={doc.id} />
-      <nav className="mb-4 flex items-center text-sm text-slate-500 print:hidden">
+      <nav aria-label="Breadcrumb" className="mb-4 flex items-center text-sm text-slate-500 print:hidden">
         <span>
           <Link href="/public" className="hover:text-compass-700">
             Home

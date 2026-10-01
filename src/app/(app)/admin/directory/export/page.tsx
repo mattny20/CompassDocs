@@ -5,7 +5,9 @@ import { getExportRunLog } from "@/lib/directory-export-schedule";
 import { getSmtpConfig, smtpConfigured } from "@/lib/smtp-config";
 import { DirectoryExportPanel } from "@/components/directory-admin/DirectoryExportPanel";
 
+import { settingsMetadata } from "@/lib/settings-sections";
 export const dynamic = "force-dynamic";
+export const metadata = settingsMetadata("/admin/directory", "Export");
 
 export default async function DirectoryExportPage() {
   await requireSettingsSection("/admin/directory");

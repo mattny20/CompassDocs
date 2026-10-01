@@ -8,6 +8,7 @@ import { EmptyState } from "@/components/form";
 import { PageContainer } from "@/components/PageWidth";
 
 export const dynamic = "force-dynamic";
+export const metadata = { title: "Links" };
 
 // The Quick links launchpad: admin-curated external shortcuts, grouped by
 // category and filtered to what the signed-in user's groups may see.

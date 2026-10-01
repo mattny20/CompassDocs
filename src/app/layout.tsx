@@ -20,7 +20,13 @@ export async function generateMetadata(): Promise<Metadata> {
   }
   const isDefault = companyName === "CompassDocs";
   return {
-    title: isDefault ? "CompassDocs — Team Knowledge Platform" : `${companyName} — Knowledge Base`,
+    // Page-specific text first, workspace last: "Users & roles — Acme". Every
+    // page exports its own title (or generateMetadata); the default below is
+    // only for a page that forgot (STYLEGUIDE §Page skeleton, "Document title").
+    title: {
+      default: isDefault ? "CompassDocs — Team Knowledge Platform" : `${companyName} — Knowledge Base`,
+      template: `%s — ${companyName}`,
+    },
     description:
       "Create, organize, and search SOPs, technical docs, policies, and internal knowledge with AI-powered search.",
     manifest: "/manifest.webmanifest",

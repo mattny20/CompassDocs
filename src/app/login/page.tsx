@@ -9,6 +9,7 @@ import { LoginForm } from "@/components/LoginForm";
 import { Brand } from "@/components/Brand";
 
 export const dynamic = "force-dynamic";
+export const metadata = { title: "Sign in", robots: { index: false, follow: false } };
 
 // Short error codes from the SSO callback → human messages. Codes (not raw
 // messages) cross the redirect so nothing sensitive lands in the URL.

@@ -4,6 +4,7 @@ import { requireUser } from "@/lib/auth";
 import { ChangePasswordForm } from "@/components/ChangePasswordForm";
 
 export const dynamic = "force-dynamic";
+export const metadata = { title: "Change password", robots: { index: false, follow: false } };
 
 export default async function ChangePasswordPage() {
   const user = await requireUser();

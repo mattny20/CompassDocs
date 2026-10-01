@@ -14,12 +14,20 @@ import { ChainLine, PersonTile } from "@/components/directory/TeamBlock";
 import { ExportPeopleButtons } from "@/components/directory/ExportPeopleButtons";
 import { peopleForViewer, personForViewer, viewerScope } from "@/lib/directory-viewer";
 
+import type { Metadata } from "next";
+import { cachedPerson } from "@/lib/page-data";
 export const dynamic = "force-dynamic";
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const id = Number((await params).id);
+  const person = Number.isInteger(id) ? await cachedPerson(id).catch(() => undefined) : undefined;
+  return { title: person?.name ? `Team · ${person.name}` : "Team" };
+}
 
 export default async function TeamPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requireUser();
   const id = Number((await params).id);
-  const stored = Number.isInteger(id) ? await getPersonById(id) : undefined;
+  const stored = Number.isInteger(id) ? await cachedPerson(id) : undefined;
   if (!stored || stored.hidden) notFound();
   const scope = await viewerScope(user, await listFields());
   const fields = scope.fields;
