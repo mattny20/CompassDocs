@@ -140,9 +140,9 @@ export function NewsletterList({ initial }: { initial: NewsletterRow[] }) {
                   >
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-medium text-slate-800">
-                        {r.subject || <span className="italic text-slate-400">Untitled</span>}
+                        {r.subject || <span className="italic text-slate-500">Untitled</span>}
                       </p>
-                      <p className="text-xs text-slate-400">
+                      <p className="text-xs text-slate-500">
                         {r.author_name} ·{" "}
                         {fmt.dateTime(r.sent_at || r.updated_at)}
                         {r.status === "sent" && r.audience ? ` · ${r.audience}` : ""}

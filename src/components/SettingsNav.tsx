@@ -68,7 +68,7 @@ export function SettingsNav({ reachable }: { reachable: string[] }) {
             <NavLink key={s.href} s={s} active={path === s.href} />
           ))}
           {matches.length === 0 && (
-            <p className="px-3 py-2 text-sm text-slate-400">No settings match.</p>
+            <p className="px-3 py-2 text-sm text-slate-500">No settings match.</p>
           )}
         </nav>
       ) : (
@@ -83,7 +83,7 @@ export function SettingsNav({ reachable }: { reachable: string[] }) {
           <nav className="hidden sm:flex sm:flex-col sm:gap-1">
             {groups.map((g) => (
               <div key={g.label} className="flex flex-col gap-1">
-                <p className="mb-0.5 mt-3 px-3 text-2xs font-semibold uppercase tracking-wide text-slate-400 first:mt-1">
+                <p className="mb-0.5 mt-3 px-3 text-2xs font-semibold uppercase tracking-wide text-slate-500 first:mt-1">
                   {g.label}
                 </p>
                 {g.sections.map((s) => (

@@ -30,7 +30,7 @@ export function ChainLine({ chain, label }: { chain: DirectoryPerson[]; label: s
   const top = [...chain].reverse();
   return (
     <p className="flex flex-wrap items-center gap-x-1 gap-y-0.5 text-sm text-slate-600">
-      <span className="text-slate-400">{label}:</span>
+      <span className="text-slate-500">{label}:</span>
       {top.map((m, i) => (
         <span key={m.id} className="inline-flex items-center gap-1">
           {i > 0 && <ChevronRight className="h-3 w-3 text-slate-300" aria-hidden />}
@@ -77,7 +77,7 @@ export function TeamBlock({
       <ChainLine chain={chain} label={labels.manager} />
       {peers.length > 0 && (
         <p className="mt-1 text-sm text-slate-600">
-          <span className="text-slate-400">Alongside:</span>{" "}
+          <span className="text-slate-500">Alongside:</span>{" "}
           {peers.slice(0, 6).map((p, i) => (
             <span key={p.id}>
               <Link href={`/directory/${p.id}`} className="hover:underline">{p.name}</Link>
@@ -90,7 +90,7 @@ export function TeamBlock({
       {reports.length > 0 && (
         <>
           <p className="mb-1.5 mt-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
-            <Users className="h-3.5 w-3.5" aria-hidden /> {labels.reports} <span className="font-normal text-slate-400">({reports.length})</span>
+            <Users className="h-3.5 w-3.5" aria-hidden /> {labels.reports} <span className="font-normal text-slate-500">({reports.length})</span>
           </p>
           <div className="card-grid gap-2 [--card-min:14rem]">
             {shown.map((r) => (

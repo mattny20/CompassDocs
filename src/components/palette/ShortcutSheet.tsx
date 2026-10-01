@@ -139,7 +139,7 @@ export function ShortcutSheet({
 
   if (shown.length === 0) {
     return (
-      <div className="px-4 py-6 text-center text-sm text-slate-400">
+      <div className="px-4 py-6 text-center text-sm text-slate-500">
         No shortcuts match “{query.trim()}”.
       </div>
     );
@@ -151,11 +151,11 @@ export function ShortcutSheet({
     <div className="pb-2">
       {shown.map((group) => (
         <section key={group.title}>
-          <h3 className="px-4 pb-1 pt-3 text-2xs font-semibold uppercase tracking-wide text-slate-400">
+          <h3 className="px-4 pb-1 pt-3 text-2xs font-semibold uppercase tracking-wide text-slate-500">
             {group.title}
           </h3>
           {group.note && !needle && (
-            <p className="-mt-0.5 mb-1 px-4 text-xs text-slate-400">{group.note}</p>
+            <p className="-mt-0.5 mb-1 px-4 text-xs text-slate-500">{group.note}</p>
           )}
           <dl>
             {group.rows.map((row) => (

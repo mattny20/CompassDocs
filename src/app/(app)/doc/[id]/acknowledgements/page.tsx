@@ -31,7 +31,7 @@ export default async function AcknowledgementsPage({
     <PageContainer>
       <Link
         href={`/doc/${doc.id}`}
-        className="mb-4 inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-600"
+        className="mb-4 inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-600"
       >
         <ArrowLeft className="h-3.5 w-3.5" /> {doc.title}
       </Link>
@@ -63,7 +63,7 @@ export default async function AcknowledgementsPage({
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-surface shadow-xs">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400">
+            <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-500">
               <th className="px-4 py-2.5">Person</th>
               <th className="px-4 py-2.5">Role</th>
               <th className="px-4 py-2.5">Status</th>
@@ -75,7 +75,7 @@ export default async function AcknowledgementsPage({
               <tr key={r.id} className="border-b border-slate-50">
                 <td className="px-4 py-2.5">
                   <span className="font-medium text-slate-800">{r.name || r.username}</span>
-                  {r.email && <span className="ml-2 text-xs text-slate-400">{r.email}</span>}
+                  {r.email && <span className="ml-2 text-xs text-slate-500">{r.email}</span>}
                 </td>
                 <td className="px-4 py-2.5 text-slate-500">{r.role}</td>
                 <td className="px-4 py-2.5">

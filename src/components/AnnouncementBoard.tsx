@@ -71,7 +71,7 @@ export function AnnouncementBoard({ initial }: { initial: AnnouncementView[] }) 
                 {a.link && (
                   <a
                     href={a.link}
-                    className="mt-2 inline-block rounded-lg border border-compass-200 bg-white/70 px-3 py-1 text-xs font-semibold text-compass-700 hover:bg-white dark:border-compass-100 dark:bg-white/10 dark:text-compass-300"
+                    className="mt-2 inline-block rounded-lg border border-compass-200 bg-white/70 px-3 py-1 text-xs font-semibold text-compass-700 hover:bg-surface dark:border-compass-100 dark:bg-white/10 dark:text-compass-300"
                   >
                     View document →
                   </a>

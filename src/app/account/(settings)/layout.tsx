@@ -49,7 +49,7 @@ export default async function AccountLayout({ children }: { children: React.Reac
               @{user.username} · {me?.email || "no email"}
             </p>
           </div>
-          <span className="shrink-0 rounded-full bg-compass-50 px-2.5 py-1 text-xs font-semibold text-compass-700 dark:bg-compass-950/40">
+          <span className="shrink-0 rounded-full bg-compass-50 px-2.5 py-1 text-xs font-semibold text-compass-700">
             {ROLE_LABEL[user.role]}
           </span>
         </div>

@@ -140,7 +140,7 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
       )}
 
       {!data ? (
-        <div className="flex items-center gap-2 py-10 text-sm text-slate-400">
+        <div className="flex items-center gap-2 py-10 text-sm text-slate-500">
           <LoaderCircle className="h-4 w-4 animate-spin" /> Loading…
         </div>
       ) : (
@@ -154,11 +154,11 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
               { icon: <CircleAlert className="h-4 w-4" />, label: "Outstanding acknowledgements", value: k.outstanding },
             ].map((c) => (
               <div key={c.label} className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
-                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-compass-50 text-compass-600 dark:bg-compass-950/50">
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-compass-50 text-compass-600">
                   {c.icon}
                 </span>
                 <div className="mt-2 text-2xl font-bold tracking-tight text-slate-900">{c.value}</div>
-                <div className="text-xs text-slate-400">{c.label}</div>
+                <div className="text-xs text-slate-500">{c.label}</div>
               </div>
             ))}
           </div>
@@ -168,7 +168,7 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
             <h2 className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
               <Send className="h-4 w-4 text-compass-600" /> Request acknowledgement
             </h2>
-            <p className="mt-0.5 text-xs text-slate-400">
+            <p className="mt-0.5 text-xs text-slate-500">
               Pick a published document — everyone who can see it gets a dashboard notice and an
               email asking them to read and acknowledge it. Compliance emails are sent regardless
               of personal notification settings.
@@ -223,7 +223,7 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
               </h2>
             </div>
             {data.docs.length === 0 ? (
-              <p className="px-4 py-8 text-center text-sm text-slate-400">
+              <p className="px-4 py-8 text-center text-sm text-slate-500">
                 No documents require acknowledgement yet — request one above.
               </p>
             ) : (
@@ -247,7 +247,7 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
                             <span className="block truncate text-sm font-medium text-slate-800">
                               {d.space_icon} {d.title}
                             </span>
-                            <span className="block text-xs text-slate-400">
+                            <span className="block text-xs text-slate-500">
                               Revision of {fmt.date(d.updated_at)} ·{" "}
                               {d.ack_last_reminded_at
                                 ? `last reminded ${timeAgo(d.ack_last_reminded_at)}`
@@ -260,7 +260,7 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
                             <span className={complete ? "font-medium text-emerald-600" : "text-slate-500"}>
                               {d.acked}/{d.required}
                             </span>
-                            <span className="text-slate-400">{pct}%</span>
+                            <span className="text-slate-500">{pct}%</span>
                           </div>
                           <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
                             <div
@@ -297,7 +297,7 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
                       {open === d.id && (
                         <div className="border-t border-slate-100 bg-slate-50/60 px-4 py-3">
                           {!detail[d.id] ? (
-                            <div className="flex items-center gap-2 text-sm text-slate-400">
+                            <div className="flex items-center gap-2 text-sm text-slate-500">
                               <LoaderCircle className="h-4 w-4 animate-spin" /> Loading…
                             </div>
                           ) : (
@@ -310,7 +310,7 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
                                     <CircleDashed className="h-3.5 w-3.5 shrink-0 text-amber-500" />
                                   )}
                                   <span className="truncate text-slate-700">{r.name || r.username}</span>
-                                  <span className="ml-auto shrink-0 text-xs text-slate-400">
+                                  <span className="ml-auto shrink-0 text-xs text-slate-500">
                                     {r.acknowledged_at ? timeAgo(r.acknowledged_at) : "pending"}
                                   </span>
                                 </li>
@@ -347,9 +347,9 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
                     <tr key={u.id}>
                       <td className="py-2 pr-2 font-medium text-slate-700">
                         {u.name || u.username}
-                        <span className="ml-1.5 text-xs font-normal text-slate-400">{u.role}</span>
+                        <span className="ml-1.5 text-xs font-normal text-slate-500">{u.role}</span>
                       </td>
-                      <td className="py-2 text-right text-slate-400">{u.required}</td>
+                      <td className="py-2 text-right text-slate-500">{u.required}</td>
                       <td className="py-2 text-right text-slate-600">{u.acked}</td>
                       <td className="py-2 text-right">
                         {u.acked >= u.required ? (

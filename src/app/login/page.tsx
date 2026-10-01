@@ -74,7 +74,7 @@ export default async function LoginPage({
                 {ssoActive && (
                   <a
                     href="/api/ee/sso/login"
-                    className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 font-semibold text-slate-700 shadow-xs transition hover:bg-slate-50"
+                    className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-surface px-4 py-2 font-semibold text-slate-700 shadow-xs transition hover:bg-slate-50"
                   >
                     {/* Microsoft logo — four squares */}
                     <svg viewBox="0 0 21 21" className="h-4 w-4" aria-hidden>
@@ -89,7 +89,7 @@ export default async function LoginPage({
                 {samlActive && (
                   <a
                     href="/api/ee/saml/login"
-                    className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 font-semibold text-slate-700 shadow-xs transition hover:bg-slate-50"
+                    className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-surface px-4 py-2 font-semibold text-slate-700 shadow-xs transition hover:bg-slate-50"
                   >
                     <svg viewBox="0 0 24 24" className="h-4 w-4 text-compass-600" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
                       <path d="M12 2a10 10 0 100 20 10 10 0 000-20z" />
@@ -100,7 +100,7 @@ export default async function LoginPage({
                 )}
               </div>
               {!ssoCfg.ssoOnly && (
-                <div className="my-4 flex items-center gap-3 text-xs uppercase tracking-wider text-slate-400">
+                <div className="my-4 flex items-center gap-3 text-xs uppercase tracking-wider text-slate-500">
                   <span className="h-px flex-1 bg-slate-200" />
                   or
                   <span className="h-px flex-1 bg-slate-200" />

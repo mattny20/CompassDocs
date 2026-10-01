@@ -80,7 +80,7 @@ export function SetupForm({
 
       <label className="block">
         <span className="mb-1 block text-sm font-medium text-slate-600">
-          Company / workspace name <span className="font-normal text-slate-400">(optional)</span>
+          Company / workspace name <span className="font-normal text-slate-500">(optional)</span>
         </span>
         <input
           value={companyName}
@@ -119,7 +119,7 @@ export function SetupForm({
           </div>
           <label className="block">
             <span className="mb-1 block text-sm font-medium text-slate-600">
-              Email <span className="font-normal text-slate-400">(optional)</span>
+              Email <span className="font-normal text-slate-500">(optional)</span>
             </span>
             <input
               type="email"
@@ -159,7 +159,7 @@ export function SetupForm({
       <div className="border-t border-slate-100 pt-4">
         <label className="block">
           <span className="mb-1 block text-sm font-medium text-slate-600">
-            Anthropic API key <span className="font-normal text-slate-400">(optional)</span>
+            Anthropic API key <span className="font-normal text-slate-500">(optional)</span>
           </span>
           <input
             type="password"
@@ -170,7 +170,7 @@ export function SetupForm({
             spellCheck={false}
             className={field}
           />
-          <span className="mt-1 block text-xs text-slate-400">
+          <span className="mt-1 block text-xs text-slate-500">
             Enables AI answers and proofreading. Search works without it — you can also add or
             change the key later under Settings → AI.
           </span>
@@ -181,7 +181,7 @@ export function SetupForm({
         <div className="border-t border-slate-100 pt-4">
           <label className="block">
             <span className="mb-1 block text-sm font-medium text-slate-600">
-              Enterprise license key <span className="font-normal text-slate-400">(optional)</span>
+              Enterprise license key <span className="font-normal text-slate-500">(optional)</span>
             </span>
             <textarea
               value={licenseKey}
@@ -197,7 +197,7 @@ export function SetupForm({
       {proxyManaged && (
         <div className="border-t border-slate-100 pt-4">
           <p className="mb-1 text-sm font-medium text-slate-700">Domain &amp; HTTPS (optional)</p>
-          <p className="mb-3 text-xs text-slate-400">
+          <p className="mb-3 text-xs text-slate-500">
             Point a DNS record at this server, then set it up here. You can also do this later
             under Settings → Domain &amp; HTTPS.
           </p>
@@ -235,7 +235,7 @@ export function SetupForm({
                     className={`${field} mt-2`}
                   />
                 )}
-                <span className="mt-1 block text-xs text-slate-400">
+                <span className="mt-1 block text-xs text-slate-500">
                   Automatic HTTPS needs a <strong>public</strong> domain resolving to this server
                   with ports 80/443 reachable. Use self-signed for internal/LAN domains.
                 </span>
@@ -260,7 +260,7 @@ export function SetupForm({
               <option value="always">Always over HTTPS (I have a certificate)</option>
               <option value="never">Plain HTTP only (internal / no HTTPS)</option>
             </select>
-            <span className="mt-1 block text-xs text-slate-400">
+            <span className="mt-1 block text-xs text-slate-500">
               Controls the login cookie&rsquo;s <code className="font-mono">Secure</code> flag.
               Leave on Automatic unless you&rsquo;re sure — you can change it later under
               Settings → Domain &amp; HTTPS.

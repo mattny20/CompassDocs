@@ -217,7 +217,7 @@ export function AnnouncementsAdmin({
                         className="accent-compass-600"
                       />
                       {g.name}
-                      <span className="text-xs text-slate-400">{g.member_count}</span>
+                      <span className="text-xs text-slate-500">{g.member_count}</span>
                     </label>
                   ))}
                 </div>
@@ -231,7 +231,7 @@ export function AnnouncementsAdmin({
               <label className={`flex items-center gap-2 pt-1 ${webhookCount > 0 ? "cursor-pointer" : "opacity-50"}`}>
                 <input type="checkbox" disabled={webhookCount === 0} checked={toWebhooks} onChange={(e) => setToWebhooks(e.target.checked)} className="accent-compass-600" />
                 Send to chat webhooks
-                <span className="text-xs text-slate-400">
+                <span className="text-xs text-slate-500">
                   {webhookCount > 0
                     ? `${webhookCount} channel${webhookCount === 1 ? "" : "s"} subscribed to announcements`
                     : "no channels subscribe to the announcement event yet"}
@@ -256,7 +256,7 @@ export function AnnouncementsAdmin({
       <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <h2 className="mb-3 font-semibold text-slate-900">Posted</h2>
         {rows.length === 0 ? (
-          <p className="text-sm text-slate-400">Nothing posted yet.</p>
+          <p className="text-sm text-slate-500">Nothing posted yet.</p>
         ) : (
           <ul className="divide-y divide-slate-100">
             {rows.map((r) => {
@@ -269,7 +269,7 @@ export function AnnouncementsAdmin({
                   <div className="min-w-0 flex-1">
                     <p className="font-medium text-slate-800">{r.title}</p>
                     <p className="mt-0.5 line-clamp-2 whitespace-pre-line text-xs text-slate-500">{r.body}</p>
-                    <p className="mt-1 text-xs text-slate-400">
+                    <p className="mt-1 text-xs text-slate-500">
                       {r.level} · {r.author_name} · {fmt.dateTime(r.created_at)}
                       {r.expires_at && ` · hides ${fmt.date(r.expires_at)}`}
                       {r.dismissed_count > 0 && ` · dismissed by ${r.dismissed_count}`}

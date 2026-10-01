@@ -169,7 +169,7 @@ export function DirectoryOfficesPanel({
           <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-800">
             <Building2 className="h-4 w-4 text-compass-600" aria-hidden /> Offices
           </h3>
-          <span className="text-xs text-slate-400">
+          <span className="text-xs text-slate-500">
             {rows.length} office{rows.length === 1 ? "" : "s"} · {filledCount} with details
           </span>
         </div>
@@ -195,7 +195,7 @@ export function DirectoryOfficesPanel({
                       }`}
                     >
                       <span className="min-w-0 flex-1 truncate font-medium">{r.label}</span>
-                      <span className="text-xs text-slate-400">{r.count ? `${r.count}` : ""}</span>
+                      <span className="text-xs text-slate-500">{r.count ? `${r.count}` : ""}</span>
                       <span
                         className={`h-1.5 w-1.5 rounded-full ${filled ? "bg-emerald-500" : "bg-slate-300"}`}
                         data-tt={filled ? "Has details" : "Nothing entered yet"}
@@ -214,7 +214,7 @@ export function DirectoryOfficesPanel({
                       <TextInput value={profile.name} placeholder={current.label} onChange={(e) => setProfile({ ...profile, name: e.target.value })} />
                     </Field>
                   </div>
-                  <p className="text-xs text-slate-400">
+                  <p className="text-xs text-slate-500">
                     {current.count ? `${current.count} ${current.count === 1 ? "person" : "people"} in ${current.office}` : `Nobody is in ${current.office} right now`}
                   </p>
                 </div>
@@ -266,7 +266,7 @@ export function DirectoryOfficesPanel({
       <div className="rounded-xl border border-slate-200 bg-surface shadow-xs">
         <div className="border-b border-slate-100 px-4 py-3">
           <h3 className="text-sm font-semibold text-slate-800">Office fields</h3>
-          <p className="mt-0.5 text-xs text-slate-400">
+          <p className="mt-0.5 text-xs text-slate-500">
             What every office describes itself with, in the order the PDF prints them. Multi-line fields take a whole
             row — addresses, parking notes, room lists.
           </p>
@@ -277,7 +277,7 @@ export function DirectoryOfficesPanel({
               <div className="w-56">
                 <TextInput value={f.label} onChange={(e) => updateField(i, { label: e.target.value })} aria-label={`Label for ${f.key}`} />
               </div>
-              <span className="font-mono text-2xs text-slate-400">{f.key}</span>
+              <span className="font-mono text-2xs text-slate-500">{f.key}</span>
               <Toggle label="Multi-line" checked={f.multiline} onChange={(v) => updateField(i, { multiline: v })} />
               <span className="ml-auto flex items-center gap-1">
                 <button type="button" onClick={() => moveField(i, -1)} disabled={i === 0} className="rounded-sm p-1 text-slate-400 hover:text-slate-600 disabled:opacity-30" data-tt="Move up" aria-label={`Move ${f.label} up`}>
@@ -318,7 +318,7 @@ export function DirectoryOfficesPanel({
         <button type="button" onClick={save} disabled={saving || !dirty} className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60">
           {saving ? "Saving…" : "Save offices"}
         </button>
-        {dirty ? <span className="text-xs text-amber-600">Unsaved changes</span> : <span className="text-xs text-slate-400">Saved</span>}
+        {dirty ? <span className="text-xs text-amber-600">Unsaved changes</span> : <span className="text-xs text-slate-500">Saved</span>}
       </div>
     </div>
   );

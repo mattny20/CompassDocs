@@ -369,11 +369,11 @@ export function NewsletterPeople({
                 Default header bar
               </div>
             )}
-            <div className="px-4 py-3 text-xs text-slate-400">Newsletter content…</div>
+            <div className="px-4 py-3 text-xs text-slate-500">Newsletter content…</div>
           </div>
         </div>
         {!appearance.header_image && (
-          <p className="mt-2 text-xs text-slate-400">
+          <p className="mt-2 text-xs text-slate-500">
             No custom header — emails use the default bar (workspace logo + name, accent
             underline).
           </p>
@@ -445,7 +445,7 @@ export function NewsletterPeople({
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-surface shadow-xs">
         <table className="w-full text-left text-sm">
           <thead>
-            <tr className="border-b border-slate-100 text-xs uppercase tracking-wider text-slate-400">
+            <tr className="border-b border-slate-100 text-xs uppercase tracking-wider text-slate-500">
               <th className="px-4 py-3 font-medium">Person</th>
               <th className="px-4 py-3 font-medium">Org role</th>
               <th className="px-4 py-3 font-medium">Newsletter access</th>
@@ -460,7 +460,7 @@ export function NewsletterPeople({
               <tr key={r.id} className={r.status !== "active" ? "opacity-50" : ""}>
                 <td className="px-4 py-2.5">
                   <p className="font-medium text-slate-800">{r.name}</p>
-                  <p className="text-xs text-slate-400">
+                  <p className="text-xs text-slate-500">
                     {r.username}
                     {r.status !== "active" ? " · disabled" : ""}
                   </p>

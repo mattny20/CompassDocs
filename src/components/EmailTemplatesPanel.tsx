@@ -194,13 +194,13 @@ export function EmailTemplatesPanel({ initial }: { initial: Template[] }) {
                   <div className="grid gap-4 lg:grid-cols-2">
                     <div className="space-y-3">
                       <div>
-                        <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-400">
+                        <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
                           Subject
                         </label>
                         <TextInput value={subject} onChange={(e) => setSubject(e.target.value)} />
                       </div>
                       <div>
-                        <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-400">
+                        <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
                           Body
                         </label>
                         <div className="rounded-xl border border-slate-200">
@@ -222,14 +222,14 @@ export function EmailTemplatesPanel({ initial }: { initial: Template[] }) {
                     </div>
 
                     <div>
-                      <div className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-400">
+                      <div className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-500">
                         Preview (sample values)
                       </div>
                       <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                         {preview ? (
                           <>
                             <div className="mb-3 border-b border-slate-200 pb-2 text-sm">
-                              <span className="text-slate-400">Subject: </span>
+                              <span className="text-slate-500">Subject: </span>
                               <span className="font-medium text-slate-800">{preview.subject}</span>
                             </div>
                             <div
@@ -238,7 +238,7 @@ export function EmailTemplatesPanel({ initial }: { initial: Template[] }) {
                             />
                           </>
                         ) : (
-                          <div className="flex items-center gap-2 py-8 text-sm text-slate-400">
+                          <div className="flex items-center gap-2 py-8 text-sm text-slate-500">
                             <LoaderCircle className="h-4 w-4 animate-spin" /> Rendering preview…
                           </div>
                         )}

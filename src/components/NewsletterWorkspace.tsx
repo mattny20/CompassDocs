@@ -391,7 +391,7 @@ export function NewsletterWorkspace({
             <ArrowLeft className="h-4 w-4" /> {hasModuleAccess ? "Newsletter" : "Dashboard"}
           </Link>
           <StatusBadge status={n.status} />
-          <span className="text-xs text-slate-400">
+          <span className="text-xs text-slate-500">
             by {n.author_name}
             {n.sent_at ? ` · sent ${fmt.dateTime(n.sent_at)}` : ""}
           </span>
@@ -451,7 +451,7 @@ export function NewsletterWorkspace({
             <div>
               <span className="mb-1 block text-xs font-medium text-slate-500">Content</span>
               <RichTextEditor value={body} onChange={setBody} onUploadImage={uploadImage} emailBlocks />
-              <p className="mt-1 text-xs text-slate-400">
+              <p className="mt-1 text-xs text-slate-500">
                 Images added here (uploaded, pasted, or dragged in) are hosted for inboxes
                 and display for every recipient. Use the button and spacer blocks to shape
                 the email.
@@ -461,7 +461,7 @@ export function NewsletterWorkspace({
         ) : (
           <div>
             <h1 className="mb-4 text-2xl font-bold text-slate-900">
-              {n.subject || <span className="italic text-slate-400">Untitled</span>}
+              {n.subject || <span className="italic text-slate-500">Untitled</span>}
             </h1>
             <MarkdownView content={n.body} />
           </div>
@@ -548,7 +548,7 @@ export function NewsletterWorkspace({
                         className="accent-compass-600"
                       />
                       {g.name}
-                      <span className="text-xs text-slate-400">{g.member_count}</span>
+                      <span className="text-xs text-slate-500">{g.member_count}</span>
                     </label>
                   ))}
                 </div>
@@ -559,13 +559,13 @@ export function NewsletterWorkspace({
           <fieldset className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
             <legend className="px-1 text-xs font-medium text-slate-500">Approvers</legend>
             {approverPool.length === 0 ? (
-              <p className="text-sm text-slate-400">
+              <p className="text-sm text-slate-500">
                 No approvers yet — an admin can grant the approver capability under
                 Settings → Newsletter.
               </p>
             ) : (
               <>
-                <p className="mb-2 text-xs text-slate-400">
+                <p className="mb-2 text-xs text-slate-500">
                   Leave everyone unticked to let any approver review this one; tick names to
                   restrict it to specific reviewers.
                 </p>
@@ -622,7 +622,7 @@ export function NewsletterWorkspace({
             )}
           </div>
           {files.length === 0 ? (
-            <p className="mt-2 text-xs text-slate-400">
+            <p className="mt-2 text-xs text-slate-500">
               Files attached here go out with the email itself (up to 5 files, 5 MB each).
             </p>
           ) : (
@@ -635,7 +635,7 @@ export function NewsletterWorkspace({
                   >
                     {f.filename}
                   </a>
-                  <span className="shrink-0 text-xs text-slate-400">
+                  <span className="shrink-0 text-xs text-slate-500">
                     {f.size >= 1024 * 1024
                       ? `${(f.size / 1024 / 1024).toFixed(1)} MB`
                       : `${Math.max(1, Math.round(f.size / 1024))} KB`}
@@ -848,14 +848,14 @@ export function NewsletterWorkspace({
           <MessageSquare className="h-4 w-4 text-slate-400" /> Activity
         </h2>
         {comments.length === 0 ? (
-          <p className="text-sm text-slate-400">No comments yet.</p>
+          <p className="text-sm text-slate-500">No comments yet.</p>
         ) : (
           <ul className="space-y-3">
             {comments.map((c) => (
               <li key={c.id} className="flex gap-3 text-sm">
                 <EventIcon kind={c.kind} />
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs text-slate-400">
+                  <p className="text-xs text-slate-500">
                     <span className="font-medium text-slate-600">{c.author_name}</span>
                     {" · "}
                     {eventLabel(c.kind)}

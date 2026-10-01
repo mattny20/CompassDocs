@@ -45,7 +45,7 @@ export default async function TrainingCertificatePage({
         <div className="flex items-center justify-center gap-2 text-sm font-semibold uppercase tracking-widest text-compass-600">
           <GraduationCap className="h-5 w-5" /> Certificate of completion
         </div>
-        <div className="mt-2 text-xs text-slate-400">{settings.company_name}</div>
+        <div className="mt-2 text-xs text-slate-500">{settings.company_name}</div>
 
         <p className="mt-8 text-sm text-slate-500">This certifies that</p>
         <div className="mt-1 text-3xl font-bold tracking-tight text-slate-900">{a.user_name}</div>
@@ -53,13 +53,13 @@ export default async function TrainingCertificatePage({
         <div className="mt-1 text-xl font-semibold text-slate-800">{a.title}</div>
 
         <div className="mx-auto mt-8 grid max-w-md grid-cols-2 gap-x-8 gap-y-2 border-t border-slate-100 pt-6 text-sm">
-          <div className="text-right text-slate-400">Completed</div>
+          <div className="text-right text-slate-500">Completed</div>
           <div className="text-left font-medium text-slate-700">
             {formatDate(a.completed_at, settings)}
           </div>
           {a.quiz_total ? (
             <>
-              <div className="text-right text-slate-400">Quiz score</div>
+              <div className="text-right text-slate-500">Quiz score</div>
               <div className="text-left font-medium text-slate-700">
                 {a.quiz_score}/{a.quiz_total} (
                 {Math.round(((a.quiz_score ?? 0) / a.quiz_total) * 100)}%)
@@ -68,18 +68,18 @@ export default async function TrainingCertificatePage({
           ) : null}
           {a.signed_name ? (
             <>
-              <div className="text-right text-slate-400">Signed</div>
+              <div className="text-right text-slate-500">Signed</div>
               <div className="text-left font-medium text-slate-700">{a.signed_name}</div>
             </>
           ) : null}
-          <div className="text-right text-slate-400">Record</div>
+          <div className="text-right text-slate-500">Record</div>
           <div className="text-left font-medium text-slate-700">
             Assignment #{a.assignment_id}
             {typeof a.confirmed_version === "number" ? ` · doc version ${a.confirmed_version}` : ""}
           </div>
           {a.content_sha256 ? (
             <>
-              <div className="text-right text-slate-400">Content SHA-256</div>
+              <div className="text-right text-slate-500">Content SHA-256</div>
               <div className="break-all text-left font-mono text-2xs text-slate-500">
                 {a.content_sha256}
               </div>
@@ -87,7 +87,7 @@ export default async function TrainingCertificatePage({
           ) : null}
         </div>
 
-        <p className="mt-8 text-xs text-slate-400">
+        <p className="mt-8 text-xs text-slate-500">
           Issued by CompassDocs training records · {settings.company_name}
         </p>
       </div>

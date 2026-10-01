@@ -56,7 +56,7 @@ export default async function PublicSpacePage({
           />
         </div>
       ) : (
-        <ul className="mt-6 divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white shadow-xs">
+        <ul className="mt-6 divide-y divide-slate-100 rounded-xl border border-slate-200 bg-surface shadow-xs">
           {docs.map((d) => (
             <li key={d.id}>
               <Link
@@ -68,7 +68,7 @@ export default async function PublicSpacePage({
                   {DOC_TYPE_LABEL[d.type]}
                 </span>
                 {d.summary && (
-                  <span className="hidden truncate text-sm text-slate-400 sm:inline">
+                  <span className="hidden truncate text-sm text-slate-500 sm:inline">
                     {d.summary}
                   </span>
                 )}

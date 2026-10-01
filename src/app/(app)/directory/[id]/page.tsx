@@ -95,7 +95,7 @@ export default async function PersonProfilePage({
     <PageContainer>
       <Link
         href="/directory"
-        className="mb-4 inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-600"
+        className="mb-4 inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-600"
       >
         <ArrowLeft className="h-3.5 w-3.5" /> Directory
       </Link>
@@ -180,7 +180,7 @@ export default async function PersonProfilePage({
               <dl className="mt-3 grid gap-x-8 gap-y-1 text-sm sm:grid-cols-2">
                 {custom.map(({ field, value }) => (
                   <div key={field.key} className="flex gap-2">
-                    <dt className="shrink-0 text-slate-400">{field.label}:</dt>
+                    <dt className="shrink-0 text-slate-500">{field.label}:</dt>
                     <dd className="text-slate-700">
                       {field.display === "tag" ? (
                         <FieldChips field={field} value={value} size="md" />
@@ -216,7 +216,7 @@ export default async function PersonProfilePage({
             <dl className="grid gap-x-8 gap-y-1 text-sm sm:grid-cols-2">
               {block.rows.map((r) => (
                 <div key={r.label} className={`flex gap-2 ${r.multiline ? "sm:col-span-2" : ""}`}>
-                  <dt className="shrink-0 text-slate-400">{r.label}:</dt>
+                  <dt className="shrink-0 text-slate-500">{r.label}:</dt>
                   <dd className="whitespace-pre-line text-slate-700">{r.value}</dd>
                 </div>
               ))}
@@ -225,7 +225,7 @@ export default async function PersonProfilePage({
         )}
       </div>
 
-      <h2 className="mb-3 mt-8 text-sm font-semibold uppercase tracking-wide text-slate-400">
+      <h2 className="mb-3 mt-8 text-sm font-semibold uppercase tracking-wide text-slate-500">
         Documents by {person.name.split(" ")[0]} ({docs.length})
       </h2>
       {docs.length === 0 ? (

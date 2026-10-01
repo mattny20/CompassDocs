@@ -53,14 +53,14 @@ export default async function PublicSearchPage({
           </p>
           <ul className="mt-6 space-y-3">
             {hits.map((h) => (
-              <li key={h.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
+              <li key={h.id} className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
                 <Link
                   href={`/public/${h.space_slug}/${h.slug}`}
                   className="font-semibold text-compass-700 hover:underline"
                 >
                   {h.title}
                 </Link>
-                <span className="ml-2 text-xs text-slate-400">{h.space_name}</span>
+                <span className="ml-2 text-xs text-slate-500">{h.space_name}</span>
                 <p
                   className="mt-1 text-sm text-slate-500 [&_mark]:bg-amber-100 [&_mark]:font-medium"
                   dangerouslySetInnerHTML={{ __html: safeSnippet(h.snippet) }}

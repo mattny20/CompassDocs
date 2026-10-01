@@ -23,13 +23,13 @@ function Group({ icon, title, items, tone, detail }: { icon: React.ReactNode; ti
         {icon} {title} <span className="font-normal opacity-70">({items.length})</span>
       </p>
       {items.length === 0 ? (
-        <p className="text-xs text-slate-400">None.</p>
+        <p className="text-xs text-slate-500">None.</p>
       ) : (
         <ul className="space-y-0.5 text-sm text-slate-700">
           {shown.map((i, k) => (
             <li key={`${i.email}-${k}`} className="break-words">
               {i.name}
-              {i.email ? <span className="text-slate-400"> · {i.email}</span> : null}
+              {i.email ? <span className="text-slate-500"> · {i.email}</span> : null}
               {detail && i.changed?.length ? <span className="block text-xs text-slate-500">{detail(i)}</span> : null}
             </li>
           ))}

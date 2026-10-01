@@ -128,7 +128,7 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
           <Field
             label={
               <>
-                Logo URL <span className="text-slate-400">(optional — or use the options below)</span>
+                Logo URL <span className="text-slate-500">(optional — or use the options below)</span>
               </>
             }
           >
@@ -146,7 +146,7 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
             <span className="mb-1 block text-xs font-medium text-slate-500">
               Use a website&apos;s icon
             </span>
-            <p className="mb-2 text-xs text-slate-400">
+            <p className="mb-2 text-xs text-slate-500">
               Enter your company site — we&apos;ll fetch its favicon and use it as the logo.
             </p>
             <div className="flex gap-2">
@@ -168,7 +168,7 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
           </div>
           <div>
             <span className="mb-1 block text-xs font-medium text-slate-500">Upload a logo</span>
-            <p className="mb-2 text-xs text-slate-400">
+            <p className="mb-2 text-xs text-slate-500">
               PNG, JPEG, GIF, WebP, or ICO up to 1 MB. Square images look best.
             </p>
             <div className="flex items-center gap-2">
@@ -202,7 +202,7 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
         )}
         <div className="mt-4 border-t border-slate-100 pt-3">
           <span className="mb-1 block text-xs font-medium text-slate-500">Accent color</span>
-          <p className="mb-2 text-xs text-slate-400">
+          <p className="mb-2 text-xs text-slate-500">
             Re-tints buttons, links, highlights, and tinted surfaces across the whole app —
             light and dark theme, login page, and the public site.
           </p>
@@ -236,9 +236,9 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
               className="h-8 w-12 cursor-pointer rounded-md border border-slate-200"
               aria-label="Custom accent color"
             />
-            <code className="text-xs text-slate-400">{s.accent_color}</code>
+            <code className="text-xs text-slate-500">{s.accent_color}</code>
           </div>
-          <p className="mt-1 text-xs text-slate-400">Applies everywhere after saving (pages refresh with the new color).</p>
+          <p className="mt-1 text-xs text-slate-500">Applies everywhere after saving (pages refresh with the new color).</p>
         </div>
         <div className="mt-4 flex items-center gap-3 border-t border-slate-100 pt-3">
           <span className="text-xs font-medium text-slate-500">Preview</span>
@@ -429,7 +429,7 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
         >
           Download Outlook manifest
         </a>
-        <p className="mt-2 text-xs text-slate-400">
+        <p className="mt-2 text-xs text-slate-500">
           Requires this workspace to be served over HTTPS.{" "}
           <a
             href="https://docs.compassdocs.io/guides/outlook-addin/"

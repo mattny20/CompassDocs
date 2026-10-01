@@ -88,7 +88,7 @@ export default async function DashboardPage() {
         <DashboardGreeting name={user.name || user.username} />
         <Link
           href="/search"
-          className="group flex w-full items-center gap-2.5 rounded-xl border border-slate-200 bg-surface px-4 py-3 text-slate-400 shadow-xs transition hover:border-compass-300 hover:shadow-md sm:w-96"
+          className="group flex w-full items-center gap-2.5 rounded-xl border border-slate-200 bg-surface px-4 py-3 text-slate-500 shadow-xs transition hover:border-compass-300 hover:shadow-md sm:w-96"
         >
           <Search className="h-4 w-4 shrink-0" aria-hidden />
           <span className="flex-1 truncate text-sm">
@@ -293,7 +293,7 @@ export default async function DashboardPage() {
               </Link>
             ))}
             {recent.length === 0 && (
-              <p className="px-4 py-8 text-center text-sm text-slate-400">
+              <p className="px-4 py-8 text-center text-sm text-slate-500">
                 Nothing here yet — publish a first document to get the ball rolling.
               </p>
             )}

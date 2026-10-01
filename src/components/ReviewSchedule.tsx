@@ -82,14 +82,14 @@ export function ReviewSchedule({
       {interval !== null && (
         <div className="mt-2 space-y-1.5 text-xs">
           {!isPublished ? (
-            <p className="text-slate-400">Reminders start once the document is published.</p>
+            <p className="text-slate-500">Reminders start once the document is published.</p>
           ) : (
             <p className={overdue ? "font-medium text-amber-700" : "text-slate-500"}>
               {overdue ? "Review overdue — was due " : "Next review due "}
               {dueDateLabel}.
             </p>
           )}
-          {lastReviewedLabel && <p className="text-slate-400">{lastReviewedLabel}</p>}
+          {lastReviewedLabel && <p className="text-slate-500">{lastReviewedLabel}</p>}
           <button
             onClick={() => call({ method: "POST" })}
             disabled={busy}
@@ -98,7 +98,7 @@ export function ReviewSchedule({
             {busy && <LoaderCircle className="h-3 w-3 animate-spin" />}
             Mark as reviewed
           </button>
-          <p className="text-slate-400">Editing the document also resets the clock.</p>
+          <p className="text-slate-500">Editing the document also resets the clock.</p>
         </div>
       )}
       {error && <p className="mt-1 text-xs text-red-600">{error}</p>}

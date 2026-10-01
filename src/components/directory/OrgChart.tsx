@@ -149,7 +149,7 @@ export function OrgChart({
               aria-label={`${p.name}'s team: ${node.size} people`}
             >
               <Users className="h-3 w-3" aria-hidden /> {node.reports.length}
-              {node.size > node.reports.length ? <span className="text-slate-400">/{node.size}</span> : null}
+              {node.size > node.reports.length ? <span className="text-slate-500">/{node.size}</span> : null}
             </Link>
           )}
         </div>
@@ -204,7 +204,7 @@ export function OrgChart({
             aria-expanded={aloneOpen || !!keep}
           >
             {aloneOpen || keep ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-            Not in a reporting line <span className="text-xs font-normal text-slate-400">({shownAlone.length})</span>
+            Not in a reporting line <span className="text-xs font-normal text-slate-500">({shownAlone.length})</span>
           </button>
           {(aloneOpen || keep) && (
             <ul className="card-grid gap-1.5 [--card-min:14rem]">

@@ -16,7 +16,7 @@ export default function RootNotFound() {
         <p className="mt-1 text-sm text-slate-500">
           This address doesn&rsquo;t lead anywhere we can show you.
         </p>
-        <p className="mt-4 text-sm text-slate-400">
+        <p className="mt-4 text-sm text-slate-500">
           It may have been deleted, moved to Trash, or it&rsquo;s in a space you can&rsquo;t see.
           If a colleague sent you the link, ask them to check it still exists.
         </p>

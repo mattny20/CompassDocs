@@ -72,7 +72,7 @@ export default async function LinksPage() {
 
       {sections.map((section) => (
         <section key={section.name} className="mb-8">
-          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
             {section.name}
           </h2>
           <div className="card-grid gap-3 [--card-min:16rem]">

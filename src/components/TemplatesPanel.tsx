@@ -267,7 +267,7 @@ function TemplateForm({
         <Field
           label={
             <>
-              Description <span className="text-slate-400">(shown in the picker)</span>
+              Description <span className="text-slate-500">(shown in the picker)</span>
             </>
           }
         >
@@ -293,7 +293,7 @@ function TemplateForm({
         <Field
           label={
             <>
-              Title pattern <span className="text-slate-400">(e.g. Runbook — {"{{title}}"})</span>
+              Title pattern <span className="text-slate-500">(e.g. Runbook — {"{{title}}"})</span>
             </>
           }
         >
@@ -307,7 +307,7 @@ function TemplateForm({
         <Field
           label={
             <>
-              Tags <span className="text-slate-400">(comma-separated)</span>
+              Tags <span className="text-slate-500">(comma-separated)</span>
             </>
           }
         >
@@ -323,7 +323,7 @@ function TemplateForm({
       <Field
         label={
           <>
-            Summary <span className="text-slate-400">(pre-filled; placeholders work here too)</span>
+            Summary <span className="text-slate-500">(pre-filled; placeholders work here too)</span>
           </>
         }
       >

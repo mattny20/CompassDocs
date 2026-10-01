@@ -242,7 +242,7 @@ function MyTraining({ mine, teamLead = false }: { mine: MyItem[] | null; teamLea
     return (
       <div>
         {teamLink}
-        <div className="flex items-center gap-2 py-10 text-sm text-slate-400">
+        <div className="flex items-center gap-2 py-10 text-sm text-slate-500">
           <LoaderCircle className="h-4 w-4 animate-spin" /> Loading…
         </div>
       </div>
@@ -270,7 +270,7 @@ function MyTraining({ mine, teamLead = false }: { mine: MyItem[] | null; teamLea
           : Math.round((Math.min(it.last_slide, it.slide_count) / Math.max(it.slide_count, 1)) * 100);
         return (
           <div key={it.assignment_id} className="flex flex-col rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
-            <div className="text-xs text-slate-400">
+            <div className="text-xs text-slate-500">
               {it.space_icon} {it.space_name}
             </div>
             <div className="mt-1 font-semibold text-slate-900">{it.title}</div>
@@ -281,7 +281,7 @@ function MyTraining({ mine, teamLead = false }: { mine: MyItem[] | null; teamLea
               />
             </div>
             <div className="mt-1.5 flex items-center justify-between text-xs">
-              <span className="text-slate-400">
+              <span className="text-slate-500">
                 {it.completed_at ? (it.waived ? "Waived" : "Completed") : `${pct}% · ${it.slide_count} slides`}
               </span>
               {it.completed_at ? (
@@ -396,7 +396,7 @@ function Overview({
 
   if (!data) {
     return (
-      <div className="flex items-center gap-2 py-10 text-sm text-slate-400">
+      <div className="flex items-center gap-2 py-10 text-sm text-slate-500">
         <LoaderCircle className="h-4 w-4 animate-spin" /> Loading…
       </div>
     );
@@ -423,7 +423,7 @@ function Overview({
         ].map((c) => (
           <div key={c.label} className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
             <div className="text-2xl font-bold tracking-tight text-slate-900">{c.value}</div>
-            <div className="text-xs text-slate-400">{c.label}</div>
+            <div className="text-xs text-slate-500">{c.label}</div>
           </div>
         ))}
       </div>
@@ -433,7 +433,7 @@ function Overview({
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
             <CircleAlert className="h-4 w-4 text-red-500" /> Needs attention
-            <span className="text-xs font-normal text-slate-400">
+            <span className="text-xs font-normal text-slate-500">
               {data.attention.total > data.attention.rows.length
                 ? `showing ${data.attention.rows.length} of ${data.attention.total}`
                 : `${data.attention.total}`}
@@ -519,7 +519,7 @@ function Overview({
                 <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100">
                   <div className="h-full rounded-full bg-compass-500" style={{ width: `${p}%` }} />
                 </div>
-                <span className="w-40 shrink-0 text-right text-xs text-slate-400">
+                <span className="w-40 shrink-0 text-right text-xs text-slate-500">
                   {d.completed} done{d.waived ? ` · ${d.waived} waived` : ""}
                   {d.overdue ? ` · ${d.overdue} overdue` : ""} / {d.assigned}
                 </span>
@@ -581,7 +581,7 @@ function Evidence({ onError, onNotice }: { onError: (s: string) => void; onNotic
           <h2 className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
             <Camera className="h-4 w-4 text-compass-600" /> Evidence
           </h2>
-          <p className="mt-0.5 text-xs text-slate-400">
+          <p className="mt-0.5 text-xs text-slate-500">
             A snapshot is taken automatically every month; each stores the exact records with a
             SHA-256 an auditor can verify. The audit package bundles everything as one ZIP.
           </p>
@@ -616,9 +616,9 @@ function Evidence({ onError, onNotice }: { onError: (s: string) => void; onNotic
               </span>
               <span className="text-xs text-slate-500">{fmtDay(s.taken_at)}</span>
               {s.taken_by && s.taken_by !== "scheduled" && (
-                <span className="text-xs text-slate-400">by {s.taken_by}</span>
+                <span className="text-xs text-slate-500">by {s.taken_by}</span>
               )}
-              <code className="min-w-0 flex-1 truncate text-right text-2xs text-slate-400" title={s.sha256}>
+              <code className="min-w-0 flex-1 truncate text-right text-2xs text-slate-500" title={s.sha256}>
                 {s.sha256.slice(0, 16)}…
               </code>
               <a
@@ -632,7 +632,7 @@ function Evidence({ onError, onNotice }: { onError: (s: string) => void; onNotic
             </li>
           ))}
           {snapshots.length > 8 && (
-            <li className="px-3 py-1.5 text-xs text-slate-400">
+            <li className="px-3 py-1.5 text-xs text-slate-500">
               {snapshots.length - 8} older snapshots are included in the audit package.
             </li>
           )}
@@ -687,7 +687,7 @@ function ReportSettings({
       <h2 className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
         <Mail className="h-4 w-4 text-compass-600" /> Monthly report email
       </h2>
-      <p className="mt-0.5 text-xs text-slate-400">
+      <p className="mt-0.5 text-xs text-slate-500">
         Sent with each monthly snapshot: completion, overdue counts, and the decks that need
         attention.
       </p>
@@ -777,13 +777,13 @@ function TeamLeads({
       <h2 className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
         <Users className="h-4 w-4 text-compass-600" /> Team leads
       </h2>
-      <p className="mt-0.5 text-xs text-slate-400">
+      <p className="mt-0.5 text-xs text-slate-500">
         Leads see a scoped view of their own group&apos;s training (no manager access needed) and
         get a weekly email summary.
       </p>
       {loaded &&
         (groups.length === 0 ? (
-          <p className="mt-2 text-sm text-slate-400">
+          <p className="mt-2 text-sm text-slate-500">
             No groups yet — create them under Settings → Groups.
           </p>
         ) : (
@@ -843,7 +843,7 @@ function MatrixView() {
 
   if (!data) {
     return (
-      <div className="flex items-center gap-2 py-10 text-sm text-slate-400">
+      <div className="flex items-center gap-2 py-10 text-sm text-slate-500">
         <LoaderCircle className="h-4 w-4 animate-spin" /> Loading…
       </div>
     );
@@ -858,7 +858,7 @@ function MatrixView() {
       <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-4 py-3">
         <div>
           <h2 className="text-sm font-semibold text-slate-800">Compliance matrix</h2>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-slate-500">
             Everyone with at least one assignment, across every deck.
           </p>
         </div>
@@ -886,7 +886,7 @@ function MatrixView() {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-slate-100 text-left text-2xs uppercase tracking-wide text-slate-400">
+              <tr className="border-b border-slate-100 text-left text-2xs uppercase tracking-wide text-slate-500">
                 <th className="sticky left-0 bg-surface px-4 py-2">Person</th>
                 {data.decks.map((d) => (
                   <th key={d.id} className="max-w-40 truncate px-2 py-2" title={d.title}>
@@ -1020,7 +1020,7 @@ function ManageDecks({
         <h2 className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
           <Plus className="h-4 w-4 text-compass-600" /> New training deck
         </h2>
-        <p className="mt-0.5 text-xs text-slate-400">
+        <p className="mt-0.5 text-xs text-slate-500">
           Pick a published document — slides split on <code>---</code> lines, an optional{" "}
           <code>:::quiz</code> adds graded questions, and a trailing <code>:::compliance</code>{" "}
           block sets the confirmation wording.
@@ -1085,7 +1085,7 @@ function ManageDecks({
 
       {/* Deck table */}
       {!decks ? (
-        <div className="flex items-center gap-2 py-10 text-sm text-slate-400">
+        <div className="flex items-center gap-2 py-10 text-sm text-slate-500">
           <LoaderCircle className="h-4 w-4 animate-spin" /> Loading…
         </div>
       ) : decks.length === 0 ? (
@@ -1163,7 +1163,7 @@ function ManageDecks({
                         <span className="block h-full rounded-full bg-compass-500" style={{ width: `${p}%` }} />
                       </span>
                     </span>
-                    <span className="w-28 shrink-0 text-right text-xs text-slate-400">
+                    <span className="w-28 shrink-0 text-right text-xs text-slate-500">
                       {done}/{d.assigned} done
                     </span>
                     <span className={`w-20 shrink-0 text-right text-xs font-medium ${d.overdue ? "text-red-600" : "text-slate-300"}`}>
@@ -1264,7 +1264,7 @@ function Programs({
           <h2 className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
             <Layers className="h-4 w-4 text-compass-600" /> Onboarding programs
           </h2>
-          <p className="mt-0.5 text-xs text-slate-400">
+          <p className="mt-0.5 text-xs text-slate-500">
             Bundle decks into a package — auto-assigned to every new member, or assigned to
             people and groups as one unit.
           </p>
@@ -1407,7 +1407,7 @@ function ProgramRow({
               </span>
             ))}
             {program.assign_new_members === 1 && program.active === 1 && (
-              <span className="text-slate-400">· auto-assigns to new members</span>
+              <span className="text-slate-500">· auto-assigns to new members</span>
             )}
           </div>
         </div>
@@ -1599,7 +1599,7 @@ function DeckCard({
   return (
     <div>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="text-xs text-slate-400">
+        <div className="text-xs text-slate-500">
           {deck.space_icon} {deck.space_name} ·{" "}
           <a href={`/doc/${deck.document_id}`} className="text-compass-600 hover:underline">
             open document
@@ -1764,7 +1764,7 @@ function DeckCard({
         <div className="mt-3 rounded-lg border border-slate-100 p-3">
           <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
             <BarChart3 className="h-3.5 w-3.5 text-compass-600" /> Quiz insights
-            <span className="font-normal normal-case text-slate-400">
+            <span className="font-normal normal-case text-slate-500">
               — % answered correctly ({stats[0].attempts} {stats[0].attempts === 1 ? "attempt" : "attempts"})
             </span>
           </h3>
@@ -1963,7 +1963,7 @@ function PeopleTable({
 
       <div className="mt-2 overflow-x-auto rounded-lg border border-slate-100">
         {!people ? (
-          <p className="flex items-center gap-2 px-3 py-3 text-sm text-slate-400">
+          <p className="flex items-center gap-2 px-3 py-3 text-sm text-slate-500">
             <LoaderCircle className="h-4 w-4 animate-spin" /> Loading…
           </p>
         ) : visible.length === 0 ? (
@@ -1973,7 +1973,7 @@ function PeopleTable({
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-slate-100 text-left text-2xs uppercase tracking-wide text-slate-400">
+              <tr className="border-b border-slate-100 text-left text-2xs uppercase tracking-wide text-slate-500">
                 <th className="w-8 px-3 py-1.5"></th>
                 <th className="px-2 py-1.5">Person</th>
                 <th className="px-2 py-1.5">Status</th>
@@ -2006,7 +2006,7 @@ function PeopleTable({
                         {p.name}
                       </Link>
                       {p.prior_completions > 0 && (
-                        <span className="ml-1.5 text-xs text-slate-400">· {p.prior_completions} prior</span>
+                        <span className="ml-1.5 text-xs text-slate-500">· {p.prior_completions} prior</span>
                       )}
                     </td>
                     <td className="px-2 py-1.5">

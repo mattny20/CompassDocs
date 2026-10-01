@@ -71,7 +71,7 @@ export function MermaidBlock({ code }: { code: string }) {
   }
   if (!svg) {
     return (
-      <div className="my-4 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-400">
+      <div className="my-4 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
         <LoaderCircle className="h-4 w-4 animate-spin" /> Rendering diagram…
       </div>
     );
@@ -142,7 +142,7 @@ export function PlantUmlBlock({ code }: { code: string }) {
   }
   if (!src) {
     return (
-      <div className="my-4 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-400">
+      <div className="my-4 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
         <LoaderCircle className="h-4 w-4 animate-spin" /> Rendering diagram…
       </div>
     );
@@ -277,7 +277,7 @@ export function DecisionTreeBlock({ code }: { code: string }) {
       </div>
 
       {path.length > 0 && (
-        <div className="mb-3 flex flex-wrap items-center gap-1 text-xs text-slate-400">
+        <div className="mb-3 flex flex-wrap items-center gap-1 text-xs text-slate-500">
           {path.map((p, i) => (
             <span key={i} className="flex items-center gap-1">
               {i > 0 && <span>›</span>}
@@ -304,7 +304,7 @@ export function DecisionTreeBlock({ code }: { code: string }) {
               <button
                 key={c.label}
                 onClick={() => pick(c.label)}
-                className="rounded-lg border border-compass-200 bg-compass-50 px-3.5 py-2 text-sm font-medium text-compass-700 hover:bg-compass-100 dark:border-compass-800 dark:bg-compass-950/40"
+                className="rounded-lg border border-compass-200 bg-compass-50 px-3.5 py-2 text-sm font-medium text-compass-700 hover:bg-compass-100 dark:border-compass-800"
               >
                 {c.label}
               </button>
@@ -383,7 +383,7 @@ export function FilterTable({ children }: { children: React.ReactNode }) {
               className="w-48 rounded-md border border-slate-200 bg-surface py-1 pl-7 pr-2 text-xs text-slate-700 placeholder:text-slate-400 focus:border-compass-400 focus:outline-hidden"
             />
           </span>
-          <span className="flex items-center gap-1 text-2xs text-slate-400">
+          <span className="flex items-center gap-1 text-2xs text-slate-500">
             <ArrowUpDown className="h-3 w-3" /> click a header to sort ·{" "}
             {query ? `${shown}/${rowCount} rows` : `${rowCount} rows`}
           </span>

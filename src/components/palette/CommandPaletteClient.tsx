@@ -462,7 +462,7 @@ export function CommandPaletteClient({
             autoComplete="off"
             className="w-full bg-transparent py-3 text-sm text-slate-800 outline-hidden placeholder:text-slate-400"
           />
-          {loading && <span className="shrink-0 text-xs text-slate-400">…</span>}
+          {loading && <span className="shrink-0 text-xs text-slate-500">…</span>}
         </div>
 
         <div
@@ -475,13 +475,13 @@ export function CommandPaletteClient({
           {mode === "help" ? (
             <ShortcutSheet caps={caps} commandIds={commandIds} query={query} />
           ) : flat.length === 0 ? (
-            <p className="px-4 py-8 text-center text-sm text-slate-400">
+            <p className="px-4 py-8 text-center text-sm text-slate-500">
               {query.trim() ? "No matches." : "Start typing to search."}
             </p>
           ) : (
             groups.map((g) => (
               <div key={g.kind}>
-                <p className="px-3 pb-0.5 pt-2 text-2xs font-semibold uppercase tracking-wide text-slate-400">
+                <p className="px-3 pb-0.5 pt-2 text-2xs font-semibold uppercase tracking-wide text-slate-500">
                   {GROUP_LABEL[g.kind]}
                 </p>
                 {g.items.map((item) => {
@@ -512,7 +512,7 @@ export function CommandPaletteClient({
           )}
         </div>
 
-        <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-3 py-2 text-2xs text-slate-400">
+        <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-3 py-2 text-2xs text-slate-500">
           <span className="flex items-center gap-3">
             <span className="flex items-center gap-1">
               <ArrowUp className="h-3 w-3" aria-hidden />

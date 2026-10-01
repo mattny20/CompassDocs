@@ -77,7 +77,7 @@ export function ReviewClient({
     <div className="space-y-8">
       {crs.length > 0 && (
         <section>
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
             Pending changes ({crs.length})
           </h2>
           <div className="space-y-3">
@@ -105,7 +105,7 @@ export function ReviewClient({
                           🌐 Goes public
                         </span>
                       )}
-                      <span className="text-xs text-slate-400">{timeAgo(cr.created_at)}</span>
+                      <span className="text-xs text-slate-500">{timeAgo(cr.created_at)}</span>
                     </div>
                     <h3 className="font-semibold text-slate-900">{cr.title}</h3>
                     <p className="text-sm text-slate-500">
@@ -154,7 +154,7 @@ export function ReviewClient({
 
       {sugs.length > 0 && (
         <section>
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
             Suggestions ({sugs.length})
           </h2>
           <div className="space-y-3">
@@ -163,7 +163,7 @@ export function ReviewClient({
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <p className="text-sm text-slate-700">{sg.body}</p>
-                    <p className="mt-1 text-xs text-slate-400">
+                    <p className="mt-1 text-xs text-slate-500">
                       From {sg.author_name} · {timeAgo(sg.created_at)}
                       {sg.document_title ? (
                         <>

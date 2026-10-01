@@ -181,7 +181,7 @@ export function ProfileForm({
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-slate-500">Username</span>
             <input value={username} disabled className={input} />
-            <span className="mt-1 block text-xs text-slate-400">
+            <span className="mt-1 block text-xs text-slate-500">
               Usernames are permanent — they anchor history, comments, and sign-in.
             </span>
           </label>

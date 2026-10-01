@@ -292,7 +292,7 @@ function CardSubs({ parentId, map }: { parentId: number; map: Map<number, Docume
           <button
             type="button"
             onClick={() => setExpanded(false)}
-            className="flex items-center gap-1.5 rounded-sm px-1 py-0.5 text-xs font-medium text-slate-400 hover:bg-slate-50 hover:text-slate-600"
+            className="flex items-center gap-1.5 rounded-sm px-1 py-0.5 text-xs font-medium text-slate-500 hover:bg-slate-50 hover:text-slate-600"
           >
             show fewer
           </button>
@@ -325,7 +325,7 @@ function CardsView({
       {sections.map((s, i) => (
         <section key={s.name ?? `general-${i}`}>
           {s.name && (
-            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">{s.name}</h2>
+            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">{s.name}</h2>
           )}
           {/* CSS-column masonry: cards pack top-to-bottom, so one sub-heavy
               card can't open a row-height hole beside its neighbors. 18rem
@@ -437,7 +437,7 @@ function TableView({
       <button
         onClick={() => toggle(k)}
         className={`inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wider ${
-          sort.key === k ? "text-compass-700" : "text-slate-400 hover:text-slate-600"
+          sort.key === k ? "text-compass-700" : "text-slate-500 hover:text-slate-600"
         }`}
       >
         {children}
@@ -490,7 +490,7 @@ function TableView({
             <Th k="title">Title</Th>
             <Th k="type">Type</Th>
             <Th k="status">Status</Th>
-            <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-400">
+            <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
               Category
             </th>
             <Th k="author">Author</Th>
@@ -764,7 +764,7 @@ function BoardView({ docs }: { docs: DocumentWithSpace[] }) {
         {columns.map((c) => (
           <div key={c.key} className="min-w-0 rounded-xl border border-slate-200 bg-surface p-3">
             <div className="mb-2 flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">{c.label}</span>
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">{c.label}</span>
               <span className="rounded-full bg-slate-100 px-1.5 text-xs font-semibold text-slate-500">
                 {c.docs.length}
               </span>
@@ -818,7 +818,7 @@ function TimelineView({ docs }: { docs: DocumentWithSpace[] }) {
       )}
       {buckets.map((b) => (
         <section key={b.label}>
-          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">{b.label}</h2>
+          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">{b.label}</h2>
           <div className="rounded-xl border border-slate-200 bg-surface p-2">
             {b.docs.map((d) => (
               <DocRowLink key={d.id} d={d} />
@@ -851,7 +851,7 @@ function TagsView({ docs }: { docs: DocumentWithSpace[] }) {
     <div className="space-y-6">
       {groups.named.map(([tag, list]) => (
         <section key={tag}>
-          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">#{tag}</h2>
+          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">#{tag}</h2>
           <div className="rounded-xl border border-slate-200 bg-surface p-2">
             {list.map((d) => (
               <DocRowLink key={d.id} d={d} />
@@ -861,7 +861,7 @@ function TagsView({ docs }: { docs: DocumentWithSpace[] }) {
       ))}
       {groups.untagged.length > 0 && (
         <section>
-          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">Untagged</h2>
+          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">Untagged</h2>
           <div className="rounded-xl border border-slate-200 bg-surface p-2">
             {groups.untagged.map((d) => (
               <DocRowLink key={d.id} d={d} />

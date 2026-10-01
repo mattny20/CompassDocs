@@ -277,7 +277,7 @@ export function LinksAdmin({
             </li>
           ))}
           {categories.length === 0 && (
-            <li className="text-sm text-slate-400">No categories yet — links appear under “General”.</li>
+            <li className="text-sm text-slate-500">No categories yet — links appear under “General”.</li>
           )}
         </ul>
         <div className="flex gap-2">
@@ -332,7 +332,7 @@ export function LinksAdmin({
 
         {sections.map((s) => (
           <div key={s.name} className="mb-4">
-            <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-slate-400">
+            <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-slate-500">
               {s.name}
             </h3>
             <ul className="divide-y divide-slate-100">
@@ -369,13 +369,13 @@ export function LinksAdmin({
                 </li>
               ))}
               {s.links.length === 0 && (
-                <li className="py-2 text-sm text-slate-400">No links in this category.</li>
+                <li className="py-2 text-sm text-slate-500">No links in this category.</li>
               )}
             </ul>
           </div>
         ))}
         {links.length === 0 && editing === null && (
-          <p className="text-sm text-slate-400">
+          <p className="text-sm text-slate-500">
             No links yet — add your first shortcut (an HR portal, status page, ticketing
             system…).
           </p>

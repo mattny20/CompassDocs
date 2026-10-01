@@ -45,7 +45,7 @@ export default async function TrainingTeamPage() {
         <h1 className="mt-2 flex items-center gap-2 text-xl font-bold tracking-tight text-slate-900">
           <Users className="h-5 w-5 text-compass-600" /> Your team&apos;s training
         </h1>
-        <p className="mt-0.5 text-sm text-slate-400">
+        <p className="mt-0.5 text-sm text-slate-500">
           Where the {groups.length === 1 ? "group you lead stands" : "groups you lead stand"} —
           you&apos;ll also get a weekly summary by email.
         </p>
@@ -61,7 +61,7 @@ export default async function TrainingTeamPage() {
             <section key={g.name} className="rounded-xl border border-slate-200 bg-surface shadow-xs">
               <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-4 py-3">
                 <h2 className="text-sm font-semibold text-slate-800">{g.name}</h2>
-                <span className="text-xs text-slate-400">
+                <span className="text-xs text-slate-500">
                   {members} {members === 1 ? "member" : "members"} · {assigned.length - open.length}{" "}
                   done · {open.length} open
                 </span>
@@ -72,12 +72,12 @@ export default async function TrainingTeamPage() {
                 )}
               </div>
               {assigned.length === 0 ? (
-                <p className="px-4 py-4 text-sm text-slate-400">No training assigned yet.</p>
+                <p className="px-4 py-4 text-sm text-slate-500">No training assigned yet.</p>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="border-b border-slate-100 text-left text-2xs uppercase tracking-wide text-slate-400">
+                      <tr className="border-b border-slate-100 text-left text-2xs uppercase tracking-wide text-slate-500">
                         <th className="px-4 py-1.5">Person</th>
                         <th className="px-2 py-1.5">Training</th>
                         <th className="px-2 py-1.5">Status</th>

@@ -95,7 +95,7 @@ export function SpaceSearch({
         children
       ) : (
         <div>
-          <p className="mb-3 text-sm text-slate-400">
+          <p className="mb-3 text-sm text-slate-500">
             {busy ? "Searching…" : `${hits.length} result${hits.length === 1 ? "" : "s"} in ${spaceName}`}
           </p>
           {hits.length === 0 && !busy ? (

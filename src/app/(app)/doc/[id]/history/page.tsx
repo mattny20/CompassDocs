@@ -42,7 +42,7 @@ export default async function HistoryPage({ params }: { params: Promise<{ id: st
 
   return (
     <PageContainer>
-      <nav className="mb-4 flex items-center gap-1.5 text-sm text-slate-400">
+      <nav className="mb-4 flex items-center gap-1.5 text-sm text-slate-500">
         <Link href={`/doc/${doc.id}`} className="hover:text-slate-600">
           ← Back to document
         </Link>

@@ -138,9 +138,9 @@ export function WebhooksPanel({
           <Field
             label={
               format === "email" ? (
-                <>Recipients <span className="text-slate-400">(comma-separated addresses)</span></>
+                <>Recipients <span className="text-slate-500">(comma-separated addresses)</span></>
               ) : (
-                <>Webhook URL <span className="text-slate-400">(stored write-only — shown masked afterwards)</span></>
+                <>Webhook URL <span className="text-slate-500">(stored write-only — shown masked afterwards)</span></>
               )
             }
           >
@@ -169,7 +169,7 @@ export function WebhooksPanel({
         {spaces.length > 0 && (
           <div className="mt-3">
             <span className="mb-1 block text-xs font-medium text-slate-500">
-              Only for these spaces <span className="text-slate-400">(none checked = all spaces)</span>
+              Only for these spaces <span className="text-slate-500">(none checked = all spaces)</span>
             </span>
             <div className="flex flex-wrap gap-3 text-sm text-slate-600">
               {spaces.map((sp) => (
@@ -197,7 +197,7 @@ export function WebhooksPanel({
       </form>
 
       <ul className="mt-4 space-y-2">
-        {hooks.length === 0 && <li className="text-sm text-slate-400">No webhooks yet.</li>}
+        {hooks.length === 0 && <li className="text-sm text-slate-500">No webhooks yet.</li>}
         {hooks.map((h) => (
           <li key={h.id} className="rounded-xl border border-slate-200 bg-surface p-3 shadow-xs">
             <div className="flex flex-wrap items-center gap-2">
@@ -208,7 +208,7 @@ export function WebhooksPanel({
               {!h.enabled && (
                 <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">off</span>
               )}
-              <span className="min-w-0 flex-1 truncate text-xs text-slate-400">{h.url_preview}</span>
+              <span className="min-w-0 flex-1 truncate text-xs text-slate-500">{h.url_preview}</span>
               <button onClick={() => test(h.id)} className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50">
                 Test
               </button>
@@ -219,7 +219,7 @@ export function WebhooksPanel({
                 Delete
               </button>
             </div>
-            <div className="mt-1 text-xs text-slate-400">
+            <div className="mt-1 text-xs text-slate-500">
               {h.events.map((ev) => EVENTS.find((x) => x.value === ev)?.label || ev).join(" · ")}
               {h.space_ids.length > 0 && (
                 <>
@@ -340,7 +340,7 @@ export function SmtpPanel({ initial }: { initial: SmtpState }) {
         </Field>
       </div>
       <div className="mt-3 grid gap-3 sm:grid-cols-3">
-        <Field label={<>Username <span className="text-slate-400">(optional)</span></>}>
+        <Field label={<>Username <span className="text-slate-500">(optional)</span></>}>
           <TextInput value={s.user} onChange={(e) => setS({ ...s, user: e.target.value })} spellCheck={false} />
         </Field>
         <Field

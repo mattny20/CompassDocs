@@ -336,7 +336,7 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
                       >
                         {b.title}
                       </Link>
-                      <span className="block truncate text-xs text-slate-400">
+                      <span className="block truncate text-xs text-slate-500">
                         {b.space_icon} {b.space_name}
                         {b.status === "draft" ? " · draft" : ""}
                       </span>

@@ -165,13 +165,13 @@ export function SpaceIconPicker({
       </div>
       <div className="max-h-52 overflow-y-auto p-2">
         {results.length === 0 ? (
-          <p className="px-1 py-3 text-center text-sm text-slate-400">
+          <p className="px-1 py-3 text-center text-sm text-slate-500">
             No match — paste any emoji into the box above.
           </p>
         ) : (
           results.map((c) => (
             <div key={c.label} className="mb-1.5">
-              <div className="px-1 pb-1 text-2xs font-medium uppercase tracking-wide text-slate-400">
+              <div className="px-1 pb-1 text-2xs font-medium uppercase tracking-wide text-slate-500">
                 {c.label}
               </div>
               <div className="flex flex-wrap gap-0.5">

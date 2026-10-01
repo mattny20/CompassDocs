@@ -41,7 +41,7 @@ export function ExportPeopleButtons({ ids, groupBy = "", title }: { ids: number[
   const btn = "inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-surface px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50";
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <span className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+      <span className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
         <Download className="h-3.5 w-3.5" aria-hidden /> Export
       </span>
       <button type="button" className={btn} onClick={() => run("pdf")} disabled={!!busy} data-tt="The team as a PDF sheet">

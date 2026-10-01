@@ -24,7 +24,7 @@ export function PaletteTrigger({ collapsed = false }: { collapsed?: boolean }) {
   return (
     <button
       onClick={() => openPalette()}
-      className="flex w-full items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-400 transition hover:border-compass-300 hover:text-slate-600"
+      className="flex w-full items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500 transition hover:border-compass-300 hover:text-slate-600"
     >
       <Search className="h-4 w-4 shrink-0" aria-hidden />
       <span className="flex-1 text-left">Search docs…</span>

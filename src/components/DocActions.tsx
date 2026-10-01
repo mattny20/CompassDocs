@@ -158,7 +158,7 @@ export function DocActions({
             aria-expanded={popover === "share"}
             className={
               popover === "share"
-                ? "inline-flex items-center rounded-lg border border-compass-300 bg-compass-50 p-2 text-compass-600 dark:bg-compass-950/40"
+                ? "inline-flex items-center rounded-lg border border-compass-300 bg-compass-50 p-2 text-compass-600"
                 : iconBtn
             }
           >
@@ -176,7 +176,7 @@ export function DocActions({
             aria-expanded={popover === "review"}
             className={
               popover === "review"
-                ? "inline-flex items-center rounded-lg border border-compass-300 bg-compass-50 p-2 text-compass-600 dark:bg-compass-950/40"
+                ? "inline-flex items-center rounded-lg border border-compass-300 bg-compass-50 p-2 text-compass-600"
                 : reviewOverdue
                   ? "inline-flex items-center rounded-lg border border-amber-300 bg-amber-50 p-2 text-amber-700 hover:bg-amber-100 dark:bg-amber-950/40"
                   : iconBtn
@@ -202,7 +202,7 @@ export function DocActions({
           aria-pressed={ackRequired}
           className={`inline-flex items-center rounded-lg border p-2 disabled:opacity-50 ${
             ackRequired
-              ? "border-compass-300 bg-compass-50 text-compass-600 hover:bg-compass-100 dark:bg-compass-950/40"
+              ? "border-compass-300 bg-compass-50 text-compass-600 hover:bg-compass-100"
               : "border-slate-200 bg-surface text-slate-500 hover:bg-slate-50 hover:text-slate-700"
           }`}
         >

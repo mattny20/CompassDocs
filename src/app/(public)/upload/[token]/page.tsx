@@ -44,11 +44,11 @@ export default async function UploadPage({ params }: { params: Promise<{ token: 
   const dead = DEAD_LINK[state === "ok" ? "unknown" : state];
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <header className="border-b border-slate-200 bg-white">
+    <div className="min-h-screen bg-canvas">
+      <header className="border-b border-slate-200 bg-surface">
         <div className="mx-auto flex max-w-2xl items-center justify-between gap-4 px-6 py-4">
           <Brand name={settings.company_name} logoUrl={settings.logo_url || undefined} />
-          <span className="text-xs font-medium uppercase tracking-wide text-slate-400">
+          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
             Add an image
           </span>
         </div>
@@ -58,14 +58,14 @@ export default async function UploadPage({ params }: { params: Promise<{ token: 
         {state === "ok" && doc ? (
           <UploadDrop token={token} docTitle={doc.title} maxMb={settings.max_attachment_mb} />
         ) : (
-          <div className="rounded-xl border border-slate-200 bg-white p-8 text-center shadow-xs">
+          <div className="rounded-xl border border-slate-200 bg-surface p-8 text-center shadow-xs">
             <Link2Off className="mx-auto h-8 w-8 text-slate-300" aria-hidden />
             <h1 className="mt-3 text-lg font-semibold text-slate-900">{dead.title}</h1>
             <p className="mx-auto mt-1 max-w-sm text-sm text-slate-500">{dead.body}</p>
           </div>
         )}
 
-        <p className="mt-8 text-center text-xs text-slate-400">
+        <p className="mt-8 text-center text-xs text-slate-500">
           {settings.company_name} · CompassDocs
         </p>
       </main>

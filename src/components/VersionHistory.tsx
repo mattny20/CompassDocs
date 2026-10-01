@@ -235,7 +235,7 @@ export function VersionHistory({
               <h2 className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
                 <GitBranch className="h-4 w-4 text-compass-600" /> Draft branches
               </h2>
-              <p className="mt-0.5 text-xs text-slate-400">
+              <p className="mt-0.5 text-xs text-slate-500">
                 Work on a private copy, then merge it back — the live document stays untouched
                 while you draft.
               </p>
@@ -260,7 +260,7 @@ export function VersionHistory({
                   <Link href={`/doc/${b.id}`} className="font-medium text-compass-700 hover:underline">
                     {b.title}
                   </Link>
-                  <span className="shrink-0 text-xs text-slate-400">
+                  <span className="shrink-0 text-xs text-slate-500">
                     {b.author} · {b.when}
                   </span>
                 </li>
@@ -281,7 +281,7 @@ export function VersionHistory({
                 <span className="text-emerald-600">+{stats.added}</span>{" "}
                 <span className="text-red-500">−{stats.removed}</span>
                 {oldV.title !== newV.title && (
-                  <span className="ml-2 text-slate-400">· title changed</span>
+                  <span className="ml-2 text-slate-500">· title changed</span>
                 )}
               </span>
             </div>
@@ -349,7 +349,7 @@ export function VersionHistory({
       <section>
         <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-slate-800">
           <History className="h-4 w-4 text-compass-600" /> All versions
-          <span className="font-normal text-slate-400">
+          <span className="font-normal text-slate-500">
             — select two to compare ({versions.length} total)
           </span>
         </h2>
@@ -360,10 +360,10 @@ export function VersionHistory({
               <li
                 key={v.id}
                 className={`flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-slate-100 px-4 py-2.5 last:border-b-0 ${
-                  v.id === oldId || v.id === newId ? "bg-compass-50/60 dark:bg-compass-950/30" : ""
+                  v.id === oldId || v.id === newId ? "bg-compass-50/60" : ""
                 }`}
               >
-                <span className="flex items-center gap-2.5 text-xs text-slate-400">
+                <span className="flex items-center gap-2.5 text-xs text-slate-500">
                   <label
                     className="flex cursor-pointer items-center gap-1"
                     title="Compare from this version (the older side)"
@@ -407,7 +407,7 @@ export function VersionHistory({
                 <span className="min-w-0 flex-1 truncate text-sm text-slate-500" title={v.note}>
                   {v.note}
                 </span>
-                <span className="text-xs text-slate-400" title={v.whenExact}>
+                <span className="text-xs text-slate-500" title={v.whenExact}>
                   {v.author} · {v.when}
                 </span>
                 {canEdit && !isCurrent && (

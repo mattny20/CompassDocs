@@ -24,10 +24,10 @@ export function DirectoryHealthCard({ findings }: { findings: HealthFinding[] })
       <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="flex w-full items-center gap-2 px-4 py-3 text-left">
         <HeartPulse className="h-4 w-4 text-compass-600" aria-hidden />
         <span className="text-sm font-semibold text-slate-800">Directory health</span>
-        <span className="text-xs text-slate-400">
+        <span className="text-xs text-slate-500">
           {warns ? `${warns} to fix` : "nothing urgent"}{findings.length - warns ? ` · ${findings.length - warns} worth knowing` : ""}
         </span>
-        <span className="ml-auto text-slate-400">{open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</span>
+        <span className="ml-auto text-slate-500">{open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</span>
       </button>
       {open && (
         <ul className="divide-y divide-slate-100 border-t border-slate-100">
@@ -41,7 +41,7 @@ export function DirectoryHealthCard({ findings }: { findings: HealthFinding[] })
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-slate-800">
                   {f.title}
-                  {f.samples?.length ? <span className="ml-2 text-xs font-normal text-slate-400" data-tt={f.samples.join(" · ")}>e.g. {f.samples.slice(0, 3).join(", ")}{f.samples.length > 3 ? ", …" : ""}</span> : null}
+                  {f.samples?.length ? <span className="ml-2 text-xs font-normal text-slate-500" data-tt={f.samples.join(" · ")}>e.g. {f.samples.slice(0, 3).join(", ")}{f.samples.length > 3 ? ", …" : ""}</span> : null}
                 </p>
                 <p className="text-xs text-slate-500">{f.detail}</p>
               </div>

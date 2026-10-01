@@ -88,7 +88,7 @@ export function LoginForm({ next = "/" }: { next?: string }) {
             placeholder="6-digit code or recovery code"
             className="w-full rounded-lg border border-slate-200 px-3 py-2 text-center font-mono tracking-widest outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100"
           />
-          <span className="mt-1 block text-xs text-slate-400">
+          <span className="mt-1 block text-xs text-slate-500">
             From your authenticator app — or one of your recovery codes.
           </span>
         </label>
@@ -108,7 +108,7 @@ export function LoginForm({ next = "/" }: { next?: string }) {
             setTotpCode("");
             setError("");
           }}
-          className="w-full text-center text-xs font-medium text-slate-400 hover:text-slate-600"
+          className="w-full text-center text-xs font-medium text-slate-500 hover:text-slate-600"
         >
           ← Back
         </button>

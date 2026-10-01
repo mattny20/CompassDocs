@@ -46,11 +46,11 @@ export default async function SharedDocPage({ params }: { params: Promise<{ toke
   );
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <header className="border-b border-slate-200 bg-white print:hidden">
+    <div className="min-h-screen bg-canvas">
+      <header className="border-b border-slate-200 bg-surface print:hidden">
         <div className="mx-auto flex max-w-standalone items-center justify-between gap-4 px-6 py-4">
           <Brand name={settings.company_name} logoUrl={settings.logo_url || undefined} />
-          <span className="text-xs font-medium uppercase tracking-wide text-slate-400">
+          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
             Shared document · read-only
           </span>
         </div>
@@ -60,7 +60,7 @@ export default async function SharedDocPage({ params }: { params: Promise<{ toke
         <div className="mb-4 flex items-start justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold tracking-tight text-slate-900">{doc.title}</h1>
-            <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-400">
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-500">
               <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">
                 {DOC_TYPE_LABEL[doc.type]}
               </span>
@@ -73,7 +73,7 @@ export default async function SharedDocPage({ params }: { params: Promise<{ toke
         {doc.summary && <p className="mb-6 max-w-3xl text-lg leading-relaxed text-slate-600">{doc.summary}</p>}
 
         {/* doc-read: reading measure on the document body (see globals.css). */}
-        <div className="doc-read rounded-xl border border-slate-200 bg-white p-8 shadow-xs">
+        <div className="doc-read rounded-xl border border-slate-200 bg-surface p-8 shadow-xs">
           <MarkdownView
             content={content}
             docKey={`share-${doc.id}`}
@@ -82,7 +82,7 @@ export default async function SharedDocPage({ params }: { params: Promise<{ toke
         </div>
 
         {attachments.length > 0 && (
-          <div className="mt-6 rounded-xl border border-slate-200 bg-white p-5 shadow-xs print:hidden">
+          <div className="mt-6 rounded-xl border border-slate-200 bg-surface p-5 shadow-xs print:hidden">
             <h2 className="mb-3 flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-500">
               <Paperclip className="h-3.5 w-3.5" aria-hidden /> Attachments
             </h2>
@@ -103,7 +103,7 @@ export default async function SharedDocPage({ params }: { params: Promise<{ toke
           </div>
         )}
 
-        <p className="mt-8 text-center text-xs text-slate-400 print:hidden">
+        <p className="mt-8 text-center text-xs text-slate-500 print:hidden">
           Shared from {settings.company_name} via CompassDocs.
         </p>
       </main>

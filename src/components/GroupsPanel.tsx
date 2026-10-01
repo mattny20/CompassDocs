@@ -282,14 +282,14 @@ function GroupCard({
             </p>
           )}
           {members === null ? (
-            <p className="text-sm text-slate-400">Loading members…</p>
+            <p className="text-sm text-slate-500">Loading members…</p>
           ) : (
             <>
               <ul className="divide-y divide-slate-100">
                 {members.map((m) => (
                   <li key={m.id} className="flex items-center gap-2 py-1.5 text-sm">
                     <span className="font-medium text-slate-800">{m.name || m.username}</span>
-                    <span className="text-xs text-slate-400">{m.email || m.username}</span>
+                    <span className="text-xs text-slate-500">{m.email || m.username}</span>
                     <span className="ml-auto rounded-full bg-slate-100 px-1.5 text-xs text-slate-500">
                       {m.role}
                     </span>
@@ -459,7 +459,7 @@ function EntraSection({
                 <label
                   key={g.id}
                   className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-sm ${
-                    g.imported ? "text-slate-400" : "cursor-pointer text-slate-700 hover:bg-slate-50"
+                    g.imported ? "text-slate-500" : "cursor-pointer text-slate-700 hover:bg-slate-50"
                   }`}
                 >
                   <input

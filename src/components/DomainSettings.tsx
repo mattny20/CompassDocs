@@ -199,7 +199,7 @@ export function DomainSettings({ initial }: { initial: DomainState }) {
             <Field
               label={
                 <>
-                  Contact email <span className="text-slate-400">(optional, for renewal notices)</span>
+                  Contact email <span className="text-slate-500">(optional, for renewal notices)</span>
                 </>
               }
             >

@@ -348,7 +348,7 @@ function SpaceForm({
         <Field
           label={
             <>
-              Description <span className="text-slate-400">(optional)</span>
+              Description <span className="text-slate-500">(optional)</span>
             </>
           }
         >
@@ -518,7 +518,7 @@ function SpaceForm({
             <div>
               <span className="mb-1 block text-xs font-medium text-slate-500">Groups</span>
               {groups.length === 0 ? (
-                <p className="text-sm text-slate-400">
+                <p className="text-sm text-slate-500">
                   No groups yet — create one under{" "}
                   <a href="/admin/groups" className="font-medium text-compass-700 underline">
                     Settings → Groups
@@ -551,9 +551,9 @@ function SpaceForm({
       {space && (
         <div className="mt-4">
           <span className="mb-1 block text-xs font-medium text-slate-500">
-            Categories <span className="text-slate-400">(optional)</span>
+            Categories <span className="text-slate-500">(optional)</span>
           </span>
-          <p className="mb-2 text-xs text-slate-400">
+          <p className="mb-2 text-xs text-slate-500">
             Group this space&apos;s documents into sections. Writers pick a category in the
             editor; documents without one appear under &ldquo;General&rdquo;.
           </p>
@@ -564,9 +564,9 @@ function SpaceForm({
       {templates.length > 0 && (
         <div className="mt-4">
           <span className="mb-1 block text-xs font-medium text-slate-500">
-            Default template <span className="text-slate-400">(optional)</span>
+            Default template <span className="text-slate-500">(optional)</span>
           </span>
-          <p className="mb-2 text-xs text-slate-400">
+          <p className="mb-2 text-xs text-slate-500">
             Pre-fills new documents created from this space. Writers can still switch to
             another template or a blank page. Manage templates under{" "}
             <a href="/admin/templates" className="font-medium text-compass-700 underline">
@@ -626,14 +626,14 @@ function SpaceForm({
 
       <div className="mt-4">
         <span className="mb-1 block text-xs font-medium text-slate-500">
-          Email subscriptions <span className="text-slate-400">(optional)</span>
+          Email subscriptions <span className="text-slate-500">(optional)</span>
         </span>
-        <p className="mb-2 text-xs text-slate-400">
+        <p className="mb-2 text-xs text-slate-500">
           Members of these groups are subscribed automatically — they get an email when a
           document here is published or updated (each person can mute it).
         </p>
         {groups.length === 0 ? (
-          <p className="text-sm text-slate-400">
+          <p className="text-sm text-slate-500">
             No groups yet — create one under <a href="/admin/groups" className="font-medium text-compass-700 underline">Settings → Groups</a>.
           </p>
         ) : (

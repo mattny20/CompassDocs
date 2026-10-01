@@ -212,7 +212,7 @@ export function OutlookPane() {
       <Script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js" strategy="afterInteractive" />
       {header}
 
-      {state === "loading" && <p className="p-4 text-sm text-slate-400">Loading…</p>}
+      {state === "loading" && <p className="p-4 text-sm text-slate-500">Loading…</p>}
 
       {state === "auth" && (
         <div className="p-4">
@@ -225,7 +225,7 @@ export function OutlookPane() {
           >
             Sign in to CompassDocs
           </button>
-          <p className="mt-3 text-xs text-slate-400">
+          <p className="mt-3 text-xs text-slate-500">
             A sign-in window will open — your usual password or single sign-on works.
           </p>
         </div>
@@ -255,7 +255,7 @@ export function OutlookPane() {
           </form>
 
           {flash && <p className="notice-ok mt-2 rounded-sm px-2 py-1 text-xs">{flash}</p>}
-          {busy && <p className="mt-3 text-sm text-slate-400">{busy === "ask" ? "Thinking…" : "Searching…"}</p>}
+          {busy && <p className="mt-3 text-sm text-slate-500">{busy === "ask" ? "Thinking…" : "Searching…"}</p>}
 
           {answer && (
             <div className="mt-3 rounded-lg border border-compass-100 bg-compass-50/50 p-3">
@@ -270,7 +270,7 @@ export function OutlookPane() {
                       href={docUrl(s.id)}
                       target="_blank"
                       rel="noreferrer"
-                      className="rounded-sm border border-slate-200 bg-white px-1.5 py-0.5 text-xs text-slate-600 hover:border-compass-400"
+                      className="rounded-sm border border-slate-200 bg-surface px-1.5 py-0.5 text-xs text-slate-600 hover:border-compass-400"
                     >
                       {s.title}
                     </a>
@@ -290,7 +290,7 @@ export function OutlookPane() {
 
           {hits && (
             <ul className="mt-3 space-y-2">
-              {hits.length === 0 && <li className="text-sm text-slate-400">No results.</li>}
+              {hits.length === 0 && <li className="text-sm text-slate-500">No results.</li>}
               {hits.map((h) => (
                 <DocRow key={h.id} id={h.id} title={h.title} meta={`${h.space_icon} ${h.space_name}`} snippet={h.snippet} compose={compose} onInsert={insertDocLink} docUrl={docUrl} />
               ))}
@@ -299,7 +299,7 @@ export function OutlookPane() {
 
           {!hits && !answer && !busy && (
             <>
-              <p className="mb-1.5 mt-4 text-xs font-semibold uppercase tracking-wide text-slate-400">Recently updated</p>
+              <p className="mb-1.5 mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Recently updated</p>
               <ul className="space-y-2">
                 {summary.recent.map((d) => (
                   <DocRow key={d.id} id={d.id} title={d.title} meta={`${d.space_icon} ${d.space_name}`} compose={compose} onInsert={insertDocLink} docUrl={docUrl} />
@@ -331,9 +331,9 @@ function DocRow({
   docUrl: (id: number) => string;
 }) {
   return (
-    <li className="rounded-lg border border-slate-200 bg-white p-2.5">
+    <li className="rounded-lg border border-slate-200 bg-surface p-2.5">
       <p className="text-sm font-semibold leading-tight text-slate-800">{title}</p>
-      <p className="mt-0.5 text-xs text-slate-400">{meta}</p>
+      <p className="mt-0.5 text-xs text-slate-500">{meta}</p>
       {snippet && (
         <p
           className="mt-1 text-xs leading-snug text-slate-500 [&_mark]:bg-amber-100 [&_mark]:px-0.5"
@@ -442,7 +442,7 @@ export function AddinAuthClient({ authed }: { authed: boolean }) {
             >
               {busy ? "Signing in…" : "Sign in"}
             </button>
-            <p className="text-xs text-slate-400">
+            <p className="text-xs text-slate-500">
               Uses your normal CompassDocs account. If your team signs in with single sign-on,{" "}
               <a href="/login" className="text-compass-700 underline">
                 use the full sign-in page

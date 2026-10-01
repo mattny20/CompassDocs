@@ -36,7 +36,7 @@ export default async function TeamPage({ params }: { params: Promise<{ id: strin
 
   return (
     <PageContainer>
-      <Link href={`/directory/${person.id}`} className="mb-4 inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-600">
+      <Link href={`/directory/${person.id}`} className="mb-4 inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-600">
         <ArrowLeft className="h-3.5 w-3.5" /> {person.name}
       </Link>
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
@@ -72,7 +72,7 @@ export default async function TeamPage({ params }: { params: Promise<{ id: strin
           {levels.map((l) => (
             <section key={l.level}>
               <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
-                {levelLabel(l.level)} <span className="text-xs font-normal text-slate-400">({l.people.length})</span>
+                {levelLabel(l.level)} <span className="text-xs font-normal text-slate-500">({l.people.length})</span>
               </h2>
               <div className="card-grid gap-2 [--card-min:14rem]">
                 {l.people.map((p) => (

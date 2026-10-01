@@ -148,7 +148,7 @@ export function BackupsClient({
                 className={`rounded-full px-2.5 py-1 text-xs font-medium ${
                   d.configured
                     ? "bg-green-100 text-green-700"
-                    : "bg-slate-100 text-slate-400"
+                    : "bg-slate-100 text-slate-500"
                 }`}
               >
                 {d.configured ? "✓" : "○"} {d.label}
@@ -172,7 +172,7 @@ export function BackupsClient({
         </div>
 
         {backups.length === 0 ? (
-          <p className="py-6 text-center text-sm text-slate-400">
+          <p className="py-6 text-center text-sm text-slate-500">
             No backups yet. Click <strong>Back up now</strong> or set a schedule.
           </p>
         ) : (
@@ -181,7 +181,7 @@ export function BackupsClient({
               <div key={b.name} className={`flex items-center justify-between py-2.5 ${busy === b.name ? "opacity-50" : ""}`}>
                 <div className="min-w-0">
                   <div className="truncate font-mono text-xs text-slate-700">{b.name}</div>
-                  <div className="text-xs text-slate-400">
+                  <div className="text-xs text-slate-500">
                     {formatDateTime(b.created_at, settings)} · {bytes(b.size)}
                   </div>
                 </div>

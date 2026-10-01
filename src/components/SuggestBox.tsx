@@ -55,7 +55,7 @@ export function SuggestBox({ documentId }: { documentId: number }) {
           <label className="mb-1 block text-sm font-medium text-slate-700">
             Suggest an improvement
           </label>
-          <p className="mb-2 text-xs text-slate-400">
+          <p className="mb-2 text-xs text-slate-500">
             Describe what should change. An approver will review it.
           </p>
           {error && <div className="mb-2 text-sm text-red-600">{error}</div>}

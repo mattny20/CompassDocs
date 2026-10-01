@@ -142,7 +142,7 @@ function S3Card({
       <div className="mb-3 flex items-center justify-between">
         <h3 className="font-semibold text-slate-900">
           S3-compatible{" "}
-          <span className="text-xs font-normal text-slate-400">(AWS S3, Cloudflare R2, MinIO)</span>
+          <span className="text-xs font-normal text-slate-500">(AWS S3, Cloudflare R2, MinIO)</span>
         </h3>
         {s3.configured && (
           <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">

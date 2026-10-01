@@ -95,7 +95,7 @@ export function UploadDrop({
 
   if (state.phase === "done") {
     return (
-      <div className="rounded-xl border border-slate-200 bg-white p-8 text-center shadow-xs">
+      <div className="rounded-xl border border-slate-200 bg-surface p-8 text-center shadow-xs">
         <CheckCircle2 className="mx-auto h-8 w-8 text-emerald-500" aria-hidden />
         <h1 className="mt-3 text-lg font-semibold text-slate-900">Image added</h1>
         <p className="mx-auto mt-1 max-w-sm text-sm text-slate-500">
@@ -141,7 +141,7 @@ export function UploadDrop({
           else setState({ phase: "error", message: "That wasn't an image file." });
         }}
         className={`mt-5 rounded-xl border-2 border-dashed p-10 text-center transition-colors ${
-          dragging ? "border-compass-500 bg-compass-50" : "border-slate-300 bg-white"
+          dragging ? "border-compass-500 bg-compass-50" : "border-slate-300 bg-surface"
         } ${busy ? "opacity-60" : ""}`}
       >
         {busy ? (
@@ -155,7 +155,7 @@ export function UploadDrop({
             <p className="mt-3 text-sm font-medium text-slate-600">
               Drag an image here, or paste it
             </p>
-            <p className="mt-1 text-xs text-slate-400">
+            <p className="mt-1 text-xs text-slate-500">
               PNG, JPEG, GIF or WebP · up to {maxMb} MB
             </p>
             <button
@@ -192,7 +192,7 @@ export function UploadDrop({
         </p>
       )}
 
-      <p className="mt-6 text-center text-xs text-slate-400">
+      <p className="mt-6 text-center text-xs text-slate-500">
         This link works once and expires an hour after it was created.
       </p>
     </div>

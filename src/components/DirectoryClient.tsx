@@ -486,12 +486,12 @@ export function DirectoryClient({
                 <div key={f.key}>
                   {out.length > 0 && (
                     <p className="text-slate-500">
-                      <span className="text-slate-400">{f.label}:</span> {out.map((r) => r.name).join(", ")}
+                      <span className="text-slate-500">{f.label}:</span> {out.map((r) => r.name).join(", ")}
                     </p>
                   )}
                   {inn.length > 0 && (
                     <p className="text-slate-500">
-                      <span className="text-slate-400">{f.inverse_label || `${f.label} to`}:</span>{" "}
+                      <span className="text-slate-500">{f.inverse_label || `${f.label} to`}:</span>{" "}
                       {inn.length > 3 ? `${inn.slice(0, 3).map((r) => r.name).join(", ")} and ${inn.length - 3} more` : inn.map((r) => r.name).join(", ")}
                     </p>
                   )}
@@ -504,12 +504,12 @@ export function DirectoryClient({
                 p.custom?.[f.key] ? (
                   f.display === "tag" ? (
                     <div key={f.key} className="flex flex-wrap items-center gap-1.5 pt-1">
-                      <span className="text-xs text-slate-400">{f.label}</span>
+                      <span className="text-xs text-slate-500">{f.label}</span>
                       <FieldChips field={f} value={p.custom[f.key]} />
                     </div>
                   ) : (
                     <p key={f.key} className="text-slate-500">
-                      <span className="text-slate-400">{f.label}:</span> {displayValue(f, p.custom[f.key])}
+                      <span className="text-slate-500">{f.label}:</span> {displayValue(f, p.custom[f.key])}
                     </p>
                   )
                 ) : null
@@ -536,7 +536,7 @@ export function DirectoryClient({
             {p.phone || p.mobile}
           </p>
           {assistants.length > 0 && (
-            <p className="truncate text-xs text-slate-400">
+            <p className="truncate text-xs text-slate-500">
               {fieldByKey.get("assistant")?.label ?? "Assistant"}: {assistants.map((a) => a.name).join(", ")}
             </p>
           )}
@@ -549,7 +549,7 @@ export function DirectoryClient({
     <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
       {icon}
       {label}
-      <span className="text-xs font-normal text-slate-400">({count})</span>
+      <span className="text-xs font-normal text-slate-500">({count})</span>
       {fixHref && (
         <Link href={fixHref} className="ml-1 text-xs font-medium normal-case tracking-normal text-compass-600 hover:underline">
           Fill these in
@@ -669,7 +669,7 @@ export function DirectoryClient({
                       }
                     />
                     <span className="flex-1">{c.label}</span>
-                    <span className="text-xs text-slate-400" data-tt="How many people have a value">
+                    <span className="text-xs text-slate-500" data-tt="How many people have a value">
                       {initialPeople.filter((p) => cellValue(p, c.key, fields)).length}
                     </span>
                   </label>
@@ -699,21 +699,21 @@ export function DirectoryClient({
                 <button key={pr.id} className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50" onClick={() => exportNow({ preset: pr.id }, "pdf")} data-tt={pr.split_by ? "A zip with one PDF per value" : pr.layout === "cards" ? "Photo cards" : ""}>
                   {pr.layout === "cards" ? <LayoutGrid className="h-4 w-4 text-slate-400" aria-hidden /> : <FileText className="h-4 w-4 text-slate-400" aria-hidden />}
                   <span className="flex-1 truncate">{pr.name}</span>
-                  <span className="text-2xs uppercase text-slate-400">{pr.split_by ? "ZIP" : "PDF"}</span>
+                  <span className="text-2xs uppercase text-slate-500">{pr.split_by ? "ZIP" : "PDF"}</span>
                 </button>
               ))}
               <div className="my-1 border-t border-slate-100" />
               <button className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50" onClick={() => whatISee("pdf")}>
                 <FileText className="h-4 w-4 text-slate-400" aria-hidden /> <span className="flex-1">What I see</span>
-                <span className="text-2xs uppercase text-slate-400">PDF</span>
+                <span className="text-2xs uppercase text-slate-500">PDF</span>
               </button>
               <button className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50" onClick={() => whatISee("csv")}>
                 <Table2 className="h-4 w-4 text-slate-400" aria-hidden /> <span className="flex-1">What I see</span>
-                <span className="text-2xs uppercase text-slate-400">CSV</span>
+                <span className="text-2xs uppercase text-slate-500">CSV</span>
               </button>
               <button className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50" onClick={() => whatISee("vcf")}>
                 <Contact className="h-4 w-4 text-slate-400" aria-hidden /> <span className="flex-1">What I see, as contacts</span>
-                <span className="text-2xs uppercase text-slate-400">VCF</span>
+                <span className="text-2xs uppercase text-slate-500">VCF</span>
               </button>
               <label className="flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50">
                 <input
@@ -723,7 +723,7 @@ export function DirectoryClient({
                   className="h-3.5 w-3.5 accent-compass-600"
                 />
                 <span className="flex-1">Office information</span>
-                <span className="text-2xs uppercase text-slate-400">PDF</span>
+                <span className="text-2xs uppercase text-slate-500">PDF</span>
               </label>
               <div className="my-1 border-t border-slate-100" />
               <button className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50" onClick={() => { setExportOpen(false); window.print(); }}>
@@ -848,13 +848,13 @@ function MilestoneCard({ icon, title, items }: { icon: React.ReactNode; title: s
   return (
     <div className="rounded-xl border border-slate-200 bg-surface p-3 shadow-xs">
       <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
-        {icon} {title} <span className="font-normal text-slate-400">({items.length})</span>
+        {icon} {title} <span className="font-normal text-slate-500">({items.length})</span>
       </p>
       <ul className="space-y-0.5 text-sm">
         {shown.map((it) => (
           <li key={it.id} className="flex items-baseline justify-between gap-2">
             <Link href={`/directory/${it.id}`} className="truncate font-medium text-slate-800 hover:text-compass-700">{it.name}</Link>
-            <span className="shrink-0 text-xs text-slate-400">{it.detail}</span>
+            <span className="shrink-0 text-xs text-slate-500">{it.detail}</span>
           </li>
         ))}
       </ul>

@@ -202,7 +202,7 @@ function DetailsNodeView({ node, updateAttributes }: NodeViewProps) {
         contentEditable={false}
         className="flex items-center gap-1.5 border-b border-slate-100 bg-slate-50 px-3 py-1.5"
       >
-        <span className="text-xs text-slate-400">▸ accordion</span>
+        <span className="text-xs text-slate-500">▸ accordion</span>
         <input
           value={String(node.attrs.title ?? "")}
           onChange={(e) => updateAttributes({ title: e.target.value })}
@@ -259,7 +259,7 @@ function TabsNodeView(_props: NodeViewProps) {
     <NodeViewWrapper className="my-3 rounded-lg border border-compass-200 dark:border-compass-800">
       <div
         contentEditable={false}
-        className="rounded-t-lg border-b border-compass-100 bg-compass-50 px-3 py-1 text-xs font-semibold text-compass-600 dark:bg-compass-950/40"
+        className="rounded-t-lg border-b border-compass-100 bg-compass-50 px-3 py-1 text-xs font-semibold text-compass-600"
       >
         Tab group — each panel below becomes a tab
       </div>
@@ -275,7 +275,7 @@ function TabPanelNodeView({ node, updateAttributes }: NodeViewProps) {
         contentEditable={false}
         className="flex items-center gap-1.5 border-b border-slate-100 bg-slate-50 px-2.5 py-1"
       >
-        <span className="text-2xs uppercase tracking-wide text-slate-400">tab</span>
+        <span className="text-2xs uppercase tracking-wide text-slate-500">tab</span>
         <input
           value={String(node.attrs.title ?? "")}
           onChange={(e) => updateAttributes({ title: e.target.value })}
@@ -362,7 +362,7 @@ function EmbedCardControls({
 }) {
   return (
     <div className="mb-1 flex items-center justify-between">
-      <span className="text-2xs font-semibold uppercase tracking-wide text-slate-400">{label}</span>
+      <span className="text-2xs font-semibold uppercase tracking-wide text-slate-500">{label}</span>
       <span className="flex gap-1">
         <button
           type="button"
@@ -565,7 +565,7 @@ function CodeBlockView({ node }: NodeViewProps) {
       </pre>
       {PREVIEW_LANGS.has(lang) && preview.trim() && (
         <div contentEditable={false} className="-mt-2 rounded-b-lg border border-t-0 border-slate-200 px-2 pb-1 [&>div]:my-2">
-          <div className="pt-1 text-3xs font-semibold uppercase tracking-wide text-slate-400">
+          <div className="pt-1 text-3xs font-semibold uppercase tracking-wide text-slate-500">
             Live preview
           </div>
           {lang === "decision" ? (
