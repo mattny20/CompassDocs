@@ -446,7 +446,7 @@ export function NewsletterPeople({
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-surface shadow-xs">
         <table className="w-full text-left text-sm">
           <thead>
-            <tr className="border-b border-slate-100 text-xs uppercase tracking-wider text-slate-500">
+            <tr className="border-b border-slate-100 text-xs font-semibold uppercase tracking-wider text-slate-500">
               <th className="px-4 py-3 font-medium">Person</th>
               <th className="px-4 py-3 font-medium">Org role</th>
               <th className="px-4 py-3 font-medium">Newsletter access</th>

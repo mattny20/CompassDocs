@@ -300,7 +300,7 @@ export function OutlookPane() {
 
           {!hits && !answer && !busy && (
             <>
-              <p className="mb-1.5 mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Recently updated</p>
+              <p className="mb-1.5 mt-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Recently updated</p>
               <ul className="space-y-2">
                 {summary.recent.map((d) => (
                   <DocRow key={d.id} id={d.id} title={d.title} meta={`${d.space_icon} ${d.space_name}`} compose={compose} onInsert={insertDocLink} docUrl={docUrl} />

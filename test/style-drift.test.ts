@@ -98,6 +98,33 @@ describe("style drift guard", () => {
     assert.deepEqual(hits, [], `hand-written page title — use <PageHeader>:\n${hits.join("\n")}`);
   });
 
+  test("emerald is the single success hue (§Status chips)", () => {
+    const hits = offenders(/\b(?:bg|text|border|ring|from|to|divide|decoration|fill|stroke)-green-\d+/);
+    assert.deepEqual(hits, [], `green-* — use emerald:\n${hits.join("\n")}`);
+  });
+
+  test("uppercase labels are the eyebrow tiers only (§Sections and cards)", () => {
+    // text-sm/text-lg uppercase is body-sized shouting; tracking-wide (not
+    // -wider) and font-medium are the retired recipes.
+    const re = /\buppercase\b/;
+    const bad = (line: string) =>
+      /\btext-(?:sm|base|lg)\b/.test(line) || /\btracking-wide\b/.test(line) || /\bfont-medium\b[^"'`\n]*\buppercase\b|\buppercase\b[^"'`\n]*\bfont-medium\b/.test(line);
+    // tracking-widest is the certificate's letterpress heading, a print document.
+    const hits = offenders(
+      re,
+      (file, line) => file.endsWith(".tsx") && !/rounded-full|tracking-widest/.test(line) && bad(line)
+    );
+    assert.deepEqual(hits, [], `uppercase label outside the eyebrow tiers — use Eyebrow / EYEBROW_TEXT / RAIL_GROUP_TEXT:\n${hits.join("\n")}`);
+  });
+
+  test("hue pairs on pills live in components/Chip only (§Status chips)", () => {
+    const hits = offenders(
+      /rounded-full[^"'`\n]*\b(?:bg-(?:emerald|amber|red|sky|violet|purple|blue|teal|rose|orange|yellow)-(?:50|100))\b/,
+      (file) => !file.endsWith("components/Chip.tsx") && !file.endsWith("lib/directory-display.ts")
+    );
+    assert.deepEqual(hits, [], `hand-written chip — use <Chip tone> / chipClass():\n${hits.join("\n")}`);
+  });
+
   test("bg-white only where white is literal (brand tiles, QR, media stages, email previews)", () => {
     const ALLOW = [
       "components/Brand.tsx",

@@ -10,6 +10,7 @@
 //      every destination and action re-checks server-side.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { chipClass } from "@/components/Chip";
 import { useRouter } from "next/navigation";
 import { Search, CornerDownLeft, ArrowUp, ArrowDown } from "lucide-react";
 import type { SearchHit } from "@/lib/types";
@@ -443,7 +444,7 @@ export function CommandPaletteClient({
         <div className="flex items-center gap-2 border-b border-slate-100 px-3">
           <Search className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
           {mode !== "all" && (
-            <span className="shrink-0 rounded-full bg-compass-50 px-2 py-0.5 text-2xs font-medium text-compass-700">
+            <span className={chipClass("accent", "sm", "shrink-0")}>
               {MODE_LABEL[mode]}
             </span>
           )}
@@ -481,7 +482,7 @@ export function CommandPaletteClient({
           ) : (
             groups.map((g) => (
               <div key={g.kind}>
-                <p className="px-3 pb-0.5 pt-2 text-2xs font-semibold uppercase tracking-wide text-slate-500">
+                <p className="px-3 pb-0.5 pt-2 text-2xs font-semibold uppercase tracking-wider text-slate-500">
                   {GROUP_LABEL[g.kind]}
                 </p>
                 {g.items.map((item) => {

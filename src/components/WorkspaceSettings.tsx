@@ -198,7 +198,7 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
           </div>
         </div>
         {logoMsg && (
-          <p className={`mt-2 text-xs ${logoMsg.ok ? "text-green-600" : "text-red-600"}`}>
+          <p className={`mt-2 text-xs ${logoMsg.ok ? "text-emerald-600" : "text-red-600"}`}>
             {logoMsg.text}
           </p>
         )}

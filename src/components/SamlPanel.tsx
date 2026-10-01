@@ -5,6 +5,7 @@
 // client secret). Shares the "sso" license entitlement with OIDC.
 
 import { useState } from "react";
+import { EnterpriseBadge } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import type { Role } from "@/lib/types";
 import { Field, Select, TextInput, Textarea, Toggle } from "@/components/form";
@@ -76,9 +77,7 @@ export function SamlPanel({ initial }: { initial: SamlState }) {
     <div className="mt-6 rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
       <div className="mb-1 flex items-center gap-2">
         <h3 className="font-semibold text-slate-900">SAML 2.0</h3>
-        <span className="rounded-full bg-compass-600 px-2 py-0.5 text-xs font-semibold text-white">
-          Enterprise
-        </span>
+        <EnterpriseBadge />
       </div>
       <p className="mb-4 text-sm text-slate-500">
         Connect any SAML identity provider — Okta, OneLogin, Google Workspace, ADFS, and friends.

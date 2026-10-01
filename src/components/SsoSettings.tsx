@@ -5,6 +5,7 @@
 // license nudge; licensed → the OIDC configuration form.
 
 import { useState } from "react";
+import { EnterpriseBadge } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import { MsDeviceSetup } from "./MsDeviceSetup";
 import { Field, TextInput, Toggle } from "@/components/form";
@@ -122,9 +123,7 @@ export function SsoSettings({ initial }: { initial: SsoState }) {
       <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <div className="mb-1 flex items-center gap-2">
           <h3 className="font-semibold text-slate-900">Microsoft Entra ID (OIDC)</h3>
-          <span className="rounded-full bg-compass-600 px-2 py-0.5 text-xs font-semibold text-white">
-            Enterprise
-          </span>
+          <EnterpriseBadge />
         </div>
         <p className="mb-3 text-sm text-slate-500">
           Register an app in Microsoft Entra (single-tenant, web platform) with redirect URI{" "}
@@ -167,7 +166,7 @@ export function SsoSettings({ initial }: { initial: SsoState }) {
               <>
                 Client secret{" "}
                 {s.has_secret && !secret ? (
-                  <span className="text-green-600">(stored ✓ — paste to replace)</span>
+                  <span className="text-emerald-600">(stored ✓ — paste to replace)</span>
                 ) : (
                   ""
                 )}

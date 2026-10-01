@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -78,7 +79,7 @@ export function ReviewClient({
     <div className="space-y-8">
       {crs.length > 0 && (
         <section>
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
             Pending changes ({crs.length})
           </h2>
           <div className="space-y-3">
@@ -87,12 +88,12 @@ export function ReviewClient({
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <div className="mb-1 flex items-center gap-2">
-                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+                      <span className={chipClass("warn")}>
                         {cr.kind === "publish" ? "Publish request" : "Edit"}
                       </span>
                       {cr.target_space_name && (
                         <span
-                          className="rounded-full bg-sky-100 px-2 py-0.5 text-xs font-medium text-sky-700"
+                          className={chipClass("info")}
                           title="Approving also moves the document to this space."
                         >
                           → moves to {cr.target_space_name}
@@ -100,7 +101,7 @@ export function ReviewClient({
                       )}
                       {cr.space_visibility === "public" && (
                         <span
-                          className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700"
+                          className={chipClass("ok")}
                           title="This space is public — approved changes are visible on the internet without signing in."
                         >
                           🌐 Goes public
@@ -126,7 +127,7 @@ export function ReviewClient({
                     <button
                       onClick={() => reviewCr(cr.id, "approve")}
                       disabled={busy === `cr-${cr.id}`}
-                      className="rounded-lg bg-green-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-60"
+                      className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
                     >
                       Approve
                     </button>
@@ -155,7 +156,7 @@ export function ReviewClient({
 
       {sugs.length > 0 && (
         <section>
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
             Suggestions ({sugs.length})
           </h2>
           <div className="space-y-3">
@@ -180,7 +181,7 @@ export function ReviewClient({
                     <button
                       onClick={() => reviewSug(sg.id, "accept")}
                       disabled={busy === `sg-${sg.id}`}
-                      className="rounded-lg border border-green-200 px-3 py-1.5 text-sm font-medium text-green-700 hover:bg-green-50 disabled:opacity-60"
+                      className="rounded-lg border border-emerald-200 px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-60"
                     >
                       Mark done
                     </button>

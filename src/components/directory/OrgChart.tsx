@@ -7,6 +7,7 @@
 // on them.
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { chipClass } from "@/components/Chip";
 import Link from "next/link";
 import { ChevronDown, ChevronRight, Users, Network, Settings } from "lucide-react";
 import type { DirectoryPerson, DirectoryField } from "@/lib/directory";
@@ -147,7 +148,7 @@ export function OrgChart({
           {node.size > 0 && (
             <Link
               href={`/directory/${p.id}/team`}
-              className="inline-flex flex-none items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 hover:bg-compass-50 hover:text-compass-700"
+              className={chipClass("neutral", "md", "flex-none hover:bg-compass-50 hover:text-compass-700")}
               data-tt={`${node.reports.length} direct · ${node.size} in all — open the team page`}
               aria-label={`${p.name}'s team: ${node.size} people`}
             >
@@ -203,7 +204,7 @@ export function OrgChart({
           <button
             type="button"
             onClick={() => setAloneOpen((o) => !o)}
-            className="mb-2 flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-500"
+            className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-500"
             aria-expanded={aloneOpen || !!keep}
           >
             {aloneOpen || keep ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}

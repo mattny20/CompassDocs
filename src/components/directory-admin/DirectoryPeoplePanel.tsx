@@ -328,7 +328,7 @@ export function DirectoryPeoplePanel({
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-surface shadow-xs">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-500">
+            <tr className="border-b border-slate-100 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
               <th className="px-4 py-2.5">Name</th>
               <th className="px-4 py-2.5">Title / department</th>
               <th className="px-4 py-2.5">Contact</th>

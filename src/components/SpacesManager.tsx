@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import { Lock, Globe, Building2, PencilRuler, ChevronUp, ChevronDown, Pencil, Trash2, X } from "lucide-react";
@@ -180,11 +181,11 @@ export function SpacesManager({
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="truncate font-medium text-slate-900">{s.name}</span>
-                  <span className="rounded-full bg-slate-100 px-1.5 text-xs text-slate-500">
+                  <span className={chipClass("neutral")}>
                     {s.doc_count} doc{s.doc_count === 1 ? "" : "s"}
                   </span>
                   {s.visibility === "private" && (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950/50 dark:text-amber-300">
+                    <span className={chipClass("warn")}>
                       <Lock className="h-3 w-3" />
                       Private
                       {(spaceGroups[s.id]?.length ?? 0) > 0 && (
@@ -196,7 +197,7 @@ export function SpacesManager({
                     </span>
                   )}
                   {s.visibility === "public" && (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
+                    <span className={chipClass("ok")}>
                       <Globe className="h-3 w-3" />
                       Public — no sign-in
                     </span>
@@ -204,7 +205,7 @@ export function SpacesManager({
                   {!editAll &&
                     ((editorGrants.users[s.id]?.length ?? 0) > 0 ||
                       (editorGrants.groups[s.id]?.length ?? 0) > 0) && (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-1.5 py-0.5 text-xs font-medium text-violet-700">
+                      <span className={chipClass("label")}>
                         <PencilRuler className="h-3 w-3" />
                         Restricted editing
                       </span>

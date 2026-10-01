@@ -1,4 +1,5 @@
 import { requireSettingsSection } from "@/lib/auth";
+import { chipClass } from "@/components/Chip";
 import Link from "next/link";
 import { knowledgeHealthReport, type HealthDoc } from "@/lib/health";
 import { SettingsPage } from "@/components/SettingsPage";
@@ -158,7 +159,7 @@ export default async function HealthPage() {
             <DocLink doc={p.a} />
             <span className="text-slate-500">≈</span>
             <DocLink doc={p.b} />
-            <span className="ml-auto rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">
+            <span className={chipClass("neutral", "md", "ml-auto")}>
               {(p.similarity * 100).toFixed(1)}%
             </span>
           </div>
@@ -217,7 +218,7 @@ function Section({
         <h3 className="font-semibold text-slate-900">
           {title}
           {count > 0 && (
-            <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">
+            <span className={chipClass("warn", "md", "ml-2")}>
               {count}
             </span>
           )}
@@ -245,11 +246,11 @@ function Row({ doc, children }: { doc: HealthDoc; children?: React.ReactNode }) 
   return (
     <div className="flex flex-wrap items-center gap-2 px-4 py-2 text-sm">
       <DocLink doc={doc} />
-      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">
+      <span className={chipClass("neutral")}>
         {doc.space_name}
       </span>
       {doc.status !== "published" && (
-        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">{doc.status}</span>
+        <span className={chipClass("neutral")}>{doc.status}</span>
       )}
       {children}
       <span className="ml-auto text-xs text-slate-500">

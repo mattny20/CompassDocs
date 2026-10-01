@@ -1,10 +1,12 @@
 import type { DocType, DocStatus } from "./types";
+import type { ChipTone } from "@/components/Chip";
 
-export const TYPE_STYLES: Record<DocType, string> = {
-  sop: "bg-violet-100 text-violet-700 ring-violet-200",
-  technical: "bg-sky-100 text-sky-700 ring-sky-200",
-  policy: "bg-amber-100 text-amber-700 ring-amber-200",
-  knowledge: "bg-emerald-100 text-emerald-700 ring-emerald-200",
+/** Document types map onto the closed chip tone set (components/Chip). */
+export const TYPE_TONE: Record<DocType, ChipTone> = {
+  sop: "label",
+  technical: "info",
+  policy: "warn",
+  knowledge: "ok",
 };
 
 export const TYPE_LABEL: Record<DocType, string> = {
@@ -14,9 +16,9 @@ export const TYPE_LABEL: Record<DocType, string> = {
   knowledge: "Knowledge",
 };
 
-export const STATUS_STYLES: Record<DocStatus, string> = {
-  published: "bg-green-100 text-green-700 ring-green-200",
-  draft: "bg-slate-100 text-slate-600 ring-slate-200",
+export const STATUS_TONE: Record<DocStatus, ChipTone> = {
+  published: "ok",
+  draft: "neutral",
 };
 
 export function timeAgo(iso: string): string {

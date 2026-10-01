@@ -253,7 +253,7 @@ export function DecisionTreeBlock({ code }: { code: string }) {
   return (
     <div className="doc-wide my-4 rounded-lg border border-slate-200 bg-surface p-4 shadow-xs">
       <div className="mb-2 flex items-center justify-between gap-2">
-        <span className="text-xs font-semibold uppercase tracking-wide text-compass-600">
+        <span className="text-xs font-semibold uppercase tracking-wider text-compass-600">
           Decision guide
         </span>
         <span className="flex gap-1">
@@ -291,7 +291,7 @@ export function DecisionTreeBlock({ code }: { code: string }) {
 
       {outcome !== null ? (
         <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 dark:border-emerald-800/60 dark:bg-emerald-950/40">
-          <div className="text-xs font-semibold uppercase tracking-wide text-emerald-600">
+          <div className="text-xs font-semibold uppercase tracking-wider text-emerald-600">
             Recommendation
           </div>
           <p className="mt-1 font-medium text-emerald-900 dark:text-emerald-100">{outcome}</p>

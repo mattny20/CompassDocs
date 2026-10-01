@@ -196,7 +196,7 @@ export function ProfileForm({
             >
               {busy && <LoaderCircle className="h-3.5 w-3.5 animate-spin" />} Save changes
             </button>
-            {saved === "ok" && <span className="text-sm text-green-600">Saved.</span>}
+            {saved === "ok" && <span className="text-sm text-emerald-600">Saved.</span>}
           </div>
         )}
         {saved && saved !== "ok" && <p className="mt-3 text-sm text-red-600">{saved}</p>}

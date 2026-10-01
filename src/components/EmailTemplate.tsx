@@ -50,7 +50,7 @@ function CopyButton({ label, text }: { label: string; text: string }) {
       }}
       className={`rounded px-2 py-0.5 text-xs font-medium transition ${
         copied
-          ? "text-green-600 dark:text-green-400"
+          ? "text-emerald-600 dark:text-emerald-400"
           : "text-compass-700 hover:bg-compass-100 dark:text-compass-300 dark:hover:bg-white/10"
       }`}
     >
@@ -84,7 +84,7 @@ export function EmailTemplate({ raw }: { raw: string }) {
         <div className="space-y-0.5 border-b border-slate-100 bg-surface px-4 py-2.5">
           {headers.map((h, i) => (
             <p key={`${h.key}-${i}`} className="my-0! text-sm">
-              <span className="mr-2 inline-block w-14 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <span className="mr-2 inline-block w-14 text-xs font-semibold uppercase tracking-wider text-slate-500">
                 {HEADER_LABEL[h.key]}
               </span>
               <span className={h.key === "subject" ? "font-semibold text-slate-900" : "text-slate-700"}>

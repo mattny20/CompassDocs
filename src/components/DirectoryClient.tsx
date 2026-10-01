@@ -546,7 +546,7 @@ export function DirectoryClient({
   };
 
   const SectionHeader = ({ label, count, icon, fixHref }: { label: string; count: number; icon?: React.ReactNode; fixHref?: string }) => (
-    <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
+    <h2 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
       {icon}
       {label}
       <span className="text-xs font-normal text-slate-500">({count})</span>
@@ -699,21 +699,21 @@ export function DirectoryClient({
                 <button key={pr.id} className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50" onClick={() => exportNow({ preset: pr.id }, "pdf")} data-tt={pr.split_by ? "A zip with one PDF per value" : pr.layout === "cards" ? "Photo cards" : ""}>
                   {pr.layout === "cards" ? <LayoutGrid className="h-4 w-4 text-slate-400" aria-hidden /> : <FileText className="h-4 w-4 text-slate-400" aria-hidden />}
                   <span className="flex-1 truncate">{pr.name}</span>
-                  <span className="text-2xs uppercase text-slate-500">{pr.split_by ? "ZIP" : "PDF"}</span>
+                  <span className="text-2xs font-semibold uppercase tracking-wider text-slate-500">{pr.split_by ? "ZIP" : "PDF"}</span>
                 </button>
               ))}
               <div className="my-1 border-t border-slate-100" />
               <button className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50" onClick={() => whatISee("pdf")}>
                 <FileText className="h-4 w-4 text-slate-400" aria-hidden /> <span className="flex-1">What I see</span>
-                <span className="text-2xs uppercase text-slate-500">PDF</span>
+                <span className="text-2xs font-semibold uppercase tracking-wider text-slate-500">PDF</span>
               </button>
               <button className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50" onClick={() => whatISee("csv")}>
                 <Table2 className="h-4 w-4 text-slate-400" aria-hidden /> <span className="flex-1">What I see</span>
-                <span className="text-2xs uppercase text-slate-500">CSV</span>
+                <span className="text-2xs font-semibold uppercase tracking-wider text-slate-500">CSV</span>
               </button>
               <button className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50" onClick={() => whatISee("vcf")}>
                 <Contact className="h-4 w-4 text-slate-400" aria-hidden /> <span className="flex-1">What I see, as contacts</span>
-                <span className="text-2xs uppercase text-slate-500">VCF</span>
+                <span className="text-2xs font-semibold uppercase tracking-wider text-slate-500">VCF</span>
               </button>
               <label className="flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50">
                 <input
@@ -723,7 +723,7 @@ export function DirectoryClient({
                   className="h-3.5 w-3.5 accent-compass-600"
                 />
                 <span className="flex-1">Office information</span>
-                <span className="text-2xs uppercase text-slate-500">PDF</span>
+                <span className="text-2xs font-semibold uppercase tracking-wider text-slate-500">PDF</span>
               </label>
               <div className="my-1 border-t border-slate-100" />
               <button className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50" onClick={() => { setExportOpen(false); window.print(); }}>
@@ -775,11 +775,11 @@ export function DirectoryClient({
         <div className="overflow-x-auto rounded-xl border border-slate-200 bg-surface shadow-xs">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-500">
+              <tr className="border-b border-slate-100 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
                 <th className="w-8 px-2 py-2.5" aria-label="Pin" />
                 {activeColumns.map((c) => (
                   <th key={c.key} className="select-none px-4 py-2.5" aria-sort={sortBy === c.key ? (sortDir === 1 ? "ascending" : "descending") : "none"}>
-                    <button type="button" onClick={() => clickSort(c.key)} className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wide hover:text-slate-600">
+                    <button type="button" onClick={() => clickSort(c.key)} className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wider hover:text-slate-600">
                       {columnLabel(c.key, fields)}
                       <span aria-hidden>{sortBy === c.key ? (sortDir === 1 ? "↑" : "↓") : ""}</span>
                     </button>
@@ -847,7 +847,7 @@ function MilestoneCard({ icon, title, items }: { icon: React.ReactNode; title: s
   const shown = all ? items : items.slice(0, 5);
   return (
     <div className="rounded-xl border border-slate-200 bg-surface p-3 shadow-xs">
-      <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+      <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-500">
         {icon} {title} <span className="font-normal text-slate-500">({items.length})</span>
       </p>
       <ul className="space-y-0.5 text-sm">

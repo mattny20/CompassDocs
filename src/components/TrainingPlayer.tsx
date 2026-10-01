@@ -250,7 +250,7 @@ export function TrainingPlayer({
             <span className="flex h-12 w-12 items-center justify-center rounded-full bg-compass-50 text-compass-600">
               {done ? <CircleCheck className="h-6 w-6 text-emerald-500" /> : <ShieldCheck className="h-6 w-6" />}
             </span>
-            <h2 className="mt-3 text-lg font-bold text-slate-900">
+            <h2 className="mt-3 text-lg font-semibold text-slate-900">
               {done ? "Training complete" : "One last step"}
             </h2>
             <div className="prose prose-sm mt-2 max-w-md text-slate-600 dark:prose-invert">

@@ -126,7 +126,7 @@ export function AnnouncementsAdmin({
       ? { label: "Archived", cls: "bg-slate-100 text-slate-500" }
       : r.expires_at && new Date(r.expires_at).getTime() < now
         ? { label: "Expired", cls: "bg-slate-100 text-slate-500" }
-        : { label: "Live", cls: "bg-green-100 text-green-700 dark:bg-green-950/60 dark:text-green-300" };
+        : { label: "Live", cls: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300" };
 
   return (
     <div className="space-y-6">
@@ -239,7 +239,7 @@ export function AnnouncementsAdmin({
           </fieldset>
 
           {error && <p className="text-sm text-red-600">{error}</p>}
-          {done && <p className="text-sm text-green-600">✓ {done}</p>}
+          {done && <p className="text-sm text-emerald-600">✓ {done}</p>}
           <button
             onClick={post}
             disabled={busy || !title.trim() || !message.trim()}

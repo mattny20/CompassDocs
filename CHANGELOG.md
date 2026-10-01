@@ -4,6 +4,29 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.6.1] - 2026-10-01
+
+The component system, part two: cards, headings, chips, table headers.
+
+### Changed
+- **One card and one heading ladder.** Cards share one wrapper (`Card`),
+  and the headings inside a page step down one size per level: section
+  heading, card title, sub-heading, eyebrow. The eight card-title styles
+  and seven uppercase label combinations are gone; the oversized
+  text-lg card titles drop one step, so "Users & roles" finally reads
+  larger than "Users (2)", and the uppercase labels that were as large as
+  body text drop to the eyebrow tier.
+- **One chip.** Status, type and tier badges come from one `Chip` with a
+  closed set of tones, each carrying its dark-mode pair (dark space pages
+  are no longer walls of pale mint and lilac) and a print override so a
+  dark-mode chip prints light. Status text is label-cased ("Active",
+  "Published"), emerald is the single success hue, audit categories
+  render neutral, and one Enterprise badge replaces the hand-written
+  copies.
+- **One table header.** Every table's header row is the same AA grey,
+  semibold eyebrow, and digits line up in every column (tabular numerals
+  on every table). Sorting, sticky headers and row hover follow in 1.6.2.
+
 ## [1.6.0] - 2026-10-01
 
 The component system, part one: one button, one page title.

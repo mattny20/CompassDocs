@@ -4,6 +4,7 @@
 // while a query is active, and clearing the box brings the grid back.
 
 import { useEffect, useRef, useState } from "react";
+import { chipClass } from "@/components/Chip";
 import Link from "next/link";
 import { Search, SearchX, X } from "lucide-react";
 import { TypeBadge } from "./Badges";
@@ -117,7 +118,7 @@ export function SpaceSearch({
                       <TypeBadge type={h.type as any} />
                       <span className="font-semibold text-slate-900">{h.title}</span>
                       {h.status === "draft" && (
-                        <span className="rounded-full bg-slate-100 px-1.5 text-xs text-slate-500">draft</span>
+                        <span className={chipClass("neutral")}>draft</span>
                       )}
                     </span>
                     <Snippet html={h.snippet} />

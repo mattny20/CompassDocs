@@ -29,9 +29,11 @@ mapping as they move from Dashboard to Space to Document to Settings:
 | --- | --- | --- | --- |
 | Page title | `h1` via PageHeader | `text-2xl font-bold` + 24px icon | every top-level page, settings and account sections |
 | Document title | `h1` | `text-3xl font-bold tracking-tight`, no icon | the document page, share page, public document — the document is the thing itself |
-| Section heading | `h2` | `text-lg font-semibold` | a group of cards within a page |
-| Card title | `h3` | `text-sm font-semibold text-slate-900` | one card |
-| Eyebrow / group label | `RAIL_GROUP_TEXT` | `text-2xs uppercase tracking-wider text-slate-500` | rail groups, the Settings and Account eyebrows |
+| Section heading | `h2` via `SectionHeading` | `text-lg font-semibold` | a group of cards within a page |
+| Card title | `h3` via `CardTitle` | `text-base font-semibold text-slate-900` | one card |
+| Sub-heading | `h4` via `SubHeading` | `text-sm font-semibold text-slate-800` | a block inside a card |
+| Eyebrow | `Eyebrow` / `EYEBROW_TEXT` | `text-xs font-semibold uppercase tracking-wider text-slate-500` | a label over a list, table headers |
+| Group label | `RAIL_GROUP_TEXT` | `text-2xs font-semibold uppercase tracking-wider text-slate-500` | rail groups, the Settings and Account eyebrows |
 
 Documented exceptions: the dashboard greeting (an `h1` with no icon,
 because it is a greeting), the editor's sticky bar (the document title is
@@ -98,11 +100,22 @@ a top-level page and uses `PageContainer`, however standalone it feels.
 
 ## Sections and cards
 
-- Section: `rounded-xl border border-slate-200 bg-surface p-4 shadow-xs`
-  (tables/lists that manage their own padding drop the `p-4` and use an
-  inner `border-b border-slate-100 px-4 py-3` header row).
-- Section headings: `text-sm font-semibold text-slate-800`, optionally with
-  an `h-4 w-4 text-compass-600` icon.
+- Card: `<Card title description actions icon padding>` from
+  `components/Card` (`rounded-xl border border-slate-200 bg-surface
+  shadow-xs`; `p-5` for forms and settings, `p-4` for dense content,
+  `padding="none"` when the children own it — a table — which gives the
+  header an inner `border-b border-slate-100 px-4 py-3` row). The bare
+  recipe is `CARD_CLASS` for the rare wrapper that cannot be a `Card`.
+- Headings below the page title come from `components/Heading` and step
+  down one size per tier: `SectionHeading` (h2, `text-lg font-semibold`, a
+  group of cards — "Users (2)"), `CardTitle` (h3, `text-base font-semibold`,
+  one card), `SubHeading` (h4, `text-sm font-semibold text-slate-800`, a
+  block inside a card), `Eyebrow` (`text-xs font-semibold uppercase
+  tracking-wider text-slate-500`, a label over a list or a table header).
+  Rail group labels are the smaller tier (`RAIL_GROUP_TEXT`). Levels follow
+  the document outline; sizes follow the tier — never make a card title
+  `text-lg` or an eyebrow `text-sm`. Icons sit before the text at 20px
+  (section), 16px (card, sub-heading) or 14px (eyebrow), in `text-compass-600`.
 
 ## Empty states
 
@@ -410,10 +423,16 @@ inherit. Toasts and per-field validation errors are unrelated (see Feedback).
 
 ## Status chips
 
-`rounded-full px-2 py-0.5 text-2xs font-medium` + a semantic pair:
-`bg-emerald-100 text-emerald-700`, `bg-red-100 text-red-700`,
-`bg-amber-100 text-amber-700`, `bg-slate-100 text-slate-500`, or accent
-`bg-compass-50 text-compass-700`.
+`<Chip tone size>` / `chipClass(tone, size, extra)` from `components/Chip`:
+`rounded-full px-2 py-0.5 text-xs font-medium` (`size="sm"` is
+`text-2xs`) in one of a closed set of tones — `ok` (emerald, the single
+success hue; green is retired), `warn` (amber), `error` (red), `neutral`
+(slate), `accent` (compass), `info` (sky), `label` (violet, product tiers:
+`<EnterpriseBadge />`). Every tone carries its dark-mode pair and a print
+override, so never write a hue pair by hand. Status text is label-cased
+(`labelCase("published")` → "Published"); `TypeBadge` and `StatusBadge`
+wrap the chip for documents. Categories (audit log) are labels, not
+states: they render `neutral`.
 
 **Attribute chips** (a directory field shown as chips, a tag list) are not
 status: render them with `FieldChips`, which shows the option's **label**
@@ -423,6 +442,19 @@ option; a certification or a team must never read as an alert. The one
 place the *field's name* belongs next to its chips is a card, where the
 chips would otherwise be a bare word: render `label` in `text-xs
 text-slate-500` before them ("Notary · Phoenix").
+
+## Tables
+
+- The header row is `TABLE_HEAD_ROW` from `components/Table` (the eyebrow
+  tier at an AA grey, semibold, with a bottom hairline) on `<thead>` or the
+  header `<tr>`; cells use `TH` / `TD`, body rows `TR`. Every table gets
+  tabular numerals from `globals.css`, so dates, counts and versions line
+  up without opting in. Wrap a table that can outgrow its card in
+  `<TableWrap>` so it scrolls sideways instead of breaking the page.
+- Sorting (`aria-sort`, icons rather than text arrows), sticky headers
+  where the table is not its own scroll container, row hover and the fit
+  mode for narrow columns arrive with the `Table` primitive in 1.6.2;
+  until then keep headers as plain text or the existing header buttons.
 
 ## Feedback
 

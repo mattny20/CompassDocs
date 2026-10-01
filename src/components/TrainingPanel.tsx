@@ -6,6 +6,7 @@
 // programs feel like siblings.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import Link from "next/link";
 import {
@@ -880,7 +881,7 @@ function MatrixView() {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-slate-100 text-left text-2xs uppercase tracking-wide text-slate-500">
+              <tr className="border-b border-slate-100 text-left text-2xs font-semibold uppercase tracking-wider text-slate-500">
                 <th className="sticky left-0 bg-surface px-4 py-2">Person</th>
                 {data.decks.map((d) => (
                   <th key={d.id} className="max-w-40 truncate px-2 py-2" title={d.title}>
@@ -1142,13 +1143,13 @@ function ManageDecks({
                     <span className="min-w-0 flex-1 truncate font-medium text-slate-800">
                       {d.title}
                       {d.active === 0 && (
-                        <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-2xs font-medium uppercase text-slate-500">
+                        <span className={chipClass("neutral", "sm", "ml-2")}>
                           inactive
                         </span>
                       )}
                     </span>
                     {d.tag && (
-                      <span className="rounded-full bg-compass-50 px-2 py-0.5 text-2xs font-medium text-compass-700">
+                      <span className={chipClass("accent", "sm")}>
                         {d.tag}
                       </span>
                     )}
@@ -1389,7 +1390,7 @@ function ProgramRow({
           <div className="flex items-center gap-2 font-medium text-slate-800">
             {program.name}
             {program.active === 0 && (
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-2xs font-medium uppercase text-slate-500">
+              <span className={chipClass("neutral", "sm")}>
                 inactive
               </span>
             )}
@@ -1756,7 +1757,7 @@ function DeckCard({
 
       {stats.length > 0 && (
         <div className="mt-3 rounded-lg border border-slate-100 p-3">
-          <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-500">
             <BarChart3 className="h-3.5 w-3.5 text-compass-600" /> Quiz insights
             <span className="font-normal normal-case text-slate-500">
               — % answered correctly ({stats[0].attempts} {stats[0].attempts === 1 ? "attempt" : "attempts"})
@@ -1967,7 +1968,7 @@ function PeopleTable({
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-slate-100 text-left text-2xs uppercase tracking-wide text-slate-500">
+              <tr className="border-b border-slate-100 text-left text-2xs font-semibold uppercase tracking-wider text-slate-500">
                 <th className="w-8 px-3 py-1.5"></th>
                 <th className="px-2 py-1.5">Person</th>
                 <th className="px-2 py-1.5">Status</th>

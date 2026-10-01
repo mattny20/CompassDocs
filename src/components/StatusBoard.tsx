@@ -5,6 +5,7 @@
 // management. Data arrives server-rendered; mutations refresh the route.
 
 import { buttonClass } from "@/components/Button";
+import { chipClass } from "@/components/Chip";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -269,7 +270,7 @@ export function StatusBoard({
       {/* Services */}
       <section className="overflow-hidden rounded-xl border border-slate-200 bg-surface shadow-xs">
         <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2.5">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Tracked services</h2>
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500">Tracked services</h2>
           {isAdmin && (
             <button onClick={() => setAdding((v) => !v)} className={chipBtn}>
               {"＋ Track a service"}
@@ -343,7 +344,7 @@ export function StatusBoard({
                       <span className="font-medium text-slate-800">{s.name}</span>
                       <span className={`rounded-full px-2 py-0.5 text-2xs font-semibold ${b.chip}`}>{b.label}</span>
                       {s.provider === "manual" && (
-                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-2xs text-slate-500">
+                        <span className={chipClass("neutral", "sm")}>
                           internal
                         </span>
                       )}
@@ -393,7 +394,7 @@ export function StatusBoard({
       {/* Recent resolved incidents */}
       {resolved.length > 0 && (
         <section>
-          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">Recently resolved</h2>
+          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">Recently resolved</h2>
           <ul className="space-y-1.5">
             {resolved.map((inc) => (
               <li key={inc.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm">

@@ -107,7 +107,7 @@ export function SectionAccessPanel({
 
             <div className="mt-3 grid gap-4 sm:grid-cols-2">
               <div>
-                <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                <span className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-500">
                   People
                 </span>
                 <EntityPicker
@@ -120,7 +120,7 @@ export function SectionAccessPanel({
                 />
               </div>
               <div>
-                <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                <span className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-500">
                   Groups
                 </span>
                 <EntityPicker

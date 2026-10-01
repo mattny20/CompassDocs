@@ -664,6 +664,12 @@ mark {
   cursor: pointer;
 }
 
+/* Tables: digits line up in every column (dates, counts, versions) without
+ * each table opting in. */
+table {
+  font-variant-numeric: tabular-nums;
+}
+
 /* Custom tooltips: any element with data-tt="Label" shows a styled tooltip on
  * hover or keyboard focus — replacing native title=, which browsers show
  * inconsistently (slow, unstyled, never on focus). Attribute-driven so no

@@ -214,7 +214,7 @@ export default async function PersonProfilePage({
 
         {block && block.rows.length > 0 && (
           <div className="mt-5 rounded-lg border border-slate-100 bg-slate-50 p-4">
-            <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-500">
               <Building2 className="h-3.5 w-3.5 text-compass-600" aria-hidden /> {block.name} office
             </p>
             <dl className="grid gap-x-8 gap-y-1 text-sm sm:grid-cols-2">
@@ -229,7 +229,7 @@ export default async function PersonProfilePage({
         )}
       </div>
 
-      <h2 className="mb-3 mt-8 text-sm font-semibold uppercase tracking-wide text-slate-500">
+      <h2 className="mb-3 mt-8 text-xs font-semibold uppercase tracking-wider text-slate-500">
         Documents by {person.name.split(" ")[0]} ({docs.length})
       </h2>
       {docs.length === 0 ? (

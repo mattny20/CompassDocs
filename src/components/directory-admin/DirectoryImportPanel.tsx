@@ -184,7 +184,7 @@ export function DirectoryImportPanel({ fields, onImported }: { fields: Directory
               <div className="max-h-80 overflow-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
+                    <tr className="text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
                       <th className="px-3 py-1.5">Row</th>
                       <th className="px-3 py-1.5">Person</th>
                       <th className="px-3 py-1.5">Result</th>

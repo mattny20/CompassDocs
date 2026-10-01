@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import {
@@ -112,20 +113,20 @@ export function TemplatesPanel({ initial }: { initial: TemplateRow[] }) {
                 <span className="min-w-0 flex-1">
                   <span className="flex flex-wrap items-center gap-2">
                     <span className="font-medium text-slate-800">{t.name}</span>
-                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+                    <span className={chipClass("neutral")}>
                       {DOC_TYPE_LABEL[t.doc_type]}
                     </span>
                     {t.builtin_key ? (
-                      <span className="rounded-full bg-compass-50 px-2 py-0.5 text-xs font-medium text-compass-700">
+                      <span className={chipClass("accent")}>
                         Built-in
                       </span>
                     ) : (
-                      <span className="rounded-full bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-700">
+                      <span className={chipClass("label")}>
                         Custom
                       </span>
                     )}
                     {t.hidden === 1 && (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950/50 dark:text-amber-300">
+                      <span className={chipClass("warn")}>
                         <EyeOff className="h-3 w-3" /> Hidden
                       </span>
                     )}

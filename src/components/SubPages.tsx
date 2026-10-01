@@ -5,6 +5,7 @@
 // "New sub-page" shortcut that lands in the editor with the parent preset.
 
 import { useState } from "react";
+import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -64,7 +65,7 @@ export function SubPages({
         <button
           onClick={toggleOpen}
           aria-expanded={open}
-          className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-500 hover:text-slate-700"
+          className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-500 hover:text-slate-700"
         >
           {open ? (
             <ChevronDown className="h-3.5 w-3.5" aria-hidden />
@@ -99,7 +100,7 @@ export function SubPages({
                 {p.title}
               </Link>
               {p.status === "draft" && (
-                <span className="shrink-0 rounded-full bg-slate-100 px-1.5 text-3xs font-medium uppercase text-slate-500">
+                <span className={chipClass("neutral", "sm", "shrink-0")}>
                   Draft
                 </span>
               )}

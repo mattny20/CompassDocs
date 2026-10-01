@@ -5,6 +5,7 @@
 // sign-out.
 
 import { useState } from "react";
+import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import type { SessionInfo } from "@/lib/db";
 import { useFormatDate } from "./SettingsProvider";
@@ -94,11 +95,11 @@ function TwoFactor({ initial }: { initial: TotpState }) {
       <div className="flex items-center gap-2">
         <h2 className="font-semibold text-slate-900">Two-factor authentication</h2>
         {totp.enabled ? (
-          <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">
+          <span className={chipClass("ok")}>
             On
           </span>
         ) : (
-          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500">
+          <span className={chipClass("neutral")}>
             Off
           </span>
         )}
@@ -290,7 +291,7 @@ function Sessions({ initial }: { initial: SessionInfo[] }) {
               <div className="font-medium text-slate-800">
                 {describeAgent(s.user_agent)}
                 {s.current && (
-                  <span className="ml-2 rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">
+                  <span className={chipClass("ok", "md", "ml-2")}>
                     This device
                   </span>
                 )}

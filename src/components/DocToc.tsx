@@ -7,6 +7,7 @@
 // entirely for docs with fewer than two listed headings.
 
 import { useEffect, useState } from "react";
+import { chipClass } from "@/components/Chip";
 import { ChevronRight, TableOfContents } from "lucide-react";
 import { usePanelCollapse } from "@/lib/use-panel-collapse";
 
@@ -82,7 +83,7 @@ export function DocToc({ title }: { title?: string }) {
       >
         <TableOfContents className="h-4 w-4 text-slate-400" aria-hidden />
         Table of contents
-        <span className="rounded-full bg-slate-100 px-1.5 text-xs font-semibold text-slate-500">
+        <span className={chipClass("neutral")}>
           {items.length}
         </span>
         <ChevronRight

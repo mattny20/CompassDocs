@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import Link from "next/link";
 import { SearchX, Sparkles, X } from "lucide-react";
@@ -155,7 +156,7 @@ export function SearchClient({
           <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-compass-700">
             <span>✨</span> Answer
             {answer?.mode === "fallback" && (
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-normal text-slate-500">
+              <span className={chipClass("neutral")}>
                 keyword mode
               </span>
             )}
@@ -170,7 +171,7 @@ export function SearchClient({
                 <MarkdownView content={answer.answer} />
                 {(answer.people?.length ?? 0) > 0 && (
                   <div className="mt-4 border-t border-compass-100 pt-3">
-                    <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
                       From the people directory
                     </div>
                     <div className="flex flex-wrap gap-2">
@@ -201,7 +202,7 @@ export function SearchClient({
                 )}
                 {answer.sources.length > 0 && (
                   <div className="mt-4 border-t border-compass-100 pt-3">
-                    <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
                       Sources
                     </div>
                     <div className="flex flex-wrap gap-2">
@@ -226,7 +227,7 @@ export function SearchClient({
       {/* Keyword results */}
       {submitted && (
         <div>
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
             {searching ? "Searching…" : `${hits.length} matching document${hits.length === 1 ? "" : "s"}`}
           </h2>
           <div className="space-y-3">
@@ -246,7 +247,7 @@ export function SearchClient({
                   {h.match === "semantic" && (
                     <span
                       title="Found by meaning, not keywords"
-                      className="inline-flex items-center gap-1 rounded-full bg-compass-50 px-2 py-0.5 text-xs font-medium text-compass-700"
+                      className={chipClass("accent")}
                     >
                       <Sparkles className="h-3 w-3" /> related
                     </span>

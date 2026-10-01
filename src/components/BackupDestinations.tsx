@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import { toast } from "@/components/Toasts";
@@ -146,7 +147,7 @@ function S3Card({
           <span className="text-xs font-normal text-slate-500">(AWS S3, Cloudflare R2, MinIO)</span>
         </h3>
         {s3.configured && (
-          <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
+          <span className={chipClass("ok")}>
             ✓ Active
           </span>
         )}
@@ -229,7 +230,7 @@ function AzureCard({
       <div className="mb-3 flex items-center justify-between">
         <h3 className="font-semibold text-slate-900">Azure Blob Storage</h3>
         {azure.configured && (
-          <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
+          <span className={chipClass("ok")}>
             ✓ Active
           </span>
         )}

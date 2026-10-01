@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { EnterpriseBadge } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import { Copy, KeyRound, LoaderCircle, RefreshCw } from "lucide-react";
 import { timeAgo } from "@/lib/ui";
@@ -62,9 +63,7 @@ export function ScimPanel({ initial }: { initial: ScimStatus }) {
         <div>
           <h2 className="flex items-center gap-1.5 text-base font-semibold text-slate-900">
             <KeyRound className="h-4 w-4 text-compass-600" /> SCIM provisioning
-            <span className="rounded-full bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-700 dark:bg-violet-900/50 dark:text-violet-300">
-              Enterprise
-            </span>
+            <EnterpriseBadge />
           </h2>
           <p className="mt-1 text-sm text-slate-500">
             Let Microsoft Entra ID create, update, and deactivate CompassDocs accounts
@@ -92,7 +91,7 @@ export function ScimPanel({ initial }: { initial: ScimStatus }) {
       ) : (
         <div className="mt-4 space-y-3">
           <div>
-            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">
               Tenant URL (paste into Entra provisioning)
             </div>
             <div className="mt-1 flex items-center gap-2">
@@ -110,7 +109,7 @@ export function ScimPanel({ initial }: { initial: ScimStatus }) {
 
           {freshToken ? (
             <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 dark:border-emerald-800/60 dark:bg-emerald-950/40">
-              <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+              <div className="text-xs font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-300">
                 Secret token — copy it now, it won&rsquo;t be shown again
               </div>
               <div className="mt-1 flex items-center gap-2">

@@ -90,7 +90,7 @@ export function DocFeedback({ docId }: { docId: number }) {
           <ThumbsDown className="h-4 w-4" aria-hidden /> No
           {sum.down > 0 && <span className="text-xs text-slate-500">{sum.down}</span>}
         </button>
-        {thanks && !askNote && <span className="text-sm text-green-600">Thanks!</span>}
+        {thanks && !askNote && <span className="text-sm text-emerald-600">Thanks!</span>}
       </div>
       {askNote && (
         <form

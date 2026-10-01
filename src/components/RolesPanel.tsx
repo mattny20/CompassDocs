@@ -432,7 +432,7 @@ function RolesTab({
           <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
-                <h3 className="text-lg font-semibold text-slate-900">{detail.name}</h3>
+                <h3 className="text-base font-semibold text-slate-900">{detail.name}</h3>
                 <p className="mt-0.5 text-sm text-slate-500">
                   {detail.description || "No description."}
                 </p>
@@ -549,7 +549,7 @@ function RolesTab({
                                   <span className="block text-sm text-slate-800">
                                     {p.label}
                                     {p.scope === "space" && (
-                                      <span className="ml-1.5 rounded bg-slate-200 px-1 py-0.5 text-3xs font-medium uppercase tracking-wide text-slate-600">
+                                      <span className="ml-1.5 rounded bg-slate-200 px-1 py-0.5 text-3xs font-semibold uppercase tracking-wider text-slate-600">
                                         per space
                                       </span>
                                     )}
@@ -675,7 +675,7 @@ function AssignmentsTab({
   return (
     <div className="space-y-4">
       <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
-        <h3 className="mb-1 text-lg font-semibold text-slate-900">Delegate a section</h3>
+        <h3 className="mb-1 text-base font-semibold text-slate-900">Delegate a section</h3>
         <p className="mb-3 max-w-2xl text-sm text-slate-500">
           The shortcut that used to live on its own Section access page. Each of these picks the
           built-in role behind that section — choose who gets it below and press Grant.
@@ -699,7 +699,7 @@ function AssignmentsTab({
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
-        <h3 className="mb-3 text-lg font-semibold text-slate-900">Grant a role</h3>
+        <h3 className="mb-3 text-base font-semibold text-slate-900">Grant a role</h3>
         <p className="mb-3 max-w-2xl text-sm text-slate-500">
           Roles granted to a group apply to everyone in it, so membership changes take effect
           without anyone revisiting this page. Leave the space blank to grant everywhere; naming a
@@ -773,7 +773,7 @@ function AssignmentsTab({
 
       <div className="rounded-xl border border-slate-200 bg-surface shadow-xs">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 p-3">
-          <h3 className="text-lg font-semibold text-slate-900">Who holds what</h3>
+          <h3 className="text-base font-semibold text-slate-900">Who holds what</h3>
           <label className="relative">
             <Search
               className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400"
@@ -797,7 +797,7 @@ function AssignmentsTab({
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-500">
+              <thead className="border-b border-slate-100 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
                 <tr>
                   <th className="px-4 py-2 font-medium">Who</th>
                   <th className="px-4 py-2 font-medium">Role</th>
@@ -810,7 +810,7 @@ function AssignmentsTab({
                   <tr key={a.id} className="border-b border-slate-100 last:border-b-0">
                     <td className="px-4 py-2">
                       <span className="text-slate-800">{a.subject}</span>
-                      <span className="ml-1.5 rounded bg-slate-100 px-1 py-0.5 text-3xs font-medium uppercase tracking-wide text-slate-500">
+                      <span className="ml-1.5 rounded bg-slate-100 px-1 py-0.5 text-3xs font-semibold uppercase tracking-wider text-slate-500">
                         {a.subject_kind}
                       </span>
                     </td>
@@ -881,7 +881,7 @@ function ExplainTab({ users, spaces }: { users: PickPerson[]; spaces: PickSpace[
   return (
     <div className="space-y-4">
       <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
-        <h3 className="mb-1 text-lg font-semibold text-slate-900">Explain someone&rsquo;s access</h3>
+        <h3 className="mb-1 text-base font-semibold text-slate-900">Explain someone&rsquo;s access</h3>
         <p className="mb-3 max-w-2xl text-sm text-slate-500">
           Everything this person effectively holds, and the assignment each one came from — the
           answer to &ldquo;why can they do that?&rdquo; without reading the role table by hand.
@@ -994,7 +994,7 @@ function HealthTab() {
   return (
     <div className="space-y-4">
       <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
-        <h3 className="mb-1 flex items-center gap-2 text-lg font-semibold text-slate-900">
+        <h3 className="mb-1 flex items-center gap-2 text-base font-semibold text-slate-900">
           <ShieldCheck className="h-4 w-4 text-compass-600" aria-hidden /> Can anyone let people back in?
         </h3>
         <p className="mb-3 max-w-2xl text-sm text-slate-500">
@@ -1021,7 +1021,7 @@ function HealthTab() {
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
-        <h3 className="mb-1 text-lg font-semibold text-slate-900">
+        <h3 className="mb-1 text-base font-semibold text-slate-900">
           Does the model agree with the old role ladder?
         </h3>
         <p className="mb-3 max-w-2xl text-sm text-slate-500">
@@ -1074,7 +1074,7 @@ function HealthTab() {
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
-        <h3 className="mb-1 text-lg font-semibold text-slate-900">Does everyone have a role?</h3>
+        <h3 className="mb-1 text-base font-semibold text-slate-900">Does everyone have a role?</h3>
         <p className="mb-3 max-w-2xl text-sm text-slate-500">
           A user with no assignment can do nothing at all, so this is checked and repaired on every
           boot. It should read zero.

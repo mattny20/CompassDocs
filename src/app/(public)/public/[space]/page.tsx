@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { chipClass } from "@/components/Chip";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { FileText } from "lucide-react";
@@ -64,7 +65,7 @@ export default async function PublicSpacePage({
                 className="flex items-baseline gap-3 px-5 py-4 transition hover:bg-slate-50"
               >
                 <span className="font-medium text-compass-700">{d.title}</span>
-                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">
+                <span className={chipClass("neutral")}>
                   {DOC_TYPE_LABEL[d.type]}
                 </span>
                 {d.summary && (

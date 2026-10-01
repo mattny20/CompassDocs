@@ -10,6 +10,7 @@
 // page with a backdrop instead of squeezing the layout.
 
 import { buttonClass } from "@/components/Button";
+import { chipClass } from "@/components/Chip";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { RAIL_GROUP_TEXT, railIconClass, railRowClass } from "./RailLink";
@@ -518,7 +519,7 @@ function NavLink({
         collapsed ? (
           <span className="absolute right-2 top-1.5 h-2 w-2 rounded-full bg-compass-500" aria-hidden />
         ) : (
-          <span className="rounded-full bg-compass-100 px-1.5 text-xs font-semibold text-compass-700">
+          <span className={chipClass("accent")}>
             {badge}
             <span className="sr-only"> {badgeLabel}</span>
           </span>
