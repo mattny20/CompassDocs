@@ -12,6 +12,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { RAIL_GROUP_TEXT, railIconClass, railRowClass } from "./RailLink";
+import { askLabel } from "@/lib/nav-items";
 import { usePathname } from "next/navigation";
 import {
   Activity,
@@ -301,7 +302,7 @@ export function SidebarClient({
         <NavLink
           href="/search"
           icon={<Sparkles className="h-4 w-4" />}
-          label={`Ask ${companyName || "CompassDocs"}`}
+          label={askLabel(companyName)}
           collapsed={collapsed}
           active={isActivePath(pathname, "/search")}
         />

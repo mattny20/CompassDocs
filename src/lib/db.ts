@@ -3977,12 +3977,18 @@ export async function insertNotifications(
   );
 }
 
-export async function listNotificationsFor(userId: number, limit = 30): Promise<Notification[]> {
+/** Newest first. `beforeId` pages older than a row the caller already has
+ *  (the Notifications page's "Load older"); ids rise with time. */
+export async function listNotificationsFor(
+  userId: number,
+  limit = 30,
+  beforeId?: number
+): Promise<Notification[]> {
   return q(
     `SELECT id, kind, title, body, link, actor_name, created_at, read_at
-     FROM notifications WHERE user_id = $1
+     FROM notifications WHERE user_id = $1 AND ($3::int IS NULL OR id < $3)
      ORDER BY created_at DESC, id DESC LIMIT $2`,
-    [userId, limit]
+    [userId, limit, beforeId ?? null]
   );
 }
 

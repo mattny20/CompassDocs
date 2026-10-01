@@ -4,6 +4,38 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.5.2] - 2026-10-01
+
+Account inside the shell, one segmented control, back links, the inbox.
+
+### Added
+- **A Notifications page.** The bell's panel now ends with "See all
+  notifications" and "Preferences"; the page lists everything newest first,
+  loads older pages on demand and marks all read. The notifications API
+  pages opt-in (`?before=<id>&limit=`) and keeps its shape otherwise.
+- **One segmented control** (`Segmented`) for theme, page width, interface
+  scale and the document width switch: arrows move the choice like a
+  native radio, Tab lands on the current one, and the three styles it
+  replaces are gone. Picking a page width on Preferences re-flows the page
+  at once.
+
+### Changed
+- **Account settings live inside the app.** Profile, preferences,
+  notifications, security and API tokens keep the sidebar, palette, toasts
+  and width preference instead of dropping into a separate gradient shell
+  with a "Back to CompassDocs" link to the dashboard. The frame matches the
+  settings console (an eyebrow, a rail, the section as the page title);
+  URLs are unchanged, and the forced password change stays standalone.
+- **One back link and one breadcrumb.** Sub-pages (a person's team, a
+  document's history and read confirmations, training transcripts,
+  certificates and archived decks, a newsletter, email templates) share one
+  back link — an arrow and the destination's name, never "Back to X" — and
+  the document and public document pages share one breadcrumb trail.
+- **The dashboard's search box is the Ask entry.** It no longer shows a
+  Ctrl K keycap that opens something else, grows with the page instead of
+  truncating at 1920 and above, and the sidebar trigger uses the palette's
+  own placeholder. "Ask Acme" is spelled from one source everywhere.
+
 ## [1.5.1] - 2026-10-01
 
 Rails and the settings console frame.

@@ -1,3 +1,4 @@
+import { AccountPage } from "@/components/AccountPage";
 import { requireUser } from "@/lib/auth";
 import { getUserById, listSubscriptionsForUser, getWeeklyDigest } from "@/lib/db";
 import { NotificationMatrix } from "@/components/NotificationMatrix";
@@ -15,11 +16,7 @@ export default async function NotificationsPage() {
   ]);
 
   return (
-    <section>
-      <h2 className="mb-1 font-semibold text-slate-900">Notifications</h2>
-      <p className="mb-3 text-sm text-slate-500">
-        Choose what reaches you, and where — the bell inbox, email, or a chat webhook.
-      </p>
+    <AccountPage href="/account/notifications">
       <div className="space-y-4">
         <NotificationMatrix
           initial={me?.notify_prefs ?? {}}
@@ -33,6 +30,6 @@ export default async function NotificationsPage() {
           initialWebhook={me?.notify_webhook_url ?? ""}
         />
       </div>
-    </section>
+    </AccountPage>
   );
 }

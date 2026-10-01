@@ -715,6 +715,12 @@ mark {
 [data-tt][data-tt-pos="bottom"]:focus-visible::after {
   transform: translateX(-50%) translateY(0);
 }
+/* A control that has just opened its popup (the bell, a menu button) keeps
+ * the pointer: its tooltip would sit on top of the panel's header. The open
+ * state is the label now. */
+[data-tt][aria-expanded="true"]::after {
+  display: none;
+}
 /* Elements flush with the viewport's left edge (the sidebar brand): a centred
  * bubble would run off-screen for a long workspace name, so it grows from
  * the element's left edge instead. Combines with data-tt-pos="bottom". */

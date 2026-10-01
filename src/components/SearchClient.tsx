@@ -8,6 +8,7 @@ import { MarkdownView } from "./MarkdownView";
 import { PageContainer } from "./PageWidth";
 import { TypeBadge } from "./Badges";
 import { timeAgo } from "@/lib/ui";
+import { askLabel } from "@/lib/nav-items";
 import { parseSearchQuery } from "@/lib/search-query";
 import type { SearchHit } from "@/lib/types";
 import type { AiAnswer } from "@/lib/ai";
@@ -92,7 +93,7 @@ export function SearchClient({
   return (
     <PageContainer>
       <h1 className="mb-1 flex items-center gap-2 text-2xl font-bold text-slate-900">
-        <Sparkles className="h-6 w-6 text-compass-600" /> Ask {companyName}
+        <Sparkles className="h-6 w-6 text-compass-600" /> {askLabel(companyName)}
       </h1>
       <p className="mb-5 mt-1 text-sm text-slate-500">
         Ask a question in plain English, or search by keyword. Answers are grounded in your

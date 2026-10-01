@@ -4,7 +4,8 @@
 
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Network, Users } from "lucide-react";
+import { Network, Users } from "lucide-react";
+import { BackLink } from "@/components/BackLink";
 import { requireUser } from "@/lib/auth";
 import { getPersonById, listFields, listPeople } from "@/lib/directory";
 import { buildOrgChart, chainAbove, managerField, teamBelow } from "@/lib/directory-org";
@@ -44,9 +45,7 @@ export default async function TeamPage({ params }: { params: Promise<{ id: strin
 
   return (
     <PageContainer>
-      <Link href={`/directory/${person.id}`} className="mb-4 inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-600">
-        <ArrowLeft className="h-3.5 w-3.5" /> {person.name}
-      </Link>
+      <BackLink href={`/directory/${person.id}`} label={person.name} />
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900">

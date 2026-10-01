@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { AccountPage } from "@/components/AccountPage";
 import { requireUser, SESSION_COOKIE } from "@/lib/auth";
 import { listUserSessions, getTotpState } from "@/lib/db";
 import { SecurityPanel } from "@/components/SecurityPanel";
@@ -16,11 +17,7 @@ export default async function SecurityPage() {
   ]);
 
   return (
-    <section>
-      <h2 className="mb-1 font-semibold text-slate-900">Security</h2>
-      <p className="mb-3 text-sm text-slate-500">
-        Password, two-factor authentication, and your signed-in devices.
-      </p>
+    <AccountPage href="/account/security">
       <div className="space-y-4">
         <div className="rounded-xl border border-slate-200 bg-surface p-5 shadow-xs">
           <h3 className="mb-1 text-sm font-semibold text-slate-900">Change password</h3>
@@ -37,6 +34,6 @@ export default async function SecurityPage() {
           }}
         />
       </div>
-    </section>
+    </AccountPage>
   );
 }

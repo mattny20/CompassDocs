@@ -1,8 +1,8 @@
 import { notFound } from "next/navigation";
 
-import Link from "next/link";
 import { PageContainer } from "@/components/PageWidth";
-import { ArrowLeft, GraduationCap } from "lucide-react";
+import { GraduationCap } from "lucide-react";
+import { BackLink } from "@/components/BackLink";
 import { requireUser } from "@/lib/auth";
 import { canAccessSection } from "@/lib/section-access";
 import { featureEnabled } from "@/lib/ee";
@@ -33,12 +33,7 @@ export default async function TrainingCertificatePage({
   return (
     <PageContainer>
       <div className="mb-6 flex items-center justify-between print:hidden">
-        <Link
-          href="/training"
-          className="inline-flex items-center gap-1 text-sm font-medium text-compass-600 hover:underline"
-        >
-          <ArrowLeft className="h-4 w-4" /> Training
-        </Link>
+        <BackLink href="/training" label="Training" className="" />
         <PrintButton compact />
       </div>
 

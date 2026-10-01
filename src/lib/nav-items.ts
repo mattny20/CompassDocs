@@ -59,6 +59,12 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/admin", label: "Settings", icon: Settings, keywords: "admin configure workspace system", cap: "isAdmin", chord: "," },
 ];
 
+/** The Ask destination's label everywhere it appears (sidebar, dashboard
+ *  hero, the page itself): one source, so they cannot disagree. */
+export function askLabel(companyName?: string | null): string {
+  return `Ask ${companyName || "CompassDocs"}`;
+}
+
 /** The chord map: second key → destination, filtered by capability. */
 export function navChords(allowed: (cap: CapKey | null) => boolean): Map<string, NavItem> {
   const m = new Map<string, NavItem>();
