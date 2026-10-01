@@ -344,7 +344,7 @@ function DocDrilldown({ docId, days, onClose }: { docId: number; days: number; o
                 <div className="text-xs text-slate-500">
                   {data.doc.space_icon} {data.doc.space_name} · by {data.doc.author}
                 </div>
-                <h3 className="text-lg font-bold text-slate-900">{data.doc.title}</h3>
+                <h3 className="text-base font-semibold text-slate-900">{data.doc.title}</h3>
               </div>
               <div className="flex items-center gap-1.5">
                 <Link
@@ -368,7 +368,7 @@ function DocDrilldown({ docId, days, onClose }: { docId: number; days: number; o
               ].map(([label, v]) => (
                 <div key={label as string} className="rounded-lg border border-slate-200 bg-slate-50/70 px-2.5 py-2 text-center">
                   <div className="text-base font-bold text-slate-800">{v as any}</div>
-                  <div className="text-3xs uppercase tracking-wide text-slate-500">{label as string}</div>
+                  <div className="text-3xs font-semibold uppercase tracking-wider text-slate-500">{label as string}</div>
                 </div>
               ))}
             </div>
@@ -378,7 +378,7 @@ function DocDrilldown({ docId, days, onClose }: { docId: number; days: number; o
             />
             {data.readers.length > 0 && (
               <div className="mt-3">
-                <h4 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <h4 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-slate-500">
                   Top readers
                 </h4>
                 <ul className="divide-y divide-slate-100 text-sm">
@@ -607,7 +607,7 @@ export function AnalyticsClient() {
               ) : (
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
+                    <tr className="text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
                       {/* w-full: the title column takes the slack instead of
                           losing it to columns holding single digits. */}
                       <th className="w-full pb-2 font-medium">Document</th>
@@ -643,7 +643,7 @@ export function AnalyticsClient() {
               ) : (
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
+                    <tr className="text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
                       <th className="w-full pb-2 font-medium">Document</th>
                       <th className="pb-2 text-right font-medium">Views</th>
                       <th className="pb-2 pl-3 text-right font-medium">Updated</th>
@@ -717,7 +717,7 @@ export function AnalyticsClient() {
               ) : (
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
+                    <tr className="text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
                       <th className="pb-2 font-medium">Reader</th>
                       <th className="pb-2 text-right font-medium">Views</th>
                       <th className="pb-2 text-right font-medium">Docs</th>
@@ -749,7 +749,7 @@ export function AnalyticsClient() {
               ) : (
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
+                    <tr className="text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
                       <th className="pb-2 font-medium">Author</th>
                       <th className="pb-2 text-right font-medium">Docs</th>
                       <th className="pb-2 text-right font-medium">Views</th>

@@ -4,6 +4,7 @@
 // noindex: share links are unlisted, not published.
 
 import { notFound } from "next/navigation";
+import { chipClass } from "@/components/Chip";
 import type { Metadata } from "next";
 import { resolveShare, recordShareView } from "@/lib/shares";
 import { getAppSettings } from "@/lib/settings-store";
@@ -50,7 +51,7 @@ export default async function SharedDocPage({ params }: { params: Promise<{ toke
       <header className="border-b border-slate-200 bg-surface print:hidden">
         <div className="mx-auto flex max-w-standalone items-center justify-between gap-4 px-6 py-4">
           <Brand name={settings.company_name} logoUrl={settings.logo_url || undefined} />
-          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+          <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
             Shared document · read-only
           </span>
         </div>
@@ -61,7 +62,7 @@ export default async function SharedDocPage({ params }: { params: Promise<{ toke
           <div>
             <h1 className="text-3xl font-bold tracking-tight text-slate-900">{doc.title}</h1>
             <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-500">
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">
+              <span className={chipClass("neutral")}>
                 {DOC_TYPE_LABEL[doc.type]}
               </span>
               <span>Updated {formatDate(doc.updated_at, settings)}</span>
@@ -83,7 +84,7 @@ export default async function SharedDocPage({ params }: { params: Promise<{ toke
 
         {attachments.length > 0 && (
           <div className="mt-6 rounded-xl border border-slate-200 bg-surface p-5 shadow-xs print:hidden">
-            <h2 className="mb-3 flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-500">
+            <h2 className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-500">
               <Paperclip className="h-3.5 w-3.5" aria-hidden /> Attachments
             </h2>
             <ul className="space-y-1">

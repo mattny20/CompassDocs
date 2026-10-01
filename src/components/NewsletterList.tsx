@@ -5,6 +5,7 @@
 // point (creates an empty draft and jumps into the editor).
 
 import { useState } from "react";
+import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -40,7 +41,7 @@ export const STATUS_META: Record<string, { label: string; cls: string }> = {
   },
   approved: {
     label: "Approved",
-    cls: "bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-300",
+    cls: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300",
   },
   sent: {
     label: "Sent",
@@ -148,12 +149,12 @@ export function NewsletterList({ initial }: { initial: NewsletterRow[] }) {
                       </p>
                     </div>
                     {r.status === "sent" && (
-                      <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+                      <span className={chipClass("neutral", "md", "shrink-0")}>
                         {r.sent_count} sent
                       </span>
                     )}
                     {r.status === "approved" && r.scheduled_at && (
-                      <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-500/20 dark:text-green-300">
+                      <span className={chipClass("ok", "md", "shrink-0")}>
                         <CalendarClock className="h-3 w-3" />
                         {fmt.dateTime(r.scheduled_at)}
                       </span>

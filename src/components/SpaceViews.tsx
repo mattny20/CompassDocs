@@ -6,6 +6,7 @@
 // per space per browser, defaulting to the admin-configured space view.
 
 import { useEffect, useMemo, useState } from "react";
+import { chipClass } from "@/components/Chip";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -268,7 +269,7 @@ function CardSubs({ parentId, map }: { parentId: number; map: Map<number, Docume
               {k.title}
             </span>
             {k.status === "draft" && (
-              <span className="shrink-0 rounded-full bg-slate-100 px-1.5 text-3xs font-medium uppercase text-slate-500">
+              <span className={chipClass("neutral", "sm", "shrink-0")}>
                 Draft
               </span>
             )}
@@ -765,7 +766,7 @@ function BoardView({ docs }: { docs: DocumentWithSpace[] }) {
           <div key={c.key} className="min-w-0 rounded-xl border border-slate-200 bg-surface p-3">
             <div className="mb-2 flex items-center justify-between">
               <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">{c.label}</span>
-              <span className="rounded-full bg-slate-100 px-1.5 text-xs font-semibold text-slate-500">
+              <span className={chipClass("neutral")}>
                 {c.docs.length}
               </span>
             </div>

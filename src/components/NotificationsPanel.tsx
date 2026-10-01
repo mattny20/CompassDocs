@@ -4,6 +4,7 @@
 // emails, plus every space the user follows (directly or via a group).
 
 import { useState } from "react";
+import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import Link from "next/link";
 import { BellOff, BellRing, UsersRound } from "lucide-react";
@@ -172,7 +173,7 @@ export function NotificationsPanel({
           </button>
         </div>
         {webhookSaved === "ok" && (
-          <p className="mt-1.5 text-xs text-green-600">Saved.</p>
+          <p className="mt-1.5 text-xs text-emerald-600">Saved.</p>
         )}
         {webhookSaved && webhookSaved !== "ok" && (
           <p className="mt-1.5 text-xs text-red-600">{webhookSaved}</p>
@@ -201,7 +202,7 @@ export function NotificationsPanel({
                   </Link>
                   {s.via_group && (
                     <span
-                      className="inline-flex items-center gap-1 rounded-full bg-sky-50 px-1.5 py-0.5 text-xs text-sky-700"
+                      className={chipClass("info")}
                       title="An admin subscribed one of your groups to this space."
                     >
                       <UsersRound className="h-3 w-3" /> via group

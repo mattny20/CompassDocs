@@ -27,7 +27,7 @@ const field =
   "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
 
 const STATUS_TONE: Record<string, string> = {
-  active: "bg-green-100 text-green-700",
+  active: "bg-emerald-100 text-emerald-700",
   grace: "bg-amber-100 text-amber-800",
   expired: "bg-red-100 text-red-700",
   invalid: "bg-red-100 text-red-700",
@@ -168,7 +168,7 @@ export function LicensePanel() {
                   <span
                     className={`rounded-full px-2 py-0.5 text-xs font-medium ${
                       f.active
-                        ? "bg-green-100 text-green-700"
+                        ? "bg-emerald-100 text-emerald-700"
                         : "bg-slate-100 text-slate-500"
                     }`}
                     title={

@@ -7,8 +7,8 @@ import type { DiagnosticCheck } from "@/lib/diagnostics";
 
 const TONE: Record<DiagnosticCheck["status"], { icon: React.ReactNode; chip: string }> = {
   pass: {
-    icon: <CheckCircle2 className="h-4 w-4 text-green-600" aria-hidden />,
-    chip: "bg-green-50 text-green-700 dark:bg-green-950/50 dark:text-green-300",
+    icon: <CheckCircle2 className="h-4 w-4 text-emerald-600" aria-hidden />,
+    chip: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300",
   },
   warn: {
     icon: <AlertTriangle className="h-4 w-4 text-amber-500" aria-hidden />,

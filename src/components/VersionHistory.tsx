@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -395,12 +396,12 @@ export function VersionHistory({
                 <span className="font-medium text-slate-800">
                   v{v.rev}
                   {isCurrent && (
-                    <span className="ml-1.5 rounded-full bg-compass-100 px-1.5 py-0.5 text-3xs font-semibold text-compass-700 dark:bg-compass-900/60">
+                    <span className={chipClass("accent", "sm", "ml-1.5")}>
                       Current
                     </span>
                   )}
                   {v.restored_from !== null && (
-                    <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-3xs font-semibold text-amber-700 dark:bg-amber-900/50">
+                    <span className={chipClass("warn", "sm", "ml-1.5")}>
                       Restored
                     </span>
                   )}
@@ -526,7 +527,7 @@ function RenderedDiff({
           (c.rows ?? []).map((b) => (
             <div key={b.key} className={tint[b.type]}>
               {b.type === "del" && (
-                <div className="mb-1 text-3xs font-semibold uppercase tracking-wide text-red-500">
+                <div className="mb-1 text-3xs font-semibold uppercase tracking-wider text-red-500">
                   Removed
                 </div>
               )}

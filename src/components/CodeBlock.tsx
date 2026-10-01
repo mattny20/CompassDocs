@@ -70,7 +70,7 @@ export function CodeBlock({ language, code }: { language: string; code: string }
               <span className="flex gap-1" aria-hidden>
                 <span className="h-2 w-2 rounded-full bg-red-400/80" />
                 <span className="h-2 w-2 rounded-full bg-amber-400/80" />
-                <span className="h-2 w-2 rounded-full bg-green-400/80" />
+                <span className="h-2 w-2 rounded-full bg-emerald-400/80" />
               </span>
               <span className="rounded-sm bg-compass-500/20 px-1.5 py-0.5 font-semibold uppercase tracking-wider text-compass-300">
                 Run
@@ -82,7 +82,7 @@ export function CodeBlock({ language, code }: { language: string; code: string }
         <button
           onClick={copy}
           className={`rounded px-2 py-0.5 text-xs font-medium transition ${
-            copied ? "text-green-400" : "text-[#94a3b8] hover:bg-[#334155] hover:text-[#e2e8f0]"
+            copied ? "text-emerald-400" : "text-[#94a3b8] hover:bg-[#334155] hover:text-[#e2e8f0]"
           }`}
         >
           {copied ? "Copied ✓" : isRun ? "Copy commands" : "Copy"}

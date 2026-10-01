@@ -78,7 +78,7 @@ export default async function TeamPage({ params }: { params: Promise<{ id: strin
         <div className="space-y-6">
           {levels.map((l) => (
             <section key={l.level}>
-              <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
+              <h2 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
                 {levelLabel(l.level)} <span className="text-xs font-normal text-slate-500">({l.people.length})</span>
               </h2>
               <div className="card-grid gap-2 [--card-min:14rem]">

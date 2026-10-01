@@ -101,7 +101,7 @@ export default async function LoginPage({
                 )}
               </div>
               {!ssoCfg.ssoOnly && (
-                <div className="my-4 flex items-center gap-3 text-xs uppercase tracking-wider text-slate-500">
+                <div className="my-4 flex items-center gap-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
                   <span className="h-px flex-1 bg-slate-200" />
                   or
                   <span className="h-px flex-1 bg-slate-200" />

@@ -68,7 +68,7 @@ export default async function DirectoryPage({ searchParams }: { searchParams: Pr
 
       {/* Print: the default export preset's columns, as a plain table. */}
       <div className="hidden print:block">
-        <h2 className="text-lg font-bold text-slate-900">
+        <h2 className="text-lg font-semibold text-slate-900">
           {printPreset.title || `${settings.company_name || "Company"} directory`}
         </h2>
         <p className="mb-3 mt-0.5 text-xs text-slate-500">

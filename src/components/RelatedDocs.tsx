@@ -123,7 +123,7 @@ export function RelatedDocs({
           <button
             onClick={toggleOpen}
             aria-expanded={open}
-            className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-500 hover:text-slate-700"
+            className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-500 hover:text-slate-700"
           >
             {open ? (
               <ChevronDown className="h-3.5 w-3.5" aria-hidden />

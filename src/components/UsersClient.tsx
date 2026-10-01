@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { buttonClass } from "@/components/Button";
+import { Chip, labelCase } from "@/components/Chip";
 import { useRouter } from "next/navigation";
 import { ROLE_ORDER, ROLE_LABEL, ROLE_BLURB } from "@/lib/types";
 import type { User, Role } from "@/lib/types";
@@ -131,7 +132,7 @@ function UserTable({
         (Reset password / Disable / Delete) used to be unreachable entirely. */}
     <div className="overflow-x-auto rounded-xl border border-slate-200 bg-surface shadow-xs">
       <table className="w-full min-w-[45rem] text-sm">
-        <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+        <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
           <tr>
             <th className="px-4 py-2 font-medium">User</th>
             <th className="px-4 py-2 font-medium">Role</th>
@@ -185,15 +186,7 @@ function UserTable({
                 )}
               </td>
               <td className="px-4 py-3">
-                <span
-                  className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                    u.status === "active"
-                      ? "bg-green-100 text-green-700"
-                      : "bg-slate-200 text-slate-600"
-                  }`}
-                >
-                  {u.status}
-                </span>
+                <Chip tone={u.status === "active" ? "ok" : "neutral"}>{labelCase(u.status)}</Chip>
               </td>
               <td className="px-4 py-3">
                 <div className="flex justify-end gap-1.5 text-xs">

@@ -19,7 +19,7 @@ function Group({ icon, title, items, tone, detail }: { icon: React.ReactNode; ti
   const shown = all ? items : items.slice(0, 6);
   return (
     <div className="min-w-0">
-      <p className={`mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide ${tone}`}>
+      <p className={`mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider ${tone}`}>
         {icon} {title} <span className="font-normal opacity-70">({items.length})</span>
       </p>
       {items.length === 0 ? (

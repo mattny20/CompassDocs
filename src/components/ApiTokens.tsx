@@ -139,18 +139,18 @@ export function ApiTokens({
             Token &ldquo;{fresh.name}&rdquo; created — copy it now, it won&rsquo;t be shown again.
           </p>
           <div className="mt-2 flex items-center gap-2">
-            <code className="min-w-0 flex-1 truncate rounded-sm bg-surface px-2 py-1 font-mono text-xs ring-1 ring-green-200">
+            <code className="min-w-0 flex-1 truncate rounded-sm bg-surface px-2 py-1 font-mono text-xs ring-1 ring-emerald-200">
               {fresh.token}
             </code>
             <button
               onClick={() => copy(fresh.token, "tok")}
-              className="shrink-0 rounded-lg bg-green-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-green-700"
+              className="shrink-0 rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-emerald-700"
             >
               {copied === "tok" ? "Copied ✓" : "Copy"}
             </button>
           </div>
           <details className="mt-2">
-            <summary className="cursor-pointer text-xs font-medium text-green-700">
+            <summary className="cursor-pointer text-xs font-medium text-emerald-700">
               Claude Desktop setup (mcpServers entry)
             </summary>
             <div className="mt-2">
@@ -159,7 +159,7 @@ export function ApiTokens({
               </pre>
               <button
                 onClick={() => copy(claudeConfig, "cfg")}
-                className="mt-1 rounded-lg border border-green-300 px-2.5 py-1 text-xs font-medium text-green-700 hover:bg-green-100"
+                className="mt-1 rounded-lg border border-emerald-300 px-2.5 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
               >
                 {copied === "cfg" ? "Copied ✓" : "Copy config"}
               </button>
@@ -167,7 +167,7 @@ export function ApiTokens({
           </details>
           <button
             onClick={() => setFresh(null)}
-            className="mt-2 text-xs font-medium text-green-700 underline"
+            className="mt-2 text-xs font-medium text-emerald-700 underline"
           >
             Done — hide this
           </button>

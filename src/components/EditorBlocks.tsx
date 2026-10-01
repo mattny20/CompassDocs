@@ -275,7 +275,7 @@ function TabPanelNodeView({ node, updateAttributes }: NodeViewProps) {
         contentEditable={false}
         className="flex items-center gap-1.5 border-b border-slate-100 bg-slate-50 px-2.5 py-1"
       >
-        <span className="text-2xs uppercase tracking-wide text-slate-500">tab</span>
+        <span className="text-2xs font-semibold uppercase tracking-wider text-slate-500">tab</span>
         <input
           value={String(node.attrs.title ?? "")}
           onChange={(e) => updateAttributes({ title: e.target.value })}
@@ -362,7 +362,7 @@ function EmbedCardControls({
 }) {
   return (
     <div className="mb-1 flex items-center justify-between">
-      <span className="text-2xs font-semibold uppercase tracking-wide text-slate-500">{label}</span>
+      <span className="text-2xs font-semibold uppercase tracking-wider text-slate-500">{label}</span>
       <span className="flex gap-1">
         <button
           type="button"
@@ -565,7 +565,7 @@ function CodeBlockView({ node }: NodeViewProps) {
       </pre>
       {PREVIEW_LANGS.has(lang) && preview.trim() && (
         <div contentEditable={false} className="-mt-2 rounded-b-lg border border-t-0 border-slate-200 px-2 pb-1 [&>div]:my-2">
-          <div className="pt-1 text-3xs font-semibold uppercase tracking-wide text-slate-500">
+          <div className="pt-1 text-3xs font-semibold uppercase tracking-wider text-slate-500">
             Live preview
           </div>
           {lang === "decision" ? (

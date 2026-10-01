@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { chipClass } from "@/components/Chip";
 
 import { FilePlus2, FileText, FolderLock, House, LayoutTemplate } from "lucide-react";
 import { EmptyState } from "@/components/form";
@@ -100,7 +101,7 @@ export default async function NewDocPage({
                   />
                   {t.name}
                 </div>
-                <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-2xs font-medium text-slate-600">
+                <span className={chipClass("neutral", "sm", "shrink-0")}>
                   {DOC_TYPE_LABEL[t.doc_type]}
                 </span>
               </div>

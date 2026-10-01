@@ -1,4 +1,5 @@
 import { Breadcrumbs } from "@/components/Breadcrumbs";
+import { chipClass } from "@/components/Chip";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import {
@@ -60,7 +61,7 @@ export default async function PublicDocPage({
 
       <h1 className="text-3xl font-bold text-slate-900">{doc.title}</h1>
       <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-500">
-        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">
+        <span className={chipClass("neutral")}>
           {DOC_TYPE_LABEL[doc.type]}
         </span>
         <span>Updated {formatDate(doc.updated_at, settings)}</span>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import { useFormatDate } from "./SettingsProvider";
 
@@ -88,16 +89,8 @@ const LABELS: Record<string, string> = {
   "audit.export": "Exported audit log",
 };
 
-// Category → chip color.
-const CAT_TONE: Record<string, string> = {
-  auth: "bg-slate-100 text-slate-600",
-  user: "bg-purple-100 text-purple-700",
-  document: "bg-compass-100 text-compass-700",
-  change_request: "bg-amber-100 text-amber-800",
-  space: "bg-teal-100 text-teal-700",
-  settings: "bg-blue-100 text-blue-700",
-  backup: "bg-green-100 text-green-700",
-};
+// Categories are labels, not states: every one renders neutral. A rainbow
+// of seven hues read as seven alert levels.
 
 function actionLabel(a: string): string {
   return LABELS[a] || a;
@@ -248,7 +241,7 @@ export function AuditLog({
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-surface shadow-xs">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-500">
+            <tr className="border-b border-slate-100 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
               <th className="px-4 py-2.5 font-medium">When</th>
               <th className="px-4 py-2.5 font-medium">Who</th>
               <th className="px-4 py-2.5 font-medium">Action</th>
@@ -273,7 +266,7 @@ export function AuditLog({
                   </td>
                   <td className="px-4 py-2.5">
                     <span
-                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${CAT_TONE[cat] || "bg-slate-100 text-slate-600"}`}
+                      className={chipClass("neutral")}
                     >
                       {actionLabel(row.action)}
                     </span>

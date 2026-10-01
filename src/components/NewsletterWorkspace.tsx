@@ -416,7 +416,7 @@ export function NewsletterWorkspace({
       )}
 
       {n.scheduled_at && n.status === "approved" && (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-500/30 dark:bg-green-500/10 dark:text-green-300">
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">
           <span className="inline-flex items-center gap-1.5">
             <CalendarClock className="h-4 w-4" />
             Scheduled to send {fmt.dateTime(n.scheduled_at)}.
@@ -670,7 +670,7 @@ export function NewsletterWorkspace({
       )}
 
       {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
-      {notice && <p className="text-sm text-green-600 dark:text-green-400">✓ {notice}</p>}
+      {notice && <p className="text-sm text-emerald-600 dark:text-emerald-400">✓ {notice}</p>}
 
       {/* Action bar: what you can do next, given the state and your capability. */}
       {!isSent && (
@@ -721,7 +721,7 @@ export function NewsletterWorkspace({
               onClick={() => sendIt(false)}
               disabled={!!busy || dirty || !smtpReady}
               data-tt={dirty ? "Save your changes first" : undefined} aria-label={dirty ? "Save your changes first" : undefined}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-green-700 disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-emerald-700 disabled:opacity-50"
             >
               <Mail className="h-4 w-4" />
               {busy === "send" ? "Sending…" : "Send newsletter"}
@@ -732,7 +732,7 @@ export function NewsletterWorkspace({
               onClick={() => setScheduleOpen((v) => !v)}
               disabled={!!busy || dirty || !smtpReady}
               data-tt={dirty ? "Save your changes first" : "Pick a date and time for the send"}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-green-200 bg-green-50 px-4 py-2 text-sm font-semibold text-green-700 hover:bg-green-100 disabled:opacity-50 dark:border-green-500/30 dark:bg-green-500/10 dark:text-green-300 dark:hover:bg-green-500/20"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-50 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300 dark:hover:bg-emerald-500/20"
             >
               <CalendarClock className="h-4 w-4" /> Schedule…
             </button>
@@ -822,7 +822,7 @@ export function NewsletterWorkspace({
             <button
               onClick={() => decide("approve")}
               disabled={!!busy}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
             >
               <CheckCircle2 className="h-4 w-4" />
               {busy === "approve" ? "Working…" : "Approve"}
@@ -912,7 +912,7 @@ function EventIcon({ kind }: { kind: string }) {
     case "submitted":
       return <Send className={`${base} text-compass-500`} />;
     case "approved":
-      return <CheckCircle2 className={`${base} text-green-600 dark:text-green-400`} />;
+      return <CheckCircle2 className={`${base} text-emerald-600 dark:text-emerald-400`} />;
     case "changes_requested":
       return <Undo2 className={`${base} text-red-500 dark:text-red-400`} />;
     case "sent":

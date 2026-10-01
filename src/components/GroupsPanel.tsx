@@ -5,6 +5,7 @@
 // import them from Microsoft Entra and keep membership in sync.
 
 import { useState } from "react";
+import { chipClass, EnterpriseBadge } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import { UsersRound, RefreshCw, CloudDownload, Trash2, Pencil, X } from "lucide-react";
@@ -291,7 +292,7 @@ function GroupCard({
                   <li key={m.id} className="flex items-center gap-2 py-1.5 text-sm">
                     <span className="font-medium text-slate-800">{m.name || m.username}</span>
                     <span className="text-xs text-slate-500">{m.email || m.username}</span>
-                    <span className="ml-auto rounded-full bg-slate-100 px-1.5 text-xs text-slate-500">
+                    <span className={chipClass("neutral", "md", "ml-auto")}>
                       {m.role}
                     </span>
                     <button
@@ -400,9 +401,7 @@ function EntraSection({
           <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
             <CloudDownload className="h-4 w-4 text-compass-600" />
             Microsoft Entra groups
-            <span className="rounded-full bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-700 dark:bg-violet-900/50 dark:text-violet-300">
-              Enterprise
-            </span>
+            <EnterpriseBadge />
           </h3>
           <p className="mt-1 text-sm text-slate-500">
             Import security groups from your Microsoft 365 tenant and keep their membership in

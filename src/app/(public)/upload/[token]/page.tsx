@@ -48,7 +48,7 @@ export default async function UploadPage({ params }: { params: Promise<{ token: 
       <header className="border-b border-slate-200 bg-surface">
         <div className="mx-auto flex max-w-2xl items-center justify-between gap-4 px-6 py-4">
           <Brand name={settings.company_name} logoUrl={settings.logo_url || undefined} />
-          <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+          <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
             Add an image
           </span>
         </div>

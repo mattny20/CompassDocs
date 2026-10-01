@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -982,7 +983,7 @@ export function DocEditor({
                         Summarize → summary field
                       </AssistItem>
                       <div className="my-1 border-t border-slate-100" />
-                      <div className="px-3 py-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      <div className="px-3 py-1 text-xs font-semibold uppercase tracking-wider text-slate-500">
                         Change tone
                       </div>
                       {(["professional", "friendly", "concise", "confident"] as WriteTone[]).map((t) => (
@@ -1243,7 +1244,7 @@ function ProofPanel({
           {proof.changes!.map((c, i) => (
             <li key={i} className="rounded-lg border border-slate-200 bg-surface p-2.5 text-sm">
               <div className="mb-1 flex items-center gap-2">
-                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-2xs font-medium uppercase tracking-wide text-slate-500">
+                <span className={chipClass("neutral", "sm")}>
                   {c.type}
                 </span>
                 {c.note && <span className="text-xs text-slate-500">{c.note}</span>}
@@ -1253,7 +1254,7 @@ function ProofPanel({
                   {c.before}
                 </span>
                 <span className="text-slate-500">→</span>
-                <span className="rounded-sm bg-green-50 px-1.5 py-0.5 text-green-700 dark:bg-green-950/40 dark:text-green-300">{c.after}</span>
+                <span className="rounded-sm bg-emerald-50 px-1.5 py-0.5 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">{c.after}</span>
               </div>
             </li>
           ))}

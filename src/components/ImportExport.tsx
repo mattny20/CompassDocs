@@ -91,7 +91,7 @@ export function ImportExport() {
             .
             {result.errors.length > 0 && (
               <details className="mt-1">
-                <summary className="cursor-pointer text-xs font-medium text-green-700">
+                <summary className="cursor-pointer text-xs font-medium text-emerald-700">
                   {result.errors.length} warning{result.errors.length === 1 ? "" : "s"}
                 </summary>
                 <ul className="mt-1 list-disc pl-5 text-xs text-slate-600">

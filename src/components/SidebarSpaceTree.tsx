@@ -4,6 +4,7 @@
 // Fetched on first expand; each node with children gets its own chevron.
 
 import { useEffect, useState } from "react";
+import { chipClass } from "@/components/Chip";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronRight, LoaderCircle } from "lucide-react";
@@ -43,7 +44,7 @@ function TreeRow({ node, depth }: { node: TreeNode; depth: number }) {
           {node.title}
         </Link>
         {node.status === "draft" && (
-          <span className="shrink-0 rounded-full bg-slate-100 px-1 text-[0.5625rem] font-medium uppercase text-slate-500">
+          <span className={chipClass("neutral", "sm", "shrink-0")}>
             D
           </span>
         )}

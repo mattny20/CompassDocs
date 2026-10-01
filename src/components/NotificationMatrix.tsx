@@ -80,7 +80,7 @@ export function NotificationMatrix({
       <div className="overflow-x-auto">
         <table className="w-full min-w-[26rem] text-sm">
           <thead>
-            <tr className="text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+            <tr className="text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
               <th className="pb-2 pr-2 font-medium">Event</th>
               {COLS.map((c) => (
                 <th key={c.key} className="w-20 pb-2 text-center font-medium">

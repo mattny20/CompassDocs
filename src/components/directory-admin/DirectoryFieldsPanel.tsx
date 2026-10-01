@@ -391,7 +391,7 @@ function OptionsEditor({ field, onSaved }: { field: DirectoryField; onSaved: (f:
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
-              <tr className="text-left uppercase tracking-wide text-slate-500">
+              <tr className="text-left font-semibold uppercase tracking-wider text-slate-500">
                 <th className="px-1 py-1">Value</th>
                 <th className="px-1 py-1">Label</th>
                 <th className="px-1 py-1">Aliases</th>
@@ -559,7 +559,7 @@ export function DirectoryFieldsPanel({
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-500">
+            <tr className="border-b border-slate-100 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
               <th className="px-3 py-2">Field</th>
               <th className="px-3 py-2">Kind</th>
               {providers.map((p) => (
@@ -656,7 +656,7 @@ function FieldRow({
           />
           <div className="mt-0.5 font-mono text-2xs text-slate-500">
             {f.key}
-            {f.builtin ? <span className="ml-1 rounded-sm bg-slate-100 px-1 text-3xs uppercase text-slate-500">built-in</span> : null}
+            {f.builtin ? <span className="ml-1 rounded-sm bg-slate-100 px-1 text-3xs font-semibold uppercase tracking-wider text-slate-500">built-in</span> : null}
           </div>
         </td>
         <td className="px-3 py-2 text-slate-600">
@@ -704,7 +704,7 @@ function FieldRow({
           <td colSpan={cols} className="px-3 py-3">
             {open.panel === "mapping" && open.provider && (
               <div className="max-w-3xl">
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
                   {providerLabel[open.provider]} → {f.label}
                 </p>
                 <MappingEditor key={`${f.id}-${open.provider}`} field={f} provider={open.provider} onSaved={(nf) => { replace(nf); setOpen(null); }} />

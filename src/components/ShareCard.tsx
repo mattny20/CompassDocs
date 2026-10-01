@@ -87,7 +87,7 @@ export function ShareCard({
 
   return (
     <section>
-      <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-500">
+      <h2 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-500">
         <Share2 className="h-3.5 w-3.5" aria-hidden /> Share link
       </h2>
       {!isPublished ? (

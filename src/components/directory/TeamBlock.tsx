@@ -62,7 +62,7 @@ export function TeamBlock({
   return (
     <div className="mt-5 rounded-lg border border-slate-100 bg-slate-50 p-4">
       <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-        <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+        <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-500">
           <Network className="h-3.5 w-3.5 text-compass-600" aria-hidden /> Team
         </p>
         <Link href={`/directory?view=org&focus=${person.id}`} className="text-xs font-medium text-compass-600 hover:underline">
@@ -89,7 +89,7 @@ export function TeamBlock({
       )}
       {reports.length > 0 && (
         <>
-          <p className="mb-1.5 mt-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <p className="mb-1.5 mt-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-500">
             <Users className="h-3.5 w-3.5" aria-hidden /> {labels.reports} <span className="font-normal text-slate-500">({reports.length})</span>
           </p>
           <div className="card-grid gap-2 [--card-min:14rem]">

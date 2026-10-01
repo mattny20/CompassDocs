@@ -173,7 +173,7 @@ export function GoogleDirectoryPanel({ initial }: { initial: GoogleState }) {
   if (!state.bundled) {
     return (
       <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
-        <h3 className="mb-1 text-lg font-semibold text-slate-900">Google Workspace sync</h3>
+        <h3 className="mb-1 text-base font-semibold text-slate-900">Google Workspace sync</h3>
         <p className="text-sm text-slate-500">
           Directory sync is an enterprise feature. This build is the community edition.
         </p>
@@ -184,7 +184,7 @@ export function GoogleDirectoryPanel({ initial }: { initial: GoogleState }) {
   return (
     <div className="space-y-4">
       <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
-        <h3 className="mb-1 text-lg font-semibold text-slate-900">Google Workspace sync</h3>
+        <h3 className="mb-1 text-base font-semibold text-slate-900">Google Workspace sync</h3>
         <p className="mb-3 max-w-2xl text-sm text-slate-500">
           Fills the directory from your Workspace account. It can run alongside Microsoft 365 —
           each provider owns the people it synced, so connecting one never removes the other&rsquo;s.
@@ -354,7 +354,7 @@ export function GoogleDirectoryPanel({ initial }: { initial: GoogleState }) {
 
       {state.has_service_account && (
         <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
-          <h3 className="mb-1 text-lg font-semibold text-slate-900">Authorise in Google</h3>
+          <h3 className="mb-1 text-base font-semibold text-slate-900">Authorise in Google</h3>
           <p className="mb-3 max-w-2xl text-sm text-slate-500">
             In the Google Admin console, go to <strong>Security → API controls → Domain-wide
             delegation</strong> and add a client with the ID and scopes below. Both are shown for

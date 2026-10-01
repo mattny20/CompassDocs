@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import { PageHeader } from "@/components/PageHeader";
 import {
@@ -180,7 +181,7 @@ export function EmailTemplatesPanel({ initial }: { initial: Template[] }) {
                   <span className="flex items-center gap-2">
                     <span className="font-medium text-slate-800">{t.label}</span>
                     {t.customized && (
-                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+                      <span className={chipClass("warn")}>
                         Customized
                       </span>
                     )}
@@ -197,13 +198,13 @@ export function EmailTemplatesPanel({ initial }: { initial: Template[] }) {
                   <div className="grid gap-4 lg:grid-cols-2">
                     <div className="space-y-3">
                       <div>
-                        <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                        <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-500">
                           Subject
                         </label>
                         <TextInput value={subject} onChange={(e) => setSubject(e.target.value)} />
                       </div>
                       <div>
-                        <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                        <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-500">
                           Body
                         </label>
                         <div className="rounded-xl border border-slate-200">
@@ -225,7 +226,7 @@ export function EmailTemplatesPanel({ initial }: { initial: Template[] }) {
                     </div>
 
                     <div>
-                      <div className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-500">
+                      <div className="mb-1 text-xs font-semibold uppercase tracking-wider text-slate-500">
                         Preview (sample values)
                       </div>
                       <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">

@@ -5,6 +5,7 @@
 // they embed the channel secret — so the list shows a masked preview.
 
 import { useState } from "react";
+import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import { toast } from "@/components/Toasts";
 import { Field, Select, TextInput } from "@/components/form";
@@ -203,11 +204,11 @@ export function WebhooksPanel({
           <li key={h.id} className="rounded-xl border border-slate-200 bg-surface p-3 shadow-xs">
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-medium text-slate-800">{h.name || "Unnamed"}</span>
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">
+              <span className={chipClass("neutral")}>
                 {FORMATS.find((f) => f.value === h.format)?.label.split(" ")[0] || h.format}
               </span>
               {!h.enabled && (
-                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">off</span>
+                <span className={chipClass("warn")}>off</span>
               )}
               <span className="min-w-0 flex-1 truncate text-xs text-slate-500">{h.url_preview}</span>
               <button onClick={() => test(h.id)} className={buttonClass("secondary", "sm")}>
@@ -232,7 +233,7 @@ export function WebhooksPanel({
                 <>
                   {" — last delivery "}
                   {fmt.dateTime(h.last_sent_at)}:{" "}
-                  <span className={h.last_status?.startsWith("ok") ? "text-green-600" : "text-red-500"}>
+                  <span className={h.last_status?.startsWith("ok") ? "text-emerald-600" : "text-red-500"}>
                     {h.last_status}
                   </span>
                 </>
@@ -310,11 +311,11 @@ export function SmtpPanel({ initial }: { initial: SmtpState }) {
       <div className="mb-1 flex items-center gap-2">
         <h3 className="font-semibold text-slate-900">Email (SMTP)</h3>
         {s.configured ? (
-          <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">
+          <span className={chipClass("ok")}>
             configured
           </span>
         ) : (
-          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500">
+          <span className={chipClass("neutral")}>
             not set up
           </span>
         )}
@@ -346,7 +347,7 @@ export function SmtpPanel({ initial }: { initial: SmtpState }) {
         </Field>
         <Field
           label={
-            <>Password {s.has_pass && !pass ? <span className="text-green-600">(stored ✓)</span> : ""}</>
+            <>Password {s.has_pass && !pass ? <span className="text-emerald-600">(stored ✓)</span> : ""}</>
           }
         >
           <TextInput type="password" value={pass} onChange={(e) => setPass(e.target.value)} placeholder={s.has_pass ? "••••••••" : ""} autoComplete="off" />

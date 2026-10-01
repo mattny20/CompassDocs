@@ -1,4 +1,5 @@
 import { History } from "lucide-react";
+import { chipClass } from "@/components/Chip";
 import { PageHeader } from "@/components/PageHeader";
 import { notFound } from "next/navigation";
 import { getDocument, listVersions, listBranches, getApprovalMode } from "@/lib/db";
@@ -59,7 +60,7 @@ export default async function HistoryPage({ params }: { params: Promise<{ id: st
           <>
             {doc.title}
             {doc.branch_of !== null && (
-              <span className="ml-2 rounded-full bg-violet-100 px-2 py-0.5 text-xs font-semibold text-violet-700 dark:bg-violet-900/50">
+              <span className={chipClass("label", "md", "ml-2")}>
                 Draft branch
               </span>
             )}

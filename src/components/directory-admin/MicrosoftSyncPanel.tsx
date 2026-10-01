@@ -5,6 +5,7 @@
 // settings, alongside the Google panel.
 
 import { useState } from "react";
+import { EnterpriseBadge } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import { MsDeviceSetup } from "@/components/MsDeviceSetup";
@@ -159,7 +160,7 @@ export function MicrosoftSyncPanel({ graph, report }: { graph: GraphState; repor
     <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
       <div className="mb-1 flex items-center gap-2">
         <h3 className="font-semibold text-slate-900">Microsoft 365 sync</h3>
-        <span className="rounded-full bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-700 dark:bg-violet-900/50 dark:text-violet-300">Enterprise</span>
+        <EnterpriseBadge />
       </div>
       <p className="mb-3 text-sm text-slate-500">
         Register an app in Microsoft Entra with the <code className="font-mono">User.Read.All</code>{" "}
@@ -188,7 +189,7 @@ export function MicrosoftSyncPanel({ graph, report }: { graph: GraphState; repor
         <Field
           label={
             <>
-              Client secret {g.has_secret && !secret ? <span className="text-green-600">(stored ✓ — paste to replace)</span> : ""}
+              Client secret {g.has_secret && !secret ? <span className="text-emerald-600">(stored ✓ — paste to replace)</span> : ""}
             </>
           }
           help={

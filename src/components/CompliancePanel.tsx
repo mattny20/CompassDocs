@@ -5,6 +5,7 @@
 // and one-click reminders to stragglers. Enterprise (policy_ack).
 
 import { useCallback, useEffect, useState } from "react";
+import { chipClass, EnterpriseBadge } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import Link from "next/link";
 import {
@@ -335,7 +336,7 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
             </h2>
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
+                <tr className="text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
                   <th className="pb-2 font-medium">Person</th>
                   <th className="pb-2 text-right font-medium">Required</th>
                   <th className="pb-2 text-right font-medium">Acknowledged</th>
@@ -355,11 +356,11 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
                       <td className="py-2 text-right text-slate-600">{u.acked}</td>
                       <td className="py-2 text-right">
                         {u.acked >= u.required ? (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/50">
+                          <span className={chipClass("ok")}>
                             <Check className="h-3 w-3" /> Compliant
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/50">
+                          <span className={chipClass("warn")}>
                             <CircleAlert className="h-3 w-3" /> {u.required - u.acked} outstanding
                           </span>
                         )}
@@ -382,9 +383,7 @@ function Header({ extra }: { extra?: React.ReactNode }) {
       title={
         <>
           Compliance{" "}
-          <span className="rounded-full bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-700 dark:bg-violet-900/50 dark:text-violet-300">
-            Enterprise
-          </span>
+          <EnterpriseBadge />
         </>
       }
       subtitle="Acknowledgement progress across every policy — who has read what, and who still owes a confirmation."

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 
 interface ReleaseInfo {
@@ -110,7 +111,7 @@ export function UpdatePanel() {
         <div className="flex items-center gap-3">
           <h3 className="font-semibold text-slate-900">Version &amp; updates</h3>
           {status && (
-            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+            <span className={chipClass("neutral")}>
               v{status.current}
             </span>
           )}
@@ -120,7 +121,7 @@ export function UpdatePanel() {
             </span>
           )}
           {status && !available && !status.note && (
-            <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
+            <span className={chipClass("ok")}>
               ✓ Up to date
             </span>
           )}

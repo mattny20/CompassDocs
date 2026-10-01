@@ -1,24 +1,13 @@
 import type { DocType, DocStatus } from "@/lib/types";
-import { TYPE_STYLES, TYPE_LABEL, STATUS_STYLES } from "@/lib/ui";
+import { TYPE_TONE, TYPE_LABEL, STATUS_TONE } from "@/lib/ui";
+import { Chip, labelCase } from "./Chip";
 
 export function TypeBadge({ type }: { type: DocType }) {
-  return (
-    <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${TYPE_STYLES[type]}`}
-    >
-      {TYPE_LABEL[type]}
-    </span>
-  );
+  return <Chip tone={TYPE_TONE[type]}>{TYPE_LABEL[type]}</Chip>;
 }
 
 export function StatusBadge({ status }: { status: DocStatus }) {
-  return (
-    <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium capitalize ring-1 ring-inset ${STATUS_STYLES[status]}`}
-    >
-      {status}
-    </span>
-  );
+  return <Chip tone={STATUS_TONE[status]}>{labelCase(status)}</Chip>;
 }
 
 export function Tag({ label }: { label: string }) {

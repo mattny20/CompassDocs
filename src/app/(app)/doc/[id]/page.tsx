@@ -322,7 +322,7 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
             )}
             {settings.backlinks_enabled && doc.branch_of === null && backlinks.length > 0 && (
               <section>
-                <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-500">
+                <h2 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-500">
                   <Link2 className="h-3.5 w-3.5" aria-hidden /> Linked from
                 </h2>
                 <ul className="space-y-1">
