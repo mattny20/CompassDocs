@@ -304,7 +304,7 @@ export function Attachments({
                     onClick={() => removeLink(l)}
                     data-tt="Remove link"
                     aria-label={`Remove ${l.title}`}
-                    className="rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                    className="rounded-md p-1.5 text-slate-400 hover-danger"
                   >
                     <Trash2 className="h-4 w-4" />
                   </button>
@@ -361,7 +361,7 @@ export function Attachments({
                   onClick={() => remove(a)}
                   data-tt="Delete"
                   aria-label={`Delete ${a.filename}`}
-                  className="rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                  className="rounded-md p-1.5 text-slate-400 hover-danger"
                 >
                   <Trash2 className="h-4 w-4" />
                 </button>

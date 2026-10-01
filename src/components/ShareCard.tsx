@@ -129,7 +129,7 @@ export function ShareCard({
             <button
               onClick={revoke}
               disabled={busy}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-60"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-medium text-red-600 hover-danger disabled:opacity-60"
             >
               <X className="h-3 w-3" /> Revoke
             </button>

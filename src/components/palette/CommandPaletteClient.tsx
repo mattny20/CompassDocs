@@ -460,7 +460,7 @@ export function CommandPaletteClient({
             placeholder={MODE_PLACEHOLDER[mode]}
             spellCheck={false}
             autoComplete="off"
-            className="w-full bg-transparent py-3 text-sm text-slate-800 outline-hidden placeholder:text-slate-400"
+            className="cmd-input w-full bg-transparent py-3 text-sm text-slate-800 outline-hidden placeholder:text-slate-400"
           />
           {loading && <span className="shrink-0 text-xs text-slate-500">…</span>}
         </div>

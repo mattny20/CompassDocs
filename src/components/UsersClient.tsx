@@ -223,7 +223,7 @@ function UserTable({
                   {u.id !== currentUserId && (
                     <button
                       onClick={() => remove(u)}
-                      className="rounded-md border border-red-200 px-2 py-1 text-red-600 hover:bg-red-50"
+                      className="rounded-md border border-red-200 px-2 py-1 text-red-600 hover-danger"
                     >
                       Delete
                     </button>

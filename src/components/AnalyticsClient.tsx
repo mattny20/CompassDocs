@@ -653,7 +653,7 @@ export function AnalyticsClient() {
                         <td className="max-w-0 truncate py-2 pr-2 font-medium text-slate-700" title={d.title}>
                           {d.space_icon} {d.title}
                         </td>
-                        <td className={`py-2 text-right ${d.views === 0 ? "font-semibold text-amber-600" : "text-slate-600"}`}>
+                        <td className={`py-2 text-right ${d.views === 0 ? "font-semibold ink-warn" : "text-slate-600"}`}>
                           {d.views}
                         </td>
                         <td className="whitespace-nowrap py-2 pl-3 text-right text-slate-500">{fmt.date(d.updated)}</td>

@@ -99,7 +99,7 @@ export function ArchivedDecks({ decks }: { decks: ArchivedDeck[] }) {
                   void call(d.id, { method: "DELETE" });
               }}
               disabled={busyId === d.id}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 font-medium text-slate-600 hover:bg-red-50 hover:text-red-600 disabled:opacity-60"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 font-medium text-slate-600 hover-danger disabled:opacity-60"
             >
               <Trash2 className="h-4 w-4" /> Delete
             </button>

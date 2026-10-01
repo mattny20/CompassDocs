@@ -221,7 +221,7 @@ export function LicensePanel() {
                 <button
                   onClick={remove}
                   disabled={saving}
-                  className="rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-60"
+                  className="rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 hover-danger disabled:opacity-60"
                 >
                   Remove license
                 </button>

@@ -581,7 +581,7 @@ function RolesTab({
                   type="button"
                   onClick={remove}
                   disabled={busy}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 hover-danger disabled:opacity-50"
                 >
                   <Trash2 className="h-4 w-4" aria-hidden /> Delete role
                 </button>
@@ -826,7 +826,7 @@ function AssignmentsTab({
                         disabled={busy}
                         title="Revoke"
                         aria-label={`Revoke ${a.role_name} from ${a.subject}`}
-                        className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                        className="rounded-lg p-1.5 text-slate-400 hover-danger disabled:opacity-50"
                       >
                         <X className="h-4 w-4" aria-hidden />
                       </button>
@@ -1041,7 +1041,7 @@ function HealthTab() {
               <strong className="font-semibold">{shadow.agreements}</strong> agreeing ·{" "}
               <strong
                 className={`font-semibold ${
-                  shadow.disagreements ? "text-amber-600" : ""
+                  shadow.disagreements ? "ink-warn" : ""
                 }`}
               >
                 {shadow.disagreements}
@@ -1093,7 +1093,7 @@ function HealthTab() {
               {migration.users_without_assignment}
             </strong>{" "}
             without an assignment ·{" "}
-            <strong className={`font-semibold ${migration.mismatched ? "text-amber-600" : ""}`}>
+            <strong className={`font-semibold ${migration.mismatched ? "ink-warn" : ""}`}>
               {migration.mismatched}
             </strong>{" "}
             whose built-in role doesn&rsquo;t match their ladder rung

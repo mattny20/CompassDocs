@@ -16,6 +16,7 @@ import {
 import type { AppSettings } from "@/lib/settings";
 import { toast } from "@/components/Toasts";
 import { Field, TextInput, Select, Textarea, Toggle } from "@/components/form";
+import { contrastRatio, solidAccent } from "@/lib/theme";
 
 // IANA zones the runtime knows about, with a couple of common ones pinned first.
 function timeZones(): string[] {
@@ -187,7 +188,7 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
                   type="button"
                   onClick={removeLogo}
                   disabled={logoBusy}
-                  className="shrink-0 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                  className="shrink-0 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-red-600 hover-danger disabled:opacity-50"
                 >
                   Remove logo
                 </button>
@@ -206,14 +207,16 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
             Re-tints buttons, links, highlights, and tinted surfaces across the whole app —
             light and dark theme, login page, and the public site.
           </p>
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Accent color">
             {[
               ["#2e75bd", "Compass blue (default)"],
               ["#4f46e5", "Indigo"],
               ["#7c3aed", "Violet"],
-              ["#0d9488", "Teal"],
-              ["#059669", "Emerald"],
-              ["#d97706", "Amber"],
+              // Teal, Emerald and Amber are the 700 steps: the 600s put white
+              // text at 3.2–3.8:1 on a primary button, below AA.
+              ["#0f766e", "Teal"],
+              ["#047857", "Emerald"],
+              ["#b45309", "Amber"],
               ["#dc2626", "Red"],
               ["#db2777", "Pink"],
               ["#475569", "Graphite"],
@@ -222,6 +225,8 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
                 key={hex}
                 type="button"
                 data-tt={label}
+                aria-label={label}
+                aria-pressed={s.accent_color === hex}
                 onClick={() => set("accent_color", hex)}
                 className={`h-7 w-7 rounded-full border-2 transition ${
                   s.accent_color === hex ? "scale-110 border-slate-700" : "border-transparent hover:scale-105"
@@ -237,7 +242,12 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
               aria-label="Custom accent color"
             />
             <code className="text-xs text-slate-500">{s.accent_color}</code>
+            <AccentContrast hex={s.accent_color} />
           </div>
+          <p className="mt-2 text-xs text-slate-500">
+            Buttons, links and focus rings use a shade that keeps white text readable (4.5:1); a
+            light accent is darkened for those, while tinted surfaces keep the colour you chose.
+          </p>
           <p className="mt-1 text-xs text-slate-500">Applies everywhere after saving (pages refresh with the new color).</p>
         </div>
         <div className="mt-4 flex items-center gap-3 border-t border-slate-100 pt-3">
@@ -479,3 +489,26 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
     </div>
   );
 }
+
+/** Live AA check beside the accent picker: the ratio of white text on the
+ * solid step, and what the step becomes when the chosen colour is too light.
+ * Never silently rewrites what the admin typed — it says what will happen. */
+function AccentContrast({ hex }: { hex: string }) {
+  if (!/^#[0-9a-fA-F]{6}$/.test(hex)) return null;
+  const solid = solidAccent(hex);
+  const ratio = contrastRatio(solid, "#ffffff");
+  const text = `${ratio.toFixed(1)}:1`;
+  if (solid.toLowerCase() === hex.toLowerCase()) {
+    return (
+      <span className="text-xs text-slate-500" data-tt="White text on this accent meets WCAG AA">
+        {text} AA
+      </span>
+    );
+  }
+  return (
+    <span className="text-xs ink-warn" data-tt="White text on this accent would fall below 4.5:1">
+      {contrastRatio(hex, "#ffffff").toFixed(1)}:1 → buttons use {solid} ({text})
+    </span>
+  );
+}
+

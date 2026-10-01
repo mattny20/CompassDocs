@@ -271,7 +271,7 @@ export function LinksAdmin({
               <button onClick={() => renameCategory(c)} disabled={busy} data-tt="Rename" aria-label="Rename" className="rounded-sm p-1 text-slate-400 hover:bg-slate-100">
                 <Pencil className="h-4 w-4" />
               </button>
-              <button onClick={() => deleteCategory(c)} disabled={busy} data-tt="Delete" aria-label="Delete" className="rounded-sm p-1 text-slate-400 hover:bg-red-50 hover:text-red-600">
+              <button onClick={() => deleteCategory(c)} disabled={busy} data-tt="Delete" aria-label="Delete" className="rounded-sm p-1 text-slate-400 hover-danger">
                 <Trash2 className="h-4 w-4" />
               </button>
             </li>
@@ -363,7 +363,7 @@ export function LinksAdmin({
                   <button onClick={() => startEdit(l)} disabled={busy} data-tt="Edit" aria-label="Edit" className="rounded-sm p-1 text-slate-400 hover:bg-slate-100">
                     <Pencil className="h-4 w-4" />
                   </button>
-                  <button onClick={() => deleteLink(l)} disabled={busy} data-tt="Delete" aria-label="Delete" className="rounded-sm p-1 text-slate-400 hover:bg-red-50 hover:text-red-600">
+                  <button onClick={() => deleteLink(l)} disabled={busy} data-tt="Delete" aria-label="Delete" className="rounded-sm p-1 text-slate-400 hover-danger">
                     <Trash2 className="h-4 w-4" />
                   </button>
                 </li>
@@ -501,7 +501,7 @@ function LinkForm({
           ))}
         </div>
         {form.icon_type === "brand" && !brandLogo && (
-          <p className="mt-1 text-xs text-amber-600">
+          <p className="mt-1 text-xs ink-warn">
             No workspace logo is set (Settings → Workspace) — the link will show a letter tile.
           </p>
         )}

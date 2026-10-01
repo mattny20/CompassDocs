@@ -403,7 +403,7 @@ function TemplateForm({
           <button
             onClick={remove}
             disabled={busy}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-600 hover-danger disabled:opacity-50"
           >
             <Trash2 className="h-4 w-4" /> Delete
           </button>

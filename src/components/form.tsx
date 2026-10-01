@@ -35,11 +35,12 @@ export function Field({
   );
 }
 
-const control =
-  "w-full rounded-lg border bg-surface px-3 py-2 text-sm outline-hidden focus:ring-2 " +
-  "placeholder:text-slate-400 disabled:opacity-50";
-const controlOk = "border-slate-200 focus:border-compass-400 focus:ring-compass-100";
-const controlErr = "border-red-300 focus:border-red-400 focus:ring-red-100";
+// Keyboard focus is the global :focus-visible outline (globals.css, STYLEGUIDE
+// §Focus) — one indicator, not outline + a 1.3:1 ring that nobody could see.
+// The border still tints on focus so a mouse click reads as "active" too.
+const control = "w-full rounded-lg border bg-surface px-3 py-2 text-sm placeholder:text-slate-400 disabled:opacity-50";
+const controlOk = "border-slate-200 focus:border-compass-500";
+const controlErr = "border-red-300 focus:border-red-400";
 
 export function controlClass(hasError?: boolean, extra = ""): string {
   // The shared style is w-full; a caller's own width (`w-44`) must win, and
@@ -251,14 +252,14 @@ export function SectionEmpty({
         <>
           {" "}
           {action.href ? (
-            <Link href={action.href} className="font-medium text-compass-600 hover:underline">
+            <Link href={action.href} className="link font-medium">
               {action.label}
             </Link>
           ) : (
             <button
               type="button"
               onClick={action.onClick}
-              className="font-medium text-compass-600 hover:underline"
+              className="link font-medium"
             >
               {action.label}
             </button>

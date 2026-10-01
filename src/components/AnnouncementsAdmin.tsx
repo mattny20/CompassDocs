@@ -223,7 +223,7 @@ export function AnnouncementsAdmin({
                 </div>
               )}
               {!smtpReady && (
-                <p className="text-xs text-amber-600">
+                <p className="text-xs ink-warn">
                   Email options need SMTP — set it up under{" "}
                   <a href="/admin/notifications" className="underline">Settings → Notifications</a>.
                 </p>
@@ -284,7 +284,7 @@ export function AnnouncementsAdmin({
                       <Archive className="h-4 w-4" />
                     </button>
                   )}
-                  <button onClick={() => remove(r)} data-tt="Delete" aria-label="Delete" className="rounded-sm p-1 text-slate-400 hover:bg-red-50 hover:text-red-600">
+                  <button onClick={() => remove(r)} data-tt="Delete" aria-label="Delete" className="rounded-sm p-1 text-slate-400 hover-danger">
                     <Trash2 className="h-4 w-4" />
                   </button>
                 </li>

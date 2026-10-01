@@ -266,7 +266,7 @@ function GroupCard({
         </button>
         <button
           onClick={onDelete}
-          className="rounded-lg border border-slate-200 p-2 text-red-600 hover:bg-red-50"
+          className="rounded-lg border border-slate-200 p-2 text-red-600 hover-danger"
           data-tt="Delete group" aria-label="Delete group"
         >
           <Trash2 className="h-3.5 w-3.5" />
@@ -295,7 +295,7 @@ function GroupCard({
                     </span>
                     <button
                       onClick={() => patch({ removeUserId: m.id })}
-                      className="rounded-md p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                      className="rounded-md p-1 text-slate-400 hover-danger"
                       data-tt="Remove from group" aria-label="Remove from group"
                     >
                       <X className="h-3.5 w-3.5" />

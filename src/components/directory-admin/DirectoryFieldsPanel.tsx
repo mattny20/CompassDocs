@@ -270,7 +270,7 @@ function MappingEditor({
         <button type="button" onClick={loadProps} className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50" aria-expanded={propsOpen}>
           What the records hold
         </button>
-        {mapping && !valid && <span className="text-xs text-amber-600">Incomplete — fill in every part.</span>}
+        {mapping && !valid && <span className="text-xs ink-warn">Incomplete — fill in every part.</span>}
       </div>
       {propsOpen && props && (
         <div className="rounded-lg bg-slate-50 p-3 text-xs">

@@ -275,7 +275,7 @@ export function SsoSettings({ initial }: { initial: SsoState }) {
             disabled={!s.sso_enabled}
           />
           {s.sso_only && (
-            <p className="text-xs text-amber-600">
+            <p className="text-xs ink-warn">
               Break-glass: local sign-in still works by POSTing to /api/auth/login — an admin
               locked out of SSO can use{" "}
               <code className="font-mono">

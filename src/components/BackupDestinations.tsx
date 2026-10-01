@@ -291,7 +291,7 @@ function Actions({
         <button
           onClick={onRemove}
           disabled={!!saving}
-          className="rounded-lg px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-60"
+          className="rounded-lg px-3 py-2 text-sm font-medium text-red-600 hover-danger disabled:opacity-60"
         >
           Remove
         </button>

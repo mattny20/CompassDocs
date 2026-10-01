@@ -4,6 +4,33 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.4.4] - 2026-10-01
+
+### Added
+- **A visible keyboard focus ring everywhere.** One rule gives every link,
+  button, switch, tab, menu item and form control a 2px accent outline on
+  keyboard focus (lighter in dark mode); the pale ring inputs used to draw
+  measured 1.3:1 and 83 controls hid the outline altogether. The command
+  palette input and the editor body, whose panels are the frame, are the
+  two documented exceptions.
+- **Accent colours that always pass AA.** Buttons, links and focus rings
+  derive from a shade that keeps white text at 4.5:1; a light accent is
+  darkened for those while tinted surfaces keep the chosen hue. The Teal,
+  Emerald and Amber presets move to their AA shades, the picker shows the
+  live ratio and what a too-light colour becomes, and the swatches are named
+  for screen readers. Dark-mode accent ink is one token
+  (`--compass-ink`) instead of two hand-synced copies.
+- **Reduced motion.** The OS "reduce motion" setting now collapses every
+  transition and animation (spinners excepted), not only the palette scrim.
+
+### Fixed
+- Red text in dark mode lifts to a readable red (about 6:1 instead of
+  3.6:1); delete controls hover to a tint instead of a pale pink slab in
+  dark mode (`hover-danger`); "Unsaved changes" and other free-standing
+  amber or green text use shades that pass AA in both themes (`ink-warn`,
+  `ink-ok`); links inside sentences are underlined (`link`), starting with
+  every empty-state link.
+
 ## [1.4.3] - 2026-10-01
 
 Contrast and dark-mode fixes that touch nearly every page.

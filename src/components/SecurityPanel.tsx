@@ -206,7 +206,7 @@ function TwoFactor({ initial }: { initial: TotpState }) {
             <button
               type="submit"
               disabled={busy || !disableCode}
-              className="rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+              className="rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-600 hover-danger disabled:opacity-50"
             >
               Turn off 2FA
             </button>
@@ -276,7 +276,7 @@ function Sessions({ initial }: { initial: SessionInfo[] }) {
           <button
             onClick={revokeOthers}
             disabled={busy}
-            className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+            className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 hover-danger disabled:opacity-50"
           >
             {busy ? "Signing out…" : "Sign out everywhere else"}
           </button>
@@ -301,7 +301,7 @@ function Sessions({ initial }: { initial: SessionInfo[] }) {
             {!s.current && (
               <button
                 onClick={() => revoke(s.sid)}
-                className="shrink-0 rounded-lg border border-red-200 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
+                className="shrink-0 rounded-lg border border-red-200 px-2.5 py-1 text-xs font-medium text-red-600 hover-danger"
               >
                 Sign out
               </button>

@@ -186,7 +186,7 @@ export function DirectoryExportPanel({
           <button type="button" onClick={() => addPreset(cur)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
             <span className="inline-flex items-center gap-1.5"><Copy className="h-4 w-4" /> Duplicate</span>
           </button>
-          <button type="button" onClick={removePreset} disabled={presets.length <= 1} className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-40">
+          <button type="button" onClick={removePreset} disabled={presets.length <= 1} className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-red-600 hover-danger disabled:opacity-40">
             <span className="inline-flex items-center gap-1.5"><Trash2 className="h-4 w-4" /> Delete</span>
           </button>
           {!cur.is_default && (
@@ -404,7 +404,7 @@ export function DirectoryExportPanel({
           <button type="button" onClick={savePresets} disabled={savingPresets || !dirty} className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60">
             {savingPresets ? "Saving…" : "Save presets"}
           </button>
-          {dirty && <span className="text-xs text-amber-600">Unsaved changes</span>}
+          {dirty && <span className="text-xs ink-warn">Unsaved changes</span>}
         </div>
       </div>
     </div>

@@ -263,7 +263,7 @@ export function DocActions({
           disabled={deleting}
           data-tt="Move to Trash"
           aria-label="Move document to Trash"
-          className="inline-flex items-center rounded-lg border border-red-200 bg-surface p-2 text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-800/70"
+          className="inline-flex items-center rounded-lg border border-red-200 bg-surface p-2 text-red-600 hover-danger disabled:opacity-50 dark:border-red-800/70"
         >
           {deleting ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
         </button>

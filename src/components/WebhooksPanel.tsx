@@ -215,7 +215,7 @@ export function WebhooksPanel({
               <button onClick={() => toggle(h)} className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50">
                 {h.enabled ? "Disable" : "Enable"}
               </button>
-              <button onClick={() => remove(h.id)} className="rounded-lg border border-red-200 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50">
+              <button onClick={() => remove(h.id)} className="rounded-lg border border-red-200 px-2.5 py-1 text-xs font-medium text-red-600 hover-danger">
                 Delete
               </button>
             </div>
