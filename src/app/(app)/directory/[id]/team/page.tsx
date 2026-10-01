@@ -74,7 +74,7 @@ export default async function TeamPage({ params }: { params: Promise<{ id: strin
               <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
                 {levelLabel(l.level)} <span className="text-xs font-normal text-slate-400">({l.people.length})</span>
               </h2>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              <div className="card-grid gap-2 [--card-min:14rem]">
                 {l.people.map((p) => (
                   <PersonTile key={p.id} p={p} />
                 ))}

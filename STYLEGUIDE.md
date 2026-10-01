@@ -20,7 +20,13 @@ Every top-level page:
 
 - **Never hard-code a page width** (`max-w-*` on the page wrapper) — that
   breaks the user's width preference. Narrow *content columns* inside a page
-  (e.g. a reading column) are fine when deliberate.
+  (e.g. a reading column) are fine when deliberate. The presets themselves
+  are `56rem` / `72rem` / `112rem` (Full is bounded, so on an ultrawide it is a
+  wide centred page rather than edge-to-edge) and grow with the interface
+  scale.
+- On the document page the right rail sits beside the article at Wide and
+  Full and stacks under it at Normal (`components/DocLayout`): a 56rem column
+  cannot share with an 18rem rail without squeezing prose to 45 characters.
 - The one such column is the **document reading measure**: put `doc-read` on
   the element wrapping the rendered document body, and `globals.css` caps the
   direct children of `.doc-read .doc-prose` at `var(--doc-measure)`, which
@@ -45,8 +51,10 @@ Every top-level page:
 
 Pages reached by an unauthenticated tokenized link — the share page
 (`/share/<token>`) and the image drop page (`/upload/<token>`) — sit outside
-the app shell and **do** hard-code a column (`mx-auto max-w-2xl`/`max-w-4xl`),
-with a `<Brand>` header instead of the sidebar. That is not a violation of the
+the app shell and **do** hard-code a column — `mx-auto max-w-standalone` (a
+`clamp(56rem, 52vw, 76rem)` token, so it grows with the screen) for a document
+column, `max-w-2xl` for a form — with a `<Brand>` header instead of the
+sidebar. The public site (`/public`) uses the same column. That is not a violation of the
 rule above: the rule protects a *preference*, and the person opening one of
 these links may have no account at all, so there is nothing to honor. They also
 skip the lucide page-title icon — the h1 is the thing itself (a document title,
@@ -339,7 +347,7 @@ The measure **scales with the page-width setting**, via `data-page-width` on
 
 | setting | cap | ≈ characters |
 | --- | --- | --- |
-| Normal | none (the column is already narrow) | ~71 |
+| Normal | `65ch` (the rail stacks below the article, so the full 56rem column is text) | ~82 |
 | Wide | `75ch` | ~98 |
 | Full | `90ch` | ~117 |
 
@@ -421,6 +429,34 @@ the same footing:
   so breakpoints never move when the root scales.
 - `test/style-scale.test.ts` fails the build on a new px literal outside that
   allow-list.
+
+**The root rule.** `globals.css` sets
+`html { font-size: calc(clamp(1rem, 0.8571rem + 0.1786vw, 1.125rem) * var(--ui-scale)) }`:
+16px up to a 1280px viewport, about 16.3px at 1440, 17.1px at 1920, 18px from
+2400 (capped so a 4K monitor at 150%, which presents as 2560, does not
+double-scale). Written in rem so browser zoom and the OS text-size setting
+keep working. `@media print` resets it to `1rem`. `--ui-scale` is the
+per-user Interface scale preference (`data-ui-scale` on `<html>`, stamped
+before first paint like the theme). Tailwind breakpoints are rem media
+queries that resolve against the browser default, so they never move;
+`e2e/scale.spec.ts` asserts the numbers and that nothing scrolls sideways at
+2560 and 3440.
+
+**Grids.** A repeating card or tile grid uses `card-grid` (with
+`[--card-min:Nrem]` for the minimum card width; 18rem by default) — sized by
+the column it is in, so the count follows Normal/Wide/Full and the sidebar
+state. Never `xl:grid-cols-4` / `2xl:grid-cols-5`: the viewport is the wrong
+variable. CSS-column masonry uses `columns-2xs` the same way. `sm:` / `lg:`
+prefixes stay for shell and layout splits only.
+
+**Container queries.** `@container` with `@4xl:` variants is fine on a leaf
+wrapper whose subtree holds no overlay (the dashboard's activity/spaces split).
+`container-type: inline-size` applies layout containment, which makes the
+element the containing block for `fixed` descendants and a stacking context —
+the same hazard §Overlays names for `transform`. So never put a container on
+`PageContainer`, `<main>`, the document page wrapper or any ancestor of
+`Lightbox`, `VideoPlayer`, `DocLinkSuggest`, the editor, `VideoInsertDialog`
+or the analytics drill-down.
 
 ## Print
 

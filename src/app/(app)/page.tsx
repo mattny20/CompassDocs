@@ -211,7 +211,7 @@ export default async function DashboardPage() {
       {(continueDocs.length > 0 || myDrafts.length > 0) && (
         <section className="mb-8">
           <h2 className="mb-3 text-lg font-semibold text-slate-900">Pick up where you left off</h2>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="card-grid gap-3 [--card-min:20rem]">
             {myDrafts.map((d) => (
               <Link
                 key={`draft-${d.id}`}
@@ -257,9 +257,14 @@ export default async function DashboardPage() {
         </section>
       )}
 
-      {/* Two columns: activity + spaces */}
-      <div className="mb-8 grid grid-cols-1 gap-8 lg:grid-cols-5">
-        <section className="lg:col-span-3">
+      {/* Two columns: activity + spaces. A container query, not a viewport
+          breakpoint: the 3/2 split appears when the content column is at
+          least 56rem, so Normal stacks and Wide/Full split whatever the
+          monitor. Safe to contain: these sections hold only links (a
+          container is a containing block for fixed overlays — STYLEGUIDE
+          §Overlays). */}
+      <div className="mb-8 grid grid-cols-1 gap-8 @container @4xl:grid-cols-5">
+        <section className="@4xl:col-span-3">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-lg font-semibold text-slate-900">Latest in your spaces</h2>
           </div>
@@ -295,11 +300,11 @@ export default async function DashboardPage() {
           </div>
         </section>
 
-        <section className="lg:col-span-2">
+        <section className="@container @4xl:col-span-2">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-lg font-semibold text-slate-900">Spaces</h2>
           </div>
-          <div className="grid grid-cols-1 gap-3">
+          <div className="grid grid-cols-1 gap-3 @2xl:grid-cols-2">
             {spaces.map((s) => (
               <Link
                 key={s.id}

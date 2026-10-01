@@ -562,8 +562,10 @@ export function DirectoryClient({
   const fixLink = (g: { key: string }, f: DirectoryField | undefined) =>
     isAdmin && !g.key && f ? `/admin/directory?missing=${encodeURIComponent(f.key)}` : undefined;
 
-  const tileGrid = "grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5";
-  const cardGrid = "grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5";
+  // Sized by the column, not the viewport (STYLEGUIDE §Scaling → Grids): the
+  // count follows Normal/Wide/Full and the sidebar state.
+  const tileGrid = "card-grid gap-2 [--card-min:14rem]";
+  const cardGrid = "card-grid gap-3 [--card-min:16rem]";
 
   const pinnedSections = (Item: ({ p }: { p: DirectoryPerson }) => React.ReactElement, grid: string) => (
     <>
@@ -737,7 +739,7 @@ export function DirectoryClient({
       </div>
 
       {hasMilestones && (view === "cards" || view === "groups") && !q && (
-        <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="card-grid mb-5 gap-3 [--card-min:18rem]">
           {milestones.started.length > 0 && (
             <MilestoneCard icon={<PartyPopper className="h-4 w-4 text-emerald-600" />} title="Started this month" items={milestones.started.map((m) => ({ id: m.person.id, name: m.person.name, detail: m.person.title }))} />
           )}
@@ -825,10 +827,7 @@ export function DirectoryClient({
           {pinnedSections(Card, cardGrid)}
           <div>
             {(mine.length > 0 || pinned.length > 0) && <SectionHeader label="Everyone" count={people.length} />}
-            {/* grid-cols-1 is not redundant: without an explicit track the
-                implicit auto column sizes to the card's content and overflows
-                a phone. */}
-            <div className={cardGrid}>{people.map((p) => <Card key={p.id} p={p} />)}</div>
+                        <div className={cardGrid}>{people.map((p) => <Card key={p.id} p={p} />)}</div>
           </div>
         </div>
       )}

@@ -4,6 +4,34 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.4.1] - 2026-10-01
+
+The interface scales with the monitor.
+
+### Added
+- **Fluid interface scale.** One rule grows everything together — type,
+  icons, the sidebar, rails, tooltips, toasts, the Normal/Wide columns —
+  from 16px on a laptop (up to 1280 wide) to 18px on a large monitor (from
+  2400 wide; about 17px at 1920). Browser zoom and the OS text-size setting
+  keep working, breakpoints do not move, and print output is unchanged.
+- **Card grids follow the column, not the monitor.** Directory cards and
+  tiles, the org chart and team pages, Links, the dashboard and the space
+  Cards view pick their column count from the width you chose (and whether
+  the sidebar is open) instead of the viewport, so a 2560 monitor at Wide no
+  longer packs five 200px cards into a 1,088px column, and Full gets six or
+  seven readable ones.
+- **Full is a wide, centred page** (112rem, about 2,016px on a large
+  monitor) instead of edge-to-edge on an ultrawide. Nothing changes below
+  about 2,100px of window width.
+- **Normal on the document page** stacks the right rail under the article
+  and gives the text a 65-character measure; it used to share the column
+  with the rail and run 45 characters wide. The table of contents hugs the
+  reading measure instead of spanning the whole column.
+- The public site and the share page use a column that grows with the
+  screen (56rem on a laptop, up to 76rem on an ultrawide).
+- `e2e/scale.spec.ts` asserts the root sizes, the print reset, the bounded
+  Full width and that nothing scrolls sideways at 2560 and 3440.
+
 ## [1.4.0] - 2026-10-01
 
 First of the interface-scaling releases. Nothing looks different yet: this

@@ -32,7 +32,7 @@ export default async function PublicLayout({ children }: { children: React.React
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="border-b border-slate-200 bg-white print:hidden">
-        <div className="mx-auto flex max-w-4xl flex-wrap items-center gap-4 px-6 py-4">
+        <div className="mx-auto flex max-w-standalone flex-wrap items-center gap-4 px-6 py-4">
           <Link href="/public" className="flex items-center gap-2.5">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
@@ -64,7 +64,7 @@ export default async function PublicLayout({ children }: { children: React.React
         </div>
 
         {spaces.length > 1 && (
-          <nav className="mx-auto flex max-w-4xl gap-1 overflow-x-auto px-6 pb-3">
+          <nav className="mx-auto flex max-w-standalone gap-1 overflow-x-auto px-6 pb-3">
             {spaces.map((s) => (
               <Link
                 key={s.id}
@@ -78,7 +78,7 @@ export default async function PublicLayout({ children }: { children: React.React
         )}
       </header>
 
-      <main className="mx-auto max-w-4xl px-6 py-8">{children}</main>
+      <main className="mx-auto max-w-standalone px-6 py-8">{children}</main>
 
       <footer className="border-t border-slate-200 py-6 text-center text-xs text-slate-400 print:hidden">
         {settings.company_name} knowledge base · powered by{" "}

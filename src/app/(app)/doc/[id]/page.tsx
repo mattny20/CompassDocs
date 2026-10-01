@@ -24,6 +24,7 @@ import { getAppSettings } from "@/lib/settings-store";
 import { formatDate, formatDateTime, settingsForUser } from "@/lib/format";
 import { MarkdownView } from "@/components/MarkdownView";
 import { DocToc } from "@/components/DocToc";
+import { DocLayout } from "@/components/DocLayout";
 import { TypeBadge, StatusBadge, Tag } from "@/components/Badges";
 import { DocActions } from "@/components/DocActions";
 import { SuggestBox } from "@/components/SuggestBox";
@@ -304,8 +305,68 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
         />
       )}
 
-      <div className="lg:flex lg:items-start lg:gap-10">
-        <div className="min-w-0 flex-1">
+      {/* Rail beside the article at Wide/Full, under it at Normal. */}
+      <DocLayout
+        aside={
+          <>
+            {nestedOn && (
+              <SubPages
+                parentId={doc.id}
+                spaceSlug={doc.space_slug}
+                initial={children.map((c) => ({ id: c.id, title: c.title, status: c.status }))}
+                canEdit={isStaff && hasEditRights}
+                canAddChild={ancestors.length + 1 < MAX_DEPTH}
+              />
+            )}
+            {doc.branch_of === null && (
+              <RelatedDocs docId={doc.id} initial={relations} canEdit={isStaff && hasEditRights} />
+            )}
+            {settings.backlinks_enabled && doc.branch_of === null && backlinks.length > 0 && (
+              <section>
+                <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-500">
+                  <Link2 className="h-3.5 w-3.5" aria-hidden /> Linked from
+                </h2>
+                <ul className="space-y-1">
+                  {backlinks.map((b) => (
+                    <li key={b.id} className="min-w-0">
+                      <Link
+                        href={`/doc/${b.id}`}
+                        className="block truncate text-sm font-medium text-slate-700 hover:text-compass-600"
+                        data-tt={b.title} aria-label={b.title}
+                      >
+                        {b.title}
+                      </Link>
+                      <span className="block truncate text-xs text-slate-400">
+                        {b.space_icon} {b.space_name}
+                        {b.status === "draft" ? " · draft" : ""}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+            <Attachments
+              documentId={doc.id}
+              attachments={attachments.map((a) => ({
+                id: a.id,
+                filename: a.filename,
+                mime_type: a.mime_type,
+                size: a.size,
+              }))}
+              dmsLinks={dmsLinks.map((l) => ({
+                id: l.id,
+                system: l.system,
+                title: l.title,
+                url: l.url,
+              }))}
+              canEdit={isStaff && hasEditRights}
+              maxMb={settings.max_attachment_mb}
+            />
+            <SuggestBox documentId={doc.id} />
+          </>
+        }
+      >
+        <>
           <DocToc title={doc.title} />
           {/* doc-read scopes the reading measure to the document body only —
               the masthead, rail, notices and sticky bar above keep the full
@@ -325,67 +386,8 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
           {settings.comments_enabled && (
             <DocComments docId={doc.id} currentUserId={user.id} isAdmin={user.role === "admin"} />
           )}
-        </div>
-
-        {/* top-16 clears the sticky title bar, which is visible exactly when
-            this panel is stuck. */}
-        <aside className="mt-10 space-y-8 overflow-x-hidden border-t border-slate-100 pt-8 print:hidden lg:sticky lg:top-16 lg:mt-0 lg:max-h-[calc(100vh-5.5rem)] lg:w-72 lg:shrink-0 lg:overflow-y-auto lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
-          {nestedOn && (
-            <SubPages
-              parentId={doc.id}
-              spaceSlug={doc.space_slug}
-              initial={children.map((c) => ({ id: c.id, title: c.title, status: c.status }))}
-              canEdit={isStaff && hasEditRights}
-              canAddChild={ancestors.length + 1 < MAX_DEPTH}
-            />
-          )}
-          {doc.branch_of === null && (
-            <RelatedDocs docId={doc.id} initial={relations} canEdit={isStaff && hasEditRights} />
-          )}
-          {settings.backlinks_enabled && doc.branch_of === null && backlinks.length > 0 && (
-            <section>
-              <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-slate-500">
-                <Link2 className="h-3.5 w-3.5" aria-hidden /> Linked from
-              </h2>
-              <ul className="space-y-1">
-                {backlinks.map((b) => (
-                  <li key={b.id} className="min-w-0">
-                    <Link
-                      href={`/doc/${b.id}`}
-                      className="block truncate text-sm font-medium text-slate-700 hover:text-compass-600"
-                      data-tt={b.title} aria-label={b.title}
-                    >
-                      {b.title}
-                    </Link>
-                    <span className="block truncate text-xs text-slate-400">
-                      {b.space_icon} {b.space_name}
-                      {b.status === "draft" ? " · draft" : ""}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
-          <Attachments
-            documentId={doc.id}
-            attachments={attachments.map((a) => ({
-              id: a.id,
-              filename: a.filename,
-              mime_type: a.mime_type,
-              size: a.size,
-            }))}
-            dmsLinks={dmsLinks.map((l) => ({
-              id: l.id,
-              system: l.system,
-              title: l.title,
-              url: l.url,
-            }))}
-            canEdit={isStaff && hasEditRights}
-            maxMb={settings.max_attachment_mb}
-          />
-          <SuggestBox documentId={doc.id} />
-        </aside>
-      </div>
+        </>
+      </DocLayout>
     </PageWidth>
   );
 }
