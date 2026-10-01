@@ -37,11 +37,15 @@ export const viewport: Viewport = {
 
 // Resolve the saved theme preference and stamp data-theme on <html> *before*
 // first paint, so there's no light/dark flash on load. `system` follows the OS.
+// The interface-scale preference is stamped the same way (data-ui-scale) so a
+// Large/Larger page never flashes at the default size.
 const THEME_INIT = `
 (function(){try{
   var p = localStorage.getItem('compass-theme') || 'system';
   var dark = p === 'dark' || (p !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
   document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  var s = localStorage.getItem('compass-ui-scale');
+  if (s && s !== 'default') document.documentElement.setAttribute('data-ui-scale', s);
 }catch(e){}})();
 `;
 

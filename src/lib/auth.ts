@@ -75,6 +75,9 @@ export function toSessionUser(u: User): SessionUser {
     role: u.role,
     must_change_password: u.must_change_password === 1,
     page_width: u.page_width === "normal" || u.page_width === "full" ? u.page_width : "wide",
+    ui_scale: (["compact", "large", "larger"] as const).includes(u.ui_scale as never)
+      ? (u.ui_scale as "compact" | "large" | "larger")
+      : "default",
     newsletter_role:
       u.newsletter_role === "contributor" || u.newsletter_role === "approver"
         ? u.newsletter_role

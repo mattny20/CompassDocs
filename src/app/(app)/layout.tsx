@@ -7,6 +7,7 @@ import { getAppSettings } from "@/lib/settings-store";
 import { settingsForUser } from "@/lib/format";
 import { countOpenSuggestions, countPendingChangeRequests, countTrashed } from "@/lib/db";
 import { ToastHost } from "@/components/Toasts";
+import { UiScaleSync } from "@/components/UiScale";
 import { CommandPalette } from "@/components/palette/CommandPalette";
 import { navCapabilities } from "@/lib/nav-capabilities";
 import { spaceScopeFor } from "@/lib/access";
@@ -43,6 +44,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       >
         Skip to content
       </a>
+      <UiScaleSync accountPref={user.ui_scale} />
       <Sidebar user={user} caps={caps} reviewCount={reviewCount} trashCount={trashCount} />
       <main id="main" className="flex-1 overflow-y-auto print:overflow-visible">
         <SettingsProvider value={settings}>

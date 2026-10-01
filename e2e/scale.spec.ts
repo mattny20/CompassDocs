@@ -38,6 +38,8 @@ test("the root is 16px on a laptop, 18px on a large monitor, 16px on paper", asy
 });
 
 test("nothing scrolls sideways at 2560 and 3440 at any width preference", async ({ browser }) => {
+  // 36 page loads plus the palette, at two widths: well past the default 30 s.
+  test.setTimeout(300000);
   for (const width of [2560, 3440]) {
     const ctx = await browser.newContext({ viewport: { width, height: 1440 } });
     const page = await ctx.newPage();
@@ -75,6 +77,44 @@ test("nothing scrolls sideways at 2560 and 3440 at any width preference", async 
         body: JSON.stringify({ page_width: "wide" }),
       })
     );
+    await ctx.close();
+  }
+});
+
+test("the Interface scale preference multiplies the root and is stamped before hydration", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await ctx.newPage();
+  await login(page, ADMIN);
+  const patch = (ui_scale: string) =>
+    page.evaluate(
+      (v) =>
+        fetch("/api/account/preferences", {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ ui_scale: v }),
+        }).then((r) => r.status),
+      ui_scale
+    );
+  try {
+    expect(await patch("huge")).toBe(400);
+    expect(await patch("large")).toBe(200);
+    // The account value is applied on the next load (sync) …
+    await page.goto("/");
+    await page.waitForLoadState("networkidle");
+    expect(await rootPx(page)).toBeCloseTo(17.6, 1);
+    // … and from then on the browser stamps it before paint: the attribute
+    // is on <html> as soon as the document exists.
+    await page.goto("/");
+    expect(await page.evaluate(() => document.documentElement.getAttribute("data-ui-scale"))).toBe("large");
+    expect(await patch("compact")).toBe(200);
+    await page.goto("/");
+    await page.waitForLoadState("networkidle");
+    expect(await rootPx(page)).toBeCloseTo(14.4, 1);
+  } finally {
+    expect(await patch("default")).toBe(200);
+    await page.goto("/");
+    await page.waitForLoadState("networkidle");
+    expect(await rootPx(page)).toBeCloseTo(16, 1);
     await ctx.close();
   }
 });

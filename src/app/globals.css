@@ -142,6 +142,17 @@
 :root {
   --ui-scale: 1;
 }
+/* Account › Preferences › Interface scale. Stamped on <html> before first
+ * paint from localStorage (compass-ui-scale), synced from the account. */
+:root[data-ui-scale="compact"] {
+  --ui-scale: 0.9;
+}
+:root[data-ui-scale="large"] {
+  --ui-scale: 1.1;
+}
+:root[data-ui-scale="larger"] {
+  --ui-scale: 1.2;
+}
 html {
   font-size: calc(clamp(1rem, 0.8571rem + 0.1786vw, 1.125rem) * var(--ui-scale));
 }

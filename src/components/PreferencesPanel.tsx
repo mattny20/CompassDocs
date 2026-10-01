@@ -9,6 +9,7 @@ import { useRouter } from "next/navigation";
 import { Monitor, Moon, Sun } from "lucide-react";
 import { WidthPreference } from "./PageWidth";
 import { applyThemePref, storeThemePref, type Pref } from "./ThemeToggle";
+import { UI_SCALES, applyUiScale, storeUiScale, type UiScale } from "./UiScale";
 
 const THEMES: { value: Pref; label: string; icon: typeof Sun }[] = [
   { value: "light", label: "Light", icon: Sun },
@@ -36,18 +37,21 @@ function dfExample(df: Df): string {
 export function PreferencesPanel({
   initialTheme,
   initialWidth,
+  initialScale = "default",
   initialTimezone,
   initialDateFormat,
   workspaceTimezone,
 }: {
   initialTheme: Pref;
   initialWidth: "normal" | "wide" | "full";
+  initialScale?: UiScale;
   initialTimezone: string;
   initialDateFormat: Df;
   workspaceTimezone: string;
 }) {
   const router = useRouter();
   const [theme, setTheme] = useState<Pref>(initialTheme);
+  const [scale, setScale] = useState<UiScale>(initialScale);
   const [timezone, setTimezone] = useState(initialTimezone);
   const [dateFormat, setDateFormat] = useState<Df>(initialDateFormat);
   const [error, setError] = useState("");
@@ -80,6 +84,13 @@ export function PreferencesPanel({
     applyThemePref(next);
     storeThemePref(next);
     await patch({ theme: next });
+  }
+
+  async function pickScale(next: UiScale) {
+    setScale(next);
+    applyUiScale(next);
+    storeUiScale(next);
+    await patch({ ui_scale: next });
   }
 
   const select =
@@ -116,6 +127,35 @@ export function PreferencesPanel({
             Page width — how wide pages render across the whole app
           </span>
           <WidthPreference initial={initialWidth} />
+        </div>
+        <div className="mt-4 border-t border-slate-100 pt-4">
+          <span className="mb-2 block text-xs font-medium text-slate-500">
+            Interface scale — the size of everything, text and controls alike
+          </span>
+          <div className="inline-flex rounded-lg border border-slate-200 p-0.5" role="radiogroup" aria-label="Interface scale">
+            {UI_SCALES.map((s) => {
+              const active = scale === s.value;
+              return (
+                <button
+                  key={s.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  onClick={() => pickScale(s.value)}
+                  data-tt={s.hint}
+                  className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
+                    active ? "bg-compass-600 text-white" : "text-slate-600 hover:bg-slate-100"
+                  }`}
+                >
+                  {s.label}
+                </button>
+              );
+            })}
+          </div>
+          <p className="mt-2 text-xs text-slate-500">
+            Default already grows with your monitor. Pick Large or Larger on a 32-inch or ultrawide
+            screen, Compact to fit more on a laptop. Browser zoom still works on top.
+          </p>
         </div>
       </div>
 
