@@ -9,6 +9,7 @@ import {
   Braces,
   FileText,
   LoaderCircle,
+  Mail,
   RotateCcw,
   ShieldCheck,
   Siren,
@@ -148,7 +149,12 @@ export function EmailTemplatesPanel({ initial }: { initial: Template[] }) {
         >
           <ArrowLeft className="h-4 w-4" /> Notifications
         </Link>
-        <h2 className="mt-2 text-lg font-semibold text-slate-900">Email templates</h2>
+        {/* This page sits under the Notifications section but is its own
+            route, so it carries the page-title h1 itself (the console layout
+            renders only an eyebrow). */}
+        <h1 className="mt-2 flex items-center gap-2 text-2xl font-bold text-slate-900">
+          <Mail className="h-6 w-6 text-compass-600" aria-hidden /> Email templates
+        </h1>
         <p className="mt-1 max-w-2xl text-sm text-slate-500">
           Every alert email CompassDocs sends, editable. Dynamic tags like{" "}
           <code className="rounded-sm bg-slate-100 px-1 py-0.5 text-xs">{"{{doc_title}}"}</code> are

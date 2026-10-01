@@ -1,11 +1,12 @@
 "use client";
 
 // Left rail of the account settings shell. One entry per section; the
-// current section is derived from the pathname.
+// current section is derived from the pathname. Rows are the shared rail
+// recipe (components/RailLink), so this rail and the settings rail match.
 
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BellRing, Cable, ShieldCheck, SlidersHorizontal, UserRound } from "lucide-react";
+import { RailLink } from "./RailLink";
 
 const SECTIONS = [
   { href: "/account", label: "Profile", icon: UserRound },
@@ -23,24 +24,9 @@ export function AccountNav() {
         {SECTIONS.map((s) => {
           const active =
             s.href === "/account" ? pathname === "/account" : pathname.startsWith(s.href);
-          const Icon = s.icon;
           return (
             <li key={s.href} className="shrink-0">
-              <Link
-                href={s.href}
-                aria-current={active ? "page" : undefined}
-                className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition ${
-                  active
-                    ? "bg-compass-50 text-compass-700"
-                    : "text-slate-600 hover:bg-slate-100 hover:text-slate-800"
-                }`}
-              >
-                <Icon
-                  className={`h-4 w-4 ${active ? "text-compass-600" : "text-slate-400"}`}
-                  aria-hidden
-                />
-                {s.label}
-              </Link>
+              <RailLink href={s.href} icon={s.icon} label={s.label} active={active} />
             </li>
           );
         })}

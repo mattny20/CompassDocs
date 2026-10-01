@@ -3,29 +3,14 @@
 // The settings rail: sections grouped by area (Platform / Content / People &
 // access / AI / Operations) with a search box that flattens across all of
 // them. Section identity (label, icon, description, keywords) lives in
-// lib/settings-sections — shared with each page's SettingsPage header.
+// lib/settings-sections — shared with each page's SettingsPage header. Rows
+// and group labels are the shared rail recipe (components/RailLink).
 
 import { useState } from "react";
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Search } from "lucide-react";
-import { SETTINGS_GROUPS, SETTINGS_SECTIONS, type SettingsSection } from "@/lib/settings-sections";
-
-function NavLink({ s, active }: { s: SettingsSection; active: boolean }) {
-  const Icon = s.icon;
-  return (
-    <Link
-      href={s.href}
-      aria-current={active ? "page" : undefined}
-      className={`flex items-center gap-2 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition ${
-        active ? "bg-compass-50 text-compass-700" : "text-slate-600 hover:bg-slate-100"
-      }`}
-    >
-      <Icon className="h-4 w-4" aria-hidden />
-      {s.label}
-    </Link>
-  );
-}
+import { SETTINGS_GROUPS, SETTINGS_SECTIONS } from "@/lib/settings-sections";
+import { RailGroupLabel, RailLink } from "./RailLink";
 
 export function SettingsNav({ reachable }: { reachable: string[] }) {
   const pathname = usePathname();
@@ -51,7 +36,7 @@ export function SettingsNav({ reachable }: { reachable: string[] }) {
     : null;
 
   return (
-    <div className="flex shrink-0 flex-col gap-1 sm:w-52">
+    <div className="flex shrink-0 flex-col gap-1 sm:w-rail">
       <label className="relative mb-1 hidden sm:block">
         <Search className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
         <input
@@ -66,7 +51,7 @@ export function SettingsNav({ reachable }: { reachable: string[] }) {
       {matches ? (
         <nav aria-label="Settings sections" className="flex gap-1 overflow-x-auto sm:flex-col">
           {matches.map((s) => (
-            <NavLink key={s.href} s={s} active={path === s.href} />
+            <RailLink key={s.href} href={s.href} icon={s.icon} label={s.label} active={path === s.href} />
           ))}
           {matches.length === 0 && (
             <p className="px-3 py-2 text-sm text-slate-500">No settings match.</p>
@@ -77,18 +62,18 @@ export function SettingsNav({ reachable }: { reachable: string[] }) {
           {/* Mobile: one horizontally scrollable flat row. */}
           <nav aria-label="Settings sections" className="flex gap-1 overflow-x-auto sm:hidden">
             {sections.map((s) => (
-              <NavLink key={s.href} s={s} active={path === s.href} />
+              <span key={s.href} className="shrink-0 whitespace-nowrap">
+                <RailLink href={s.href} icon={s.icon} label={s.label} active={path === s.href} />
+              </span>
             ))}
           </nav>
           {/* Desktop: grouped rail. */}
           <nav aria-label="Settings sections" className="hidden sm:flex sm:flex-col sm:gap-1">
             {groups.map((g) => (
-              <div key={g.label} className="flex flex-col gap-1">
-                <p className="mb-0.5 mt-3 px-3 text-2xs font-semibold uppercase tracking-wide text-slate-500 first:mt-1">
-                  {g.label}
-                </p>
+              <div key={g.label} className="flex flex-col gap-0.5">
+                <RailGroupLabel>{g.label}</RailGroupLabel>
                 {g.sections.map((s) => (
-                  <NavLink key={s.href} s={s} active={path === s.href} />
+                  <RailLink key={s.href} href={s.href} icon={s.icon} label={s.label} active={path === s.href} />
                 ))}
               </div>
             ))}

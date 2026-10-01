@@ -44,6 +44,14 @@
    * width preference to read: 56rem on a laptop, growing with the screen to
    * 76rem on an ultrawide instead of staying a 35% strip. */
   --container-standalone: clamp(56rem, 52vw, 76rem);
+
+  /* Shell widths, defined once so the sidebar and the settings/account rails
+   * grow together with the interface scale: w-sidebar, w-sidebar-rail (the
+   * collapsed icon rail — the right-placed tooltip offset in [data-tt-pos]
+   * assumes 4rem), w-rail. */
+  --container-sidebar: 16rem;
+  --container-sidebar-rail: 4rem;
+  --container-rail: 13rem;
 }
 
 /* A card grid sized by the column it is in, not the viewport (STYLEGUIDE

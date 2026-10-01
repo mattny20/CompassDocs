@@ -11,6 +11,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { RAIL_GROUP_TEXT, railIconClass, railRowClass } from "./RailLink";
 import { usePathname } from "next/navigation";
 import {
   Activity,
@@ -194,11 +195,9 @@ export function SidebarClient({
       data-tt={collapsed ? moreLabel : undefined}
       data-tt-pos="right"
       aria-label={collapsed ? moreLabel : undefined}
-      className={`relative flex w-full items-center rounded-md py-2 font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-600 ${
-        collapsed ? "justify-center px-0" : "gap-2 px-3"
-      }`}
+      className={`relative w-full ${railRowClass(false, { collapsed })}`}
     >
-      <span className="text-slate-500">
+      <span className={railIconClass(false)}>
         <MoreHorizontal className="h-4 w-4" />
       </span>
       {!collapsed && <span className="flex-1 text-left">{moreLabel}</span>}
@@ -236,7 +235,7 @@ export function SidebarClient({
         if (overlay && (e.target as HTMLElement).closest("a")) setCollapsed(true);
       }}
       className={`print:hidden flex shrink-0 flex-col border-r border-slate-200 bg-surface transition-[width] duration-200 ${
-        collapsed ? "w-16" : "w-64"
+        collapsed ? "w-sidebar-rail" : "w-sidebar"
       } ${overlay ? "fixed inset-y-0 left-0 z-40 shadow-2xl" : ""}`}
     >
       {/* Brand + collapse toggle */}
@@ -383,7 +382,7 @@ export function SidebarClient({
 
       {!collapsed && (
         <div className="mt-2 flex items-center justify-between px-5 pb-1">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500">Spaces</h2>
+          <h2 className={RAIL_GROUP_TEXT}>Spaces</h2>
           {isAdmin && (
             <Link
               href="/admin/spaces"
@@ -511,11 +510,9 @@ function NavLink({
       // Expanded, the text is the name and an aria-label would override it.
       aria-label={collapsed ? (badge ? `${label}, ${badge} ${badgeLabel}` : label) : undefined}
       aria-current={active ? "page" : undefined}
-      className={`relative flex items-center rounded-md py-2 font-medium ${
-        active ? "bg-compass-50 text-compass-700" : "text-slate-600 hover:bg-slate-100"
-      } ${collapsed ? "justify-center px-0" : "gap-2 px-3"}`}
+      className={`relative ${railRowClass(active, { collapsed })}`}
     >
-      <span className={active ? "" : "text-slate-400"}>{icon}</span>
+      <span className={railIconClass(active)}>{icon}</span>
       {!collapsed && <span className="min-w-0 flex-1 truncate">{label}</span>}
       {badge ? (
         collapsed ? (

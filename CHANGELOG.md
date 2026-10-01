@@ -4,6 +4,24 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.5.1] - 2026-10-01
+
+Rails and the settings console frame.
+
+### Changed
+- **One navigation-row recipe for every rail.** The sidebar, the settings
+  rail and the account rail used three slightly different rows (radius,
+  icon tint, label style, hover); they now share one (`RailLink`), with the
+  same current-page marker for assistive tech. Shell widths are tokens, so
+  the sidebar and the rails grow together with the interface scale.
+- **The settings console shows the section as the page.** "Settings —
+  Manage your workspace" is a small eyebrow instead of a second page title,
+  and the section ("Users & roles") is the page's heading at the normal
+  page-title size, so the first control sits near the top and every admin
+  page has exactly one top-level heading. The rail is tighter, sticks while
+  a long page (Workspace, Notifications, Backups) scrolls, and scrolls inside
+  its own box so all twenty entries fit a 900px-tall laptop.
+
 ## [1.5.0] - 2026-10-01
 
 Shell and wayfinding.
