@@ -4,7 +4,9 @@ import { knowledgeHealthReport, type HealthDoc } from "@/lib/health";
 import { SettingsPage } from "@/components/SettingsPage";
 import { DateText } from "@/components/SettingsProvider";
 
+import { settingsMetadata } from "@/lib/settings-sections";
 export const dynamic = "force-dynamic";
+export const metadata = settingsMetadata("/admin/health");
 
 // Content health: where the knowledge base is quietly rotting — broken links,
 // orphans, overdue and stale docs, unread docs, likely duplicates, and

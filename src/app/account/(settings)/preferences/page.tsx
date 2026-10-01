@@ -3,6 +3,7 @@ import { getAppSettings } from "@/lib/settings-store";
 import { PreferencesPanel } from "@/components/PreferencesPanel";
 
 export const dynamic = "force-dynamic";
+export const metadata = { title: "Preferences" };
 
 export default async function PreferencesPage() {
   const user = await requireUser();

@@ -16,6 +16,7 @@ function NavLink({ s, active }: { s: SettingsSection; active: boolean }) {
   return (
     <Link
       href={s.href}
+      aria-current={active ? "page" : undefined}
       className={`flex items-center gap-2 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition ${
         active ? "bg-compass-50 text-compass-700" : "text-slate-600 hover:bg-slate-100"
       }`}
@@ -63,7 +64,7 @@ export function SettingsNav({ reachable }: { reachable: string[] }) {
       </label>
 
       {matches ? (
-        <nav className="flex gap-1 overflow-x-auto sm:flex-col">
+        <nav aria-label="Settings sections" className="flex gap-1 overflow-x-auto sm:flex-col">
           {matches.map((s) => (
             <NavLink key={s.href} s={s} active={path === s.href} />
           ))}
@@ -74,13 +75,13 @@ export function SettingsNav({ reachable }: { reachable: string[] }) {
       ) : (
         <>
           {/* Mobile: one horizontally scrollable flat row. */}
-          <nav className="flex gap-1 overflow-x-auto sm:hidden">
+          <nav aria-label="Settings sections" className="flex gap-1 overflow-x-auto sm:hidden">
             {sections.map((s) => (
               <NavLink key={s.href} s={s} active={path === s.href} />
             ))}
           </nav>
           {/* Desktop: grouped rail. */}
-          <nav className="hidden sm:flex sm:flex-col sm:gap-1">
+          <nav aria-label="Settings sections" className="hidden sm:flex sm:flex-col sm:gap-1">
             {groups.map((g) => (
               <div key={g.label} className="flex flex-col gap-1">
                 <p className="mb-0.5 mt-3 px-3 text-2xs font-semibold uppercase tracking-wide text-slate-500 first:mt-1">

@@ -6,6 +6,7 @@ import { parseDeck, publicQuiz, defaultComplianceText } from "@/lib/training";
 import { TrainingPlayer } from "@/components/TrainingPlayer";
 
 export const dynamic = "force-dynamic";
+export const metadata = { title: "Training" };
 
 // The deck player. The assignment is the access grant — reachable only by
 // its assignee, whatever space the underlying document lives in.

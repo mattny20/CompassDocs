@@ -4,7 +4,9 @@ import { proxyStatus, hasCustomCert } from "@/lib/caddy";
 import { DomainSettings } from "@/components/DomainSettings";
 import { SettingsPage } from "@/components/SettingsPage";
 
+import { settingsMetadata } from "@/lib/settings-sections";
 export const dynamic = "force-dynamic";
+export const metadata = settingsMetadata("/admin/domain");
 
 export default async function DomainPage() {
   await requireSettingsSection("/admin/domain");

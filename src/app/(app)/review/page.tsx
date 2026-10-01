@@ -6,6 +6,7 @@ import { ClipboardCheck } from "lucide-react";
 import { PageContainer } from "@/components/PageWidth";
 
 export const dynamic = "force-dynamic";
+export const metadata = { title: "Review queue" };
 
 export default async function ReviewPage() {
   const user = await requirePermission("approver", "change_request.read");

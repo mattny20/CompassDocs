@@ -4,7 +4,9 @@ import { featureEnabled } from "@/lib/ee";
 import { AuditLog } from "@/components/AuditLog";
 import { SettingsPage } from "@/components/SettingsPage";
 
+import { settingsMetadata } from "@/lib/settings-sections";
 export const dynamic = "force-dynamic";
+export const metadata = settingsMetadata("/admin/audit");
 
 const PAGE_SIZE = 50;
 

@@ -9,6 +9,7 @@ import { ArchivedDecks } from "@/components/ArchivedDecks";
 import { PageContainer } from "@/components/PageWidth";
 
 export const dynamic = "force-dynamic";
+export const metadata = { title: "Archived training" };
 
 // Archived training decks, tucked out of the main Training tab. Managers can
 // restore a deck (everything comes back exactly as it was) or delete it for

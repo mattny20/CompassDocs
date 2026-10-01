@@ -6,6 +6,7 @@ import { CompliancePanel } from "@/components/CompliancePanel";
 import { PageContainer } from "@/components/PageWidth";
 
 export const dynamic = "force-dynamic";
+export const metadata = { title: "Compliance" };
 
 // Operational home for the compliance portal (main navigation). Admins plus
 // anyone granted the Compliance section (Settings → Section access).

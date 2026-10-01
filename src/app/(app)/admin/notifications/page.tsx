@@ -11,7 +11,9 @@ import { getAppSettings } from "@/lib/settings-store";
 import { SettingsPage } from "@/components/SettingsPage";
 import { EVERY_SPACE_UNFILTERED } from "@/lib/space-scope";
 
+import { settingsMetadata } from "@/lib/settings-sections";
 export const dynamic = "force-dynamic";
+export const metadata = settingsMetadata("/admin/notifications");
 
 function maskUrl(url: string): string {
   try {

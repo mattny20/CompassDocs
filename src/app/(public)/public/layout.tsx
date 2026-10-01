@@ -64,7 +64,7 @@ export default async function PublicLayout({ children }: { children: React.React
         </div>
 
         {spaces.length > 1 && (
-          <nav className="mx-auto flex max-w-standalone gap-1 overflow-x-auto px-6 pb-3">
+          <nav aria-label="Public spaces" className="mx-auto flex max-w-standalone gap-1 overflow-x-auto px-6 pb-3">
             {spaces.map((s) => (
               <Link
                 key={s.id}

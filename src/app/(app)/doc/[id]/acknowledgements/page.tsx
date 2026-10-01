@@ -9,7 +9,15 @@ import { getAppSettings } from "@/lib/settings-store";
 import { formatDateTime, settingsForUser } from "@/lib/format";
 import { PageContainer } from "@/components/PageWidth";
 
+import type { Metadata } from "next";
+import { cachedDocument } from "@/lib/page-data";
 export const dynamic = "force-dynamic";
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await params;
+  const doc = await cachedDocument(Number(id)).catch(() => undefined);
+  return { title: doc?.title ? `Read confirmations · ${doc.title}` : "Read confirmations" };
+}
 
 export default async function AcknowledgementsPage({
   params,
@@ -20,7 +28,7 @@ export default async function AcknowledgementsPage({
   if (!(await featureEnabled("policy_ack"))) notFound();
 
   const { id } = await params;
-  const doc = await getDocument(Number(id));
+  const doc = await cachedDocument(Number(id));
   if (!doc || !scopeAllows(await spaceScopeFor(user), doc.space_id)) notFound();
 
   const [rows, settings] = await Promise.all([ackStatusForDocument(doc.id), getAppSettings()]);

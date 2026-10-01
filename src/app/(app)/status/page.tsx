@@ -7,6 +7,7 @@ import { StatusBoard } from "@/components/StatusBoard";
 import { PageContainer } from "@/components/PageWidth";
 
 export const dynamic = "force-dynamic";
+export const metadata = { title: "Status" };
 
 export default async function StatusPage() {
   const user = await requireUser();

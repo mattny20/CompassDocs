@@ -10,7 +10,9 @@ import { SamlPanel } from "@/components/SamlPanel";
 import { ScimPanel } from "@/components/ScimPanel";
 import { SettingsPage } from "@/components/SettingsPage";
 
+import { settingsMetadata } from "@/lib/settings-sections";
 export const dynamic = "force-dynamic";
+export const metadata = settingsMetadata("/admin/sso");
 
 export default async function SsoAdminPage() {
   await requireSettingsSection("/admin/sso");

@@ -12,6 +12,7 @@ import { getAppSettings } from "@/lib/settings-store";
 import { formatDate } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
+export const metadata = { title: "Directory" };
 
 export default async function DirectoryPage({ searchParams }: { searchParams: Promise<{ view?: string; focus?: string }> }) {
   const user = await requireUser();

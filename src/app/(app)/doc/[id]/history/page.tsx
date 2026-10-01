@@ -9,12 +9,20 @@ import { timeAgo } from "@/lib/ui";
 import { PageContainer } from "@/components/PageWidth";
 import { VersionHistory } from "@/components/VersionHistory";
 
+import type { Metadata } from "next";
+import { cachedDocument } from "@/lib/page-data";
 export const dynamic = "force-dynamic";
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await params;
+  const doc = await cachedDocument(Number(id)).catch(() => undefined);
+  return { title: doc?.title ? `History · ${doc.title}` : "Version history" };
+}
 
 export default async function HistoryPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requireUser();
   const { id } = await params;
-  const doc = await getDocument(Number(id));
+  const doc = await cachedDocument(Number(id));
   if (!doc) notFound();
   if (!scopeAllows(await spaceScopeFor(user), doc.space_id)) notFound();
   if (doc.status === "draft" && !(await canSeeDrafts(user, doc.space_id))) notFound();
@@ -42,11 +50,11 @@ export default async function HistoryPage({ params }: { params: Promise<{ id: st
 
   return (
     <PageContainer>
-      <nav className="mb-4 flex items-center gap-1.5 text-sm text-slate-500">
+      <div className="mb-4 flex items-center gap-1.5 text-sm text-slate-500">
         <Link href={`/doc/${doc.id}`} className="hover:text-slate-600">
           ← Back to document
         </Link>
-      </nav>
+      </div>
       <h1 className="mb-1 text-2xl font-bold text-slate-900">Version history</h1>
       <p className="mb-6 text-slate-500">
         {doc.title}

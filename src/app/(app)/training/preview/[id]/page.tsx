@@ -7,6 +7,7 @@ import { parseDeck, publicQuiz, defaultComplianceText } from "@/lib/training";
 import { TrainingPlayer } from "@/components/TrainingPlayer";
 
 export const dynamic = "force-dynamic";
+export const metadata = { title: "Training preview" };
 
 // Manager preview: walk a deck exactly as trainees will, without assigning
 // it to yourself. Nothing is recorded — quiz grading and the confirmation

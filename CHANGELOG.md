@@ -4,6 +4,37 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.5.0] - 2026-10-01
+
+Shell and wayfinding.
+
+### Added
+- **Every page has its own browser title**, page first and workspace last
+  ("Users & roles — Acme", "History · Production Deployment SOP — Acme"),
+  so tabs, history and password managers stop reading the same product
+  name everywhere. Sign-in, setup, the forced password change and the OAuth
+  consent page are not indexed, and a robots file keeps crawlers out of
+  everything except the public site when indexing is on.
+- **The sidebar always lights the page you are on.** Trash, Newsletter,
+  Analytics, Announcements and Compliance used to live behind a closed
+  "More" fold with no active row; a folded destination is now shown
+  whenever it is the current page, and **Settings is pinned** for admins so
+  every settings page lights its row. Long workspace and page names
+  truncate with a tooltip instead of colliding with the bell; the account
+  footer is one link (avatar, name, role) instead of three to the same page.
+- **Tooltips that never clip.** The bell, the collapse toggle and every
+  editor toolbar button show their tooltip below the control instead of
+  off the top of the screen; the collapsed rail's tooltips sit to the right
+  of the icon and escape the rail's scroll area; the brand's tooltip grows
+  rightwards so a long workspace name stays on screen; the toolbar no
+  longer shows two bubbles per button, and long labels wrap.
+- **Screen-reader wayfinding.** Every navigation and sidebar landmark is
+  named, breadcrumb separators are silent, the skip link really lands on
+  the content, badge counts say what they count ("3 pending reviews"),
+  unread notifications say so, the bell declares its popup, and Escape in
+  the notifications panel defers to an open palette and returns focus to
+  the bell.
+
 ## [1.4.4] - 2026-10-01
 
 ### Added

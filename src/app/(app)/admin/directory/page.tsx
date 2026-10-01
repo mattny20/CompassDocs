@@ -5,7 +5,9 @@ import { getGoogleSyncStatus } from "@/lib/directory-google-config";
 import { directoryHealth } from "@/lib/directory-health";
 import { DirectoryPeoplePanel } from "@/components/directory-admin/DirectoryPeoplePanel";
 
+import { settingsMetadata } from "@/lib/settings-sections";
 export const dynamic = "force-dynamic";
+export const metadata = settingsMetadata("/admin/directory");
 
 export default async function DirectoryPeoplePage({ searchParams }: { searchParams: Promise<{ missing?: string }> }) {
   await requireSettingsSection("/admin/directory");

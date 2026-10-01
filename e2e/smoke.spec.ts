@@ -14,6 +14,23 @@ test("unauthenticated app routes redirect to login", async ({ page }) => {
   await expect(page.locator('input[autocomplete="username"]')).toBeVisible();
 });
 
+test("every page has its own document title", async ({ page }) => {
+  // Page first, workspace last (1.5.0): the tab, history and password
+  // managers used to read "CompassDocs — Team Knowledge Platform" everywhere.
+  await page.goto("/login");
+  await expect(page).toHaveTitle(/^Sign in — /);
+  await login(page, ADMIN);
+  await expect(page).toHaveTitle(/^Dashboard — /);
+  await page.goto("/admin/users");
+  await expect(page).toHaveTitle(/^Users & roles — /);
+  await page.goto("/admin/directory/fields");
+  await expect(page).toHaveTitle(/^Fields · Directory — /);
+  await page.goto("/doc/1");
+  await expect(page).toHaveTitle(/^Production Deployment SOP — /);
+  await page.goto("/doc/1/history");
+  await expect(page).toHaveTitle(/^History · Production Deployment SOP — /);
+});
+
 test("admin signs in and sees the dashboard hub", async ({ page }) => {
   await login(page, ADMIN);
   // Greeting header + hero search are the dashboard's spine.

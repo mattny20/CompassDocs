@@ -13,6 +13,7 @@ import { formatDate } from "@/lib/format";
 import { DocEditor } from "@/components/DocEditor";
 
 export const dynamic = "force-dynamic";
+export const metadata = { title: "New document" };
 
 export default async function NewDocPage({
   searchParams,

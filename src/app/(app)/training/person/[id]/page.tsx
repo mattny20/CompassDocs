@@ -11,6 +11,7 @@ import { PrintButton } from "@/components/PrintButton";
 import { PageContainer } from "@/components/PageWidth";
 
 export const dynamic = "force-dynamic";
+export const metadata = { title: "Training record" };
 
 // A person's full training transcript — live assignments plus every closed
 // recert cycle. Printable; CSV export next to it. Manager-only.

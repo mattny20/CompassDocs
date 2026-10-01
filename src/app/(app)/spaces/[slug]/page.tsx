@@ -19,12 +19,20 @@ import { getAppSettings } from "@/lib/settings-store";
 import { getApprovalMode } from "@/lib/db";
 import type { DocumentWithSpace } from "@/lib/types";
 
+import type { Metadata } from "next";
+import { cachedSpace } from "@/lib/page-data";
 export const dynamic = "force-dynamic";
+
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+  const { slug } = await params;
+  const space = await cachedSpace(slug).catch(() => undefined);
+  return { title: space?.name ?? "Space" };
+}
 
 export default async function SpacePage({ params }: { params: Promise<{ slug: string }> }) {
   const user = await requireUser();
   const { slug } = await params;
-  const space = await getSpaceBySlug(slug);
+  const space = await cachedSpace(slug);
   if (!space) notFound();
   if (!scopeAllows(await spaceScopeFor(user), space.id)) notFound();
 

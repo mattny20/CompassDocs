@@ -43,12 +43,20 @@ import { shareLinksEnabled, getActiveShare } from "@/lib/shares";
 import { Link2 } from "lucide-react";
 import { timeAgo } from "@/lib/ui";
 
+import type { Metadata } from "next";
+import { cachedDocument } from "@/lib/page-data";
 export const dynamic = "force-dynamic";
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await params;
+  const doc = await cachedDocument(Number(id)).catch(() => undefined);
+  return { title: doc?.title ? `${doc.title}` : "Document" };
+}
 
 export default async function DocPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requireUser();
   const { id } = await params;
-  const doc = await getDocument(Number(id));
+  const doc = await cachedDocument(Number(id));
   if (!doc) notFound();
   const scope = await spaceScopeFor(user);
   if (!scopeAllows(scope, doc.space_id)) notFound();
@@ -140,18 +148,18 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
   return (
     <PageWidth>
       <ViewTracker docId={doc.id} />
-      <nav className="mb-4 flex items-center gap-1.5 text-sm text-slate-500 print:hidden">
+      <nav aria-label="Breadcrumb" className="mb-4 flex items-center gap-1.5 text-sm text-slate-500 print:hidden">
         <Link href="/" className="hover:text-slate-600">
           Home
         </Link>
-        <span>/</span>
+        <span aria-hidden>/</span>
         <Link href={`/spaces/${doc.space_slug}`} className="hover:text-slate-600">
           {doc.space_icon} {doc.space_name}
         </Link>
         {/* Ancestor pages, outermost first (nested pages). */}
         {[...ancestors].reverse().map((a) => (
           <span key={a.id} className="flex min-w-0 items-center gap-1.5">
-            <span>/</span>
+            <span aria-hidden>/</span>
             <Link href={`/doc/${a.id}`} className="max-w-48 truncate hover:text-slate-600" data-tt={a.title} aria-label={a.title}>
               {a.title}
             </Link>

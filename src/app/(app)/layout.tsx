@@ -46,7 +46,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       </a>
       <UiScaleSync accountPref={user.ui_scale} />
       <Sidebar user={user} caps={caps} reviewCount={reviewCount} trashCount={trashCount} />
-      <main id="main" className="flex-1 overflow-y-auto print:overflow-visible">
+      {/* tabIndex -1 so the skip link really lands here; outline-none because
+          a focused scroll container would otherwise ring the whole content
+          area in Safari. */}
+      <main id="main" tabIndex={-1} className="flex-1 overflow-y-auto outline-none print:overflow-visible">
         <SettingsProvider value={settings}>
         <WidthProvider initial={user.page_width}>{children}
         <ToastHost /></WidthProvider>

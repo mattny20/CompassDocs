@@ -10,6 +10,7 @@ import { getAppSettings } from "@/lib/settings-store";
 import { formatDate } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
+export const metadata = { title: "Team training" };
 
 // The team-lead scoped view: where the members of the groups this user
 // leads stand on their assigned training. Leading a group IS the access

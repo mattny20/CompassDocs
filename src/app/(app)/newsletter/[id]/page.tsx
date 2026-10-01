@@ -25,7 +25,15 @@ import { listNewsletterFromAddresses } from "@/lib/newsletter";
 import { PageContainer } from "@/components/PageWidth";
 import { NewsletterWorkspace } from "@/components/NewsletterWorkspace";
 
+import type { Metadata } from "next";
+import { cachedNewsletter } from "@/lib/page-data";
 export const dynamic = "force-dynamic";
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await params;
+  const n = await cachedNewsletter(Number(id)).catch(() => undefined);
+  return { title: n?.subject ? n.subject : "Newsletter" };
+}
 
 export default async function NewsletterDetailPage({
   params,
@@ -37,7 +45,7 @@ export default async function NewsletterDetailPage({
   const home = hasModuleAccess ? "/newsletter" : "/";
 
   const { id } = await params;
-  const n = await getNewsletter(Number(id));
+  const n = await cachedNewsletter(Number(id));
   if (!n) redirect(home);
   const approverIds = await getNewsletterApproverIds(n.id);
   // Sent newsletters are readable by every signed-in user (the dashboard

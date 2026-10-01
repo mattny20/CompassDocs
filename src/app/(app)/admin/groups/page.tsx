@@ -5,7 +5,9 @@ import { eePresent, featureEnabled } from "@/lib/ee";
 import { GroupsPanel } from "@/components/GroupsPanel";
 import { SettingsPage } from "@/components/SettingsPage";
 
+import { settingsMetadata } from "@/lib/settings-sections";
 export const dynamic = "force-dynamic";
+export const metadata = settingsMetadata("/admin/groups");
 
 export default async function GroupsAdminPage() {
   await requireSettingsSection("/admin/groups");

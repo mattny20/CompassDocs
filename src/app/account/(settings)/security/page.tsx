@@ -5,6 +5,7 @@ import { SecurityPanel } from "@/components/SecurityPanel";
 import { ChangePasswordForm } from "@/components/ChangePasswordForm";
 
 export const dynamic = "force-dynamic";
+export const metadata = { title: "Security" };
 
 export default async function SecurityPage() {
   const user = await requireUser();

@@ -7,6 +7,7 @@ import { AnnouncementsAdmin } from "@/components/AnnouncementsAdmin";
 import { PageContainer } from "@/components/PageWidth";
 
 export const dynamic = "force-dynamic";
+export const metadata = { title: "Announcements" };
 
 // Operational home for announcements (main navigation). Admins plus anyone
 // granted the Announcements section (Settings → Section access).

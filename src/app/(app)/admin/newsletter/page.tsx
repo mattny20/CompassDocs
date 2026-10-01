@@ -4,7 +4,9 @@ import { listNewsletterFromAddresses, getNewsletterAppearance } from "@/lib/news
 import { NewsletterPeople } from "@/components/NewsletterPeople";
 import { SettingsPage } from "@/components/SettingsPage";
 
+import { settingsMetadata } from "@/lib/settings-sections";
 export const dynamic = "force-dynamic";
+export const metadata = settingsMetadata("/admin/newsletter");
 
 // Settings → Newsletter is the access roster + sender list + email
 // appearance; writing and sending happens in the /newsletter workspace.

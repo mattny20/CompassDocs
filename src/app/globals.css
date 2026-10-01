@@ -707,6 +707,44 @@ mark {
 [data-tt][data-tt-pos="bottom"]:focus-visible::after {
   transform: translateX(-50%) translateY(0);
 }
+/* Elements flush with the viewport's left edge (the sidebar brand): a centred
+ * bubble would run off-screen for a long workspace name, so it grows from
+ * the element's left edge instead. Combines with data-tt-pos="bottom". */
+[data-tt][data-tt-align="start"]::after {
+  left: 0;
+  transform: translateX(0) translateY(0.125rem);
+}
+[data-tt][data-tt-align="start"][data-tt-pos="bottom"]::after {
+  transform: translateX(0) translateY(-0.125rem);
+}
+[data-tt][data-tt-align="start"]:hover::after,
+[data-tt][data-tt-align="start"]:focus-visible::after {
+  transform: translateX(0) translateY(0);
+}
+/* The collapsed sidebar rail: the tooltip is the only label, and the rail is
+ * a scroll container that clips an absolute bubble. position: fixed escapes
+ * every overflow ancestor (the aside has no transform), and with auto offsets
+ * the bubble takes its static position — centred on the icon as the sole
+ * flex item — so one transform slides it to the right of the 4rem rail. */
+[data-tt][data-tt-pos="right"]::after {
+  position: fixed;
+  bottom: auto;
+  top: auto;
+  left: auto;
+  transform: translate(calc(50% + 2.25rem), -0.25rem) translateX(-0.125rem);
+}
+[data-tt][data-tt-pos="right"]:hover::after,
+[data-tt][data-tt-pos="right"]:focus-visible::after {
+  transform: translate(calc(50% + 2.25rem), -0.25rem);
+}
+/* Long labels (the editor's format painter) wrap instead of becoming a
+ * 450px one-line pill. */
+[data-tt][data-tt-wrap]::after {
+  white-space: normal;
+  width: max-content;
+  max-width: 16rem;
+  text-align: center;
+}
 :root[data-theme="dark"] [data-tt]::after {
   background: rgb(226 232 240 / 0.97);
   color: #0f172a;
