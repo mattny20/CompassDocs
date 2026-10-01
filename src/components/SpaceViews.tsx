@@ -17,10 +17,10 @@ import {
   History,
   Tags,
   ChevronRight,
-  ArrowUpDown,
   CornerDownRight,
   AlarmClock,
 } from "lucide-react";
+import { Table, Th, Td, TABLE_HEAD_ROW, TR } from "@/components/Table";
 import { DocCard } from "./DocCard";
 import { TypeBadge, StatusBadge } from "./Badges";
 import { timeAgo } from "@/lib/ui";
@@ -433,19 +433,13 @@ function TableView({
     return copy;
   }, [docs, sort]);
 
-  const Th = ({ k, children }: { k: SortKey; children: React.ReactNode }) => (
-    <th className="px-3 py-2 text-left">
-      <button
-        onClick={() => toggle(k)}
-        className={`inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wider ${
-          sort.key === k ? "text-compass-700" : "text-slate-500 hover:text-slate-600"
-        }`}
-      >
-        {children}
-        <ArrowUpDown className="h-3 w-3" aria-hidden />
-      </button>
-    </th>
-  );
+  // The kit's <Th sort> wants "asc" | "desc"; the component keeps its 1 | -1.
+  const sortBy = (key: SortKey) => ({
+    key,
+    by: sort.key,
+    dir: sort.dir === 1 ? ("asc" as const) : ("desc" as const),
+    onSort: (k: string) => toggle(k as SortKey),
+  });
 
   const allSelected = selected.size > 0 && selected.size === sorted.length;
 
@@ -472,12 +466,12 @@ function TableView({
           {notice.text}
         </div>
       )}
-    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-surface">
-      <table className="w-full min-w-[40rem] text-sm">
-        <thead className="border-b border-slate-100">
+    <div className="rounded-xl border border-slate-200 bg-surface">
+      <Table scroll minWidth="40rem">
+        <thead className={TABLE_HEAD_ROW}>
           <tr>
             {bulk && (
-              <th className="w-8 px-3 py-2">
+              <Th fit>
                 <input
                   type="checkbox"
                   aria-label={allSelected ? "Deselect all" : "Select all"}
@@ -486,32 +480,30 @@ function TableView({
                     setSelected(allSelected ? new Set() : new Set(sorted.map((d) => d.id)))
                   }
                 />
-              </th>
+              </Th>
             )}
-            <Th k="title">Title</Th>
-            <Th k="type">Type</Th>
-            <Th k="status">Status</Th>
-            <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
-              Category
-            </th>
-            <Th k="author">Author</Th>
-            <Th k="updated_at">Updated</Th>
+            <Th sort={sortBy("title")}>Title</Th>
+            <Th sort={sortBy("type")}>Type</Th>
+            <Th sort={sortBy("status")}>Status</Th>
+            <Th>Category</Th>
+            <Th fit sort={sortBy("author")}>Author</Th>
+            <Th fit sort={sortBy("updated_at")}>Updated</Th>
           </tr>
         </thead>
         <tbody>
           {sorted.map((d) => (
-            <tr key={d.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50">
+            <tr key={d.id} className={TR}>
               {bulk && (
-                <td className="px-3 py-2">
+                <Td fit>
                   <input
                     type="checkbox"
                     aria-label={`Select ${d.title}`}
                     checked={selected.has(d.id)}
                     onChange={() => toggleOne(d.id)}
                   />
-                </td>
+                </Td>
               )}
-              <td className="px-3 py-2">
+              <Td>
                 <Link href={`/doc/${d.id}`} className="font-medium text-slate-700 hover:text-compass-700">
                   {d.title}
                 </Link>
@@ -520,22 +512,22 @@ function TableView({
                     <AlarmClock className="h-3.5 w-3.5" aria-label="Review overdue" />
                   </span>
                 )}
-              </td>
-              <td className="px-3 py-2">
+              </Td>
+              <Td>
                 <TypeBadge type={d.type} />
-              </td>
-              <td className="px-3 py-2">
+              </Td>
+              <Td>
                 {d.status === "draft" ? <StatusBadge status="draft" /> : <span className="text-slate-500">Published</span>}
-              </td>
-              <td className="px-3 py-2 text-slate-500">{catName(d)}</td>
-              <td className="px-3 py-2 text-slate-500">{d.author}</td>
-              <td className="px-3 py-2 whitespace-nowrap text-slate-500" title={d.updated_at}>
+              </Td>
+              <Td className="text-slate-500">{catName(d)}</Td>
+              <Td fit className="text-slate-500">{d.author}</Td>
+              <Td fit className="text-slate-500" title={d.updated_at}>
                 {timeAgo(d.updated_at)}
-              </td>
+              </Td>
             </tr>
           ))}
         </tbody>
-      </table>
+      </Table>
     </div>
     </div>
   );

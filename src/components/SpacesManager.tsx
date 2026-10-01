@@ -4,7 +4,7 @@ import { useState } from "react";
 import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
-import { Lock, Globe, Building2, PencilRuler, ChevronUp, ChevronDown, Pencil, Trash2, X } from "lucide-react";
+import { Lock, Globe, Building2, PencilRuler, ChevronUp, ChevronDown, Pencil, Plus, Trash2, X } from "lucide-react";
 import { EntityPicker } from "@/components/EntityPicker";
 import { Field, SectionEmpty, Select, TextInput, Toggle } from "@/components/form";
 import { toast } from "@/components/Toasts";
@@ -104,7 +104,7 @@ export function SpacesManager({
             onClick={() => setCreating(true)}
             className={buttonClass("primary")}
           >
-            ＋ New space
+            <Plus className="h-4 w-4" aria-hidden /> New space
           </button>
         )}
       </div>

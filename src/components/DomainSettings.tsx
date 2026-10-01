@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "@/components/Toasts";
 import type { TlsMode, SecureCookieMode } from "@/lib/settings";
 import { Field, TextInput, Textarea } from "@/components/form";
+import { Check } from "lucide-react";
 
 interface ProxyStatus {
   managed: boolean;
@@ -135,12 +136,12 @@ export function DomainSettings({ initial }: { initial: DomainState }) {
           </p>
         </div>
       ) : reachable ? (
-        <div className="notice-ok rounded-lg border px-3 py-2 text-sm">
-          ✓ Reverse proxy connected — configuration will apply live.
+        <div className="notice-ok inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm">
+          <Check className="h-4 w-4" aria-hidden /> Reverse proxy connected — configuration will apply live.
         </div>
       ) : (
         <div className="notice-error rounded-lg border px-3 py-2 text-sm">
-          ✕ Reverse proxy is configured but not reachable right now. Saving will still store your
+          Reverse proxy is configured but not reachable right now. Saving will still store your
           settings; they&rsquo;ll apply once the proxy is back.
         </div>
       )}

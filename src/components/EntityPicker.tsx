@@ -158,7 +158,7 @@ export function EntityPicker({
       </div>
 
       {open && !disabled && (
-        <div className="absolute z-30 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border border-slate-200 bg-surface py-1 shadow-lg">
+        <div className="absolute z-30 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border border-slate-200 bg-surface py-1 shadow-float">
           {visible.map((o, i) => (
             <button
               key={o.id}

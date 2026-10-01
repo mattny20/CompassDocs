@@ -18,6 +18,7 @@ import {
   ExternalLink,
   LoaderCircle,
   Megaphone,
+  Plus,
   Trash2,
 } from "lucide-react";
 import { useFormatDate } from "./SettingsProvider";
@@ -147,7 +148,7 @@ export function StatusBoard({
         </div>
         {canManageIncidents && (
           <button onClick={() => setDeclaring((v) => !v)} className={`${chipBtn} ml-auto`}>
-            {"＋ Declare incident"}
+            <Plus className="h-3.5 w-3.5" aria-hidden /> Declare incident
           </button>
         )}
       </div>
@@ -273,7 +274,7 @@ export function StatusBoard({
           <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500">Tracked services</h2>
           {isAdmin && (
             <button onClick={() => setAdding((v) => !v)} className={chipBtn}>
-              {"＋ Track a service"}
+              <Plus className="h-3.5 w-3.5" aria-hidden /> Track a service
             </button>
           )}
         </div>

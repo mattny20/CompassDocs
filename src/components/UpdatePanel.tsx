@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
+import { Check } from "lucide-react";
 
 interface ReleaseInfo {
   tag: string;
@@ -122,7 +123,7 @@ export function UpdatePanel() {
           )}
           {status && !available && !status.note && (
             <span className={chipClass("ok")}>
-              ✓ Up to date
+              <Check className="h-3.5 w-3.5" aria-hidden /> Up to date
             </span>
           )}
         </div>
@@ -147,8 +148,8 @@ export function UpdatePanel() {
             </div>
           )}
           {updating === "done" && (
-            <div className="notice-ok rounded-lg px-3 py-2.5 text-sm font-medium">
-              ✓ Updated to v{updatedTo}. Reload the page to pick up the new interface.
+            <div className="notice-ok inline-flex items-center gap-1.5 rounded-lg px-3 py-2.5 text-sm font-medium">
+              <Check className="h-4 w-4 shrink-0" aria-hidden /> Updated to v{updatedTo}. Reload the page to pick up the new interface.
             </div>
           )}
           {updating === "timeout" && (
@@ -177,8 +178,14 @@ export function UpdatePanel() {
                   <span className="text-xs font-medium text-slate-500">
                     Update (from your install folder)
                   </span>
-                  <button onClick={copy} className="text-xs font-medium text-compass-600 hover:underline">
-                    {copied ? "Copied ✓" : "Copy"}
+                  <button onClick={copy} className="inline-flex items-center gap-1.5 text-xs font-medium text-compass-600 hover:underline">
+                    {copied ? (
+                      <>
+                        <Check className="h-4 w-4" aria-hidden /> Copied
+                      </>
+                    ) : (
+                      "Copy"
+                    )}
                   </button>
                 </div>
                 <pre className="overflow-x-auto rounded-lg bg-[#0f172a] px-3 py-2.5 font-mono text-xs text-[#f1f5f9]">

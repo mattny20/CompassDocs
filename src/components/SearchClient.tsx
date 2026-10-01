@@ -154,7 +154,7 @@ export function SearchClient({
       {(asking || answer) && (
         <div className="mb-8 rounded-xl border border-compass-200 bg-linear-to-br from-compass-50/70 to-surface p-5 shadow-xs">
           <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-compass-700">
-            <span>✨</span> Answer
+            <Sparkles className="h-4 w-4" aria-hidden /> Answer
             {answer?.mode === "fallback" && (
               <span className={chipClass("neutral")}>
                 keyword mode
@@ -277,7 +277,7 @@ export function SearchClient({
                     <code className="rounded-sm bg-slate-100 px-1 font-mono text-xs">space:engineering</code>{" "}
                     <code className="rounded-sm bg-slate-100 px-1 font-mono text-xs">author:&quot;maya&quot;</code>
                   </li>
-                  <li>· The ✨ answer above may still help — it reads across all your docs.</li>
+                  <li>· The answer above may still help — it reads across all your docs.</li>
                 </ul>
               </EmptyState>
             )}

@@ -7,7 +7,7 @@
 // a normal (proportional) font the way it'll read in a mail client.
 
 import { useState } from "react";
-import { Mail } from "lucide-react";
+import { Check, Mail } from "lucide-react";
 
 const HEADER_KEYS = ["subject", "to", "cc", "bcc"] as const;
 type HeaderKey = (typeof HEADER_KEYS)[number];
@@ -48,13 +48,13 @@ function CopyButton({ label, text }: { label: string; text: string }) {
           setTimeout(() => setCopied(false), 1600);
         } catch {}
       }}
-      className={`rounded px-2 py-0.5 text-xs font-medium transition ${
+      className={`inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-xs font-medium transition ${
         copied
           ? "text-emerald-600 dark:text-emerald-400"
           : "text-compass-700 hover:bg-compass-100 dark:text-compass-300 dark:hover:bg-white/10"
       }`}
     >
-      {copied ? "Copied ✓" : label}
+      {copied ? <><Check className="h-3.5 w-3.5" aria-hidden /> Copied</> : label}
     </button>
   );
 }

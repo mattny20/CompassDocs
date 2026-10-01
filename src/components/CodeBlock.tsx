@@ -7,6 +7,7 @@
 // executed.
 
 import { useState } from "react";
+import { Check } from "lucide-react";
 
 const RUN_LANGS = new Set([
   "run",
@@ -81,11 +82,19 @@ export function CodeBlock({ language, code }: { language: string; code: string }
         </span>
         <button
           onClick={copy}
-          className={`rounded px-2 py-0.5 text-xs font-medium transition ${
+          className={`inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-xs font-medium transition ${
             copied ? "text-emerald-400" : "text-[#94a3b8] hover:bg-[#334155] hover:text-[#e2e8f0]"
           }`}
         >
-          {copied ? "Copied ✓" : isRun ? "Copy commands" : "Copy"}
+          {copied ? (
+            <>
+              <Check className="h-4 w-4" aria-hidden /> Copied
+            </>
+          ) : isRun ? (
+            "Copy commands"
+          ) : (
+            "Copy"
+          )}
         </button>
       </div>
       <pre className="my-0! rounded-none!">

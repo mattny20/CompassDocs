@@ -248,7 +248,7 @@ export function DocComments({
           className="w-full rounded-xl border border-slate-200 bg-surface px-3 py-2 text-sm text-slate-800 focus:border-compass-400 focus:outline-hidden"
         />
         {picker && suggestions.length > 0 && (
-          <ul className="absolute bottom-full left-0 z-20 mb-1 w-72 overflow-hidden rounded-lg border border-slate-200 bg-surface shadow-lg">
+          <ul className="absolute bottom-full left-0 z-20 mb-1 w-72 overflow-hidden rounded-lg border border-slate-200 bg-surface shadow-float">
             {suggestions.map((u, i) => (
               <li key={u.id}>
                 <button

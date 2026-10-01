@@ -5,8 +5,9 @@
 // tooltips, per the style guide; the QR opens in a small popover so the
 // page stays a page and not a poster.
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { CalendarPlus, Contact, MessageSquare, QrCode, X } from "lucide-react";
+import { Popover } from "../Popover";
 
 const btn =
   "inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-compass-700";
@@ -27,22 +28,7 @@ export function ProfileActions({
   qr: string;
 }) {
   const [open, setOpen] = useState(false);
-  const pop = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const onDoc = (e: MouseEvent) => {
-      if (pop.current && !pop.current.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", onDoc);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDoc);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
+  const qrBtnRef = useRef<HTMLButtonElement>(null);
 
   return (
     <div className="relative flex items-center gap-1.5">
@@ -50,7 +36,16 @@ export function ProfileActions({
         <Contact className="h-4 w-4" />
       </a>
       {qr && (
-        <button type="button" onClick={() => setOpen((o) => !o)} className={btn} data-tt="Scan to add to your phone" aria-label="Show contact QR code" aria-expanded={open}>
+        <button
+          ref={qrBtnRef}
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className={btn}
+          data-tt="Scan to add to your phone"
+          aria-label="Show contact QR code"
+          aria-expanded={open}
+          aria-haspopup="dialog"
+        >
           <QrCode className="h-4 w-4" />
         </button>
       )}
@@ -78,16 +73,24 @@ export function ProfileActions({
           </a>
         </>
       )}
-      {open && qr && (
-        <div ref={pop} className="absolute right-0 top-11 z-20 w-64 rounded-xl border border-slate-200 bg-surface p-3 text-center shadow-lg">
-          <button type="button" onClick={() => setOpen(false)} className="absolute right-2 top-2 rounded-sm p-1 text-slate-400 hover:text-slate-600" data-tt="Close" aria-label="Close">
-            <X className="h-3.5 w-3.5" />
-          </button>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={qr} alt={`QR code with ${name}'s contact card`} width={220} height={220} className="mx-auto rounded-md bg-white p-1" />
-          <p className="mt-2 text-xs text-slate-500">Point a phone camera at it to add {name.split(" ")[0]} to your contacts.</p>
-        </div>
-      )}
+      <Popover
+        open={open && !!qr}
+        onClose={() => setOpen(false)}
+        triggerRef={qrBtnRef}
+        role="dialog"
+        label="Contact QR code"
+        align="end"
+        width="w-64"
+        padding="p-3"
+        className="text-center rounded-xl"
+      >
+        <button type="button" onClick={() => setOpen(false)} className="absolute right-2 top-2 rounded-sm p-1 text-slate-400 hover:text-slate-600" data-tt="Close" aria-label="Close">
+          <X className="h-3.5 w-3.5" />
+        </button>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={qr} alt={`QR code with ${name}'s contact card`} width={220} height={220} className="mx-auto rounded-md bg-white p-1" />
+        <p className="mt-2 text-xs text-slate-500">Point a phone camera at it to add {name.split(" ")[0]} to your contacts.</p>
+      </Popover>
     </div>
   );
 }

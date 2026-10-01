@@ -11,6 +11,7 @@ import {
   FileText,
   Link2,
   Paperclip,
+  Plus,
   Trash2,
 } from "lucide-react";
 import { usePanelCollapse } from "@/lib/use-panel-collapse";
@@ -182,14 +183,14 @@ export function Attachments({
               data-tt="Add a link to iManage, NetDocuments, SharePoint, or any https URL" aria-label="Add a link to iManage, NetDocuments, SharePoint, or any https URL"
               className={buttonClass("secondary", "sm")}
             >
-              {"＋ Link"}
+              <Plus className="h-3.5 w-3.5" aria-hidden /> Add link
             </button>
             <button
               onClick={() => fileInput.current?.click()}
               disabled={uploading}
               className={buttonClass("secondary", "sm")}
             >
-              {uploading ? "Uploading…" : "＋ File"}
+              {uploading ? "Uploading…" : <><Plus className="h-3.5 w-3.5" aria-hidden /> Add file</>}
             </button>
           </div>
         )}

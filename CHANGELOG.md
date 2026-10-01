@@ -4,6 +4,32 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.6.2] - 2026-10-01
+
+The component system, part three: tables, icons, floating panels.
+
+### Changed
+- **Tables that behave.** Sortable headers are real buttons with
+  `aria-sort` and an icon instead of a typed arrow; the audit log's header
+  stays on screen while its thousands of rows scroll; rows light up on
+  hover so a title and its actions 1,600px apart on a wide monitor read
+  as one row; dates, counts and action columns shrink to their content
+  so the primary column takes the slack. Users, Trash, the audit log,
+  role assignments, the space table, the directory list and People admin
+  use it; People admin's row actions are icon buttons with a separator
+  before Delete.
+- **Icons instead of typed glyphs.** The "＋", "✓", "✨" and "📋"
+  characters that sat off the baseline and ignored the accent are lucide
+  icons at the house sizes; "Submitted for review" is built on the shared
+  empty state; buttons that open an editor say "New …", buttons that
+  append a row say "Add …"; a scan test keeps glyphs out.
+- **One floating panel.** Menus, pickers and popovers (the bell, the
+  directory's Columns and Export menus, the editor's Write menu, the
+  profile QR card) share one `Popover`: one radius and padding, the
+  floating elevation tier, outside-click, Escape through the overlay stack
+  and focus back to the trigger. Three elevation tiers (card, float,
+  modal) are tokens.
+
 ## [1.6.1] - 2026-10-01
 
 The component system, part two: cards, headings, chips, table headers.

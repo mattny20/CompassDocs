@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
+import { Table, Th, Td, TABLE_HEAD_ROW, TR } from "@/components/Table";
 import { useFormatDate } from "./SettingsProvider";
 
 interface AuditRow {
@@ -238,15 +239,15 @@ export function AuditLog({
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-surface shadow-xs">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-slate-100 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
-              <th className="px-4 py-2.5 font-medium">When</th>
-              <th className="px-4 py-2.5 font-medium">Who</th>
-              <th className="px-4 py-2.5 font-medium">Action</th>
-              <th className="px-4 py-2.5 font-medium">Target</th>
-              <th className="px-4 py-2.5 font-medium">IP</th>
+      <div className="rounded-xl border border-slate-200 bg-surface shadow-xs">
+        <Table sticky>
+          <thead className={TABLE_HEAD_ROW}>
+            <tr>
+              <Th fit>When</Th>
+              <Th>Who</Th>
+              <Th>Action</Th>
+              <Th>Target</Th>
+              <Th fit>IP</Th>
             </tr>
           </thead>
           <tbody>
@@ -254,33 +255,33 @@ export function AuditLog({
               const cat = row.action.split(".")[0];
               const detail = detailText(row);
               return (
-                <tr key={row.id} className="border-b border-slate-50 last:border-0 align-top">
-                  <td className="whitespace-nowrap px-4 py-2.5 text-slate-500">
+                <tr key={row.id} className={`${TR} align-top`}>
+                  <Td fit className="text-slate-500">
                     {fmt.dateTime(row.at)}
-                  </td>
-                  <td className="px-4 py-2.5">
+                  </Td>
+                  <Td>
                     <span className="font-medium text-slate-800">{row.actor_name}</span>
                     {row.actor_role && (
                       <span className="ml-1 text-xs text-slate-500">({row.actor_role})</span>
                     )}
-                  </td>
-                  <td className="px-4 py-2.5">
+                  </Td>
+                  <Td>
                     <span
                       className={chipClass("neutral")}
                     >
                       {actionLabel(row.action)}
                     </span>
                     {detail && <div className="mt-1 text-xs text-slate-500">{detail}</div>}
-                  </td>
-                  <td className="px-4 py-2.5 text-slate-600">
+                  </Td>
+                  <Td className="break-all text-slate-600">
                     {row.target_label || (row.target_id ? `#${row.target_id}` : "—")}
                     {row.target_type && (
                       <span className="ml-1 text-xs text-slate-500">{row.target_type}</span>
                     )}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-2.5 font-mono text-xs text-slate-500">
+                  </Td>
+                  <Td fit className="font-mono text-xs text-slate-500">
                     {row.ip || "—"}
-                  </td>
+                  </Td>
                 </tr>
               );
             })}
@@ -292,7 +293,7 @@ export function AuditLog({
               </tr>
             )}
           </tbody>
-        </table>
+        </Table>
       </div>
 
       {pages > 1 && (

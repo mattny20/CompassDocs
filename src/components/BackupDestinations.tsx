@@ -6,6 +6,7 @@ import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import { toast } from "@/components/Toasts";
 import { Field, TextInput } from "@/components/form";
+import { Check } from "lucide-react";
 
 interface DestState {
   s3: {
@@ -148,7 +149,7 @@ function S3Card({
         </h3>
         {s3.configured && (
           <span className={chipClass("ok")}>
-            ✓ Active
+            <Check className="h-3.5 w-3.5" aria-hidden /> Active
           </span>
         )}
       </div>
@@ -231,7 +232,7 @@ function AzureCard({
         <h3 className="font-semibold text-slate-900">Azure Blob Storage</h3>
         {azure.configured && (
           <span className={chipClass("ok")}>
-            ✓ Active
+            <Check className="h-3.5 w-3.5" aria-hidden /> Active
           </span>
         )}
       </div>

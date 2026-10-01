@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Check, Circle } from "lucide-react";
 import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import { toast } from "@/components/Toasts";
@@ -146,13 +147,13 @@ export function BackupsClient({
             {destinations.map((d) => (
               <span
                 key={d.key}
-                className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ${
                   d.configured
                     ? "bg-emerald-100 text-emerald-700"
                     : "bg-slate-100 text-slate-500"
                 }`}
               >
-                {d.configured ? "✓" : "○"} {d.label}
+                {d.configured ? <Check className="h-3.5 w-3.5" aria-hidden /> : <Circle className="h-3.5 w-3.5" aria-hidden />} {d.label}
               </span>
             ))}
           </div>

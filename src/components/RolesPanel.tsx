@@ -30,6 +30,7 @@ import {
   X,
 } from "lucide-react";
 import { EntityPicker } from "@/components/EntityPicker";
+import { Table, Th, Td, TABLE_HEAD_ROW, TR } from "@/components/Table";
 import { toast } from "@/components/Toasts";
 import { DangerAction, DangerZone, Field, SectionEmpty, TextInput, controlClass } from "@/components/form";
 
@@ -795,46 +796,44 @@ function AssignmentsTab({
               : "Nothing matches that filter."}
           </SectionEmpty>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="border-b border-slate-100 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
-                <tr>
-                  <th className="px-4 py-2 font-medium">Who</th>
-                  <th className="px-4 py-2 font-medium">Role</th>
-                  <th className="px-4 py-2 font-medium">Where</th>
-                  <th className="px-4 py-2" />
+          <Table scroll>
+            <thead className={TABLE_HEAD_ROW}>
+              <tr>
+                <Th>Who</Th>
+                <Th>Role</Th>
+                <Th>Where</Th>
+                <Th fit align="right" />
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((a) => (
+                <tr key={a.id} className={TR}>
+                  <Td>
+                    <span className="text-slate-800">{a.subject}</span>
+                    <span className="ml-1.5 rounded bg-slate-100 px-1 py-0.5 text-3xs font-semibold uppercase tracking-wider text-slate-500">
+                      {a.subject_kind}
+                    </span>
+                  </Td>
+                  <Td className="text-slate-600">{a.role_name}</Td>
+                  <Td className="text-slate-500">
+                    {a.scope_type === "global" ? "Whole workspace" : a.space_name ?? "(deleted space)"}
+                  </Td>
+                  <Td fit align="right">
+                    <button
+                      type="button"
+                      onClick={() => revoke(a)}
+                      disabled={busy}
+                      title="Revoke"
+                      aria-label={`Revoke ${a.role_name} from ${a.subject}`}
+                      className="rounded-lg p-1.5 text-slate-400 hover-danger disabled:opacity-50"
+                    >
+                      <X className="h-4 w-4" aria-hidden />
+                    </button>
+                  </Td>
                 </tr>
-              </thead>
-              <tbody>
-                {shown.map((a) => (
-                  <tr key={a.id} className="border-b border-slate-100 last:border-b-0">
-                    <td className="px-4 py-2">
-                      <span className="text-slate-800">{a.subject}</span>
-                      <span className="ml-1.5 rounded bg-slate-100 px-1 py-0.5 text-3xs font-semibold uppercase tracking-wider text-slate-500">
-                        {a.subject_kind}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2 text-slate-600">{a.role_name}</td>
-                    <td className="px-4 py-2 text-slate-500">
-                      {a.scope_type === "global" ? "Whole workspace" : a.space_name ?? "(deleted space)"}
-                    </td>
-                    <td className="px-4 py-2 text-right">
-                      <button
-                        type="button"
-                        onClick={() => revoke(a)}
-                        disabled={busy}
-                        title="Revoke"
-                        aria-label={`Revoke ${a.role_name} from ${a.subject}`}
-                        className="rounded-lg p-1.5 text-slate-400 hover-danger disabled:opacity-50"
-                      >
-                        <X className="h-4 w-4" aria-hidden />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              ))}
+            </tbody>
+          </Table>
         )}
       </div>
     </div>

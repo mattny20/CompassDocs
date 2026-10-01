@@ -14,6 +14,7 @@ import { toast } from "@/components/Toasts";
 import type { SyncReport } from "@/lib/directory";
 import { useFormatDate } from "@/components/SettingsProvider";
 import { SyncPreview, type SyncPreviewData } from "./SyncPreview";
+import { Check } from "lucide-react";
 
 interface GraphState {
   enabled: boolean; // bundled AND licensed
@@ -189,7 +190,7 @@ export function MicrosoftSyncPanel({ graph, report }: { graph: GraphState; repor
         <Field
           label={
             <>
-              Client secret {g.has_secret && !secret ? <span className="text-emerald-600">(stored ✓ — paste to replace)</span> : ""}
+              Client secret {g.has_secret && !secret ? <span className="inline-flex items-center gap-1 text-emerald-600"><Check className="inline h-3.5 w-3.5" aria-hidden /> (stored — paste to replace)</span> : ""}
             </>
           }
           help={

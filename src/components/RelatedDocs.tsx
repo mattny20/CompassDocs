@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { buttonClass } from "@/components/Button";
 import Link from "next/link";
-import { ChevronDown, ChevronRight, Link2, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Link2, Plus, X } from "lucide-react";
 import { usePanelCollapse } from "@/lib/use-panel-collapse";
 
 // Related documents section of the doc side panel. Groups links by their
@@ -143,7 +143,7 @@ export function RelatedDocs({
             data-tt="Link another document" aria-label="Link another document"
             className={buttonClass("secondary", "sm")}
           >
-            {"＋ Link"}
+            <Plus className="h-3.5 w-3.5" aria-hidden /> Add link
           </button>
         )}
       </div>

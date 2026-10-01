@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Check } from "lucide-react";
 import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import { toast } from "@/components/Toasts";
@@ -105,7 +106,7 @@ export function AiSettings({ initial }: { initial: AiState }) {
       <div>
         <p className="mt-1 text-sm text-slate-500">
           Connect an AI provider to enable <strong>Ask CompassDocs</strong> answers,
-          <strong> ✨ Write</strong>, and <strong>✨ Proofread</strong>. Search and everything else
+          <strong> Write</strong>, and <strong>Proofread</strong>. Search and everything else
           work without it.
         </p>
       </div>
@@ -117,7 +118,7 @@ export function AiSettings({ initial }: { initial: AiState }) {
         </div>
       ) : (
         <div className="notice-ok rounded-lg border px-3 py-2 text-sm">
-          ✓ AI features are <strong>on</strong>
+          <Check className="mr-1 inline h-4 w-4 align-text-bottom" aria-hidden />AI features are <strong>on</strong>
           {provider === "anthropic"
             ? source === "env"
               ? " — Anthropic, using the ANTHROPIC_API_KEY environment variable."

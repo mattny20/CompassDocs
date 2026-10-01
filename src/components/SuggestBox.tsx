@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { buttonClass } from "@/components/Button";
-import { Lightbulb } from "lucide-react";
+import { Check, Lightbulb } from "lucide-react";
 
 export function SuggestBox({ documentId }: { documentId: number }) {
   const [open, setOpen] = useState(false);
@@ -34,7 +34,9 @@ export function SuggestBox({ documentId }: { documentId: number }) {
   if (state === "done") {
     return (
       <div className="notice-ok mt-8 rounded-xl border px-4 py-3 text-sm">
-        ✓ Thanks — your suggestion was sent to the review queue.{" "}
+        <span className="inline-flex items-center gap-1.5">
+          <Check className="h-4 w-4" aria-hidden /> Thanks — your suggestion was sent to the review queue.
+        </span>{" "}
         <button className="font-medium underline" onClick={() => setState("idle")}>
           Suggest another
         </button>

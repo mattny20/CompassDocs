@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { buttonClass } from "@/components/Button";
+import { Table, Th, Td, TABLE_HEAD_ROW, TR } from "@/components/Table";
 import { useRouter } from "next/navigation";
 import { Search, Trash2 } from "lucide-react";
 import { TypeBadge } from "./Badges";
@@ -77,18 +78,18 @@ export function TrashClient({
 
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-surface shadow-xs">
-      <table className="w-full text-sm">
-        <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+      <Table scroll>
+        <thead className={TABLE_HEAD_ROW}>
           <tr>
-            <th className="px-4 py-2 font-medium">Document</th>
-            <th className="px-4 py-2 font-medium">Deleted</th>
-            <th className="px-4 py-2 text-right font-medium">Actions</th>
+            <Th>Document</Th>
+            <Th fit>Deleted</Th>
+            <Th fit align="right">Actions</Th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-100">
+        <tbody>
           {docs.map((d) => (
-            <tr key={d.id} className={busyId === d.id ? "opacity-50" : ""}>
-              <td className="px-4 py-3">
+            <tr key={d.id} className={`${TR} ${busyId === d.id ? "opacity-50" : ""}`.trim()}>
+              <Td>
                 <div className="flex items-center gap-2">
                   <TypeBadge type={d.type} />
                   <span className="font-medium text-slate-800">{d.title}</span>
@@ -97,16 +98,16 @@ export function TrashClient({
                   {d.space_icon} {d.space_name}
                   {d.status === "draft" && " · draft"}
                 </div>
-              </td>
-              <td className="px-4 py-3 align-top text-slate-500">
+              </Td>
+              <Td fit className="align-top text-slate-500">
                 <div title={formatDateTime(d.deleted_at, settings)}>
                   {d.deleted_at ? formatDate(d.deleted_at, settings) : "—"}
                 </div>
                 {retentionDays > 0 && d.deleted_at && (
                   <div className="text-xs text-slate-500">purges {purgeOn(d.deleted_at)}</div>
                 )}
-              </td>
-              <td className="px-4 py-3">
+              </Td>
+              <Td fit>
                 <div className="flex justify-end gap-1.5 text-xs">
                   <button
                     onClick={() => restore(d)}
@@ -125,11 +126,11 @@ export function TrashClient({
                     </button>
                   )}
                 </div>
-              </td>
+              </Td>
             </tr>
           ))}
         </tbody>
-      </table>
+      </Table>
     </div>
   );
 }
