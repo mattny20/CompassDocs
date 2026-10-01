@@ -221,7 +221,7 @@ export function SpacesManager({
               </button>
               <button
                 onClick={() => remove(s)}
-                className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50"
+                className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-red-600 hover-danger"
               >
                 Delete
               </button>
@@ -750,7 +750,7 @@ function CategoryEditor({ spaceId, initial }: { spaceId: number; initial: Catego
             <button type="button" onClick={() => rename(c)} disabled={busy} data-tt="Rename" aria-label="Rename" className="rounded-sm p-1 text-slate-400 hover:bg-slate-100">
               <Pencil className="h-3.5 w-3.5" />
             </button>
-            <button type="button" onClick={() => remove(c)} disabled={busy} data-tt="Delete" aria-label="Delete" className="rounded-sm p-1 text-slate-400 hover:bg-red-50 hover:text-red-600">
+            <button type="button" onClick={() => remove(c)} disabled={busy} data-tt="Delete" aria-label="Delete" className="rounded-sm p-1 text-slate-400 hover-danger">
               <Trash2 className="h-3.5 w-3.5" />
             </button>
           </li>

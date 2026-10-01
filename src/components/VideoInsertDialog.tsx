@@ -133,7 +133,7 @@ export function VideoInsertDialog({
             (detected ? (
               <span className="text-emerald-600">Detected: {detected}</span>
             ) : (
-              <span className="text-amber-600">Not recognized yet — keep typing or upload.</span>
+              <span className="ink-warn">Not recognized yet — keep typing or upload.</span>
             ))}
         </p>
 

@@ -171,7 +171,7 @@ export function RelatedDocs({
                     onClick={() => unlink(d.relation_id)}
                     data-tt="Remove link"
                     aria-label={`Remove link to ${d.title}`}
-                    className="mt-1.5 rounded-sm p-1 text-slate-300 transition hover:bg-red-50 hover:text-red-600 focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:hover)]:opacity-0"
+                    className="mt-1.5 rounded-sm p-1 text-slate-300 transition hover-danger focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:hover)]:opacity-0"
                   >
                     <X className="h-3.5 w-3.5" />
                   </button>

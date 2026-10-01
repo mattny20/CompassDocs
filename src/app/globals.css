@@ -28,6 +28,8 @@
   --color-compass-700: rgb(var(--compass-700));
   --color-compass-800: rgb(var(--compass-800));
   --color-compass-900: rgb(var(--compass-900));
+  --color-compass-ink: rgb(var(--compass-ink));
+  --color-compass-ink-strong: rgb(var(--compass-ink-strong));
 
   --font-sans: var(--font-sans), system-ui, sans-serif;
 
@@ -107,10 +109,17 @@
   --compass-700: 39 95 153;
   --compass-800: 35 79 124;
   --compass-900: 32 66 100;
+  /* Accent ink: what text-compass-600 / -700 resolve to in dark mode (the
+   * 300 / 250 steps of the ramp). Light values equal the 600 / 700 steps so
+   * the token can be used directly for accent text in either theme. */
+  --compass-ink: 46 117 189;
+  --compass-ink-strong: 39 95 153;
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
+  --compass-ink: 130 180 224;
+  --compass-ink-strong: 160 198 232;
 
   --surface: 19 26 40;
   --canvas: 9 13 22;
@@ -176,18 +185,51 @@ body {
 /* Dark mode: accent TEXT lightens for contrast (WCAG AA) while accent
  * BACKGROUNDS (primary buttons, chips) keep their channel-variable values —
  * the two can't be split at the palette level because bg-compass-* and
- * text-compass-* share --compass-*. Hover variants included so hovering
- * doesn't darken back. */
+ * text-compass-* share --compass-*. The ink is a token (--compass-ink,
+ * --compass-ink-strong, defined with the palette above and re-emitted by
+ * lib/theme.ts for a custom accent) so there is one place to keep in sync.
+ * Hover variants included so hovering doesn't darken back. */
 :root[data-theme="dark"]
   :is(.text-compass-600, .hover\:text-compass-600:hover, .group-hover\:text-compass-600:is(:where(.group):hover *)) {
-  color: rgb(130 180 224); /* compass-300 */
+  color: rgb(var(--compass-ink));
 }
 :root[data-theme="dark"]
   :is(.text-compass-700, .hover\:text-compass-700:hover, .group-hover\:text-compass-700:is(:where(.group):hover *)) {
-  color: rgb(160 198 232);
+  color: rgb(var(--compass-ink-strong));
 }
 :root[data-theme="dark"] .text-compass-600\/80 {
-  color: rgb(130 180 224 / 0.85);
+  color: rgb(var(--compass-ink) / 0.85);
+}
+
+/* Semantic red ink: text-red-600 measures 3.6:1 on the dark surface, so in
+ * dark mode it lifts to red-400 (about 6:1). Only the 600/500 text steps —
+ * the 700 step is chip ink on an unflipped bg-red-100 pill and must stay. */
+:root[data-theme="dark"]
+  :is(.text-red-600, .text-red-500, .hover\:text-red-600:hover, .group-hover\:text-red-600:is(:where(.group):hover *)) {
+  color: rgb(248 113 113);
+}
+
+/* Free-standing semantic text (not a chip, not a notice): "Unsaved changes",
+ * "Saved", a warning sentence. amber-600 is 3.2:1 on white and emerald-600
+ * 3.8:1, so the 700 step carries light mode and the 300 step dark. */
+.ink-warn {
+  @apply text-amber-700 dark:text-amber-300;
+}
+.ink-ok {
+  @apply text-emerald-700 dark:text-emerald-300;
+}
+
+/* A destructive control's hover: a tint, not a white slab. hover:bg-red-50
+ * alone stays cream on a dark page (red is not a themed token). */
+.hover-danger {
+  @apply hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400;
+}
+
+/* A link inside a sentence. Accent ink alone is 2.2:1 against body text and
+ * invisible to colour-deficient readers; the underline is the cue (WCAG
+ * 1.4.1). Nav-style links (table cells, "View all") keep their own styling. */
+.link {
+  @apply text-compass-600 underline decoration-compass-300 underline-offset-2 hover:decoration-current;
 }
 
 /* Native form controls follow the workspace accent. The --compass-* vars
@@ -670,6 +712,62 @@ mark {
   color: #0f172a;
 }
 
+/* --- Keyboard focus (STYLEGUIDE §Focus) -----------------------------------
+ * One indicator for the whole product. Unlayered so it beats the 80-odd
+ * `outline-hidden` utilities that used to leave buttons and links with no
+ * cue at all (WCAG 2.4.7). compass-600, not 500: under a custom amber accent
+ * the 500 step is ~2.8:1 and fails 1.4.11, while 600 is the colour the admin
+ * already has to keep legible for primary buttons. In dark mode the 300
+ * step (the dark accent ink) sits on the dark surface. px on purpose — a
+ * hairline that must stay crisp at any scale. */
+:where(
+    a,
+    button,
+    [role="button"],
+    [role="switch"],
+    [role="tab"],
+    [role="menuitem"],
+    [role="radio"],
+    [role="checkbox"],
+    summary,
+    [tabindex]:not([tabindex="-1"])
+  ):focus-visible {
+  outline: 2px solid rgb(var(--compass-600));
+  outline-offset: 2px;
+}
+:where(input, select, textarea):focus-visible {
+  outline: 2px solid rgb(var(--compass-600));
+  outline-offset: 0;
+}
+:root[data-theme="dark"] :focus-visible {
+  outline-color: rgb(var(--compass-300));
+}
+/* The two documented opt-outs: the panel is the frame. */
+.cmd-input:focus-visible,
+.tiptap:focus-visible {
+  outline: none;
+}
+
+/* --- Motion (STYLEGUIDE §Motion) ------------------------------------------
+ * Honour the OS "reduce motion" setting everywhere, not only on the palette
+ * scrim: sidebar slide, sticky bar, lightbox tweens, tooltip slide-ins and
+ * pulses collapse to their end state. Spinners are the one looping animation
+ * that still has to move, or "working" becomes a frozen glyph. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .animate-spin {
+    animation-duration: 1s !important;
+    animation-iteration-count: infinite !important;
+  }
+}
+
 /* --- Notices --------------------------------------------------------------
  * The one treatment for persistent inline state banners (STYLEGUIDE §Feedback:
  * "persistent status banners … stay inline — they're state, not feedback").
@@ -818,8 +916,9 @@ mark {
     --compass-50: 237 245 251;
     --compass-100: 212 230 245;
   }
-  :root[data-theme="dark"] :is(.text-compass-600, .text-compass-700) {
-    color: rgb(39 95 153);
+  :root[data-theme="dark"] {
+    --compass-ink: 46 117 189;
+    --compass-ink-strong: 39 95 153;
   }
   :root {
     --canvas: 255 255 255;

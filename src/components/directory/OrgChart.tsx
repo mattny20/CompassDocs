@@ -65,7 +65,10 @@ export function OrgChart({
       return next;
     });
     setLanded(focusId);
-    const t = setTimeout(() => focusRef.current?.scrollIntoView({ block: "center", behavior: "smooth" }), 50);
+    const t = setTimeout(() => focusRef.current?.scrollIntoView({
+      block: "center",
+      behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+    }), 50);
     return () => clearTimeout(t);
   }, [focusId, chart]);
 
@@ -175,7 +178,7 @@ export function OrgChart({
           {alone.length ? ` · ${alone.length} not placed` : ""}
         </span>
         {chart.cycles.length > 0 && (
-          <span className="text-amber-600" data-tt={chart.cycles.map((c) => c.map((id) => chart.byId.get(id)?.person.name ?? id).join(" → ")).join(" · ")}>
+          <span className="ink-warn" data-tt={chart.cycles.map((c) => c.map((id) => chart.byId.get(id)?.person.name ?? id).join(" → ")).join(" · ")}>
             {chart.cycles.length} {chart.cycles.length === 1 ? "loop" : "loops"} broken
           </span>
         )}

@@ -808,7 +808,7 @@ function TimelineView({ docs }: { docs: DocumentWithSpace[] }) {
     <div className="space-y-6">
       {overdue.length > 0 && (
         <section className="rounded-xl border border-amber-200 bg-amber-50/60 p-3 dark:border-amber-800/60 dark:bg-amber-950/30">
-          <h2 className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-amber-600">
+          <h2 className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider ink-warn">
             <AlarmClock className="h-3.5 w-3.5" /> Review overdue
           </h2>
           {overdue.map((d) => (

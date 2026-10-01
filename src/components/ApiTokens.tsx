@@ -240,7 +240,7 @@ export function ApiTokens({
                 );
                 if (res.ok) setConnections(connections.filter((x) => x.client_id !== c.client_id));
               }}
-              className="shrink-0 rounded-lg border border-red-200 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
+              className="shrink-0 rounded-lg border border-red-200 px-2.5 py-1 text-xs font-medium text-red-600 hover-danger"
             >
               Disconnect
             </button>
@@ -264,7 +264,7 @@ function TokenRow({ t, onRevoke }: { t: ApiToken; onRevoke: () => void }) {
             className={
               t.scopes?.includes("write")
                 ? "text-slate-500"
-                : "font-medium text-amber-600"
+                : "font-medium ink-warn"
             }
           >
             {t.scopes?.includes("write") ? "read + write" : "read-only"}
@@ -276,7 +276,7 @@ function TokenRow({ t, onRevoke }: { t: ApiToken; onRevoke: () => void }) {
       </div>
       <button
         onClick={onRevoke}
-        className="shrink-0 rounded-lg border border-red-200 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
+        className="shrink-0 rounded-lg border border-red-200 px-2.5 py-1 text-xs font-medium text-red-600 hover-danger"
       >
         Revoke
       </button>

@@ -318,7 +318,7 @@ export function DirectoryOfficesPanel({
         <button type="button" onClick={save} disabled={saving || !dirty} className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60">
           {saving ? "Saving…" : "Save offices"}
         </button>
-        {dirty ? <span className="text-xs text-amber-600">Unsaved changes</span> : <span className="text-xs text-slate-500">Saved</span>}
+        {dirty ? <span className="text-xs ink-warn">Unsaved changes</span> : <span className="text-xs text-slate-500">Saved</span>}
       </div>
     </div>
   );

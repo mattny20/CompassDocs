@@ -159,7 +159,7 @@ export function DirectoryImportPanel({ fields, onImported }: { fields: Directory
                   {busy ? "Checking…" : "Check what would happen"}
                 </button>
                 <button type="button" onClick={reset} className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">Start over</button>
-                {!hasName && <span className="text-xs text-amber-600">Map a Name or Email column first.</span>}
+                {!hasName && <span className="text-xs ink-warn">Map a Name or Email column first.</span>}
               </div>
             </>
           )}

@@ -1462,7 +1462,7 @@ function ProgramRow({
             }}
             disabled={busy}
             aria-label={`Delete ${program.name}`}
-            className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:bg-red-50 hover:text-red-600"
+            className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover-danger"
           >
             <Trash2 className="h-4 w-4" />
           </button>
@@ -1782,7 +1782,7 @@ function DeckCard({
                 </div>
                 <span
                   className={`w-12 shrink-0 text-right text-xs font-medium ${
-                    s.pct < 60 ? "text-red-600" : s.pct < 85 ? "text-amber-600" : "text-emerald-600"
+                    s.pct < 60 ? "text-red-600" : s.pct < 85 ? "ink-warn" : "ink-ok"
                   }`}
                 >
                   {s.attempts ? `${s.pct}%` : "—"}
@@ -1954,7 +1954,7 @@ function PeopleTable({
                 void bulk({ unassign_assignment_ids: openSelected }, "Removed {n} assignments.");
             }}
             disabled={busy}
-            className="rounded-md border border-slate-200 bg-surface px-2 py-0.5 text-xs font-medium text-red-600 hover:bg-red-50"
+            className="rounded-md border border-slate-200 bg-surface px-2 py-0.5 text-xs font-medium text-red-600 hover-danger"
           >
             Unassign
           </button>

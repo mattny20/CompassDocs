@@ -200,7 +200,7 @@ export function NewsletterPeople({
                 <button
                   onClick={() => saveAppearance({ header_image: "" })}
                   disabled={appearanceBusy}
-                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50 dark:text-red-400 dark:hover:bg-red-500/10"
+                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-red-600 hover-danger disabled:opacity-50 dark:text-red-400"
                 >
                   Use default
                 </button>

@@ -235,6 +235,38 @@ focus):
   and email previews). `test/style-drift.test.ts` enforces all of this.
 - Anything that must stay dark in both themes (code blocks, the code-block
   header bar, the modal scrim) is **hard-coded literal**, never themed.
+- **Accent AA.** `lib/theme.ts` derives the solid steps (600 and darker:
+  buttons, links, focus rings) from `solidAccent(hex)`, which darkens a light
+  accent until white text reaches 4.5:1; the tints (50–500) keep the chosen
+  hue. Accent *text* in dark mode comes from the `--compass-ink` /
+  `--compass-ink-strong` tokens (`text-compass-ink` is a utility), which the
+  theme emits alongside the ramp — never hand-write a dark accent colour.
+- **Semantic ink.** Free-standing red/amber/green *text* (not a chip, not a
+  notice): `text-red-600` lifts to red-400 in dark mode automatically;
+  amber and emerald use `ink-warn` / `ink-ok` (700 light, 300 dark). A
+  destructive control's hover is `hover-danger`, never a bare
+  `hover:bg-red-50`. A link inside a sentence is `link` (underlined); nav
+  links and table-cell links keep their own styling.
+
+## Focus
+
+Keyboard focus is one global `:focus-visible` rule in `globals.css`: a 2px
+`compass-600` outline, offset 2px (0 on form controls), `compass-300` in
+dark mode. It is unlayered, so it beats `outline-hidden`; never write
+`outline-hidden` / `outline-none` on a control to "clean up" a ring, and
+never add a per-control `focus:ring-*`. Two documented exceptions, where the
+surrounding panel is the frame: the command-palette input (`.cmd-input`) and
+the editor body (`.tiptap`). Form controls also tint their border on focus
+(`focus:border-compass-500`) so a mouse click reads as active.
+
+## Motion
+
+Default `transition` (150ms) for hover and colour; `duration-200` for layout
+reveals (sidebar width, sticky bar); hand-written CSS uses 120ms. Spinners are
+the only looping animation. Reduced motion is handled globally — one
+`prefers-reduced-motion` rule collapses every transition and animation except
+`.animate-spin` — and any JS-driven motion (`scrollIntoView({ behavior:
+"smooth" })`) checks `matchMedia("(prefers-reduced-motion: reduce)")`.
 
 ## Notices (persistent inline state banners)
 
