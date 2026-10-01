@@ -30,8 +30,8 @@ export default async function PublicLayout({ children }: { children: React.React
   const [settings, spaces] = await Promise.all([getAppSettings(), listPublicSpaces()]);
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <header className="border-b border-slate-200 bg-white print:hidden">
+    <div className="min-h-screen bg-canvas">
+      <header className="border-b border-slate-200 bg-surface print:hidden">
         <div className="mx-auto flex max-w-standalone flex-wrap items-center gap-4 px-6 py-4">
           <Link href="/public" className="flex items-center gap-2.5">
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -50,7 +50,7 @@ export default async function PublicLayout({ children }: { children: React.React
                 type="search"
                 name="q"
                 placeholder="Search the docs…"
-                className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm outline-hidden focus:border-compass-400 focus:bg-white focus:ring-2 focus:ring-compass-100"
+                className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm outline-hidden focus:border-compass-400 focus:bg-surface focus:ring-2 focus:ring-compass-100"
               />
             </div>
           </form>
@@ -80,7 +80,7 @@ export default async function PublicLayout({ children }: { children: React.React
 
       <main className="mx-auto max-w-standalone px-6 py-8">{children}</main>
 
-      <footer className="border-t border-slate-200 py-6 text-center text-xs text-slate-400 print:hidden">
+      <footer className="border-t border-slate-200 py-6 text-center text-xs text-slate-500 print:hidden">
         {settings.company_name} knowledge base · powered by{" "}
         <a href="https://compassdocs.io" className="underline hover:text-slate-600">
           CompassDocs

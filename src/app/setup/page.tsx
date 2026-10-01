@@ -24,7 +24,7 @@ export default async function SetupPage() {
         <div className="rounded-2xl border border-slate-200 bg-surface p-6 shadow-xs">
           <SetupForm enterprise={eePresent()} proxyManaged={proxyManaged()} />
         </div>
-        <p className="mt-4 text-center text-xs text-slate-400">
+        <p className="mt-4 text-center text-xs text-slate-500">
           You can add teammates and adjust settings later from the Admin console.
         </p>
       </div>

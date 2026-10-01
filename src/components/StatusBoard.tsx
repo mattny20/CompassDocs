@@ -218,7 +218,7 @@ export function StatusBoard({
             <span className="font-semibold text-slate-900">
               {serviceName(inc.service_id)} — {inc.title}
             </span>
-            <span className="text-xs text-slate-400">declared by {inc.created_by}</span>
+            <span className="text-xs text-slate-500">declared by {inc.created_by}</span>
             {canManageIncidents && (
               <button
                 onClick={() => api("/api/status/incidents", { action: "resolve", incident_id: inc.id })}
@@ -234,7 +234,7 @@ export function StatusBoard({
               {inc.updates.map((u) => (
                 <li key={u.id} className="text-sm">
                   <span className="text-slate-700">{u.body}</span>
-                  <span className="ml-2 text-xs text-slate-400">
+                  <span className="ml-2 text-xs text-slate-500">
                     {u.author} · {fmt.dateTime(u.created_at)}
                   </span>
                 </li>
@@ -289,7 +289,7 @@ export function StatusBoard({
                   </option>
                 ))}
               </select>
-              <span className="text-xs text-slate-400">or custom:</span>
+              <span className="text-xs text-slate-500">or custom:</span>
               <input
                 value={customName}
                 onChange={(e) => setCustomName(e.target.value)}
@@ -352,7 +352,7 @@ export function StatusBoard({
                     {s.status_detail && <div className="truncate text-xs text-slate-500">{s.status_detail}</div>}
                   </div>
                   {s.last_checked_at && (
-                    <span className="hidden shrink-0 whitespace-nowrap text-xs text-slate-400 sm:block">
+                    <span className="hidden shrink-0 whitespace-nowrap text-xs text-slate-500 sm:block">
                       checked {fmt.dateTime(s.last_checked_at)}
                     </span>
                   )}
@@ -402,7 +402,7 @@ export function StatusBoard({
                 <span className="font-medium text-slate-700">
                   {serviceName(inc.service_id)} — {inc.title}
                 </span>
-                <span className="ml-auto text-xs text-slate-400">
+                <span className="ml-auto text-xs text-slate-500">
                   {inc.resolved_at ? fmt.dateTime(inc.resolved_at) : ""}
                 </span>
               </li>

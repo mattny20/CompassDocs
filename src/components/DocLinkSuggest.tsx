@@ -141,7 +141,7 @@ export function DocLinkSuggest({ editor }: { editor: Editor }) {
       style={{ left: Math.max(8, x), top: active.y + 6 }}
     >
       {hits.length === 0 ? (
-        <p className="px-3 py-2 text-sm text-slate-400">
+        <p className="px-3 py-2 text-sm text-slate-500">
           {active.query ? "No matching documents." : "Type to search documents…"}
         </p>
       ) : (
@@ -166,7 +166,7 @@ export function DocLinkSuggest({ editor }: { editor: Editor }) {
                 <FileText className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-medium">{h.title}</span>
-                  <span className="block truncate text-xs text-slate-400">
+                  <span className="block truncate text-xs text-slate-500">
                     {h.space_icon} {h.space_name}
                     {h.status === "draft" ? " · draft" : ""}
                   </span>
@@ -176,7 +176,7 @@ export function DocLinkSuggest({ editor }: { editor: Editor }) {
           ))}
         </ul>
       )}
-      <p className="border-t border-slate-100 px-3 py-1 text-2xs text-slate-400">
+      <p className="border-t border-slate-100 px-3 py-1 text-2xs text-slate-500">
         ↑↓ to choose · Enter to link · Esc to dismiss
       </p>
     </div>

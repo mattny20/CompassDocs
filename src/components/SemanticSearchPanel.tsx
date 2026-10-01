@@ -167,7 +167,7 @@ export function SemanticSearchPanel({ initial }: { initial: Status }) {
         <Field
           label={
             <>
-              API key {status.has_key && <span className="text-slate-400">(saved — enter to replace)</span>}
+              API key {status.has_key && <span className="text-slate-500">(saved — enter to replace)</span>}
             </>
           }
         >
@@ -193,7 +193,7 @@ export function SemanticSearchPanel({ initial }: { initial: Status }) {
         <Field
           label={
             <>
-              Endpoint URL <span className="text-slate-400">(change for Ollama or a gateway)</span>
+              Endpoint URL <span className="text-slate-500">(change for Ollama or a gateway)</span>
             </>
           }
         >
@@ -205,7 +205,7 @@ export function SemanticSearchPanel({ initial }: { initial: Status }) {
           />
         </Field>
       </div>
-      <p className="mt-2 text-xs text-slate-400">
+      <p className="mt-2 text-xs text-slate-500">
         Changing the model re-embeds everything on the next rebuild. Documents embed automatically
         as they&rsquo;re created and edited; use Rebuild to index existing content the first time.
       </p>

@@ -213,7 +213,7 @@ export function TrainingPlayer({
       {/* Header */}
       <div className="mb-4 flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <div className="flex items-center gap-1.5 text-xs text-slate-400">
+          <div className="flex items-center gap-1.5 text-xs text-slate-500">
             <GraduationCap className="h-3.5 w-3.5" /> Training · {spaceName}
             {dueAt && !done && <span>· due {fmt.date(dueAt)}</span>}
           </div>
@@ -288,7 +288,7 @@ export function TrainingPlayer({
             {signatureRequired && !preview && (
               <div className="mt-4 w-full max-w-md rounded-lg border border-slate-200 bg-canvas px-4 py-3 text-left text-sm">
                 <p className="font-medium text-slate-700">Sign to confirm</p>
-                <p className="mt-0.5 text-xs text-slate-400">
+                <p className="mt-0.5 text-xs text-slate-500">
                   Type your full name{signature?.passwordRequired ? " and re-enter your password" : ""} —
                   recorded with this confirmation.
                 </p>
@@ -314,7 +314,7 @@ export function TrainingPlayer({
             )}
             {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
             {done ? (
-              <div className="mt-4 text-sm text-slate-400">
+              <div className="mt-4 text-sm text-slate-500">
                 <p>
                   Your confirmation is recorded
                   {completedAt ? ` (${fmt.date(completedAt)})` : ""}.
@@ -404,7 +404,7 @@ export function TrainingPlayer({
         >
           <ArrowLeft className="h-4 w-4" /> Back
         </button>
-        <span className="text-xs text-slate-400">
+        <span className="text-xs text-slate-500">
           {onGate ? "Confirmation" : `Slide ${idx + 1} of ${slides.length}`}
         </span>
         <button

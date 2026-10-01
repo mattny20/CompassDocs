@@ -92,7 +92,7 @@ export function LicensePanel() {
         </p>
       </div>
 
-      {loading && <p className="text-sm text-slate-400">Loading…</p>}
+      {loading && <p className="text-sm text-slate-500">Loading…</p>}
 
       {v && (
         <>
@@ -114,7 +114,7 @@ export function LicensePanel() {
                 : ""}
             </span>
             {v.source === "env" && (
-              <span className="text-xs text-slate-400">from COMPASSDOCS_LICENSE_KEY</span>
+              <span className="text-xs text-slate-500">from COMPASSDOCS_LICENSE_KEY</span>
             )}
           </div>
 

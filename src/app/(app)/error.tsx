@@ -39,7 +39,7 @@ export default function AppError({
           below.
         </div>
         {error.digest && (
-          <p className="mt-2 text-xs text-slate-400">
+          <p className="mt-2 text-xs text-slate-500">
             Reference: <span className="font-mono">{error.digest}</span>
           </p>
         )}

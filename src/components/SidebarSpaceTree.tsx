@@ -81,13 +81,13 @@ export function SidebarSpaceTree({ spaceId }: { spaceId: number }) {
   if (failed) return null;
   if (tree === null) {
     return (
-      <p className="flex items-center gap-1.5 py-1 pl-6 text-xs text-slate-400">
+      <p className="flex items-center gap-1.5 py-1 pl-6 text-xs text-slate-500">
         <LoaderCircle className="h-3 w-3 animate-spin" /> Loading…
       </p>
     );
   }
   if (tree.length === 0) {
-    return <p className="py-1 pl-6 text-xs text-slate-400">No pages yet.</p>;
+    return <p className="py-1 pl-6 text-xs text-slate-500">No pages yet.</p>;
   }
   return (
     <ul className="mb-1">

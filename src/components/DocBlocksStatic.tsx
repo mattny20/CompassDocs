@@ -108,7 +108,7 @@ export function VideoBlock({
         <a href={src} className="text-compass-600 underline" rel="noreferrer noopener">
           {title || src}
         </a>{" "}
-        <span className="text-slate-400">
+        <span className="text-slate-500">
           (unsupported video URL — use YouTube, Vimeo, Loom, SharePoint/Stream, Google Drive,
           Wistia, Dailymotion, or an uploaded file)
         </span>
@@ -150,7 +150,7 @@ export function SiteEmbed({ src, height, title }: { src: string; height?: string
         className="w-full rounded-lg border border-slate-200 bg-white"
         style={{ height: h }}
       />
-      <figcaption className="mt-1 flex items-center justify-between text-xs text-slate-400">
+      <figcaption className="mt-1 flex items-center justify-between text-xs text-slate-500">
         <span>{title || ""}</span>
         <a href={src} target="_blank" rel="noreferrer noopener" className="hover:text-compass-600">
           Open in new tab ↗

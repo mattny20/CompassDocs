@@ -91,7 +91,7 @@ export function ScimPanel({ initial }: { initial: ScimStatus }) {
       ) : (
         <div className="mt-4 space-y-3">
           <div>
-            <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
               Tenant URL (paste into Entra provisioning)
             </div>
             <div className="mt-1 flex items-center gap-2">
@@ -148,7 +148,7 @@ export function ScimPanel({ initial }: { initial: ScimStatus }) {
                 )}
                 {status.token_set ? "Rotate secret token" : "Generate secret token"}
               </button>
-              <span className="text-xs text-slate-400">
+              <span className="text-xs text-slate-500">
                 {status.token_set
                   ? status.last_request_at
                     ? `Entra last called ${timeAgo(status.last_request_at)}.`
@@ -157,7 +157,7 @@ export function ScimPanel({ initial }: { initial: ScimStatus }) {
               </span>
             </div>
           )}
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-slate-500">
             Users are provisioned as Viewers and sign in via SSO. Entra deletes deactivate the
             account here (content and history are kept). Group provisioning stays with Entra
             group sync — see the{" "}

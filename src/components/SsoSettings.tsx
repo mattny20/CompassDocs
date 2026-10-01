@@ -214,7 +214,7 @@ export function SsoSettings({ initial }: { initial: SsoState }) {
             label={
               <>
                 Allowed email domains{" "}
-                <span className="text-slate-400">(optional, comma-separated)</span>
+                <span className="text-slate-500">(optional, comma-separated)</span>
               </>
             }
           >
@@ -230,7 +230,7 @@ export function SsoSettings({ initial }: { initial: SsoState }) {
         <button
           type="button"
           onClick={() => setShowAdvanced(!showAdvanced)}
-          className="mt-3 text-xs font-medium text-slate-400 hover:text-slate-600"
+          className="mt-3 text-xs font-medium text-slate-500 hover:text-slate-600"
         >
           {showAdvanced ? "▾" : "▸"} Advanced
         </button>
@@ -240,7 +240,7 @@ export function SsoSettings({ initial }: { initial: SsoState }) {
               label={
                 <>
                   Custom OIDC authority{" "}
-                  <span className="text-slate-400">(overrides the tenant — for Okta, Auth0, …)</span>
+                  <span className="text-slate-500">(overrides the tenant — for Okta, Auth0, …)</span>
                 </>
               }
               help={

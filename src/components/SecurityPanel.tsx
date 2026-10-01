@@ -171,7 +171,7 @@ function TwoFactor({ initial }: { initial: TotpState }) {
           <p className="mt-1 text-xs">
             Each works exactly once if you lose your authenticator.
           </p>
-          <pre className="mt-2 grid grid-cols-2 gap-x-6 rounded-sm bg-white p-3 font-mono text-[0.8125rem] leading-6 ring-1 ring-amber-200 sm:grid-cols-4">
+          <pre className="mt-2 grid grid-cols-2 gap-x-6 rounded-sm bg-surface p-3 font-mono text-[0.8125rem] leading-6 ring-1 ring-amber-200 sm:grid-cols-4">
             {recovery.join("\n")}
           </pre>
           <div className="mt-2 flex gap-2">

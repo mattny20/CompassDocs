@@ -29,7 +29,7 @@ export function Field({
       {error ? (
         <span className="mt-1 block text-xs text-red-600">{error}</span>
       ) : help ? (
-        <span className="mt-1 block text-xs text-slate-400">{help}</span>
+        <span className="mt-1 block text-xs text-slate-500">{help}</span>
       ) : null}
     </label>
   );
@@ -93,7 +93,7 @@ export function Toggle({
     <div className="flex items-start justify-between gap-4">
       <label htmlFor={id} className="min-w-0 cursor-pointer">
         <span className="block text-sm font-medium text-slate-800">{label}</span>
-        {help && <span className="mt-0.5 block text-xs text-slate-400">{help}</span>}
+        {help && <span className="mt-0.5 block text-xs text-slate-500">{help}</span>}
       </label>
       <button
         id={id}
@@ -284,7 +284,7 @@ export function DangerAction({
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div className="min-w-0">
         <p className="text-sm font-medium text-slate-800">{label}</p>
-        <p className="mt-0.5 text-xs text-slate-400">{description}</p>
+        <p className="mt-0.5 text-xs text-slate-500">{description}</p>
       </div>
       {children}
     </div>

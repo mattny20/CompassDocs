@@ -157,10 +157,10 @@ export function NotificationsBell({ initialUnread }: { initialUnread: number }) 
           </div>
           <div className="max-h-96 overflow-y-auto">
             {items === null && (
-              <p className="px-3 py-6 text-center text-sm text-slate-400">Loading…</p>
+              <p className="px-3 py-6 text-center text-sm text-slate-500">Loading…</p>
             )}
             {items !== null && items.length === 0 && (
-              <p className="px-3 py-6 text-center text-sm text-slate-400">
+              <p className="px-3 py-6 text-center text-sm text-slate-500">
                 You're all caught up.
               </p>
             )}
@@ -188,7 +188,7 @@ export function NotificationsBell({ initialUnread }: { initialUnread: number }) 
                       {item.body}
                     </span>
                   )}
-                  <span className="mt-0.5 block text-xs text-slate-400">
+                  <span className="mt-0.5 block text-xs text-slate-500">
                     {timeAgo(item.created_at)}
                   </span>
                 </span>

@@ -151,7 +151,7 @@ export function RelatedDocs({
         <>
       {groups.map((g) => (
         <div key={g.label} className="mb-3">
-          <div className="mb-1 text-xs font-medium text-slate-400">{g.label}</div>
+          <div className="mb-1 text-xs font-medium text-slate-500">{g.label}</div>
           <ul className="space-y-1">
             {g.docs.map((d) => (
               <li key={d.relation_id} className="group flex items-start gap-1.5">
@@ -160,7 +160,7 @@ export function RelatedDocs({
                   className="min-w-0 flex-1 rounded-md px-2 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-compass-700"
                 >
                   <span className="block truncate">{d.title}</span>
-                  <span className="block truncate text-xs font-normal text-slate-400">
+                  <span className="block truncate text-xs font-normal text-slate-500">
                     {d.space_icon} {d.space_name}
                     {d.status === "draft" ? " · draft" : ""}
                   </span>
@@ -234,7 +234,7 @@ export function RelatedDocs({
               setQuery("");
               setError("");
             }}
-            className="mt-1.5 text-xs font-medium text-slate-400 hover:text-slate-600"
+            className="mt-1.5 text-xs font-medium text-slate-500 hover:text-slate-600"
           >
             Cancel
           </button>

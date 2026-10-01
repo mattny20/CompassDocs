@@ -50,7 +50,7 @@ export default async function PublicDocPage({
   return (
     <article>
       <ViewTracker docId={doc.id} />
-      <nav className="mb-4 flex items-center text-sm text-slate-400 print:hidden">
+      <nav className="mb-4 flex items-center text-sm text-slate-500 print:hidden">
         <span>
           <Link href="/public" className="hover:text-compass-700">
             Home
@@ -66,7 +66,7 @@ export default async function PublicDocPage({
       </nav>
 
       <h1 className="text-3xl font-bold text-slate-900">{doc.title}</h1>
-      <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-400">
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-500">
         <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">
           {DOC_TYPE_LABEL[doc.type]}
         </span>
@@ -75,7 +75,7 @@ export default async function PublicDocPage({
       </div>
 
       {/* doc-read: reading measure on the document body (see globals.css). */}
-      <div className="doc-read prose prose-slate mt-8 max-w-none rounded-xl border border-slate-200 bg-white p-8 shadow-xs">
+      <div className="doc-read prose prose-slate mt-8 max-w-none rounded-xl border border-slate-200 bg-surface p-8 shadow-xs">
         <MarkdownView
           content={doc.content}
           docKey={`pub-${doc.id}`}
@@ -84,7 +84,7 @@ export default async function PublicDocPage({
       </div>
 
       {attachments.length > 0 && (
-        <div className="mt-6 rounded-xl border border-slate-200 bg-white p-5 shadow-xs print:hidden">
+        <div className="mt-6 rounded-xl border border-slate-200 bg-surface p-5 shadow-xs print:hidden">
           <h2 className="mb-2 text-sm font-semibold text-slate-700">Attachments</h2>
           <ul className="space-y-1">
             {attachments.map((a) => (

@@ -4,6 +4,28 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.4.3] - 2026-10-01
+
+Contrast and dark-mode fixes that touch nearly every page.
+
+### Fixed
+- **Readable secondary text.** Help lines, descriptions, timestamps,
+  captions, rail labels, palette and notification copy and "nothing here"
+  lines used a grey that measured about 2.5:1 on the light surface, below
+  the WCAG AA floor. Every run of words now uses the next step up (389
+  sites); the lighter grey is kept for icons, dividers and placeholders.
+- **Dark mode on the roles page.** The "Built-in roles are re-derived…"
+  note and the permission-group rows rendered as light slabs with grey ink
+  in dark mode. Five double-flipped overrides deleted; eleven classes that
+  never generated anything removed with them.
+- **Shared links, the public site, the upload page, sign-in and the Outlook
+  pane** no longer half-flip in dark mode: a client with a dark OS who opens
+  a share link used to get a dark canvas with white cards whose text had
+  inverted to near-white. Those surfaces now use the themed surface and
+  canvas tokens, byte-identical in light mode.
+- `test/style-drift.test.ts` fails the build on a dark-mode slate override,
+  a compass-950 class, slate-400 text or a bg-white on a themed surface.
+
 ## [1.4.2] - 2026-10-01
 
 ### Added

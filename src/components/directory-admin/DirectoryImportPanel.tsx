@@ -109,8 +109,8 @@ export function DirectoryImportPanel({ fields, onImported }: { fields: Directory
       <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="flex w-full items-center gap-2 px-4 py-3 text-left">
         <FileSpreadsheet className="h-4 w-4 text-compass-600" aria-hidden />
         <span className="text-sm font-semibold text-slate-800">Import from CSV</span>
-        <span className="text-xs text-slate-400">the export's format, or any spreadsheet with a name or email column</span>
-        <span className="ml-auto text-slate-400">{open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</span>
+        <span className="text-xs text-slate-500">the export's format, or any spreadsheet with a name or email column</span>
+        <span className="ml-auto text-slate-500">{open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</span>
       </button>
       {open && (
         <div className="space-y-4 border-t border-slate-100 p-4">
@@ -140,7 +140,7 @@ export function DirectoryImportPanel({ fields, onImported }: { fields: Directory
                     <div key={c.index} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2">
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium text-slate-800">{c.header || `Column ${c.index + 1}`}</p>
-                        <p className="truncate text-xs text-slate-400">{c.sample || "—"}</p>
+                        <p className="truncate text-xs text-slate-500">{c.sample || "—"}</p>
                       </div>
                       <div className="w-44">
                         <Select value={mapping[String(c.index)] ?? ""} onChange={(e) => setMapping({ ...mapping, [String(c.index)]: e.target.value })} aria-label={`Target for ${c.header}`}>
@@ -183,7 +183,7 @@ export function DirectoryImportPanel({ fields, onImported }: { fields: Directory
               <div className="max-h-80 overflow-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="text-left text-xs uppercase tracking-wide text-slate-400">
+                    <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
                       <th className="px-3 py-1.5">Row</th>
                       <th className="px-3 py-1.5">Person</th>
                       <th className="px-3 py-1.5">Result</th>
@@ -192,15 +192,15 @@ export function DirectoryImportPanel({ fields, onImported }: { fields: Directory
                   <tbody>
                     {shownRows.slice(0, 500).map((r) => (
                       <tr key={r.row} className="border-t border-slate-50">
-                        <td className="px-3 py-1.5 text-slate-400">{r.row}</td>
+                        <td className="px-3 py-1.5 text-slate-500">{r.row}</td>
                         <td className="px-3 py-1.5 text-slate-800">
-                          {r.name || <span className="text-slate-400">(no name)</span>}
-                          {r.email ? <span className="text-slate-400"> · {r.email}</span> : null}
+                          {r.name || <span className="text-slate-500">(no name)</span>}
+                          {r.email ? <span className="text-slate-500"> · {r.email}</span> : null}
                         </td>
                         <td className="px-3 py-1.5">
                           {r.action === "create" && <span className="text-emerald-700">Add</span>}
                           {r.action === "update" && <span className="text-compass-700">Update: {(r.changes ?? []).join(", ")}</span>}
-                          {r.action === "skip" && <span className="text-slate-400">{r.reason ?? "Unchanged"}</span>}
+                          {r.action === "skip" && <span className="text-slate-500">{r.reason ?? "Unchanged"}</span>}
                           {r.action === "error" && <span className="text-red-600">{r.reason}</span>}
                         </td>
                       </tr>
@@ -212,7 +212,7 @@ export function DirectoryImportPanel({ fields, onImported }: { fields: Directory
                 <button type="button" onClick={() => run("apply")} disabled={busy || plan.counts.create + plan.counts.update === 0} className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60">
                   {busy ? "Importing…" : `Import ${plan.counts.create + plan.counts.update} ${plan.counts.create + plan.counts.update === 1 ? "person" : "people"}`}
                 </button>
-                <span className="text-xs text-slate-400">Rows with problems are left out; fix the file and check again.</span>
+                <span className="text-xs text-slate-500">Rows with problems are left out; fix the file and check again.</span>
               </div>
             </div>
           )}

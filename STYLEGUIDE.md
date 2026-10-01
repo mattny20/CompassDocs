@@ -45,7 +45,7 @@ Every top-level page:
   in navigation).
 - Subtitles: `mt-1 text-sm text-slate-500` (plus `mb-6` when the next block
   needs the gap). Card/section sub-descriptions use the smaller tier:
-  `mt-0.5 text-xs text-slate-400`.
+  `mt-0.5 text-xs text-slate-500`.
 
 ### Standalone link pages (the one exception)
 
@@ -114,10 +114,13 @@ borders, four paddings, three greys, two of them with an emoji.)
   `className` for the padding when the surrounding list owns it
   (`<SectionEmpty className="px-4 py-6">`).
 
-Empty-state text is `text-slate-500`, not `text-slate-400`: `slate-400`
-measures 2.56:1 on the canvas and can't carry a sentence. It stays the
-**icon/decorative tone** only — don't darken the token itself, that would
-collapse it into `slate-500` across the whole app.
+**`slate-400` never carries words.** It measures 2.56:1 on the canvas, below
+the AA floor, so it is the **icon/decorative tone** only — icons, chevrons,
+dividers, input placeholders. Any run of text, however small (help lines,
+timestamps, captions, rail group labels, "Saved" states, empty lines, the
+label before a chip row), is `text-slate-500` or darker. Don't darken the
+token itself; that would collapse it into `slate-500` for icons too.
+`test/style-drift.test.ts` fails on `text-slate-400` next to a text size.
 
 ## Buttons
 
@@ -200,7 +203,7 @@ focus):
   find. See `components/directory-admin/DirectorySubnav.tsx`.
 - **One primary action per card, at its bottom-left**, `mt-4 flex
   items-center gap-3`: the button, then the state (`Unsaved changes` in
-  `text-xs text-amber-600`, or `Saved` in `text-xs text-slate-400`). A page
+  `text-xs text-amber-600`, or `Saved` in `text-xs text-slate-500`). A page
   whose cards are one document (office fields + office values) has one Save
   below the cards, not one per card.
 
@@ -227,7 +230,9 @@ focus):
   dark:bg-slate-800/40` flips twice and paints a light slab, and
   `text-slate-900 dark:text-slate-100` paints near-black ink on a near-black
   page. A bare slate token is already correct in both themes — the fix for one
-  of these is a **deletion**. Same for `bg-white`: use `bg-surface`.
+  of these is a **deletion**. Same for `bg-white`: use `bg-surface` (literal
+  white is right only for brand tiles, QR codes, media stages, the toggle knob
+  and email previews). `test/style-drift.test.ts` enforces all of this.
 - Anything that must stay dark in both themes (code blocks, the code-block
   header bar, the modal scrim) is **hard-coded literal**, never themed.
 
@@ -263,7 +268,7 @@ The accent is opt-in per field (`highlight`) and a colour is opt-in per
 option; a certification or a team must never read as an alert. The one
 place the *field's name* belongs next to its chips is a card, where the
 chips would otherwise be a bare word: render `label` in `text-xs
-text-slate-400` before them ("Notary · Phoenix").
+text-slate-500` before them ("Notary · Phoenix").
 
 ## Feedback
 

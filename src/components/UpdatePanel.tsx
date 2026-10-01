@@ -138,7 +138,7 @@ export function UpdatePanel() {
       {status && !error && (
         <div className="mt-3 space-y-3 text-sm">
           {updating === "updating" && (
-            <div className="flex items-center gap-2 rounded-lg bg-compass-50 px-3 py-2.5 text-sm text-compass-800 dark:bg-compass-950/40">
+            <div className="flex items-center gap-2 rounded-lg bg-compass-50 px-3 py-2.5 text-sm text-compass-800">
               <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-compass-500 border-t-transparent" aria-hidden />
               Updating — pulling the new image and restarting. This page will confirm when the
               app is back (usually under a minute).

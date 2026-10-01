@@ -180,7 +180,7 @@ export function DocComments({
         <MessageSquare className="h-5 w-5 text-slate-400" />
         Comments
         {comments.length > 0 && (
-          <span className="text-sm font-normal text-slate-400">({comments.filter((c) => !c.deleted_at).length})</span>
+          <span className="text-sm font-normal text-slate-500">({comments.filter((c) => !c.deleted_at).length})</span>
         )}
       </h2>
 
@@ -188,12 +188,12 @@ export function DocComments({
         {comments.map((c) => (
           <li key={c.id} className="rounded-xl border border-slate-200 bg-surface px-4 py-3">
             {c.deleted_at ? (
-              <p className="text-sm italic text-slate-400">Comment removed by {c.deleted_by || "a moderator"}.</p>
+              <p className="text-sm italic text-slate-500">Comment removed by {c.deleted_by || "a moderator"}.</p>
             ) : (
               <>
                 <div className="mb-1 flex items-baseline justify-between gap-3">
                   <span className="text-sm font-semibold text-slate-800">{c.author_name}</span>
-                  <span className="flex items-center gap-3 text-xs text-slate-400">
+                  <span className="flex items-center gap-3 text-xs text-slate-500">
                     {timeAgo(c.created_at)}
                     {(isAdmin || c.user_id === currentUserId) && (
                       <button
@@ -214,7 +214,7 @@ export function DocComments({
           </li>
         ))}
         {comments.length === 0 && (
-          <li className="text-sm text-slate-400">No comments yet — start the discussion.</li>
+          <li className="text-sm text-slate-500">No comments yet — start the discussion.</li>
         )}
       </ul>
 
@@ -265,14 +265,14 @@ export function DocComments({
                   }`}
                 >
                   {u.name || u.username}
-                  {u.name && <span className="ml-2 text-xs text-slate-400">{u.username}</span>}
+                  {u.name && <span className="ml-2 text-xs text-slate-500">{u.username}</span>}
                 </button>
               </li>
             ))}
           </ul>
         )}
         <div className="mt-2 flex items-center justify-between">
-          <span className="text-xs text-slate-400">
+          <span className="text-xs text-slate-500">
             {mentions.filter((m) => body.includes(`@${m.name}`)).length > 0 &&
               `Will notify: ${mentions
                 .filter((m) => body.includes(`@${m.name}`))

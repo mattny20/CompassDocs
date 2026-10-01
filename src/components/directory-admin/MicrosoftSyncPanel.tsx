@@ -204,7 +204,7 @@ export function MicrosoftSyncPanel({ graph, report }: { graph: GraphState; repor
         <Field
           label={
             <>
-              Limit to an Entra group <span className="text-slate-400">(optional — group object ID)</span>
+              Limit to an Entra group <span className="text-slate-500">(optional — group object ID)</span>
             </>
           }
         >
@@ -261,7 +261,7 @@ export function MicrosoftSyncPanel({ graph, report }: { graph: GraphState; repor
       )}
 
       {g.last_sync && (
-        <p className={`mt-3 text-xs ${g.last_sync.ok ? "text-slate-400" : "text-red-500"}`}>
+        <p className={`mt-3 text-xs ${g.last_sync.ok ? "text-slate-500" : "text-red-500"}`}>
           Last sync {fmt.dateTime(g.last_sync.at)} —{" "}
           {g.last_sync.ok ? `${g.last_sync.count} people` : `failed: ${g.last_sync.error}`}
           {report && g.last_sync.ok ? (

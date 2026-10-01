@@ -32,7 +32,7 @@ export default async function ArchivedTrainingPage() {
         <h1 className="mt-1 flex items-center gap-2 text-xl font-bold tracking-tight text-slate-900">
           <GraduationCap className="h-5 w-5 text-compass-600" /> Archived decks
         </h1>
-        <p className="mt-0.5 text-sm text-slate-400">
+        <p className="mt-0.5 text-sm text-slate-500">
           Hidden from everyone&apos;s Training tab. Restore brings a deck back exactly as it was;
           delete removes it and its completion history for good.
         </p>

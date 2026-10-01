@@ -81,7 +81,7 @@ function Delta({ now, prev }: { now: number; prev: number }) {
   const pct = Math.round(((now - prev) / prev) * 100);
   if (pct === 0) {
     return (
-      <span className="inline-flex items-center gap-0.5 text-xs font-medium text-slate-400">
+      <span className="inline-flex items-center gap-0.5 text-xs font-medium text-slate-500">
         <Minus className="h-3 w-3" /> 0%
       </span>
     );
@@ -116,13 +116,13 @@ function Kpi({
   return (
     <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
       <div className="flex items-center justify-between">
-        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-compass-50 text-compass-600 dark:bg-compass-950/50">
+        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-compass-50 text-compass-600">
           {icon}
         </span>
         {delta}
       </div>
       <div className="mt-2 text-2xl font-bold tracking-tight text-slate-900">{value}</div>
-      <div className="text-xs text-slate-400">
+      <div className="text-xs text-slate-500">
         {label}
         {sub ? ` · ${sub}` : ""}
       </div>
@@ -249,7 +249,7 @@ function Card({
           <h2 className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
             <span className="text-compass-600">{icon}</span> {title}
           </h2>
-          {sub && <p className="mt-0.5 text-xs text-slate-400">{sub}</p>}
+          {sub && <p className="mt-0.5 text-xs text-slate-500">{sub}</p>}
         </div>
         {extra}
       </div>
@@ -259,7 +259,7 @@ function Card({
 }
 
 function Empty({ note }: { note: string }) {
-  return <p className="py-6 text-center text-sm text-slate-400">{note}</p>;
+  return <p className="py-6 text-center text-sm text-slate-500">{note}</p>;
 }
 
 function BarList({
@@ -286,7 +286,7 @@ function BarList({
             ) : (
               <span className="truncate text-slate-700">{r.label}</span>
             )}
-            <span className="shrink-0 text-xs text-slate-400">
+            <span className="shrink-0 text-xs text-slate-500">
               {r.value}
               {r.hint ? ` · ${r.hint}` : ""}
             </span>
@@ -332,14 +332,14 @@ function DocDrilldown({ docId, days, onClose }: { docId: number; days: number; o
         {error ? (
           <p className="text-sm text-red-600">{error}</p>
         ) : !data ? (
-          <div className="flex items-center gap-2 py-10 text-sm text-slate-400">
+          <div className="flex items-center gap-2 py-10 text-sm text-slate-500">
             <LoaderCircle className="h-4 w-4 animate-spin" /> Loading…
           </div>
         ) : (
           <>
             <div className="mb-3 flex items-start justify-between gap-3">
               <div>
-                <div className="text-xs text-slate-400">
+                <div className="text-xs text-slate-500">
                   {data.doc.space_icon} {data.doc.space_name} · by {data.doc.author}
                 </div>
                 <h3 className="text-lg font-bold text-slate-900">{data.doc.title}</h3>
@@ -366,7 +366,7 @@ function DocDrilldown({ docId, days, onClose }: { docId: number; days: number; o
               ].map(([label, v]) => (
                 <div key={label as string} className="rounded-lg border border-slate-200 bg-slate-50/70 px-2.5 py-2 text-center">
                   <div className="text-base font-bold text-slate-800">{v as any}</div>
-                  <div className="text-3xs uppercase tracking-wide text-slate-400">{label as string}</div>
+                  <div className="text-3xs uppercase tracking-wide text-slate-500">{label as string}</div>
                 </div>
               ))}
             </div>
@@ -376,14 +376,14 @@ function DocDrilldown({ docId, days, onClose }: { docId: number; days: number; o
             />
             {data.readers.length > 0 && (
               <div className="mt-3">
-                <h4 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                <h4 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
                   Top readers
                 </h4>
                 <ul className="divide-y divide-slate-100 text-sm">
                   {data.readers.map((r: any) => (
                     <li key={r.username} className="flex items-center justify-between py-1.5">
                       <span className="text-slate-700">{r.name || r.username}</span>
-                      <span className="text-xs text-slate-400">
+                      <span className="text-xs text-slate-500">
                         {r.views} views · {fmtDuration(r.seconds)}
                       </span>
                     </li>
@@ -577,7 +577,7 @@ export function AnalyticsClient() {
                         <span className="w-5 text-center text-xs font-bold text-slate-300">{i + 1}</span>
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-sm font-medium text-slate-700">{t.title}</span>
-                          <span className="block text-xs text-slate-400">
+                          <span className="block text-xs text-slate-500">
                             {t.space_icon} {t.space_name}
                           </span>
                         </span>
@@ -605,7 +605,7 @@ export function AnalyticsClient() {
               ) : (
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="text-left text-xs uppercase tracking-wide text-slate-400">
+                    <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
                       {/* w-full: the title column takes the slack instead of
                           losing it to columns holding single digits. */}
                       <th className="w-full pb-2 font-medium">Document</th>
@@ -622,9 +622,9 @@ export function AnalyticsClient() {
                           {d.space_icon} {d.title}
                         </td>
                         <td className="py-2 text-right text-slate-600">{d.views}</td>
-                        <td className="py-2 pl-3 text-right text-slate-400">{d.unique_viewers}</td>
-                        <td className="py-2 pl-3 text-right text-slate-400">{fmtDuration(d.avg_seconds)}</td>
-                        <td className="py-2 pl-3 text-right text-slate-400">{d.downloads || "—"}</td>
+                        <td className="py-2 pl-3 text-right text-slate-500">{d.unique_viewers}</td>
+                        <td className="py-2 pl-3 text-right text-slate-500">{fmtDuration(d.avg_seconds)}</td>
+                        <td className="py-2 pl-3 text-right text-slate-500">{d.downloads || "—"}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -641,7 +641,7 @@ export function AnalyticsClient() {
               ) : (
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="text-left text-xs uppercase tracking-wide text-slate-400">
+                    <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
                       <th className="w-full pb-2 font-medium">Document</th>
                       <th className="pb-2 text-right font-medium">Views</th>
                       <th className="pb-2 pl-3 text-right font-medium">Updated</th>
@@ -656,7 +656,7 @@ export function AnalyticsClient() {
                         <td className={`py-2 text-right ${d.views === 0 ? "font-semibold text-amber-600" : "text-slate-600"}`}>
                           {d.views}
                         </td>
-                        <td className="whitespace-nowrap py-2 pl-3 text-right text-slate-400">{fmt.date(d.updated)}</td>
+                        <td className="whitespace-nowrap py-2 pl-3 text-right text-slate-500">{fmt.date(d.updated)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -697,7 +697,7 @@ export function AnalyticsClient() {
                       >
                         {s.query}
                       </Link>
-                      <span className="shrink-0 text-xs text-slate-400">
+                      <span className="shrink-0 text-xs text-slate-500">
                         ×{s.count} · last {fmt.date(s.last)}
                       </span>
                     </li>
@@ -715,7 +715,7 @@ export function AnalyticsClient() {
               ) : (
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="text-left text-xs uppercase tracking-wide text-slate-400">
+                    <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
                       <th className="pb-2 font-medium">Reader</th>
                       <th className="pb-2 text-right font-medium">Views</th>
                       <th className="pb-2 text-right font-medium">Docs</th>
@@ -728,9 +728,9 @@ export function AnalyticsClient() {
                       <tr key={r.id}>
                         <td className="py-2 pr-2 font-medium text-slate-700">{r.name || r.username}</td>
                         <td className="py-2 text-right text-slate-600">{r.views}</td>
-                        <td className="py-2 text-right text-slate-400">{r.docs}</td>
-                        <td className="py-2 text-right text-slate-400">{fmtDuration(r.seconds)}</td>
-                        <td className="py-2 text-right text-slate-400">{fmt.date(r.last_active)}</td>
+                        <td className="py-2 text-right text-slate-500">{r.docs}</td>
+                        <td className="py-2 text-right text-slate-500">{fmtDuration(r.seconds)}</td>
+                        <td className="py-2 text-right text-slate-500">{fmt.date(r.last_active)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -747,7 +747,7 @@ export function AnalyticsClient() {
               ) : (
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="text-left text-xs uppercase tracking-wide text-slate-400">
+                    <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
                       <th className="pb-2 font-medium">Author</th>
                       <th className="pb-2 text-right font-medium">Docs</th>
                       <th className="pb-2 text-right font-medium">Views</th>
@@ -759,10 +759,10 @@ export function AnalyticsClient() {
                     {data.authors.map((a: any) => (
                       <tr key={a.author}>
                         <td className="py-2 pr-2 font-medium text-slate-700">{a.author}</td>
-                        <td className="py-2 text-right text-slate-400">{a.docs}</td>
+                        <td className="py-2 text-right text-slate-500">{a.docs}</td>
                         <td className="py-2 text-right text-slate-600">{a.views}</td>
-                        <td className="py-2 text-right text-slate-400">{a.views_per_doc}</td>
-                        <td className="py-2 text-right text-slate-400">{fmtDuration(a.avg_seconds)}</td>
+                        <td className="py-2 text-right text-slate-500">{a.views_per_doc}</td>
+                        <td className="py-2 text-right text-slate-500">{fmtDuration(a.avg_seconds)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -810,7 +810,7 @@ export function AnalyticsClient() {
                         </>
                       )}
                     </span>
-                    <span className="shrink-0 text-xs text-slate-400">
+                    <span className="shrink-0 text-xs text-slate-500">
                       {fmt.dateTime(a.at)}
                     </span>
                   </li>

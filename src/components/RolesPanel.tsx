@@ -391,7 +391,7 @@ function RolesTab({
                   )}
                   {r.name}
                 </span>
-                <span className="mt-0.5 block text-xs text-slate-400">
+                <span className="mt-0.5 block text-xs text-slate-500">
                   {r.permission_count} permission{r.permission_count === 1 ? "" : "s"}
                   {holders.get(r.id)
                     ? ` · ${holders.get(r.id)} holder${holders.get(r.id) === 1 ? "" : "s"}`
@@ -450,7 +450,7 @@ function RolesTab({
               </div>
             </div>
             {readOnly && (
-              <p className="mt-3 flex items-start gap-1.5 rounded-lg bg-slate-50 p-2 text-xs text-slate-500 dark:bg-slate-800/60">
+              <p className="mt-3 flex items-start gap-1.5 rounded-lg bg-slate-50 p-2 text-xs text-slate-500">
                 <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
                 Built-in roles are re-derived from the catalog on every upgrade, so an upgrade that
                 adds a permission grants it without anyone having to notice. That also means edits
@@ -510,7 +510,7 @@ function RolesTab({
                             aria-hidden
                           />
                           {familyLabel(f)}
-                          <span className="text-xs font-normal text-slate-400">
+                          <span className="text-xs font-normal text-slate-500">
                             {on}/{perms.length}
                           </span>
                         </button>
@@ -535,7 +535,7 @@ function RolesTab({
                         )}
                       </div>
                       {open && (
-                        <ul className="border-t border-slate-100 bg-slate-50/60 dark:bg-slate-800/30">
+                        <ul className="border-t border-slate-100 bg-slate-50/60">
                           {perms.map((p) => (
                             <li key={p.key} className="border-b border-slate-100 last:border-b-0">
                               <label className="flex cursor-pointer items-start gap-2.5 px-4 py-2">
@@ -550,12 +550,12 @@ function RolesTab({
                                   <span className="block text-sm text-slate-800">
                                     {p.label}
                                     {p.scope === "space" && (
-                                      <span className="ml-1.5 rounded bg-slate-200 px-1 py-0.5 text-3xs font-medium uppercase tracking-wide text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                                      <span className="ml-1.5 rounded bg-slate-200 px-1 py-0.5 text-3xs font-medium uppercase tracking-wide text-slate-600">
                                         per space
                                       </span>
                                     )}
                                   </span>
-                                  <span className="block text-xs text-slate-400">
+                                  <span className="block text-xs text-slate-500">
                                     {p.description} · <code>{p.key}</code>
                                   </span>
                                 </span>
@@ -798,7 +798,7 @@ function AssignmentsTab({
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400">
+              <thead className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-500">
                 <tr>
                   <th className="px-4 py-2 font-medium">Who</th>
                   <th className="px-4 py-2 font-medium">Role</th>
@@ -811,7 +811,7 @@ function AssignmentsTab({
                   <tr key={a.id} className="border-b border-slate-100 last:border-b-0">
                     <td className="px-4 py-2">
                       <span className="text-slate-800">{a.subject}</span>
-                      <span className="ml-1.5 rounded bg-slate-100 px-1 py-0.5 text-3xs font-medium uppercase tracking-wide text-slate-500 dark:bg-slate-700 dark:text-slate-300">
+                      <span className="ml-1.5 rounded bg-slate-100 px-1 py-0.5 text-3xs font-medium uppercase tracking-wide text-slate-500">
                         {a.subject_kind}
                       </span>
                     </td>
@@ -931,7 +931,7 @@ function ExplainTab({ users, spaces }: { users: PickPerson[]; spaces: PickSpace[
               {shown.map((e) => (
                 <li key={e.permission} className="border-b border-slate-100 px-4 py-2 last:border-b-0">
                   <p className="text-sm text-slate-800">
-                    {e.label} <code className="text-xs text-slate-400">{e.permission}</code>
+                    {e.label} <code className="text-xs text-slate-500">{e.permission}</code>
                   </p>
                   <p className="mt-0.5 text-xs text-slate-500">
                     {e.scope === "global"
@@ -1056,7 +1056,7 @@ function HealthTab() {
                       <code>{r.permission}</code> — ladder {r.legacy_allowed ? "allowed" : "denied"},
                       permissions {r.rbac_allowed ? "allow" : "deny"} ({r.hits} hits)
                       {r.route && r.route !== r.permission ? (
-                        <span className="text-slate-400"> · {r.route}</span>
+                        <span className="text-slate-500"> · {r.route}</span>
                       ) : null}
                     </li>
                   ))}
@@ -1064,7 +1064,7 @@ function HealthTab() {
                 {/* Say so rather than trailing off — a silently cut list reads
                     as "that's all of them". */}
                 {disagreements.length > 20 && (
-                  <p className="mt-2 text-xs text-slate-400">
+                  <p className="mt-2 text-xs text-slate-500">
                     Showing the 20 busiest of {disagreements.length} differing pairs.
                   </p>
                 )}

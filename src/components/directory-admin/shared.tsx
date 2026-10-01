@@ -96,7 +96,7 @@ export function Disclosure({
         className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm"
       >
         <span className="font-medium text-slate-800">{title}</span>
-        <span className="truncate text-xs text-slate-400">{summary}</span>
+        <span className="truncate text-xs text-slate-500">{summary}</span>
       </button>
       {open && <div className="border-t border-slate-100 p-3">{children}</div>}
     </div>

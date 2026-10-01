@@ -185,7 +185,7 @@ export function SidebarClient({
         collapsed ? "justify-center px-0" : "gap-2 px-3"
       }`}
     >
-      <span className="text-slate-400">
+      <span className="text-slate-500">
         <MoreHorizontal className="h-4 w-4" />
       </span>
       {!collapsed && <span className="flex-1 text-left">{moreLabel}</span>}
@@ -394,7 +394,7 @@ export function SidebarClient({
             <Link
               href="/admin/spaces"
               data-tt="Manage spaces" aria-label="Manage spaces"
-              className="text-slate-400 transition hover:text-compass-600"
+              className="text-slate-500 transition hover:text-compass-600"
             >
               ＋
             </Link>

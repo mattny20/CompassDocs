@@ -90,7 +90,7 @@ export function ShareCard({
         <Share2 className="h-3.5 w-3.5" aria-hidden /> Share link
       </h2>
       {!isPublished ? (
-        <p className="text-sm text-slate-400">Publish this document to share it externally.</p>
+        <p className="text-sm text-slate-500">Publish this document to share it externally.</p>
       ) : share ? (
         <div className="space-y-2">
           <div className="flex items-center gap-1">
@@ -110,7 +110,7 @@ export function ShareCard({
               {copied ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}
             </button>
           </div>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-slate-500">
             Anyone with this link can read the current published version.{" "}
             {share.expires_at
               ? `Expires ${fmt.date(share.expires_at)}.`
@@ -137,7 +137,7 @@ export function ShareCard({
         </div>
       ) : (
         <div className="space-y-2">
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-slate-500">
             Create a read-only link anyone can open — no account needed. Unguessable, never
             indexed, revocable here at any time.
           </p>

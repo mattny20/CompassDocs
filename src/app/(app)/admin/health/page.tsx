@@ -100,7 +100,7 @@ export default async function HealthPage() {
               s.count > 0 ? "border-amber-200 bg-amber-50 dark:border-amber-800/60 dark:bg-amber-950/40" : "border-slate-200 bg-surface"
             }`}
           >
-            <div className={`text-2xl font-bold ${s.count > 0 ? "text-amber-700" : "text-slate-400"}`}>
+            <div className={`text-2xl font-bold ${s.count > 0 ? "text-amber-700" : "text-slate-500"}`}>
               {s.key === "dups" && !r.duplicates_checked ? "—" : s.count}
             </div>
             {/* Amber tiles keep light backgrounds in dark mode, so the label
@@ -154,7 +154,7 @@ export default async function HealthPage() {
         {r.duplicates.map((p) => (
           <div key={`${p.a.id}-${p.b.id}`} className="flex flex-wrap items-center gap-2 px-4 py-2 text-sm">
             <DocLink doc={p.a} />
-            <span className="text-slate-400">≈</span>
+            <span className="text-slate-500">≈</span>
             <DocLink doc={p.b} />
             <span className="ml-auto rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">
               {(p.similarity * 100).toFixed(1)}%

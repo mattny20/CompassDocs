@@ -228,7 +228,7 @@ export function DirectoryPeoplePanel({
                       </datalist>
                     )}
                     {synced && syncedValue && (
-                      <p className="mt-0.5 truncate text-2xs text-slate-400">
+                      <p className="mt-0.5 truncate text-2xs text-slate-500">
                         synced: {syncedValue}
                         {(formCustom[f.key] ?? "") !== "" && !reverted && (
                           <>
@@ -252,7 +252,7 @@ export function DirectoryPeoplePanel({
                 <div key={f.key} className="space-y-2">
                   <Field label={f.label} help={editing ? `${f.label}s of ${editing.name}` : undefined}>
                     {editing && syncedLinks(editing, f, "out").length > 0 && (
-                      <p className="mb-1 text-2xs text-slate-400">synced: {syncedLinks(editing, f, "out").join(", ")}</p>
+                      <p className="mb-1 text-2xs text-slate-500">synced: {syncedLinks(editing, f, "out").join(", ")}</p>
                     )}
                     <EntityPicker
                       options={pickerOptions.filter((o) => o.id !== editing?.id)}
@@ -265,7 +265,7 @@ export function DirectoryPeoplePanel({
                   </Field>
                   <Field label={f.inverse_label || `${f.label} to`} help={editing ? `People ${editing.name} is ${f.label.toLowerCase()} to` : undefined}>
                     {editing && syncedLinks(editing, f, "in").length > 0 && (
-                      <p className="mb-1 text-2xs text-slate-400">synced: {syncedLinks(editing, f, "in").join(", ")}</p>
+                      <p className="mb-1 text-2xs text-slate-500">synced: {syncedLinks(editing, f, "in").join(", ")}</p>
                     )}
                     <EntityPicker
                       options={pickerOptions.filter((o) => o.id !== editing?.id)}
@@ -297,7 +297,7 @@ export function DirectoryPeoplePanel({
                   <Trash2 className="h-3.5 w-3.5" /> Remove
                 </button>
               )}
-              <span className="text-xs text-slate-400">
+              <span className="text-xs text-slate-500">
                 Cropped square; stored at 48px for lists and 240px for the profile and contact card.
                 {synced ? " A photo from the provider replaces it on the next sync." : ""}
               </span>
@@ -338,7 +338,7 @@ export function DirectoryPeoplePanel({
           <tbody>
             {shown.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-slate-400">{missingField ? `Everyone has a ${missingField.label.toLowerCase()}.` : "No directory entries yet."}</td>
+                <td colSpan={5} className="px-4 py-8 text-center text-slate-500">{missingField ? `Everyone has a ${missingField.label.toLowerCase()}.` : "No directory entries yet."}</td>
               </tr>
             )}
             {shown.map((p) => (

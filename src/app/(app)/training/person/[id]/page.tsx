@@ -41,7 +41,7 @@ export default async function TrainingPersonPage({ params }: { params: Promise<{
           <h1 className="mt-1 flex items-center gap-2 text-xl font-bold tracking-tight text-slate-900">
             <GraduationCap className="h-5 w-5 text-compass-600" /> Training transcript — {person.name}
           </h1>
-          <p className="mt-0.5 text-sm text-slate-400">
+          <p className="mt-0.5 text-sm text-slate-500">
             @{person.username} · every assignment and prior certification cycle on record.
           </p>
         </div>
@@ -59,7 +59,7 @@ export default async function TrainingPersonPage({ params }: { params: Promise<{
       <section className="overflow-x-auto rounded-xl border border-slate-200 bg-surface shadow-xs">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400">
+            <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-500">
               <th className="px-4 py-2">Training</th>
               <th className="px-2 py-2">Status</th>
               <th className="px-2 py-2">Assigned</th>
@@ -104,7 +104,7 @@ export default async function TrainingPersonPage({ params }: { params: Promise<{
             ))}
             {current.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-6 text-center text-slate-400">
+                <td colSpan={7} className="px-4 py-6 text-center text-slate-500">
                   No current assignments.
                 </td>
               </tr>
@@ -116,7 +116,7 @@ export default async function TrainingPersonPage({ params }: { params: Promise<{
       <h2 className="mt-6 text-sm font-semibold text-slate-800">
         Prior cycles ({history.length})
       </h2>
-      <p className="mt-0.5 text-xs text-slate-400">
+      <p className="mt-0.5 text-xs text-slate-500">
         Completions preserved when an assignment reopened for recertification or a document update.
       </p>
       <section className="mt-2 overflow-x-auto rounded-xl border border-slate-200 bg-surface shadow-xs">
@@ -133,12 +133,12 @@ export default async function TrainingPersonPage({ params }: { params: Promise<{
                 <td className="px-2 py-2 text-slate-500">
                   {typeof h.confirmed_version === "number" ? `v${h.confirmed_version}` : ""}
                 </td>
-                <td className="px-2 py-2 text-xs text-slate-400">cycle closed {day(h.closed_at)}</td>
+                <td className="px-2 py-2 text-xs text-slate-500">cycle closed {day(h.closed_at)}</td>
               </tr>
             ))}
             {history.length === 0 && (
               <tr>
-                <td className="px-4 py-6 text-center text-slate-400">No prior cycles.</td>
+                <td className="px-4 py-6 text-center text-slate-500">No prior cycles.</td>
               </tr>
             )}
           </tbody>

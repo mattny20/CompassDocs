@@ -1052,7 +1052,7 @@ export function DocEditor({
                   }
                 />
               ) : (
-                <p className="text-sm text-slate-400">Nothing to preview yet.</p>
+                <p className="text-sm text-slate-500">Nothing to preview yet.</p>
               )}
             </div>
           )}
@@ -1251,7 +1251,7 @@ function ProofPanel({
                 <span className="rounded-sm bg-red-50 px-1.5 py-0.5 text-red-700 line-through decoration-red-300 dark:bg-red-950/40 dark:text-red-300">
                   {c.before}
                 </span>
-                <span className="text-slate-400">→</span>
+                <span className="text-slate-500">→</span>
                 <span className="rounded-sm bg-green-50 px-1.5 py-0.5 text-green-700 dark:bg-green-950/40 dark:text-green-300">{c.after}</span>
               </div>
             </li>

@@ -195,7 +195,7 @@ export const PaletteRow = memo(function PaletteRow({
           // just our own <mark> tokens. Sanitizing at the sink means a new
           // result source can't reintroduce the hole by forgetting to call it.
           <span
-            className="cmd-snippet block text-xs text-slate-400"
+            className="cmd-snippet block text-xs text-slate-500"
             dangerouslySetInnerHTML={{ __html: safeSnippet(item.snippetHtml) }}
           />
         )}

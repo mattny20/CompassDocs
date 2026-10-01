@@ -60,7 +60,7 @@ export function ArchivedDecks({ decks }: { decks: ArchivedDeck[] }) {
         >
           <div className="min-w-0">
             <h2 className="font-semibold text-slate-900">{d.title}</h2>
-            <div className="mt-0.5 flex items-center gap-2 text-xs text-slate-400">
+            <div className="mt-0.5 flex items-center gap-2 text-xs text-slate-500">
               <span>
                 {d.space_icon} {d.space_name}
               </span>

@@ -555,7 +555,7 @@ export function RichTextEditor({
   }, [value, editor]);
 
   if (!editor) {
-    return <div className="min-h-[26.25rem] px-5 py-4 text-sm text-slate-400">Loading editor…</div>;
+    return <div className="min-h-[26.25rem] px-5 py-4 text-sm text-slate-500">Loading editor…</div>;
   }
 
   return (

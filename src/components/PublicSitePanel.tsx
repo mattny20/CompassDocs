@@ -133,7 +133,7 @@ export function PublicSitePanel({
             {publicSpaces.map((s) => (
               <li key={s.id} className="flex items-center gap-2 text-sm">
                 <span className="font-medium text-slate-800">{s.name}</span>
-                <span className="text-xs text-slate-400">
+                <span className="text-xs text-slate-500">
                   {s.doc_count} published article{s.doc_count === 1 ? "" : "s"}
                 </span>
                 {config.enabled && (
@@ -152,7 +152,7 @@ export function PublicSitePanel({
         )}
       </div>
 
-      <p className="text-xs text-slate-400">
+      <p className="text-xs text-slate-500">
         Anonymous visitors can browse and search public spaces only. AI answers, the API, and
         the Claude connector always require an account. Public search is rate-limited.
       </p>

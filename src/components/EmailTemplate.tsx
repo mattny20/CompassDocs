@@ -84,7 +84,7 @@ export function EmailTemplate({ raw }: { raw: string }) {
         <div className="space-y-0.5 border-b border-slate-100 bg-surface px-4 py-2.5">
           {headers.map((h, i) => (
             <p key={`${h.key}-${i}`} className="my-0! text-sm">
-              <span className="mr-2 inline-block w-14 text-xs font-semibold uppercase tracking-wide text-slate-400">
+              <span className="mr-2 inline-block w-14 text-xs font-semibold uppercase tracking-wide text-slate-500">
                 {HEADER_LABEL[h.key]}
               </span>
               <span className={h.key === "subject" ? "font-semibold text-slate-900" : "text-slate-700"}>

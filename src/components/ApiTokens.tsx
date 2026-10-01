@@ -109,7 +109,7 @@ export function ApiTokens({
           <li>
             Paste this URL:
             <span className="mt-1 flex items-center gap-2">
-              <code className="min-w-0 flex-1 truncate rounded-sm bg-white px-2 py-1 font-mono text-xs ring-1 ring-compass-100">
+              <code className="min-w-0 flex-1 truncate rounded-sm bg-surface px-2 py-1 font-mono text-xs ring-1 ring-compass-100">
                 {mcpUrl}
               </code>
               <button
@@ -138,7 +138,7 @@ export function ApiTokens({
             Token &ldquo;{fresh.name}&rdquo; created — copy it now, it won&rsquo;t be shown again.
           </p>
           <div className="mt-2 flex items-center gap-2">
-            <code className="min-w-0 flex-1 truncate rounded-sm bg-white px-2 py-1 font-mono text-xs ring-1 ring-green-200">
+            <code className="min-w-0 flex-1 truncate rounded-sm bg-surface px-2 py-1 font-mono text-xs ring-1 ring-green-200">
               {fresh.token}
             </code>
             <button

@@ -247,7 +247,7 @@ export function AuditLog({
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-surface shadow-xs">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400">
+            <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-500">
               <th className="px-4 py-2.5 font-medium">When</th>
               <th className="px-4 py-2.5 font-medium">Who</th>
               <th className="px-4 py-2.5 font-medium">Action</th>
@@ -267,7 +267,7 @@ export function AuditLog({
                   <td className="px-4 py-2.5">
                     <span className="font-medium text-slate-800">{row.actor_name}</span>
                     {row.actor_role && (
-                      <span className="ml-1 text-xs text-slate-400">({row.actor_role})</span>
+                      <span className="ml-1 text-xs text-slate-500">({row.actor_role})</span>
                     )}
                   </td>
                   <td className="px-4 py-2.5">
@@ -276,15 +276,15 @@ export function AuditLog({
                     >
                       {actionLabel(row.action)}
                     </span>
-                    {detail && <div className="mt-1 text-xs text-slate-400">{detail}</div>}
+                    {detail && <div className="mt-1 text-xs text-slate-500">{detail}</div>}
                   </td>
                   <td className="px-4 py-2.5 text-slate-600">
                     {row.target_label || (row.target_id ? `#${row.target_id}` : "—")}
                     {row.target_type && (
-                      <span className="ml-1 text-xs text-slate-400">{row.target_type}</span>
+                      <span className="ml-1 text-xs text-slate-500">{row.target_type}</span>
                     )}
                   </td>
-                  <td className="whitespace-nowrap px-4 py-2.5 font-mono text-xs text-slate-400">
+                  <td className="whitespace-nowrap px-4 py-2.5 font-mono text-xs text-slate-500">
                     {row.ip || "—"}
                   </td>
                 </tr>
@@ -292,7 +292,7 @@ export function AuditLog({
             })}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-10 text-center text-sm text-slate-400">
+                <td colSpan={5} className="px-4 py-10 text-center text-sm text-slate-500">
                   No audit events yet.
                 </td>
               </tr>

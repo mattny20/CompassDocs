@@ -64,11 +64,11 @@ export default async function AuthorizePage({
               <p className="mt-2 text-sm text-slate-600">
                 It will act in CompassDocs as{" "}
                 <span className="font-semibold">{user!.name || user!.username}</span>{" "}
-                <span className="text-slate-400">({ROLE_LABEL[user!.role]})</span> — searching and
+                <span className="text-slate-500">({ROLE_LABEL[user!.role]})</span> — searching and
                 reading documents, and creating or editing them within your permissions and the
                 approval workflow.
               </p>
-              <p className="mt-2 text-xs text-slate-400">
+              <p className="mt-2 text-xs text-slate-500">
                 After approving you&rsquo;ll be sent back to <code>{redirectHost}</code>. Revoke
                 access anytime under your name → API tokens.
               </p>

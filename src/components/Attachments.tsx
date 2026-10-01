@@ -230,7 +230,7 @@ export function Attachments({
             >
               Cancel
             </button>
-            <span className="text-xs text-slate-400">
+            <span className="text-xs text-slate-500">
               iManage, NetDocuments &amp; SharePoint links get their own badge.
             </span>
           </div>
@@ -270,7 +270,7 @@ export function Attachments({
                   {badge.short}
                 </span>
               ) : (
-                <span className="grid h-8 w-8 shrink-0 place-items-center rounded-sm bg-slate-100 text-slate-400">
+                <span className="grid h-8 w-8 shrink-0 place-items-center rounded-sm bg-slate-100 text-slate-500">
                   <ExternalLink className="h-4 w-4" />
                 </span>
               )}
@@ -327,7 +327,7 @@ export function Attachments({
                 className="h-8 w-8 shrink-0 rounded-sm object-cover ring-1 ring-slate-200"
               />
             ) : (
-              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-sm bg-slate-100 text-slate-400">
+              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-sm bg-slate-100 text-slate-500">
                 <FileText className="h-4 w-4" />
               </span>
             )}

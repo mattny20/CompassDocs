@@ -135,7 +135,7 @@ function MappingRow({
           <button type="button" onClick={() => set({ kind: "first", of: [...value.of, { kind: "path", path: "" }] })} className="text-xs font-medium text-compass-600 hover:underline">
             + Add a fallback
           </button>
-          <p className="text-xs text-slate-400">The first one that yields a value wins.</p>
+          <p className="text-xs text-slate-500">The first one that yields a value wins.</p>
         </div>
       )}
       {value?.kind === "groups" && (
@@ -152,7 +152,7 @@ function MappingRow({
           <button type="button" onClick={() => set({ kind: "groups", groups: [...value.groups, { id: "", value: "" }] })} className="text-xs font-medium text-compass-600 hover:underline">
             + Add a group
           </button>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-slate-500">
             Each provider group a person belongs to contributes its value. Membership is read by the sync (nested groups included).
           </p>
         </div>
@@ -290,7 +290,7 @@ function MappingEditor({
                       className="rounded-full border border-slate-200 bg-surface px-2 py-0.5 font-mono text-2xs text-slate-600 hover:border-compass-300 hover:text-compass-700"
                       data-tt={pr.sample ? `e.g. ${pr.sample}` : undefined}
                     >
-                      {pr.path} <span className="text-slate-400">×{pr.count}</span>
+                      {pr.path} <span className="text-slate-500">×{pr.count}</span>
                     </button>
                   </li>
                 ))}
@@ -313,7 +313,7 @@ function MappingEditor({
                 <ul className="mt-2 space-y-0.5 text-xs text-slate-600">
                   {preview.samples.map((s) => (
                     <li key={s.name}>
-                      <span className="text-slate-400">{s.name}:</span> {s.values.join(", ")}
+                      <span className="text-slate-500">{s.name}:</span> {s.values.join(", ")}
                     </li>
                   ))}
                 </ul>
@@ -390,7 +390,7 @@ function OptionsEditor({ field, onSaved }: { field: DirectoryField; onSaved: (f:
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
-              <tr className="text-left uppercase tracking-wide text-slate-400">
+              <tr className="text-left uppercase tracking-wide text-slate-500">
                 <th className="px-1 py-1">Value</th>
                 <th className="px-1 py-1">Label</th>
                 <th className="px-1 py-1">Aliases</th>
@@ -465,7 +465,7 @@ function OptionsEditor({ field, onSaved }: { field: DirectoryField; onSaved: (f:
                 {seen.slice(0, 80).map((v) => {
                   const hit = matchOption({ options }, v.value).option;
                   return (
-                    <li key={v.value} className={`flex items-center gap-1 rounded-full border px-2 py-0.5 ${hit ? "border-slate-200 text-slate-400" : "border-amber-300 bg-amber-50 text-amber-800"}`}>
+                    <li key={v.value} className={`flex items-center gap-1 rounded-full border px-2 py-0.5 ${hit ? "border-slate-200 text-slate-500" : "border-amber-300 bg-amber-50 text-amber-800"}`}>
                       <span>{v.value}</span>
                       <span className="text-3xs opacity-70">×{v.count}</span>
                       {!hit && (
@@ -653,28 +653,28 @@ function FieldRow({
             onBlur={() => labelDraft.trim() && labelDraft !== f.label && patch(f, { label: labelDraft.trim() })}
             aria-label={`Label for ${f.key}`}
           />
-          <div className="mt-0.5 font-mono text-2xs text-slate-400">
+          <div className="mt-0.5 font-mono text-2xs text-slate-500">
             {f.key}
             {f.builtin ? <span className="ml-1 rounded-sm bg-slate-100 px-1 text-3xs uppercase text-slate-500">built-in</span> : null}
           </div>
         </td>
         <td className="px-3 py-2 text-slate-600">
           {KIND_LABEL[f.kind]}
-          {f.multi ? <span className="text-slate-400"> · many</span> : null}
+          {f.multi ? <span className="text-slate-500"> · many</span> : null}
         </td>
         {providers.map((p) => {
           const m = f.mappings[p];
           return (
             <td key={p} className="px-3 py-2">
               <button type="button" className={`${linkBtn} text-left`} onClick={() => setOpen(open?.panel === "mapping" && open.provider === p ? null : { id: f.id, panel: "mapping", provider: p })}>
-                {m ? <span className="font-mono text-2xs text-slate-600">{describeMapping(m)}</span> : <span className="text-slate-400">not mapped</span>}
+                {m ? <span className="font-mono text-2xs text-slate-600">{describeMapping(m)}</span> : <span className="text-slate-500">not mapped</span>}
               </button>
             </td>
           );
         })}
         <td className="px-3 py-2">
           {f.kind === "people" ? (
-            <span className="text-xs text-slate-400">—</span>
+            <span className="text-xs text-slate-500">—</span>
           ) : (
             <button type="button" className={linkBtn} onClick={() => setOpen(open?.panel === "options" ? null : { id: f.id, panel: "options" })}>
               {f.options.length ? `${f.options.length} option${f.options.length === 1 ? "" : "s"}` : "none"}
@@ -683,9 +683,9 @@ function FieldRow({
         </td>
         <td className="px-3 py-2 text-xs text-slate-600">
           {f.kind === "people" ? (f.inverse_label ? `inverse “${f.inverse_label}”` : "links") : DISPLAY_LABEL[f.display]}
-          {f.group_by ? <span className="text-slate-400"> · group by</span> : null}
-          {f.show_in_card ? <span className="text-slate-400"> · on cards</span> : null}
-          {f.show_with ? <span className="text-slate-400"> · with {f.show_with}</span> : null}
+          {f.group_by ? <span className="text-slate-500"> · group by</span> : null}
+          {f.show_in_card ? <span className="text-slate-500"> · on cards</span> : null}
+          {f.show_with ? <span className="text-slate-500"> · with {f.show_with}</span> : null}
         </td>
         <td className="px-3 py-2 text-right whitespace-nowrap">
           <button type="button" className={linkBtn} onClick={() => setOpen(open?.panel === "settings" ? null : { id: f.id, panel: "settings" })}>

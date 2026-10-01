@@ -82,7 +82,7 @@ export function VideoPlayer({
           <Maximize2 className="h-4 w-4" aria-hidden />
         </button>
       </div>
-      {title && <figcaption className="mt-1.5 text-center text-sm text-slate-400">{title}</figcaption>}
+      {title && <figcaption className="mt-1.5 text-center text-sm text-slate-500">{title}</figcaption>}
 
       {theater && (
         <div

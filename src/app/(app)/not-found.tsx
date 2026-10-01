@@ -18,7 +18,7 @@ export default function AppNotFound() {
       </p>
 
       <div className="rounded-xl border border-slate-200 bg-surface px-4 py-10 text-center shadow-xs">
-        <p className="mx-auto max-w-lg text-sm text-slate-400">
+        <p className="mx-auto max-w-lg text-sm text-slate-500">
           It may have been deleted, moved to Trash, or it&rsquo;s in a space you can&rsquo;t see.
           If a colleague sent you the link, ask them to check it still exists and that you have
           access to its space.

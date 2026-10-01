@@ -173,16 +173,16 @@ export function EntityPicker({
             >
               <span className="truncate font-medium text-slate-700">{o.label}</span>
               {o.sublabel && (
-                <span className="shrink-0 text-xs text-slate-400">{o.sublabel}</span>
+                <span className="shrink-0 text-xs text-slate-500">{o.sublabel}</span>
               )}
             </button>
           ))}
           {matches.length > maxVisible && (
-            <p className="px-3 py-1.5 text-xs text-slate-400">
+            <p className="px-3 py-1.5 text-xs text-slate-500">
               {matches.length - maxVisible} more — keep typing to narrow down.
             </p>
           )}
-          {visible.length === 0 && <p className="px-3 py-1.5 text-sm text-slate-400">{emptyText}</p>}
+          {visible.length === 0 && <p className="px-3 py-1.5 text-sm text-slate-500">{emptyText}</p>}
         </div>
       )}
     </div>
