@@ -328,8 +328,9 @@ function CardsView({
             <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">{s.name}</h2>
           )}
           {/* CSS-column masonry: cards pack top-to-bottom, so one sub-heavy
-              card can't open a row-height hole beside its neighbors. */}
-          <div className="columns-1 gap-4 sm:columns-2 lg:columns-3">
+              card can't open a row-height hole beside its neighbors. 18rem
+              columns, so the count follows the page width, not the viewport. */}
+          <div className="columns-2xs gap-4">
             {s.docs.map((d) => (
               <div key={d.id} className="mb-4 break-inside-avoid">
                 <DocCard doc={d} />

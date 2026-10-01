@@ -263,7 +263,7 @@ function MyTraining({ mine, teamLead = false }: { mine: MyItem[] | null; teamLea
   return (
     <div>
       {teamLink}
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <div className="card-grid gap-4 [--card-min:18rem]">
       {mine.map((it) => {
         const pct = it.completed_at
           ? 100

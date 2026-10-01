@@ -75,7 +75,7 @@ export default async function LinksPage() {
           <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
             {section.name}
           </h2>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="card-grid gap-3 [--card-min:16rem]">
             {section.links.map((l) => (
               <a
                 key={l.id}

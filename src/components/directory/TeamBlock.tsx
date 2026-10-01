@@ -92,7 +92,7 @@ export function TeamBlock({
           <p className="mb-1.5 mt-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
             <Users className="h-3.5 w-3.5" aria-hidden /> {labels.reports} <span className="font-normal text-slate-400">({reports.length})</span>
           </p>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="card-grid gap-2 [--card-min:14rem]">
             {shown.map((r) => (
               <PersonTile key={r.id} p={r} />
             ))}

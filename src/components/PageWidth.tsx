@@ -10,10 +10,14 @@ import { createContext, useContext, useState } from "react";
 
 export type Width = "normal" | "wide" | "full";
 
+// Normal and Wide are 56rem / 72rem, so they grow with the interface scale.
+// Full is bounded at 112rem (about 1,790px at a 16px root, 2,016px at 18px):
+// a wide, centred page rather than edge-to-edge on an ultrawide. Nothing
+// changes below roughly 2,100px of viewport, where the cap is never reached.
 const WIDTH_CLASS: Record<Width, string> = {
   normal: "max-w-4xl",
   wide: "max-w-6xl",
-  full: "max-w-none",
+  full: "max-w-[112rem]",
 };
 const OPTIONS: { value: Width; label: string }[] = [
   { value: "normal", label: "Normal" },

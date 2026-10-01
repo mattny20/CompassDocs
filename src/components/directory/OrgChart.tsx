@@ -207,7 +207,7 @@ export function OrgChart({
             Not in a reporting line <span className="text-xs font-normal text-slate-400">({shownAlone.length})</span>
           </button>
           {(aloneOpen || keep) && (
-            <ul className="grid grid-cols-1 gap-1.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            <ul className="card-grid gap-1.5 [--card-min:14rem]">
               {shownAlone.map((r) => (
                 <li key={r.person.id}>
                   <Link href={`/directory/${r.person.id}`} className="flex min-w-0 items-center gap-2 rounded-lg border border-slate-200 bg-surface px-2.5 py-1.5 hover:border-compass-300">

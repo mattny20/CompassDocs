@@ -37,6 +37,22 @@
    * not px, so they follow the root scale (STYLEGUIDE §Scaling). */
   --text-2xs: 0.6875rem;
   --text-3xs: 0.625rem;
+
+  /* The column for standalone pages (public site, share page), which have no
+   * width preference to read: 56rem on a laptop, growing with the screen to
+   * 76rem on an ultrawide instead of staying a 35% strip. */
+  --container-standalone: clamp(56rem, 52vw, 76rem);
+}
+
+/* A card grid sized by the column it is in, not the viewport (STYLEGUIDE
+ * §Scaling → Grids). Column counts come from the width the reader chose —
+ * Normal/Wide/Full and the sidebar state — which viewport breakpoints cannot
+ * see. auto-fill (not auto-fit) so three cards never stretch to 850px each;
+ * `min(100%, …)` keeps one column on a phone. Call sites set the minimum
+ * card width with `[--card-min:14rem]`. */
+@utility card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--card-min, 18rem)), 1fr));
 }
 
 /*
@@ -111,6 +127,30 @@
   --slate-950: 248 250 252;
   --compass-50: 23 34 58;
   --compass-100: 30 45 78;
+}
+
+/* --- Interface scale (STYLEGUIDE §Scaling) -------------------------------
+ * One rule grows the whole interface with the monitor: every width, spacing,
+ * icon and text size is in rem, so the root is the only knob. 16px up to a
+ * 1280px-wide viewport, 18px from 2400px, linear between (about 16.3px at
+ * 1440, 17.1px at 1920). Written in rem, not px, so the browser's own
+ * text-size setting and Ctrl +/- zoom still work (WCAG 1.4.4); the slope is
+ * shallow so zoom stays monotonic. Capped at 18px so a 4K monitor at 150%
+ * (which presents as 2560 CSS px) does not double-scale. Tailwind breakpoints
+ * are rem media queries that resolve against the browser default, so they do
+ * not move. --ui-scale is the per-user Interface scale preference. */
+:root {
+  --ui-scale: 1;
+}
+html {
+  font-size: calc(clamp(1rem, 0.8571rem + 0.1786vw, 1.125rem) * var(--ui-scale));
+}
+/* Paper has its own measure: certificates, the compliance matrix and
+ * Save-as-PDF come out identical whatever the screen or preference. */
+@media print {
+  html {
+    font-size: 1rem;
+  }
 }
 
 html,
@@ -273,15 +313,20 @@ mark {
  * `1ch` is the advance of "0" (8.69px here) but the average prose glyph is
  * 6.91px, so a ch value renders ~1.26x more characters than it names:
  *
- *   Normal  no cap    — the column is already narrow; text fills it
+ *   Normal  65ch      — ~82 characters
  *   Wide    75ch      — ~98 characters
  *   Full    90ch      — ~117 characters
+ *
+ * Normal had no cap while the right rail shared its 56rem column (text was
+ * ~45 characters wide and could not be narrowed further). Since 1.4.1 the rail
+ * stacks under the article at Normal (components/DocLayout), so the column is
+ * the full 56rem and needs a measure like the others.
  *
  * The default (no data-page-width ancestor) stays 60ch / ~78 characters: the
  * share page and the public document page have no width preference to read,
  * and legibility is the right default for an anonymous reader. */
 [data-page-width="normal"] {
-  --doc-measure: none;
+  --doc-measure: 65ch;
 }
 [data-page-width="wide"] {
   --doc-measure: 75ch;

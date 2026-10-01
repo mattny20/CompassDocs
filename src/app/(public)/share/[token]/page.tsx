@@ -48,7 +48,7 @@ export default async function SharedDocPage({ params }: { params: Promise<{ toke
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="border-b border-slate-200 bg-white print:hidden">
-        <div className="mx-auto flex max-w-4xl items-center justify-between gap-4 px-6 py-4">
+        <div className="mx-auto flex max-w-standalone items-center justify-between gap-4 px-6 py-4">
           <Brand name={settings.company_name} logoUrl={settings.logo_url || undefined} />
           <span className="text-xs font-medium uppercase tracking-wide text-slate-400">
             Shared document · read-only
@@ -56,7 +56,7 @@ export default async function SharedDocPage({ params }: { params: Promise<{ toke
         </div>
       </header>
 
-      <main className="mx-auto max-w-4xl px-6 py-10">
+      <main className="mx-auto max-w-standalone px-6 py-10">
         <div className="mb-4 flex items-start justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold tracking-tight text-slate-900">{doc.title}</h1>

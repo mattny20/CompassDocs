@@ -71,7 +71,9 @@ export function DocToc({ title }: { title?: string }) {
   return (
     <nav
       aria-label="Table of contents"
-      className="mb-5 rounded-xl border border-slate-200 bg-surface"
+      // Hugs the reading measure (inherited from the page-width container)
+      // instead of spanning a 2,000px column above an 800px text block.
+      className="mb-5 max-w-[var(--doc-measure,none)] rounded-xl border border-slate-200 bg-surface"
     >
       <button
         onClick={toggleOpen}
