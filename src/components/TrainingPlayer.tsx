@@ -5,6 +5,7 @@
 // confirmation is recorded server-side with the doc version.
 
 import { useCallback, useEffect, useState } from "react";
+import { Spinner } from "@/components/Spinner";
 import { buttonClass } from "@/components/Button";
 import { PageContainer } from "@/components/PageWidth";
 import { useRouter } from "next/navigation";
@@ -15,7 +16,6 @@ import {
   CircleCheck,
   GraduationCap,
   ListChecks,
-  LoaderCircle,
   ShieldCheck,
   X,
 } from "lucide-react";
@@ -281,7 +281,7 @@ export function TrainingPlayer({
                   disabled={quizBusy}
                   className={buttonClass("secondary", "md", "mt-2")}
                 >
-                  {quizBusy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ListChecks className="h-4 w-4" />}
+                  {quizBusy ? <Spinner /> : <ListChecks className="h-4 w-4" />}
                   {quizResult ? "Resubmit answers" : "Submit answers"}
                 </button>
               </div>
@@ -342,7 +342,7 @@ export function TrainingPlayer({
                 }
                 className={buttonClass("primary", "lg", "mt-5")}
               >
-                {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+                {busy ? <Spinner /> : <ShieldCheck className="h-4 w-4" />}
                 I confirm — mark complete
               </button>
             )}

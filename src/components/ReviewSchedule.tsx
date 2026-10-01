@@ -6,9 +6,10 @@
 // page owns the formatted dates; actions here just call the API and refresh.
 
 import { useState } from "react";
+import { Spinner } from "@/components/Spinner";
 import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
-import { CalendarClock, LoaderCircle } from "lucide-react";
+import { CalendarClock } from "lucide-react";
 
 const INTERVAL_LABEL: Record<number, string> = {
   30: "Every month",
@@ -96,7 +97,7 @@ export function ReviewSchedule({
             disabled={busy}
             className={buttonClass("secondary", "sm", "mt-1")}
           >
-            {busy && <LoaderCircle className="h-3 w-3 animate-spin" />}
+            {busy && <Spinner size="sm" />}
             Mark as reviewed
           </button>
           <p className="text-slate-500">Editing the document also resets the clock.</p>

@@ -4,10 +4,12 @@
 // Fetched on first expand; each node with children gets its own chevron.
 
 import { useEffect, useState } from "react";
+import { LoadingRow } from "@/components/Spinner";
+import { iconButtonClass } from "@/components/Button";
 import { chipClass } from "@/components/Chip";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChevronRight, LoaderCircle } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 
 interface TreeNode {
   id: number;
@@ -33,9 +35,9 @@ function TreeRow({ node, depth }: { node: TreeNode; depth: number }) {
             onClick={() => setOpen((o) => !o)}
             data-tt={open ? "Collapse" : "Expand"}
             aria-label={`${open ? "Collapse" : "Expand"} ${node.title}`}
-            className="rounded-sm p-0.5 text-slate-400 hover:text-slate-600"
+            className={iconButtonClass("quiet", "sm")}
           >
-            <ChevronRight className={`h-3 w-3 transition-transform ${open ? "rotate-90" : ""}`} />
+            <ChevronRight className={`transition-transform ${open ? "rotate-90" : ""}`} />
           </button>
         ) : (
           <span className="w-4 shrink-0" aria-hidden />
@@ -81,11 +83,7 @@ export function SidebarSpaceTree({ spaceId }: { spaceId: number }) {
 
   if (failed) return null;
   if (tree === null) {
-    return (
-      <p className="flex items-center gap-1.5 py-1 pl-6 text-xs text-slate-500">
-        <LoaderCircle className="h-3 w-3 animate-spin" /> Loading…
-      </p>
-    );
+    return <LoadingRow className="justify-start py-1 pl-6 text-xs" />;
   }
   if (tree.length === 0) {
     return <p className="py-1 pl-6 text-xs text-slate-500">No pages yet.</p>;

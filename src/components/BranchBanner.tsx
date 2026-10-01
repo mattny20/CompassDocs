@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { Spinner } from "@/components/Spinner";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { GitBranch, GitMerge, LoaderCircle, Trash2 } from "lucide-react";
+import { GitBranch, GitMerge, Trash2 } from "lucide-react";
 
 // Banner shown on a draft-branch document: link to the original, merge back
 // (with an optional change note), or discard the branch.
@@ -99,7 +100,7 @@ export function BranchBanner({
             className="inline-flex items-center gap-1.5 rounded-md bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-700 disabled:opacity-60"
           >
             {busy === "merge" ? (
-              <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+              <Spinner size="sm" />
             ) : (
               <GitMerge className="h-3.5 w-3.5" />
             )}
@@ -111,7 +112,7 @@ export function BranchBanner({
             className="inline-flex items-center gap-1.5 rounded-md border border-violet-300 px-3 py-1.5 text-xs font-medium text-violet-700 hover:bg-violet-100 disabled:opacity-60 dark:border-violet-700 dark:text-violet-300"
           >
             {busy === "discard" ? (
-              <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+              <Spinner size="sm" />
             ) : (
               <Trash2 className="h-3.5 w-3.5" />
             )}

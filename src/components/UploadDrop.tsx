@@ -6,6 +6,7 @@
 // from the clipboard — which is the case this whole feature exists for.
 
 import { useEffect, useRef, useState } from "react";
+import { Spinner } from "@/components/Spinner";
 import { buttonClass } from "@/components/Button";
 import { CheckCircle2, ImageUp, Loader2, TriangleAlert } from "lucide-react";
 
@@ -147,7 +148,7 @@ export function UploadDrop({
       >
         {busy ? (
           <>
-            <Loader2 className="mx-auto h-8 w-8 animate-spin text-compass-600" aria-hidden />
+            <Spinner size="lg" className="mx-auto text-compass-600" />
             <p className="mt-3 text-sm font-medium text-slate-600">Uploading…</p>
           </>
         ) : (

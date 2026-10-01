@@ -6,9 +6,11 @@
 // data: URL — no server-side image processing needed.
 
 import { useRef, useState } from "react";
+import { Spinner } from "@/components/Spinner";
 import { buttonClass } from "@/components/Button";
+import { toast } from "@/components/Toasts";
 import { useRouter } from "next/navigation";
-import { LoaderCircle, Upload, X } from "lucide-react";
+import { Upload, X } from "lucide-react";
 import { UserAvatar } from "./UserAvatar";
 
 const AVATAR_PX = 128;
@@ -59,14 +61,12 @@ export function ProfileForm({
   const [email, setEmail] = useState(initialEmail);
   const [avatar, setAvatar] = useState(initialAvatar);
   const [busy, setBusy] = useState(false);
-  const [saved, setSaved] = useState<null | "ok" | string>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const dirty = name !== initialName || email !== initialEmail;
 
   async function patch(body: object): Promise<boolean> {
     setBusy(true);
-    setSaved(null);
     const res = await fetch("/api/account/profile", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -77,24 +77,23 @@ export function ProfileForm({
       router.refresh();
       return true;
     }
-    setSaved((await res.json().catch(() => null))?.error || "Couldn't save.");
+    toast("error", (await res.json().catch(() => null))?.error || "Couldn't save.");
     return false;
   }
 
   async function saveIdentity(e: React.FormEvent) {
     e.preventDefault();
-    if (await patch({ name: name.trim(), email: email.trim() })) setSaved("ok");
+    if (await patch({ name: name.trim(), email: email.trim() })) toast("ok", "Profile saved.");
   }
 
   async function pickAvatar(files: FileList | null) {
     const file = files?.[0];
     if (!file) return;
-    setSaved(null);
     try {
       const dataUrl = await fileToAvatarDataUrl(file);
       if (await patch({ avatar: dataUrl })) setAvatar(dataUrl);
     } catch (err) {
-      setSaved(err instanceof Error ? err.message : "Couldn't process the image.");
+      toast("error", err instanceof Error ? err.message : "Couldn't process the image.");
     }
     if (fileInput.current) fileInput.current.value = "";
   }
@@ -194,12 +193,10 @@ export function ProfileForm({
               disabled={busy || !dirty || !name.trim()}
               className={buttonClass("primary")}
             >
-              {busy && <LoaderCircle className="h-3.5 w-3.5 animate-spin" />} Save changes
+              {busy && <Spinner size="sm" />} Save changes
             </button>
-            {saved === "ok" && <span className="text-sm text-emerald-600">Saved.</span>}
           </div>
         )}
-        {saved && saved !== "ok" && <p className="mt-3 text-sm text-red-600">{saved}</p>}
       </form>
     </div>
   );

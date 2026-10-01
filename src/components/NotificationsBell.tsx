@@ -12,6 +12,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Bell, CheckCheck } from "lucide-react";
 import { Popover } from "./Popover";
+import { LoadingRow } from "./Spinner";
 import { NotificationRow, type NotificationItem } from "./NotificationRow";
 
 export function NotificationsBell({ initialUnread }: { initialUnread: number }) {
@@ -133,7 +134,7 @@ export function NotificationsBell({ initialUnread }: { initialUnread: number }) 
         </div>
         <div className="max-h-96 overflow-y-auto">
           {items === null && (
-            <p className="px-3 py-6 text-center text-sm text-slate-500">Loading…</p>
+            <LoadingRow className="px-3 py-6" />
           )}
           {items !== null && items.length === 0 && (
             <p className="px-3 py-6 text-center text-sm text-slate-500">

@@ -9,6 +9,7 @@
 // people it synced, so neither removes the other's.
 
 import { useState } from "react";
+import { Spinner } from "@/components/Spinner";
 import { buttonClass } from "@/components/Button";
 import { CheckCircle2, Copy, Loader2, Plug, RefreshCw, Trash2, TriangleAlert } from "lucide-react";
 import { toast } from "@/components/Toasts";
@@ -255,7 +256,7 @@ export function GoogleDirectoryPanel({ initial }: { initial: GoogleState }) {
 
         <div className="mt-4 flex flex-wrap gap-2">
           <button type="button" className={primary} onClick={save} disabled={busy !== ""}>
-            {busy === "save" ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null} Save
+            {busy === "save" ? <Spinner /> : null} Save
           </button>
           <button
             type="button"
@@ -272,7 +273,7 @@ export function GoogleDirectoryPanel({ initial }: { initial: GoogleState }) {
             disabled={busy !== "" || !state.configured}
           >
             {busy === "sync" ? (
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              <Spinner />
             ) : (
               <RefreshCw className="h-4 w-4" aria-hidden />
             )}{" "}
@@ -285,7 +286,7 @@ export function GoogleDirectoryPanel({ initial }: { initial: GoogleState }) {
             disabled={busy !== "" || !state.configured}
             data-tt="Fetch from Workspace and show what a sync would add, change and remove — without writing anything"
           >
-            {busy === "preview" ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null} Preview
+            {busy === "preview" ? <Spinner /> : null} Preview
           </button>
           <button
             type="button"
@@ -332,7 +333,7 @@ export function GoogleDirectoryPanel({ initial }: { initial: GoogleState }) {
               className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-current/40 px-3 py-1.5 font-medium hover:bg-black/5 disabled:opacity-50 dark:hover:bg-white/10"
             >
               {busy === "sync" ? (
-                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                <Spinner />
               ) : (
                 <Trash2 className="h-4 w-4" aria-hidden />
               )}{" "}

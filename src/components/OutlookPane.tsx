@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { buttonClass } from "@/components/Button";
+import { LoadingRow } from "@/components/Spinner";
 import Script from "next/script";
 import ReactMarkdown from "react-markdown";
 import { Search, Sparkles, ExternalLink, CornerDownLeft, LogOut, Check } from "lucide-react";
@@ -213,7 +214,7 @@ export function OutlookPane() {
       <Script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js" strategy="afterInteractive" />
       {header}
 
-      {state === "loading" && <p className="p-4 text-sm text-slate-500">Loading…</p>}
+      {state === "loading" && <LoadingRow className="p-4" />}
 
       {state === "auth" && (
         <div className="p-4">

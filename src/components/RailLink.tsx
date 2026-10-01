@@ -9,6 +9,7 @@
 
 import Link from "next/link";
 import type { ComponentType, ReactNode } from "react";
+import { LinkPending } from "./PendingLink";
 
 /** The row box. `dense` is the settings/account rails' tighter row (py-1.5);
  *  the sidebar keeps py-2. `collapsed` centres the icon in the 4rem rail. */
@@ -54,6 +55,7 @@ export function RailLink({
       <Icon className={`h-4 w-4 ${railIconClass(active)}`} aria-hidden />
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {children}
+      <LinkPending />
     </Link>
   );
 }

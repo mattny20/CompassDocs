@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Spinner } from "@/components/Spinner";
 import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
@@ -8,7 +9,6 @@ import {
   Braces,
   EyeOff,
   LayoutTemplate,
-  LoaderCircle,
   Plus,
   RotateCcw,
   SquarePen,
@@ -379,7 +379,7 @@ function TemplateForm({
         >
           {busy ? (
             <span className="inline-flex items-center gap-1.5">
-              <LoaderCircle className="h-4 w-4 animate-spin" /> Saving…
+              <Spinner /> Saving…
             </span>
           ) : template ? (
             "Save changes"

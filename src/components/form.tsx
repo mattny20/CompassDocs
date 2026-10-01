@@ -104,13 +104,17 @@ export function Toggle({
         aria-checked={checked}
         disabled={disabled}
         onClick={() => onChange(!checked)}
-        className={`relative mt-0.5 h-5 w-9 shrink-0 rounded-full transition disabled:opacity-50 ${
-          checked ? "bg-compass-600" : "bg-slate-300"
+        // 44×24: a target that passes WCAG 2.5.8 and stays easy to hit on
+        // a 2560 panel. The off track keeps a visible edge (ring) so "off"
+        // is a state, not an absence; the knob's travel is in rem so it
+        // scales with the interface.
+        className={`relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition disabled:opacity-50 ${
+          checked ? "bg-compass-600" : "bg-slate-200 ring-1 ring-inset ring-slate-400/60"
         }`}
       >
         <span
-          className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-[left] ${
-            checked ? "left-4.5" : "left-0.5"
+          className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-[left] ${
+            checked ? "left-[1.375rem]" : "left-0.5"
           }`}
         />
       </button>

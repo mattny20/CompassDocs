@@ -78,7 +78,7 @@ export function TrashClient({
 
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-surface shadow-xs">
-      <Table scroll>
+      <Table scroll aria-busy={busyId !== null}>
         <thead className={TABLE_HEAD_ROW}>
           <tr>
             <Th>Document</Th>

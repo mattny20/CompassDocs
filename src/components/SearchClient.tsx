@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { Spinner } from "./Spinner";
 import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import Link from "next/link";
@@ -288,8 +289,3 @@ export function SearchClient({
   );
 }
 
-function Spinner() {
-  return (
-    <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-compass-300 border-t-compass-600" />
-  );
-}

@@ -6,7 +6,8 @@
 // video/site embeds) live in DocBlocksStatic.tsx so they stay server-rendered.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { LoaderCircle, RotateCcw, ArrowLeft, Search, ArrowUpDown } from "lucide-react";
+import { Spinner } from "@/components/Spinner";
+import { RotateCcw, ArrowLeft, Search, ArrowUpDown } from "lucide-react";
 import { parseDecisionTree } from "@/lib/doc-blocks";
 import { Lightbox } from "./Lightbox";
 
@@ -72,7 +73,7 @@ export function MermaidBlock({ code }: { code: string }) {
   if (!svg) {
     return (
       <div className="my-4 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
-        <LoaderCircle className="h-4 w-4 animate-spin" /> Rendering diagram…
+        <Spinner /> Rendering diagram…
       </div>
     );
   }
@@ -143,7 +144,7 @@ export function PlantUmlBlock({ code }: { code: string }) {
   if (!src) {
     return (
       <div className="my-4 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
-        <LoaderCircle className="h-4 w-4 animate-spin" /> Rendering diagram…
+        <Spinner /> Rendering diagram…
       </div>
     );
   }

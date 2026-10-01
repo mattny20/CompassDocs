@@ -5,6 +5,7 @@
 // and one-click reminders to stragglers. Enterprise (policy_ack).
 
 import { useCallback, useEffect, useState } from "react";
+import { LoadingRow, Spinner } from "@/components/Spinner";
 import { chipClass, EnterpriseBadge } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import Link from "next/link";
@@ -19,7 +20,6 @@ import {
   BellRing,
   ChevronDown,
   ChevronRight,
-  LoaderCircle,
   Check,
   CircleDashed,
   X,
@@ -143,9 +143,7 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
       )}
 
       {!data ? (
-        <div className="flex items-center gap-2 py-10 text-sm text-slate-500">
-          <LoaderCircle className="h-4 w-4 animate-spin" /> Loading…
-        </div>
+        <LoadingRow className="py-10" />
       ) : (
         <div className="space-y-5">
           {/* KPIs */}
@@ -209,7 +207,7 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
                 className={buttonClass("primary")}
               >
                 {busy?.startsWith("request") ? (
-                  <LoaderCircle className="h-4 w-4 animate-spin" />
+                  <Spinner />
                 ) : (
                   <Send className="h-4 w-4" />
                 )}
@@ -281,7 +279,7 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
                               className={buttonClass("secondary", "sm")}
                             >
                               {busy === `remind-${d.id}` ? (
-                                <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                                <Spinner size="sm" />
                               ) : (
                                 <BellRing className="h-3.5 w-3.5" />
                               )}
@@ -300,9 +298,7 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
                       {open === d.id && (
                         <div className="border-t border-slate-100 bg-slate-50/60 px-4 py-3">
                           {!detail[d.id] ? (
-                            <div className="flex items-center gap-2 text-sm text-slate-500">
-                              <LoaderCircle className="h-4 w-4 animate-spin" /> Loading…
-                            </div>
+                            <LoadingRow className="py-1" />
                           ) : (
                             <ul className="grid gap-x-6 gap-y-1 sm:grid-cols-2 lg:grid-cols-3">
                               {(detail[d.id] as any[]).map((r) => (

@@ -5,8 +5,8 @@
 // connector; afterwards only the prefix is visible.
 
 import { useState } from "react";
-import { Check } from "lucide-react";
 import { buttonClass } from "@/components/Button";
+import { CopyButton } from "@/components/CopyButton";
 import type { ApiToken } from "@/lib/db";
 import { useFormatDate } from "./SettingsProvider";
 
@@ -34,7 +34,6 @@ export function ApiTokens({
   const [fresh, setFresh] = useState<{ token: string; name: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [copied, setCopied] = useState("");
   const fmt = useFormatDate();
 
   async function create(e: React.FormEvent) {
@@ -61,14 +60,6 @@ export function ApiTokens({
     if (!confirm("Revoke this token? Anything using it stops working immediately.")) return;
     const res = await fetch(`/api/account/tokens/${id}`, { method: "DELETE" });
     if (res.ok) setTokens(tokens.filter((t) => t.id !== id));
-  }
-
-  async function copy(text: string, tag: string) {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(tag);
-      setTimeout(() => setCopied(""), 1600);
-    } catch {}
   }
 
   const origin = typeof window !== "undefined" ? window.location.origin : "https://your-compassdocs";
@@ -114,12 +105,7 @@ export function ApiTokens({
               <code className="min-w-0 flex-1 truncate rounded-sm bg-surface px-2 py-1 font-mono text-xs ring-1 ring-compass-100">
                 {mcpUrl}
               </code>
-              <button
-                onClick={() => copy(mcpUrl, "mcp")}
-                className={buttonClass("primary", "sm")}
-              >
-                {copied === "mcp" ? <><Check className="h-3.5 w-3.5" aria-hidden /> Copied</> : "Copy"}
-              </button>
+              <CopyButton text={mcpUrl} label="Copy" variant="primary" size="sm" />
             </span>
           </li>
           <li>
@@ -143,12 +129,7 @@ export function ApiTokens({
             <code className="min-w-0 flex-1 truncate rounded-sm bg-surface px-2 py-1 font-mono text-xs ring-1 ring-emerald-200">
               {fresh.token}
             </code>
-            <button
-              onClick={() => copy(fresh.token, "tok")}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-emerald-700"
-            >
-              {copied === "tok" ? <><Check className="h-3.5 w-3.5" aria-hidden /> Copied</> : "Copy"}
-            </button>
+            <CopyButton text={fresh.token} label="Copy" variant="primary" size="sm" />
           </div>
           <details className="mt-2">
             <summary className="cursor-pointer text-xs font-medium text-emerald-700">
@@ -158,12 +139,7 @@ export function ApiTokens({
               <pre className="overflow-x-auto rounded-sm bg-[#0f172a] p-2 text-2xs leading-4 text-[#e2e8f0]">
                 {claudeConfig}
               </pre>
-              <button
-                onClick={() => copy(claudeConfig, "cfg")}
-                className="mt-1 inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 px-2.5 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
-              >
-                {copied === "cfg" ? <><Check className="h-3.5 w-3.5" aria-hidden /> Copied</> : "Copy config"}
-              </button>
+              <CopyButton text={claudeConfig} label="Copy config" size="sm" className="mt-1" />
             </div>
           </details>
           <button

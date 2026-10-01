@@ -6,9 +6,10 @@
 // re-renders the layout's count).
 
 import { useState } from "react";
+import { Spinner } from "@/components/Spinner";
 import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
-import { BellOff, CheckCheck, LoaderCircle } from "lucide-react";
+import { BellOff, CheckCheck } from "lucide-react";
 import { EmptyState } from "./form";
 import { NotificationRow, type NotificationItem } from "./NotificationRow";
 
@@ -127,7 +128,7 @@ export function NotificationsInbox({
             disabled={busy !== null}
             className={buttonClass("secondary")}
           >
-            {busy === "older" && <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden />}
+            {busy === "older" && <Spinner />}
             Load older
           </button>
         </div>

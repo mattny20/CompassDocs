@@ -1,11 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { Check } from "lucide-react";
+import { Check, KeyRound } from "lucide-react";
 import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import { toast } from "@/components/Toasts";
-import { Field, TextInput, Select } from "@/components/form";
+import { DangerAction, DangerZone, Field, TextInput, Select } from "@/components/form";
 
 type AiKeySource = "settings" | "env" | "none";
 type AiProvider = "anthropic" | "openai";
@@ -194,16 +194,9 @@ export function AiSettings({ initial }: { initial: AiState }) {
               </p>
             )}
             {source === "settings" && hasKey && (
-              <div className="mb-3 flex items-center gap-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
-                <span>🔑 A key is saved.</span>
-                <button
-                  onClick={removeKey}
-                  disabled={saving}
-                  className="font-medium text-red-600 hover:underline disabled:opacity-60"
-                >
-                  Remove key
-                </button>
-              </div>
+              <p className="mb-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                <KeyRound className="mr-1 inline h-4 w-4 align-text-bottom" aria-hidden />A key is saved.
+              </p>
             )}
 
             <div className="max-w-md">
@@ -304,6 +297,24 @@ export function AiSettings({ initial }: { initial: AiState }) {
           {saving ? "Saving…" : "Save"}
         </button>
       </div>
+
+      {provider === "anthropic" && source === "settings" && hasKey && (
+        <DangerZone>
+          <DangerAction
+            label="Remove key"
+            description="Deletes the stored Anthropic API key; AI features turn off until a new key is saved or one is set in the environment."
+          >
+            <button
+              type="button"
+              onClick={removeKey}
+              disabled={saving}
+              className={buttonClass("danger")}
+            >
+              Remove key
+            </button>
+          </DangerAction>
+        </DangerZone>
+      )}
     </div>
   );
 }

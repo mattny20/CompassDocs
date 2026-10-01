@@ -4,6 +4,8 @@ import { useState } from "react";
 import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import { Table, Th, Td, TABLE_HEAD_ROW, TR } from "@/components/Table";
+import { busyClass } from "@/components/Spinner";
+import { toast } from "@/components/Toasts";
 import { useFormatDate } from "./SettingsProvider";
 
 interface AuditRow {
@@ -140,14 +142,18 @@ export function AuditLog({
     const params = filterParams(f, t, cat);
     params.set("page", String(nextPage));
     params.set("limit", String(limit));
-    const res = await fetch(`/api/admin/audit?${params}`);
-    if (res.ok) {
+    try {
+      const res = await fetch(`/api/admin/audit?${params}`);
+      if (!res.ok) throw new Error(String(res.status));
       const data = await res.json();
       setRows(data.rows);
       setTotal(data.total);
       setPage(data.page);
+    } catch {
+      toast("error", "Couldn't load the audit log.");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }
 
   function exportHref(format: "csv" | "json"): string {
@@ -239,7 +245,7 @@ export function AuditLog({
         </div>
       </div>
 
-      <div className="rounded-xl border border-slate-200 bg-surface shadow-xs">
+      <div className={`rounded-xl border border-slate-200 bg-surface shadow-xs ${busyClass(loading)}`} aria-busy={loading}>
         <Table sticky>
           <thead className={TABLE_HEAD_ROW}>
             <tr>

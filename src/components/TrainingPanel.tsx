@@ -6,6 +6,7 @@
 // programs feel like siblings.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { LoadingRow, Spinner } from "@/components/Spinner";
 import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import Link from "next/link";
@@ -23,7 +24,6 @@ import {
   Eye,
   GraduationCap,
   Layers,
-  LoaderCircle,
   Mail,
   Package,
   Pencil,
@@ -241,9 +241,7 @@ function MyTraining({ mine, teamLead = false }: { mine: MyItem[] | null; teamLea
     return (
       <div>
         {teamLink}
-        <div className="flex items-center gap-2 py-10 text-sm text-slate-500">
-          <LoaderCircle className="h-4 w-4 animate-spin" /> Loading…
-        </div>
+        <LoadingRow className="py-10" />
       </div>
     );
   }
@@ -391,9 +389,7 @@ function Overview({
 
   if (!data) {
     return (
-      <div className="flex items-center gap-2 py-10 text-sm text-slate-500">
-        <LoaderCircle className="h-4 w-4 animate-spin" /> Loading…
-      </div>
+      <LoadingRow className="py-10" />
     );
   }
   const o = data.overview;
@@ -587,7 +583,7 @@ function Evidence({ onError, onNotice }: { onError: (s: string) => void; onNotic
             disabled={busy}
             className={buttonClass("secondary")}
           >
-            {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
+            {busy ? <Spinner /> : <Camera className="h-4 w-4" />}
             Take snapshot now
           </button>
           <a
@@ -838,9 +834,7 @@ function MatrixView() {
 
   if (!data) {
     return (
-      <div className="flex items-center gap-2 py-10 text-sm text-slate-500">
-        <LoaderCircle className="h-4 w-4 animate-spin" /> Loading…
-      </div>
+      <LoadingRow className="py-10" />
     );
   }
   const needle = query.trim().toLowerCase();
@@ -1061,7 +1055,7 @@ function ManageDecks({
             disabled={!candidate || busy}
             className={buttonClass("primary")}
           >
-            {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+            {busy ? <Spinner /> : <Plus className="h-4 w-4" />}
             Create deck
           </button>
         </div>
@@ -1080,9 +1074,7 @@ function ManageDecks({
 
       {/* Deck table */}
       {!decks ? (
-        <div className="flex items-center gap-2 py-10 text-sm text-slate-500">
-          <LoaderCircle className="h-4 w-4 animate-spin" /> Loading…
-        </div>
+        <LoadingRow className="py-10" />
       ) : decks.length === 0 ? (
         <EmptyState
           icon={<Layers />}
@@ -1300,7 +1292,7 @@ function Programs({
               disabled={busy || !name.trim() || !deckIds.length}
               className={buttonClass("primary")}
             >
-              {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+              {busy ? <Spinner /> : <Plus className="h-4 w-4" />}
               Create program
             </button>
             <button onClick={() => setCreating(false)} className="rounded-lg px-3 py-1.5 text-sm font-medium text-slate-500 hover:bg-slate-50">
@@ -1500,7 +1492,7 @@ function ProgramRow({
               disabled={busy || (!userIds.length && !groupIds.length)}
               className={buttonClass("primary")}
             >
-              {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              {busy ? <Spinner /> : <Send className="h-4 w-4" />}
               Assign program
             </button>
             <button
@@ -1800,7 +1792,7 @@ function DeckCard({
           disabled={busy || (!userIds.length && !groupIds.length)}
           className={buttonClass("primary")}
         >
-          {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+          {busy ? <Spinner /> : <Send className="h-4 w-4" />}
           Assign
         </button>
         <button
@@ -1958,9 +1950,7 @@ function PeopleTable({
 
       <div className="mt-2 overflow-x-auto rounded-lg border border-slate-100">
         {!people ? (
-          <p className="flex items-center gap-2 px-3 py-3 text-sm text-slate-500">
-            <LoaderCircle className="h-4 w-4 animate-spin" /> Loading…
-          </p>
+          <LoadingRow className="px-3 py-3" />
         ) : visible.length === 0 ? (
           <SectionEmpty className="px-3 py-3">
             {people.length === 0 ? "Nobody assigned yet." : "Nobody matches."}
