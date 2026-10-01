@@ -7,6 +7,7 @@ export const dynamic = "force-dynamic";
 
 const WIDTHS = ["normal", "wide", "full"] as const;
 const THEMES = ["light", "dark", "system"] as const;
+const SCALES = ["compact", "default", "large", "larger"] as const;
 const DATE_FORMATS = ["auto", "medium", "long", "iso", "us", "eu"] as const;
 
 function validTimezone(tz: string): boolean {
@@ -19,7 +20,7 @@ function validTimezone(tz: string): boolean {
   }
 }
 
-// Personal UI preferences: page width, theme, time zone, date format.
+// Personal UI preferences: page width, interface scale, theme, time zone, date format.
 export async function PATCH(req: Request) {
   const gate = await apiGuard("viewer", "account.preferences_manage");
   if (gate instanceof NextResponse) return gate;
@@ -36,6 +37,12 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: "page_width must be normal, wide, or full." }, { status: 400 });
     }
     await setPageWidth(user.id, body.page_width);
+  }
+  if (body?.ui_scale !== undefined) {
+    if (!SCALES.includes(body.ui_scale)) {
+      return NextResponse.json({ error: "ui_scale must be compact, default, large, or larger." }, { status: 400 });
+    }
+    await setUserPrefs(user.id, { ui_scale: body.ui_scale });
   }
   if (body?.theme !== undefined) {
     if (!THEMES.includes(body.theme)) {

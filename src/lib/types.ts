@@ -47,6 +47,8 @@ export interface User {
   notify_webhook_url: string;
   /** App-wide page width preference: normal | wide | full. */
   page_width: string;
+  /** Interface scale: compact | default | large | larger. */
+  ui_scale: string;
   /** Newsletter capability: none | contributor | approver. */
   newsletter_role: string;
   /** Color theme preference: light | dark | system. */
@@ -73,6 +75,8 @@ export interface SessionUser {
   must_change_password: boolean;
   /** App-wide page width preference: normal | wide | full. */
   page_width: "normal" | "wide" | "full";
+  /** Interface scale, a multiplier on the fluid root size. */
+  ui_scale: "compact" | "default" | "large" | "larger";
   /** Newsletter capability: none | contributor | approver (admins: full). */
   newsletter_role: "none" | "contributor" | "approver";
   /** Color theme preference: light | dark | system. */

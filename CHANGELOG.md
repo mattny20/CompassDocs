@@ -4,6 +4,16 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.4.2] - 2026-10-01
+
+### Added
+- **Interface scale** under Account › Preferences: Compact (90%), Default,
+  Large (110%) or Larger (120%). A multiplier on the fluid root, so the
+  sidebar, rails, icons, chips, tooltips and reading measures all follow the
+  same factor — which browser zoom alone cannot do without breaking
+  overlays. Saved to the account and applied before first paint, so a
+  Large page never flashes at the default size. Print output is unchanged.
+
 ## [1.4.1] - 2026-10-01
 
 The interface scales with the monitor.

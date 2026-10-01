@@ -17,6 +17,8 @@ const THEME_INIT = `
   var p = localStorage.getItem('compass-theme') || 'system';
   var dark = p === 'dark' || (p !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
   document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  var s = localStorage.getItem('compass-ui-scale');
+  if (s && s !== 'default') document.documentElement.setAttribute('data-ui-scale', s);
 }catch(e){}})();
 `;
 
@@ -37,6 +39,8 @@ export default function GlobalError({
         pref === "dark" ||
         (pref !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
       document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+      const s = localStorage.getItem("compass-ui-scale");
+      if (s && s !== "default") document.documentElement.setAttribute("data-ui-scale", s);
     } catch {
       /* storage blocked — the light default stands */
     }

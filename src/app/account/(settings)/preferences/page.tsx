@@ -17,6 +17,7 @@ export default async function PreferencesPage() {
       <PreferencesPanel
         initialTheme={user.theme}
         initialWidth={user.page_width}
+        initialScale={user.ui_scale}
         initialTimezone={user.timezone}
         initialDateFormat={user.date_format}
         workspaceTimezone={settings.timezone}

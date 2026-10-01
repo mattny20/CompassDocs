@@ -11,6 +11,7 @@ import { SettingsProvider } from "@/components/SettingsProvider";
 import { getAppSettings } from "@/lib/settings-store";
 import { settingsForUser } from "@/lib/format";
 import { ToastHost } from "@/components/Toasts";
+import { UiScaleSync } from "@/components/UiScale";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +29,7 @@ export default async function AccountLayout({ children }: { children: React.Reac
   return (
     <SettingsProvider value={settings}>
     <WidthProvider initial={user.page_width}>
+    <UiScaleSync accountPref={user.ui_scale} />
     <div className="min-h-screen bg-linear-to-br from-slate-100 to-compass-50 py-8">
       <PageContainer className="py-0">
         <Link
