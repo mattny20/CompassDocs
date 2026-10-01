@@ -55,6 +55,49 @@ describe("style drift guard", () => {
     assert.deepEqual(hits, [], `text in slate-400 — use slate-500 or darker:\n${hits.join("\n")}`);
   });
 
+  test("primary-button recipes live in components/Button only (§Buttons)", () => {
+    // A class string that paints the accent and its hover is a button being
+    // written by hand; buttonClass()/<Button> is the recipe.
+    const hits = offenders(
+      /bg-compass-600[^"'`\n]*hover:bg-compass-700|hover:bg-compass-700[^"'`\n]*bg-compass-600/,
+      (file) => !file.endsWith("components/Button.tsx")
+    );
+    assert.deepEqual(hits, [], `hand-written primary button — use buttonClass()/<Button>:\n${hits.join("\n")}`);
+  });
+
+  test("page titles come from PageHeader (§Page skeleton heading ladder)", () => {
+    const ALLOW = [
+      "components/PageHeader.tsx",
+      // Document titles (text-3xl): the document is the thing itself.
+      "app/(app)/doc/[id]/page.tsx",
+      "app/(public)/share/[token]/page.tsx",
+      "app/(public)/public/[space]/[doc]/page.tsx",
+      "components/NewsletterWorkspace.tsx", // the newsletter's subject in preview
+      // Mastheads whose 48px icon tile or photo replaces the 24px lucide icon.
+      "app/(app)/directory/[id]/page.tsx",
+      "app/(app)/spaces/[slug]/page.tsx",
+      // Documented exceptions and standalone surfaces outside the shell.
+      "components/DashboardGreeting.tsx",
+      "components/DocEditor.tsx",
+      "components/TrainingPlayer.tsx",
+      "components/UploadDrop.tsx",
+      "app/(public)/public/page.tsx",
+      "app/(public)/public/[space]/page.tsx",
+      "app/(public)/public/search/page.tsx",
+      "app/(public)/upload/[token]/page.tsx",
+      "app/oauth/authorize/page.tsx",
+      "app/account/password/page.tsx",
+      "app/setup/page.tsx",
+      "app/not-found.tsx",
+      "app/(app)/not-found.tsx",
+      "app/(app)/error.tsx",
+      "app/global-error.tsx",
+    ];
+    // .tsx only: email HTML templates in lib/ carry their own <h1>.
+    const hits = offenders(/<h1\b/, (file) => file.endsWith(".tsx") && !ALLOW.some((a) => file.endsWith(a)));
+    assert.deepEqual(hits, [], `hand-written page title — use <PageHeader>:\n${hits.join("\n")}`);
+  });
+
   test("bg-white only where white is literal (brand tiles, QR, media stages, email previews)", () => {
     const ALLOW = [
       "components/Brand.tsx",

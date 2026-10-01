@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import { Search, Trash2 } from "lucide-react";
 import { TypeBadge } from "./Badges";
@@ -110,7 +111,7 @@ export function TrashClient({
                   <button
                     onClick={() => restore(d)}
                     disabled={busyId === d.id}
-                    className="rounded-md border border-slate-200 px-2 py-1 font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                    className={buttonClass("secondary", "sm")}
                   >
                     Restore
                   </button>
@@ -118,7 +119,7 @@ export function TrashClient({
                     <button
                       onClick={() => purge(d)}
                       disabled={busyId === d.id}
-                      className="rounded-md border border-red-200 px-2 py-1 font-medium text-red-600 hover-danger disabled:opacity-50"
+                      className={buttonClass("danger", "sm")}
                     >
                       Delete forever
                     </button>

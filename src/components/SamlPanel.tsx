@@ -5,6 +5,7 @@
 // client secret). Shares the "sso" license entitlement with OIDC.
 
 import { useState } from "react";
+import { buttonClass } from "@/components/Button";
 import type { Role } from "@/lib/types";
 import { Field, Select, TextInput, Textarea, Toggle } from "@/components/form";
 import { toast } from "@/components/Toasts";
@@ -208,7 +209,7 @@ export function SamlPanel({ initial }: { initial: SamlState }) {
         <button
           onClick={saveAll}
           disabled={saving}
-          className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-compass-700 disabled:opacity-60"
+          className={buttonClass("primary")}
         >
           {saving ? "Saving…" : "Save"}
         </button>

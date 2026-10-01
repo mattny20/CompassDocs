@@ -5,6 +5,7 @@
 // plus optional caption and poster. Replaces the old window.prompt().
 
 import { useEffect, useRef, useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { Film, UploadCloud, X } from "lucide-react";
 import { videoEmbedUrl } from "@/lib/doc-blocks";
 
@@ -150,7 +151,7 @@ export function VideoInsertDialog({
               type="button"
               onClick={() => fileInput.current?.click()}
               disabled={uploading}
-              className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+              className={buttonClass("secondary")}
             >
               <UploadCloud className="h-4 w-4" aria-hidden />
               {uploading ? "Uploading…" : "Upload a video file instead"}
@@ -193,7 +194,7 @@ export function VideoInsertDialog({
           <button
             type="submit"
             disabled={!src.trim() || uploading}
-            className="rounded-lg bg-compass-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-50"
+            className={buttonClass("primary")}
           >
             Insert
           </button>

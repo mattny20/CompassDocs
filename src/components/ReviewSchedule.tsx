@@ -6,6 +6,7 @@
 // page owns the formatted dates; actions here just call the API and refresh.
 
 import { useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import { CalendarClock, LoaderCircle } from "lucide-react";
 
@@ -93,7 +94,7 @@ export function ReviewSchedule({
           <button
             onClick={() => call({ method: "POST" })}
             disabled={busy}
-            className="mt-1 inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+            className={buttonClass("secondary", "sm", "mt-1")}
           >
             {busy && <LoaderCircle className="h-3 w-3 animate-spin" />}
             Mark as reviewed

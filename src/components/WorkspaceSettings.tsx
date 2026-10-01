@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import { Brand } from "./Brand";
 import {
@@ -161,7 +162,7 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
                 type="button"
                 onClick={fetchSiteIcon}
                 disabled={logoBusy || !siteUrl.trim()}
-                className="shrink-0 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                className={buttonClass("secondary")}
               >
                 {logoBusy ? "Working…" : "Fetch icon"}
               </button>
@@ -435,7 +436,7 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
         </p>
         <a
           href="/api/addin/manifest"
-          className="inline-block rounded-lg border border-slate-200 bg-surface px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          className={buttonClass("secondary", "md", "inline-block")}
         >
           Download Outlook manifest
         </a>
@@ -481,7 +482,7 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
         <button
           onClick={save}
           disabled={saving}
-          className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-compass-700 disabled:opacity-60"
+          className={buttonClass("primary")}
         >
           {saving ? "Saving…" : "Save changes"}
         </button>

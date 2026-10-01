@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { Copy, KeyRound, LoaderCircle, RefreshCw } from "lucide-react";
 import { timeAgo } from "@/lib/ui";
 import { Toggle } from "@/components/form";
@@ -100,7 +101,7 @@ export function ScimPanel({ initial }: { initial: ScimStatus }) {
               </code>
               <button
                 onClick={() => copy(status.base_url, "url")}
-                className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                className={buttonClass("secondary", "sm")}
               >
                 <Copy className="h-3.5 w-3.5" /> {copied === "url" ? "Copied" : "Copy"}
               </button>
@@ -139,7 +140,7 @@ export function ScimPanel({ initial }: { initial: ScimStatus }) {
                   void call("POST");
                 }}
                 disabled={busy}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-compass-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60"
+                className={buttonClass("primary")}
               >
                 {busy ? (
                   <LoaderCircle className="h-4 w-4 animate-spin" />

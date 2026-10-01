@@ -6,6 +6,7 @@
 // programs feel like siblings.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { buttonClass } from "@/components/Button";
 import Link from "next/link";
 import {
   Archive,
@@ -39,6 +40,7 @@ import {
 } from "lucide-react";
 import { EntityPicker, type PickerOption } from "@/components/EntityPicker";
 import { EmptyState, SectionEmpty } from "@/components/form";
+import { PageHeader } from "@/components/PageHeader";
 import { toast } from "@/components/Toasts";
 import { useFormatDate } from "@/components/SettingsProvider";
 
@@ -148,17 +150,13 @@ export function TrainingPanel({
   }, [licensed, load]);
 
   const Header = ({ extra }: { extra?: React.ReactNode }) => (
-    <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-      <div>
-        <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900">
-          <GraduationCap className="h-6 w-6 text-compass-600" /> Training
-        </h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Assigned decks to work through, with a confirmation recorded at the end.
-        </p>
-      </div>
-      {extra}
-    </div>
+    <PageHeader
+      icon={<GraduationCap />}
+      title="Training"
+      subtitle="Assigned decks to work through, with a confirmation recorded at the end."
+      actions={extra}
+      className="mb-5"
+    />
   );
 
   if (!licensed) {
@@ -297,11 +295,7 @@ function MyTraining({ mine, teamLead = false }: { mine: MyItem[] | null; teamLea
             <div className="mt-3 flex items-center gap-2">
               <Link
                 href={`/training/take/${it.assignment_id}`}
-                className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold ${
-                  it.completed_at
-                    ? "border border-slate-200 text-slate-600 hover:bg-slate-50"
-                    : "bg-compass-600 text-white hover:bg-compass-700"
-                }`}
+                className={buttonClass(it.completed_at ? "secondary" : "primary", "md", "flex-1")}
               >
                 <Play className="h-4 w-4" />
                 {it.completed_at ? "Review" : it.last_slide > 0 ? "Continue" : "Start"}
@@ -441,7 +435,7 @@ function Overview({
           </h2>
           <a
             href="/api/training/overview?format=csv"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+            className={buttonClass("secondary")}
           >
             <Download className="h-4 w-4" /> All records (CSV)
           </a>
@@ -469,7 +463,7 @@ function Overview({
                     onClick={() => void act(r, { remind_assignment_ids: [r.assignment_id] }, undefined, "Reminder sent.")}
                     disabled={busyId === r.assignment_id}
                     data-tt="Remind now"
-                    className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                    className={buttonClass("secondary", "sm")}
                   >
                     <BellRing className="h-3 w-3" /> Remind
                   </button>
@@ -479,7 +473,7 @@ function Overview({
                     }
                     disabled={busyId === r.assignment_id}
                     data-tt="Extend due date by 7 days"
-                    className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                    className={buttonClass("secondary", "sm")}
                   >
                     <Timer className="h-3 w-3" /> +7d
                   </button>
@@ -494,7 +488,7 @@ function Overview({
                     }
                     disabled={busyId === r.assignment_id}
                     data-tt="Hide from this queue for 7 days"
-                    className="rounded-md border border-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                    className={buttonClass("secondary", "sm")}
                   >
                     Snooze
                   </button>
@@ -590,14 +584,14 @@ function Evidence({ onError, onNotice }: { onError: (s: string) => void; onNotic
           <button
             onClick={() => void take()}
             disabled={busy}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+            className={buttonClass("secondary")}
           >
             {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
             Take snapshot now
           </button>
           <a
             href="/api/training/audit-package"
-            className="inline-flex items-center gap-1.5 rounded-lg bg-compass-600 px-3 py-1.5 font-semibold text-white hover:bg-compass-700"
+            className={buttonClass("primary")}
           >
             <Package className="h-4 w-4" /> Audit package (ZIP)
           </a>
@@ -873,7 +867,7 @@ function MatrixView() {
         </div>
         <a
           href="/api/training/matrix?format=csv"
-          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 print:hidden"
+          className={buttonClass("secondary", "md", "print:hidden")}
         >
           <Download className="h-4 w-4" /> CSV
         </a>
@@ -1064,7 +1058,7 @@ function ManageDecks({
           <button
             onClick={() => void createDeck()}
             disabled={!candidate || busy}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-compass-600 px-3.5 py-1.5 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60"
+            className={buttonClass("primary")}
           >
             {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
             Create deck
@@ -1272,7 +1266,7 @@ function Programs({
         {!creating && (
           <button
             onClick={() => setCreating(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+            className={buttonClass("secondary")}
           >
             <Plus className="h-4 w-4" /> New program
           </button>
@@ -1303,7 +1297,7 @@ function Programs({
             <button
               onClick={() => void create()}
               disabled={busy || !name.trim() || !deckIds.length}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-compass-600 px-3.5 py-1.5 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60"
+              className={buttonClass("primary")}
             >
               {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
               Create program
@@ -1415,7 +1409,7 @@ function ProgramRow({
           <button
             onClick={() => setAssigning((a) => !a)}
             disabled={busy}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-compass-600 px-3 py-1.5 font-semibold text-white hover:bg-compass-700"
+            className={buttonClass("primary")}
           >
             <Send className="h-3.5 w-3.5" /> Assign
           </button>
@@ -1427,7 +1421,7 @@ function ProgramRow({
             }}
             disabled={busy}
             data-tt="Edit program"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 font-medium text-slate-600 hover:bg-slate-50"
+            className={buttonClass("secondary")}
           >
             <Pencil className="h-3.5 w-3.5" /> Edit
           </button>
@@ -1442,7 +1436,7 @@ function ProgramRow({
               )
             }
             disabled={busy}
-            className="rounded-lg border border-slate-200 px-3 py-1.5 font-medium text-slate-600 hover:bg-slate-50"
+            className={buttonClass("secondary")}
           >
             {program.assign_new_members === 0 ? "Auto-assign on" : "Auto-assign off"}
           </button>
@@ -1451,7 +1445,7 @@ function ProgramRow({
               void call("PATCH", { active: program.active === 0 }, program.active === 0 ? "Program activated." : "Program deactivated.")
             }
             disabled={busy}
-            className="rounded-lg border border-slate-200 px-3 py-1.5 font-medium text-slate-600 hover:bg-slate-50"
+            className={buttonClass("secondary")}
           >
             {program.active === 0 ? "Activate" : "Deactivate"}
           </button>
@@ -1486,7 +1480,7 @@ function ProgramRow({
           <button
             onClick={() => void call("PATCH", { name: editName, deck_ids: editDeckIds }, "Program updated.")}
             disabled={busy || !editName.trim() || !editDeckIds.length}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-compass-600 px-3.5 py-1.5 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60"
+            className={buttonClass("primary")}
           >
             Save changes
           </button>
@@ -1503,7 +1497,7 @@ function ProgramRow({
             <button
               onClick={() => void call("POST", { user_ids: userIds, group_ids: groupIds })}
               disabled={busy || (!userIds.length && !groupIds.length)}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-compass-600 px-3.5 py-1.5 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60"
+              className={buttonClass("primary")}
             >
               {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
               Assign program
@@ -1514,7 +1508,7 @@ function ProgramRow({
                   void call("POST", { everyone: true });
               }}
               disabled={busy}
-              className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+              className={buttonClass("secondary")}
             >
               Assign to everyone
             </button>
@@ -1609,20 +1603,20 @@ function DeckCard({
         <div className="flex items-center gap-2 text-sm">
           <a
             href={`/training/preview/${deck.id}`}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 font-medium text-slate-600 hover:bg-slate-50"
+            className={buttonClass("secondary")}
           >
             <Eye className="h-4 w-4" /> Preview
           </a>
           <a
             href={`/api/training/decks/${deck.id}?format=csv`}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 font-medium text-slate-600 hover:bg-slate-50"
+            className={buttonClass("secondary")}
           >
             <Download className="h-4 w-4" /> CSV
           </a>
           <button
             onClick={() => void patch({ active: deck.active === 0 }, deck.active === 0 ? "Deck activated." : "Deck deactivated.")}
             disabled={busy}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 font-medium text-slate-600 hover:bg-slate-50"
+            className={buttonClass("secondary")}
           >
             <Settings2 className="h-4 w-4" /> {deck.active === 0 ? "Activate" : "Deactivate"}
           </button>
@@ -1637,7 +1631,7 @@ function DeckCard({
             }}
             disabled={busy}
             title="Archive deck"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 font-medium text-slate-600 hover:bg-slate-50"
+            className={buttonClass("secondary")}
           >
             <Archive className="h-4 w-4" /> Archive
           </button>
@@ -1754,7 +1748,7 @@ function DeckCard({
               void post({ reopen_completed: true }, "Reopened for {n} people — prior completions kept in history.");
           }}
           disabled={busy}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1 text-sm font-medium text-slate-600 hover:bg-slate-50"
+          className={buttonClass("secondary")}
         >
           <RotateCcw className="h-3.5 w-3.5" /> Reopen completed
         </button>
@@ -1803,7 +1797,7 @@ function DeckCard({
         <button
           onClick={() => void post({ user_ids: userIds, group_ids: groupIds }, "Assigned to {n} people.")}
           disabled={busy || (!userIds.length && !groupIds.length)}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-compass-600 px-3.5 py-1.5 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60"
+          className={buttonClass("primary")}
         >
           {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
           Assign
@@ -1813,7 +1807,7 @@ function DeckCard({
             if (confirm(`Assign "${deck.title}" to every active member?`)) void post({ everyone: true }, "Assigned to {n} people.");
           }}
           disabled={busy}
-          className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+          className={buttonClass("secondary")}
         >
           Assign to everyone
         </button>
@@ -1827,7 +1821,7 @@ function DeckCard({
               void post({ everyone: true, waive: true }, "Waived for {n} people — recorded as waived, not completed.");
           }}
           disabled={busy}
-          className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+          className={buttonClass("secondary")}
         >
           Waive for everyone
         </button>
@@ -1923,7 +1917,7 @@ function PeopleTable({
           <button
             onClick={() => void bulk({ remind_assignment_ids: openSelected }, "Reminded {n} people.")}
             disabled={busy}
-            className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-surface px-2 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+            className={buttonClass("secondary", "sm")}
           >
             <BellRing className="h-3 w-3" /> Remind
           </button>
@@ -1934,7 +1928,7 @@ function PeopleTable({
                 void bulk({ extend_assignment_ids: openSelected, extend_days: days }, `Extended {n} due dates.`);
             }}
             disabled={busy}
-            className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-surface px-2 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+            className={buttonClass("secondary", "sm")}
           >
             <Timer className="h-3 w-3" /> Extend due
           </button>
@@ -1944,7 +1938,7 @@ function PeopleTable({
                 void bulk({ waive_assignment_ids: openSelected }, "Waived {n} people.");
             }}
             disabled={busy}
-            className="rounded-md border border-slate-200 bg-surface px-2 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+            className={buttonClass("secondary", "sm")}
           >
             Waive
           </button>
@@ -2035,7 +2029,7 @@ function PeopleTable({
                           onClick={() => void post({ remind_assignment_ids: [p.assignment_id] }, "Reminder sent.")}
                           disabled={busy}
                           data-tt="Send a reminder now"
-                          className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                          className={buttonClass("secondary", "sm")}
                         >
                           <BellRing className="h-3 w-3" /> Remind
                         </button>
@@ -2045,7 +2039,7 @@ function PeopleTable({
                             <a
                               href={`/training/certificate/${p.assignment_id}`}
                               data-tt="Certificate"
-                              className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                              className={buttonClass("secondary", "sm")}
                             >
                               <Award className="h-3 w-3" /> Certificate
                             </a>
@@ -2057,7 +2051,7 @@ function PeopleTable({
                             }}
                             disabled={busy}
                             title="Reopen for this person"
-                            className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                            className={buttonClass("secondary", "sm")}
                           >
                             <RotateCcw className="h-3 w-3" /> Reopen
                           </button>

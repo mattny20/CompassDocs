@@ -6,6 +6,7 @@
 // user gets an honest sentence plus a way to try again.
 
 import { useEffect } from "react";
+import { buttonClass } from "@/components/Button";
 import Link from "next/link";
 import { House, RotateCcw, TriangleAlert } from "lucide-react";
 import { PageContainer } from "@/components/PageWidth";
@@ -46,13 +47,13 @@ export default function AppError({
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <button
             onClick={reset}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-compass-700"
+            className={buttonClass("primary")}
           >
             <RotateCcw className="h-4 w-4" /> Try again
           </button>
           <Link
             href="/"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-surface px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+            className={buttonClass("secondary")}
           >
             <House className="h-4 w-4" /> Back to dashboard
           </Link>

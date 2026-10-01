@@ -6,6 +6,7 @@
 // row per notice, so document workflow state stops competing with the content.
 
 import { useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -159,7 +160,7 @@ export function DocNotices({
                 }
               }}
               disabled={reviewBusy}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+              className={buttonClass("secondary")}
             >
               {reviewBusy && <LoaderCircle className="h-3.5 w-3.5 animate-spin" />}
               Mark as reviewed

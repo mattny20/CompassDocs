@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import { toast } from "@/components/Toasts";
 import { Field, TextInput } from "@/components/form";
@@ -276,14 +277,14 @@ function Actions({
       <button
         onClick={onSave}
         disabled={!!saving}
-        className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-compass-700 disabled:opacity-60"
+        className={buttonClass("primary")}
       >
         {saving === "save" ? "Saving…" : "Save"}
       </button>
       <button
         onClick={onTest}
         disabled={!!saving}
-        className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+        className={buttonClass("secondary")}
       >
         {saving === "test" ? "Testing…" : "Save & test"}
       </button>

@@ -6,6 +6,7 @@
 // and re-fetched after every action.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import { BackLink } from "@/components/BackLink";
 import {
@@ -602,7 +603,7 @@ export function NewsletterWorkspace({
                 <button
                   onClick={() => fileInputRef.current?.click()}
                   disabled={busy === "attach" || files.length >= 5}
-                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                  className={buttonClass("secondary")}
                 >
                   {busy === "attach" ? "Working…" : "+ Add file"}
                 </button>
@@ -678,7 +679,7 @@ export function NewsletterWorkspace({
             <button
               onClick={save}
               disabled={!!busy || !dirty}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-compass-700 disabled:opacity-50"
+              className={buttonClass("primary")}
             >
               <Save className="h-4 w-4" />
               {busy === "save" ? "Saving…" : dirty ? "Save changes" : "Saved"}
@@ -689,7 +690,7 @@ export function NewsletterWorkspace({
               onClick={() => sendIt(true)}
               disabled={!!busy || dirty || !smtpReady || !n.subject.trim() || !n.body.trim()}
               data-tt={dirty ? "Save your changes first" : undefined} aria-label={dirty ? "Save your changes first" : undefined}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+              className={buttonClass("secondary")}
             >
               <FlaskConical className="h-4 w-4" />
               {busy === "test" ? "Sending…" : "Send test to me"}
@@ -756,14 +757,14 @@ export function NewsletterWorkspace({
             <button
               onClick={() => schedule(scheduleAt)}
               disabled={!!busy || !scheduleAt}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-50"
+              className={buttonClass("primary")}
             >
               <CalendarClock className="h-4 w-4" />
               {busy === "schedule" ? "Scheduling…" : "Confirm schedule"}
             </button>
             <button
               onClick={() => setScheduleOpen(false)}
-              className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+              className={buttonClass("secondary")}
             >
               Cancel
             </button>
@@ -789,13 +790,13 @@ export function NewsletterWorkspace({
             <button
               onClick={submitForReview}
               disabled={!!busy}
-              className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-50"
+              className={buttonClass("primary")}
             >
               {busy === "submit" ? "Submitting…" : "Confirm submit"}
             </button>
             <button
               onClick={() => setSubmitOpen(false)}
-              className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+              className={buttonClass("secondary")}
             >
               Cancel
             </button>
@@ -878,7 +879,7 @@ export function NewsletterWorkspace({
             <button
               onClick={postComment}
               disabled={!!busy || !newComment.trim()}
-              className="shrink-0 rounded-lg bg-compass-600 px-3 py-2 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-50"
+              className={buttonClass("primary")}
             >
               {busy === "comment" ? "…" : "Post"}
             </button>

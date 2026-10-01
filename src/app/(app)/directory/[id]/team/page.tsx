@@ -5,7 +5,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Network, Users } from "lucide-react";
-import { BackLink } from "@/components/BackLink";
+import { PageHeader } from "@/components/PageHeader";
 import { requireUser } from "@/lib/auth";
 import { getPersonById, listFields, listPeople } from "@/lib/directory";
 import { buildOrgChart, chainAbove, managerField, teamBelow } from "@/lib/directory-org";
@@ -45,30 +45,30 @@ export default async function TeamPage({ params }: { params: Promise<{ id: strin
 
   return (
     <PageContainer>
-      <BackLink href={`/directory/${person.id}`} label={person.name} />
-      <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900">
-            <Users className="h-6 w-6 text-compass-600" aria-hidden /> {first}&rsquo;s team
-          </h1>
-          <p className="mt-1 text-sm text-slate-500">
-            {total === 0
-              ? `Nobody reports to ${person.name} in the directory.`
-              : `${total} ${total === 1 ? "person" : "people"} across ${levels.length} ${levels.length === 1 ? "level" : "levels"}, from the org chart.`}
-          </p>
-          {chain.length > 0 && (
-            <div className="mt-2">
-              <ChainLine chain={[person, ...chain]} label="Reporting line" />
-            </div>
-          )}
+      <PageHeader
+        back={{ href: `/directory/${person.id}`, label: person.name }}
+        icon={<Users />}
+        title={<>{first}&rsquo;s team</>}
+        subtitle={
+          total === 0
+            ? `Nobody reports to ${person.name} in the directory.`
+            : `${total} ${total === 1 ? "person" : "people"} across ${levels.length} ${levels.length === 1 ? "level" : "levels"}, from the org chart.`
+        }
+        actions={
+          <div className="flex flex-col items-end gap-2">
+            <Link href={`/directory?view=org&focus=${person.id}`} className="inline-flex items-center gap-1.5 text-sm font-medium text-compass-600 hover:underline">
+              <Network className="h-4 w-4" aria-hidden /> Open in org chart
+            </Link>
+            {total > 0 && <ExportPeopleButtons ids={[person.id, ...levels.flatMap((l) => l.people.map((p) => p.id))]} title={`${person.name} — team`} />}
+          </div>
+        }
+        className={chain.length > 0 ? "mb-2" : "mb-5"}
+      />
+      {chain.length > 0 && (
+        <div className="mb-5">
+          <ChainLine chain={[person, ...chain]} label="Reporting line" />
         </div>
-        <div className="flex flex-col items-end gap-2">
-          <Link href={`/directory?view=org&focus=${person.id}`} className="inline-flex items-center gap-1.5 text-sm font-medium text-compass-600 hover:underline">
-            <Network className="h-4 w-4" aria-hidden /> Open in org chart
-          </Link>
-          {total > 0 && <ExportPeopleButtons ids={[person.id, ...levels.flatMap((l) => l.people.map((p) => p.id))]} title={`${person.name} — team`} />}
-        </div>
-      </div>
+      )}
 
       {!mf ? (
         <EmptyState icon={<Network />} title="No org chart yet" body="The directory has no Reports to field. An admin can add it under Settings → Directory → Fields." />

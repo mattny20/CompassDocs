@@ -6,6 +6,7 @@
 // data: URL — no server-side image processing needed.
 
 import { useRef, useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import { LoaderCircle, Upload, X } from "lucide-react";
 import { UserAvatar } from "./UserAvatar";
@@ -125,7 +126,7 @@ export function ProfileForm({
             <button
               onClick={() => fileInput.current?.click()}
               disabled={busy}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-surface px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              className={buttonClass("secondary")}
             >
               <Upload className="h-3.5 w-3.5" /> Upload photo
             </button>
@@ -191,7 +192,7 @@ export function ProfileForm({
             <button
               type="submit"
               disabled={busy || !dirty || !name.trim()}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-compass-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-compass-700 disabled:opacity-50"
+              className={buttonClass("primary")}
             >
               {busy && <LoaderCircle className="h-3.5 w-3.5 animate-spin" />} Save changes
             </button>

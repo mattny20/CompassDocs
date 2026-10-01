@@ -9,6 +9,7 @@
 // people it synced, so neither removes the other's.
 
 import { useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { CheckCircle2, Copy, Loader2, Plug, RefreshCw, Trash2, TriangleAlert } from "lucide-react";
 import { toast } from "@/components/Toasts";
 import { SyncPreview, type SyncPreviewData } from "./directory-admin/SyncPreview";
@@ -35,10 +36,8 @@ export interface GoogleState {
   } | null;
 }
 
-const primary =
-  "inline-flex items-center gap-1.5 rounded-lg bg-compass-600 px-3 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-compass-700 disabled:opacity-50";
-const secondary =
-  "inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50";
+const primary = buttonClass("primary");
+const secondary = buttonClass("secondary");
 
 export function GoogleDirectoryPanel({ initial }: { initial: GoogleState }) {
   const [state, setState] = useState(initial);
@@ -377,7 +376,7 @@ export function GoogleDirectoryPanel({ initial }: { initial: GoogleState }) {
               type="button"
               onClick={disconnect}
               disabled={busy !== ""}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 hover-danger disabled:opacity-50"
+              className={buttonClass("danger")}
             >
               <Trash2 className="h-4 w-4" aria-hidden /> Disconnect
             </button>

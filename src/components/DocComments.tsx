@@ -8,6 +8,7 @@
 // thread stays coherent.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { MessageSquare, Trash2 } from "lucide-react";
 import { timeAgo } from "@/lib/ui";
 
@@ -282,7 +283,7 @@ export function DocComments({
           <button
             type="submit"
             disabled={saving || !body.trim()}
-            className="rounded-lg bg-compass-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-compass-700 disabled:opacity-50"
+            className={buttonClass("primary")}
           >
             {saving ? "Posting…" : "Comment"}
           </button>

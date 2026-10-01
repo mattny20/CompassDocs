@@ -5,6 +5,7 @@
 // Nothing is written until the last button.
 
 import { useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { Upload, FileSpreadsheet, ChevronDown, ChevronRight } from "lucide-react";
 import type { DirectoryField } from "@/lib/directory";
 import { Field, Select, Textarea } from "@/components/form";
@@ -116,13 +117,13 @@ export function DirectoryImportPanel({ fields, onImported }: { fields: Directory
         <div className="space-y-4 border-t border-slate-100 p-4">
           {!columns && (
             <div className="grid gap-3 lg:grid-cols-[auto_1fr]">
-              <label className="inline-flex h-fit cursor-pointer items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+              <label className={buttonClass("secondary", "md", "h-fit cursor-pointer")}>
                 <Upload className="h-4 w-4" /> Choose a CSV file
                 <input type="file" accept=".csv,text/csv,text/plain" className="sr-only" onChange={(e) => e.target.files?.[0] && readFile(e.target.files[0])} />
               </label>
               <Field label="Or paste it" help="First row is the header. Commas, semicolons or tabs.">
                 <Textarea rows={4} value={csv} onChange={(e) => setCsv(e.target.value)} className="font-mono text-xs" placeholder={"Name,Title,Email,Phone,Office\nJane Smith,Partner,jane@firm.com,602-555-0100,PHX1"} />
-                <button type="button" onClick={() => analyze()} disabled={busy || !csv.trim()} className="mt-2 rounded-lg bg-compass-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60">
+                <button type="button" onClick={() => analyze()} disabled={busy || !csv.trim()} className={buttonClass("primary", "md", "mt-2")}>
                   Read columns
                 </button>
               </Field>
@@ -155,7 +156,7 @@ export function DirectoryImportPanel({ fields, onImported }: { fields: Directory
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-3">
-                <button type="button" onClick={() => run("plan")} disabled={busy || !hasName} className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60">
+                <button type="button" onClick={() => run("plan")} disabled={busy || !hasName} className={buttonClass("primary")}>
                   {busy ? "Checking…" : "Check what would happen"}
                 </button>
                 <button type="button" onClick={reset} className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">Start over</button>
@@ -209,7 +210,7 @@ export function DirectoryImportPanel({ fields, onImported }: { fields: Directory
                 </table>
               </div>
               <div className="flex items-center gap-3 border-t border-slate-100 px-3 py-2">
-                <button type="button" onClick={() => run("apply")} disabled={busy || plan.counts.create + plan.counts.update === 0} className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60">
+                <button type="button" onClick={() => run("apply")} disabled={busy || plan.counts.create + plan.counts.update === 0} className={buttonClass("primary")}>
                   {busy ? "Importing…" : `Import ${plan.counts.create + plan.counts.update} ${plan.counts.create + plan.counts.update === 1 ? "person" : "people"}`}
                 </button>
                 <span className="text-xs text-slate-500">Rows with problems are left out; fix the file and check again.</span>

@@ -7,6 +7,7 @@
 // author, and tag. Charts are hand-rolled SVG so the design stays native.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { buttonClass } from "@/components/Button";
 import Link from "next/link";
 import {
   ChartColumn,
@@ -32,6 +33,7 @@ import {
   FilterX,
 } from "lucide-react";
 import { useFormatDate } from "./SettingsProvider";
+import { PageHeader } from "@/components/PageHeader";
 
 type Kpis = Record<string, number>;
 interface SeriesPoint {
@@ -347,7 +349,7 @@ function DocDrilldown({ docId, days, onClose }: { docId: number; days: number; o
               <div className="flex items-center gap-1.5">
                 <Link
                   href={`/doc/${data.doc.id}`}
-                  className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                  className={buttonClass("secondary", "sm")}
                 >
                   Open <ArrowUpRight className="h-3 w-3" />
                 </Link>
@@ -453,12 +455,12 @@ export function AnalyticsClient() {
 
   return (
     <div>
-      <h1 className="mb-1 flex items-center gap-2 text-2xl font-bold text-slate-900">
-        <ChartColumn className="h-6 w-6 text-compass-600" /> Analytics
-      </h1>
-      <p className="mb-5 mt-1 text-sm text-slate-500">
-        How your knowledge base is read, searched, and used.
-      </p>
+      <PageHeader
+        icon={<ChartColumn />}
+        title="Analytics"
+        subtitle="How your knowledge base is read, searched, and used."
+        className="mb-5"
+      />
 
       {/* Filters */}
       <div className="mb-5 flex flex-wrap items-center gap-2">

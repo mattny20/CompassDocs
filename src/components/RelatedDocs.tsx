@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { buttonClass } from "@/components/Button";
 import Link from "next/link";
 import { ChevronDown, ChevronRight, Link2, X } from "lucide-react";
 import { usePanelCollapse } from "@/lib/use-panel-collapse";
@@ -140,7 +141,7 @@ export function RelatedDocs({
               if (!open) toggleOpen();
             }}
             data-tt="Link another document" aria-label="Link another document"
-            className="shrink-0 whitespace-nowrap rounded-lg border border-slate-200 bg-surface px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+            className={buttonClass("secondary", "sm")}
           >
             {"＋ Link"}
           </button>

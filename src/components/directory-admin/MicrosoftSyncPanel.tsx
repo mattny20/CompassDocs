@@ -5,6 +5,7 @@
 // settings, alongside the Google panel.
 
 import { useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import { MsDeviceSetup } from "@/components/MsDeviceSetup";
 import { Field, TextInput, Toggle } from "@/components/form";
@@ -226,13 +227,13 @@ export function MicrosoftSyncPanel({ graph, report }: { graph: GraphState; repor
       </div>
 
       <div className="mt-4 flex items-center gap-3">
-        <button onClick={save} disabled={saving} className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60">
+        <button onClick={save} disabled={saving} className={buttonClass("primary")}>
           {saving ? "Saving…" : "Save"}
         </button>
-        <button onClick={() => syncNow()} disabled={syncing || !g.tenant || !g.client_id || !(g.has_secret || secret)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50" data-tt={!g.tenant || !g.client_id ? "Save the tenant, client ID, and secret first" : ""} aria-label={!g.tenant || !g.client_id ? "Save the tenant, client ID, and secret first" : ""}>
+        <button onClick={() => syncNow()} disabled={syncing || !g.tenant || !g.client_id || !(g.has_secret || secret)} className={buttonClass("secondary")} data-tt={!g.tenant || !g.client_id ? "Save the tenant, client ID, and secret first" : ""} aria-label={!g.tenant || !g.client_id ? "Save the tenant, client ID, and secret first" : ""}>
           {syncing ? "Syncing…" : "Sync now"}
         </button>
-        <button onClick={previewSync} disabled={previewing || syncing || !g.tenant || !g.client_id || !(g.has_secret || secret)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50" data-tt="Fetch from the tenant and show what a sync would add, change and remove — without writing anything">
+        <button onClick={previewSync} disabled={previewing || syncing || !g.tenant || !g.client_id || !(g.has_secret || secret)} className={buttonClass("secondary")} data-tt="Fetch from the tenant and show what a sync would add, change and remove — without writing anything">
           {previewing ? "Previewing…" : "Preview"}
         </button>
       </div>

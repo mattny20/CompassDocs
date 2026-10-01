@@ -1,8 +1,9 @@
 import Link from "next/link";
 
-import { FileText, FolderLock, House, LayoutTemplate } from "lucide-react";
+import { FilePlus2, FileText, FolderLock, House, LayoutTemplate } from "lucide-react";
 import { EmptyState } from "@/components/form";
 import { PageContainer } from "@/components/PageWidth";
+import { PageHeader } from "@/components/PageHeader";
 import { listSpaces, getSpaceBySlug, getApprovalMode, listAllSpaceCategories } from "@/lib/db";
 import { requirePermission } from "@/lib/auth";
 import { canPublishDirectly, editableScopeFor } from "@/lib/access";
@@ -67,11 +68,12 @@ export default async function NewDocPage({
   if (showPicker) {
     return (
       <PageContainer>
-        <h1 className="text-2xl font-bold text-slate-900">New document</h1>
-        <p className="mt-1 text-slate-500">
-          Start from a template, or begin with a blank page.
-        </p>
-        <div className="mt-6 grid gap-3 sm:grid-cols-2">
+        <PageHeader
+          icon={<FilePlus2 />}
+          title="New document"
+          subtitle="Start from a template, or begin with a blank page."
+        />
+        <div className="grid gap-3 sm:grid-cols-2">
           <Link
             href={`/doc/new?template=blank${spaceQS}`}
             className="group rounded-xl border border-slate-200 bg-surface p-4 transition hover:border-compass-300 hover:shadow-xs"

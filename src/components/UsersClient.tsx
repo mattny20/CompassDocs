@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import { ROLE_ORDER, ROLE_LABEL, ROLE_BLURB } from "@/lib/types";
 import type { User, Role } from "@/lib/types";
@@ -198,7 +199,7 @@ function UserTable({
                 <div className="flex justify-end gap-1.5 text-xs">
                   <button
                     onClick={() => resetPassword(u)}
-                    className="rounded-md border border-slate-200 px-2 py-1 text-slate-600 hover:bg-slate-50"
+                    className={buttonClass("secondary", "sm")}
                   >
                     Reset password
                   </button>
@@ -208,22 +209,22 @@ function UserTable({
                         if (!confirm(`Reset two-factor auth for ${u.username}? They'll sign in with just their password and can re-enroll.`)) return;
                         if (await patch(u.id, { reset2fa: true })) toast("ok", "Two-factor auth cleared.");
                       }}
-                      title="Clear this user's authenticator (lost-device recovery)"
-                      className="rounded-md border border-slate-200 px-2 py-1 text-slate-600 hover:bg-slate-50"
+                      data-tt="Clear this user's authenticator (lost-device recovery)"
+                      className={buttonClass("secondary", "sm")}
                     >
                       Reset 2FA
                     </button>
                   )}
                   <button
                     onClick={() => toggleStatus(u)}
-                    className="rounded-md border border-slate-200 px-2 py-1 text-slate-600 hover:bg-slate-50"
+                    className={buttonClass("secondary", "sm")}
                   >
                     {u.status === "active" ? "Disable" : "Enable"}
                   </button>
                   {u.id !== currentUserId && (
                     <button
                       onClick={() => remove(u)}
-                      className="rounded-md border border-red-200 px-2 py-1 text-red-600 hover-danger"
+                      className={buttonClass("danger", "sm")}
                     >
                       Delete
                     </button>
@@ -277,7 +278,7 @@ function CreateUser() {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="mt-4 rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-compass-700"
+        className={buttonClass("primary", "md", "mt-4")}
       >
         ＋ Add user
       </button>
@@ -327,7 +328,7 @@ function CreateUser() {
         <button
           type="submit"
           disabled={saving}
-          className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60"
+          className={buttonClass("primary")}
         >
           {saving ? "Creating…" : "Create user"}
         </button>
@@ -361,7 +362,7 @@ function AutoLinkButton() {
       }}
       disabled={busy}
       title="Match accounts to people-directory entries by SSO identity or email — powers profile links and article bylines."
-      className="rounded-lg border border-slate-200 bg-surface px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+      className={buttonClass("secondary")}
     >
       {busy ? "Linking…" : "Auto-link directory"}
     </button>

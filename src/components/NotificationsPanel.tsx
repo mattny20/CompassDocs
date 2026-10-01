@@ -4,6 +4,7 @@
 // emails, plus every space the user follows (directly or via a group).
 
 import { useState } from "react";
+import { buttonClass } from "@/components/Button";
 import Link from "next/link";
 import { BellOff, BellRing, UsersRound } from "lucide-react";
 import { toast } from "./Toasts";
@@ -165,7 +166,7 @@ export function NotificationsPanel({
           <button
             onClick={saveWebhook}
             disabled={busy}
-            className="rounded-lg bg-compass-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-compass-700 disabled:opacity-50"
+            className={buttonClass("primary")}
           >
             Save
           </button>
@@ -210,7 +211,7 @@ export function NotificationsPanel({
                     {effective ? (
                       <button
                         onClick={() => setSub(s, s.via_group ? "mute" : "clear")}
-                        className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                        className={buttonClass("secondary", "sm")}
                       >
                         <BellOff className="h-3 w-3" /> {s.via_group ? "Mute" : "Unsubscribe"}
                       </button>

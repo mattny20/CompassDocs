@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import { toast } from "@/components/Toasts";
 import type { ImportResult } from "@/lib/transfer";
@@ -44,7 +45,7 @@ export function ImportExport() {
         </p>
         <a
           href="/api/export"
-          className="inline-flex items-center gap-1.5 rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-compass-700"
+          className={buttonClass("primary")}
         >
           ⬇ Export all docs (.zip)
         </a>
@@ -71,7 +72,7 @@ export function ImportExport() {
           <button
             onClick={runImport}
             disabled={importing || !fileName}
-            className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-compass-700 disabled:opacity-50"
+            className={buttonClass("primary")}
           >
             {importing ? "Importing…" : "Import"}
           </button>

@@ -4,6 +4,7 @@
 // parameter validation happens again server-side in /api/oauth/approve.
 
 import { redirect } from "next/navigation";
+import { buttonClass } from "@/components/Button";
 import { getCurrentUser } from "@/lib/auth";
 import { getOAuthClient } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings-store";
@@ -83,14 +84,14 @@ export default async function AuthorizePage({
                 <button
                   name="decision"
                   value="approve"
-                  className="w-full rounded-lg bg-compass-600 px-4 py-2 font-semibold text-white shadow-xs transition hover:bg-compass-700"
+                  className={buttonClass("primary", "md", "w-full")}
                 >
                   Approve
                 </button>
                 <button
                   name="decision"
                   value="deny"
-                  className="w-full rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+                  className={buttonClass("secondary", "md", "w-full")}
                 >
                   Deny
                 </button>

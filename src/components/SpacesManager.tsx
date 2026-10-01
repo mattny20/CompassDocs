@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import { Lock, Globe, Building2, PencilRuler, ChevronUp, ChevronDown, Pencil, Trash2, X } from "lucide-react";
 import { EntityPicker } from "@/components/EntityPicker";
@@ -100,7 +101,7 @@ export function SpacesManager({
         {!creating && editing === null && (
           <button
             onClick={() => setCreating(true)}
-            className="shrink-0 rounded-lg bg-compass-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-compass-700"
+            className={buttonClass("primary")}
           >
             ＋ New space
           </button>
@@ -215,7 +216,7 @@ export function SpacesManager({
               </div>
               <button
                 onClick={() => setEditing(s.id)}
-                className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+                className={buttonClass("secondary")}
               >
                 Edit
               </button>
@@ -654,13 +655,13 @@ function SpaceForm({
         <button
           onClick={save}
           disabled={saving}
-          className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-compass-700 disabled:opacity-60"
+          className={buttonClass("primary")}
         >
           {saving ? "Saving…" : space ? "Save changes" : "Create space"}
         </button>
         <button
           onClick={onCancel}
-          className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+          className={buttonClass("secondary")}
         >
           Cancel
         </button>
@@ -774,7 +775,7 @@ function CategoryEditor({ spaceId, initial }: { spaceId: number; initial: Catego
           type="button"
           onClick={add}
           disabled={busy || !name.trim()}
-          className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+          className={buttonClass("secondary")}
         >
           Add
         </button>

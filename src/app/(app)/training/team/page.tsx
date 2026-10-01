@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 
 import { PageContainer } from "@/components/PageWidth";
 import { CircleAlert, CircleCheck, Users } from "lucide-react";
-import { BackLink } from "@/components/BackLink";
+import { PageHeader } from "@/components/PageHeader";
 import { requireUser } from "@/lib/auth";
 import { featureEnabled } from "@/lib/ee";
 import { userLeadGroups, teamTrainingRows, type TeamTrainingRow } from "@/lib/db";
@@ -36,16 +36,18 @@ export default async function TrainingTeamPage() {
 
   return (
     <PageContainer>
-      <div className="mb-5">
-        <BackLink href="/training" label="Training" className="" />
-        <h1 className="mt-2 flex items-center gap-2 text-xl font-bold tracking-tight text-slate-900">
-          <Users className="h-5 w-5 text-compass-600" /> Your team&apos;s training
-        </h1>
-        <p className="mt-0.5 text-sm text-slate-500">
-          Where the {groups.length === 1 ? "group you lead stands" : "groups you lead stand"} —
-          you&apos;ll also get a weekly summary by email.
-        </p>
-      </div>
+      <PageHeader
+        icon={<Users />}
+        title="Your team's training"
+        subtitle={
+          <>
+            Where the {groups.length === 1 ? "group you lead stands" : "groups you lead stand"} —
+            you&apos;ll also get a weekly summary by email.
+          </>
+        }
+        back={{ href: "/training", label: "Training" }}
+        className="mb-5"
+      />
 
       <div className="space-y-5">
         {[...byGroup.values()].map((g) => {

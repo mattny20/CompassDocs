@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { BackLink } from "@/components/BackLink";
+import { buttonClass } from "@/components/Button";
+import { PageHeader } from "@/components/PageHeader";
 import {
   AtSign,
   BellRing,
@@ -141,22 +142,24 @@ export function EmailTemplatesPanel({ initial }: { initial: Template[] }) {
 
   return (
     <div className="space-y-4">
-      <div>
-        <BackLink href="/admin/notifications" label="Notifications" className="" />
-        {/* This page sits under the Notifications section but is its own
-            route, so it carries the page-title h1 itself (the console layout
-            renders only an eyebrow). */}
-        <h1 className="mt-2 flex items-center gap-2 text-2xl font-bold text-slate-900">
-          <Mail className="h-6 w-6 text-compass-600" aria-hidden /> Email templates
-        </h1>
-        <p className="mt-1 max-w-2xl text-sm text-slate-500">
-          Every alert email CompassDocs sends, editable. Dynamic tags like{" "}
-          <code className="rounded-sm bg-slate-100 px-1 py-0.5 text-xs">{"{{doc_title}}"}</code> are
-          replaced with the real value when each email goes out — use the{" "}
-          <span className="font-medium">Insert tag</span> menu in the editor toolbar. Newsletters
-          have their own editor under Settings → Newsletter.
-        </p>
-      </div>
+      {/* This page sits under the Notifications section but is its own
+          route, so it carries the page-title h1 itself (the console layout
+          renders only an eyebrow). */}
+      <PageHeader
+        icon={<Mail />}
+        title="Email templates"
+        subtitle={
+          <>
+            Every alert email CompassDocs sends, editable. Dynamic tags like{" "}
+            <code className="rounded-sm bg-slate-100 px-1 py-0.5 text-xs">{"{{doc_title}}"}</code> are
+            replaced with the real value when each email goes out — use the{" "}
+            <span className="font-medium">Insert tag</span> menu in the editor toolbar. Newsletters
+            have their own editor under Settings → Newsletter.
+          </>
+        }
+        back={{ href: "/admin/notifications", label: "Notifications" }}
+        className=""
+      />
 
       <div className="space-y-3">
         {templates.map((t) => {
@@ -250,14 +253,14 @@ export function EmailTemplatesPanel({ initial }: { initial: Template[] }) {
                     <button
                       onClick={save}
                       disabled={busy || !dirty}
-                      className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-medium text-white hover:bg-compass-700 disabled:opacity-50"
+                      className={buttonClass("primary")}
                     >
                       {busy ? "Saving…" : "Save template"}
                     </button>
                     <button
                       onClick={resetToDefault}
                       disabled={busy || (isDefault && !t.customized)}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                      className={buttonClass("secondary")}
                     >
                       <RotateCcw className="h-4 w-4" /> Reset to default
                     </button>

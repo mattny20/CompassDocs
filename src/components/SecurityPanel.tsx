@@ -5,6 +5,7 @@
 // sign-out.
 
 import { useState } from "react";
+import { buttonClass } from "@/components/Button";
 import type { SessionInfo } from "@/lib/db";
 import { useFormatDate } from "./SettingsProvider";
 
@@ -113,7 +114,7 @@ function TwoFactor({ initial }: { initial: TotpState }) {
         <button
           onClick={startEnroll}
           disabled={busy}
-          className="mt-3 rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60"
+          className={buttonClass("primary", "md", "mt-3")}
         >
           {busy ? "Preparing…" : "Set up two-factor auth"}
         </button>
@@ -146,7 +147,7 @@ function TwoFactor({ initial }: { initial: TotpState }) {
                 <button
                   type="submit"
                   disabled={busy || code.replace(/\D/g, "").length !== 6}
-                  className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60"
+                  className={buttonClass("primary")}
                 >
                   {busy ? "Checking…" : "Turn on"}
                 </button>
@@ -206,7 +207,7 @@ function TwoFactor({ initial }: { initial: TotpState }) {
             <button
               type="submit"
               disabled={busy || !disableCode}
-              className="rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-600 hover-danger disabled:opacity-50"
+              className={buttonClass("danger")}
             >
               Turn off 2FA
             </button>
@@ -276,7 +277,7 @@ function Sessions({ initial }: { initial: SessionInfo[] }) {
           <button
             onClick={revokeOthers}
             disabled={busy}
-            className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 hover-danger disabled:opacity-50"
+            className={buttonClass("danger", "sm")}
           >
             {busy ? "Signing out…" : "Sign out everywhere else"}
           </button>
@@ -301,7 +302,7 @@ function Sessions({ initial }: { initial: SessionInfo[] }) {
             {!s.current && (
               <button
                 onClick={() => revoke(s.sid)}
-                className="shrink-0 rounded-lg border border-red-200 px-2.5 py-1 text-xs font-medium text-red-600 hover-danger"
+                className={buttonClass("danger", "sm")}
               >
                 Sign out
               </button>

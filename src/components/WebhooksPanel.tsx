@@ -5,6 +5,7 @@
 // they embed the channel secret — so the list shows a masked preview.
 
 import { useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { toast } from "@/components/Toasts";
 import { Field, Select, TextInput } from "@/components/form";
 import { useFormatDate } from "./SettingsProvider";
@@ -190,7 +191,7 @@ export function WebhooksPanel({
           </div>
         )}
         <div className="mt-4 flex items-center gap-3">
-          <button type="submit" disabled={busy || !url} className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60">
+          <button type="submit" disabled={busy || !url} className={buttonClass("primary")}>
             {busy ? "Adding…" : "Add webhook"}
           </button>
         </div>
@@ -209,13 +210,13 @@ export function WebhooksPanel({
                 <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">off</span>
               )}
               <span className="min-w-0 flex-1 truncate text-xs text-slate-500">{h.url_preview}</span>
-              <button onClick={() => test(h.id)} className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50">
+              <button onClick={() => test(h.id)} className={buttonClass("secondary", "sm")}>
                 Test
               </button>
-              <button onClick={() => toggle(h)} className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50">
+              <button onClick={() => toggle(h)} className={buttonClass("secondary", "sm")}>
                 {h.enabled ? "Disable" : "Enable"}
               </button>
-              <button onClick={() => remove(h.id)} className="rounded-lg border border-red-200 px-2.5 py-1 text-xs font-medium text-red-600 hover-danger">
+              <button onClick={() => remove(h.id)} className={buttonClass("danger", "sm")}>
                 Delete
               </button>
             </div>
@@ -355,11 +356,11 @@ export function SmtpPanel({ initial }: { initial: SmtpState }) {
         </Field>
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-3">
-        <button onClick={save} disabled={busy} className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60">
+        <button onClick={save} disabled={busy} className={buttonClass("primary")}>
           {busy ? "Working…" : "Save"}
         </button>
         <TextInput className="max-w-55" value={testTo} onChange={(e) => setTestTo(e.target.value)} placeholder="you@acme.com" spellCheck={false} />
-        <button onClick={test} disabled={busy || !testTo || !s.configured} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+        <button onClick={test} disabled={busy || !testTo || !s.configured} className={buttonClass("secondary")}>
           Send test email
         </button>
       </div>

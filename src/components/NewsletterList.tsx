@@ -5,10 +5,12 @@
 // point (creates an empty draft and jumps into the editor).
 
 import { useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Plus, Mail, CalendarClock, Newspaper } from "lucide-react";
 import { EmptyState } from "./form";
+import { PageHeader } from "@/components/PageHeader";
 import { useFormatDate } from "./SettingsProvider";
 
 export interface NewsletterRow {
@@ -90,25 +92,22 @@ export function NewsletterList({ initial }: { initial: NewsletterRow[] }) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-900">
-            <Newspaper className="h-6 w-6 text-compass-600" /> Newsletter
-          </h1>
-          <p className="mt-1 text-slate-500">
-            Draft with the document editor, hand it to an approver for review, then send it
-            as a branded email.
-          </p>
-        </div>
-        <button
-          onClick={createDraft}
-          disabled={busy}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-compass-700 disabled:opacity-50"
-        >
-          <Plus className="h-4 w-4" />
-          {busy ? "Creating…" : "New newsletter"}
-        </button>
-      </div>
+      <PageHeader
+        icon={<Newspaper />}
+        title="Newsletter"
+        subtitle="Draft with the document editor, hand it to an approver for review, then send it as a branded email."
+        actions={
+          <button
+            onClick={createDraft}
+            disabled={busy}
+            className={buttonClass("primary")}
+          >
+            <Plus className="h-4 w-4" />
+            {busy ? "Creating…" : "New newsletter"}
+          </button>
+        }
+        className=""
+      />
 
       {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { CheckCircle2, AlertTriangle, XCircle, RefreshCw } from "lucide-react";
 import type { DiagnosticCheck } from "@/lib/diagnostics";
 
@@ -45,7 +46,7 @@ export function DiagnosticsPanel({ initial }: { initial: DiagnosticCheck[] }) {
         <button
           onClick={rerun}
           disabled={running}
-          className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+          className={buttonClass("secondary")}
         >
           <RefreshCw className={`h-3.5 w-3.5 ${running ? "animate-spin" : ""}`} aria-hidden />
           {running ? "Checking…" : "Run checks"}

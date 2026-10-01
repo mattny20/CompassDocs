@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import {
   Check,
@@ -179,14 +180,14 @@ export function Attachments({
             <button
               onClick={() => setLinkFormOpen((v) => !v)}
               data-tt="Add a link to iManage, NetDocuments, SharePoint, or any https URL" aria-label="Add a link to iManage, NetDocuments, SharePoint, or any https URL"
-              className="shrink-0 whitespace-nowrap rounded-lg border border-slate-200 bg-surface px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+              className={buttonClass("secondary", "sm")}
             >
               {"＋ Link"}
             </button>
             <button
               onClick={() => fileInput.current?.click()}
               disabled={uploading}
-              className="shrink-0 whitespace-nowrap rounded-lg border border-slate-200 bg-surface px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+              className={buttonClass("secondary", "sm")}
             >
               {uploading ? "Uploading…" : "＋ File"}
             </button>
@@ -219,7 +220,7 @@ export function Attachments({
             <button
               type="submit"
               disabled={linkBusy}
-              className="whitespace-nowrap rounded-lg bg-compass-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-compass-700 disabled:opacity-60"
+              className={buttonClass("primary")}
             >
               {linkBusy ? "Adding…" : "Add link"}
             </button>

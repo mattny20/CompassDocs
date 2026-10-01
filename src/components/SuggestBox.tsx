@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { Lightbulb } from "lucide-react";
 
 export function SuggestBox({ documentId }: { documentId: number }) {
@@ -46,7 +47,7 @@ export function SuggestBox({ documentId }: { documentId: number }) {
       {!open ? (
         <button
           onClick={() => setOpen(true)}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-surface px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+          className={buttonClass("secondary")}
         >
           <Lightbulb className="h-4 w-4 text-amber-500" /> Suggest an edit
         </button>
@@ -71,7 +72,7 @@ export function SuggestBox({ documentId }: { documentId: number }) {
             <button
               type="submit"
               disabled={state === "saving"}
-              className="rounded-lg bg-compass-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60"
+              className={buttonClass("primary")}
             >
               {state === "saving" ? "Sending…" : "Send suggestion"}
             </button>

@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { buttonClass } from "@/components/Button";
 import Link from "next/link";
 import { SearchX, Sparkles, X } from "lucide-react";
 import { EmptyState } from "./form";
 import { MarkdownView } from "./MarkdownView";
 import { PageContainer } from "./PageWidth";
+import { PageHeader } from "@/components/PageHeader";
 import { TypeBadge } from "./Badges";
 import { timeAgo } from "@/lib/ui";
 import { askLabel } from "@/lib/nav-items";
@@ -92,13 +94,12 @@ export function SearchClient({
 
   return (
     <PageContainer>
-      <h1 className="mb-1 flex items-center gap-2 text-2xl font-bold text-slate-900">
-        <Sparkles className="h-6 w-6 text-compass-600" /> {askLabel(companyName)}
-      </h1>
-      <p className="mb-5 mt-1 text-sm text-slate-500">
-        Ask a question in plain English, or search by keyword. Answers are grounded in your
-        knowledge base.
-      </p>
+      <PageHeader
+        icon={<Sparkles />}
+        title={askLabel(companyName)}
+        subtitle="Ask a question in plain English, or search by keyword. Answers are grounded in your knowledge base."
+        className="mb-5"
+      />
 
       <form onSubmit={onSubmit} className="mb-6 flex gap-2">
         <input
@@ -111,7 +112,7 @@ export function SearchClient({
         />
         <button
           type="submit"
-          className="rounded-lg bg-compass-600 px-5 py-2.5 text-sm font-semibold text-white shadow-xs hover:bg-compass-700"
+          className={buttonClass("primary", "lg")}
         >
           Ask
         </button>

@@ -5,6 +5,7 @@
 // feed analytics and the Content health report.
 
 import { useEffect, useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { ThumbsUp, ThumbsDown } from "lucide-react";
 
 interface Summary {
@@ -118,7 +119,7 @@ export function DocFeedback({ docId }: { docId: number }) {
           <button
             type="submit"
             disabled={busy}
-            className="rounded-lg bg-compass-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-50"
+            className={buttonClass("primary")}
           >
             Send
           </button>

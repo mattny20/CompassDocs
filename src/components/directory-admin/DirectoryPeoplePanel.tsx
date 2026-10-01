@@ -5,6 +5,7 @@
 // pin, hide, link. One page of the directory settings.
 
 import { useMemo, useState } from "react";
+import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import { Pin, ArrowUp, ArrowDown, Camera, Trash2 } from "lucide-react";
 import { EntityPicker } from "@/components/EntityPicker";
@@ -288,7 +289,7 @@ export function DirectoryPeoplePanel({
               ) : (
                 <div className="grid h-10 w-10 place-items-center rounded-full bg-slate-100 text-xs font-semibold text-slate-500">—</div>
               )}
-              <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">
+              <label className={buttonClass("secondary", "md", "cursor-pointer")}>
                 <Camera className="h-4 w-4" /> {editing.photo ? "Replace photo" : "Add a photo"}
                 <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" className="sr-only" onChange={(e) => e.target.files?.[0] && uploadPhoto(editing, e.target.files[0])} />
               </label>
@@ -304,7 +305,7 @@ export function DirectoryPeoplePanel({
             </div>
           )}
           <div className="flex gap-2">
-            <button type="submit" disabled={busy} className="rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white hover:bg-compass-700 disabled:opacity-60">
+            <button type="submit" disabled={busy} className={buttonClass("primary")}>
               {editing ? "Save" : "Add"}
             </button>
             {editing && (

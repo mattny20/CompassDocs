@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
+import { buttonClass } from "@/components/Button";
 import { Download, GraduationCap } from "lucide-react";
-import { BackLink } from "@/components/BackLink";
+import { PageHeader } from "@/components/PageHeader";
 import { requireUser } from "@/lib/auth";
 import { canAccessSection } from "@/lib/section-access";
 import { featureEnabled } from "@/lib/ee";
@@ -31,26 +32,24 @@ export default async function TrainingPersonPage({ params }: { params: Promise<{
 
   return (
     <PageContainer>
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <BackLink href="/training" label="Training" className="" />
-          <h1 className="mt-1 flex items-center gap-2 text-xl font-bold tracking-tight text-slate-900">
-            <GraduationCap className="h-5 w-5 text-compass-600" /> Training transcript — {person.name}
-          </h1>
-          <p className="mt-0.5 text-sm text-slate-500">
-            @{person.username} · every assignment and prior certification cycle on record.
-          </p>
-        </div>
-        <div className="flex items-center gap-2 print:hidden">
-          <a
-            href={`/api/training/people/${person.id}?format=csv`}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
-          >
-            <Download className="h-4 w-4" /> CSV
-          </a>
-          <PrintButton compact />
-        </div>
-      </div>
+      <PageHeader
+        icon={<GraduationCap />}
+        title={<>Training transcript — {person.name}</>}
+        subtitle={<>@{person.username} · every assignment and prior certification cycle on record.</>}
+        back={{ href: "/training", label: "Training" }}
+        actions={
+          <div className="flex items-center gap-2 print:hidden">
+            <a
+              href={`/api/training/people/${person.id}?format=csv`}
+              className={buttonClass("secondary")}
+            >
+              <Download className="h-4 w-4" /> CSV
+            </a>
+            <PrintButton compact />
+          </div>
+        }
+        className="mb-5"
+      />
 
       <section className="overflow-x-auto rounded-xl border border-slate-200 bg-surface shadow-xs">
         <table className="w-full text-sm">

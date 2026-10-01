@@ -7,6 +7,7 @@
 // slab left in the product.
 
 import { useEffect } from "react";
+import { buttonClass } from "@/components/Button";
 import { RotateCcw, TriangleAlert } from "lucide-react";
 import "./globals.css";
 
@@ -71,7 +72,7 @@ export default function GlobalError({
             <div className="mt-6 flex justify-center">
               <button
                 onClick={reset}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-compass-600 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-compass-700"
+                className={buttonClass("primary")}
               >
                 <RotateCcw className="h-4 w-4" /> Try again
               </button>
