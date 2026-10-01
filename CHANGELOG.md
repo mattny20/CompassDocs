@@ -21,6 +21,12 @@ grow the whole interface with the monitor from one rule.
 - STYLEGUIDE gains a *Scaling* section (rem only, the px allow-list) and
   `test/style-scale.test.ts` fails the build on a new px literal.
 
+### Security
+- Dependency updates for advisories published this week: nodemailer
+  10.0.13 (address-parser denial of service, GHSA-prgh-xp8r-p3m5 and
+  GHSA-v53p-9fqp-m79j) and undici 8.11.2 (CVE-2026-19534, CVE-2026-84961
+  and eight related fixes).
+
 ## [1.3.5] - 2026-09-27
 
 ### Added
