@@ -5,6 +5,7 @@
 // connector; afterwards only the prefix is visible.
 
 import { useState } from "react";
+import { Check } from "lucide-react";
 import { buttonClass } from "@/components/Button";
 import type { ApiToken } from "@/lib/db";
 import { useFormatDate } from "./SettingsProvider";
@@ -117,7 +118,7 @@ export function ApiTokens({
                 onClick={() => copy(mcpUrl, "mcp")}
                 className={buttonClass("primary", "sm")}
               >
-                {copied === "mcp" ? "Copied ✓" : "Copy"}
+                {copied === "mcp" ? <><Check className="h-3.5 w-3.5" aria-hidden /> Copied</> : "Copy"}
               </button>
             </span>
           </li>
@@ -144,9 +145,9 @@ export function ApiTokens({
             </code>
             <button
               onClick={() => copy(fresh.token, "tok")}
-              className="shrink-0 rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-emerald-700"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-emerald-700"
             >
-              {copied === "tok" ? "Copied ✓" : "Copy"}
+              {copied === "tok" ? <><Check className="h-3.5 w-3.5" aria-hidden /> Copied</> : "Copy"}
             </button>
           </div>
           <details className="mt-2">
@@ -159,9 +160,9 @@ export function ApiTokens({
               </pre>
               <button
                 onClick={() => copy(claudeConfig, "cfg")}
-                className="mt-1 rounded-lg border border-emerald-300 px-2.5 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
+                className="mt-1 inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 px-2.5 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
               >
-                {copied === "cfg" ? "Copied ✓" : "Copy config"}
+                {copied === "cfg" ? <><Check className="h-3.5 w-3.5" aria-hidden /> Copied</> : "Copy config"}
               </button>
             </div>
           </details>

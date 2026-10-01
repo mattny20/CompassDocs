@@ -7,7 +7,7 @@
 import { useState } from "react";
 import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
-import { Megaphone, TriangleAlert, Siren, Archive, ArchiveRestore, Trash2 } from "lucide-react";
+import { Megaphone, TriangleAlert, Siren, Archive, ArchiveRestore, Trash2, Check } from "lucide-react";
 import { useFormatDate } from "./SettingsProvider";
 import { PageHeader } from "@/components/PageHeader";
 
@@ -239,7 +239,7 @@ export function AnnouncementsAdmin({
           </fieldset>
 
           {error && <p className="text-sm text-red-600">{error}</p>}
-          {done && <p className="text-sm text-emerald-600">✓ {done}</p>}
+          {done && <p className="inline-flex items-center gap-1.5 text-sm text-emerald-600"><Check className="inline h-4 w-4" aria-hidden /> {done}</p>}
           <button
             onClick={post}
             disabled={busy || !title.trim() || !message.trim()}

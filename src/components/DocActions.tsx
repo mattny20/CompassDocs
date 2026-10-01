@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   CalendarClock,
   GitBranch,
@@ -15,6 +15,7 @@ import {
   LoaderCircle,
 } from "lucide-react";
 import { PrintButton } from "./PrintButton";
+import { Popover } from "./Popover";
 import { toast } from "./Toasts";
 
 export function DocActions({
@@ -61,22 +62,10 @@ export function DocActions({
   const [ackRequired, setAckRequired] = useState(ack?.required ?? false);
   const [ackBusy, setAckBusy] = useState(false);
   const [popover, setPopover] = useState<null | "share" | "review">(null);
-  const rowRef = useRef<HTMLDivElement>(null);
-
-  // Popovers close on outside click or Escape.
-  useEffect(() => {
-    if (!popover) return;
-    const onClick = (e: MouseEvent) => {
-      if (rowRef.current && !rowRef.current.contains(e.target as Node)) setPopover(null);
-    };
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setPopover(null);
-    document.addEventListener("mousedown", onClick);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onClick);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [popover]);
+  const shareBtn = useRef<HTMLButtonElement>(null);
+  const reviewBtn = useRef<HTMLButtonElement>(null);
+  // Outside click and Escape are handled by Popover (via the overlay stack).
+  const closePopover = useCallback(() => setPopover(null), []);
 
   async function onBranch() {
     setBranching(true);
@@ -144,18 +133,18 @@ export function DocActions({
   // Icon-only actions with tooltips + accessible labels for a cleaner header.
   const iconBtn =
     "inline-flex items-center rounded-lg border border-slate-200 bg-surface p-2 text-slate-500 hover:bg-slate-50 hover:text-slate-700";
-  const popoverBox =
-    "absolute right-0 top-full z-40 mt-2 w-80 rounded-xl border border-slate-200 bg-surface p-4 text-left shadow-xl";
 
   return (
-    <div ref={rowRef} className="relative flex items-center gap-2 print:hidden">
+    <div className="relative flex items-center gap-2 print:hidden">
       {sharePanel && (
         <>
           <button
+            ref={shareBtn}
             onClick={() => setPopover((p) => (p === "share" ? null : "share"))}
             data-tt="Share link"
             aria-label="Share link"
             aria-expanded={popover === "share"}
+            aria-haspopup="dialog"
             className={
               popover === "share"
                 ? "inline-flex items-center rounded-lg border border-compass-300 bg-compass-50 p-2 text-compass-600"
@@ -164,16 +153,30 @@ export function DocActions({
           >
             <Share2 className="h-4 w-4" />
           </button>
-          {popover === "share" && <div className={popoverBox}>{sharePanel}</div>}
+          <Popover
+            open={popover === "share"}
+            onClose={closePopover}
+            triggerRef={shareBtn}
+            role="dialog"
+            label="Share link"
+            align="end"
+            width="w-80"
+            padding="p-4"
+            className="mt-2 rounded-xl text-left"
+          >
+            {sharePanel}
+          </Popover>
         </>
       )}
       {reviewPanel && (
         <>
           <button
+            ref={reviewBtn}
             onClick={() => setPopover((p) => (p === "review" ? null : "review"))}
             data-tt={reviewOverdue ? "Review schedule — overdue" : "Review schedule"}
             aria-label="Review schedule"
             aria-expanded={popover === "review"}
+            aria-haspopup="dialog"
             className={
               popover === "review"
                 ? "inline-flex items-center rounded-lg border border-compass-300 bg-compass-50 p-2 text-compass-600"
@@ -184,7 +187,19 @@ export function DocActions({
           >
             <CalendarClock className="h-4 w-4" />
           </button>
-          {popover === "review" && <div className={popoverBox}>{reviewPanel}</div>}
+          <Popover
+            open={popover === "review"}
+            onClose={closePopover}
+            triggerRef={reviewBtn}
+            role="dialog"
+            label="Review schedule"
+            align="end"
+            width="w-80"
+            padding="p-4"
+            className="mt-2 rounded-xl text-left"
+          >
+            {reviewPanel}
+          </Popover>
         </>
       )}
       {ack && (

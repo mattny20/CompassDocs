@@ -11,7 +11,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Bell, CheckCheck } from "lucide-react";
-import { overlayOpen } from "@/lib/overlay-stack";
+import { Popover } from "./Popover";
 import { NotificationRow, type NotificationItem } from "./NotificationRow";
 
 export function NotificationsBell({ initialUnread }: { initialUnread: number }) {
@@ -19,7 +19,6 @@ export function NotificationsBell({ initialUnread }: { initialUnread: number }) 
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<NotificationItem[] | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
-  const boxRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
   const refresh = useCallback(async () => {
@@ -40,26 +39,11 @@ export function NotificationsBell({ initialUnread }: { initialUnread: number }) 
     return () => clearInterval(t);
   }, [refresh]);
 
+  // The list loads on open; Popover owns outside-click, Escape (through the
+  // overlay stack) and focus return to the bell.
   useEffect(() => {
     if (!open) return;
     void refresh();
-    function onClick(e: MouseEvent) {
-      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
-    }
-    function onKey(e: KeyboardEvent) {
-      // A palette opened on top owns Escape (STYLEGUIDE §Keyboard shortcuts);
-      // otherwise close and hand focus back to the bell.
-      if (e.key === "Escape" && !overlayOpen()) {
-        setOpen(false);
-        btnRef.current?.focus();
-      }
-    }
-    document.addEventListener("mousedown", onClick);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onClick);
-      document.removeEventListener("keydown", onKey);
-    };
   }, [open, refresh]);
 
   async function markRead(id: number) {
@@ -105,7 +89,7 @@ export function NotificationsBell({ initialUnread }: { initialUnread: number }) 
   }
 
   return (
-    <div className="relative" ref={boxRef}>
+    <div className="relative">
       <button
         ref={btnRef}
         onClick={() => setOpen((v) => !v)}
@@ -125,54 +109,58 @@ export function NotificationsBell({ initialUnread }: { initialUnread: number }) 
         )}
       </button>
 
-      {open && (
-        <div
-          role="dialog"
-          aria-label="Notifications"
-          className="absolute left-0 top-full z-50 mt-2 w-80 overflow-hidden rounded-xl border border-slate-200 bg-surface shadow-xl"
-        >
-          <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
-            <span className="text-sm font-semibold text-slate-900">Notifications</span>
-            {unread > 0 && (
-              <button
-                onClick={markAllRead}
-                className="flex items-center gap-1 text-xs font-medium text-compass-600 hover:text-compass-700"
-              >
-                <CheckCheck className="h-3.5 w-3.5" aria-hidden /> Mark all read
-              </button>
-            )}
-          </div>
-          <div className="max-h-96 overflow-y-auto">
-            {items === null && (
-              <p className="px-3 py-6 text-center text-sm text-slate-500">Loading…</p>
-            )}
-            {items !== null && items.length === 0 && (
-              <p className="px-3 py-6 text-center text-sm text-slate-500">
-                You're all caught up.
-              </p>
-            )}
-            {items?.map((item) => (
-              <NotificationRow key={item.id} item={item} onOpen={openItem} dense />
-            ))}
-          </div>
-          <div className="flex items-center justify-between border-t border-slate-100 px-3 py-2 text-xs">
-            <Link
-              href="/notifications"
-              onClick={() => setOpen(false)}
-              className="font-medium text-compass-600 hover:text-compass-700"
+      <Popover
+        open={open}
+        onClose={() => setOpen(false)}
+        triggerRef={btnRef}
+        role="dialog"
+        label="Notifications"
+        align="start"
+        width="w-80"
+        padding="p-0"
+        className="mt-2 overflow-hidden rounded-xl"
+      >
+        <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
+          <span className="text-sm font-semibold text-slate-900">Notifications</span>
+          {unread > 0 && (
+            <button
+              onClick={markAllRead}
+              className="flex items-center gap-1 text-xs font-medium text-compass-600 hover:text-compass-700"
             >
-              See all notifications
-            </Link>
-            <Link
-              href="/account/notifications"
-              onClick={() => setOpen(false)}
-              className="text-slate-500 hover:text-slate-700"
-            >
-              Preferences
-            </Link>
-          </div>
+              <CheckCheck className="h-3.5 w-3.5" aria-hidden /> Mark all read
+            </button>
+          )}
         </div>
-      )}
+        <div className="max-h-96 overflow-y-auto">
+          {items === null && (
+            <p className="px-3 py-6 text-center text-sm text-slate-500">Loading…</p>
+          )}
+          {items !== null && items.length === 0 && (
+            <p className="px-3 py-6 text-center text-sm text-slate-500">
+              You're all caught up.
+            </p>
+          )}
+          {items?.map((item) => (
+            <NotificationRow key={item.id} item={item} onOpen={openItem} dense />
+          ))}
+        </div>
+        <div className="flex items-center justify-between border-t border-slate-100 px-3 py-2 text-xs">
+          <Link
+            href="/notifications"
+            onClick={() => setOpen(false)}
+            className="font-medium text-compass-600 hover:text-compass-700"
+          >
+            See all notifications
+          </Link>
+          <Link
+            href="/account/notifications"
+            onClick={() => setOpen(false)}
+            className="text-slate-500 hover:text-slate-700"
+          >
+            Preferences
+          </Link>
+        </div>
+      </Popover>
     </div>
   );
 }

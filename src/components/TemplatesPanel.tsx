@@ -9,6 +9,7 @@ import {
   EyeOff,
   LayoutTemplate,
   LoaderCircle,
+  Plus,
   RotateCcw,
   SquarePen,
   Trash2,
@@ -77,7 +78,7 @@ export function TemplatesPanel({ initial }: { initial: TemplateRow[] }) {
             }}
             className={buttonClass("primary")}
           >
-            ＋ New template
+            <Plus className="h-4 w-4" aria-hidden /> New template
           </button>
         )}
       </div>

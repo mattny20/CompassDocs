@@ -215,7 +215,7 @@ function TrendChart({ series, compact = false }: { series: SeriesPoint[]; compac
       </svg>
       {p && (
         <div
-          className="pointer-events-none absolute top-1 z-10 rounded-lg border border-slate-200 bg-surface px-3 py-2 text-xs shadow-md"
+          className="pointer-events-none absolute top-1 z-10 rounded-lg border border-slate-200 bg-surface px-3 py-2 text-xs shadow-float"
           style={{ left: `${Math.min(82, Math.max(2, (x(hover!) / W) * 100))}%` }}
         >
           <div className="font-semibold text-slate-700">{fmt.dayShort(p.day)}</div>

@@ -10,7 +10,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { buttonClass } from "@/components/Button";
 import Script from "next/script";
 import ReactMarkdown from "react-markdown";
-import { Search, Sparkles, ExternalLink, CornerDownLeft, LogOut } from "lucide-react";
+import { Search, Sparkles, ExternalLink, CornerDownLeft, LogOut, Check } from "lucide-react";
 import { safeSnippet } from "@/lib/snippet";
 
 /* global Office */
@@ -416,8 +416,8 @@ export function AddinAuthClient({ authed }: { authed: boolean }) {
           <img src="/addin/icon-32.png" alt="" className="h-6 w-6" /> CompassDocs
         </p>
         {done ? (
-          <p className="text-sm text-slate-600">
-            ✓ Signed in. You can close this window and return to Outlook.
+          <p className="inline-flex items-center gap-1.5 text-sm text-slate-600">
+            <Check className="h-4 w-4 shrink-0" aria-hidden /> Signed in. You can close this window and return to Outlook.
           </p>
         ) : (
           <form onSubmit={submit} className="space-y-3">

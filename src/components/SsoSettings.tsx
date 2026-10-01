@@ -5,6 +5,7 @@
 // license nudge; licensed → the OIDC configuration form.
 
 import { useState } from "react";
+import { Check } from "lucide-react";
 import { EnterpriseBadge } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import { MsDeviceSetup } from "./MsDeviceSetup";
@@ -166,7 +167,7 @@ export function SsoSettings({ initial }: { initial: SsoState }) {
               <>
                 Client secret{" "}
                 {s.has_secret && !secret ? (
-                  <span className="text-emerald-600">(stored ✓ — paste to replace)</span>
+                  <span className="inline-flex items-center gap-1 text-emerald-600"><Check className="h-3.5 w-3.5" aria-hidden /> (stored — paste to replace)</span>
                 ) : (
                   ""
                 )}

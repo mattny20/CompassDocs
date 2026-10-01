@@ -52,6 +52,13 @@
   --container-sidebar: 16rem;
   --container-sidebar-rail: 4rem;
   --container-rail: 13rem;
+
+  /* Three elevation tiers (STYLEGUIDE §Overlays): a resting card, a
+   * floating panel (menu, popover, dropdown, toast), a modal. Four menu
+   * recipes used four shadows before these existed. */
+  --shadow-card: 0 1px 2px 0 rgb(15 23 42 / 0.05);
+  --shadow-float: 0 10px 24px -8px rgb(15 23 42 / 0.18), 0 2px 6px -1px rgb(15 23 42 / 0.08);
+  --shadow-modal: 0 24px 48px -12px rgb(15 23 42 / 0.28), 0 8px 16px -4px rgb(15 23 42 / 0.12);
 }
 
 /* A card grid sized by the column it is in, not the viewport (STYLEGUIDE

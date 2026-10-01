@@ -5,6 +5,7 @@
 // they embed the channel secret — so the list shows a masked preview.
 
 import { useState } from "react";
+import { Check } from "lucide-react";
 import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import { toast } from "@/components/Toasts";
@@ -347,7 +348,7 @@ export function SmtpPanel({ initial }: { initial: SmtpState }) {
         </Field>
         <Field
           label={
-            <>Password {s.has_pass && !pass ? <span className="text-emerald-600">(stored ✓)</span> : ""}</>
+            <>Password {s.has_pass && !pass ? <span className="inline-flex items-center gap-1 text-emerald-600"><Check className="h-3.5 w-3.5" aria-hidden /> (stored)</span> : ""}</>
           }
         >
           <TextInput type="password" value={pass} onChange={(e) => setPass(e.target.value)} placeholder={s.has_pass ? "••••••••" : ""} autoComplete="off" />

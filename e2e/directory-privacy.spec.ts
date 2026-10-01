@@ -124,7 +124,7 @@ test("a preset can zip one file per office, lay people out as photo cards, and c
     await expect(page.getByText("Every Friday at 07:00 UTC")).toBeVisible();
     await page.goto("/directory");
     await page.getByRole("button", { name: /Export/ }).click();
-    await expect(page.getByRole("button", { name: new RegExp(`E2E Who's who ${stamp}`) })).toContainText("ZIP");
+    await expect(page.getByRole("menuitem", { name: new RegExp(`E2E Who's who ${stamp}`) })).toContainText("ZIP");
   } finally {
     await api(page, "/api/admin/directory/export-presets", { method: "PUT", body: { presets } });
     for (const id of [a.id, b.id]) await api(page, `/api/admin/directory/people/${id}`, { method: "DELETE" });

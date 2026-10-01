@@ -125,6 +125,24 @@ describe("style drift guard", () => {
     assert.deepEqual(hits, [], `hand-written chip — use <Chip tone> / chipClass():\n${hits.join("\n")}`);
   });
 
+  test("no typed glyphs where an icon belongs (§Icons)", () => {
+    // ＋ ✓ ✨ ⬇ 📋 ○ as control text sit off the baseline, ignore the
+    // accent and vary by OS. Emoji that are content (space icons chosen by
+    // people) and the keycap map are the exceptions.
+    const ALLOW = ["components/SpaceIconPicker.tsx", "components/palette/Kbd.tsx"];
+    // The u flag keeps the astral 📋 from matching every emoji sharing its
+    // high surrogate.
+    const hits = offenders(/[＋✓✨⬇📋○]/u, (file) => file.endsWith(".tsx") && !ALLOW.some((a) => file.endsWith(a)));
+    assert.deepEqual(hits, [], `typed glyph — use a lucide icon (Plus, Check, Sparkles, …):\n${hits.join("\n")}`);
+  });
+
+  test("floating panels use the float tier, not an ad-hoc shadow (§Overlays)", () => {
+    const hits = offenders(/\babsolute\b[^"'`\n]*\bshadow-(?:lg|xl|md)\b|\bshadow-(?:lg|xl|md)\b[^"'`\n]*\babsolute\b/, (file) =>
+      file.endsWith(".tsx") && !file.endsWith("components/Popover.tsx")
+    );
+    assert.deepEqual(hits, [], `hand-written floating panel — use <Popover> (shadow-float):\n${hits.join("\n")}`);
+  });
+
   test("bg-white only where white is literal (brand tiles, QR, media stages, email previews)", () => {
     const ALLOW = [
       "components/Brand.tsx",

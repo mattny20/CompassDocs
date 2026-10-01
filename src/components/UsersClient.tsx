@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { buttonClass } from "@/components/Button";
 import { Chip, labelCase } from "@/components/Chip";
+import { Table, Th, Td, TABLE_HEAD_ROW, TR } from "@/components/Table";
+import { Plus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { ROLE_ORDER, ROLE_LABEL, ROLE_BLURB } from "@/lib/types";
 import type { User, Role } from "@/lib/types";
@@ -130,17 +132,17 @@ function UserTable({
       />
     {/* Scrolls rather than clips: below ~1180px the Status and Actions columns
         (Reset password / Disable / Delete) used to be unreachable entirely. */}
-    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-surface shadow-xs">
-      <table className="w-full min-w-[45rem] text-sm">
-        <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+    <div className="rounded-xl border border-slate-200 bg-surface shadow-xs">
+      <Table scroll minWidth="45rem">
+        <thead className={TABLE_HEAD_ROW}>
           <tr>
-            <th className="px-4 py-2 font-medium">User</th>
-            <th className="px-4 py-2 font-medium">Role</th>
-            <th className="px-4 py-2 font-medium">Status</th>
-            <th className="px-4 py-2 text-right font-medium">Actions</th>
+            <Th>User</Th>
+            <Th>Role</Th>
+            <Th fit>Status</Th>
+            <Th fit align="right">Actions</Th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-100">
+        <tbody>
           {users.length === 0 && (
             <tr>
               <td colSpan={4} className="px-4 py-10 text-center text-sm text-slate-500">
@@ -149,8 +151,8 @@ function UserTable({
             </tr>
           )}
           {users.map((u) => (
-            <tr key={u.id} className={busyId === u.id ? "opacity-50" : ""}>
-              <td className="px-4 py-3">
+            <tr key={u.id} className={`${TR} ${busyId === u.id ? "opacity-50" : ""}`.trim()}>
+              <Td>
                 <div className="font-medium text-slate-800">
                   {u.name || u.username}
                   {u.id === currentUserId && (
@@ -158,8 +160,8 @@ function UserTable({
                   )}
                 </div>
                 <div className="text-xs text-slate-500">@{u.username}</div>
-              </td>
-              <td className="px-4 py-3">
+              </Td>
+              <Td>
                 <select
                   value={u.role}
                   onChange={(e) => changeRole(u.id, e.target.value as Role)}
@@ -184,11 +186,11 @@ function UserTable({
                     ))}
                   </div>
                 )}
-              </td>
-              <td className="px-4 py-3">
+              </Td>
+              <Td fit>
                 <Chip tone={u.status === "active" ? "ok" : "neutral"}>{labelCase(u.status)}</Chip>
-              </td>
-              <td className="px-4 py-3">
+              </Td>
+              <Td fit>
                 <div className="flex justify-end gap-1.5 text-xs">
                   <button
                     onClick={() => resetPassword(u)}
@@ -223,11 +225,11 @@ function UserTable({
                     </button>
                   )}
                 </div>
-              </td>
+              </Td>
             </tr>
           ))}
         </tbody>
-      </table>
+      </Table>
     </div>
     </div>
   );
@@ -273,7 +275,7 @@ function CreateUser() {
         onClick={() => setOpen(true)}
         className={buttonClass("primary", "md", "mt-4")}
       >
-        ＋ Add user
+        <Plus className="h-4 w-4" aria-hidden /> Add user
       </button>
     );
   }

@@ -19,6 +19,7 @@ import {
   Mail,
   Save,
   CalendarClock,
+  Check,
   X,
   Paperclip,
 } from "lucide-react";
@@ -670,7 +671,7 @@ export function NewsletterWorkspace({
       )}
 
       {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
-      {notice && <p className="text-sm text-emerald-600 dark:text-emerald-400">✓ {notice}</p>}
+      {notice && <p className="inline-flex items-center gap-1.5 text-sm text-emerald-600 dark:text-emerald-400"><Check className="inline h-4 w-4" aria-hidden /> {notice}</p>}
 
       {/* Action bar: what you can do next, given the state and your capability. */}
       {!isSent && (

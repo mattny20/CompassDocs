@@ -5,7 +5,9 @@ import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ListChecks, ShieldCheck, SquareSplitVertical, Table as TableIcon, X } from "lucide-react";
+import { ChevronDown, ClipboardCheck, House, ListChecks, ShieldCheck, Sparkles, SquareSplitVertical, Table as TableIcon, X } from "lucide-react";
+import { EmptyState } from "./form";
+import { Popover } from "./Popover";
 import { EntityPicker } from "./EntityPicker";
 import { MarkdownView } from "./MarkdownView";
 import { PageWidth } from "./PageWidth";
@@ -334,6 +336,7 @@ export function DocEditor({
 
   // AI writing-assist state.
   const [assistMenu, setAssistMenu] = useState(false);
+  const assistBtnRef = useRef<HTMLButtonElement>(null);
   const [assisting, setAssisting] = useState<string>("");
   const [assist, setAssist] = useState<{ action: WriteAction; text: string; truncated?: boolean } | null>(null);
   const [assistError, setAssistError] = useState("");
@@ -586,26 +589,22 @@ export function DocEditor({
 
   if (submittedDocId !== null) {
     return (
-      <div className="mx-auto max-w-lg px-8 py-16 text-center">
-        <div className="mb-3 text-4xl">📋</div>
-        <h1 className="text-xl font-bold text-slate-900">Submitted for review</h1>
-        <p className="mt-2 text-slate-500">
-          Your change was sent to the review queue. An approver or admin will publish it.
-        </p>
-        <div className="mt-6 flex justify-center gap-2">
-          <Link
-            href={`/doc/${submittedDocId}`}
-            className={buttonClass("secondary")}
-          >
-            View document
-          </Link>
-          <Link
-            href="/"
-            className={buttonClass("primary")}
-          >
-            Back to dashboard
-          </Link>
-        </div>
+      <div className="mx-auto max-w-lg px-8 py-16">
+        {/* The shared empty-state tiers (icon, headline, sentence, action):
+            this screen used to be a typed clipboard glyph over a hand-built box. The
+            headline is a status, so it stays below the page's h1 ladder. */}
+        <EmptyState
+          icon={<ClipboardCheck />}
+          title="Submitted for review"
+          body="Your change was sent to the review queue. An approver or admin will publish it."
+          action={{ href: "/", label: "Back to dashboard", icon: <House /> }}
+        >
+          <div className="mt-4">
+            <Link href={`/doc/${submittedDocId}`} className="link font-medium">
+              View document
+            </Link>
+          </div>
+        </EmptyState>
       </div>
     );
   }
@@ -944,6 +943,7 @@ export function DocEditor({
             <span className="relative z-30 ml-auto flex items-center gap-1">
               <div className="relative">
                 <button
+                  ref={assistBtnRef}
                   type="button"
                   onClick={() => setAssistMenu((o) => !o)}
                   disabled={!!assisting}
@@ -952,48 +952,50 @@ export function DocEditor({
                   data-tt="Draft, rewrite, or summarize with AI" aria-label="Draft, rewrite, or summarize with AI"
                   className="flex items-center gap-1 rounded-md px-2.5 py-1 text-sm font-medium text-compass-700 hover:bg-compass-50 disabled:opacity-50"
                 >
-                  {assisting ? "Writing…" : "✨ Write ▾"}
+                  {assisting ? (
+                    "Writing…"
+                  ) : (
+                    <>
+                      <Sparkles className="h-4 w-4" aria-hidden /> Write <ChevronDown className="h-3.5 w-3.5" aria-hidden />
+                    </>
+                  )}
                 </button>
-                {assistMenu && (
-                  <>
-                    <button
-                      type="button"
-                      aria-hidden
-                      tabIndex={-1}
-                      onClick={() => setAssistMenu(false)}
-                      className="fixed inset-0 z-10 cursor-default"
-                    />
-                    <div
-                      role="menu"
-                      className="absolute right-0 z-20 mt-1 w-52 rounded-lg border border-slate-200 bg-surface py-1 text-sm shadow-lg"
-                    >
-                      <AssistItem onClick={() => runAssist("draft")} disabled={!title.trim()}>
-                        Draft from title
-                      </AssistItem>
-                      <AssistItem onClick={() => runAssist("improve")} disabled={!content.trim()}>
-                        Improve writing
-                      </AssistItem>
-                      <AssistItem onClick={() => runAssist("expand")} disabled={!content.trim()}>
-                        Expand
-                      </AssistItem>
-                      <AssistItem onClick={() => runAssist("shorten")} disabled={!content.trim()}>
-                        Make shorter
-                      </AssistItem>
-                      <AssistItem onClick={() => runAssist("summarize")} disabled={!content.trim()}>
-                        Summarize → summary field
-                      </AssistItem>
-                      <div className="my-1 border-t border-slate-100" />
-                      <div className="px-3 py-1 text-xs font-semibold uppercase tracking-wider text-slate-500">
-                        Change tone
-                      </div>
-                      {(["professional", "friendly", "concise", "confident"] as WriteTone[]).map((t) => (
-                        <AssistItem key={t} onClick={() => runAssist("tone", t)} disabled={!content.trim()}>
-                          <span className="capitalize">{t}</span>
-                        </AssistItem>
-                      ))}
-                    </div>
-                  </>
-                )}
+                <Popover
+                  open={assistMenu}
+                  onClose={() => setAssistMenu(false)}
+                  triggerRef={assistBtnRef}
+                  role="menu"
+                  label="Write with AI"
+                  align="end"
+                  width="w-52"
+                  padding="py-1"
+                  className="text-sm"
+                >
+                  <AssistItem onClick={() => runAssist("draft")} disabled={!title.trim()}>
+                    Draft from title
+                  </AssistItem>
+                  <AssistItem onClick={() => runAssist("improve")} disabled={!content.trim()}>
+                    Improve writing
+                  </AssistItem>
+                  <AssistItem onClick={() => runAssist("expand")} disabled={!content.trim()}>
+                    Expand
+                  </AssistItem>
+                  <AssistItem onClick={() => runAssist("shorten")} disabled={!content.trim()}>
+                    Make shorter
+                  </AssistItem>
+                  <AssistItem onClick={() => runAssist("summarize")} disabled={!content.trim()}>
+                    Summarize → summary field
+                  </AssistItem>
+                  <div className="my-1 border-t border-slate-100" />
+                  <div className="px-3 py-1 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                    Change tone
+                  </div>
+                  {(["professional", "friendly", "concise", "confident"] as WriteTone[]).map((t) => (
+                    <AssistItem key={t} onClick={() => runAssist("tone", t)} disabled={!content.trim()}>
+                      <span className="capitalize">{t}</span>
+                    </AssistItem>
+                  ))}
+                </Popover>
               </div>
               <button
                 type="button"
@@ -1002,7 +1004,13 @@ export function DocEditor({
                 data-tt="Check grammar, spelling, and clarity with AI" aria-label="Check grammar, spelling, and clarity with AI"
                 className="mr-1 flex items-center gap-1 rounded-md px-2.5 py-1 text-sm font-medium text-compass-700 hover:bg-compass-50 disabled:opacity-50"
               >
-                {proofing ? "Proofreading…" : "✨ Proofread"}
+                {proofing ? (
+                  "Proofreading…"
+                ) : (
+                  <>
+                    <Sparkles className="h-4 w-4" aria-hidden /> Proofread
+                  </>
+                )}
               </button>
             </span>
           </div>
@@ -1146,7 +1154,9 @@ function AssistPanel({
   return (
     <div className="rounded-lg border border-compass-200 bg-compass-50/60">
       <div className="flex items-center gap-2 border-b border-compass-100 px-4 py-2">
-        <span className="text-sm font-semibold text-compass-800">✨ {ASSIST_LABEL[action]}</span>
+        <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-compass-800">
+          <Sparkles className="h-4 w-4" aria-hidden /> {ASSIST_LABEL[action]}
+        </span>
         <span className="ml-auto flex gap-2">
           <button
             type="button"
@@ -1210,8 +1220,8 @@ function ProofPanel({
   return (
     <div className="rounded-xl border border-compass-200 bg-compass-50/50 p-4">
       <div className="mb-3 flex items-center justify-between gap-3">
-        <h3 className="font-semibold text-slate-900">
-          ✨ Proofreading {hasChanges ? `— ${proof.changes!.length} suggestion${proof.changes!.length === 1 ? "" : "s"}` : ""}
+        <h3 className="flex items-center gap-1.5 font-semibold text-slate-900">
+          <Sparkles className="h-4 w-4" aria-hidden /> Proofreading {hasChanges ? `— ${proof.changes!.length} suggestion${proof.changes!.length === 1 ? "" : "s"}` : ""}
         </h3>
         <div className="flex items-center gap-2">
           {hasChanges && (

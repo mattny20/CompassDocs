@@ -9,7 +9,7 @@ import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ChevronDown, ChevronRight, ChevronUp, FileText, ListTree } from "lucide-react";
+import { ChevronDown, ChevronRight, ChevronUp, FileText, ListTree, Plus } from "lucide-react";
 import { usePanelCollapse } from "@/lib/use-panel-collapse";
 
 export interface SubPage {
@@ -81,7 +81,7 @@ export function SubPages({
             data-tt="New sub-page" aria-label="New sub-page"
             className={buttonClass("secondary", "sm")}
           >
-            {"＋ New"}
+            <Plus className="h-3.5 w-3.5" aria-hidden /> New page
           </Link>
         )}
       </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   LayoutGrid,
@@ -41,6 +41,8 @@ import {
   milestonesFor,
 } from "@/lib/directory-display";
 import { EmptyState } from "./form";
+import { Popover, MenuItem, MenuSeparator } from "./Popover";
+import { Table, Th, Td, TABLE_HEAD_ROW, TR } from "./Table";
 import { OrgChart } from "./directory/OrgChart";
 import { PresenceDot, presenceLabel, usePresence, type PresenceEntry } from "./directory/Presence";
 import { managerField } from "@/lib/directory-org";
@@ -51,6 +53,9 @@ const field =
   "rounded-lg border border-slate-200 px-3 py-2 text-sm outline-hidden focus:border-compass-400 focus:ring-2 focus:ring-compass-100";
 const menuBtn =
   "rounded-lg border border-slate-200 bg-surface px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50";
+/** The trailing PDF/ZIP/CSV/VCF tag on an export row, right-aligned inside
+ *  the row's truncating label. */
+const exportKind = "float-right ml-2 text-2xs font-semibold uppercase tracking-wider text-slate-500";
 
 export type View = "cards" | "list" | "groups" | "org";
 const VIEWS: { id: View; label: string; icon: React.ReactNode }[] = [
@@ -158,6 +163,8 @@ export function DirectoryClient({
   const [cols, setCols] = useState<string[]>(defaultColumns);
   const [colsOpen, setColsOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const colsBtnRef = useRef<HTMLButtonElement>(null);
+  const exportBtnRef = useRef<HTMLButtonElement>(null);
   const [sortBy, setSortBy] = useState("name");
   const [sortDir, setSortDir] = useState<1 | -1>(1);
   const [groupBy, setGroupBy] = useState(defaultGroupBy);
@@ -654,83 +661,103 @@ export function DirectoryClient({
 
         {view === "list" && (
           <div className="relative">
-            <button onClick={() => { setColsOpen((o) => !o); setExportOpen(false); }} className={menuBtn} aria-expanded={colsOpen}>
+            <button ref={colsBtnRef} onClick={() => setColsOpen((o) => !o)} className={menuBtn} aria-expanded={colsOpen} aria-haspopup="dialog">
               Columns <ChevronDown className="inline h-3.5 w-3.5" aria-hidden />
             </button>
-            {colsOpen && (
-              <div className="absolute z-20 mt-1 max-h-96 w-64 overflow-y-auto rounded-lg border border-slate-200 bg-surface p-2 shadow-lg">
-                {allColumns.map((c) => (
-                  <label key={c.key} className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-50">
-                    <input
-                      type="checkbox"
-                      checked={cols.includes(c.key)}
-                      onChange={(e) =>
-                        saveCols(e.target.checked ? [...cols, c.key] : cols.length > 1 ? cols.filter((x) => x !== c.key) : cols)
-                      }
-                    />
-                    <span className="flex-1">{c.label}</span>
-                    <span className="text-xs text-slate-500" data-tt="How many people have a value">
-                      {initialPeople.filter((p) => cellValue(p, c.key, fields)).length}
-                    </span>
-                  </label>
-                ))}
-                <button className="mt-1 w-full rounded-sm px-2 py-1.5 text-left text-xs font-medium text-compass-600 hover:bg-slate-50" onClick={() => saveCols(defaultColumns)}>
-                  Reset to defaults
-                </button>
-              </div>
-            )}
+            <Popover
+              open={colsOpen}
+              onClose={() => setColsOpen(false)}
+              triggerRef={colsBtnRef}
+              role="group"
+              label="Columns"
+              width="w-64"
+              padding="p-2"
+              className="max-h-96 overflow-y-auto"
+            >
+              {allColumns.map((c) => (
+                <label key={c.key} className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-50">
+                  <input
+                    type="checkbox"
+                    checked={cols.includes(c.key)}
+                    onChange={(e) =>
+                      saveCols(e.target.checked ? [...cols, c.key] : cols.length > 1 ? cols.filter((x) => x !== c.key) : cols)
+                    }
+                  />
+                  <span className="flex-1">{c.label}</span>
+                  <span className="text-xs text-slate-500" data-tt="How many people have a value">
+                    {initialPeople.filter((p) => cellValue(p, c.key, fields)).length}
+                  </span>
+                </label>
+              ))}
+              <button className="mt-1 w-full rounded-sm px-2 py-1.5 text-left text-xs font-medium text-compass-600 hover:bg-slate-50" onClick={() => saveCols(defaultColumns)}>
+                Reset to defaults
+              </button>
+            </Popover>
           </div>
         )}
 
         <div className="relative">
           <button
-            onClick={() => { setExportOpen((o) => !o); setColsOpen(false); }}
+            ref={exportBtnRef}
+            onClick={() => setExportOpen((o) => !o)}
             className={menuBtn}
             aria-expanded={exportOpen}
+            aria-haspopup="menu"
             disabled={exporting}
           >
             <span className="inline-flex items-center gap-1.5">
               <Download className="h-4 w-4" aria-hidden /> {exporting ? "Exporting…" : "Export"} <ChevronDown className="h-3.5 w-3.5" aria-hidden />
             </span>
           </button>
-          {exportOpen && (
-            <div className="absolute right-0 z-20 mt-1 w-64 rounded-lg border border-slate-200 bg-surface p-1 shadow-lg">
-              {presets.map((pr) => (
-                <button key={pr.id} className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50" onClick={() => exportNow({ preset: pr.id }, "pdf")} data-tt={pr.split_by ? "A zip with one PDF per value" : pr.layout === "cards" ? "Photo cards" : ""}>
-                  {pr.layout === "cards" ? <LayoutGrid className="h-4 w-4 text-slate-400" aria-hidden /> : <FileText className="h-4 w-4 text-slate-400" aria-hidden />}
-                  <span className="flex-1 truncate">{pr.name}</span>
-                  <span className="text-2xs font-semibold uppercase tracking-wider text-slate-500">{pr.split_by ? "ZIP" : "PDF"}</span>
-                </button>
-              ))}
-              <div className="my-1 border-t border-slate-100" />
-              <button className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50" onClick={() => whatISee("pdf")}>
-                <FileText className="h-4 w-4 text-slate-400" aria-hidden /> <span className="flex-1">What I see</span>
-                <span className="text-2xs font-semibold uppercase tracking-wider text-slate-500">PDF</span>
-              </button>
-              <button className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50" onClick={() => whatISee("csv")}>
-                <Table2 className="h-4 w-4 text-slate-400" aria-hidden /> <span className="flex-1">What I see</span>
-                <span className="text-2xs font-semibold uppercase tracking-wider text-slate-500">CSV</span>
-              </button>
-              <button className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50" onClick={() => whatISee("vcf")}>
-                <Contact className="h-4 w-4 text-slate-400" aria-hidden /> <span className="flex-1">What I see, as contacts</span>
-                <span className="text-2xs font-semibold uppercase tracking-wider text-slate-500">VCF</span>
-              </button>
-              <label className="flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50">
-                <input
-                  type="checkbox"
-                  checked={officeInfo}
-                  onChange={(e) => { setOfficeInfo(e.target.checked); writeJson(LS_OFFICE_INFO, e.target.checked); }}
-                  className="h-3.5 w-3.5 accent-compass-600"
-                />
-                <span className="flex-1">Office information</span>
-                <span className="text-2xs font-semibold uppercase tracking-wider text-slate-500">PDF</span>
-              </label>
-              <div className="my-1 border-t border-slate-100" />
-              <button className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50" onClick={() => { setExportOpen(false); window.print(); }}>
-                <Printer className="h-4 w-4 text-slate-400" aria-hidden /> Print…
-              </button>
-            </div>
-          )}
+          <Popover
+            open={exportOpen}
+            onClose={() => setExportOpen(false)}
+            triggerRef={exportBtnRef}
+            role="menu"
+            label="Export"
+            align="end"
+            width="w-64"
+            padding="p-1"
+          >
+            {presets.map((pr) => (
+              <MenuItem
+                key={pr.id}
+                icon={pr.layout === "cards" ? <LayoutGrid /> : <FileText />}
+                onClick={() => exportNow({ preset: pr.id }, "pdf")}
+                data-tt={pr.split_by ? "A zip with one PDF per value" : pr.layout === "cards" ? "Photo cards" : ""}
+              >
+                {pr.name}
+                <span className={exportKind}>{pr.split_by ? "ZIP" : "PDF"}</span>
+              </MenuItem>
+            ))}
+            <MenuSeparator />
+            <MenuItem icon={<FileText />} onClick={() => whatISee("pdf")}>
+              What I see
+              <span className={exportKind}>PDF</span>
+            </MenuItem>
+            <MenuItem icon={<Table2 />} onClick={() => whatISee("csv")}>
+              What I see
+              <span className={exportKind}>CSV</span>
+            </MenuItem>
+            <MenuItem icon={<Contact />} onClick={() => whatISee("vcf")}>
+              What I see, as contacts
+              <span className={exportKind}>VCF</span>
+            </MenuItem>
+            <label className="flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50">
+              <input
+                type="checkbox"
+                checked={officeInfo}
+                onChange={(e) => { setOfficeInfo(e.target.checked); writeJson(LS_OFFICE_INFO, e.target.checked); }}
+                className="h-3.5 w-3.5 accent-compass-600"
+              />
+              <span className="flex-1">Office information</span>
+              <span className="text-2xs font-semibold uppercase tracking-wider text-slate-500">PDF</span>
+            </label>
+            <MenuSeparator />
+            <MenuItem icon={<Printer />} onClick={() => { setExportOpen(false); window.print(); }}>
+              Print…
+            </MenuItem>
+          </Popover>
         </div>
 
         <span className="ml-auto text-sm text-slate-500">
@@ -772,32 +799,29 @@ export function DirectoryClient({
         <OrgChart people={initialPeople} fields={fields} matches={q.trim() || filterValue ? new Set(people.map((p) => p.id)) : null} focusId={focus} isAdmin={isAdmin} />
       ) : view === "list" ? (
         /* ------------------------------ LIST ------------------------------ */
-        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-surface shadow-xs">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-100 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
-                <th className="w-8 px-2 py-2.5" aria-label="Pin" />
+        <div className="rounded-xl border border-slate-200 bg-surface shadow-xs">
+          <Table scroll>
+            <thead className={TABLE_HEAD_ROW}>
+              <tr>
+                <Th fit aria-label="Pin" />
                 {activeColumns.map((c) => (
-                  <th key={c.key} className="select-none px-4 py-2.5" aria-sort={sortBy === c.key ? (sortDir === 1 ? "ascending" : "descending") : "none"}>
-                    <button type="button" onClick={() => clickSort(c.key)} className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wider hover:text-slate-600">
-                      {columnLabel(c.key, fields)}
-                      <span aria-hidden>{sortBy === c.key ? (sortDir === 1 ? "↑" : "↓") : ""}</span>
-                    </button>
-                  </th>
+                  <Th key={c.key} sort={{ key: c.key, by: sortBy, dir: sortDir === 1 ? "asc" : "desc", onSort: clickSort }}>
+                    {columnLabel(c.key, fields)}
+                  </Th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {[...pinned, ...people.filter((p) => p.pin_order == null)].map((p) => (
-                <tr key={p.id} className={`border-b border-slate-50 hover:bg-slate-50/60 ${p.pin_order != null ? "bg-compass-50/30" : ""}`}>
-                  <td className="px-2 py-2.5"><PinButton p={p} /></td>
+                <tr key={p.id} className={`${TR} ${p.pin_order != null ? "bg-compass-50/30" : ""}`.trim()}>
+                  <Td fit><PinButton p={p} /></Td>
                   {activeColumns.map((c) => (
-                    <td key={c.key} className="px-4 py-2.5 align-top">{renderCell(p, c.key)}</td>
+                    <Td key={c.key} className="align-top">{renderCell(p, c.key)}</Td>
                   ))}
                 </tr>
               ))}
             </tbody>
-          </table>
+          </Table>
         </div>
       ) : view === "groups" ? (
         /* ------------------------------ GROUPS ---------------------------- */

@@ -73,7 +73,7 @@ export default async function SpacePage({ params }: { params: Promise<{ slug: st
           </div>
         </div>
         {/* No shrink-0: on a phone this group wraps below the title instead of
-            sliding "＋ New in …" off the right edge. */}
+            sliding the "New in …" button off the right edge. */}
         <div className="flex flex-wrap items-center gap-2">
           <SubscribeButton
             spaceId={space.id}
@@ -85,7 +85,7 @@ export default async function SpacePage({ params }: { params: Promise<{ slug: st
               href={`/doc/new?space=${space.slug}`}
               className={buttonClass("primary")}
             >
-              ＋ New in {space.name}
+              <Plus className="h-4 w-4" aria-hidden /> New in {space.name}
             </Link>
           )}
         </div>

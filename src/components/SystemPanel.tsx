@@ -2,6 +2,7 @@ import type { SystemInfo } from "@/lib/system-info";
 import type { AppSettings } from "@/lib/settings";
 import { formatDateTime } from "@/lib/format";
 import { RefreshButton } from "./RefreshButton";
+import { Check, Circle } from "lucide-react";
 
 function bytes(n: number | null): string {
   if (n == null) return "—";
@@ -113,11 +114,11 @@ export function SystemPanel({ info, settings }: { info: SystemInfo; settings: Ap
             {s.destinations.map((d) => (
               <span
                 key={d.key}
-                className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
                   d.configured ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"
                 }`}
               >
-                {d.configured ? "✓" : "○"} {d.label}
+                {d.configured ? <Check className="h-3.5 w-3.5" aria-hidden /> : <Circle className="h-3.5 w-3.5" aria-hidden />} {d.label}
               </span>
             ))}
           </div>

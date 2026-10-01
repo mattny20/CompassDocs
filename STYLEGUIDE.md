@@ -451,10 +451,16 @@ text-slate-500` before them ("Notary · Phoenix").
   tabular numerals from `globals.css`, so dates, counts and versions line
   up without opting in. Wrap a table that can outgrow its card in
   `<TableWrap>` so it scrolls sideways instead of breaking the page.
-- Sorting (`aria-sort`, icons rather than text arrows), sticky headers
-  where the table is not its own scroll container, row hover and the fit
-  mode for narrow columns arrive with the `Table` primitive in 1.6.2;
-  until then keep headers as plain text or the existing header buttons.
+- `<Table scroll minWidth>` wraps a wide table in a sideways scroll
+  container; `<Table sticky>` keeps the header on screen while the page
+  scrolls (never both: a sticky header inside a scroll wrapper sticks to
+  the wrapper, not the page). `<Th sort={{ key, by, dir, onSort }}>` is a
+  real button with `aria-sort` and a lucide icon (never a typed arrow);
+  `<Th fit>` / `<Td fit>` shrink a column to its content (dates, counts,
+  actions) so the primary column takes the slack; `TR` carries the hover
+  band. Row actions: rare destructive actions keep text buttons (Users,
+  Trash); dense admin lists use icon buttons with a separator before
+  Delete (People admin).
 
 ## Feedback
 
@@ -489,9 +495,17 @@ per-route variants:
 ## Icons
 
 - **lucide-react only** — no emoji in UI or marketing-site icons, no other
-  icon sets.
+  icon sets, and **no typed glyphs** as control text: "＋ New" is
+  `<Plus /> New`, "Copied ✓" is `<Check /> Copied`, "✨ Write" is
+  `<Sparkles /> Write`. Typed characters sit off the baseline, ignore the
+  accent and vary by OS; a guard test keeps them out. The exceptions are
+  emoji that are content (space icons people chose) and the keycap map.
 - Sizes: page title `h-6 w-6`, section heading `h-4 w-4`, inline/button
   `h-4 w-4`, chip/tiny `h-3 w-3` or `h-3.5 w-3.5`.
+- **Vocabulary:** a control that opens an editor or a new screen says
+  **New …** ("New document", "New role", "New newsletter"); a control that
+  appends a row or item in place says **Add …** ("Add link", "Add file",
+  "Add user"). Never "＋ Link".
 
 ## Overlays and modals
 
@@ -504,6 +518,16 @@ per-route variants:
 - Use `useModalOverlay` (`components/overlay`): it registers the layer on
   the LIFO overlay stack, sets `inert` + `aria-hidden` on the background,
   locks scroll, and hands focus back to whatever opened it.
+- **Floating panels** (a menu, a column picker, a QR card, the bell) are
+  `<Popover open onClose triggerRef role label align side width>` from
+  `components/Popover`, with `MenuItem` / `MenuSeparator` for menus: one
+  radius and padding, the float tier, outside-click, Escape through the
+  overlay stack, focus back to the trigger. The trigger carries
+  `aria-expanded` and `aria-haspopup`. Never hand-roll an `absolute …
+  shadow-lg` panel (a guard test fails the build).
+- **Three elevation tiers**, as tokens: `shadow-card` (`shadow-xs`, a
+  resting card), `shadow-float` (menus, popovers, dropdowns, toasts),
+  `shadow-modal` (dialogs, the palette). Nothing else casts a shadow.
 - **Escape belongs to the top-most layer only.** Anything that binds Escape
   globally must check `overlayOpen()` from `lib/overlay-stack` first.
 - Every overlay carries `role="dialog"`, `aria-modal="true"`, and an

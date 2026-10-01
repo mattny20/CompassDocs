@@ -5,6 +5,7 @@ import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import { toast } from "@/components/Toasts";
 import type { ImportResult } from "@/lib/transfer";
+import { Download } from "lucide-react";
 
 export function ImportExport() {
   const router = useRouter();
@@ -47,7 +48,7 @@ export function ImportExport() {
           href="/api/export"
           className={buttonClass("primary")}
         >
-          ⬇ Export all docs (.zip)
+          <Download className="h-4 w-4" aria-hidden /> Export all docs (.zip)
         </a>
       </div>
 

@@ -7,9 +7,10 @@
 import { useMemo, useState } from "react";
 import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
-import { Pin, ArrowUp, ArrowDown, Camera, Trash2 } from "lucide-react";
+import { Pin, PinOff, ArrowUp, ArrowDown, Camera, Trash2, Pencil, Eye, EyeOff } from "lucide-react";
 import { EntityPicker } from "@/components/EntityPicker";
 import { Field, TextInput } from "@/components/form";
+import { Table, Th, Td, TABLE_HEAD_ROW, TR } from "@/components/Table";
 import { toast } from "@/components/Toasts";
 import Link from "next/link";
 import type { DirectoryPerson, DirectoryField, LinkRow } from "@/lib/directory";
@@ -21,6 +22,8 @@ import { DirectoryImportPanel } from "./DirectoryImportPanel";
 
 const EMPTY_FORM = { name: "", title: "", department: "", email: "", phone: "", mobile: "", office: "" };
 const SOURCE_LABEL: Record<string, string> = { manual: "manual", graph: "Microsoft 365", google: "Google Workspace" };
+/** A 28px icon button for row actions; the label lives in data-tt + aria-label. */
+const ROW_ICON_BUTTON = "rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700";
 
 export function DirectoryPeoplePanel({
   initialPeople,
@@ -325,15 +328,15 @@ export function DirectoryPeoplePanel({
           <Link href="/admin/directory" className="font-medium underline">Show everyone</Link>
         </div>
       )}
-      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-surface shadow-xs">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-slate-100 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
-              <th className="px-4 py-2.5">Name</th>
-              <th className="px-4 py-2.5">Title / department</th>
-              <th className="px-4 py-2.5">Contact</th>
-              <th className="px-4 py-2.5">Source</th>
-              <th className="px-4 py-2.5" />
+      <div className="rounded-xl border border-slate-200 bg-surface shadow-xs">
+        <Table scroll>
+          <thead className={TABLE_HEAD_ROW}>
+            <tr>
+              <Th>Name</Th>
+              <Th>Title / department</Th>
+              <Th>Contact</Th>
+              <Th fit>Source</Th>
+              <Th fit align="right" />
             </tr>
           </thead>
           <tbody>
@@ -343,8 +346,8 @@ export function DirectoryPeoplePanel({
               </tr>
             )}
             {shown.map((p) => (
-              <tr key={p.id} className={`border-b border-slate-50 ${p.hidden ? "opacity-45" : ""}`}>
-                <td className="px-4 py-2.5 font-medium text-slate-900">
+              <tr key={p.id} className={`${TR} ${p.hidden ? "opacity-45" : ""}`.trim()}>
+                <Td className="font-medium text-slate-900">
                   {p.name}
                   {p.hidden ? <span className="ml-2 rounded-sm bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">hidden</span> : null}
                   {p.pin_order != null && (
@@ -354,39 +357,70 @@ export function DirectoryPeoplePanel({
                       <button type="button" onClick={() => movePin(p, 1)} className="text-compass-400 hover:text-compass-700" data-tt="Move down" aria-label={`Move ${p.name} down among pinned`}><ArrowDown className="h-3 w-3" /></button>
                     </span>
                   )}
-                </td>
-                <td className="px-4 py-2.5 text-slate-500">
+                </Td>
+                <Td className="text-slate-500">
                   {p.title}
                   {p.title && p.department ? " · " : ""}
                   {p.department}
-                </td>
-                <td className="px-4 py-2.5 text-slate-500">{[p.email, p.phone || p.mobile].filter(Boolean).join(" · ")}</td>
-                <td className="px-4 py-2.5">
+                </Td>
+                <Td className="text-slate-500">{[p.email, p.phone || p.mobile].filter(Boolean).join(" · ")}</Td>
+                <Td fit>
                   <span className={`rounded-sm px-1.5 py-0.5 text-xs ${p.source !== "manual" ? "bg-compass-50 text-compass-700" : "bg-slate-100 text-slate-500"}`}>
                     {SOURCE_LABEL[p.source] ?? p.source}
                   </span>
                   {Object.keys(p.manual ?? {}).length > 0 && p.source !== "manual" && (
                     <span className="ml-1 rounded-sm bg-amber-50 px-1.5 py-0.5 text-xs text-amber-700" data-tt="Has manual overrides">+ manual</span>
                   )}
-                </td>
-                <td className="px-4 py-2.5 text-right">
-                  <div className="flex justify-end gap-2 text-xs font-medium">
-                    <button className="text-compass-600 hover:underline" onClick={() => startEdit(p)}>Edit</button>
-                    <button className="text-slate-500 hover:underline" onClick={() => patch(p, { pinned: p.pin_order == null })}>
-                      {p.pin_order == null ? "Pin" : "Unpin"}
+                </Td>
+                <Td fit align="right">
+                  <div className="flex items-center justify-end gap-0.5">
+                    <button
+                      type="button"
+                      className={ROW_ICON_BUTTON}
+                      onClick={() => startEdit(p)}
+                      data-tt="Edit"
+                      aria-label={`Edit ${p.name}`}
+                    >
+                      <Pencil className="h-4 w-4" aria-hidden />
                     </button>
-                    <button className="text-slate-500 hover:underline" onClick={() => patch(p, { hidden: p.hidden === 0 })}>
-                      {p.hidden ? "Show" : "Hide"}
+                    <button
+                      type="button"
+                      className={ROW_ICON_BUTTON}
+                      onClick={() => patch(p, { pinned: p.pin_order == null })}
+                      data-tt={p.pin_order == null ? "Pin" : "Unpin"}
+                      aria-label={`${p.pin_order == null ? "Pin" : "Unpin"} ${p.name}`}
+                    >
+                      {p.pin_order == null ? <Pin className="h-4 w-4" aria-hidden /> : <PinOff className="h-4 w-4" aria-hidden />}
+                    </button>
+                    <button
+                      type="button"
+                      className={ROW_ICON_BUTTON}
+                      onClick={() => patch(p, { hidden: p.hidden === 0 })}
+                      data-tt={p.hidden ? "Show" : "Hide"}
+                      aria-label={`${p.hidden ? "Show" : "Hide"} ${p.name}`}
+                    >
+                      {p.hidden ? <Eye className="h-4 w-4" aria-hidden /> : <EyeOff className="h-4 w-4" aria-hidden />}
                     </button>
                     {p.source === "manual" && (
-                      <button className="text-red-600 hover:underline" onClick={() => remove(p)}>Delete</button>
+                      <>
+                        <span className="mx-1 h-4 w-px bg-slate-200" aria-hidden />
+                        <button
+                          type="button"
+                          className="rounded-md p-1.5 text-red-600 hover-danger"
+                          onClick={() => remove(p)}
+                          data-tt="Delete"
+                          aria-label={`Delete ${p.name}`}
+                        >
+                          <Trash2 className="h-4 w-4" aria-hidden />
+                        </button>
+                      </>
                     )}
                   </div>
-                </td>
+                </Td>
               </tr>
             ))}
           </tbody>
-        </table>
+        </Table>
       </div>
     </>
   );
