@@ -17,7 +17,7 @@ test("a wrong password announces an alert on the login page", async ({ page }) =
 
 test("5000 days shows an inline error, no success toast, and the field is marked invalid", async ({ page }) => {
   await login(page, ADMIN);
-  await page.goto("/admin/workspace");
+  await page.goto("/admin/workspace/content");
   const days = page.getByLabel(/^Days \(/);
   await expect(days).toBeVisible();
   const before = await days.inputValue();

@@ -10,11 +10,16 @@ import {
   BellRing,
   BookUser,
   Building2,
+  ClipboardList,
   FileDown,
+  FileText,
   ListChecks,
   MailPlus,
+  MessageSquare,
   RefreshCw,
+  Search,
   Share2,
+  Webhook,
   DatabaseBackup,
   Fingerprint,
   FolderKanban,
@@ -80,15 +85,19 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
     label: "Platform",
     sections: [
       { href: "/admin", label: "System", icon: Monitor, description: "Version, updates, health, and diagnostics for this deployment.", keywords: "version update health status docker diagnostics metrics prometheus probes healthz readyz observability", permission: "system.diagnostics_read" },
-      { href: "/admin/workspace", label: "Workspace", icon: Palette, description: "Name, branding, accent color, and workspace-wide content options.", keywords: "name logo accent color brand theme icon company date format nested pages backlinks sub-pages tree comments", permission: "workspace.branding_manage", topics: [
+      { href: "/admin/workspace", label: "Workspace", icon: Palette, description: "Name, branding, accent color, and workspace-wide content options.", keywords: "name logo accent color brand theme icon company date format nested pages backlinks sub-pages tree comments", permission: "workspace.branding_manage", pages: [
+          { href: "/admin/workspace", label: "Branding", icon: Palette, keywords: "name logo accent colour date time" },
+          { href: "/admin/workspace/content", label: "Content", icon: FileText, keywords: "retention attachments comments nested pages approval session" },
+        ], topics: [
           { href: "/admin/workspace#branding", label: "Branding", keywords: "name logo accent colour color favicon icon" },
           { href: "/admin/workspace#date-time", label: "Date & time", keywords: "timezone time zone date format 24-hour clock" },
-          { href: "/admin/workspace#trash", label: "Trash retention", keywords: "trash retention days purge delete" },
-          { href: "/admin/workspace#attachments", label: "Attachments", keywords: "attachment file size limit mb video upload" },
-          { href: "/admin/workspace#organization", label: "Document organization", keywords: "nested pages backlinks sub-pages tree" },
-          { href: "/admin/workspace#comments", label: "Comments", keywords: "comments discussion" },
-          { href: "/admin/workspace#outlook", label: "Outlook add-in", keywords: "outlook add-in manifest office" },
-          { href: "/admin/workspace#session", label: "Session timeout", keywords: "session timeout inactivity logout minutes" },
+          { href: "/admin/workspace/content#trash", label: "Trash retention", keywords: "trash retention days purge delete" },
+          { href: "/admin/workspace/content#attachments", label: "Attachments", keywords: "attachment file size limit mb video upload" },
+          { href: "/admin/workspace/content#organization", label: "Document organization", keywords: "nested pages backlinks sub-pages tree" },
+          { href: "/admin/workspace/content#comments", label: "Comments", keywords: "comments discussion" },
+          { href: "/admin/workspace/content#outlook", label: "Outlook add-in", keywords: "outlook add-in manifest office" },
+          { href: "/admin/workspace/content#session", label: "Session timeout", keywords: "session timeout inactivity logout minutes" },
+          { href: "/admin/workspace/content#approval", label: "Approval workflow", keywords: "approval workflow review publish approvers" },
         ] },
       { href: "/admin/domain", label: "Domain & HTTPS", icon: Globe, description: "Hostname, certificates, and TLS.", keywords: "tls ssl certificate caddy hostname url", permission: "workspace.domain_manage", topics: [
           { href: "/admin/domain#domain", label: "Custom domain", keywords: "hostname dns" },
@@ -114,7 +123,12 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
     label: "People & access",
     sections: [
       { href: "/admin/users", label: "Users & roles", icon: Users, description: "Accounts, roles, and password resets.", keywords: "people accounts password reset viewer editor approver admin disable", permission: "user.read" },
-      { href: "/admin/roles", label: "Roles & permissions", icon: ShieldCheck, description: "Custom roles, the permission matrix, and who holds what.", keywords: "rbac permission role custom grant assign scope matrix explain access control least privilege", permission: "role.read" },
+      { href: "/admin/roles", label: "Roles & permissions", icon: ShieldCheck, description: "Custom roles, the permission matrix, and who holds what.", keywords: "rbac permission role custom grant assign scope matrix explain access control least privilege", permission: "role.read", pages: [
+          { href: "/admin/roles", label: "Roles", icon: ShieldCheck, keywords: "roles permission matrix custom" },
+          { href: "/admin/roles/assignments", label: "Assignments", icon: ClipboardList, keywords: "assign grant holders delegate space-scoped" },
+          { href: "/admin/roles/explain", label: "Explain access", icon: Search, keywords: "explain why can they access effective permissions" },
+          { href: "/admin/roles/health", label: "Health", icon: HeartPulse, keywords: "health orphan unused roles findings" },
+        ] },
       { href: "/admin/groups", label: "Groups", icon: UsersRound, description: "Hand-made and Entra-synced groups.", keywords: "membership teams entra sync access leads", permission: "group.read" },
       { href: "/admin/sso", label: "Single sign-on", icon: Fingerprint, description: "OIDC and SAML sign-in, plus SCIM provisioning.", keywords: "oidc entra azure microsoft login saml identity scim provisioning", permission: "identity.sso_read", topics: [
           { href: "/admin/sso#oidc", label: "Microsoft Entra ID (OIDC)", keywords: "entra azure oidc tenant client secret" },
@@ -145,12 +159,10 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
     label: "Operations",
     sections: [
       { href: "/admin/notifications", label: "Notifications", icon: BellRing, description: "Webhooks, SMTP, channels, and email templates.", keywords: "webhooks slack teams webex smtp email templates alerts channels", permission: "integration.webhook_read", pages: [
-          { href: "/admin/notifications", label: "Channels", icon: Share2, keywords: "webhooks smtp chat" },
+          { href: "/admin/notifications", label: "Webhooks", icon: Webhook, keywords: "webhook slack teams webex channel events" },
+          { href: "/admin/notifications/email", label: "Email", icon: Share2, keywords: "smtp mail server host port from" },
           { href: "/admin/notifications/templates", label: "Email templates", icon: MailPlus, keywords: "email templates subject body tags" },
-        ], topics: [
-          { href: "/admin/notifications#webhooks", label: "Webhooks", keywords: "webhook slack teams webex channel events" },
-          { href: "/admin/notifications#smtp", label: "Email (SMTP)", keywords: "smtp mail server host port from" },
-          { href: "/admin/notifications#chat", label: "Ask in chat", keywords: "ask chat slack teams bot" },
+          { href: "/admin/notifications/chat", label: "Ask in chat", icon: MessageSquare, keywords: "ask chat slack teams bot" },
         ] },
       { href: "/admin/backups", label: "Backups", icon: DatabaseBackup, description: "Schedules, destinations, and restores.", keywords: "restore s3 azure destination encrypted schedule", permission: "system.backup_read", topics: [
           { href: "/admin/backups#schedule", label: "Automatic backups", keywords: "schedule frequency keep daily weekly" },

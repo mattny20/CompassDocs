@@ -11,5 +11,5 @@ import { redirect } from "next/navigation";
 // A redirect rather than a deletion: the path is in older documentation, in
 // people's bookmarks, and in muscle memory.
 export default function MovedSectionAccess() {
-  redirect("/admin/roles?delegate=1");
+  redirect("/admin/roles/assignments");
 }

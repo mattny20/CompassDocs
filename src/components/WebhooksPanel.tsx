@@ -313,7 +313,7 @@ export function SmtpPanel({ initial }: { initial: SmtpState }) {
   }
 
   return (
-    <div id="smtp" className="scroll-mt-6 mt-6 rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
+    <div id="smtp" className="scroll-mt-6 rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
       <div className="mb-1 flex items-center gap-2">
         <h3 className="font-semibold text-slate-900">Email (SMTP)</h3>
         {s.configured ? (

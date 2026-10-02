@@ -199,7 +199,7 @@ test("Section access is folded into Roles & permissions", async ({ browser }) =>
   // The old path still works — it is in older docs and people's bookmarks —
   // but it lands in the one place that holds the whole picture.
   await page.goto("/admin/access");
-  expect(new URL(page.url()).pathname, "the retired page redirects").toBe("/admin/roles");
+  expect(new URL(page.url()).pathname, "the retired page redirects").toBe("/admin/roles/assignments");
 
   // And it is gone from the settings rail, so there is one route in, not two.
   expect(
@@ -207,8 +207,8 @@ test("Section access is folded into Roles & permissions", async ({ browser }) =>
     "no nav entry for the retired page"
   ).toBe(0);
 
-  // The task it used to serve survives as a shortcut into the assignment form.
-  await page.getByRole("button", { name: "Assignments" }).click();
+  // The task it used to serve survives as a shortcut into the assignment form,
+  // which is where the redirect now lands.
   await expect(page.getByRole("heading", { name: "Delegate a section" })).toBeVisible();
   for (const label of ["Announcements", "Compliance", "Training"]) {
     await expect(page.getByRole("button", { name: label, exact: true })).toBeVisible();

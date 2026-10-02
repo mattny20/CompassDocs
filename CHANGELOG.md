@@ -4,6 +4,26 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.8.1] - 2026-10-02
+
+The admin console, part two: sections with several jobs get pages.
+
+### Changed
+- **Roles & permissions** is four routed pages — Roles, Assignments,
+  Explain access, Health — so a deep link lands on the right one and the
+  old Section access address goes straight to Assignments instead of
+  the wrong tab.
+- **Workspace** is two pages, Branding (name, logo, accent, date & time)
+  and Content (trash retention, attachments, document organisation,
+  comments, Outlook add-in, session timeout, approval workflow), each
+  with its own Save that sends only its own settings — a save on one
+  page can no longer reset the other's fields.
+- **Notifications** is four pages — Webhooks, Email, Email templates,
+  Ask in chat — instead of one page stacking a link card, an
+  89-checkbox webhook form, SMTP and chat.
+- Settings search knows every new page and card; nothing was added to
+  the rail.
+
 ## [1.8.0] - 2026-10-02
 
 The admin console, part one: one sub-navigation, and a settings search
