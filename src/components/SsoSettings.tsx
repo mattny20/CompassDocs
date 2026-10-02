@@ -12,6 +12,7 @@ import { EnterpriseBadge } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import { MsDeviceSetup } from "./MsDeviceSetup";
 import { Field, TextInput, Toggle } from "@/components/form";
+import { LicenseGate } from "@/components/LicenseGate";
 import { toast } from "@/components/Toasts";
 
 export interface SsoState {
@@ -56,20 +57,15 @@ export function SsoSettings({ initial }: { initial: SsoState }) {
     return (
       <div>
         {header}
-        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-          <p className="font-semibold text-slate-800">SSO is an Enterprise feature.</p>
-          <p className="mt-1">
-            Sign in with Microsoft Entra ID, auto-provision accounts, and enforce SSO-only
-            login. See{" "}
-            <a
-              href="https://compassdocs.io/pricing"
-              className="font-medium text-compass-600 hover:underline"
-            >
-              pricing
-            </a>
-            .
-          </p>
-        </div>
+        {/* Community build: there is no licence to open, so no button. */}
+        <LicenseGate feature="SSO">
+          Sign in with Microsoft Entra ID, auto-provision accounts, and enforce SSO-only
+          login. See{" "}
+          <a href="https://compassdocs.io/pricing" className="link font-medium">
+            pricing
+          </a>
+          .
+        </LicenseGate>
       </div>
     );
   }
@@ -78,17 +74,10 @@ export function SsoSettings({ initial }: { initial: SsoState }) {
     return (
       <div>
         {header}
-        <div className="notice-warn rounded-xl border p-4 text-sm">
-          <p className="font-semibold">SSO isn&rsquo;t licensed.</p>
-          <p className="mt-1">
-            This Enterprise build supports it, but your license doesn&rsquo;t include the{" "}
-            <code className="font-mono">sso</code> entitlement — check{" "}
-            <a href="/admin/license" className="font-medium underline">
-              Settings → License
-            </a>
-            .
-          </p>
-        </div>
+        {/* Settings → SSO is an admin page, so the viewer can open License too. */}
+        <LicenseGate feature="SSO" entitlement="sso" canManage>
+          This Enterprise build supports it, but your licence doesn&rsquo;t include it yet.
+        </LicenseGate>
       </div>
     );
   }

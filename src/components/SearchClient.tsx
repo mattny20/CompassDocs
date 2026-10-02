@@ -247,7 +247,7 @@ export function SearchClient({
                   </span>
                   {h.match === "semantic" && (
                     <span
-                      title="Found by meaning, not keywords"
+                      data-tt="Found by meaning, not keywords"
                       className={chipClass("accent")}
                     >
                       <Sparkles className="h-3 w-3" /> related

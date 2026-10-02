@@ -87,7 +87,7 @@ export function ReviewSchedule({
           {!isPublished ? (
             <p className="text-slate-500">Reminders start once the document is published.</p>
           ) : (
-            <p className={overdue ? "font-medium text-amber-700" : "text-slate-500"}>
+            <p className={overdue ? "font-medium ink-warn" : "text-slate-500"}>
               {overdue ? "Review overdue — was due " : "Next review due "}
               {dueDateLabel}.
             </p>

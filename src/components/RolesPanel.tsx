@@ -145,7 +145,7 @@ export function RolesPanel({
   return (
     <div className="space-y-4">
       {legacyEnforcement && (
-        <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-200">
+        <div className="notice-warn flex items-start gap-2 rounded-xl border p-3 text-sm">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
           <p>
             <strong className="font-semibold">Permissions aren&rsquo;t being enforced.</strong>{" "}
@@ -459,11 +459,14 @@ function RolesTab({
               </div>
             </div>
             {readOnly && (
-              <p className="mt-3 flex items-start gap-1.5 rounded-lg bg-slate-50 p-2 text-xs text-slate-500">
+              <p className="notice-warn mt-3 flex items-start gap-1.5 rounded-lg border px-3 py-2 text-xs">
                 <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-                Built-in roles are re-derived from the catalog on every upgrade, so an upgrade that
-                adds a permission grants it without anyone having to notice. That also means edits
-                here wouldn&rsquo;t survive a restart — duplicate it and edit the copy instead.
+                <span>
+                  <strong className="font-semibold">This role is built in and read-only.</strong>{" "}
+                  Built-in roles are re-derived from the catalog on every upgrade, so an upgrade that
+                  adds a permission grants it without anyone having to notice. That also means edits
+                  here wouldn&rsquo;t survive a restart — press Duplicate and edit the copy instead.
+                </span>
               </p>
             )}
           </div>
@@ -832,7 +835,7 @@ function AssignmentsTab({
                       type="button"
                       onClick={() => revoke(a)}
                       disabled={busy}
-                      title="Revoke"
+                      data-tt="Revoke"
                       aria-label={`Revoke ${a.role_name} from ${a.subject}`}
                       className="rounded-lg p-1.5 text-slate-400 hover-danger disabled:opacity-50"
                     >

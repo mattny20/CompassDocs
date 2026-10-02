@@ -10,7 +10,7 @@ import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import { confirmDialog } from "@/components/Dialog";
 import { toast } from "@/components/Toasts";
-import { Field, Select, TextInput } from "@/components/form";
+import { Field, SectionEmpty, Select, TextInput } from "@/components/form";
 import { useFormatDate } from "./SettingsProvider";
 
 const FORMATS = [
@@ -201,7 +201,11 @@ export function WebhooksPanel({
       </form>
 
       <ul className="mt-4 space-y-2">
-        {hooks.length === 0 && <li className="text-sm text-slate-500">No webhooks yet.</li>}
+        {hooks.length === 0 && (
+          <li>
+            <SectionEmpty>No webhooks yet.</SectionEmpty>
+          </li>
+        )}
         {hooks.map((h) => (
           <li key={h.id} className="rounded-xl border border-slate-200 bg-surface p-3 shadow-xs">
             <div className="flex flex-wrap items-center gap-2">

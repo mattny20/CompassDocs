@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { LoadingRow } from "@/components/Spinner";
 import { iconButtonClass } from "@/components/Button";
 import { chipClass } from "@/components/Chip";
+import { SectionEmpty } from "@/components/form";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronRight } from "lucide-react";
@@ -86,7 +87,9 @@ export function SidebarSpaceTree({ spaceId }: { spaceId: number }) {
     return <LoadingRow className="justify-start py-1 pl-6 text-xs" />;
   }
   if (tree.length === 0) {
-    return <p className="py-1 pl-6 text-xs text-slate-500">No pages yet.</p>;
+    // text-xs wins over SectionEmpty's text-sm: Tailwind v4 emits .text-xs
+    // after .text-sm (checked against the installed build).
+    return <SectionEmpty className="py-1 pl-6 text-xs">No pages yet.</SectionEmpty>;
   }
   return (
     <ul className="mb-1">

@@ -1131,7 +1131,8 @@ function Toolbar({
               const tag = e.target.value;
               if (tag) editor.chain().focus().insertContent(`{{${tag}}}`).run();
             }}
-            title="Insert a dynamic tag — replaced with the real value when each email is sent"
+            data-tt="Insert a dynamic tag — replaced with the real value when each email is sent"
+            data-tt-wrap=""
             aria-label="Insert tag"
             className="mx-0.5 h-8 rounded-md border border-slate-200 bg-surface px-1 text-xs text-slate-600 outline-hidden hover:bg-slate-50"
           >
@@ -1332,7 +1333,7 @@ function Toolbar({
               setImgDrag(null);
               imgPosRef.current = null;
             }}
-            title="Image display width — drag to resize"
+            data-tt="Image display width — drag to resize"
             aria-label="Image display width"
             className="h-1.5 w-28 cursor-pointer accent-compass-600"
           />

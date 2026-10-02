@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { passwordProblem } from "@/lib/password-policy";
 import { createUser, getUserByUsername } from "@/lib/db";
 import { hashPassword } from "@/lib/password";
 import { apiGuard } from "@/lib/api-auth";
@@ -28,8 +29,9 @@ export async function POST(req: Request) {
       { status: 400 }
     );
   }
-  if (password.length < 6) {
-    return NextResponse.json({ error: "Temporary password must be at least 6 characters." }, { status: 400 });
+  const pwProblem = passwordProblem(password);
+  if (pwProblem) {
+    return NextResponse.json({ error: `Temporary ${pwProblem.charAt(0).toLowerCase()}${pwProblem.slice(1)}` }, { status: 400 });
   }
   if (!ROLE_ORDER.includes(role)) {
     return NextResponse.json({ error: "Invalid role." }, { status: 400 });

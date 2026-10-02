@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import { buttonClass } from "@/components/Button";
 import { confirmDialog } from "@/components/Dialog";
 import { CopyButton } from "@/components/CopyButton";
-import { controlClass } from "@/components/form";
+import { controlClass, SectionEmpty } from "@/components/form";
 import { useRouter } from "next/navigation";
 import {
   ChevronDown,
@@ -236,13 +236,13 @@ export function Attachments({
 
       {error && <div className="notice-error mb-3 rounded-lg px-3 py-2 text-sm">{error}</div>}
       {open && canEdit && attachments.length === 0 && dmsLinks.length === 0 && !linkFormOpen && (
-        <p className="text-sm text-slate-500">
+        <SectionEmpty>
           {/* Literal curly quotes, not &ldquo;-entities: Turbopack (Next 16)
               splits text nodes at entities and eats the leading space after
               {maxMb} when the node also wraps a line. */}
           No attachments yet. Files up to {maxMb} MB. Images can be embedded in the doc via
           “Copy link”.
-        </p>
+        </SectionEmpty>
       )}
 
       {/* Compact single-column rows — this list lives in the narrow side
@@ -262,7 +262,7 @@ export function Attachments({
               {badge ? (
                 <span
                   className={`grid h-8 w-8 shrink-0 place-items-center rounded-sm text-2xs font-bold text-white ${badge.cls}`}
-                  title={badge.label}
+                  data-tt={badge.label}
                 >
                   {badge.short}
                 </span>

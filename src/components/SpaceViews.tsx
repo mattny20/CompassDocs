@@ -6,6 +6,7 @@
 // per space per browser, defaulting to the admin-configured space view.
 
 import { useEffect, useMemo, useState } from "react";
+import { RelativeTime } from "./RelativeTime";
 import { chipClass } from "@/components/Chip";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -194,7 +195,7 @@ function DocRowLink({
     <>
       <TypeBadge type={d.type} />
       {d.status === "draft" && <StatusBadge status="draft" />}
-      <span className="ml-auto shrink-0 text-xs text-slate-500">{timeAgo(d.updated_at)}</span>
+      <RelativeTime value={d.updated_at} className="ml-auto shrink-0 text-xs text-slate-500" />
     </>
   );
   return (
@@ -508,7 +509,7 @@ function TableView({
                   {d.title}
                 </Link>
                 {reviewOverdue(d) && (
-                  <span title="Review overdue" className="ml-2 inline-flex align-middle text-amber-500">
+                  <span data-tt="Review overdue" className="ml-2 inline-flex align-middle text-amber-500">
                     <AlarmClock className="h-3.5 w-3.5" aria-label="Review overdue" />
                   </span>
                 )}
@@ -521,8 +522,8 @@ function TableView({
               </Td>
               <Td className="text-slate-500">{catName(d)}</Td>
               <Td fit className="text-slate-500">{d.author}</Td>
-              <Td fit className="text-slate-500" title={d.updated_at}>
-                {timeAgo(d.updated_at)}
+              <Td fit className="text-slate-500">
+                <RelativeTime value={d.updated_at} />
               </Td>
             </tr>
           ))}

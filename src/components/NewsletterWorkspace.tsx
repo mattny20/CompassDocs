@@ -28,7 +28,7 @@ import { RichTextEditor } from "./RichTextEditor";
 import { MarkdownView } from "./MarkdownView";
 import { StatusBadge } from "./NewsletterList";
 import { useFormatDate } from "./SettingsProvider";
-import { controlClass } from "@/components/form";
+import { controlClass, SectionEmpty } from "@/components/form";
 
 interface NewsletterDetail {
   id: number;
@@ -865,7 +865,7 @@ export function NewsletterWorkspace({
           <MessageSquare className="h-4 w-4 text-slate-400" /> Activity
         </h2>
         {comments.length === 0 ? (
-          <p className="text-sm text-slate-500">No comments yet.</p>
+          <SectionEmpty>No comments yet.</SectionEmpty>
         ) : (
           <ul className="space-y-3">
             {comments.map((c) => (

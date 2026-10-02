@@ -1644,7 +1644,7 @@ function DeckCard({
                 void patch({ archived: true }, "Deck archived.");
             }}
             disabled={busy}
-            title="Archive deck"
+            data-tt="Archive deck"
             className={buttonClass("secondary")}
           >
             <Archive className="h-4 w-4" /> Archive
@@ -1741,7 +1741,11 @@ function DeckCard({
           />
           Auto-assign to new members
         </label>
-        <label className="flex items-center gap-1.5" title="Trainees type their full name (and local accounts re-enter their password) to confirm — recorded on the completion.">
+        <label
+          className="flex items-center gap-1.5"
+          data-tt="Trainees type their full name (and local accounts re-enter their password) to confirm — recorded on the completion."
+          data-tt-wrap=""
+        >
           <input
             type="checkbox"
             checked={deck.require_signature === 1}
@@ -2101,7 +2105,7 @@ function PeopleTable({
                                 void post({ reopen_assignment_id: p.assignment_id }, "Reopened — prior completion kept in history.");
                             }}
                             disabled={busy}
-                            title="Reopen for this person"
+                            data-tt="Reopen for this person"
                             className={buttonClass("secondary", "sm")}
                           >
                             <RotateCcw className="h-3 w-3" /> Reopen

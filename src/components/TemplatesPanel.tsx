@@ -355,7 +355,7 @@ function TemplateForm({
         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
           <Braces className="h-3.5 w-3.5" />
           {PLACEHOLDERS.map((p) => (
-            <code key={p.tag} title={p.label} className="rounded-sm bg-slate-100 px-1.5 py-0.5">
+            <code key={p.tag} data-tt={p.label} className="rounded-sm bg-slate-100 px-1.5 py-0.5">
               {`{{${p.tag}}}`}
             </code>
           ))}

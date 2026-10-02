@@ -10,7 +10,7 @@ import { confirmDialog } from "@/components/Dialog";
 import { useRouter } from "next/navigation";
 import { Pin, PinOff, ArrowUp, ArrowDown, Camera, Trash2, Pencil, Eye, EyeOff } from "lucide-react";
 import { EntityPicker } from "@/components/EntityPicker";
-import { Field, TextInput } from "@/components/form";
+import { Field, SectionEmpty, TextInput } from "@/components/form";
 import { Table, Th, Td, TABLE_HEAD_ROW, TR } from "@/components/Table";
 import { toast } from "@/components/Toasts";
 import Link from "next/link";
@@ -343,7 +343,11 @@ export function DirectoryPeoplePanel({
           <tbody>
             {shown.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-slate-500">{missingField ? `Everyone has a ${missingField.label.toLowerCase()}.` : "No directory entries yet."}</td>
+                <td colSpan={5} className="px-4 py-8 text-center">
+                  <SectionEmpty>
+                    {missingField ? `Everyone has a ${missingField.label.toLowerCase()}.` : "No directory entries yet."}
+                  </SectionEmpty>
+                </td>
               </tr>
             )}
             {shown.map((p) => (

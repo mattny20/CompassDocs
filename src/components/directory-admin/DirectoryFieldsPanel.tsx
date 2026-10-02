@@ -13,7 +13,7 @@ import { Plus, Sparkles, Trash2 } from "lucide-react";
 import type { DirectoryField } from "@/lib/directory";
 import { describeMapping, parseMapping, type Mapping } from "@/lib/directory-mapping";
 import { CHIP_COLORS, matchOption, type FieldOption } from "@/lib/directory-display";
-import { Field, Select, TextInput, Toggle } from "@/components/form";
+import { Field, SectionEmpty, Select, TextInput, Toggle } from "@/components/form";
 import { toast } from "@/components/Toasts";
 import type { ProviderKey } from "@/lib/identity-provider";
 import { Disclosure, jsonFetch } from "./shared";
@@ -277,7 +277,7 @@ function MappingEditor({
       {propsOpen && props && (
         <div className="rounded-lg bg-slate-50 p-3 text-xs">
           {props.length === 0 ? (
-            <p className="text-slate-500">No stored records for this provider yet — run a sync first.</p>
+            <SectionEmpty className="text-xs">No stored records for this provider yet — run a sync first.</SectionEmpty>
           ) : (
             <>
               <p className="mb-1.5 font-medium text-slate-700">
@@ -304,7 +304,7 @@ function MappingEditor({
       {preview && (
         <div className="rounded-lg bg-slate-50 p-3 text-sm">
           {preview.total === 0 ? (
-            <p className="text-slate-500">No stored records for this provider yet — run a sync, then preview.</p>
+            <SectionEmpty>No stored records for this provider yet — run a sync, then preview.</SectionEmpty>
           ) : (
             <>
               <p className="font-medium text-slate-800">

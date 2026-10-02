@@ -369,7 +369,7 @@ export function VersionHistory({
                 <span className="flex items-center gap-2.5 text-xs text-slate-500">
                   <label
                     className="flex cursor-pointer items-center gap-1"
-                    title="Compare from this version (the older side)"
+                    data-tt="Compare from this version (the older side)"
                   >
                     <input
                       type="radio"
@@ -382,7 +382,7 @@ export function VersionHistory({
                   </label>
                   <label
                     className="flex cursor-pointer items-center gap-1"
-                    title="Compare to this version (the newer side)"
+                    data-tt="Compare to this version (the newer side)"
                   >
                     <input
                       type="radio"
@@ -410,7 +410,7 @@ export function VersionHistory({
                 <span className="min-w-0 flex-1 truncate text-sm text-slate-500" title={v.note}>
                   {v.note}
                 </span>
-                <span className="text-xs text-slate-500" title={v.whenExact}>
+                <span className="text-xs text-slate-500" data-tt={v.whenExact} tabIndex={0}>
                   {v.author} · {v.when}
                 </span>
                 {canEdit && !isCurrent && (

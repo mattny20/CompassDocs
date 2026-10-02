@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { chipClass } from "@/components/Chip";
 
 import { PageContainer } from "@/components/PageWidth";
+import { SectionEmpty } from "@/components/form";
 import { CircleAlert, CircleCheck, Users } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { requireUser } from "@/lib/auth";
@@ -71,7 +72,7 @@ export default async function TrainingTeamPage() {
                 )}
               </div>
               {assigned.length === 0 ? (
-                <p className="px-4 py-4 text-sm text-slate-500">No training assigned yet.</p>
+                <SectionEmpty className="px-4 py-4">No training assigned yet.</SectionEmpty>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">

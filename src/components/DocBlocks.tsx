@@ -80,12 +80,27 @@ export function MermaidBlock({ code }: { code: string }) {
   }
   return (
     <>
+      {/* The scroll container is an inner wrapper: a data-tt bubble on an
+          overflow-x-auto element is clipped by it (§Tooltips). */}
       <div
-        className="doc-wide my-4 cursor-zoom-in overflow-x-auto rounded-lg border border-slate-200 bg-surface p-4 transition hover:border-compass-300 [&_svg]:mx-auto [&_svg]:max-w-full"
-        title="Click to zoom"
+        role="button"
+        tabIndex={0}
+        aria-label="Zoom diagram"
+        data-tt="Click to zoom"
+        className="doc-wide my-4 cursor-zoom-in rounded-lg border border-slate-200 bg-surface p-4 transition hover:border-compass-300"
         onClick={() => setZoomed(true)}
-        dangerouslySetInnerHTML={{ __html: svg }}
-      />
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setZoomed(true);
+          }
+        }}
+      >
+        <div
+          className="overflow-x-auto [&_svg]:mx-auto [&_svg]:max-w-full"
+          dangerouslySetInnerHTML={{ __html: svg }}
+        />
+      </div>
       <Lightbox open={zoomed} onClose={() => setZoomed(false)} label="Diagram">
         {/* Mermaid SVGs size as width:100% — give them a real width to fill,
             or the shrink-wrapped flex child collapses to its padding. */}
@@ -152,12 +167,23 @@ export function PlantUmlBlock({ code }: { code: string }) {
   return (
     <>
       <div
-        className="doc-wide my-4 cursor-zoom-in overflow-x-auto rounded-lg border border-slate-200 bg-surface p-4 text-center transition hover:border-compass-300"
-        title="Click to zoom"
+        role="button"
+        tabIndex={0}
+        aria-label="Zoom PlantUML diagram"
+        data-tt="Click to zoom"
+        className="doc-wide my-4 cursor-zoom-in rounded-lg border border-slate-200 bg-surface p-4 text-center transition hover:border-compass-300"
         onClick={() => setZoomed(true)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setZoomed(true);
+          }
+        }}
       >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={src} alt="PlantUML diagram" className="mx-auto max-w-full" />
+        <div className="overflow-x-auto">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={src} alt="PlantUML diagram" className="mx-auto max-w-full" />
+        </div>
       </div>
       <Lightbox open={zoomed} onClose={() => setZoomed(false)} label="PlantUML diagram">
         {/* eslint-disable-next-line @next/next/no-img-element */}

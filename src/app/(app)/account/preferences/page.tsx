@@ -17,6 +17,7 @@ export default async function PreferencesPage() {
         initialScale={user.ui_scale}
         initialTimezone={user.timezone}
         initialDateFormat={user.date_format}
+        initialSingleKey={user.single_key_shortcuts}
         workspaceTimezone={settings.timezone}
       />
     </AccountPage>

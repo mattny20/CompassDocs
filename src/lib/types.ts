@@ -49,6 +49,8 @@ export interface User {
   page_width: string;
   /** Interface scale: compact | default | large | larger. */
   ui_scale: string;
+  /** Bare-key shortcuts (/ @ > # ? c and the g-chords) on or off (WCAG 2.1.4). */
+  single_key_shortcuts: boolean;
   /** Newsletter capability: none | contributor | approver. */
   newsletter_role: string;
   /** Color theme preference: light | dark | system. */
@@ -77,6 +79,8 @@ export interface SessionUser {
   page_width: "normal" | "wide" | "full";
   /** Interface scale, a multiplier on the fluid root size. */
   ui_scale: "compact" | "default" | "large" | "larger";
+  /** Bare-key shortcuts on or off; Ctrl/⌘+K always works. */
+  single_key_shortcuts: boolean;
   /** Newsletter capability: none | contributor | approver (admins: full). */
   newsletter_role: "none" | "contributor" | "approver";
   /** Color theme preference: light | dark | system. */

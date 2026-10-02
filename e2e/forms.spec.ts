@@ -58,7 +58,7 @@ test("the add-user form validates inline before it talks to the server", async (
   await page.getByRole("button", { name: "Add user" }).click();
   await page.getByRole("button", { name: "Create user" }).click();
   await expect(page.getByRole("alert").filter({ hasText: /username is required/i })).toBeVisible();
-  await expect(page.getByRole("alert").filter({ hasText: /at least 6 characters/i })).toBeVisible();
+  await expect(page.getByRole("alert").filter({ hasText: /at least 8 characters/i })).toBeVisible();
   await expect(page.getByLabel("Username")).toBeFocused();
   await expect(page.locator('[role="status"]').getByText(/created/i)).toHaveCount(0);
   await page.getByRole("button", { name: "Cancel" }).click();

@@ -26,6 +26,8 @@ import {
 } from "lucide-react";
 import { EntityPicker } from "@/components/EntityPicker";
 import { PageHeader } from "@/components/PageHeader";
+import { LicenseGate } from "@/components/LicenseGate";
+import { SectionEmpty } from "@/components/form";
 import { timeAgo } from "@/lib/ui";
 import { useFormatDate } from "./SettingsProvider";
 
@@ -109,10 +111,10 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
     return (
       <div>
         <Header />
-        <p className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
-          The compliance portal requires an enterprise license with the{" "}
-          <code className="text-xs">policy_ack</code> entitlement.
-        </p>
+        {/* canManage stays false: this page is open to anyone granted the
+            Compliance section, and the component is not told whether the
+            viewer can also open Settings → License. */}
+        <LicenseGate feature="The compliance portal" entitlement="policy_ack" canManage={false} />
       </div>
     );
   }
@@ -224,9 +226,9 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
               </h2>
             </div>
             {data.docs.length === 0 ? (
-              <p className="px-4 py-8 text-center text-sm text-slate-500">
+              <SectionEmpty className="px-4 py-8 text-center">
                 No documents require acknowledgement yet — request one above.
-              </p>
+              </SectionEmpty>
             ) : (
               <ul className="divide-y divide-slate-100">
                 {(data.docs as DocRow[]).map((d) => {

@@ -7,7 +7,7 @@
 import { useState } from "react";
 import { Globe, ExternalLink } from "lucide-react";
 import { toast } from "@/components/Toasts";
-import { Toggle } from "@/components/form";
+import { SectionEmpty, Toggle } from "@/components/form";
 
 type PublicSpace = { id: number; name: string; slug: string; doc_count: number };
 
@@ -121,13 +121,10 @@ export function PublicSitePanel({
           Public spaces
         </h3>
         {publicSpaces.length === 0 ? (
-          <p className="mt-2 text-sm text-slate-500">
-            No space is marked Public yet. Set one under{" "}
-            <a href="/admin/spaces" className="font-medium text-compass-700 underline">
-              Settings → Spaces
-            </a>{" "}
-            → Edit → <em>Who can see it</em> → <em>Public</em>.
-          </p>
+          <SectionEmpty className="mt-2" action={{ href: "/admin/spaces", label: "Manage spaces" }}>
+            No space is marked Public yet. Set one under Settings → Spaces → Edit →{" "}
+            <em>Who can see it</em> → <em>Public</em>.
+          </SectionEmpty>
         ) : (
           <ul className="mt-2 space-y-1">
             {publicSpaces.map((s) => (

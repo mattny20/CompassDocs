@@ -31,6 +31,7 @@ import { frecencyScores, recordPick } from "@/lib/palette-recents";
 import { applyThemePref, storeThemePref } from "@/components/ThemeToggle";
 import { PaletteRow } from "./PaletteRow";
 import { ShortcutSheet } from "./ShortcutSheet";
+import { SINGLE_KEY_EVENT, readSingleKey } from "./single-key";
 import { Kbd } from "./Kbd";
 import {
   commandItems,
@@ -61,13 +62,29 @@ export function CommandPaletteClient({
   caps,
   commandIds,
   spaces,
+  singleKey: singleKeyPref = true,
 }: {
   userId: number;
   caps: Record<string, boolean>;
   commandIds: string[];
   spaces: SpaceLite[];
+  singleKey?: boolean;
 }) {
   const router = useRouter();
+  // Bare-key shortcuts on/off (Account → Preferences). The account value
+  // seeds it; localStorage and the event keep every tab in step.
+  const [singleKey, setSingleKey] = useState(singleKeyPref);
+  useEffect(() => {
+    setSingleKey(readSingleKey(singleKeyPref));
+    const onChange = (e: Event) => setSingleKey(Boolean((e as CustomEvent<boolean>).detail));
+    const onStorage = () => setSingleKey(readSingleKey(singleKeyPref));
+    window.addEventListener(SINGLE_KEY_EVENT, onChange);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener(SINGLE_KEY_EVENT, onChange);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [singleKeyPref]);
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<PaletteMode>("all");
   const [query, setQuery] = useState("");
@@ -257,6 +274,7 @@ export function CommandPaletteClient({
         return;
       }
       if (open) return; // in-palette keys are handled on the panel
+      if (!singleKey) return; // bare keys are off for this account (WCAG 2.1.4)
       if (blockBareKey(e, overlayOpen)) {
         chordRef.current = null;
         return;
@@ -317,7 +335,7 @@ export function CommandPaletteClient({
 
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [open, allowedNav, router, caps.canAuthor]);
+  }, [open, allowedNav, router, caps.canAuthor, singleKey]);
 
   useEffect(
     () =>
@@ -474,7 +492,7 @@ export function CommandPaletteClient({
           className="max-h-[52vh] overflow-y-auto py-1"
         >
           {mode === "help" ? (
-            <ShortcutSheet caps={caps} commandIds={commandIds} query={query} />
+            <ShortcutSheet caps={caps} commandIds={commandIds} query={query} singleKey={singleKey} />
           ) : flat.length === 0 ? (
             <p className="px-4 py-8 text-center text-sm text-slate-500">
               {query.trim() ? "No matches." : "Start typing to search."}

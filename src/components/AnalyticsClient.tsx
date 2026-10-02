@@ -35,7 +35,7 @@ import {
 import { useFormatDate } from "./SettingsProvider";
 import { PageHeader } from "@/components/PageHeader";
 import { Modal } from "@/components/Modal";
-import { controlClass } from "@/components/form";
+import { controlClass, SectionEmpty } from "@/components/form";
 
 type Kpis = Record<string, number>;
 interface SeriesPoint {
@@ -260,10 +260,6 @@ function Card({
       {children}
     </section>
   );
-}
-
-function Empty({ note }: { note: string }) {
-  return <p className="py-6 text-center text-sm text-slate-500">{note}</p>;
 }
 
 function BarList({
@@ -561,7 +557,7 @@ export function AnalyticsClient() {
               sub="Biggest gains vs the previous period"
             >
               {trendRows.length === 0 ? (
-                <Empty note="No views recorded yet in this period." />
+                <SectionEmpty className="py-6 text-center">No views recorded yet in this period.</SectionEmpty>
               ) : (
                 <ul className="divide-y divide-slate-100">
                   {trendRows.map((t: any, i: number) => (
@@ -597,7 +593,7 @@ export function AnalyticsClient() {
               sub="Click a row for the full breakdown"
             >
               {data.top.length === 0 ? (
-                <Empty note="No document views in this period." />
+                <SectionEmpty className="py-6 text-center">No document views in this period.</SectionEmpty>
               ) : (
                 <table className="w-full text-sm">
                   <thead>
@@ -633,7 +629,7 @@ export function AnalyticsClient() {
               sub="Published docs nobody is finding — candidates to refresh, promote, or retire"
             >
               {data.least.length === 0 ? (
-                <Empty note="No published documents match these filters." />
+                <SectionEmpty className="py-6 text-center">No published documents match these filters.</SectionEmpty>
               ) : (
                 <table className="w-full text-sm">
                   <thead>
@@ -665,7 +661,7 @@ export function AnalyticsClient() {
           <div className="grid gap-5 lg:grid-cols-2">
             <Card icon={<Search className="h-4 w-4" />} title="Top searches" sub="Includes Ask AI questions">
               {data.searches.length === 0 ? (
-                <Empty note="No searches recorded in this period." />
+                <SectionEmpty className="py-6 text-center">No searches recorded in this period.</SectionEmpty>
               ) : (
                 <BarList
                   rows={data.searches.map((s: any) => ({
@@ -682,7 +678,7 @@ export function AnalyticsClient() {
               sub="Content gaps — what people looked for and didn't find"
             >
               {data.zeroSearches.length === 0 ? (
-                <Empty note="Every search found something. Nice." />
+                <SectionEmpty className="py-6 text-center">Every search found something. Nice.</SectionEmpty>
               ) : (
                 <ul className="divide-y divide-slate-100 text-sm">
                   {data.zeroSearches.map((s: any) => (
@@ -707,7 +703,7 @@ export function AnalyticsClient() {
           <div className="grid gap-5 lg:grid-cols-2">
             <Card icon={<Users className="h-4 w-4" />} title="Most engaged readers">
               {data.readers.length === 0 ? (
-                <Empty note="No signed-in reading activity yet." />
+                <SectionEmpty className="py-6 text-center">No signed-in reading activity yet.</SectionEmpty>
               ) : (
                 <table className="w-full text-sm">
                   <thead>
@@ -739,7 +735,7 @@ export function AnalyticsClient() {
               sub="Reach of each author's published documents"
             >
               {data.authors.length === 0 ? (
-                <Empty note="No published documents match these filters." />
+                <SectionEmpty className="py-6 text-center">No published documents match these filters.</SectionEmpty>
               ) : (
                 <table className="w-full text-sm">
                   <thead>
@@ -770,7 +766,9 @@ export function AnalyticsClient() {
           {/* Activity feed */}
           <Card icon={<MousePointerClick className="h-4 w-4" />} title="Recent activity">
             {data.activity.length === 0 ? (
-              <Empty note="Nothing yet — activity appears as people read, search, and download." />
+              <SectionEmpty className="py-6 text-center">
+                Nothing yet — activity appears as people read, search, and download.
+              </SectionEmpty>
             ) : (
               <ul className="divide-y divide-slate-100 text-sm">
                 {data.activity.map((a: any, i: number) => (

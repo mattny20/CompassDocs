@@ -231,7 +231,7 @@ export function NewsletterPeople({
                 value={appearance.header_bg || "#ffffff"}
                 onChange={(e) => setAppearance((a) => ({ ...a, header_bg: e.target.value }))}
                 onBlur={(e) => saveAppearance({ header_bg: e.target.value })}
-                title="Header background color"
+                data-tt="Header background color"
                 aria-label="Header background color"
                 className="h-8 w-12 cursor-pointer rounded-md border border-slate-200 bg-surface p-0.5"
               />
@@ -256,7 +256,7 @@ export function NewsletterPeople({
                 value={appearance.body_bg}
                 onChange={(e) => setAppearance((a) => ({ ...a, body_bg: e.target.value }))}
                 onBlur={(e) => saveAppearance({ body_bg: e.target.value })}
-                title="Outer background color"
+                data-tt="Outer background color"
                 aria-label="Outer background color"
                 className="h-8 w-12 cursor-pointer rounded-md border border-slate-200 bg-surface p-0.5"
               />
@@ -264,7 +264,7 @@ export function NewsletterPeople({
                 dense
                 value={appearance.body_texture}
                 onChange={(e) => saveAppearance({ body_texture: e.target.value })}
-                title="Outer background texture"
+                data-tt="Outer background texture"
                 aria-label="Outer background texture"
                 className="w-auto px-2"
               >
@@ -293,7 +293,7 @@ export function NewsletterPeople({
                 dense
                 value={appearance.header_pad}
                 onChange={(e) => saveAppearance({ header_pad: Number(e.target.value) })}
-                title="Space above the header image"
+                data-tt="Space above the header image"
                 aria-label="Header image top padding"
                 className="w-auto px-2"
               >
@@ -321,7 +321,7 @@ export function NewsletterPeople({
                   }
                   onPointerUp={() => saveAppearance({ header_scale: appearance.header_scale })}
                   onKeyUp={() => saveAppearance({ header_scale: appearance.header_scale })}
-                  title="Header image display width"
+                  data-tt="Header image display width"
                   aria-label="Header image scale"
                   className="h-1.5 w-32 cursor-pointer accent-compass-600"
                 />

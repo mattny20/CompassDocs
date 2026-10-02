@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { PASSWORD_HELP, passwordProblem } from "@/lib/password-policy";
 import { buttonClass } from "@/components/Button";
 import { Field, FormError, Select, TextInput, Textarea } from "@/components/form";
 import { useRouter } from "next/navigation";
@@ -34,8 +35,9 @@ export function SetupForm({
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    if (password.length < 8) {
-      setError("Password must be at least 8 characters.");
+    const pwProblem = passwordProblem(password);
+    if (pwProblem) {
+      setError(pwProblem);
       return;
     }
     if (password !== confirm) {
@@ -116,13 +118,13 @@ export function SetupForm({
             />
           </Field>
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Password" error={password && password.length < 8 ? "At least 8 characters." : undefined}>
+            <Field label="Password" error={password && passwordProblem(password) ? PASSWORD_HELP : undefined}>
               <TextInput
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="new-password"
-                placeholder="At least 8 characters"
+                placeholder={PASSWORD_HELP}
               />
             </Field>
             <Field label="Confirm password" error={confirm && confirm !== password ? "Passwords don't match." : undefined}>

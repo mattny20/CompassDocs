@@ -11,6 +11,7 @@ import { getAppSettings } from "@/lib/settings-store";
 import { formatDate } from "@/lib/format";
 import { PrintButton } from "@/components/PrintButton";
 import { PageContainer } from "@/components/PageWidth";
+import { SectionEmpty } from "@/components/form";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Training record" };
@@ -100,8 +101,8 @@ export default async function TrainingPersonPage({ params }: { params: Promise<{
             ))}
             {current.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-6 text-center text-slate-500">
-                  No current assignments.
+                <td colSpan={7} className="px-4 py-6 text-center">
+                  <SectionEmpty>No current assignments.</SectionEmpty>
                 </td>
               </tr>
             )}
@@ -134,7 +135,9 @@ export default async function TrainingPersonPage({ params }: { params: Promise<{
             ))}
             {history.length === 0 && (
               <tr>
-                <td className="px-4 py-6 text-center text-slate-500">No prior cycles.</td>
+                <td colSpan={6} className="px-4 py-6 text-center">
+                  <SectionEmpty>No prior cycles.</SectionEmpty>
+                </td>
               </tr>
             )}
           </tbody>

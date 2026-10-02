@@ -9,6 +9,7 @@ import { CopyButton } from "@/components/CopyButton";
 import { KeyRound, RefreshCw } from "lucide-react";
 import { timeAgo } from "@/lib/ui";
 import { Toggle } from "@/components/form";
+import { LicenseGate } from "@/components/LicenseGate";
 import { toast } from "@/components/Toasts";
 
 // Admin card for SCIM provisioning (enterprise): shows the tenant/base URL to
@@ -80,10 +81,8 @@ export function ScimPanel({ initial }: { initial: ScimStatus }) {
       </div>
 
       {!status.licensed ? (
-        <p className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">
-          SCIM provisioning requires an enterprise license that includes the{" "}
-          <code className="text-xs">scim</code> entitlement.
-        </p>
+        // Settings → SSO is an admin page, so the viewer can open License too.
+        <LicenseGate feature="SCIM provisioning" entitlement="scim" canManage className="mt-3" />
       ) : (
         <div className="mt-4 space-y-3">
           <div>

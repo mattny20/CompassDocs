@@ -99,7 +99,7 @@ export function NotificationMatrix({
                 {COLS.map((col) => (
                   <td key={col.key} className="py-2.5 text-center">
                     {col.key === "email" && !row.email ? (
-                      <span className="text-slate-300" title="No email is sent for this event">
+                      <span className="text-slate-300" data-tt="No email is sent for this event">
                         —
                       </span>
                     ) : (

@@ -8,7 +8,7 @@ import { toast } from "@/components/Toasts";
 import { confirmDialog } from "@/components/Dialog";
 import { SaveRow } from "@/components/SaveRow";
 import { useLeaveGuard, useUnsavedChanges } from "@/lib/use-unsaved";
-import { Field, Select, TextInput, rangeError } from "@/components/form";
+import { Field, SectionEmpty, Select, TextInput, rangeError } from "@/components/form";
 import { formatDateTime } from "@/lib/format";
 import type { AppSettings, BackupFrequency } from "@/lib/settings";
 import { BACKUP_KEEP_MIN, BACKUP_KEEP_MAX } from "@/lib/settings";
@@ -192,9 +192,9 @@ export function BackupsClient({
         </div>
 
         {backups.length === 0 ? (
-          <p className="py-6 text-center text-sm text-slate-500">
+          <SectionEmpty className="py-6 text-center">
             No backups yet. Click <strong>Back up now</strong> or set a schedule.
-          </p>
+          </SectionEmpty>
         ) : (
           <div className="divide-y divide-slate-100">
             {backups.map((b) => (

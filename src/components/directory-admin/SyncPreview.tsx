@@ -66,10 +66,10 @@ export function SyncPreview({ preview, blocked, dryRun }: { preview: SyncPreview
       )}
       {!nothing && (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <Group icon={<UserPlus className="h-3.5 w-3.5" />} title="Added" items={preview.adds} tone="text-emerald-700" />
+          <Group icon={<UserPlus className="h-3.5 w-3.5" />} title="Added" items={preview.adds} tone="ink-ok" />
           <Group icon={<UserPen className="h-3.5 w-3.5" />} title="Changed" items={preview.changes} tone="text-compass-700" detail={(i) => (i.changed ?? []).join(", ")} />
           <Group icon={<UserMinus className="h-3.5 w-3.5" />} title={dryRun ? "Would be removed" : "No longer returned"} items={preview.removals} tone="text-red-700" />
-          <Group icon={<UserCheck className="h-3.5 w-3.5" />} title="Adopted" items={preview.adoptions} tone="text-amber-700" />
+          <Group icon={<UserCheck className="h-3.5 w-3.5" />} title="Adopted" items={preview.adoptions} tone="ink-warn" />
         </div>
       )}
     </div>
