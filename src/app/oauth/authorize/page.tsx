@@ -3,6 +3,8 @@
 // means, and on Approve mint a single-use code back to the client. All
 // parameter validation happens again server-side in /api/oauth/approve.
 
+import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
 import { redirect } from "next/navigation";
 import { buttonClass } from "@/components/Button";
 import { getCurrentUser } from "@/lib/auth";
@@ -57,7 +59,19 @@ export default async function AuthorizePage({
         </div>
         <div className="rounded-2xl border border-slate-200 bg-surface p-6 shadow-xs">
           {problem ? (
-            <p className="text-sm text-red-600">{problem}</p>
+            <>
+              <h1 className="text-lg font-bold text-slate-900">This app can&rsquo;t connect</h1>
+              <div role="alert" className="notice-error mt-3 rounded-lg border px-3 py-2 text-sm">
+                {problem}
+              </div>
+              <p className="mt-3 text-xs text-slate-500">
+                Nothing was approved. If you were setting up the Claude connector or another MCP
+                client, go back to it and start the connection again.
+              </p>
+              <Link href="/" className={buttonClass("secondary", "md", "mt-4 w-full")}>
+                <ArrowLeft className="h-4 w-4" /> Back to CompassDocs
+              </Link>
+            </>
           ) : (
             <>
               <h1 className="text-lg font-bold text-slate-900">

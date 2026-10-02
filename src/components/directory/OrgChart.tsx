@@ -13,7 +13,7 @@ import { ChevronDown, ChevronRight, Users, Network, Settings } from "lucide-reac
 import type { DirectoryPerson, DirectoryField } from "@/lib/directory";
 import { initialsOf } from "@/lib/directory-display";
 import { buildOrgChart, pathTo, type OrgNode } from "@/lib/directory-org";
-import { EmptyState } from "@/components/form";
+import { EmptyState, SectionEmpty } from "@/components/form";
 
 function Avatar({ p }: { p: DirectoryPerson }) {
   return p.photo ? (
@@ -191,7 +191,7 @@ export function OrgChart({
         )}
       </div>
       {shownHeads.length === 0 && shownAlone.length === 0 ? (
-        <p className="text-sm text-slate-500">No one in a reporting line matches.</p>
+        <SectionEmpty>No one in a reporting line matches.</SectionEmpty>
       ) : (
         <ul className="space-y-2">
           {shownHeads.map((r) => (

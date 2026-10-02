@@ -5,7 +5,7 @@ import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import { Table, Th, Td, TABLE_HEAD_ROW, TR } from "@/components/Table";
 import { busyClass } from "@/components/Spinner";
-import { controlClass } from "@/components/form";
+import { controlClass, SectionEmpty } from "@/components/form";
 import { toast } from "@/components/Toasts";
 import { useFormatDate } from "./SettingsProvider";
 
@@ -237,7 +237,7 @@ export function AuditLog({
             </div>
           ) : (
             <span
-              title="Audit-log export is an enterprise feature."
+              data-tt="Audit-log export is an enterprise feature."
               className="cursor-not-allowed rounded-lg border border-dashed border-slate-200 px-3 py-2 text-sm font-medium text-slate-300"
             >
               Export · Enterprise
@@ -294,8 +294,8 @@ export function AuditLog({
             })}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-10 text-center text-sm text-slate-500">
-                  No audit events yet.
+                <td colSpan={5} className="px-4 py-10 text-center">
+                  <SectionEmpty>No audit events yet.</SectionEmpty>
                 </td>
               </tr>
             )}

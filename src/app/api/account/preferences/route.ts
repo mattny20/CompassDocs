@@ -57,6 +57,12 @@ export async function PATCH(req: Request) {
     }
     await setUserPrefs(user.id, { timezone: tz });
   }
+  if (body?.single_key_shortcuts !== undefined) {
+    if (typeof body.single_key_shortcuts !== "boolean") {
+      return NextResponse.json({ error: "single_key_shortcuts must be true or false." }, { status: 400 });
+    }
+    await setUserPrefs(user.id, { single_key_shortcuts: body.single_key_shortcuts });
+  }
   if (body?.date_format !== undefined) {
     if (!DATE_FORMATS.includes(body.date_format)) {
       return NextResponse.json({ error: "date_format must be auto, us, iso, or eu." }, { status: 400 });

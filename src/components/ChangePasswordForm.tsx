@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { buttonClass } from "@/components/Button";
 import { Field, FormError, TextInput } from "@/components/form";
+import { PASSWORD_HELP, PASSWORD_MIN, passwordProblem } from "@/lib/password-policy";
 import { useRouter } from "next/navigation";
 
 export function ChangePasswordForm({ forced }: { forced: boolean }) {
@@ -16,13 +17,13 @@ export function ChangePasswordForm({ forced }: { forced: boolean }) {
 
   // Inline validation, shown once a submit has been attempted so the form
   // doesn't shout while someone is still typing.
-  const nextError = next.length > 0 && next.length < 6 ? "At least 6 characters." : undefined;
+  const nextError = next.length > 0 ? (passwordProblem(next) ? PASSWORD_HELP : undefined) : undefined;
   const confirmError = confirm && next !== confirm ? "Passwords don't match." : undefined;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setTried(true);
-    if (next.length < 6) return setError("New password must be at least 6 characters.");
+    if (next.length < PASSWORD_MIN) return setError(`New password must be at least ${PASSWORD_MIN} characters.`);
     if (next !== confirm) return setError("New passwords don't match.");
     setLoading(true);
     setError("");
@@ -57,7 +58,7 @@ export function ChangePasswordForm({ forced }: { forced: boolean }) {
           autoComplete="current-password"
         />
       </Field>
-      <Field label="New password" size={size} error={tried ? nextError : undefined} help="At least 6 characters.">
+      <Field label="New password" size={size} error={tried ? nextError : undefined} help={PASSWORD_HELP}>
         <TextInput
           type="password"
           value={next}

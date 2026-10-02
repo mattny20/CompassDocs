@@ -7,7 +7,8 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Monitor, Moon, Sun } from "lucide-react";
-import { Field, FormError, Select } from "./form";
+import { Field, FormError, Select, Toggle } from "./form";
+import { SINGLE_KEY_EVENT, storeSingleKey } from "./palette/single-key";
 import { WidthPreference } from "./PageWidth";
 import { Segmented, type SegmentedOption } from "./Segmented";
 import { applyThemePref, storeThemePref, type Pref } from "./ThemeToggle";
@@ -41,14 +42,17 @@ export function PreferencesPanel({
   initialScale = "default",
   initialTimezone,
   initialDateFormat,
+  initialSingleKey = true,
   workspaceTimezone,
 }: {
   initialTheme: Pref;
   initialScale?: UiScale;
   initialTimezone: string;
   initialDateFormat: Df;
+  initialSingleKey?: boolean;
   workspaceTimezone: string;
 }) {
+  const [singleKey, setSingleKey] = useState(initialSingleKey);
   const router = useRouter();
   const [theme, setTheme] = useState<Pref>(initialTheme);
   const [scale, setScale] = useState<UiScale>(initialScale);
@@ -162,6 +166,26 @@ export function PreferencesPanel({
           </Field>
         </div>
         <FormError className="mt-3">{error}</FormError>
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-surface p-5 shadow-xs">
+        <h3 className="mb-1 text-sm font-semibold text-slate-900">Keyboard</h3>
+        <p className="mb-3 text-sm text-slate-500">
+          Ctrl or ⌘ K always opens the palette. The bare keys are a convenience you can switch
+          off if they fire by accident — speech input and some assistive tools press keys you
+          did not mean.
+        </p>
+        <Toggle
+          label="Single-key shortcuts"
+          help="/ @ > # ? and c open the palette or start a document; g then a letter jumps to a page."
+          checked={singleKey}
+          onChange={(next) => {
+            setSingleKey(next);
+            storeSingleKey(next);
+            window.dispatchEvent(new CustomEvent(SINGLE_KEY_EVENT, { detail: next }));
+            void patch({ single_key_shortcuts: next });
+          }}
+        />
       </div>
     </div>
   );

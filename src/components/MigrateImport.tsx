@@ -186,7 +186,7 @@ export function MigrateImport({ spaces }: { spaces: SpaceOpt[] }) {
 
           {preview.warnings.length > 0 && (
             <details className="text-sm">
-              <summary className="cursor-pointer font-medium text-amber-700">
+              <summary className="cursor-pointer font-medium ink-warn">
                 {preview.warnings.length} note{preview.warnings.length === 1 ? "" : "s"}
               </summary>
               <ul className="mt-1 list-disc pl-5 text-xs text-slate-600">

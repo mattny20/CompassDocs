@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { passwordProblem } from "@/lib/password-policy";
 import { getCurrentUser } from "@/lib/auth";
 import { getUserByUsername, setUserPassword } from "@/lib/db";
 import { hashPassword, verifyPassword } from "@/lib/password";
@@ -17,8 +18,9 @@ export async function POST(req: Request) {
   }
   const currentPassword = String(body?.currentPassword ?? "");
   const newPassword = String(body?.newPassword ?? "");
-  if (newPassword.length < 6) {
-    return NextResponse.json({ error: "New password must be at least 6 characters." }, { status: 400 });
+  const pwProblem = passwordProblem(newPassword);
+  if (pwProblem) {
+    return NextResponse.json({ error: `New ${pwProblem.charAt(0).toLowerCase()}${pwProblem.slice(1)}` }, { status: 400 });
   }
 
   const record = await getUserByUsername(sessionUser.username);

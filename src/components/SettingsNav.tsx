@@ -11,7 +11,7 @@ import { usePathname } from "next/navigation";
 import { Search } from "lucide-react";
 import { SETTINGS_GROUPS, SETTINGS_SECTIONS } from "@/lib/settings-sections";
 import { RailGroupLabel, RailLink } from "./RailLink";
-import { controlClass } from "@/components/form";
+import { controlClass, SectionEmpty } from "@/components/form";
 
 export function SettingsNav({ reachable }: { reachable: string[] }) {
   const pathname = usePathname();
@@ -55,7 +55,7 @@ export function SettingsNav({ reachable }: { reachable: string[] }) {
             <RailLink key={s.href} href={s.href} icon={s.icon} label={s.label} active={path === s.href} />
           ))}
           {matches.length === 0 && (
-            <p className="px-3 py-2 text-sm text-slate-500">No settings match.</p>
+            <SectionEmpty className="px-3 py-2">No settings match.</SectionEmpty>
           )}
         </nav>
       ) : (

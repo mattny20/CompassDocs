@@ -52,7 +52,7 @@ test("a themed prompt: reset password is masked, validates, Escape returns focus
   await expect(input).toBeFocused();
   await input.fill("abc");
   await dialog.getByRole("button", { name: "Set password" }).click();
-  await expect(dialog.getByRole("alert")).toHaveText(/at least 6/i);
+  await expect(dialog.getByRole("alert")).toHaveText(/at least 8/i);
   await expect(input).toHaveAttribute("aria-invalid", "true");
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);

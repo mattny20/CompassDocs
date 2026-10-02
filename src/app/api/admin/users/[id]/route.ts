@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { passwordProblem } from "@/lib/password-policy";
 import {
   getUserById,
   updateUser,
@@ -35,8 +36,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
   // Password reset (issues a new temp password requiring change on next login).
   if (typeof body?.resetPassword === "string") {
-    if (body.resetPassword.length < 6) {
-      return NextResponse.json({ error: "Password must be at least 6 characters." }, { status: 400 });
+    const pwProblem = passwordProblem(body.resetPassword);
+    if (pwProblem) {
+      return NextResponse.json({ error: pwProblem }, { status: 400 });
     }
     const { hash, salt } = hashPassword(body.resetPassword);
     await setUserPassword(target.id, hash, salt, true);

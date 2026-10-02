@@ -204,7 +204,7 @@ export function NotificationsPanel({
                   {s.via_group && (
                     <span
                       className={chipClass("info")}
-                      title="An admin subscribed one of your groups to this space."
+                      data-tt="An admin subscribed one of your groups to this space."
                     >
                       <UsersRound className="h-3 w-3" /> via group
                     </span>

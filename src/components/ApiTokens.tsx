@@ -8,7 +8,7 @@ import { useState } from "react";
 import { buttonClass } from "@/components/Button";
 import { confirmDialog } from "@/components/Dialog";
 import { CopyButton } from "@/components/CopyButton";
-import { controlClass } from "@/components/form";
+import { controlClass, SectionEmpty } from "@/components/form";
 import type { ApiToken } from "@/lib/db";
 import { useFormatDate } from "./SettingsProvider";
 
@@ -193,7 +193,9 @@ export function ApiTokens({
 
       <ul className="mt-4 divide-y divide-slate-100">
         {tokens.length === 0 && (
-          <li className="py-3 text-sm text-slate-500">No tokens yet.</li>
+          <li>
+            <SectionEmpty className="py-3">No tokens yet.</SectionEmpty>
+          </li>
         )}
         {tokens.map((t) => (
           <TokenRow key={t.id} t={t} onRevoke={() => revoke(t.id)} />
@@ -208,7 +210,9 @@ export function ApiTokens({
       </p>
       <ul className="mt-1 divide-y divide-slate-100">
         {connections.length === 0 && (
-          <li className="py-3 text-sm text-slate-500">No connected apps.</li>
+          <li>
+            <SectionEmpty className="py-3">No connected apps.</SectionEmpty>
+          </li>
         )}
         {connections.map((c) => (
           <li key={c.client_id} className="flex items-center gap-3 py-2.5 text-sm">

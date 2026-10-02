@@ -6,7 +6,7 @@
 //
 //   if (!(await confirmDialog({ title: "Delete this webhook?", confirmLabel: "Delete", danger: true }))) return;
 //   const pw = await promptDialog({ title: "Set a temporary password", label: "Password", type: "password",
-//     validate: (v) => (v.length < 6 ? "At least 6 characters." : undefined) });
+//     validate: (v) => (v.length < 8 ? "At least 8 characters." : undefined) });
 //   const v = await formDialog({ title: "Insert button", fields: [{ key: "label", label: "Label" }, { key: "href", label: "Link URL", type: "url" }] });
 //
 // One DialogHost is mounted in the app layout beside the ToastHost. Each

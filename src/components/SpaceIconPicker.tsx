@@ -161,7 +161,7 @@ export function SpaceIconPicker({
           onChange={(e) => onChange(e.target.value.slice(0, 8))}
           className={controlClass(false, "h-9 w-14 rounded-md px-2 py-0 text-center text-lg")}
           aria-label="Custom emoji"
-          title="Type or paste any emoji"
+          data-tt="Type or paste any emoji"
         />
       </div>
       <div className="max-h-52 overflow-y-auto p-2">

@@ -11,6 +11,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ChevronDown, ChevronRight, ChevronUp, FileText, ListTree, Plus } from "lucide-react";
 import { usePanelCollapse } from "@/lib/use-panel-collapse";
+import { SectionEmpty } from "@/components/form";
 
 export interface SubPage {
   id: number;
@@ -86,7 +87,7 @@ export function SubPages({
         )}
       </div>
       {!open ? null : pages.length === 0 ? (
-        <p className="text-sm text-slate-500">No sub-pages yet.</p>
+        <SectionEmpty>No sub-pages yet.</SectionEmpty>
       ) : (
         <ul className="space-y-1">
           {pages.map((p, i) => (

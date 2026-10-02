@@ -16,10 +16,13 @@ export function CommandPalette({
   userId,
   caps,
   spaces,
+  singleKey = true,
 }: {
   userId: number;
   caps: NavCapabilities;
   spaces: SpaceLite[];
+  /** The account's single-key shortcuts preference. */
+  singleKey?: boolean;
 }) {
   return (
     <CommandPaletteClient
@@ -27,6 +30,7 @@ export function CommandPalette({
       caps={caps as unknown as Record<string, boolean>}
       commandIds={allowedCommandIds(caps)}
       spaces={spaces}
+      singleKey={singleKey}
     />
   );
 }

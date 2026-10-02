@@ -5,6 +5,7 @@ import { UnsavedHint } from "@/components/SaveRow";
 import { useLeaveGuard, useUnsavedChanges } from "@/lib/use-unsaved";
 import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
+import { SectionEmpty } from "@/components/form";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ChevronDown, ClipboardCheck, House, ListChecks, ShieldCheck, Sparkles, SquareSplitVertical, Table as TableIcon, X } from "lucide-react";
@@ -972,7 +973,7 @@ export function DocEditor({
                   }
                 />
               ) : (
-                <p className="text-sm text-slate-500">Nothing to preview yet.</p>
+                <SectionEmpty>Nothing to preview yet.</SectionEmpty>
               )}
             </div>
           )}
@@ -1085,7 +1086,7 @@ function AssistPanel({
         </span>
       </div>
       {truncated && (
-        <p className="px-4 pt-2 text-xs text-amber-700">
+        <p className="px-4 pt-2 text-xs ink-warn">
           This document is long — only the beginning was rewritten; the rest is kept unchanged.
         </p>
       )}
@@ -1152,7 +1153,7 @@ function ProofPanel({
       </div>
 
       {proof.truncated && (
-        <p className="mb-3 text-xs text-amber-700">
+        <p className="mb-3 text-xs ink-warn">
           This document is long — only the beginning was proofread. The rest is kept unchanged.
         </p>
       )}

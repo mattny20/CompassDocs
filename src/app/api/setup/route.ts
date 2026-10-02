@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { passwordProblem } from "@/lib/password-policy";
 import { needsSetup, createUser, createSession, markLogin, setSetting } from "@/lib/db";
 import { hashPassword, newToken } from "@/lib/password";
 import { getSessionTimeoutMinutes, updateAppSettings } from "@/lib/settings-store";
@@ -41,9 +42,10 @@ export async function POST(req: Request) {
       { status: 400 }
     );
   }
-  if (password.length < 8) {
+  const pwProblem = passwordProblem(password);
+  if (pwProblem) {
     return NextResponse.json(
-      { error: "Password must be at least 8 characters." },
+      { error: pwProblem },
       { status: 400 }
     );
   }

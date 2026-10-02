@@ -202,7 +202,7 @@ export function SpacesManager({
                       <Lock className="h-3 w-3" />
                       Private
                       {(spaceGroups[s.id]?.length ?? 0) > 0 && (
-                        <span className="text-amber-600/80">
+                        <span className="ink-warn">
                           · {spaceGroups[s.id].length} group
                           {spaceGroups[s.id].length === 1 ? "" : "s"}
                         </span>
@@ -560,7 +560,7 @@ function SpaceForm({
               )}
             </div>
             {edUserIds.length === 0 && edGroupIds.length === 0 && (
-              <p className="text-xs text-amber-700">
+              <p className="text-xs ink-warn">
                 Nothing selected yet — saving like this leaves the space open to all editors.
               </p>
             )}

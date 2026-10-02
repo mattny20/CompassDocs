@@ -94,7 +94,7 @@ export function ReviewClient({
                       {cr.target_space_name && (
                         <span
                           className={chipClass("info")}
-                          title="Approving also moves the document to this space."
+                          data-tt="Approving also moves the document to this space."
                         >
                           → moves to {cr.target_space_name}
                         </span>
@@ -102,7 +102,8 @@ export function ReviewClient({
                       {cr.space_visibility === "public" && (
                         <span
                           className={chipClass("ok")}
-                          title="This space is public — approved changes are visible on the internet without signing in."
+                          data-tt="This space is public — approved changes are visible on the internet without signing in."
+                          data-tt-wrap=""
                         >
                           🌐 Goes public
                         </span>

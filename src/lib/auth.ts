@@ -78,6 +78,7 @@ export function toSessionUser(u: User): SessionUser {
     ui_scale: (["compact", "large", "larger"] as const).includes(u.ui_scale as never)
       ? (u.ui_scale as "compact" | "large" | "larger")
       : "default",
+    single_key_shortcuts: u.single_key_shortcuts !== false,
     newsletter_role:
       u.newsletter_role === "contributor" || u.newsletter_role === "approver"
         ? u.newsletter_role

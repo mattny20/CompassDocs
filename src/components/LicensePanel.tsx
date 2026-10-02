@@ -180,7 +180,7 @@ export function LicensePanel() {
                         ? "bg-emerald-100 text-emerald-700"
                         : "bg-slate-100 text-slate-500"
                     }`}
-                    title={
+                    data-tt={
                       f.active
                         ? "Enabled"
                         : !f.bundled

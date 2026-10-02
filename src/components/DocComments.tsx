@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { buttonClass } from "@/components/Button";
 import { confirmDialog } from "@/components/Dialog";
-import { controlClass } from "@/components/form";
+import { controlClass, SectionEmpty } from "@/components/form";
 import { MessageSquare, Trash2 } from "lucide-react";
 import { timeAgo } from "@/lib/ui";
 import { useAction } from "@/lib/use-action";
@@ -223,7 +223,9 @@ export function DocComments({
           </li>
         ))}
         {comments.length === 0 && (
-          <li className="text-sm text-slate-500">No comments yet — start the discussion.</li>
+          <li>
+            <SectionEmpty>No comments yet — start the discussion.</SectionEmpty>
+          </li>
         )}
       </ul>
 

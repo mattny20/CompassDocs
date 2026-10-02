@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { buttonClass } from "@/components/Button";
-import { controlClass } from "@/components/form";
+import { controlClass, SectionEmpty } from "@/components/form";
 import Link from "next/link";
 import { ChevronDown, ChevronRight, Link2, Plus, X } from "lucide-react";
 import { usePanelCollapse } from "@/lib/use-panel-collapse";
@@ -198,7 +198,7 @@ export function RelatedDocs({
       ))}
 
       {relations.length === 0 && (
-        <p className="mb-2 text-sm text-slate-500">No linked documents yet.</p>
+        <SectionEmpty className="mb-2">No linked documents yet.</SectionEmpty>
       )}
 
       {canEdit && adding && (

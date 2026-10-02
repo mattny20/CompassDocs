@@ -16,7 +16,7 @@ import {
   RefreshCw,
   ExternalLink,
 } from "lucide-react";
-import { Field, Select, TextInput } from "@/components/form";
+import { Field, SectionEmpty, Select, TextInput } from "@/components/form";
 import { confirmDialog, promptDialog } from "@/components/Dialog";
 import { useAction } from "@/lib/use-action";
 
@@ -316,7 +316,9 @@ export function LinksAdmin({
             </li>
           ))}
           {categories.length === 0 && (
-            <li className="text-sm text-slate-500">No categories yet — links appear under “General”.</li>
+            <li>
+              <SectionEmpty>No categories yet — links appear under “General”.</SectionEmpty>
+            </li>
           )}
         </ul>
         <div className="flex gap-2">
@@ -408,7 +410,9 @@ export function LinksAdmin({
                 </li>
               ))}
               {s.links.length === 0 && (
-                <li className="py-2 text-sm text-slate-500">No links in this category.</li>
+                <li>
+                  <SectionEmpty className="py-2">No links in this category.</SectionEmpty>
+                </li>
               )}
             </ul>
           </div>

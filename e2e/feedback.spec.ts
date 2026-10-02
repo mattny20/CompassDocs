@@ -39,7 +39,7 @@ test("toggles and icon buttons are at least 24px tall", async ({ page }) => {
   expect(box).not.toBeNull();
   expect(box!.height).toBeGreaterThanOrEqual(24);
   expect(box!.width).toBeGreaterThanOrEqual(40);
-  const manage = page.getByRole("link", { name: "Manage spaces" });
+  const manage = page.getByRole("link", { name: "Manage spaces" }).first();
   const mb = await manage.boundingBox();
   expect(mb!.height).toBeGreaterThanOrEqual(24);
   expect(mb!.width).toBeGreaterThanOrEqual(24);

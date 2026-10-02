@@ -4,6 +4,44 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.7.3] - 2026-10-02
+
+Forms, part four: empty states, notices, tooltips, shortcuts, the visitor
+404 and one password rule.
+
+### Added
+- **A way to turn single-key shortcuts off** (WCAG 2.1.4). Account →
+  Preferences → Keyboard: with the switch off, the bare keys (/ @ > # ?
+  c and the g-chords) do nothing, and the shortcut sheet stops listing
+  them. Ctrl or ⌘ K always works. Default on, so nothing changes until
+  you ask.
+- **Relative times carry the exact time.** "3d ago" in space tables and
+  version history is a real time element: the workspace-formatted exact
+  time shows on hover and on keyboard focus, and the raw database string
+  is gone.
+- The public site has its own not-found page inside its header, and the
+  root 404 is written for a visitor: neutral copy, Sign in, and Browse
+  the knowledge base when the public site is on.
+- The OAuth consent screen explains a failed connection with a heading,
+  a notice and a way back instead of a bare red sentence.
+
+### Changed
+- **One password minimum everywhere: 8 characters.** Setup, the forced
+  first-login change, Account → Security and admin resets all agree, the
+  forms say so under the field, and the API refuses the same way. The
+  forced-change page carries the brand mark and a sign-out link.
+- Thirty hand-rolled "nothing here" lines are the shared empty-state
+  components, with an action where there is somewhere to go; the Status
+  page no longer shows an emerald "All services operational" banner over
+  zero services; the licence gates (Compliance, SCIM, SSO) are one notice
+  with a route to the License page for people who can open it.
+- Prerequisite states ("Email options need SMTP…", a built-in role is
+  read-only) look like notices with an action, never like validation
+  errors, and the bare amber hints use the AA colour pair in both themes.
+- Native title attributes on controls are the house tooltip (they never
+  showed on keyboard focus); accent swatches are named and announce
+  their pressed state; a guard test scans whole files for the rule.
+
 ## [1.7.2] - 2026-10-02
 
 Forms, part three: real modals, undo instead of "are you sure", and row

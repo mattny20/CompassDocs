@@ -8,7 +8,7 @@ import { buttonClass } from "@/components/Button";
 import { confirmDialog } from "@/components/Dialog";
 import { Spinner } from "@/components/Spinner";
 import { chipClass } from "@/components/Chip";
-import { controlClass } from "@/components/form";
+import { controlClass, SectionEmpty } from "@/components/form";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -129,21 +129,27 @@ export function StatusBoard({
   return (
     <div className="space-y-6">
       {/* Summary */}
+      {/* Nothing tracked is not "all operational" — the banner stays neutral
+          until there is a service to report on. */}
       <div
         className={`flex items-center gap-3 rounded-xl border p-4 ${
-          open.length || problems.some((p) => p.status === "outage")
-            ? "border-red-200 bg-red-50 dark:border-red-900/60 dark:bg-red-950/30"
-            : problems.length
-              ? "border-amber-200 bg-amber-50 dark:border-amber-900/60 dark:bg-amber-950/30"
-              : "border-emerald-200 bg-emerald-50 dark:border-emerald-900/60 dark:bg-emerald-950/30"
+          services.length === 0
+            ? "border-slate-200 bg-canvas"
+            : open.length || problems.some((p) => p.status === "outage")
+              ? "border-red-200 bg-red-50 dark:border-red-900/60 dark:bg-red-950/30"
+              : problems.length
+                ? "border-amber-200 bg-amber-50 dark:border-amber-900/60 dark:bg-amber-950/30"
+                : "border-emerald-200 bg-emerald-50 dark:border-emerald-900/60 dark:bg-emerald-950/30"
         }`}
       >
         <Activity className="h-5 w-5 shrink-0 text-slate-500" />
         <div className="min-w-0">
           <div className="font-semibold text-slate-900">
-            {open.length || problems.length
-              ? `${open.length + problems.length} service issue${open.length + problems.length === 1 ? "" : "s"} right now`
-              : "All tracked services are operational"}
+            {services.length === 0
+              ? "No services tracked yet"
+              : open.length || problems.length
+                ? `${open.length + problems.length} service issue${open.length + problems.length === 1 ? "" : "s"} right now`
+                : "All tracked services are operational"}
           </div>
           <div className="text-xs text-slate-500">
             {services.length} service{services.length === 1 ? "" : "s"} tracked · checked about every 5 minutes
@@ -333,9 +339,12 @@ export function StatusBoard({
         )}
 
         {services.length === 0 ? (
-          <p className="px-4 py-6 text-sm text-slate-500">
+          <SectionEmpty
+            className="px-4 py-6"
+            action={isAdmin ? { onClick: () => setAdding(true), label: "Track a service" } : undefined}
+          >
             Nothing tracked yet{isAdmin ? " — add the tools your organization relies on." : "."}
-          </p>
+          </SectionEmpty>
         ) : (
           <ul className="divide-y divide-slate-100">
             {services.map((s) => {
@@ -382,7 +391,7 @@ export function StatusBoard({
                         if (await confirmDialog({ title: `Stop tracking ${s.name}?`, confirmLabel: "Stop tracking", danger: true }))
                           void api(`/api/admin/status?id=${s.id}`, undefined, "DELETE");
                       }}
-                      title="Stop tracking"
+                      data-tt="Stop tracking"
                       aria-label={`Stop tracking ${s.name}`}
                       className="shrink-0 rounded-md p-1.5 text-slate-300 transition hover-danger focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:hover)]:opacity-0"
                     >

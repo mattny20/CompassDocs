@@ -909,6 +909,7 @@ const SCHEMA_SQL = `
   -- Per-user interface scale (compact | default | large | larger), a multiplier
   -- on the fluid root size (globals.css --ui-scale).
   ALTER TABLE users ADD COLUMN IF NOT EXISTS ui_scale text NOT NULL DEFAULT 'default';
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS single_key_shortcuts boolean NOT NULL DEFAULT true;
 
   -- Categories within a space: an optional grouping level for its documents.
   -- Deleting a category never deletes documents (they fall back to General).
@@ -2522,11 +2523,11 @@ export async function setPageWidth(userId: number, width: string): Promise<void>
 /** Per-user appearance / locale preferences; only provided keys change. */
 export async function setUserPrefs(
   userId: number,
-  prefs: { theme?: string; timezone?: string; date_format?: string; ui_scale?: string }
+  prefs: { theme?: string; timezone?: string; date_format?: string; ui_scale?: string; single_key_shortcuts?: boolean }
 ): Promise<void> {
   const sets: string[] = [];
   const vals: unknown[] = [];
-  for (const key of ["theme", "timezone", "date_format", "ui_scale"] as const) {
+  for (const key of ["theme", "timezone", "date_format", "ui_scale", "single_key_shortcuts"] as const) {
     if (prefs[key] !== undefined) {
       vals.push(prefs[key]);
       sets.push(`${key} = $${vals.length}`);
@@ -3065,7 +3066,7 @@ export async function getAllSettings(): Promise<Record<string, string>> {
 
 const USER_COLUMNS = `id, username, email, name, role, status, auth_provider, external_id,
   must_change_password, totp_enabled, directory_person_id, email_notifications,
-  notify_webhook_url, page_width, ui_scale, newsletter_role, theme, timezone, date_format,
+  notify_webhook_url, page_width, ui_scale, single_key_shortcuts, newsletter_role, theme, timezone, date_format,
   avatar, notify_prefs, created_at, last_login_at`;
 
 export async function getUserById(id: number): Promise<User | undefined> {

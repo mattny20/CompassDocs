@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { buttonClass } from "@/components/Button";
 import { LoadingRow } from "@/components/Spinner";
-import { Field, FormError, TextInput } from "@/components/form";
+import { Field, FormError, SectionEmpty, TextInput } from "@/components/form";
 import Script from "next/script";
 import ReactMarkdown from "react-markdown";
 import { Search, Sparkles, ExternalLink, CornerDownLeft, LogOut, Check } from "lucide-react";
@@ -210,7 +210,10 @@ export function OutlookPane() {
         </span>
         {state === "ready" && (
           <button
-            title="Sign out"
+            type="button"
+            data-tt="Sign out"
+            data-tt-pos="bottom"
+            aria-label="Sign out"
             className="opacity-80 hover:opacity-100"
             onClick={async () => {
               await fetch("/api/auth/logout", { method: "POST" });
@@ -312,7 +315,11 @@ export function OutlookPane() {
 
           {hits && (
             <ul className="mt-3 space-y-2">
-              {hits.length === 0 && <li className="text-sm text-slate-500">No results.</li>}
+              {hits.length === 0 && (
+                <li>
+                  <SectionEmpty>No results.</SectionEmpty>
+                </li>
+              )}
               {hits.map((h) => (
                 <DocRow key={h.id} id={h.id} title={h.title} meta={`${h.space_icon} ${h.space_name}`} snippet={h.snippet} compose={compose} onInsert={insertDocLink} docUrl={docUrl} />
               ))}

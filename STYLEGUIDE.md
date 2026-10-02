@@ -200,6 +200,11 @@ the build on a primary recipe written outside the module.
 
 ## Tooltips
 
+- **Relative times** ("3d ago") are `<RelativeTime value>` from
+  `components/RelativeTime`: a real `<time dateTime>` whose house tooltip
+  is the workspace-formatted exact time, shown on hover and on keyboard
+  focus. Never a native `title` holding the raw database string.
+
 Use the custom tooltip, never the native `title` attribute on interactive
 elements (browsers show `title` slowly, unstyled, and never on keyboard
 focus):
@@ -332,6 +337,10 @@ One field recipe, one input recipe, one width scale. Everything lives in
   so the switch sits near its label; pass `size="full"` only inside a
   bounded card. Never wrap a Field in a `max-w-*` div — that is what the
   prop is for.
+- **Passwords** have one minimum, `PASSWORD_MIN` in `lib/password-policy`
+  (8). Every form shows `PASSWORD_HELP` under the field and validates with
+  `passwordProblem()`; every route refuses with the same function. Never a
+  literal number in a form or a route.
 - **Labels** are `text-xs font-medium text-slate-500`, above the control;
   an optional field says so in the label (`(optional)`) rather than with a
   placeholder. Placeholders are examples, never the label: a control with
@@ -468,6 +477,15 @@ the only looping animation. Reduced motion is handled globally — one
 "smooth" })`) checks `matchMedia("(prefers-reduced-motion: reduce)")`.
 
 ## Notices (persistent inline state banners)
+
+- **A licence gate is `<LicenseGate feature entitlement canManage>`**
+  (`components/LicenseGate`): one warning notice naming the feature and
+  the entitlement, with an "Open License" button only when the viewer can
+  open that page. Never a grey box with no way forward.
+- **Prerequisite states** ("SMTP is not set up", "this role is built in")
+  are `notice-warn` banners with the action that clears them — never a
+  bare amber sentence (it reads as a validation error and fails AA in
+  dark mode). A hint sentence that must be amber uses `ink-warn`.
 
 Three classes in `globals.css`, each carrying both themes:
 `notice-warn` (amber), `notice-error` (red), `notice-ok` (green). They supply
@@ -663,6 +681,14 @@ per-route variants:
   dark mode).
 
 ## Keyboard shortcuts
+
+- **Single-key shortcuts can be turned off** (WCAG 2.1.4): the account
+  preference `single_key_shortcuts` (Account → Preferences → Keyboard),
+  mirrored in localStorage by `components/palette/single-key`. With it
+  off the bare keys (/ @ > # ? c and the g-chords) do nothing and the
+  shortcut sheet hides them; Ctrl/⌘+K always works. Any new bare-key
+  shortcut must go through the palette's hotkey layer so the switch
+  covers it.
 
 - Bindings live in `lib/nav-items` (`g` chords) and `lib/palette-commands`;
   guards live in `lib/hotkeys`. Never add a bare `keydown` listener without

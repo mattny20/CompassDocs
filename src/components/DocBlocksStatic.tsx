@@ -131,7 +131,7 @@ export function SiteEmbed({ src, height, title }: { src: string; height?: string
   }
   if (!ok) {
     return (
-      <p className="my-3 flex items-center gap-1.5 text-sm text-amber-700">
+      <p className="my-3 flex items-center gap-1.5 text-sm ink-warn">
         <TriangleAlert className="h-4 w-4 shrink-0" aria-hidden /> Embeds need a full{" "}
         <code>https://</code> URL.
       </p>

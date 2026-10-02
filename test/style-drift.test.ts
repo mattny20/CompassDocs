@@ -84,6 +84,7 @@ describe("style drift guard", () => {
       "app/(public)/public/page.tsx",
       "app/(public)/public/[space]/page.tsx",
       "app/(public)/public/search/page.tsx",
+      "app/(public)/public/not-found.tsx",
       "app/(public)/upload/[token]/page.tsx",
       "app/oauth/authorize/page.tsx",
       "app/account/password/page.tsx",
@@ -161,6 +162,36 @@ describe("style drift guard", () => {
     // focus:border-compass-500 and nothing else.
     const hits = offenders(/focus:border-compass-400|focus:ring-compass-100/, (file) => file.endsWith(".tsx"));
     assert.deepEqual(hits, [], `hand-written input — use <TextInput>/<Select>/<Textarea> or controlClass():\n${hits.join("\n")}`);
+  });
+
+  test("controls use data-tt, never a native title (§Tooltips)", () => {
+    // Native title= on a control shows slowly, unstyled and never on keyboard
+    // focus. The tag is matched across lines (attributes are usually one per
+    // line), so a per-line scan reports zero and is wrong. Truncation
+    // previews on plain text spans/cells, component props (<PageHeader
+    // title=…>) and media elements (<iframe>/<video>) are not controls and
+    // are not matched by the tag list.
+    const re = /<(?:button|a|input|select|textarea|Link)\b[^>]*?\btitle=/gs;
+    const hits: string[] = [];
+    for (const file of files) {
+      if (!file.endsWith(".tsx") || file.endsWith("components/VideoPlayer.tsx")) continue;
+      const src = readFileSync(file, "utf8");
+      for (const m of src.matchAll(re)) {
+        const line = src.slice(0, m.index).split("\n").length;
+        hits.push(`${relative(ROOT, file)}:${line}: ${m[0].replace(/\s+/g, " ").trim().slice(0, 120)}`);
+      }
+    }
+    assert.deepEqual(hits, [], `native title= on a control — use data-tt (+ aria-label when icon-only):\n${hits.join("\n")}`);
+  });
+
+  test("empty lines use SectionEmpty / EmptyState (§Empty states)", () => {
+    // A muted element whose text opens "No …" / "Nothing …" / "None …" is a
+    // hand-rolled "nothing here" line; components/form owns the two recipes.
+    const hits = offenders(
+      /<(?:p|li|td|span|div)\b[^>]*\btext-slate-500\b[^>]*>\s*(?:No |Nothing |None )/,
+      (file) => file.endsWith(".tsx") && !file.endsWith("components/form.tsx")
+    );
+    assert.deepEqual(hits, [], `hand-written empty state — use <SectionEmpty> / <EmptyState>:\n${hits.join("\n")}`);
   });
 
   test("bg-white only where white is literal (brand tiles, QR, media stages, email previews)", () => {

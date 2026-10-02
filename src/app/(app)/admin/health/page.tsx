@@ -103,7 +103,7 @@ export default async function HealthPage() {
               s.count > 0 ? "border-amber-200 bg-amber-50 dark:border-amber-800/60 dark:bg-amber-950/40" : "border-slate-200 bg-surface"
             }`}
           >
-            <div className={`text-2xl font-bold ${s.count > 0 ? "text-amber-700" : "text-slate-500"}`}>
+            <div className={`text-2xl font-bold ${s.count > 0 ? "ink-warn" : "text-slate-500"}`}>
               {s.key === "dups" && !r.duplicates_checked ? "—" : s.count}
             </div>
             {/* Amber tiles keep light backgrounds in dark mode, so the label

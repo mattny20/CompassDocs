@@ -8,10 +8,11 @@ import { useState } from "react";
 import { buttonClass } from "@/components/Button";
 import { confirmDialog } from "@/components/Dialog";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Megaphone, TriangleAlert, Siren, Archive, ArchiveRestore, Trash2, Check } from "lucide-react";
 import { useFormatDate } from "./SettingsProvider";
 import { PageHeader } from "@/components/PageHeader";
-import { controlClass } from "@/components/form";
+import { controlClass, SectionEmpty } from "@/components/form";
 import { useAction } from "@/lib/use-action";
 
 interface AnnouncementRow {
@@ -245,9 +246,9 @@ export function AnnouncementsAdmin({
                 </div>
               )}
               {!smtpReady && (
-                <p className="text-xs ink-warn">
-                  Email options need SMTP — set it up under{" "}
-                  <a href="/admin/notifications" className="underline">Settings → Notifications</a>.
+                <p className="notice-warn rounded-lg border px-3 py-2 text-xs">
+                  Email options need SMTP — the two email deliveries above stay disabled until it is configured.{" "}
+                  <Link href="/admin/notifications" className="font-medium underline">Set up SMTP</Link>
                 </p>
               )}
               <label className={`flex items-center gap-2 pt-1 ${webhookCount > 0 ? "cursor-pointer" : "opacity-50"}`}>
@@ -278,7 +279,7 @@ export function AnnouncementsAdmin({
       <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <h2 className="mb-3 font-semibold text-slate-900">Posted</h2>
         {rows.length === 0 ? (
-          <p className="text-sm text-slate-500">Nothing posted yet.</p>
+          <SectionEmpty>Nothing posted yet.</SectionEmpty>
         ) : (
           <ul className="divide-y divide-slate-100">
             {rows.map((r) => {

@@ -60,6 +60,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <CommandPalette
         userId={user.id}
         caps={caps}
+        singleKey={user.single_key_shortcuts}
         spaces={paletteSpaces.map((s) => ({
           id: s.id,
           name: s.name,

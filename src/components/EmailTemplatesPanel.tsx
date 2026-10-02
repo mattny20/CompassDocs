@@ -216,7 +216,7 @@ export function EmailTemplatesPanel({ initial }: { initial: Template[] }) {
                         {t.tags.map((tag) => (
                           <code
                             key={tag.tag}
-                            title={tag.label}
+                            data-tt={tag.label}
                             className="rounded-sm bg-slate-100 px-1.5 py-0.5"
                           >
                             {`{{${tag.tag}}}`}

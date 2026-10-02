@@ -89,6 +89,7 @@ export function ShortcutSheet({
   commandIds,
   companyName,
   query = "",
+  singleKey = true,
 }: {
   /** The server-evaluated capability bag; gates the `g` chords. */
   caps: ShortcutCaps;
@@ -98,8 +99,11 @@ export function ShortcutSheet({
   companyName?: string;
   /** The palette's search box, so `?` then "train" finds `g t`. */
   query?: string;
+  /** Bare-key shortcuts on or off (Account → Preferences); off hides them. */
+  singleKey?: boolean;
 }) {
   const groups = useMemo<ShortcutGroup[]>(() => {
+    const bare = singleKey !== false;
     const allowedCommands = new Set(commandIds);
 
     const commandRows: Shortcut[] = PALETTE_COMMANDS.filter(
@@ -115,20 +119,28 @@ export function ShortcutSheet({
       terms: i.keywords,
     }));
 
+    // With single-key shortcuts off, only the modifier chord is listed.
+    const openRows = bare ? OPEN_SHORTCUTS : OPEN_SHORTCUTS.filter((r) => r.keys.length > 1);
     return [
       {
         title: "Global",
-        note: "Anywhere in the app, as long as you are not typing.",
-        rows: [...OPEN_SHORTCUTS, ...commandRows],
+        note: bare
+          ? "Anywhere in the app, as long as you are not typing."
+          : "Single-key shortcuts are off (Account → Preferences).",
+        rows: [...openRows, ...(bare ? commandRows : [])],
       },
-      {
-        title: "Navigate",
-        note: "Press G, then the second key. Either case works.",
-        rows: navRows,
-      },
+      ...(bare
+        ? [
+            {
+              title: "Navigate",
+              note: "Press G, then the second key. Either case works.",
+              rows: navRows,
+            },
+          ]
+        : []),
       { title: "In the palette", rows: IN_PALETTE_SHORTCUTS },
     ];
-  }, [caps, commandIds, companyName]);
+  }, [caps, commandIds, companyName, singleKey]);
 
   const needle = query.trim().toLowerCase();
   const shown = needle

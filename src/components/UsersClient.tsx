@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { PASSWORD_HELP, passwordProblem } from "@/lib/password-policy";
 import { buttonClass } from "@/components/Button";
 import { Chip, labelCase } from "@/components/Chip";
 import { Table, Th, Td, TABLE_HEAD_ROW, TR } from "@/components/Table";
@@ -10,7 +11,7 @@ import { ROLE_ORDER, ROLE_LABEL, ROLE_BLURB } from "@/lib/types";
 import type { User, Role } from "@/lib/types";
 import { toast } from "@/components/Toasts";
 import { confirmDialog, promptDialog } from "@/components/Dialog";
-import { Field, Select, TextInput } from "@/components/form";
+import { Field, SectionEmpty, Select, TextInput } from "@/components/form";
 import { useAction } from "@/lib/use-action";
 
 export function UsersClient({
@@ -125,7 +126,7 @@ function UserTable({
       label: "Temporary password",
       type: "password",
       confirmLabel: "Set password",
-      validate: (v) => (v.length < 6 ? "At least 6 characters." : undefined),
+      validate: (v) => (passwordProblem(v) ? PASSWORD_HELP : undefined),
     });
     if (!pw) return;
     await patch(u.id, { resetPassword: pw }, {
@@ -174,8 +175,8 @@ function UserTable({
         <tbody>
           {users.length === 0 && (
             <tr>
-              <td colSpan={4} className="px-4 py-10 text-center text-sm text-slate-500">
-                {filtered ? "No users match your search." : "No users yet."}
+              <td colSpan={4} className="px-4 py-10 text-center">
+                <SectionEmpty>{filtered ? "No users match your search." : "No users yet."}</SectionEmpty>
               </td>
             </tr>
           )}
@@ -310,7 +311,7 @@ function CreateUser() {
         ? "3–32 characters: letters, numbers, dot, dash, underscore."
         : undefined,
     email: email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? "That doesn't look like an email address." : undefined,
-    password: password.length < 6 ? "At least 6 characters." : undefined,
+    password: passwordProblem(password) ? PASSWORD_HELP : undefined,
   };
   const invalid = Boolean(errors.username || errors.email || errors.password);
 
@@ -395,7 +396,7 @@ function CreateUser() {
           label="Temporary password"
           className="sm:col-span-2"
           error={tried ? errors.password : undefined}
-          help="At least 6 characters — the user changes it on first login."
+          help={`${PASSWORD_HELP} The user changes it on first login.`}
         >
           <TextInput
             value={password}
@@ -441,7 +442,8 @@ function AutoLinkButton() {
         }
       }}
       disabled={busy}
-      title="Match accounts to people-directory entries by SSO identity or email — powers profile links and article bylines."
+      data-tt="Match accounts to people-directory entries by SSO identity or email — powers profile links and article bylines."
+      data-tt-wrap=""
       className={buttonClass("secondary")}
     >
       {busy ? "Linking…" : "Auto-link directory"}
