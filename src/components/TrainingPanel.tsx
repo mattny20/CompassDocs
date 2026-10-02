@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { LoadingRow, Spinner } from "@/components/Spinner";
 import { chipClass } from "@/components/Chip";
+import { SettingsLink } from "@/components/SettingsLink";
 import { buttonClass } from "@/components/Button";
 import Link from "next/link";
 import {
@@ -776,7 +777,7 @@ function TeamLeads({
       {loaded &&
         (groups.length === 0 ? (
           <p className="mt-2 text-sm text-slate-500">
-            No groups yet — create them under Settings → Groups.
+            No groups yet — create them under <SettingsLink href="/admin/groups" />.
           </p>
         ) : (
           <div className="mt-3 space-y-2">
@@ -1093,7 +1094,8 @@ function ManageDecks({
                 dense
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search decks…"
+                placeholder="Filter decks…"
+                aria-label="Filter decks"
                 className="pl-8 pr-3"
               />
             </div>

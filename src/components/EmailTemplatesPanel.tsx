@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Spinner } from "@/components/Spinner";
+import { SettingsLink } from "@/components/SettingsLink";
 import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import {
@@ -146,7 +147,7 @@ export function EmailTemplatesPanel({ initial }: { initial: Template[] }) {
         <code className="rounded-sm bg-slate-100 px-1 py-0.5 text-xs">{"{{doc_title}}"}</code> are
         replaced with the real value when each email goes out — use the{" "}
         <span className="font-medium">Insert tag</span> menu in the editor toolbar. Newsletters
-        have their own editor under Settings → Newsletter.
+        have their own editor under <SettingsLink href="/admin/newsletter" />.
       </p>
 
       <div className="space-y-3">

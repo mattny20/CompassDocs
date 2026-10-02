@@ -117,7 +117,7 @@ test("the SSO vendor picks the authority, and defaults to Microsoft", async ({ b
   }
 });
 
-test("Users & roles shows the roles a person holds beyond their rung", async ({ browser }) => {
+test("Users shows the roles a person holds beyond their rung", async ({ browser }) => {
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
   await login(page, ADMIN);

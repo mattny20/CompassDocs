@@ -6,6 +6,7 @@
 
 import { useState } from "react";
 import { SaveRow } from "@/components/SaveRow";
+import { SettingsLink } from "@/components/SettingsLink";
 import { useLeaveGuard, useUnsavedChanges } from "@/lib/use-unsaved";
 import { confirmDialog } from "@/components/Dialog";
 import { EnterpriseBadge } from "@/components/Chip";
@@ -96,7 +97,7 @@ export function MicrosoftSyncPanel({ graph, report }: { graph: GraphState; repor
         <p className="mt-1">
           This Enterprise build supports it, but your license doesn&rsquo;t include the{" "}
           <code className="font-mono">directory_sync</code> entitlement — check{" "}
-          <a href="/admin/license" className="font-medium underline">Settings → License</a>.
+          <SettingsLink href="/admin/license" />.
         </p>
       </div>
     );

@@ -22,7 +22,7 @@ test("every page has its own document title", async ({ page }) => {
   await login(page, ADMIN);
   await expect(page).toHaveTitle(/^Dashboard — /);
   await page.goto("/admin/users");
-  await expect(page).toHaveTitle(/^Users & roles — /);
+  await expect(page).toHaveTitle(/^Users — /);
   await page.goto("/admin/directory/fields");
   await expect(page).toHaveTitle(/^Fields · Directory — /);
   await page.goto("/doc/1");
@@ -38,4 +38,16 @@ test("admin signs in and sees the dashboard hub", async ({ page }) => {
   await expect(page.getByRole("link", { name: /^Ask .* anything/ })).toBeVisible();
   // Seeded example spaces render in the spaces column.
   await expect(page.locator("text=Spaces").first()).toBeVisible();
+});
+
+test("failing diagnostics link to the page that fixes them", async ({ page }) => {
+  await login(page, ADMIN);
+  await page.goto("/admin");
+  // The rig has no SMTP, so the Email row is "Attention" and carries its fix.
+  const row = page.locator("li", { hasText: "Email (SMTP)" }).first();
+  await expect(row).toContainText("Attention");
+  await expect(row.getByRole("link", { name: "Set up SMTP" })).toHaveAttribute(
+    "href",
+    "/admin/notifications/email"
+  );
 });

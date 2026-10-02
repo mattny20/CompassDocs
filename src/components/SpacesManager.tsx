@@ -3,10 +3,12 @@
 import { useState } from "react";
 import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
+import { SettingsLink } from "@/components/SettingsLink";
 import { useRouter } from "next/navigation";
 import { Lock, Globe, Building2, PencilRuler, ChevronUp, ChevronDown, Pencil, Plus, Trash2, X } from "lucide-react";
 import { EntityPicker } from "@/components/EntityPicker";
 import { Field, SectionEmpty, Select, TextInput, Toggle } from "@/components/form";
+import { ListFilter } from "@/components/ListFilter";
 import { toast } from "@/components/Toasts";
 import { confirmDialog, promptDialog } from "@/components/Dialog";
 import { SpaceIconPicker } from "./SpaceIconPicker";
@@ -50,7 +52,13 @@ export function SpacesManager({
   const [togglingEditAll, setTogglingEditAll] = useState(false);
   const [editing, setEditing] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
+  const [query, setQuery] = useState("");
   const { run, isBusy } = useAction();
+
+  const needle = query.trim().toLowerCase();
+  const visible = needle
+    ? spaces.filter((s) => `${s.name} ${s.slug} ${s.description ?? ""}`.toLowerCase().includes(needle))
+    : spaces;
 
   async function refresh() {
     const res = await fetch("/api/admin/spaces");
@@ -159,8 +167,19 @@ export function SpacesManager({
         />
       )}
 
+      {spaces.length > 0 && (
+        <ListFilter
+          value={query}
+          onChange={setQuery}
+          label="Filter spaces"
+          shown={visible.length}
+          total={spaces.length}
+          noun="spaces"
+        />
+      )}
+
       <div className="space-y-2">
-        {spaces.map((s) =>
+        {visible.map((s) =>
           editing === s.id ? (
             <SpaceForm
               key={s.id}
@@ -195,7 +214,7 @@ export function SpacesManager({
                 <div className="flex items-center gap-2">
                   <span className="truncate font-medium text-slate-900">{s.name}</span>
                   <span className={chipClass("neutral")}>
-                    {s.doc_count} doc{s.doc_count === 1 ? "" : "s"}
+                    {s.doc_count} document{s.doc_count === 1 ? "" : "s"}
                   </span>
                   {s.visibility === "private" && (
                     <span className={chipClass("warn")}>
@@ -252,6 +271,9 @@ export function SpacesManager({
           >
             No spaces yet — spaces are how documents get organized.
           </SectionEmpty>
+        )}
+        {spaces.length > 0 && visible.length === 0 && (
+          <SectionEmpty className="py-6">No spaces match your filter.</SectionEmpty>
         )}
       </div>
     </div>
@@ -375,7 +397,7 @@ function SpaceForm({
           <TextInput
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="Runbooks, architecture, and on-call docs"
+            placeholder="Runbooks, architecture, and on-call documents"
             maxLength={280}
           />
         </Field>
@@ -444,10 +466,7 @@ function SpaceForm({
               internet</strong> — no account needed — at{" "}
               <code className="rounded-sm bg-surface/70 px-1">/public</code>. Drafts stay hidden.
               The public site itself is switched on under{" "}
-              <a href="/admin/public-site" className="font-medium underline">
-                Settings → Public site
-              </a>
-              .
+              <SettingsLink href="/admin/public-site" />.
             </p>
           </div>
         )}
@@ -459,11 +478,8 @@ function SpaceForm({
             </p>
             {groups.length === 0 ? (
               <p className="text-sm text-slate-500">
-                No groups yet — create one under{" "}
-                <a href="/admin/groups" className="font-medium text-compass-700 underline">
-                  Settings → Groups
-                </a>
-                . Until a group is granted, only admins can see this space.
+                No groups yet — create one under <SettingsLink href="/admin/groups" />. Until a
+                group is granted, only admins can see this space.
               </p>
             ) : (
               <EntityPicker
@@ -539,11 +555,7 @@ function SpaceForm({
               <span className="mb-1 block text-xs font-medium text-slate-500">Groups</span>
               {groups.length === 0 ? (
                 <p className="text-sm text-slate-500">
-                  No groups yet — create one under{" "}
-                  <a href="/admin/groups" className="font-medium text-compass-700 underline">
-                    Settings → Groups
-                  </a>
-                  .
+                  No groups yet — create one under <SettingsLink href="/admin/groups" />.
                 </p>
               ) : (
                 <EntityPicker
@@ -589,10 +601,7 @@ function SpaceForm({
           <p className="mb-2 text-xs text-slate-500">
             Pre-fills new documents created from this space. Writers can still switch to
             another template or a blank page. Manage templates under{" "}
-            <a href="/admin/templates" className="font-medium text-compass-700 underline">
-              Settings → Templates
-            </a>
-            .
+            <SettingsLink href="/admin/templates" />.
           </p>
           <div className="w-72">
             {defaultTemplateId !== null ? (
@@ -654,7 +663,7 @@ function SpaceForm({
         </p>
         {groups.length === 0 ? (
           <p className="text-sm text-slate-500">
-            No groups yet — create one under <a href="/admin/groups" className="font-medium text-compass-700 underline">Settings → Groups</a>.
+            No groups yet — create one under <SettingsLink href="/admin/groups" />.
           </p>
         ) : (
           <EntityPicker

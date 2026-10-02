@@ -535,6 +535,18 @@ text-slate-500` before them ("Notary · Phoenix").
 
 ## Tables
 
+- **Filtering a list already on the page is `<ListFilter value onChange
+  label shown total noun>`** (`components/ListFilter`): a filter box with
+  a live "3 of 89 users" count, Escape clears. Lookups that fetch keep
+  "Search …" (EntityPicker, people search, settings search).
+- **Paging is `<Pager page limit total onPage busy>`** (`components/Pager`):
+  "Showing 1–50 of 4,333" with Previous / Next, rendered above and below a
+  long table. A list that can grow without bound (the Trash, the audit
+  log) is paged by the server — never load every row to draw a page.
+- **Cross-references to settings are `<SettingsLink href>`**
+  (`components/SettingsLink`): a link when the viewer can open the
+  section, plain text otherwise. Never a hand-written "Settings → X".
+
 - The header row is `TABLE_HEAD_ROW` from `components/Table` (the eyebrow
   tier at an AA grey, semibold, with a bottom hairline) on `<thead>` or the
   header `<tr>`; cells use `TH` / `TD`, body rows `TR`. Every table gets
@@ -609,6 +621,50 @@ text-slate-500` before them ("Notary · Phoenix").
 - `toast()` only shows where a `<ToastHost />` is mounted. One is in
   `(app)/layout.tsx` and one in `account/(settings)/layout.tsx` — a new shell
   outside those groups must mount its own or its toasts go nowhere.
+
+## Vocabulary
+
+One word per thing, everywhere a person can read it (labels, buttons,
+placeholders, toasts, empty states, dialog copy, audit rows). Code
+identifiers (`docs`, `doc_count`) keep their names.
+
+- **Documents**, never "docs" in copy: "Export all documents", "12
+  documents", "stale documents". "Doc" is fine only inside a proper noun
+  that already has it (a URL, a DMS record label).
+- **Users / people / accounts.** *Users* is the settings section
+  (`/admin/users`) and its rows: an account someone signs in with, holding
+  a role. *People* are directory entries (`/directory`): a person who may
+  or may not have an account. *Accounts* is the word for the sign-in
+  itself ("Match accounts to people", "signed in to their account"). The
+  section is named "Users", not "Users & roles" — roles have their own
+  section.
+- **Search vs Filter.** A control that *fetches* says "Search …" (people
+  search, document search, settings search, every `EntityPicker`). A
+  control that *narrows a list already on the page* says "Filter …" and is
+  `<ListFilter label="Filter users" noun="users">` from
+  `components/ListFilter`, which also renders the live "3 of 89 users"
+  count so the heading and the rows agree. An empty filter result says "No
+  users match your filter.", never "…your search."
+- **Trash.** "Move to Trash" (reversible, toasts with Undo), "Restore",
+  "Delete permanently" (irreversible, `confirmDialog`). Never "remove",
+  "purge" or "archive" for the same thing. The destination is "the Trash".
+- **Space, Category, Page.** A *space* groups documents; a *category* is a
+  section within a space; a *page* is a nested document under another
+  document. "Folder", "section" and "sub-doc" are not product words.
+- **The audit log never prints a raw key.** Action labels come from
+  `lib/audit-labels` (`actionLabel("user.create")` → "Created user"); every
+  `audit({ action })` the codebase emits has a verb-first label there, and
+  `test/audit-labels.test.ts` fails when one is missing. The fallback
+  humanises ("Directory · Person updated") so an unmapped key is a dull
+  row, not a code identifier; detail keys and target types go through
+  `humanise()` the same way.
+- **One primary create action per list page.** A settings page that lists
+  things has exactly one primary button, top-right of its intro row (the
+  row with the count or description): "Add user", "New space", "New
+  group". It reveals the inline create form *above* the list it adds to;
+  while the form is open the button hides, and the form's Cancel closes
+  it. Other actions on that row are secondary. Nothing primary sits below
+  the list.
 
 ## Not-found and error routes
 

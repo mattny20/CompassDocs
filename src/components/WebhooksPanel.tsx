@@ -11,6 +11,7 @@ import { buttonClass } from "@/components/Button";
 import { confirmDialog } from "@/components/Dialog";
 import { toast } from "@/components/Toasts";
 import { Field, SectionEmpty, Select, TextInput } from "@/components/form";
+import { EntityPicker } from "@/components/EntityPicker";
 import { useFormatDate } from "./SettingsProvider";
 
 const FORMATS = [
@@ -171,26 +172,18 @@ export function WebhooksPanel({
           ))}
         </div>
         {spaces.length > 0 && (
-          <div className="mt-3">
-            <span className="mb-1 block text-xs font-medium text-slate-500">
-              Only for these spaces <span className="text-slate-500">(none checked = all spaces)</span>
-            </span>
-            <div className="flex flex-wrap gap-3 text-sm text-slate-600">
-              {spaces.map((sp) => (
-                <label key={sp.id} className="flex items-center gap-1.5">
-                  <input
-                    type="checkbox"
-                    checked={spaceIds.includes(sp.id)}
-                    onChange={(e) =>
-                      setSpaceIds(
-                        e.target.checked ? [...spaceIds, sp.id] : spaceIds.filter((x) => x !== sp.id)
-                      )
-                    }
-                  />
-                  {sp.name}
-                </label>
-              ))}
-            </div>
+          // The Field recipe without its <label>: a picker holds several
+          // controls, so the caption is a span and the picker names itself.
+          <div className="mt-3 max-w-xl">
+            <span className="mb-1 block text-xs font-medium text-slate-500">Only for these spaces</span>
+            <EntityPicker
+              label="Spaces"
+              options={spaces.map((sp) => ({ id: sp.id, label: sp.name }))}
+              value={spaceIds}
+              onChange={setSpaceIds}
+              placeholder="All spaces — type to limit…"
+            />
+            <span className="mt-1 block text-xs text-slate-500">Leave empty for all spaces.</span>
           </div>
         )}
         <div className="mt-4 flex items-center gap-3">

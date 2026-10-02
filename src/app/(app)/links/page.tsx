@@ -6,6 +6,7 @@ import { listLinkCategories, listLinksVisibleTo } from "@/lib/db";
 import type { QuickLink } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings-store";
 import { EmptyState } from "@/components/form";
+import { SettingsLink } from "@/components/SettingsLink";
 import { PageContainer } from "@/components/PageWidth";
 import { PageHeader } from "@/components/PageHeader";
 
@@ -59,7 +60,7 @@ export default async function LinksPage() {
           title="No links yet"
           body={
             user.role === "admin"
-              ? "Add shortcuts to the tools your team uses in Settings → Links."
+              ? <>Add shortcuts to the tools your team uses in <SettingsLink href="/admin/links" />.</>
               : "Your admin hasn't added any shortcuts yet."
           }
           action={

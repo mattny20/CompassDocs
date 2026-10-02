@@ -46,7 +46,7 @@ export const PALETTE_COMMANDS: PaletteCommand[] = [
   { id: "template.new", label: "New template", icon: LayoutTemplate, keywords: "create document template sop starter", cap: "isAdmin", href: "/admin/templates", hint: "opens Templates" },
   { id: "announcement.new", label: "New announcement", icon: Megaphone, keywords: "post broadcast news publish", cap: "showAnnouncements", href: "/announcements", hint: "opens Announcements" },
   { id: "newsletter.new", label: "New newsletter issue", icon: Mail, keywords: "email campaign digest draft", cap: "showNewsletter", href: "/newsletter", hint: "opens the newsletter workspace" },
-  { id: "user.invite", label: "Add a user", icon: Users, keywords: "invite account people onboard new", cap: "isAdmin", href: "/admin/users", hint: "opens Users & roles" },
+  { id: "user.invite", label: "Add a user", icon: Users, keywords: "invite account people onboard new", cap: "isAdmin", href: "/admin/users", hint: "opens Users" },
   { id: "group.new", label: "New group", icon: UsersRound, keywords: "team membership access create", cap: "isAdmin", href: "/admin/groups", hint: "opens Groups" },
   { id: "backup.open", label: "Backups", icon: DatabaseBackup, keywords: "restore snapshot schedule destination", cap: "isAdmin", href: "/admin/backups" },
   { id: "audit.open", label: "Audit log", icon: ScrollText, keywords: "security history who did what events", cap: "isAdmin", href: "/admin/audit" },

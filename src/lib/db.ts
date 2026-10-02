@@ -2708,11 +2708,44 @@ export async function deleteDocument(id: number): Promise<boolean> {
 }
 
 /** List the documents currently in the Trash, most-recently-deleted first. */
-export async function listTrashedDocuments(): Promise<DocumentWithSpace[]> {
-  const rows = await q(
-    `${DOC_SELECT} WHERE d.deleted_at IS NOT NULL ORDER BY d.deleted_at DESC`
+export interface TrashedDocRow {
+  id: number;
+  title: string;
+  type: string;
+  status: string;
+  deleted_at: string | null;
+  space_name: string;
+  space_icon: string;
+  space_slug: string;
+}
+
+/**
+ * The Trash, a page at a time and without document bodies (the old query
+ * loaded every body of every trashed document to render a title). `q`
+ * matches the title or the space name, case-insensitively.
+ */
+export async function listTrashedDocuments(opts: { q?: string; limit?: number; offset?: number } = {}): Promise<{
+  rows: TrashedDocRow[];
+  total: number;
+}> {
+  const limit = Math.min(200, Math.max(1, opts.limit ?? 50));
+  const offset = Math.max(0, opts.offset ?? 0);
+  const needle = (opts.q ?? "").trim();
+  const params: unknown[] = [];
+  let where = "d.deleted_at IS NOT NULL";
+  if (needle) {
+    params.push(`%${needle}%`);
+    where += ` AND (d.title ILIKE $${params.length} OR s.name ILIKE $${params.length})`;
+  }
+  const from = `FROM documents d JOIN spaces s ON s.id = d.space_id WHERE ${where}`;
+  const [{ n: total }] = await q<{ n: number }>(`SELECT COUNT(*)::int AS n ${from}`, params);
+  const rows = await q<TrashedDocRow>(
+    `SELECT d.id, d.title, d.type, d.status, d.deleted_at,
+            s.name AS space_name, s.icon AS space_icon, s.slug AS space_slug
+     ${from} ORDER BY d.deleted_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+    [...params, limit, offset]
   );
-  return rows.map(mapDoc);
+  return { rows, total };
 }
 
 /** The space a trashed doc belongs to (for edit-rights checks on restore). */
@@ -7196,7 +7229,7 @@ export async function assignRole(input: {
  * (kept in step by the compass_users_ladder_sync trigger). Deleting that row
  * directly would leave the user with no permissions while `users.role` still
  * says otherwise, and the next boot's backfill would silently put it back —
- * so it is refused here and the user's role is changed in Users & roles
+ * so it is refused here and the user's role is changed in Settings → Users
  * instead, which moves both together.
  */
 export async function unassignRole(id: number): Promise<{ ok: true } | { error: RoleMutationError }> {
@@ -7312,7 +7345,7 @@ export async function setSectionRoleGrants(
 
 /**
  * Extra roles each user holds beyond their ladder rung — the custom and seeded
- * roles that Users & roles cannot show from `users.role` alone (0.97).
+ * roles that the Users page cannot show from `users.role` alone (0.97).
  *
  * Without this the page states someone's access and is wrong: a Viewer holding
  * "Announcements manager" and a space-scoped "Space editor" renders as plain

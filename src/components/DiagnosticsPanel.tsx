@@ -1,9 +1,24 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { buttonClass } from "@/components/Button";
+import { useCanOpenSettings } from "@/components/SettingsLink";
 import { CheckCircle2, AlertTriangle, XCircle, RefreshCw } from "lucide-react";
 import type { DiagnosticCheck } from "@/lib/diagnostics";
+
+/** The way out of a warn/fail row: a link to the page that fixes it, or plain
+ *  text when the viewer (a delegated role) cannot open that section. */
+function FixLink({ fix }: { fix: NonNullable<DiagnosticCheck["fix"]> }) {
+  const can = useCanOpenSettings(fix.href);
+  return can ? (
+    <Link href={fix.href} className="link text-sm font-medium">
+      {fix.label}
+    </Link>
+  ) : (
+    <span className="text-sm font-medium text-slate-500">{fix.label}</span>
+  );
+}
 
 const TONE: Record<DiagnosticCheck["status"], { icon: React.ReactNode; chip: string }> = {
   pass: {
@@ -63,7 +78,15 @@ export function DiagnosticsPanel({ initial }: { initial: DiagnosticCheck[] }) {
                   {c.status === "pass" ? "OK" : c.status === "warn" ? "Attention" : "Failing"}
                 </span>
               </div>
-              <p className="mt-0.5 text-sm text-slate-500">{c.detail}</p>
+              <p className="mt-0.5 text-sm text-slate-500">
+                {c.detail}
+                {c.fix && c.status !== "pass" && (
+                  <>
+                    {" "}
+                    <FixLink fix={c.fix} />
+                  </>
+                )}
+              </p>
             </div>
           </li>
         ))}

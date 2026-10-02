@@ -30,14 +30,14 @@ export function ApprovalWorkflow({ initial }: { initial: ApprovalMode }) {
         disabled={saving}
         onClick={() => save("strict")}
         title="Strict (review required)"
-        desc="Editors' changes to published docs and new publishes go to the review queue. Approvers/Admins publish."
+        desc="Editors' changes to published documents and new publishes go to the review queue. Approvers/Admins publish."
       />
       <ModeCard
         active={mode === "open"}
         disabled={saving}
         onClick={() => save("open")}
         title="Open (edit freely)"
-        desc="Editors can publish and update live docs directly, with no review step. Approvers still handle suggestions."
+        desc="Editors can publish and update live documents directly, with no review step. Approvers still handle suggestions."
       />
     </div>
   );

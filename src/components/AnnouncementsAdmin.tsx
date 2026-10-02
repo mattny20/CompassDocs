@@ -13,6 +13,7 @@ import { Megaphone, TriangleAlert, Siren, Archive, ArchiveRestore, Trash2, Check
 import { useFormatDate } from "./SettingsProvider";
 import { PageHeader } from "@/components/PageHeader";
 import { controlClass, SectionEmpty } from "@/components/form";
+import { EntityPicker } from "@/components/EntityPicker";
 import { useAction } from "@/lib/use-action";
 
 interface AnnouncementRow {
@@ -226,23 +227,18 @@ export function AnnouncementsAdmin({
                 Email selected groups only
               </label>
               {emailMode === "groups" && (
-                <div className="ml-6 flex flex-wrap gap-x-4 gap-y-1 pt-1">
-                  {groups.map((g) => (
-                    <label key={g.id} className="flex cursor-pointer items-center gap-1.5">
-                      <input
-                        type="checkbox"
-                        checked={groupIds.includes(g.id)}
-                        onChange={(e) =>
-                          setGroupIds((prev) =>
-                            e.target.checked ? [...prev, g.id] : prev.filter((x) => x !== g.id)
-                          )
-                        }
-                        className="accent-compass-600"
-                      />
-                      {g.name}
-                      <span className="text-xs text-slate-500">{g.member_count}</span>
-                    </label>
-                  ))}
+                <div className="ml-6 max-w-xl pt-1">
+                  <EntityPicker
+                    label="Groups"
+                    options={groups.map((g) => ({
+                      id: g.id,
+                      label: g.name,
+                      sublabel: `${g.member_count} member${g.member_count === 1 ? "" : "s"}`,
+                    }))}
+                    value={groupIds}
+                    onChange={setGroupIds}
+                    placeholder="Search groups…"
+                  />
                 </div>
               )}
               {!smtpReady && (

@@ -45,8 +45,11 @@ test("a trashed document is listed in the Trash and Restore says so", async ({ p
   await page.getByRole("button", { name: "Move document to Trash" }).first().click();
   await expect(page).toHaveURL(/\/spaces\//);
   await page.goto("/trash");
+  // The Trash is paged and filtered by the server: narrow it to this title.
+  await page.getByLabel("Filter the Trash").fill(title);
   const row = page.locator("tr", { hasText: title });
   await expect(row).toBeVisible();
+  await expect(page.getByText(/Showing 1–1 of 1/)).toBeVisible();
   await row.getByRole("button", { name: "Restore" }).click();
   await expect(page.locator('[role="status"]').getByText(/^Restored "/)).toBeVisible();
   await expect(row).toHaveCount(0);

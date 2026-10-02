@@ -13,7 +13,7 @@ type Category = { label: string; icons: IconEntry[] };
 
 const CATALOG: Category[] = [
   {
-    label: "General & docs",
+    label: "General & documents",
     icons: [
       { e: "📁", k: "folder files" },
       { e: "🗂️", k: "dividers organize archive" },
@@ -153,7 +153,8 @@ export function SpaceIconPicker({
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search icons… (rocket, security, training)"
+          placeholder="Filter icons… (rocket, security, training)"
+          aria-label="Filter icons"
           className={controlClass(false, "flex-1 rounded-md", true)}
         />
         <input

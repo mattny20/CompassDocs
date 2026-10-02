@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Search, X } from "lucide-react";
 import { controlClass } from "@/components/form";
 
@@ -13,6 +13,10 @@ import { controlClass } from "@/components/form";
 // Two modes:
 //   - multi:  pass `value` + `onChange` — chips are rendered above the input.
 //   - single: pass `onPick` — the input resets after each pick (an "add…" box).
+//
+// Safe inside a <form>: Enter never submits the form (it opens the list or
+// picks the highlighted match), every button is type="button", and `name`
+// renders one hidden input per selected id so a native post carries them.
 
 export interface PickerOption {
   id: number;
@@ -27,6 +31,8 @@ export function EntityPicker({
   value,
   onChange,
   onPick,
+  label,
+  name,
   placeholder = "Search…",
   emptyText = "Nothing matches.",
   accent = "compass",
@@ -39,6 +45,10 @@ export function EntityPicker({
   onChange?: (ids: number[]) => void;
   /** Single mode: called with the picked id; the box then clears. */
   onPick?: (id: number) => void;
+  /** Accessible name for the search box ("Spaces", "Groups"). A placeholder is an example, not a name. */
+  label?: string;
+  /** Form field name: renders `<input type="hidden" name value={id}>` per selected id (multi mode). */
+  name?: string;
   placeholder?: string;
   emptyText?: string;
   /** Tailwind color family for chips/highlights (compass | violet). */
@@ -52,6 +62,7 @@ export function EntityPicker({
   const [open, setOpen] = useState(false);
   const [cursor, setCursor] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
+  const listId = useId();
 
   const selected = useMemo(() => new Set(value ?? []), [value]);
   const byId = useMemo(() => new Map(options.map((o) => [o.id, o])), [options]);
@@ -64,6 +75,7 @@ export function EntityPicker({
   }, [options, selected, query]);
 
   const visible = matches.slice(0, maxVisible);
+  const listOpen = open && !disabled;
 
   useEffect(() => {
     setCursor(0);
@@ -97,6 +109,7 @@ export function EntityPicker({
   const chipTone =
     accent === "violet" ? "bg-violet-50 text-violet-800" : "bg-compass-50 text-compass-800";
   const hoverTone = accent === "violet" ? "bg-violet-50" : "bg-compass-50";
+  const optionId = (id: number) => `${listId}-opt-${id}`;
 
   return (
     <div ref={rootRef} className="relative">
@@ -110,9 +123,10 @@ export function EntityPicker({
               {byId.get(id)?.label ?? `#${id}`}
               {!disabled && (
                 <button
+                  type="button"
                   onClick={() => remove(id)}
                   data-tt="Remove"
-                  aria-label={`Remove ${byId.get(id)?.label ?? id}`}
+                  aria-label={`Remove ${byId.get(id)?.label ?? `#${id}`}`}
                   className="opacity-60 hover:opacity-100"
                 >
                   <X className="h-3 w-3" />
@@ -122,6 +136,8 @@ export function EntityPicker({
           ))}
         </div>
       )}
+
+      {multi && name && (value ?? []).map((id) => <input key={id} type="hidden" name={name} value={id} />)}
 
       <div className="relative">
         <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
@@ -134,7 +150,14 @@ export function EntityPicker({
           }}
           onFocus={() => setOpen(true)}
           onKeyDown={(e) => {
-            if (!open && (e.key === "ArrowDown" || e.key === "Enter")) {
+            if (e.key === "Enter") {
+              // Never submit a surrounding form from the search box.
+              e.preventDefault();
+              if (!open) setOpen(true);
+              else if (visible[cursor]) pick(visible[cursor].id);
+              return;
+            }
+            if (!open && e.key === "ArrowDown") {
               setOpen(true);
               return;
             }
@@ -144,25 +167,36 @@ export function EntityPicker({
             } else if (e.key === "ArrowUp") {
               e.preventDefault();
               setCursor((c) => Math.max(c - 1, 0));
-            } else if (e.key === "Enter") {
-              e.preventDefault();
-              if (visible[cursor]) pick(visible[cursor].id);
             } else if (e.key === "Escape") {
               setOpen(false);
             }
           }}
           placeholder={placeholder}
           role="combobox"
-          aria-expanded={open}
+          aria-label={label}
+          aria-expanded={listOpen}
+          aria-autocomplete="list"
+          aria-controls={listOpen ? listId : undefined}
+          aria-activedescendant={listOpen && visible[cursor] ? optionId(visible[cursor].id) : undefined}
+          autoComplete="off"
           className={controlClass(false, "pl-8 pr-3")}
         />
       </div>
 
-      {open && !disabled && (
-        <div className="absolute z-30 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border border-slate-200 bg-surface py-1 shadow-float">
+      {listOpen && (
+        <div
+          id={listId}
+          role="listbox"
+          aria-label={label}
+          className="absolute z-30 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border border-slate-200 bg-surface py-1 shadow-float"
+        >
           {visible.map((o, i) => (
             <button
               key={o.id}
+              type="button"
+              id={optionId(o.id)}
+              role="option"
+              aria-selected={i === cursor}
               onMouseDown={(e) => {
                 e.preventDefault();
                 pick(o.id);

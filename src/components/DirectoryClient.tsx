@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { SettingsLink } from "@/components/SettingsLink";
 import {
   LayoutGrid,
   List as ListIcon,
@@ -787,8 +788,8 @@ export function DirectoryClient({
             title="The directory is empty"
             body={
               isAdmin
-                ? "Add people, or connect Microsoft 365 or Google Workspace to sync them, under Settings → Directory."
-                : "Admins can add people (or connect a directory sync) under Settings → Directory."
+                ? <>Add people, or connect Microsoft 365 or Google Workspace to sync them, under <SettingsLink href="/admin/directory" />.</>
+                : <>Admins can add people (or connect a directory sync) under <SettingsLink href="/admin/directory" />.</>
             }
             action={isAdmin ? { href: "/admin/directory", label: "Directory settings", icon: <Settings /> } : undefined}
           />

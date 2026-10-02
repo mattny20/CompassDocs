@@ -48,7 +48,7 @@ export function ImportExport() {
           href="/api/export"
           className={buttonClass("primary")}
         >
-          <Download className="h-4 w-4" aria-hidden /> Export all docs (.zip)
+          <Download className="h-4 w-4" aria-hidden /> Export all documents (.zip)
         </a>
       </div>
 

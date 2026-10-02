@@ -12,6 +12,7 @@ import type { User, Role } from "@/lib/types";
 import { toast } from "@/components/Toasts";
 import { confirmDialog, promptDialog } from "@/components/Dialog";
 import { Field, SectionEmpty, Select, TextInput } from "@/components/form";
+import { ListFilter } from "@/components/ListFilter";
 import { useAction } from "@/lib/use-action";
 
 export function UsersClient({
@@ -29,9 +30,10 @@ export function UsersClient({
    */
   extraRoles?: Record<number, string[]>;
 }) {
-  // The search box lives in the table, but the heading count has to agree with
-  // it — so the filter state sits here and the table receives the result.
+  // The filter state sits here so the ListFilter's count and the table rows
+  // always agree.
   const [query, setQuery] = useState("");
+  const [creating, setCreating] = useState(false);
   const needle = query.trim().toLowerCase();
   const visible = needle
     ? users.filter((u) =>
@@ -39,23 +41,38 @@ export function UsersClient({
       )
     : users;
 
+  // One primary create action, top-right of the intro row (STYLEGUIDE
+  // §Vocabulary); the form it opens sits above the list it adds to.
   return (
     <div>
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold text-slate-900">
-          Users ({needle ? `${visible.length} of ${users.length}` : users.length})
-        </h2>
-        <AutoLinkButton />
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold text-slate-900">Users</h2>
+        <div className="flex flex-wrap items-center gap-2">
+          <AutoLinkButton />
+          {!creating && (
+            <button onClick={() => setCreating(true)} className={buttonClass("primary")}>
+              <Plus className="h-4 w-4" aria-hidden /> Add user
+            </button>
+          )}
+        </div>
       </div>
+      {creating && <CreateUser onClose={() => setCreating(false)} />}
+      <ListFilter
+        value={query}
+        onChange={setQuery}
+        label="Filter users"
+        placeholder="Filter by name, username, email, or role…"
+        shown={visible.length}
+        total={users.length}
+        noun="users"
+        className="mb-3"
+      />
       <UserTable
         extraRoles={extraRoles}
         users={visible}
         currentUserId={currentUserId}
-        query={query}
-        onQueryChange={setQuery}
         filtered={needle.length > 0}
       />
-      <CreateUser />
     </div>
   );
 }
@@ -64,15 +81,11 @@ function UserTable({
   extraRoles,
   users,
   currentUserId,
-  query,
-  onQueryChange,
   filtered,
 }: {
   extraRoles?: Record<number, string[]>;
   users: User[];
   currentUserId: number;
-  query: string;
-  onQueryChange: (q: string) => void;
   filtered: boolean;
 }) {
   // One action per row at a time; the row stays dimmed until the refreshed
@@ -152,16 +165,8 @@ function UserTable({
   }
 
   return (
-    <div>
-      <TextInput
-        value={query}
-        onChange={(e) => onQueryChange(e.target.value)}
-        placeholder="Search by name, username, email, or role…"
-        aria-label="Search users"
-        className="mb-3 max-w-sm"
-      />
-    {/* Scrolls rather than clips: below ~1180px the Status and Actions columns
-        (Reset password / Disable / Delete) used to be unreachable entirely. */}
+    /* Scrolls rather than clips: below ~1180px the Status and Actions columns
+       (Reset password / Disable / Delete) used to be unreachable entirely. */
     <div className="rounded-xl border border-slate-200 bg-surface shadow-xs">
       <Table scroll minWidth="45rem" aria-busy={busy}>
         <thead className={TABLE_HEAD_ROW}>
@@ -176,7 +181,7 @@ function UserTable({
           {users.length === 0 && (
             <tr>
               <td colSpan={4} className="px-4 py-10 text-center">
-                <SectionEmpty>{filtered ? "No users match your search." : "No users yet."}</SectionEmpty>
+                <SectionEmpty>{filtered ? "No users match your filter." : "No users yet."}</SectionEmpty>
               </td>
             </tr>
           )}
@@ -278,15 +283,15 @@ function UserTable({
         </tbody>
       </Table>
     </div>
-    </div>
   );
 }
 
 const USERNAME_RE = /^[a-z0-9._-]{3,32}$/;
 
-function CreateUser() {
+/** The inline "Add a user" form; the Add user button that opens it lives in
+ *  the page's intro row. */
+function CreateUser({ onClose }: { onClose: () => void }) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
   const [username, setUsername] = useState("");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -341,23 +346,12 @@ function CreateUser() {
     setPassword("");
     setRole("viewer");
     setTried(false);
-    setOpen(false);
+    onClose();
     router.refresh();
   }
 
-  if (!open) {
-    return (
-      <button
-        onClick={() => setOpen(true)}
-        className={buttonClass("primary", "md", "mt-4")}
-      >
-        <Plus className="h-4 w-4" aria-hidden /> Add user
-      </button>
-    );
-  }
-
   return (
-    <form ref={formRef} onSubmit={submit} noValidate className="mt-4 rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
+    <form ref={formRef} onSubmit={submit} noValidate className="mb-4 rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
       <h3 className="mb-3 font-semibold text-slate-900">Add a user</h3>
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label="Username" error={tried ? errors.username : undefined}>
@@ -415,7 +409,7 @@ function CreateUser() {
         </button>
         <button
           type="button"
-          onClick={() => setOpen(false)}
+          onClick={onClose}
           className={buttonClass("ghost")}
         >
           Cancel

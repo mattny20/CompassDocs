@@ -5,6 +5,7 @@
 
 import { useState } from "react";
 import { SaveRow } from "@/components/SaveRow";
+import { SettingsLink } from "@/components/SettingsLink";
 import { useLeaveGuard } from "@/lib/use-unsaved";
 import { buttonClass } from "@/components/Button";
 import { CalendarClock } from "lucide-react";
@@ -93,7 +94,7 @@ export function DirectorySchedulePanel({ initial, smtpConfigured }: { initial: S
       <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
         <Field
           label="Email the report to"
-          help={smtpConfigured ? "Comma-separated. Leave blank for no email — the Sync page still shows every run." : "SMTP is not set up (Settings → Notifications); reports will not be sent until it is."}
+          help={smtpConfigured ? "Comma-separated. Leave blank for no email — the Sync page still shows every run." : <>SMTP is not set up (<SettingsLink href="/admin/notifications/email" />); reports will not be sent until it is.</>}
         >
           <TextInput value={recipients} onChange={(e) => { setRecipients(e.target.value); setDirty(true); }} placeholder="it@firm.com, office-manager@firm.com" />
         </Field>

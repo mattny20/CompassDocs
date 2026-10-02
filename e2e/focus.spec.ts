@@ -38,7 +38,7 @@ for (const theme of ["light", "dark"] as const) {
     expect(ring.color).toBe(theme === "light" ? "rgb(46, 117, 189)" : "rgb(130, 180, 224)");
 
     // Inputs: outline (offset 0) and a tinted border, no decorative ring.
-    const search = page.getByPlaceholder(/Search by name/);
+    const search = page.getByLabel("Filter users");
     await search.focus();
     await page.keyboard.press("Shift+Tab");
     await page.keyboard.press("Tab");
