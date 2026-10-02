@@ -4,6 +4,26 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.9.1] - 2026-10-02
+
+Documents, part two: the editor's layout.
+
+### Changed
+- **Properties sit beside the text.** At Wide and Full the editor's
+  properties — space, parent page, category, type, schedule, summary,
+  tags, change note — live in a sticky rail to the right of the editor,
+  under the Cancel/Save row, so writing starts near the top of the page
+  instead of 660px down and a select no longer stretches to 740px on a
+  wide screen. At Normal and on narrow screens they sit above the text
+  as before, in the shared field controls.
+- **The toolbar never jumps.** It is two rows: every tool that applies
+  anywhere, and a row for the current block — heading highlights,
+  table, image, panel, button and spacer tools — that is always present
+  at one height, so the text under the toolbar no longer shifts when
+  the caret enters a heading or a table.
+- **The Markdown pane grows with the document** instead of scrolling
+  inside a fixed box; the page scrolls, as it does for rich text.
+
 ## [1.9.0] - 2026-10-02
 
 Documents, part one: the editor wraps where the page wraps, the table of

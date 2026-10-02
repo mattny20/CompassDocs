@@ -64,8 +64,10 @@ test("the editor caps running text at the measure and keeps tables wide; the car
     const paraBox = (await para.boundingBox())!;
     const table = editor.locator("> .tableWrapper, > table").first();
     const tableWidth = (await table.boundingBox())!.width;
-    expect(paraBox.width, "running text is capped well inside the Full column").toBeLessThan(column * 0.8);
-    expect(tableWidth, "the table keeps the column").toBeGreaterThan(paraBox.width * 1.2);
+    // The measure is 90ch at Full (~870px); the column beside the 1.9.1
+    // properties rail is wider than that by a clear margin.
+    expect(paraBox.width, "running text is capped inside the Full column").toBeLessThan(column - 60);
+    expect(tableWidth, "the table keeps the column").toBeGreaterThan(paraBox.width + 40);
 
     // Clicking in the empty space to the right of a capped paragraph still
     // places the caret in that paragraph (at the end of its nearest line).

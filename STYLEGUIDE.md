@@ -57,6 +57,13 @@ keep their own titles.
   beside the article ("On this page", capped at half the viewport) and as a
   collapsible card above the body when it is not. `DocToc` reads the placement
   from context; both mark the heading being read with `aria-current="location"`.
+- The document editor follows the same rule (1.9.1): at Wide and Full its
+  properties sit in a sticky 18rem column beside the editor card, placed by a
+  CSS grid (`lg:grid-cols-[minmax(0,1fr)_18rem]`) so each field is rendered
+  once, and above it otherwise. The column is a `div`, not an `aside` — the
+  sidebar stays the one aside the specs locate. The formatting toolbar is two
+  rows: the tools that apply anywhere, then a fixed-height row for the current
+  block (heading, table, image, panel), so text never shifts as the caret moves.
 - The one such column is the **document reading measure**: put `doc-read` on
   the element wrapping the rendered document body, and `globals.css` caps the
   direct children of `.doc-read .doc-prose` at `var(--doc-measure)`, which

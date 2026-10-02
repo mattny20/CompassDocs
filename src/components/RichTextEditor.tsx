@@ -853,6 +853,14 @@ function Toolbar({
       .run();
   }
 
+  const hasContext =
+    editor.isActive("heading") ||
+    editor.isActive("colorPanel") ||
+    editor.isActive("table") ||
+    editor.isActive("image") ||
+    imgDrag !== null ||
+    editor.isActive("emailButton") ||
+    editor.isActive("spacerBlock");
   const align = (editor.getAttributes("paragraph").textAlign ||
     editor.getAttributes("heading").textAlign ||
     "left") as string;
@@ -864,8 +872,11 @@ function Toolbar({
     // --rte-sticky-top to its own height). Defaults to 0 for every other host.
     <div
       style={{ top: "var(--rte-sticky-top, 0px)" }}
-      className="sticky z-20 flex flex-wrap items-center gap-0.5 rounded-t-xl border-b border-slate-100 bg-surface px-2 py-1.5"
+      className="sticky z-20 rounded-t-xl border-b border-slate-100 bg-surface"
     >
+      {/* Row one: every tool that applies anywhere. Its height depends on
+          the width of the card, never on where the caret is. */}
+      <div className="flex flex-wrap items-center gap-0.5 px-2 py-1.5">
       <Btn onClick={() => editor.chain().focus().toggleBold().run()} active={editor.isActive("bold")} label="Bold">
         <BoldIcon className={TB_ICON} />
       </Btn>
@@ -1150,6 +1161,21 @@ function Toolbar({
           </select>
         </>
       )}
+      </div>
+      {/* Row two (1.9.1): the tools for whatever the caret is in — a
+          heading, a panel, a table, an image. Always present at one height,
+          so the text under the toolbar never shifts as the caret moves;
+          when nothing has tools it says what would. Dividers separate the
+          groups when two apply at once (a heading inside a table). */}
+      <div
+        aria-label="Tools for the current block"
+        className="flex h-9 items-center gap-0.5 overflow-x-auto border-t border-slate-100 px-2 [&>[data-divider]:first-child]:hidden"
+      >
+      {!hasContext && (
+        <span className="truncate text-xs text-slate-500">
+          Heading, table, image and panel tools appear here when the caret is in one.
+        </span>
+      )}
       {editor.isActive("heading") && (
         <>
           <Divider />
@@ -1390,6 +1416,7 @@ function Toolbar({
           ))}
         </>
       )}
+      </div>
     </div>
   );
 }
@@ -1431,5 +1458,5 @@ function Btn({
 }
 
 function Divider() {
-  return <span className="mx-1 h-5 w-px bg-slate-200" aria-hidden />;
+  return <span data-divider className="mx-1 h-5 w-px bg-slate-200" aria-hidden />;
 }

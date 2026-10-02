@@ -9,13 +9,13 @@ import { SectionEmpty } from "@/components/form";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ChevronDown, ClipboardCheck, House, ListChecks, ShieldCheck, Sparkles, SquareSplitVertical, Table as TableIcon, X } from "lucide-react";
-import { EmptyState, Select, TextInput } from "./form";
+import { EmptyState, Field, Select, TextInput } from "./form";
 import { StatusBadge } from "./Badges";
 import { confirmDialog } from "./Dialog";
 import { Popover } from "./Popover";
 import { EntityPicker } from "./EntityPicker";
 import { MarkdownView } from "./MarkdownView";
-import { PageWidth } from "./PageWidth";
+import { PageWidth, usePageWidth } from "./PageWidth";
 import { RichTextEditor, RICH_BLOCK_BUTTONS } from "./RichTextEditor";
 import { blockModKey } from "@/lib/hotkeys";
 import { overlayOpen } from "@/lib/overlay-stack";
@@ -186,6 +186,14 @@ export function DocEditor({
   }, [nestedEnabled, spaceId]);
   const [uploading, setUploading] = useState(false);
   const mdRef = useRef<HTMLTextAreaElement>(null);
+  // The Markdown pane grows with the document instead of scrolling inside
+  // a fixed box: the page scrolls, as it does for rich text.
+  useEffect(() => {
+    const ta = mdRef.current;
+    if (!ta) return;
+    ta.style.height = "0px";
+    ta.style.height = `${ta.scrollHeight}px`;
+  }, [content, tab]);
 
   // ── Unsaved work ─────────────────────────────────────────────────────────
   /** Every field a writer can change, serialised. */
@@ -207,6 +215,11 @@ export function DocEditor({
   // browser's own on purpose; editor-safety.spec listens for it.
   const rootRef = useRef<HTMLDivElement>(null);
   const { dirty, markDirty, markClean, hasUnsavedChanges } = useUnsavedChanges(snapshot);
+  // Properties sit in a sticky rail beside the editor when the page column
+  // is wide enough to share (Wide and Full, at lg and up — the same rule as
+  // the document page's rail), and above it otherwise (1.9.1).
+  const { width: pageWidth } = usePageWidth();
+  const beside = pageWidth !== "normal";
   const LEAVE_PROMPT = "You have unsaved changes. Discard them and leave the editor?";
   useLeaveGuard(dirty, hasUnsavedChanges, { message: LEAVE_PROMPT, ignoreWithin: rootRef });
 
@@ -657,22 +670,41 @@ export function DocEditor({
         </div>
       )}
 
+      {/* Title across the top; then the editor with the properties beside
+          it (sticky, under the Cancel/Save row) or above it. One DOM for
+          both: the grid places the pieces, so no field is rendered twice. */}
       <div
-        className="space-y-4"
+        className={
+          beside ? "lg:grid lg:grid-cols-[minmax(0,1fr)_18rem] lg:items-start lg:gap-x-8" : ""
+        }
         style={{ "--rte-sticky-top": `${headerH}px` } as React.CSSProperties}
       >
-        <TextInput
-          value={title}
-          onChange={(e) => {
-            markDirty();
-            setTitle(e.target.value);
-          }}
-          placeholder="Document title"
-          aria-label="Document title"
-          className="px-4 py-3 text-lg font-semibold text-slate-900"
-        />
+        <div className={beside ? "lg:col-span-2" : ""}>
+          <TextInput
+            value={title}
+            onChange={(e) => {
+              markDirty();
+              setTitle(e.target.value);
+            }}
+            placeholder="Document title"
+            aria-label="Document title"
+            className="px-4 py-3 text-lg font-semibold text-slate-900"
+          />
+        </div>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div
+          className={`mt-4 ${
+            beside ? "lg:sticky lg:col-start-2 lg:row-start-2 lg:self-start lg:overflow-y-auto" : ""
+          }`}
+          style={beside ? { top: headerH + 16, maxHeight: `calc(100vh - ${headerH + 32}px)` } : undefined}
+        >
+        <div
+          className={
+            beside
+              ? "space-y-3 lg:rounded-lg lg:border lg:border-slate-200 lg:bg-surface lg:p-4"
+              : "grid grid-cols-1 gap-4 sm:grid-cols-3"
+          }
+        >
           <Field label="Space">
             <Select
               value={spaceId}
@@ -786,17 +818,7 @@ export function DocEditor({
               />
             </Field>
           )}
-        </div>
-
-        {!canPublish && (
-          <p className="notice-warn rounded-lg border px-3 py-2 text-xs">
-            You can save drafts freely. <strong>Submit for review</strong> sends your change to
-            the review queue for an approver to publish.
-          </p>
-        )}
-
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Field label="Summary">
+          <Field label="Summary" className={beside ? "" : "sm:col-span-2"}>
             <TextInput
               value={summary}
               onChange={(e) => {
@@ -816,22 +838,30 @@ export function DocEditor({
               placeholder="deploy, ci-cd, release"
             />
           </Field>
+          {mode === "edit" && (
+            <Field label="Change note (shown in version history)" className={beside ? "" : "sm:col-span-3"}>
+              <TextInput
+                value={changeNote}
+                onChange={(e) => {
+                  markDirty();
+                  setChangeNote(e.target.value);
+                }}
+                placeholder="What changed and why? e.g. Updated escalation contacts for Q3"
+                maxLength={200}
+              />
+            </Field>
+          )}
         </div>
 
-        {mode === "edit" && (
-          <Field label="Change note (shown in version history)">
-            <TextInput
-              value={changeNote}
-              onChange={(e) => {
-                markDirty();
-                setChangeNote(e.target.value);
-              }}
-              placeholder="What changed and why? e.g. Updated escalation contacts for Q3"
-              maxLength={200}
-            />
-          </Field>
+        {!canPublish && (
+          <p className="notice-warn mt-3 rounded-lg border px-3 py-2 text-xs">
+            You can save drafts freely. <strong>Submit for review</strong> sends your change to
+            the review queue for an approver to publish.
+          </p>
         )}
+        </div>
 
+        <div className={`mt-4 min-w-0 space-y-4 ${beside ? "lg:col-start-1 lg:row-start-2" : ""}`}>
         {/* Editor / preview */}
         <div className="rounded-lg border border-slate-200 bg-surface">
           <div className="flex flex-wrap items-center gap-1 border-b border-slate-100 px-2 py-1.5">
@@ -1005,7 +1035,7 @@ export function DocEditor({
                 }
               }}
               placeholder="# Start writing…  (paste or drop a screenshot to insert it)"
-              className="h-[26.25rem] w-full resize-y rounded-b-lg px-4 py-3 font-mono text-sm text-slate-700 outline-hidden"
+              className="min-h-[26.25rem] w-full resize-none overflow-hidden rounded-b-lg px-4 py-3 font-mono text-sm text-slate-700 outline-hidden"
             />
           ) : (
             <div className="doc-edit min-h-[26.25rem] px-5 py-4">
@@ -1056,6 +1086,7 @@ export function DocEditor({
             onDismiss={() => setAssist(null)}
           />
         )}
+        </div>
       </div>
       </div>
     </PageWidth>
@@ -1143,15 +1174,6 @@ function AssistPanel({
         AI can make mistakes and won’t know facts you haven’t written down — review before applying.
       </p>
     </div>
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="block">
-      <span className="mb-1 block text-xs font-medium text-slate-500">{label}</span>
-      {children}
-    </label>
   );
 }
 
