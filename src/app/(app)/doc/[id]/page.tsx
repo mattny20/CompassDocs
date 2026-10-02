@@ -375,6 +375,7 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
             <MarkdownView
               content={doc.content}
               docKey={`doc-${doc.id}`}
+              dropTitle={doc.title}
               // Training decks use --- as slide breaks: invisible when the doc
               // is read as a page, meaningful only in the deck player.
               slideBreaks={(await isTrainingDeckDoc(doc.id)) ? "hidden" : undefined}

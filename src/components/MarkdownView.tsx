@@ -5,6 +5,7 @@ import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import { MD_SANITIZE_SCHEMA, rehypeFilterStyles } from "@/lib/md-html";
 import { remarkDocBlocks } from "@/lib/doc-blocks";
+import { remarkDropTitle } from "@/lib/drop-title";
 import { CodeBlock } from "./CodeBlock";
 import { EmailTemplate } from "./EmailTemplate";
 import { DocImage } from "./DocImage";
@@ -38,9 +39,16 @@ export function MarkdownView({
   content,
   docKey,
   slideBreaks,
+  dropTitle,
 }: {
   content: string;
   docKey?: string;
+  /**
+   * The document's title, when the surface already shows it as a masthead:
+   * a leading `# Title` that repeats it is dropped from the body (1.9.2,
+   * lib/drop-title). Only the three reading surfaces pass it.
+   */
+  dropTitle?: string;
   /**
    * How `---` thematic breaks render. Training decks split slides on them, so
    * the editor preview shows a labeled indicator ("indicator") while the
@@ -51,7 +59,12 @@ export function MarkdownView({
   return (
     <div className="doc-prose">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkDirective, remarkDocBlocks]}
+        remarkPlugins={[
+          remarkGfm,
+          remarkDirective,
+          remarkDocBlocks,
+          ...(dropTitle ? [remarkDropTitle(dropTitle)] : []),
+        ]}
         // The rich editor stores a little inline HTML (underline, alignment,
         // indent, buttons, spacers). Raw HTML is reified, sanitized against an
         // allowlist schema, and inline styles filtered to safe properties.

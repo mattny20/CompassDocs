@@ -1,7 +1,7 @@
 // Shared shapes for the command palette. Isomorphic: no server-only imports,
 // no React — safe from both server components and client bundles.
 
-export type PaletteKind = "doc" | "person" | "space" | "nav" | "command" | "recent";
+export type PaletteKind = "doc" | "person" | "space" | "nav" | "command" | "recent" | "link";
 
 /** Which slice of the world the palette is searching right now. */
 export type PaletteMode = "all" | "commands" | "people" | "spaces" | "help";
@@ -29,6 +29,8 @@ export interface PaletteItem {
   hint?: string;
   /** Higher sorts first within a group. */
   score?: number;
+  /** Leaves the app (a Links shortcut): Enter opens a new tab. */
+  external?: boolean;
 }
 
 export const GROUP_ORDER: PaletteKind[] = [
@@ -38,6 +40,7 @@ export const GROUP_ORDER: PaletteKind[] = [
   "doc",
   "person",
   "space",
+  "link",
 ];
 
 export const GROUP_LABEL: Record<PaletteKind, string> = {
@@ -47,6 +50,7 @@ export const GROUP_LABEL: Record<PaletteKind, string> = {
   doc: "Documents",
   person: "People",
   space: "Spaces",
+  link: "Links",
 };
 
 /** Which modes show which groups. "all" shows everything. */
@@ -56,6 +60,15 @@ export const MODE_GROUPS: Record<PaletteMode, PaletteKind[] | null> = {
   people: ["person"],
   spaces: ["space"],
   help: [],
+};
+
+/** The mode chips under the input (1.9.2); "all" needs a word there. */
+export const MODE_CHIP: Record<PaletteMode, string> = {
+  all: "All",
+  commands: "Actions",
+  people: "People",
+  spaces: "Spaces",
+  help: "Shortcuts",
 };
 
 export const MODE_LABEL: Record<PaletteMode, string> = {

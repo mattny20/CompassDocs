@@ -26,6 +26,7 @@ import {
   ArrowRight,
   ChevronRight,
   Clock,
+  ExternalLink,
   FileText,
   FolderKanban,
   UserRound,
@@ -45,6 +46,7 @@ const KIND_ICON: Record<PaletteKind, LucideIcon> = {
   doc: FileText,
   person: UserRound,
   space: FolderKanban,
+  link: ExternalLink,
 };
 
 // PaletteItem carries no icon (a LucideIcon reference can't ride along in the

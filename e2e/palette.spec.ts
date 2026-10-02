@@ -148,3 +148,60 @@ test("search rejects a negative limit instead of failing", async ({ page }) => {
   expect(res.status()).toBe(200);
   expect(Array.isArray((await res.json()).hits)).toBe(true);
 });
+
+// 1.9.2 (item D7): mode chips, the Links group, a valid listbox.
+test("mode chips switch the mode and keep focus in the input; a configured link is found and opens in a new tab", async ({ page, context }) => {
+  await login(page, ADMIN);
+  const stamp = Date.now();
+  let linkId: number | undefined;
+  try {
+    const made = await page.evaluate(async (s) => {
+      const res = await fetch("/api/admin/links", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title: `Clio ${s}`, url: "https://example.com/clio", description: "Practice management" }),
+      });
+      return { status: res.status, body: await res.json().catch(() => null) };
+    }, stamp);
+    expect([200, 201], "link created").toContain(made.status);
+    linkId = made.body?.link?.id ?? made.body?.id;
+
+    await page.goto("/");
+    await hotkeysReady(page);
+    await focusBody(page);
+    await page.keyboard.press("Control+k");
+    const dialog = palette(page);
+    await expect(dialog).toBeVisible();
+    const chips = dialog.getByRole("group", { name: "Search in" });
+    await expect(chips.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
+    await chips.getByRole("button", { name: "People" }).click();
+    await expect(chips.getByRole("button", { name: "People" })).toHaveAttribute("aria-pressed", "true");
+    // Focus never left the input.
+    await expect(dialog.getByRole("combobox")).toBeFocused();
+    await expect(dialog.getByRole("combobox")).toHaveAttribute("placeholder", /people/i);
+    await chips.getByRole("button", { name: "All" }).click();
+    await expect(dialog.getByRole("combobox")).toBeFocused();
+
+    // The Links launchpad is indexed: "Clio" is a result, in its own group.
+    await page.keyboard.type(`Clio ${stamp}`);
+    const list = dialog.getByRole("listbox", { name: "Results" });
+    const links = list.getByRole("group", { name: "Links" });
+    await expect(links).toBeVisible();
+    const row = links.getByRole("option", { name: new RegExp(`Clio ${stamp}`) });
+    await expect(row).toBeVisible();
+    // Keycaps speak their names.
+    await expect(dialog.locator("kbd .sr-only", { hasText: "Enter" }).first()).toBeAttached();
+
+    // Enter opens the external link in a new tab and closes the palette.
+    // (The sandbox has no network; answer example.com ourselves.)
+    await context.route("https://example.com/**", (r) => r.fulfill({ status: 200, contentType: "text/html", body: "<title>Clio</title>" }));
+    const popup = context.waitForEvent("page");
+    await row.click();
+    const opened = await popup;
+    expect(opened.url()).toContain("example.com/clio");
+    await opened.close();
+    await expect(dialog).toBeHidden();
+  } finally {
+    if (linkId) await page.evaluate((id) => fetch(`/api/admin/links/${id}`, { method: "DELETE" }), linkId);
+  }
+});

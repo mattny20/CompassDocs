@@ -28,6 +28,14 @@ export interface RecentDoc {
   space_icon?: string;
 }
 
+/** A Links launchpad shortcut, as the bootstrap payload carries it. */
+export interface LinkLite {
+  id: number;
+  title: string;
+  url: string;
+  description?: string;
+}
+
 export interface PersonHit {
   id: number;
   name: string;
@@ -43,6 +51,7 @@ export interface SourceContext {
   commandIds: Set<string>;
   spaces: SpaceLite[];
   recents: RecentDoc[];
+  links: LinkLite[];
   pageCommands: PageCommand[];
   /** Ids most recently activated, best first — used to break score ties. */
   frecency: (id: string) => number;
@@ -176,4 +185,35 @@ export function personItems(people: PersonHit[]): PaletteItem[] {
     href: `/directory/${p.id}`,
     photoId: p.has_photo ? p.id : undefined,
   }));
+}
+
+/** Links: the launchpad's shortcuts, indexed so "Clio" finds the tool. */
+export function linkItems(ctx: SourceContext): PaletteItem[] {
+  if (!ctx.query) return [];
+  const out: PaletteItem[] = [];
+  for (const l of ctx.links) {
+    let host = "";
+    try {
+      host = new URL(l.url).hostname.replace(/^www\./, "");
+    } catch {
+      host = l.url;
+    }
+    const m = bestScore(ctx.query, [
+      { text: l.title, weight: 1, primary: true },
+      { text: l.description ?? "", weight: 0.4 },
+      { text: host, weight: 0.5 },
+    ]);
+    if (!m || m.score < SCORE_FLOOR) continue;
+    out.push({
+      id: `link:${l.id}`,
+      kind: "link",
+      label: l.title,
+      sub: l.description || host,
+      href: l.url,
+      external: true,
+      ranges: m.ranges,
+      score: m.score + ctx.frecency(`link:${l.id}`),
+    });
+  }
+  return take(out);
 }

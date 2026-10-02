@@ -1,5 +1,4 @@
 import { Breadcrumbs } from "@/components/Breadcrumbs";
-import { chipClass } from "@/components/Chip";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import {
@@ -8,10 +7,8 @@ import {
   listAttachments,
   isTrainingDeckDoc,
 } from "@/lib/db";
-import { DOC_TYPE_LABEL } from "@/lib/types";
-import { MarkdownView } from "@/components/MarkdownView";
+import { StandaloneDoc } from "@/components/StandaloneDoc";
 import { ViewTracker } from "@/components/ViewTracker";
-import { Paperclip } from "lucide-react";
 import { PrintButton } from "@/components/PrintButton";
 import { getAppSettings } from "@/lib/settings-store";
 import { formatDate } from "@/lib/format";
@@ -49,52 +46,23 @@ export default async function PublicDocPage({
   const settings = await getAppSettings();
 
   return (
-    <article>
+    <div>
       <ViewTracker docId={doc.id} />
       <Breadcrumbs
         items={[
           { href: "/public", label: "Home" },
           { href: `/public/${space.slug}`, label: space.name },
         ]}
+      />
+      {/* The same standalone document as the share page (1.9.2). */}
+      <StandaloneDoc
+        doc={doc}
+        updatedLabel={`Updated ${formatDate(doc.updated_at, settings)}`}
+        docKey={`pub-${doc.id}`}
+        slideBreaks={(await isTrainingDeckDoc(doc.id)) ? "hidden" : undefined}
+        attachments={attachments.map((a) => ({ id: a.id, filename: a.filename, href: `/api/attachments/${a.id}` }))}
         trailing={<PrintButton compact />}
       />
-
-      <h1 className="text-3xl font-bold text-slate-900">{doc.title}</h1>
-      <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-500">
-        <span className={chipClass("neutral")}>
-          {DOC_TYPE_LABEL[doc.type]}
-        </span>
-        <span>Updated {formatDate(doc.updated_at, settings)}</span>
-        {doc.tags.length > 0 && <span>· {doc.tags.join(", ")}</span>}
-      </div>
-
-      {/* doc-read: reading measure on the document body (see globals.css). */}
-      <div className="doc-read prose prose-slate mt-8 max-w-none rounded-xl border border-slate-200 bg-surface p-8 shadow-xs">
-        <MarkdownView
-          content={doc.content}
-          docKey={`pub-${doc.id}`}
-          slideBreaks={(await isTrainingDeckDoc(doc.id)) ? "hidden" : undefined}
-        />
-      </div>
-
-      {attachments.length > 0 && (
-        <div className="mt-6 rounded-xl border border-slate-200 bg-surface p-5 shadow-xs print:hidden">
-          <h2 className="mb-2 text-sm font-semibold text-slate-700">Attachments</h2>
-          <ul className="space-y-1">
-            {attachments.map((a) => (
-              <li key={a.id}>
-                <a
-                  href={`/api/attachments/${a.id}`}
-                  className="inline-flex items-center gap-1.5 text-sm text-compass-700 hover:underline"
-                >
-                  <Paperclip className="h-3.5 w-3.5" />
-                  {a.filename}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </article>
+    </div>
   );
 }

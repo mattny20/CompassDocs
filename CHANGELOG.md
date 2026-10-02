@@ -4,6 +4,32 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.9.2] - 2026-10-02
+
+Documents, part three: one standalone document, a history pane that uses
+the screen, and a palette you can drive with a mouse.
+
+### Added
+- **The command palette has mode chips** — All, Actions, People, Spaces,
+  Shortcuts — under the search box, mirroring the Tab cycle, so mouse
+  users can filter too; focus stays in the box. **Links are indexed**:
+  searching "Clio" finds the configured shortcut in its own Links group
+  and opens it in a new tab. The results are a proper listbox with
+  labelled groups, a busy state and a spoken result count; keycaps read
+  "Enter", not a glyph.
+
+### Changed
+- **Shared and public documents are one page.** The share page and the
+  public document page render the same standalone document — the same
+  masthead, summary, reading card, attachments panel and print output —
+  so they can no longer drift. On all three reading surfaces a body that
+  opens with "# Title" no longer shows the title twice: the leading
+  heading is dropped when, and only when, it repeats the document's
+  title.
+- **Version history's compare pane grows with the screen** (never smaller
+  than before), the Original and Modified radios have readable labels and
+  spoken names ("Original: version 3"), and notes get the house tooltip.
+
 ## [1.9.1] - 2026-10-02
 
 Documents, part two: the editor's layout.
