@@ -277,6 +277,14 @@ focus):
   `<DangerZone><DangerAction label description>…</DangerAction></DangerZone>`
   (red-bordered card, one per page, at the bottom). Per-row destructive
   buttons in lists ask with `confirmDialog({ danger: true })` instead.
+- **Sub-pages are declared once.** A section's routed pages live in its
+  `pages` entry in `lib/settings-sections.ts` and its in-page cards in
+  `topics` (an `#anchor` on the card: `id="trash" className="scroll-mt-6 …"`).
+  The section's layout renders `<SubNav label items={settingsPages(href)}>`
+  (`components/SubNav`) under `SettingsPage`; the rail search indexes
+  sections, pages and topics as "Section › Topic" rows (`SETTINGS_INDEX`),
+  gated by the section's reachability. A new card worth finding gets an
+  id and a topic in the same PR; never a hand-rolled tab row.
 - **A section with several jobs gets pages, not a longer page.** When one
   settings section holds distinct tasks (the directory: people, fields,
   offices, export, sync), each task is a route under the section

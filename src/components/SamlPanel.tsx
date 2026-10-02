@@ -81,7 +81,7 @@ export function SamlPanel({ initial }: { initial: SamlState }) {
   if (!s.bundled || !s.enabled) return null; // the Entra panel already shows the upsell/license notice
 
   return (
-    <div className="mt-6 rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
+    <div id="saml" className="scroll-mt-6 mt-6 rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
       <div className="mb-1 flex items-center gap-2">
         <h3 className="font-semibold text-slate-900">SAML 2.0</h3>
         <EnterpriseBadge />

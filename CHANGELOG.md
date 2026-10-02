@@ -4,6 +4,29 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.8.0] - 2026-10-02
+
+The admin console, part one: one sub-navigation, and a settings search
+that finds the card you mean.
+
+### Added
+- **Settings search finds pages and cards, not just sections.** Typing
+  "timezone", "trash", "saml" or "restore" in the rail's search box now
+  shows "Workspace › Date & time", "Workspace › Trash retention",
+  "Single sign-on › SAML 2.0", "Backups › Backups and restore" — rows
+  that link straight to the card. Enter opens the first match, Escape
+  clears, the down arrow moves into the results, and screen readers hear
+  the match count. People with a delegated role only see rows inside
+  sections they can open.
+- The Notifications section has two pages, Channels and Email templates,
+  under one header and tab row; the templates page no longer hand-writes
+  its own title and back link.
+
+### Changed
+- The directory's tab row is the shared sub-navigation, and the tabs of
+  a section are declared once in the settings registry, so the rail
+  search and the tab row cannot disagree.
+
 ## [1.7.3] - 2026-10-02
 
 Forms, part four: empty states, notices, tooltips, shortcuts, the visitor

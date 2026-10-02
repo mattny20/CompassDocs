@@ -117,7 +117,7 @@ export function WebhooksPanel({
   }
 
   return (
-    <div className="max-w-3xl">
+    <div id="webhooks" className="max-w-3xl scroll-mt-6">
       <h2 className="text-lg font-semibold text-slate-900">Webhooks</h2>
       <p className="mb-4 text-sm text-slate-500">
         Send approval-workflow events to your chat tools or by email. Create an incoming webhook
@@ -313,7 +313,7 @@ export function SmtpPanel({ initial }: { initial: SmtpState }) {
   }
 
   return (
-    <div className="mt-6 rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
+    <div id="smtp" className="scroll-mt-6 mt-6 rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
       <div className="mb-1 flex items-center gap-2">
         <h3 className="font-semibold text-slate-900">Email (SMTP)</h3>
         {s.configured ? (
