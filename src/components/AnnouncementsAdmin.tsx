@@ -12,6 +12,7 @@ import { Megaphone, TriangleAlert, Siren, Archive, ArchiveRestore, Trash2, Check
 import { useFormatDate } from "./SettingsProvider";
 import { PageHeader } from "@/components/PageHeader";
 import { controlClass } from "@/components/form";
+import { useAction } from "@/lib/use-action";
 
 interface AnnouncementRow {
   id: number;
@@ -63,6 +64,7 @@ export function AnnouncementsAdmin({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState("");
+  const { run, isBusy } = useAction();
 
   async function reload() {
     const res = await fetch("/api/admin/announcements");
@@ -106,13 +108,22 @@ export function AnnouncementsAdmin({
     await reload();
   }
 
+  // reload() refreshes the route itself, so these pass refresh: false.
   async function setArchived(row: AnnouncementRow, archived: boolean) {
-    await fetch(`/api/admin/announcements/${row.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ archived }),
-    });
-    await reload();
+    const ok = await run(
+      row.id,
+      () =>
+        fetch(`/api/admin/announcements/${row.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ archived }),
+        }),
+      {
+        fallback: archived ? "Couldn't archive the announcement." : "Couldn't restore the announcement.",
+        refresh: false,
+      }
+    );
+    if (ok) await reload();
   }
 
   async function remove(row: AnnouncementRow) {
@@ -125,8 +136,12 @@ export function AnnouncementsAdmin({
       }))
     )
       return;
-    await fetch(`/api/admin/announcements/${row.id}`, { method: "DELETE" });
-    await reload();
+    const ok = await run(
+      row.id,
+      () => fetch(`/api/admin/announcements/${row.id}`, { method: "DELETE" }),
+      { fallback: "Couldn't delete the announcement.", refresh: false }
+    );
+    if (ok) await reload();
   }
 
   const now = Date.now();
@@ -283,15 +298,15 @@ export function AnnouncementsAdmin({
                     </p>
                   </div>
                   {r.archived_at ? (
-                    <button onClick={() => setArchived(r, false)} data-tt="Restore to dashboards" aria-label="Restore to dashboards" className="rounded-sm p-1 text-slate-400 hover:bg-slate-100">
+                    <button onClick={() => setArchived(r, false)} disabled={isBusy(r.id)} data-tt="Restore to dashboards" aria-label="Restore to dashboards" className="rounded-sm p-1 text-slate-400 hover:bg-slate-100 disabled:opacity-50">
                       <ArchiveRestore className="h-4 w-4" />
                     </button>
                   ) : (
-                    <button onClick={() => setArchived(r, true)} data-tt="Archive (hide from all dashboards)" aria-label="Archive (hide from all dashboards)" className="rounded-sm p-1 text-slate-400 hover:bg-slate-100">
+                    <button onClick={() => setArchived(r, true)} disabled={isBusy(r.id)} data-tt="Archive (hide from all dashboards)" aria-label="Archive (hide from all dashboards)" className="rounded-sm p-1 text-slate-400 hover:bg-slate-100 disabled:opacity-50">
                       <Archive className="h-4 w-4" />
                     </button>
                   )}
-                  <button onClick={() => remove(r)} data-tt="Delete" aria-label="Delete" className="rounded-sm p-1 text-slate-400 hover-danger">
+                  <button onClick={() => remove(r)} disabled={isBusy(r.id)} data-tt="Delete" aria-label="Delete" className="rounded-sm p-1 text-slate-400 hover-danger disabled:opacity-50">
                     <Trash2 className="h-4 w-4" />
                   </button>
                 </li>

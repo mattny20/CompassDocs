@@ -4,6 +4,41 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.7.2] - 2026-10-02
+
+Forms, part three: real modals, undo instead of "are you sure", and row
+actions that cannot misfire.
+
+### Added
+- **Undo instead of a question.** Moving a document to the Trash and
+  discarding a draft branch no longer ask "are you sure" — they do it and
+  say so, with an Undo button on the toast that restores through the
+  Trash. Toasts can carry one action and stay a little longer when they
+  do.
+- **Row actions that cannot double-fire and never fail silently.** Delete,
+  archive, unlink, restore, purge, reset, vote and the role select ignore
+  a second click while the first is in flight, stay busy until the
+  refreshed page has arrived, and report the server's own reason (or a
+  specific sentence) when something fails — twelve of them used to fail
+  without a word. Restoring from the Trash says "Restored".
+- **The editor's small questions are dialogs.** Insert video, embed a
+  page, insert or edit a button and describe an image open themed dialogs
+  that validate (a video URL must be one the player can show; an embed
+  height has bounds). The Link button opens a small anchored panel under
+  it: type or paste the address, Enter applies, Remove clears it.
+- Menus (Write with AI, directory Columns and Export) take keyboard focus
+  when they open and walk their items with the arrow keys.
+
+### Changed
+- The lightbox, the video theater, the insert-video dialog and the
+  analytics drill-down are the one Modal: Escape through the shared
+  overlay stack (a lightbox over a training deck closes only itself),
+  the page behind is inert, focus returns to what opened them, each has
+  a name, and the drill-down finally closes on Escape. The theater scrim
+  no longer turns into a near-white wash in dark mode.
+- The irreversible confirmations share one dialect ("This cannot be
+  undone.").
+
 ## [1.7.1] - 2026-10-02
 
 Forms, part two: a Save row that knows what you did, and dialogs that

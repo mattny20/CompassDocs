@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from "react";
 import { buttonClass } from "@/components/Button";
 import { controlClass } from "@/components/form";
+import { Modal } from "@/components/Modal";
 import { Film, UploadCloud, X } from "lucide-react";
 import { videoEmbedUrl } from "@/lib/doc-blocks";
 
@@ -50,10 +51,7 @@ export function VideoInsertDialog({
     setTitle("");
     setPoster("");
     setError("");
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 
@@ -92,18 +90,13 @@ export function VideoInsertDialog({
   }
 
   return (
-    <div
-      role="dialog"
-      aria-label="Insert video"
-      className="cmd-scrim fixed inset-0 z-50 flex items-center justify-center p-4"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+    <Modal
+      open={open}
+      onClose={onClose}
+      label="Insert video"
+      className="w-full max-w-md rounded-xl border border-slate-200 bg-surface p-4 shadow-modal"
     >
-      <form
-        onSubmit={insert}
-        className="w-full max-w-md rounded-xl border border-slate-200 bg-surface p-4 shadow-2xl"
-      >
+      <form onSubmit={insert}>
         <div className="mb-3 flex items-center justify-between">
           <h2 className="flex items-center gap-1.5 text-sm font-semibold text-slate-900">
             <Film className="h-4 w-4 text-compass-600" aria-hidden /> Insert video
@@ -120,7 +113,7 @@ export function VideoInsertDialog({
 
         <label className="mb-1 block text-xs font-medium text-slate-500">Video URL</label>
         <input
-          autoFocus
+          data-autofocus
           type="text"
           value={src}
           onChange={(e) => {
@@ -201,6 +194,6 @@ export function VideoInsertDialog({
           </button>
         </div>
       </form>
-    </div>
+    </Modal>
   );
 }

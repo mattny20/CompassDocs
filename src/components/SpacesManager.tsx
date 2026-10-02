@@ -10,6 +10,7 @@ import { Field, SectionEmpty, Select, TextInput, Toggle } from "@/components/for
 import { toast } from "@/components/Toasts";
 import { confirmDialog, promptDialog } from "@/components/Dialog";
 import { SpaceIconPicker } from "./SpaceIconPicker";
+import { useAction } from "@/lib/use-action";
 import type { Space } from "@/lib/types";
 
 type SpaceRow = Space & { doc_count: number };
@@ -49,6 +50,7 @@ export function SpacesManager({
   const [togglingEditAll, setTogglingEditAll] = useState(false);
   const [editing, setEditing] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
+  const { run, isBusy } = useAction();
 
   async function refresh() {
     const res = await fetch("/api/admin/spaces");
@@ -83,7 +85,7 @@ export function SpacesManager({
     if (
       !(await confirmDialog({
         title: `Delete the space "${space.name}"?`,
-        body: "Its documents move to the Trash. This can't be undone.",
+        body: "Its documents move to the Trash. This cannot be undone.",
         confirmLabel: "Delete space",
         danger: true,
         // Only make them type the name when there is something to lose.
@@ -91,13 +93,13 @@ export function SpacesManager({
       }))
     )
       return;
-    const res = await fetch(`/api/admin/spaces/${space.id}`, { method: "DELETE" });
-    if (!res.ok) {
-      toast("error", (await res.json().catch(() => ({}))).error || "Could not delete the space.");
-      return;
-    }
-    toast("ok", `Space “${space.name}” deleted.`);
-    await refresh();
+    // refresh() below reloads the list and the route itself.
+    const ok = await run(
+      space.id,
+      () => fetch(`/api/admin/spaces/${space.id}`, { method: "DELETE" }),
+      { fallback: "Couldn't delete the space.", ok: `Space “${space.name}” deleted.`, refresh: false }
+    );
+    if (ok) await refresh();
   }
 
   return (
@@ -228,13 +230,15 @@ export function SpacesManager({
               </div>
               <button
                 onClick={() => setEditing(s.id)}
+                disabled={isBusy(s.id)}
                 className={buttonClass("secondary")}
               >
                 Edit
               </button>
               <button
                 onClick={() => remove(s)}
-                className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-red-600 hover-danger"
+                disabled={isBusy(s.id)}
+                className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-red-600 hover-danger disabled:opacity-50"
               >
                 Delete
               </button>

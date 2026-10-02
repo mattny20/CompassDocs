@@ -13,6 +13,7 @@ import { confirmDialog } from "@/components/Dialog";
 import { controlClass } from "@/components/form";
 import { MessageSquare, Trash2 } from "lucide-react";
 import { timeAgo } from "@/lib/ui";
+import { useAction } from "@/lib/use-action";
 
 interface Mention {
   id: number;
@@ -80,6 +81,7 @@ export function DocComments({
   const [mentions, setMentions] = useState<Mention[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const { run, isBusy } = useAction();
 
   // @mention picker state
   const [users, setUsers] = useState<MentionableUser[] | null>(null);
@@ -171,8 +173,11 @@ export function DocComments({
 
   async function remove(id: number) {
     if (!(await confirmDialog({ title: "Remove this comment?", confirmLabel: "Remove", danger: true }))) return;
-    const res = await fetch(`/api/comments/${id}`, { method: "DELETE" });
-    if (res.ok) await load();
+    const ok = await run(id, () => fetch(`/api/comments/${id}`, { method: "DELETE" }), {
+      fallback: "Couldn't remove the comment.",
+      refresh: false,
+    });
+    if (ok) await load();
   }
 
   if (!enabled || comments === null) return null;
@@ -201,6 +206,7 @@ export function DocComments({
                     {(isAdmin || c.user_id === currentUserId) && (
                       <button
                         onClick={() => remove(c.id)}
+                        disabled={isBusy(c.id)}
                         data-tt={isAdmin && c.user_id !== currentUserId ? "Remove (moderation)" : "Delete your comment"} aria-label={isAdmin && c.user_id !== currentUserId ? "Remove (moderation)" : "Delete your comment"}
                         className="text-slate-300 hover:text-red-600"
                       >

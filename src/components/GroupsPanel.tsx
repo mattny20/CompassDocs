@@ -14,6 +14,7 @@ import { EntityPicker } from "@/components/EntityPicker";
 import { controlClass, SectionEmpty, TextInput } from "@/components/form";
 import { toast } from "@/components/Toasts";
 import { useFormatDate } from "./SettingsProvider";
+import { useAction } from "@/lib/use-action";
 
 type GroupRow = {
   id: number;
@@ -43,6 +44,7 @@ export function GroupsPanel({
   const [newName, setNewName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const { run, isBusy } = useAction();
 
   async function refresh() {
     const res = await fetch("/api/admin/groups");
@@ -88,13 +90,14 @@ export function GroupsPanel({
       }))
     )
       return;
-    const res = await fetch(`/api/admin/groups/${g.id}`, { method: "DELETE" });
-    if (!res.ok) {
-      toast("error", (await res.json().catch(() => ({}))).error || "Could not delete the group.");
-      return;
-    }
+    // refresh() below reloads the list and the route itself.
+    const ok = await run(g.id, () => fetch(`/api/admin/groups/${g.id}`, { method: "DELETE" }), {
+      fallback: "Couldn't delete the group.",
+      ok: `Group “${g.name}” deleted.`,
+      refresh: false,
+    });
+    if (!ok) return;
     if (open === g.id) setOpen(null);
-    toast("ok", `Group “${g.name}” deleted.`);
     await refresh();
   }
 
@@ -140,6 +143,7 @@ export function GroupsPanel({
             onToggle={() => setOpen(open === g.id ? null : g.id)}
             onChanged={refresh}
             onDelete={() => remove(g)}
+            deleting={isBusy(g.id)}
           />
         ))}
         {groups.length === 0 && (
@@ -161,6 +165,7 @@ function GroupCard({
   onToggle,
   onChanged,
   onDelete,
+  deleting = false,
 }: {
   group: GroupRow;
   users: UserOption[];
@@ -168,6 +173,8 @@ function GroupCard({
   onToggle: () => void;
   onChanged: () => Promise<void>;
   onDelete: () => void;
+  /** True while this group's delete is in flight. */
+  deleting?: boolean;
 }) {
   const fmt = useFormatDate();
   const [members, setMembers] = useState<Member[] | null>(null);
@@ -277,7 +284,8 @@ function GroupCard({
         </button>
         <button
           onClick={onDelete}
-          className="rounded-lg border border-slate-200 p-2 text-red-600 hover-danger"
+          disabled={deleting}
+          className="rounded-lg border border-slate-200 p-2 text-red-600 hover-danger disabled:opacity-50"
           data-tt="Delete group" aria-label="Delete group"
         >
           <Trash2 className="h-3.5 w-3.5" />

@@ -6,6 +6,7 @@ import { controlClass } from "@/components/form";
 import Link from "next/link";
 import { ChevronDown, ChevronRight, Link2, Plus, X } from "lucide-react";
 import { usePanelCollapse } from "@/lib/use-panel-collapse";
+import { useAction } from "@/lib/use-action";
 
 // Related documents section of the doc side panel. Groups links by their
 // direction-aware label ("Procedures", "Procedure for", "Supersedes", …).
@@ -57,6 +58,7 @@ export function RelatedDocs({
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [error, setError] = useState("");
   const searchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const { run, isBusy } = useAction();
 
   // Async doc search for the picker.
   useEffect(() => {
@@ -102,9 +104,19 @@ export function RelatedDocs({
   }
 
   async function unlink(rid: number) {
-    const res = await fetch(`/api/documents/${docId}/relations?rid=${rid}`, { method: "DELETE" });
-    const data = await res.json().catch(() => ({}));
-    if (res.ok) setRelations(data.relations);
+    // The server answers with the remaining relations; the list is local
+    // state, so it is updated from that rather than a route refresh.
+    let next = null as RelatedDoc[] | null;
+    const ok = await run(
+      rid,
+      async () => {
+        const res = await fetch(`/api/documents/${docId}/relations?rid=${rid}`, { method: "DELETE" });
+        if (res.ok) next = (await res.json().catch(() => ({}))).relations ?? null;
+        return res;
+      },
+      { fallback: "Couldn't remove the link.", refresh: false }
+    );
+    if (ok && next) setRelations(next);
   }
 
   // Group by label, preserving first-seen order.
@@ -171,6 +183,7 @@ export function RelatedDocs({
                 {canEdit && (
                   <button
                     onClick={() => unlink(d.relation_id)}
+                    disabled={isBusy(d.relation_id)}
                     data-tt="Remove link"
                     aria-label={`Remove link to ${d.title}`}
                     className="mt-1.5 rounded-sm p-1 text-slate-300 transition hover-danger focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:hover)]:opacity-0"

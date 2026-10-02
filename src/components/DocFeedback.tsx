@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import { buttonClass } from "@/components/Button";
 import { controlClass } from "@/components/form";
 import { ThumbsUp, ThumbsDown } from "lucide-react";
+import { useAction } from "@/lib/use-action";
 
 interface Summary {
   up: number;
@@ -19,8 +20,9 @@ export function DocFeedback({ docId }: { docId: number }) {
   const [sum, setSum] = useState<Summary | null>(null);
   const [askNote, setAskNote] = useState(false);
   const [note, setNote] = useState("");
-  const [busy, setBusy] = useState(false);
   const [thanks, setThanks] = useState(false);
+  // One vote in flight at a time: a double click on Yes or No is ignored.
+  const { run, busy } = useAction();
 
   useEffect(() => {
     let cancelled = false;
@@ -36,22 +38,25 @@ export function DocFeedback({ docId }: { docId: number }) {
   }, [docId]);
 
   async function vote(helpful: boolean, withNote?: string): Promise<boolean> {
-    setBusy(true);
-    let ok = false;
-    try {
-      const res = await fetch(`/api/documents/${docId}/feedback`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ helpful, ...(withNote ? { note: withNote } : {}) }),
-      });
-      if (res.ok) {
-        ok = true;
-        setSum((await res.json()) as Summary);
-        setThanks(true);
-        if (helpful) setAskNote(false);
-      }
-    } catch {}
-    setBusy(false);
+    let next = null as Summary | null;
+    const ok = await run(
+      helpful ? "up" : "down",
+      async () => {
+        const res = await fetch(`/api/documents/${docId}/feedback`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ helpful, ...(withNote ? { note: withNote } : {}) }),
+        });
+        if (res.ok) next = (await res.json()) as Summary;
+        return res;
+      },
+      { fallback: "Couldn't save your feedback.", refresh: false }
+    );
+    if (ok && next) {
+      setSum(next);
+      setThanks(true);
+      if (helpful) setAskNote(false);
+    }
     return ok;
   }
 

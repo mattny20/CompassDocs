@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { Field, Select, TextInput } from "@/components/form";
 import { confirmDialog, promptDialog } from "@/components/Dialog";
+import { useAction } from "@/lib/use-action";
 
 interface Category {
   id: number;
@@ -73,6 +74,8 @@ export function LinksAdmin({
   const [error, setError] = useState("");
   const [iconBust, setIconBust] = useState(0); // cache-buster after refresh/upload
   const fileInput = useRef<HTMLInputElement>(null);
+  // Row actions; keys are prefixed because category and link ids overlap.
+  const { run, isBusy } = useAction();
 
   async function reload() {
     const res = await fetch("/api/admin/links");
@@ -126,19 +129,26 @@ export function LinksAdmin({
     const idx = categories.findIndex((x) => x.id === c.id);
     const other = categories[idx + dir];
     if (!other) return;
-    await Promise.all([
-      fetch(`/api/admin/link-categories/${c.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ position: other.position }),
-      }),
-      fetch(`/api/admin/link-categories/${other.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ position: c.position }),
-      }),
-    ]);
-    await reload();
+    const ok = await run(
+      `cat-${c.id}`,
+      async () => {
+        const [a, b] = await Promise.all([
+          fetch(`/api/admin/link-categories/${c.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ position: other.position }),
+          }),
+          fetch(`/api/admin/link-categories/${other.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ position: c.position }),
+          }),
+        ]);
+        return a.ok ? b : a;
+      },
+      { fallback: "Couldn't move the category.", refresh: false }
+    );
+    if (ok) await reload();
   }
 
   async function deleteCategory(c: Category) {
@@ -151,8 +161,12 @@ export function LinksAdmin({
       }))
     )
       return;
-    await fetch(`/api/admin/link-categories/${c.id}`, { method: "DELETE" });
-    await reload();
+    const ok = await run(
+      `cat-${c.id}`,
+      () => fetch(`/api/admin/link-categories/${c.id}`, { method: "DELETE" }),
+      { fallback: "Couldn't delete the category.", refresh: false }
+    );
+    if (ok) await reload();
   }
 
   // --- links ---------------------------------------------------------------
@@ -227,21 +241,29 @@ export function LinksAdmin({
   }
 
   async function refreshIcon(l: AdminLink) {
-    setBusy(true);
-    await fetch(`/api/admin/links/${l.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refresh_icon: true }),
-    });
-    setBusy(false);
+    const ok = await run(
+      `link-${l.id}`,
+      () =>
+        fetch(`/api/admin/links/${l.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refresh_icon: true }),
+        }),
+      { fallback: "Couldn't re-fetch the site icon.", refresh: false }
+    );
+    if (!ok) return;
     setIconBust(Date.now());
     await reload();
   }
 
   async function deleteLink(l: AdminLink) {
     if (!(await confirmDialog({ title: `Delete the "${l.title}" link?`, confirmLabel: "Delete", danger: true }))) return;
-    await fetch(`/api/admin/links/${l.id}`, { method: "DELETE" });
-    await reload();
+    const ok = await run(
+      `link-${l.id}`,
+      () => fetch(`/api/admin/links/${l.id}`, { method: "DELETE" }),
+      { fallback: "Couldn't delete the link.", refresh: false }
+    );
+    if (ok) await reload();
   }
 
   const sections: { id: number | null; name: string; links: AdminLink[] }[] = [
@@ -279,16 +301,16 @@ export function LinksAdmin({
               <span className="text-xs text-slate-500">
                 {links.filter((l) => l.category_id === c.id).length} links
               </span>
-              <button onClick={() => moveCategory(c, -1)} disabled={i === 0 || busy} data-tt="Move up" aria-label="Move up" className="rounded-sm p-1 text-slate-400 hover:bg-slate-100 disabled:opacity-30">
+              <button onClick={() => moveCategory(c, -1)} disabled={i === 0 || busy || isBusy(`cat-${c.id}`)} data-tt="Move up" aria-label="Move up" className="rounded-sm p-1 text-slate-400 hover:bg-slate-100 disabled:opacity-30">
                 <ChevronUp className="h-4 w-4" />
               </button>
-              <button onClick={() => moveCategory(c, 1)} disabled={i === categories.length - 1 || busy} data-tt="Move down" aria-label="Move down" className="rounded-sm p-1 text-slate-400 hover:bg-slate-100 disabled:opacity-30">
+              <button onClick={() => moveCategory(c, 1)} disabled={i === categories.length - 1 || busy || isBusy(`cat-${c.id}`)} data-tt="Move down" aria-label="Move down" className="rounded-sm p-1 text-slate-400 hover:bg-slate-100 disabled:opacity-30">
                 <ChevronDown className="h-4 w-4" />
               </button>
-              <button onClick={() => renameCategory(c)} disabled={busy} data-tt="Rename" aria-label="Rename" className="rounded-sm p-1 text-slate-400 hover:bg-slate-100">
+              <button onClick={() => renameCategory(c)} disabled={busy || isBusy(`cat-${c.id}`)} data-tt="Rename" aria-label="Rename" className="rounded-sm p-1 text-slate-400 hover:bg-slate-100">
                 <Pencil className="h-4 w-4" />
               </button>
-              <button onClick={() => deleteCategory(c)} disabled={busy} data-tt="Delete" aria-label="Delete" className="rounded-sm p-1 text-slate-400 hover-danger">
+              <button onClick={() => deleteCategory(c)} disabled={busy || isBusy(`cat-${c.id}`)} data-tt="Delete" aria-label="Delete" className="rounded-sm p-1 text-slate-400 hover-danger">
                 <Trash2 className="h-4 w-4" />
               </button>
             </li>
@@ -373,14 +395,14 @@ export function LinksAdmin({
                           .join(", ")}
                   </span>
                   {l.icon_type === "favicon" && (
-                    <button onClick={() => refreshIcon(l)} disabled={busy} data-tt="Re-fetch site icon" aria-label="Re-fetch site icon" className="rounded-sm p-1 text-slate-400 hover:bg-slate-100">
+                    <button onClick={() => refreshIcon(l)} disabled={busy || isBusy(`link-${l.id}`)} data-tt="Re-fetch site icon" aria-label="Re-fetch site icon" className="rounded-sm p-1 text-slate-400 hover:bg-slate-100">
                       <RefreshCw className="h-4 w-4" />
                     </button>
                   )}
-                  <button onClick={() => startEdit(l)} disabled={busy} data-tt="Edit" aria-label="Edit" className="rounded-sm p-1 text-slate-400 hover:bg-slate-100">
+                  <button onClick={() => startEdit(l)} disabled={busy || isBusy(`link-${l.id}`)} data-tt="Edit" aria-label="Edit" className="rounded-sm p-1 text-slate-400 hover:bg-slate-100">
                     <Pencil className="h-4 w-4" />
                   </button>
-                  <button onClick={() => deleteLink(l)} disabled={busy} data-tt="Delete" aria-label="Delete" className="rounded-sm p-1 text-slate-400 hover-danger">
+                  <button onClick={() => deleteLink(l)} disabled={busy || isBusy(`link-${l.id}`)} data-tt="Delete" aria-label="Delete" className="rounded-sm p-1 text-slate-400 hover-danger">
                     <Trash2 className="h-4 w-4" />
                   </button>
                 </li>

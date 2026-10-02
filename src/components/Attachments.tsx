@@ -16,6 +16,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { usePanelCollapse } from "@/lib/use-panel-collapse";
+import { useAction } from "@/lib/use-action";
 
 interface Att {
   id: number;
@@ -77,6 +78,8 @@ export function Attachments({
   const [linkUrl, setLinkUrl] = useState("");
   const [linkTitle, setLinkTitle] = useState("");
   const [linkBusy, setLinkBusy] = useState(false);
+  // Row actions; keys are prefixed because link and attachment ids overlap.
+  const { run, isBusy } = useAction();
   const [open, toggleOpen] = usePanelCollapse(
     "attachments",
     attachments.length + dmsLinks.length > 0
@@ -108,10 +111,11 @@ export function Attachments({
 
   async function removeLink(l: DmsLinkItem) {
     if (!(await confirmDialog({ title: `Remove link "${l.title}"?`, confirmLabel: "Remove", danger: true }))) return;
-    const res = await fetch(`/api/documents/${documentId}/dms-links/${l.id}`, {
-      method: "DELETE",
-    });
-    if (res.ok) router.refresh();
+    await run(
+      `dms-${l.id}`,
+      () => fetch(`/api/documents/${documentId}/dms-links/${l.id}`, { method: "DELETE" }),
+      { fallback: "Couldn't remove the link." }
+    );
   }
 
   async function upload(files: FileList | null) {
@@ -135,8 +139,11 @@ export function Attachments({
 
   async function remove(a: Att) {
     if (!(await confirmDialog({ title: `Delete attachment "${a.filename}"?`, confirmLabel: "Delete", danger: true }))) return;
-    const res = await fetch(`/api/attachments/${a.id}`, { method: "DELETE" });
-    if (res.ok) router.refresh();
+    await run(
+      `att-${a.id}`,
+      () => fetch(`/api/attachments/${a.id}`, { method: "DELETE" }),
+      { fallback: "Couldn't delete the attachment." }
+    );
   }
 
   return (
@@ -292,6 +299,7 @@ export function Attachments({
                 {canEdit && (
                   <button
                     onClick={() => removeLink(l)}
+                    disabled={isBusy(`dms-${l.id}`)}
                     data-tt="Remove link"
                     aria-label={`Remove ${l.title}`}
                     className="rounded-md p-1.5 text-slate-400 hover-danger"
@@ -345,6 +353,7 @@ export function Attachments({
               {canEdit && (
                 <button
                   onClick={() => remove(a)}
+                  disabled={isBusy(`att-${a.id}`)}
                   data-tt="Delete"
                   aria-label={`Delete ${a.filename}`}
                   className="rounded-md p-1.5 text-slate-400 hover-danger"

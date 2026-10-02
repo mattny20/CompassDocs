@@ -11,6 +11,7 @@ import type { User, Role } from "@/lib/types";
 import { toast } from "@/components/Toasts";
 import { confirmDialog, promptDialog } from "@/components/Dialog";
 import { Field, Select, TextInput } from "@/components/form";
+import { useAction } from "@/lib/use-action";
 
 export function UsersClient({
   users,
@@ -73,24 +74,21 @@ function UserTable({
   onQueryChange: (q: string) => void;
   filtered: boolean;
 }) {
-  const router = useRouter();
-  const [busyId, setBusyId] = useState<number | null>(null);
+  // One action per row at a time; the row stays dimmed until the refreshed
+  // page commits, so a changed role or status never flickers back.
+  const { run, isBusy, busy } = useAction();
 
-  async function patch(id: number, body: any) {
-    setBusyId(id);
-    const res = await fetch(`/api/admin/users/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    setBusyId(null);
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      toast("error", data?.error || "Update failed.");
-      return false;
-    }
-    router.refresh();
-    return true;
+  function patch(id: number, body: Record<string, unknown>, opts: { fallback: string; ok?: string }) {
+    return run(
+      id,
+      () =>
+        fetch(`/api/admin/users/${id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      opts
+    );
   }
 
   // The select is controlled from server state (`value={u.role}`), so on
@@ -106,13 +104,18 @@ function UserTable({
       danger: demotingSelf,
     });
     if (!ok) return;
-    if (await patch(u.id, { role })) toast("ok", `Role changed to ${ROLE_LABEL[role]}.`);
+    await patch(u.id, { role }, {
+      fallback: "Couldn't change the role.",
+      ok: `Role changed to ${ROLE_LABEL[role]}.`,
+    });
   }
 
   async function toggleStatus(u: User) {
     const next = u.status === "active" ? "disabled" : "active";
-    if (await patch(u.id, { status: next }))
-      toast("ok", next === "active" ? "User enabled." : "User disabled.");
+    await patch(u.id, { status: next }, {
+      fallback: next === "active" ? "Couldn't enable the user." : "Couldn't disable the user.",
+      ok: next === "active" ? "User enabled." : "User disabled.",
+    });
   }
 
   async function resetPassword(u: User) {
@@ -125,7 +128,10 @@ function UserTable({
       validate: (v) => (v.length < 6 ? "At least 6 characters." : undefined),
     });
     if (!pw) return;
-    if (await patch(u.id, { resetPassword: pw })) toast("ok", "Temporary password set.");
+    await patch(u.id, { resetPassword: pw }, {
+      fallback: "Couldn't set the temporary password.",
+      ok: "Temporary password set.",
+    });
   }
 
   async function remove(u: User) {
@@ -138,16 +144,10 @@ function UserTable({
       }))
     )
       return;
-    setBusyId(u.id);
-    const res = await fetch(`/api/admin/users/${u.id}`, { method: "DELETE" });
-    setBusyId(null);
-    if (res.ok) {
-      toast("ok", `User "${u.username}" deleted.`);
-      router.refresh();
-    } else {
-      const data = await res.json().catch(() => ({}));
-      toast("error", data?.error || "Delete failed.");
-    }
+    await run(u.id, () => fetch(`/api/admin/users/${u.id}`, { method: "DELETE" }), {
+      fallback: "Couldn't delete the user.",
+      ok: `User "${u.username}" deleted.`,
+    });
   }
 
   return (
@@ -162,7 +162,7 @@ function UserTable({
     {/* Scrolls rather than clips: below ~1180px the Status and Actions columns
         (Reset password / Disable / Delete) used to be unreachable entirely. */}
     <div className="rounded-xl border border-slate-200 bg-surface shadow-xs">
-      <Table scroll minWidth="45rem" aria-busy={busyId !== null}>
+      <Table scroll minWidth="45rem" aria-busy={busy}>
         <thead className={TABLE_HEAD_ROW}>
           <tr>
             <Th>User</Th>
@@ -180,7 +180,7 @@ function UserTable({
             </tr>
           )}
           {users.map((u) => (
-            <tr key={u.id} className={`${TR} ${busyId === u.id ? "opacity-50" : ""}`.trim()}>
+            <tr key={u.id} className={`${TR} ${isBusy(u.id) ? "opacity-50" : ""}`.trim()}>
               <Td>
                 <div className="font-medium text-slate-800">
                   {u.name || u.username}
@@ -194,6 +194,7 @@ function UserTable({
                 <Select
                   value={u.role}
                   onChange={(e) => changeRole(u, e.target.value as Role)}
+                  disabled={isBusy(u.id)}
                   aria-label={`Role for ${u.name || u.username}`}
                   dense
                   className="w-auto rounded-md px-2 py-1"
@@ -224,6 +225,7 @@ function UserTable({
                 <div className="flex justify-end gap-1.5 text-xs">
                   <button
                     onClick={() => resetPassword(u)}
+                    disabled={isBusy(u.id)}
                     className={buttonClass("secondary", "sm")}
                   >
                     Reset password
@@ -240,8 +242,12 @@ function UserTable({
                           }))
                         )
                           return;
-                        if (await patch(u.id, { reset2fa: true })) toast("ok", "Two-factor auth cleared.");
+                        await patch(u.id, { reset2fa: true }, {
+                          fallback: "Couldn't reset two-factor auth.",
+                          ok: "Two-factor auth cleared.",
+                        });
                       }}
+                      disabled={isBusy(u.id)}
                       data-tt="Clear this user's authenticator (lost-device recovery)"
                       className={buttonClass("secondary", "sm")}
                     >
@@ -250,6 +256,7 @@ function UserTable({
                   )}
                   <button
                     onClick={() => toggleStatus(u)}
+                    disabled={isBusy(u.id)}
                     className={buttonClass("secondary", "sm")}
                   >
                     {u.status === "active" ? "Disable" : "Enable"}
@@ -257,6 +264,7 @@ function UserTable({
                   {u.id !== currentUserId && (
                     <button
                       onClick={() => remove(u)}
+                      disabled={isBusy(u.id)}
                       className={buttonClass("danger", "sm")}
                     >
                       Delete

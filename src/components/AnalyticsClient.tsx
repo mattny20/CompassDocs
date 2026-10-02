@@ -34,6 +34,7 @@ import {
 } from "lucide-react";
 import { useFormatDate } from "./SettingsProvider";
 import { PageHeader } from "@/components/PageHeader";
+import { Modal } from "@/components/Modal";
 import { controlClass } from "@/components/form";
 
 type Kpis = Record<string, number>;
@@ -322,80 +323,75 @@ function DocDrilldown({ docId, days, onClose }: { docId: number; days: number; o
   }, [docId, days]);
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      className="cmd-scrim fixed inset-0 z-50 flex items-center justify-center p-4"
-      onClick={onClose}
+    <Modal
+      open
+      onClose={onClose}
+      label={data?.doc?.title ? `Analytics for ${data.doc.title}` : "Document analytics"}
+      className="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-slate-200 bg-surface p-5 shadow-modal"
     >
-      <div
-        className="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-slate-200 bg-surface p-5 shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {error ? (
-          <p className="text-sm text-red-600">{error}</p>
-        ) : !data ? (
-          <LoadingRow className="py-10" />
-        ) : (
-          <>
-            <div className="mb-3 flex items-start justify-between gap-3">
-              <div>
-                <div className="text-xs text-slate-500">
-                  {data.doc.space_icon} {data.doc.space_name} · by {data.doc.author}
-                </div>
-                <h3 className="text-base font-semibold text-slate-900">{data.doc.title}</h3>
+      {error ? (
+        <p className="text-sm text-red-600">{error}</p>
+      ) : !data ? (
+        <LoadingRow className="py-10" />
+      ) : (
+        <>
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <div>
+              <div className="text-xs text-slate-500">
+                {data.doc.space_icon} {data.doc.space_name} · by {data.doc.author}
               </div>
-              <div className="flex items-center gap-1.5">
-                <Link
-                  href={`/doc/${data.doc.id}`}
-                  className={buttonClass("secondary", "sm")}
-                >
-                  Open <ArrowUpRight className="h-3 w-3" />
-                </Link>
-                <button onClick={onClose} data-tt="Close" aria-label="Close" className="rounded-md border border-slate-200 p-1.5 text-slate-400 hover:text-slate-600">
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
+              <h3 className="text-base font-semibold text-slate-900">{data.doc.title}</h3>
             </div>
-            <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
-              {[
-                ["Views", data.totals.views],
-                ["Unique", data.totals.unique_viewers],
-                ["Public", data.totals.public_views],
-                ["Avg time", fmtDuration(data.totals.avg_seconds)],
-                ["Downloads", data.totals.downloads],
-              ].map(([label, v]) => (
-                <div key={label as string} className="rounded-lg border border-slate-200 bg-slate-50/70 px-2.5 py-2 text-center">
-                  <div className="text-base font-bold text-slate-800">{v as any}</div>
-                  <div className="text-3xs font-semibold uppercase tracking-wider text-slate-500">{label as string}</div>
-                </div>
-              ))}
+            <div className="flex items-center gap-1.5">
+              <Link
+                href={`/doc/${data.doc.id}`}
+                className={buttonClass("secondary", "sm")}
+              >
+                Open <ArrowUpRight className="h-3 w-3" />
+              </Link>
+              <button onClick={onClose} data-autofocus data-tt="Close" aria-label="Close" className="rounded-md border border-slate-200 p-1.5 text-slate-400 hover:text-slate-600">
+                <X className="h-4 w-4" />
+              </button>
             </div>
-            <TrendChart
-              compact
-              series={data.daily.map((d: any) => ({ ...d, active_users: 0 }))}
-            />
-            {data.readers.length > 0 && (
-              <div className="mt-3">
-                <h4 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  Top readers
-                </h4>
-                <ul className="divide-y divide-slate-100 text-sm">
-                  {data.readers.map((r: any) => (
-                    <li key={r.username} className="flex items-center justify-between py-1.5">
-                      <span className="text-slate-700">{r.name || r.username}</span>
-                      <span className="text-xs text-slate-500">
-                        {r.views} views · {fmtDuration(r.seconds)}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
+          </div>
+          <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
+            {[
+              ["Views", data.totals.views],
+              ["Unique", data.totals.unique_viewers],
+              ["Public", data.totals.public_views],
+              ["Avg time", fmtDuration(data.totals.avg_seconds)],
+              ["Downloads", data.totals.downloads],
+            ].map(([label, v]) => (
+              <div key={label as string} className="rounded-lg border border-slate-200 bg-slate-50/70 px-2.5 py-2 text-center">
+                <div className="text-base font-bold text-slate-800">{v as any}</div>
+                <div className="text-3xs font-semibold uppercase tracking-wider text-slate-500">{label as string}</div>
               </div>
-            )}
-          </>
-        )}
-      </div>
-    </div>
+            ))}
+          </div>
+          <TrendChart
+            compact
+            series={data.daily.map((d: any) => ({ ...d, active_users: 0 }))}
+          />
+          {data.readers.length > 0 && (
+            <div className="mt-3">
+              <h4 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                Top readers
+              </h4>
+              <ul className="divide-y divide-slate-100 text-sm">
+                {data.readers.map((r: any) => (
+                  <li key={r.username} className="flex items-center justify-between py-1.5">
+                    <span className="text-slate-700">{r.name || r.username}</span>
+                    <span className="text-xs text-slate-500">
+                      {r.views} views · {fmtDuration(r.seconds)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </>
+      )}
+    </Modal>
   );
 }
 

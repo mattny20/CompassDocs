@@ -274,7 +274,7 @@ export function NewsletterWorkspace({
       if (
         !(await confirmDialog({
           title: `Send this newsletter to ${who}?`,
-          body: "This can't be undone.",
+          body: "This cannot be undone.",
           confirmLabel: "Send",
           danger: true,
         }))
@@ -304,7 +304,7 @@ export function NewsletterWorkspace({
     if (
       !(await confirmDialog({
         title: "Delete this newsletter?",
-        body: "This can't be undone.",
+        body: "This cannot be undone.",
         confirmLabel: "Delete",
         danger: true,
       }))

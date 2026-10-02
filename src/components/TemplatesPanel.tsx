@@ -248,7 +248,7 @@ function TemplateForm({
     if (
       !(await confirmDialog({
         title: `Delete the "${template.name}" template?`,
-        body: "This can't be undone.",
+        body: "This cannot be undone.",
         confirmLabel: "Delete",
         danger: true,
       }))

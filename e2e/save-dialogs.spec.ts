@@ -30,14 +30,14 @@ test("the Workspace save row: pristine disabled, edit enabled, leave prompts, Ct
 
   // Ctrl+S saves and the row says so.
   await company.press("Control+s");
-  await expect(page.locator('[role="status"]').getByText(/saved/i)).toBeVisible();
+  await expect(page.locator('[role="status"]').getByText(/saved/i).last()).toBeVisible();
   await expect(page.getByText("Unsaved changes")).toHaveCount(0);
   await expect(save).toBeDisabled();
 
   // Put it back.
   await company.fill(original);
   await save.click();
-  await expect(page.locator('[role="status"]').getByText(/saved/i)).toBeVisible();
+  await expect(page.locator('[role="status"]').getByText(/saved/i).last()).toBeVisible();
 });
 
 test("a themed prompt: reset password is masked, validates, Escape returns focus", async ({ page }) => {

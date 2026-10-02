@@ -3,10 +3,12 @@
 // The interactive half of a ::video block: renders the player (iframe
 // provider or native <video>), an optional poster, and a theater-mode
 // expand that fills the screen — deliberately simpler than the image
-// Lightbox (no zoom/pan; wheel and drag belong to the player).
+// Lightbox (no zoom/pan; wheel and drag belong to the player). The theater
+// is a <Modal>, which owns Escape, the scroll lock and focus return.
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Maximize2, X } from "lucide-react";
+import { Modal } from "./Modal";
 
 function safePoster(url?: string): string | undefined {
   const t = (url || "").trim();
@@ -30,17 +32,6 @@ export function VideoPlayer({
   poster?: string;
 }) {
   const [theater, setTheater] = useState(false);
-
-  useEffect(() => {
-    if (!theater) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setTheater(false);
-    window.addEventListener("keydown", onKey);
-    document.body.style.overflow = "hidden";
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      document.body.style.overflow = "";
-    };
-  }, [theater]);
 
   const player = (large: boolean) =>
     embed.kind === "iframe" ? (
@@ -84,29 +75,26 @@ export function VideoPlayer({
       </div>
       {title && <figcaption className="mt-1.5 text-center text-sm text-slate-500">{title}</figcaption>}
 
-      {theater && (
-        <div
-          role="dialog"
-          aria-label={title || "Video"}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/95 p-4"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setTheater(false);
-          }}
+      {/* Hard-coded scrim: a themed bg-slate-950 inverts to a near-white wash in dark mode. */}
+      <Modal
+        open={theater}
+        onClose={() => setTheater(false)}
+        label={title || "Video"}
+        scrim="bg-black/90"
+        className="w-[min(92vw,1400px)]"
+      >
+        {player(true)}
+        {title && <p className="mt-2 text-center text-sm text-white/60">{title}</p>}
+        <button
+          onClick={() => setTheater(false)}
+          data-autofocus
+          data-tt="Close (Esc)"
+          aria-label="Close theater mode"
+          className="fixed right-4 top-4 rounded-full bg-white/10 p-2 text-white hover:bg-white/20"
         >
-          <div className="w-[min(92vw,1400px)]">
-            {player(true)}
-            {title && <p className="mt-2 text-center text-sm text-white/60">{title}</p>}
-          </div>
-          <button
-            onClick={() => setTheater(false)}
-            data-tt="Close (Esc)"
-            aria-label="Close theater mode"
-            className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-white hover:bg-white/20"
-          >
-            <X className="h-5 w-5" aria-hidden />
-          </button>
-        </div>
-      )}
+          <X className="h-5 w-5" aria-hidden />
+        </button>
+      </Modal>
     </figure>
   );
 }
