@@ -23,6 +23,8 @@ import {
 } from "lucide-react";
 import { Table, Th, Td, TABLE_HEAD_ROW, TR } from "@/components/Table";
 import { DocCard } from "./DocCard";
+import { Segmented } from "./Segmented";
+import type { LucideIcon } from "lucide-react";
 import { TypeBadge, StatusBadge } from "./Badges";
 import { timeAgo } from "@/lib/ui";
 import type { DocumentWithSpace, SpaceView } from "@/lib/types";
@@ -39,13 +41,13 @@ const TYPE_LABEL: Record<string, string> = {
   knowledge: "Knowledge",
 };
 
-const VIEWS: { key: SpaceView; label: string; icon: React.ReactNode }[] = [
-  { key: "cards", label: "Cards", icon: <LayoutGrid className="h-4 w-4" /> },
-  { key: "table", label: "Table", icon: <Table2 className="h-4 w-4" /> },
-  { key: "tree", label: "Tree", icon: <ListTree className="h-4 w-4" /> },
-  { key: "board", label: "Board", icon: <SquareKanban className="h-4 w-4" /> },
-  { key: "timeline", label: "Timeline", icon: <History className="h-4 w-4" /> },
-  { key: "tags", label: "By tag", icon: <Tags className="h-4 w-4" /> },
+const VIEWS: { key: SpaceView; label: string; icon: LucideIcon }[] = [
+  { key: "cards", label: "Cards", icon: LayoutGrid },
+  { key: "table", label: "Table", icon: Table2 },
+  { key: "tree", label: "Tree", icon: ListTree },
+  { key: "board", label: "Board", icon: SquareKanban },
+  { key: "timeline", label: "Timeline", icon: History },
+  { key: "tags", label: "By tag", icon: Tags },
 ];
 
 export function SpaceViews({
@@ -94,26 +96,16 @@ export function SpaceViews({
 
   return (
     <div>
+      {/* The one segmented control (STYLEGUIDE §Segmented controls), not a
+          tab list that never behaved like one (1.9.3). */}
       <div className="mb-4 flex justify-end">
-        <div className="inline-flex rounded-lg border border-slate-200 bg-surface p-0.5" role="tablist" aria-label="Space layout">
-          {visible.map((v) => (
-            <button
-              key={v.key}
-              role="tab"
-              aria-selected={view === v.key}
-              data-tt={v.label} aria-label={v.label}
-              onClick={() => pick(v.key)}
-              className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition ${
-                view === v.key
-                  ? "bg-compass-600 text-white shadow-xs"
-                  : "text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-              }`}
-            >
-              {v.icon}
-              <span className="hidden sm:inline">{v.label}</span>
-            </button>
-          ))}
-        </div>
+        <Segmented
+          label="Space layout"
+          size="sm"
+          options={visible.map((v) => ({ value: v.key, label: v.label, icon: v.icon }))}
+          value={view}
+          onChange={pick}
+        />
       </div>
 
       {view === "cards" && <CardsView docs={docs} categories={categories} nestedPages={nestedPages} />}
@@ -335,7 +327,7 @@ function CardsView({
           <div className="columns-2xs gap-4">
             {s.docs.map((d) => (
               <div key={d.id} className="mb-4 break-inside-avoid">
-                <DocCard doc={d} />
+                <DocCard doc={d} inSpace />
                 {nestedPages && <CardSubs parentId={d.id} map={map} />}
               </div>
             ))}

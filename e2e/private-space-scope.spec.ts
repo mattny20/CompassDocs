@@ -66,6 +66,15 @@ test("an editor outside a private space cannot share or restore its documents", 
   const read = await api(editorPage, `/api/documents/${docId}`);
   expect(read.status, "editor cannot read the document").toBe(404);
 
+  // The Ask page's "most read" list (1.9.3) is scoped the same way: the
+  // admin reading the document makes it popular, and the editor's first-run
+  // page still never names it.
+  await adminPage.goto(`/doc/${docId}`);
+  await expect(adminPage.locator("h1")).toContainText("E2E Confidential");
+  await editorPage.goto("/search");
+  await expect(editorPage.getByRole("heading", { name: "Try asking" })).toBeVisible();
+  expect(await editorPage.content(), "popular documents exclude the private space").not.toContain("E2E Confidential");
+
   // The exploit: mint an anonymous share link for a document you can't read.
   const share = await api(editorPage, `/api/documents/${docId}/share`, {
     method: "POST",

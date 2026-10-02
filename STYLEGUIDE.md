@@ -397,6 +397,11 @@ One field recipe, one input recipe, one width scale. Everything lives in
 
 ## Segmented controls
 
+The space layout switcher (Cards / Table / Tree / Board / Timeline / By tag)
+is a `Segmented` (1.9.3) — a radiogroup, so specs find it with
+`getByRole("radiogroup", { name: "Space layout" })` and its options with
+`getByRole("radio")`. Never a hand-rolled `role="tablist"`.
+
 - A choice of two to five options where exactly one is on (theme, page
   width, interface scale, the document width switch) is
   `<Segmented options value onChange label size>` from
