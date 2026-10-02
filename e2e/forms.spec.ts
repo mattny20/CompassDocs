@@ -29,10 +29,10 @@ test("5000 days shows an inline error, no success toast, and the field is marked
   expect(describedBy).toBeTruthy();
   await expect(page.locator(`[id="${describedBy}"]`)).toHaveText(/between 0 and 3650/);
 
-  await page.getByRole("button", { name: /^Save/ }).first().click();
+  // Save refuses while a field is wrong (1.7.1: the shared Save row), so no
+  // success toast can ever follow a clamped value.
+  await expect(page.getByRole("button", { name: /^Save/ }).first()).toBeDisabled();
   await expect(page.locator('[role="status"]').getByText(/saved/i)).toHaveCount(0);
-  // The form-level refusal is an error toast, not a success.
-  await expect(page.locator('[role="alert"]').getByText(/fix the highlighted/i)).toBeVisible();
 
   // Back to a valid value: the error clears and the field is valid again.
   await days.fill(before || "30");

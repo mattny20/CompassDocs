@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Spinner } from "@/components/Spinner";
 import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
+import { confirmDialog } from "@/components/Dialog";
 import { CopyButton } from "@/components/CopyButton";
 import { Check } from "lucide-react";
 
@@ -39,9 +40,11 @@ export function UpdatePanel() {
   async function updateNow() {
     if (!status?.latest) return;
     if (
-      !confirm(
-        `Update to ${status.latest.tag}? The app pulls the new image and restarts — usually under a minute. Everyone's work is saved continuously, but in-flight edits should be saved first.`
-      )
+      !(await confirmDialog({
+        title: `Update to ${status.latest.tag}?`,
+        body: "The app pulls the new image and restarts — usually under a minute. Everyone's work is saved continuously, but in-flight edits should be saved first.",
+        confirmLabel: "Update",
+      }))
     )
       return;
     setError("");

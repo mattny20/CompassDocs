@@ -11,6 +11,7 @@
 import { useState } from "react";
 import { Spinner } from "@/components/Spinner";
 import { buttonClass } from "@/components/Button";
+import { confirmDialog } from "@/components/Dialog";
 import { CheckCircle2, Copy, Loader2, Plug, RefreshCw, Trash2, TriangleAlert } from "lucide-react";
 import { toast } from "@/components/Toasts";
 import { SyncPreview, type SyncPreviewData } from "./directory-admin/SyncPreview";
@@ -141,10 +142,12 @@ export function GoogleDirectoryPanel({ initial }: { initial: GoogleState }) {
   async function syncAllowingRemovals() {
     if (!blocked) return;
     if (
-      !confirm(
-        `Remove ${blocked.doomed} people who are no longer in Google Workspace? ` +
-          `They will be deleted from the directory. Manual entries are not affected.`
-      )
+      !(await confirmDialog({
+        title: `Remove ${blocked.doomed} people who are no longer in Google Workspace?`,
+        body: "They will be deleted from the directory. Manual entries are not affected.",
+        confirmLabel: "Remove",
+        danger: true,
+      }))
     )
       return;
     await runSync(true);
@@ -160,7 +163,15 @@ export function GoogleDirectoryPanel({ initial }: { initial: GoogleState }) {
   }
 
   async function disconnect() {
-    if (!confirm("Remove the Google Workspace connection? Synced people stay in the directory.")) return;
+    if (
+      !(await confirmDialog({
+        title: "Remove the Google Workspace connection?",
+        body: "Synced people stay in the directory.",
+        confirmLabel: "Disconnect",
+        danger: true,
+      }))
+    )
+      return;
     setBusy("disconnect");
     const res = await fetch("/api/admin/directory/google", { method: "DELETE" });
     setBusy("");

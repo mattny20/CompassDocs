@@ -17,6 +17,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { Field, Select, TextInput } from "@/components/form";
+import { confirmDialog, promptDialog } from "@/components/Dialog";
 
 interface Category {
   id: number;
@@ -104,7 +105,14 @@ export function LinksAdmin({
   }
 
   async function renameCategory(c: Category) {
-    const name = prompt("Rename category", c.name)?.trim();
+    const name = (
+      await promptDialog({
+        title: "Rename category",
+        label: "Category name",
+        initial: c.name,
+        confirmLabel: "Rename",
+      })
+    )?.trim();
     if (!name || name === c.name) return;
     await fetch(`/api/admin/link-categories/${c.id}`, {
       method: "PATCH",
@@ -134,7 +142,15 @@ export function LinksAdmin({
   }
 
   async function deleteCategory(c: Category) {
-    if (!confirm(`Delete "${c.name}"? Its links move to General.`)) return;
+    if (
+      !(await confirmDialog({
+        title: `Delete "${c.name}"?`,
+        body: "Its links move to General.",
+        confirmLabel: "Delete",
+        danger: true,
+      }))
+    )
+      return;
     await fetch(`/api/admin/link-categories/${c.id}`, { method: "DELETE" });
     await reload();
   }
@@ -223,7 +239,7 @@ export function LinksAdmin({
   }
 
   async function deleteLink(l: AdminLink) {
-    if (!confirm(`Delete the "${l.title}" link?`)) return;
+    if (!(await confirmDialog({ title: `Delete the "${l.title}" link?`, confirmLabel: "Delete", danger: true }))) return;
     await fetch(`/api/admin/links/${l.id}`, { method: "DELETE" });
     await reload();
   }

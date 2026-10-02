@@ -7,6 +7,7 @@
 import { useState } from "react";
 import { chipClass, EnterpriseBadge } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
+import { confirmDialog } from "@/components/Dialog";
 import { useRouter } from "next/navigation";
 import { UsersRound, RefreshCw, CloudDownload, Trash2, Pencil, X } from "lucide-react";
 import { EntityPicker } from "@/components/EntityPicker";
@@ -76,9 +77,17 @@ export function GroupsPanel({
     setError("");
     const warn =
       g.space_count > 0
-        ? ` It is granted on ${g.space_count} private space${g.space_count === 1 ? "" : "s"} — members will lose access.`
-        : "";
-    if (!confirm(`Delete the group “${g.name}”?${warn}`)) return;
+        ? `It is granted on ${g.space_count} private space${g.space_count === 1 ? "" : "s"} — members will lose access.`
+        : undefined;
+    if (
+      !(await confirmDialog({
+        title: `Delete the group “${g.name}”?`,
+        body: warn,
+        confirmLabel: "Delete",
+        danger: true,
+      }))
+    )
+      return;
     const res = await fetch(`/api/admin/groups/${g.id}`, { method: "DELETE" });
     if (!res.ok) {
       toast("error", (await res.json().catch(() => ({}))).error || "Could not delete the group.");

@@ -7,6 +7,7 @@
 import { useEffect, useState } from "react";
 import { Spinner } from "@/components/Spinner";
 import { buttonClass } from "@/components/Button";
+import { confirmDialog } from "@/components/Dialog";
 import { CopyButton } from "@/components/CopyButton";
 import { controlClass } from "@/components/form";
 import { Link as LinkIcon, RefreshCw, Share2, X } from "lucide-react";
@@ -61,7 +62,15 @@ export function ShareCard({
   }
 
   async function revoke() {
-    if (!confirm("Revoke this share link? Anyone holding it loses access immediately.")) return;
+    if (
+      !(await confirmDialog({
+        title: "Revoke this share link?",
+        body: "Anyone holding it loses access immediately.",
+        confirmLabel: "Revoke",
+        danger: true,
+      }))
+    )
+      return;
     setBusy(true);
     setError("");
     const res = await fetch(`/api/documents/${docId}/share`, { method: "DELETE" });

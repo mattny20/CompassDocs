@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Spinner } from "@/components/Spinner";
+import { confirmDialog } from "@/components/Dialog";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { GitBranch, GitMerge, Trash2 } from "lucide-react";
@@ -30,10 +31,18 @@ export function BranchBanner({
   const [error, setError] = useState("");
 
   async function merge() {
-    const q = needsReview
-      ? "Submit this branch to the review queue? The live document changes once it's approved."
-      : `Merge this branch into “${sourceTitle}”? The branch will move to the Trash.`;
-    if (!confirm(q)) return;
+    const ok = needsReview
+      ? await confirmDialog({
+          title: "Submit this branch to the review queue?",
+          body: "The live document changes once it's approved.",
+          confirmLabel: "Submit",
+        })
+      : await confirmDialog({
+          title: `Merge this branch into “${sourceTitle}”?`,
+          body: "The branch will move to the Trash.",
+          confirmLabel: "Merge",
+        });
+    if (!ok) return;
     setBusy("merge");
     setError("");
     try {
@@ -58,7 +67,14 @@ export function BranchBanner({
   }
 
   async function discard() {
-    if (!confirm("Discard this draft branch? It moves to the Trash; the original is unaffected."))
+    if (
+      !(await confirmDialog({
+        title: "Discard this draft branch?",
+        body: "It moves to the Trash; the original is unaffected.",
+        confirmLabel: "Discard",
+        danger: true,
+      }))
+    )
       return;
     setBusy("discard");
     setError("");

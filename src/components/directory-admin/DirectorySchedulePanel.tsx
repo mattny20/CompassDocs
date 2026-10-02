@@ -4,6 +4,8 @@
 // buttons stay for "now"; this is "every night at three, and tell me".
 
 import { useState } from "react";
+import { SaveRow } from "@/components/SaveRow";
+import { useLeaveGuard } from "@/lib/use-unsaved";
 import { buttonClass } from "@/components/Button";
 import { CalendarClock } from "lucide-react";
 import { Field, Select, TextInput, Toggle } from "@/components/form";
@@ -26,6 +28,7 @@ export function DirectorySchedulePanel({ initial, smtpConfigured }: { initial: S
   const [recipients, setRecipients] = useState(initial.report_to.join(", "));
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  useLeaveGuard(dirty, () => dirty);
   const set = (patch: Partial<ScheduleState>) => {
     setS((cur) => ({ ...cur, ...patch }));
     setDirty(true);
@@ -96,12 +99,7 @@ export function DirectorySchedulePanel({ initial, smtpConfigured }: { initial: S
         </Field>
         <Toggle label="Email even when nothing changed" checked={s.report_quiet} onChange={(v) => set({ report_quiet: v })} />
       </div>
-      <div className="mt-4 flex items-center gap-3">
-        <button type="button" onClick={save} disabled={saving || !dirty} className={buttonClass("primary")}>
-          {saving ? "Saving…" : "Save schedule"}
-        </button>
-        {dirty ? <span className="text-xs ink-warn">Unsaved changes</span> : <span className="text-xs text-slate-500">Saved</span>}
-      </div>
+      <SaveRow dirty={dirty} busy={saving} onSave={save} label="Save schedule" className="mt-4" />
     </div>
   );
 }

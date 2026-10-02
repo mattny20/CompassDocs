@@ -6,6 +6,7 @@
 import { useState } from "react";
 import { Spinner } from "@/components/Spinner";
 import { buttonClass } from "@/components/Button";
+import { confirmDialog } from "@/components/Dialog";
 import { useRouter } from "next/navigation";
 import { Archive, ArchiveRestore, GraduationCap, Trash2, Users } from "lucide-react";
 import { useFormatDate } from "./SettingsProvider";
@@ -92,11 +93,14 @@ export function ArchivedDecks({ decks }: { decks: ArchivedDeck[] }) {
               Restore
             </button>
             <button
-              onClick={() => {
+              onClick={async () => {
                 if (
-                  confirm(
-                    `Permanently delete "${d.title}"? Its assignment and completion history (${d.completed} completions) goes with it. The document itself is untouched. This cannot be undone.`
-                  )
+                  await confirmDialog({
+                    title: `Permanently delete "${d.title}"?`,
+                    body: `Its assignment and completion history (${d.completed} completions) goes with it. The document itself is untouched. This cannot be undone.`,
+                    confirmLabel: "Delete",
+                    danger: true,
+                  })
                 )
                   void call(d.id, { method: "DELETE" });
               }}

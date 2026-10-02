@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { buttonClass } from "@/components/Button";
+import { confirmDialog } from "@/components/Dialog";
 import { LoadingRow } from "@/components/Spinner";
 import { toast } from "@/components/Toasts";
 import { DangerZone, DangerAction, controlClass } from "@/components/form";
@@ -80,7 +81,15 @@ export function LicensePanel() {
     setKey("");
   }
   async function remove() {
-    if (!confirm("Remove the license? Enterprise features will turn off.")) return;
+    if (
+      !(await confirmDialog({
+        title: "Remove the license?",
+        body: "Enterprise features will turn off.",
+        confirmLabel: "Remove",
+        danger: true,
+      }))
+    )
+      return;
     await send({ clear: true }, "License removed.");
   }
 

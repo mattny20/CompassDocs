@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Spinner } from "@/components/Spinner";
 import { EnterpriseBadge } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
+import { confirmDialog } from "@/components/Dialog";
 import { CopyButton } from "@/components/CopyButton";
 import { KeyRound, RefreshCw } from "lucide-react";
 import { timeAgo } from "@/lib/ui";
@@ -112,12 +113,15 @@ export function ScimPanel({ initial }: { initial: ScimStatus }) {
           ) : (
             <div className="flex flex-wrap items-center gap-3">
               <button
-                onClick={() => {
+                onClick={async () => {
                   if (
                     status.token_set &&
-                    !confirm(
-                      "Generate a new token? The current token stops working immediately — update Entra with the new one."
-                    )
+                    !(await confirmDialog({
+                      title: "Generate a new token?",
+                      body: "The current token stops working immediately — update Entra with the new one.",
+                      confirmLabel: "Generate",
+                      danger: true,
+                    }))
                   ) {
                     return;
                   }

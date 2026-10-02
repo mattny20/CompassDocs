@@ -5,6 +5,9 @@ import { Check, KeyRound } from "lucide-react";
 import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import { toast } from "@/components/Toasts";
+import { confirmDialog } from "@/components/Dialog";
+import { SaveRow } from "@/components/SaveRow";
+import { useLeaveGuard, useUnsavedChanges } from "@/lib/use-unsaved";
 import { DangerAction, DangerZone, Field, TextInput, Select } from "@/components/form";
 
 type AiKeySource = "settings" | "env" | "none";
@@ -34,16 +37,28 @@ export function AiSettings({ initial }: { initial: AiState }) {
   const router = useRouter();
   const [source, setSource] = useState<AiKeySource>(initial.source);
   const [hasKey, setHasKey] = useState(initial.has_key);
-  const [model, setModel] = useState(initial.model);
-  const [apiKey, setApiKey] = useState("");
+  const [model, setModelRaw] = useState(initial.model);
+  const [apiKey, setApiKeyRaw] = useState("");
 
-  const [provider, setProvider] = useState<AiProvider>(initial.provider);
-  const [oaUrl, setOaUrl] = useState(initial.openai_base_url);
-  const [oaModel, setOaModel] = useState(initial.openai_model);
-  const [oaKey, setOaKey] = useState("");
+  const [provider, setProviderRaw] = useState<AiProvider>(initial.provider);
+  const [oaUrl, setOaUrlRaw] = useState(initial.openai_base_url);
+  const [oaModel, setOaModelRaw] = useState(initial.openai_model);
+  const [oaKey, setOaKeyRaw] = useState("");
   const [oaKeySet, setOaKeySet] = useState(initial.openai_key_set);
 
   const [saving, setSaving] = useState(false);
+
+  const { dirty, markDirty, markClean, hasUnsavedChanges } = useUnsavedChanges(
+    JSON.stringify([provider, model, apiKey, oaUrl, oaModel, oaKey])
+  );
+  useLeaveGuard(dirty, hasUnsavedChanges);
+  // User edits dirty the form; what the server hands back after a save does not.
+  const setModel = (v: string) => { markDirty(); setModelRaw(v); };
+  const setApiKey = (v: string) => { markDirty(); setApiKeyRaw(v); };
+  const setProvider = (v: AiProvider) => { markDirty(); setProviderRaw(v); };
+  const setOaUrl = (v: string) => { markDirty(); setOaUrlRaw(v); };
+  const setOaModel = (v: string) => { markDirty(); setOaModelRaw(v); };
+  const setOaKey = (v: string) => { markDirty(); setOaKeyRaw(v); };
 
   // If the current model isn't one of the presets (e.g. set via env), show it.
   const modelOptions = MODEL_OPTIONS.some((m) => m.value === model)
@@ -65,13 +80,14 @@ export function AiSettings({ initial }: { initial: AiState }) {
       toast("error", data?.error || "Could not save.");
       return false;
     }
+    markClean();
     if (data?.state) {
       setSource(data.state.source);
       setHasKey(data.state.has_key);
-      setModel(data.state.model);
-      setProvider(data.state.provider);
-      setOaUrl(data.state.openai_base_url);
-      setOaModel(data.state.openai_model);
+      setModelRaw(data.state.model);
+      setProviderRaw(data.state.provider);
+      setOaUrlRaw(data.state.openai_base_url);
+      setOaModelRaw(data.state.openai_model);
       setOaKeySet(data.state.openai_key_set);
     }
     toast("ok", okText);
@@ -91,13 +107,21 @@ export function AiSettings({ initial }: { initial: AiState }) {
     }
     const ok = await send(payload, "AI settings saved.");
     if (ok) {
-      setApiKey("");
-      setOaKey("");
+      setApiKeyRaw("");
+      setOaKeyRaw("");
     }
   }
 
   async function removeKey() {
-    if (!confirm("Remove the saved API key? AI features will turn off unless a key is set in the environment.")) return;
+    if (
+      !(await confirmDialog({
+        title: "Remove the saved API key?",
+        body: "AI features turn off unless a key is set in the environment.",
+        confirmLabel: "Remove key",
+        danger: true,
+      }))
+    )
+      return;
     await send({ clear: true }, "API key removed.");
   }
 
@@ -288,15 +312,7 @@ export function AiSettings({ initial }: { initial: AiState }) {
         </div>
       )}
 
-      <div className="flex items-center gap-3">
-        <button
-          onClick={save}
-          disabled={saving}
-          className={buttonClass("primary")}
-        >
-          {saving ? "Saving…" : "Save"}
-        </button>
-      </div>
+      <SaveRow dirty={dirty} busy={saving} onSave={save} label="Save" />
 
       {provider === "anthropic" && source === "settings" && hasKey && (
         <DangerZone>

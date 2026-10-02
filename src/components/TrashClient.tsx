@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { buttonClass } from "@/components/Button";
+import { confirmDialog } from "@/components/Dialog";
 import { Table, Th, Td, TABLE_HEAD_ROW, TR } from "@/components/Table";
 import { useRouter } from "next/navigation";
 import { Search, Trash2 } from "lucide-react";
@@ -46,9 +47,12 @@ export function TrashClient({
 
   async function purge(d: TrashedDoc) {
     if (
-      !confirm(
-        `Permanently delete "${d.title}"? This cannot be undone — all versions are removed.`
-      )
+      !(await confirmDialog({
+        title: `Permanently delete "${d.title}"?`,
+        body: "This cannot be undone — all versions are removed.",
+        confirmLabel: "Delete",
+        danger: true,
+      }))
     )
       return;
     setBusyId(d.id);

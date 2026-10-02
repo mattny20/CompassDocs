@@ -43,6 +43,7 @@ import { EntityPicker, type PickerOption } from "@/components/EntityPicker";
 import { EmptyState, SectionEmpty, Select, TextInput } from "@/components/form";
 import { PageHeader } from "@/components/PageHeader";
 import { toast } from "@/components/Toasts";
+import { confirmDialog, promptDialog } from "@/components/Dialog";
 import { useFormatDate } from "@/components/SettingsProvider";
 
 interface MyItem {
@@ -1448,8 +1449,15 @@ function ProgramRow({
             {program.active === 0 ? "Activate" : "Deactivate"}
           </button>
           <button
-            onClick={() => {
-              if (confirm(`Delete the "${program.name}" program? Decks and completions stay; only the bundle goes.`))
+            onClick={async () => {
+              if (
+                await confirmDialog({
+                  title: `Delete the "${program.name}" program?`,
+                  body: "Decks and completions stay; only the bundle goes.",
+                  confirmLabel: "Delete program",
+                  danger: true,
+                })
+              )
                 void call("DELETE", undefined, "Program deleted.");
             }}
             disabled={busy}
@@ -1502,8 +1510,13 @@ function ProgramRow({
               Assign program
             </button>
             <button
-              onClick={() => {
-                if (confirm(`Assign "${program.name}" (${program.decks.length} decks) to every active member?`))
+              onClick={async () => {
+                if (
+                  await confirmDialog({
+                    title: `Assign "${program.name}" (${program.decks.length} decks) to every active member?`,
+                    confirmLabel: "Assign",
+                  })
+                )
                   void call("POST", { everyone: true });
               }}
               disabled={busy}
@@ -1620,11 +1633,13 @@ function DeckCard({
             <Settings2 className="h-4 w-4" /> {deck.active === 0 ? "Activate" : "Deactivate"}
           </button>
           <button
-            onClick={() => {
+            onClick={async () => {
               if (
-                confirm(
-                  `Archive "${deck.title}"? It disappears from everyone's Training tab (history kept) — restore it any time from Archived decks.`
-                )
+                await confirmDialog({
+                  title: `Archive "${deck.title}"?`,
+                  body: "It disappears from everyone's Training tab (history kept) — restore it any time from Archived decks.",
+                  confirmLabel: "Archive",
+                })
               )
                 void patch({ archived: true }, "Deck archived.");
             }}
@@ -1742,11 +1757,13 @@ function DeckCard({
           <PenLine className="h-3.5 w-3.5 text-slate-400" /> Require e-signature
         </label>
         <button
-          onClick={() => {
+          onClick={async () => {
             if (
-              confirm(
-                `Reopen "${deck.title}" for everyone who completed it? Use this after a material update — prior completions stay in the history, and everyone is asked to retake it.`
-              )
+              await confirmDialog({
+                title: `Reopen "${deck.title}" for everyone who completed it?`,
+                body: "Use this after a material update — prior completions stay in the history, and everyone is asked to retake it.",
+                confirmLabel: "Reopen",
+              })
             )
               void post({ reopen_completed: true }, "Reopened for {n} people — prior completions kept in history.");
           }}
@@ -1806,8 +1823,9 @@ function DeckCard({
           Assign
         </button>
         <button
-          onClick={() => {
-            if (confirm(`Assign "${deck.title}" to every active member?`)) void post({ everyone: true }, "Assigned to {n} people.");
+          onClick={async () => {
+            if (await confirmDialog({ title: `Assign "${deck.title}" to every active member?`, confirmLabel: "Assign" }))
+              void post({ everyone: true }, "Assigned to {n} people.");
           }}
           disabled={busy}
           className={buttonClass("secondary")}
@@ -1815,11 +1833,13 @@ function DeckCard({
           Assign to everyone
         </button>
         <button
-          onClick={() => {
+          onClick={async () => {
             if (
-              confirm(
-                `Waive "${deck.title}" for every current member? Use this when staff already did this training before CompassDocs — recorded as waived, not completed, and nobody is notified.`
-              )
+              await confirmDialog({
+                title: `Waive "${deck.title}" for every current member?`,
+                body: "Use this when staff already did this training before CompassDocs — recorded as waived, not completed, and nobody is notified.",
+                confirmLabel: "Waive",
+              })
             )
               void post({ everyone: true, waive: true }, "Waived for {n} people — recorded as waived, not completed.");
           }}
@@ -1926,8 +1946,18 @@ function PeopleTable({
             <BellRing className="h-3 w-3" /> Remind
           </button>
           <button
-            onClick={() => {
-              const days = Number(prompt("Extend due date by how many days?", "7"));
+            onClick={async () => {
+              const value = await promptDialog({
+                title: "Extend due dates",
+                label: "Days",
+                type: "number",
+                initial: "7",
+                min: 1,
+                max: 365,
+                confirmLabel: "Extend",
+              });
+              if (value === null) return;
+              const days = Number(value);
               if (Number.isFinite(days) && days > 0)
                 void bulk({ extend_assignment_ids: openSelected, extend_days: days }, `Extended {n} due dates.`);
             }}
@@ -1937,8 +1967,14 @@ function PeopleTable({
             <Timer className="h-3 w-3" /> Extend due
           </button>
           <button
-            onClick={() => {
-              if (confirm("Waive the selected open assignments? Recorded as waived, no notifications."))
+            onClick={async () => {
+              if (
+                await confirmDialog({
+                  title: "Waive the selected open assignments?",
+                  body: "Recorded as waived, no notifications.",
+                  confirmLabel: "Waive",
+                })
+              )
                 void bulk({ waive_assignment_ids: openSelected }, "Waived {n} people.");
             }}
             disabled={busy}
@@ -1947,8 +1983,15 @@ function PeopleTable({
             Waive
           </button>
           <button
-            onClick={() => {
-              if (confirm("Remove the selected open assignments? Completed records are never removed."))
+            onClick={async () => {
+              if (
+                await confirmDialog({
+                  title: "Remove the selected open assignments?",
+                  body: "Completed records are never removed.",
+                  confirmLabel: "Remove",
+                  danger: true,
+                })
+              )
                 void bulk({ unassign_assignment_ids: openSelected }, "Removed {n} assignments.");
             }}
             disabled={busy}
@@ -2047,8 +2090,14 @@ function PeopleTable({
                             </a>
                           )}
                           <button
-                            onClick={() => {
-                              if (confirm(`Reopen this training for ${p.name}? Their completion moves to history and they're asked to retake it.`))
+                            onClick={async () => {
+                              if (
+                                await confirmDialog({
+                                  title: `Reopen this training for ${p.name}?`,
+                                  body: "Their completion moves to history and they're asked to retake it.",
+                                  confirmLabel: "Reopen",
+                                })
+                              )
                                 void post({ reopen_assignment_id: p.assignment_id }, "Reopened — prior completion kept in history.");
                             }}
                             disabled={busy}

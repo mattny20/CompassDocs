@@ -6,6 +6,7 @@
 
 import { useState } from "react";
 import { buttonClass } from "@/components/Button";
+import { confirmDialog } from "@/components/Dialog";
 import { useRouter } from "next/navigation";
 import { Megaphone, TriangleAlert, Siren, Archive, ArchiveRestore, Trash2, Check } from "lucide-react";
 import { useFormatDate } from "./SettingsProvider";
@@ -115,7 +116,15 @@ export function AnnouncementsAdmin({
   }
 
   async function remove(row: AnnouncementRow) {
-    if (!confirm(`Delete "${row.title}"? It disappears from all dashboards.`)) return;
+    if (
+      !(await confirmDialog({
+        title: `Delete "${row.title}"?`,
+        body: "It disappears from all dashboards.",
+        confirmLabel: "Delete",
+        danger: true,
+      }))
+    )
+      return;
     await fetch(`/api/admin/announcements/${row.id}`, { method: "DELETE" });
     await reload();
   }

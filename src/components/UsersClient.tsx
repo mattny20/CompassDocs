@@ -9,6 +9,7 @@ import { useRouter } from "next/navigation";
 import { ROLE_ORDER, ROLE_LABEL, ROLE_BLURB } from "@/lib/types";
 import type { User, Role } from "@/lib/types";
 import { toast } from "@/components/Toasts";
+import { confirmDialog, promptDialog } from "@/components/Dialog";
 import { Field, Select, TextInput } from "@/components/form";
 
 export function UsersClient({
@@ -92,8 +93,20 @@ function UserTable({
     return true;
   }
 
-  async function changeRole(id: number, role: Role) {
-    if (await patch(id, { role })) toast("ok", `Role changed to ${ROLE_LABEL[role]}.`);
+  // The select is controlled from server state (`value={u.role}`), so on
+  // cancel React snaps it back to the old role on its own — nothing to reset.
+  async function changeRole(u: User, role: Role) {
+    if (role === u.role) return;
+    const name = u.name || u.username;
+    const demotingSelf = u.id === currentUserId && u.role === "admin" && role !== "admin";
+    const ok = await confirmDialog({
+      title: `Change ${name}'s role to ${ROLE_LABEL[role]}?`,
+      body: demotingSelf ? "You will lose access to the settings console." : ROLE_BLURB[role],
+      confirmLabel: "Change role",
+      danger: demotingSelf,
+    });
+    if (!ok) return;
+    if (await patch(u.id, { role })) toast("ok", `Role changed to ${ROLE_LABEL[role]}.`);
   }
 
   async function toggleStatus(u: User) {
@@ -103,13 +116,28 @@ function UserTable({
   }
 
   async function resetPassword(u: User) {
-    const pw = prompt(`Set a temporary password for ${u.username} (they'll be asked to change it):`);
+    const pw = await promptDialog({
+      title: `Set a temporary password for ${u.username}`,
+      body: "They'll be asked to change it on their next sign-in.",
+      label: "Temporary password",
+      type: "password",
+      confirmLabel: "Set password",
+      validate: (v) => (v.length < 6 ? "At least 6 characters." : undefined),
+    });
     if (!pw) return;
     if (await patch(u.id, { resetPassword: pw })) toast("ok", "Temporary password set.");
   }
 
   async function remove(u: User) {
-    if (!confirm(`Delete user "${u.username}"? This cannot be undone.`)) return;
+    if (
+      !(await confirmDialog({
+        title: `Delete user "${u.username}"?`,
+        body: "This cannot be undone.",
+        confirmLabel: "Delete user",
+        danger: true,
+      }))
+    )
+      return;
     setBusyId(u.id);
     const res = await fetch(`/api/admin/users/${u.id}`, { method: "DELETE" });
     setBusyId(null);
@@ -165,7 +193,7 @@ function UserTable({
               <Td>
                 <Select
                   value={u.role}
-                  onChange={(e) => changeRole(u.id, e.target.value as Role)}
+                  onChange={(e) => changeRole(u, e.target.value as Role)}
                   aria-label={`Role for ${u.name || u.username}`}
                   dense
                   className="w-auto rounded-md px-2 py-1"
@@ -203,7 +231,15 @@ function UserTable({
                   {u.totp_enabled === 1 && (
                     <button
                       onClick={async () => {
-                        if (!confirm(`Reset two-factor auth for ${u.username}? They'll sign in with just their password and can re-enroll.`)) return;
+                        if (
+                          !(await confirmDialog({
+                            title: `Reset two-factor auth for ${u.username}?`,
+                            body: "They'll sign in with just their password and can re-enroll.",
+                            confirmLabel: "Reset two-factor",
+                            danger: true,
+                          }))
+                        )
+                          return;
                         if (await patch(u.id, { reset2fa: true })) toast("ok", "Two-factor auth cleared.");
                       }}
                       data-tt="Clear this user's authenticator (lost-device recovery)"

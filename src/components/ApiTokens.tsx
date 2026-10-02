@@ -6,6 +6,7 @@
 
 import { useState } from "react";
 import { buttonClass } from "@/components/Button";
+import { confirmDialog } from "@/components/Dialog";
 import { CopyButton } from "@/components/CopyButton";
 import { controlClass } from "@/components/form";
 import type { ApiToken } from "@/lib/db";
@@ -57,7 +58,15 @@ export function ApiTokens({
   }
 
   async function revoke(id: number) {
-    if (!confirm("Revoke this token? Anything using it stops working immediately.")) return;
+    if (
+      !(await confirmDialog({
+        title: "Revoke this token?",
+        body: "Anything using it stops working immediately.",
+        confirmLabel: "Revoke",
+        danger: true,
+      }))
+    )
+      return;
     const res = await fetch(`/api/account/tokens/${id}`, { method: "DELETE" });
     if (res.ok) setTokens(tokens.filter((t) => t.id !== id));
   }
@@ -212,7 +221,15 @@ export function ApiTokens({
             </div>
             <button
               onClick={async () => {
-                if (!confirm("Disconnect this app? It will have to be re-approved to reconnect.")) return;
+                if (
+                  !(await confirmDialog({
+                    title: "Disconnect this app?",
+                    body: "It will have to be re-approved to reconnect.",
+                    confirmLabel: "Disconnect",
+                    danger: true,
+                  }))
+                )
+                  return;
                 const res = await fetch(
                   `/api/account/connections?client_id=${encodeURIComponent(c.client_id)}`,
                   { method: "DELETE" }

@@ -8,6 +8,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { buttonClass } from "@/components/Button";
+import { confirmDialog } from "@/components/Dialog";
 import { Plus, Sparkles, Trash2 } from "lucide-react";
 import type { DirectoryField } from "@/lib/directory";
 import { describeMapping, parseMapping, type Mapping } from "@/lib/directory-mapping";
@@ -537,7 +538,15 @@ export function DirectoryFieldsPanel({
     await reload();
   }
   async function removeField(f: DirectoryField) {
-    if (!confirm(`Delete the "${f.label}" field? Its values are removed from every person.`)) return;
+    if (
+      !(await confirmDialog({
+        title: `Delete the "${f.label}" field?`,
+        body: "Its values are removed from every person.",
+        confirmLabel: "Delete",
+        danger: true,
+      }))
+    )
+      return;
     const r = await jsonFetch(`/api/admin/directory/fields/${f.id}`, { method: "DELETE" });
     if (!r.ok) toast("error", r.data?.error || "Could not delete.");
     await reload();

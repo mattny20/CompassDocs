@@ -4,6 +4,8 @@ import { useState } from "react";
 import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import { toast } from "@/components/Toasts";
+import { SaveRow } from "@/components/SaveRow";
+import { useLeaveGuard, useUnsavedChanges } from "@/lib/use-unsaved";
 import type { TlsMode, SecureCookieMode } from "@/lib/settings";
 import { Field, TextInput, Textarea } from "@/components/form";
 import { Check } from "lucide-react";
@@ -65,16 +67,27 @@ const COOKIE_OPTIONS: { value: SecureCookieMode; label: string; hint: string }[]
 
 export function DomainSettings({ initial }: { initial: DomainState }) {
   const router = useRouter();
-  const [domain, setDomain] = useState(initial.custom_domain);
-  const [mode, setMode] = useState<TlsMode>(initial.tls_mode);
-  const [email, setEmail] = useState(initial.tls_email);
-  const [cert, setCert] = useState("");
-  const [key, setKey] = useState("");
+  const [domain, setDomainRaw] = useState(initial.custom_domain);
+  const [mode, setModeRaw] = useState<TlsMode>(initial.tls_mode);
+  const [email, setEmailRaw] = useState(initial.tls_email);
+  const [cert, setCertRaw] = useState("");
+  const [key, setKeyRaw] = useState("");
   const [hasCert, setHasCert] = useState(initial.has_custom_cert);
-  const [secureCookies, setSecureCookies] = useState<SecureCookieMode>(initial.secure_cookies);
+  const [secureCookies, setSecureCookiesRaw] = useState<SecureCookieMode>(initial.secure_cookies);
 
   const [saving, setSaving] = useState(false);
   const [warning, setWarning] = useState("");
+
+  const { dirty, markDirty, markClean, hasUnsavedChanges } = useUnsavedChanges(
+    JSON.stringify([domain, mode, email, cert, key, secureCookies])
+  );
+  useLeaveGuard(dirty, hasUnsavedChanges);
+  const setDomain = (v: string) => { markDirty(); setDomainRaw(v); };
+  const setMode = (v: TlsMode) => { markDirty(); setModeRaw(v); };
+  const setEmail = (v: string) => { markDirty(); setEmailRaw(v); };
+  const setCert = (v: string) => { markDirty(); setCertRaw(v); };
+  const setKey = (v: string) => { markDirty(); setKeyRaw(v); };
+  const setSecureCookies = (v: SecureCookieMode) => { markDirty(); setSecureCookiesRaw(v); };
 
   const { managed, reachable } = initial.proxy;
 
@@ -98,18 +111,19 @@ export function DomainSettings({ initial }: { initial: DomainState }) {
       toast("error", data?.error || "Could not save.");
       return;
     }
+    markClean();
     // Saved; the certificate is now stored server-side so clear the inputs.
     if (cert || key) {
-      setCert("");
-      setKey("");
+      setCertRaw("");
+      setKeyRaw("");
       setHasCert(true);
     }
     if (data?.state) {
-      setDomain(data.state.custom_domain);
-      setMode(data.state.tls_mode);
-      setEmail(data.state.tls_email);
+      setDomainRaw(data.state.custom_domain);
+      setModeRaw(data.state.tls_mode);
+      setEmailRaw(data.state.tls_email);
       setHasCert(data.state.has_custom_cert);
-      if (data.state.secure_cookies) setSecureCookies(data.state.secure_cookies);
+      if (data.state.secure_cookies) setSecureCookiesRaw(data.state.secure_cookies);
     }
     if (!data.applied && data.proxyError) setWarning(data.proxyError);
     else toast("ok", "Domain settings saved.");
@@ -282,15 +296,8 @@ export function DomainSettings({ initial }: { initial: DomainState }) {
         </div>
       </div>
 
-      <div className="flex items-center gap-3">
-        <button
-          onClick={save}
-          disabled={saving}
-          className={buttonClass("primary")}
-        >
-          {saving ? "Saving…" : "Save & apply"}
-        </button>
-      </div>
+      {/* Re-apply is a real use (the proxy lost its config), so pristine stays enabled. */}
+      <SaveRow dirty={dirty} busy={saving} onSave={save} label="Save & apply" allowPristine />
       {warning && (
         <div className="notice-warn rounded-lg border px-3 py-2 text-sm">
           Settings saved, but the proxy didn&rsquo;t apply them: {warning}
