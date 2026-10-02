@@ -31,3 +31,39 @@ test("a settings page has one h1 — the section — and a sticky rail", async (
   expect(box!.y).toBeGreaterThanOrEqual(0);
   expect(box!.y + box!.height).toBeLessThanOrEqual(900);
 });
+
+// 1.8.0: settings search reaches pages and cards; Notifications has tabs.
+
+test("settings search finds a card and Enter opens it", async ({ page }) => {
+  await login(page, ADMIN);
+  await page.goto("/admin");
+  const box = page.getByLabel("Search settings");
+  await box.fill("timezone");
+  const row = page.getByRole("link", { name: /Date & time.*Workspace/ });
+  await expect(row).toBeVisible();
+  await box.press("Enter");
+  await expect(page).toHaveURL(/\/admin\/workspace#date-time$/);
+  await expect(page.locator("#date-time")).toBeVisible();
+});
+
+test("settings search clears on Escape and lists sub-pages", async ({ page }) => {
+  await login(page, ADMIN);
+  await page.goto("/admin");
+  const box = page.getByLabel("Search settings");
+  await box.fill("offices");
+  await expect(page.getByRole("link", { name: /Offices.*Directory/ })).toBeVisible();
+  await box.press("Escape");
+  await expect(box).toHaveValue("");
+});
+
+test("Notifications is one section with two tabs and one h1", async ({ page }) => {
+  await login(page, ADMIN);
+  await page.goto("/admin/notifications/templates");
+  await expect(page.locator("h1")).toHaveCount(1);
+  await expect(page.locator("h1")).toHaveText("Notifications");
+  const tabs = page.getByRole("navigation", { name: "Notification settings" });
+  await expect(tabs.getByRole("link", { name: "Email templates" })).toHaveAttribute("aria-current", "page");
+  await tabs.getByRole("link", { name: "Channels" }).click();
+  await expect(page).toHaveURL(/\/admin\/notifications$/);
+  await expect(page.locator("#webhooks")).toBeVisible();
+});

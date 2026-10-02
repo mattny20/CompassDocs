@@ -123,7 +123,7 @@ export function BackupsClient({
     <div className="space-y-6">
       {/* Schedule + destinations */}
       <div className="grid gap-4 sm:grid-cols-2">
-        <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
+        <div id="schedule" className="scroll-mt-6 rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
           <h3 className="mb-1 font-semibold text-slate-900">Automatic backups</h3>
           <p className="mb-3 text-sm text-slate-500">
             Run a full database backup on a schedule, keeping the newest few.
@@ -156,7 +156,7 @@ export function BackupsClient({
           </div>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
+        <div id="destinations" className="scroll-mt-6 rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
           <h3 className="mb-1 font-semibold text-slate-900">Destinations</h3>
           <p className="mb-3 text-sm text-slate-500">
             Backups are written locally and mirrored to any off-site destination configured below.
@@ -179,7 +179,7 @@ export function BackupsClient({
       </div>
 
       {/* Backups list */}
-      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
+      <div id="backups" className="scroll-mt-6 rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <div className="mb-3 flex items-center justify-between">
           <h3 className="font-semibold text-slate-900">Backups ({backups.length})</h3>
           <button

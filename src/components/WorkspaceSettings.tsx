@@ -138,7 +138,7 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
   return (
     <div className="space-y-6">
       {/* Branding */}
-      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
+      <div id="branding" className="scroll-mt-6 rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <h3 className="mb-3 font-semibold text-slate-900">Branding</h3>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Company name">
@@ -280,7 +280,7 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
       </div>
 
       {/* Localization */}
-      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
+      <div id="date-time" className="scroll-mt-6 rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <h3 className="mb-3 font-semibold text-slate-900">Date &amp; time</h3>
         <div className="grid gap-4 sm:grid-cols-3">
           <div className="sm:col-span-1">
@@ -323,7 +323,7 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
       </div>
 
       {/* Trash retention */}
-      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
+      <div id="trash" className="scroll-mt-6 rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <h3 className="mb-1 font-semibold text-slate-900">Trash retention</h3>
         <p className="mb-3 text-sm text-slate-500">
           Days to keep deleted documents in the Trash before they&rsquo;re permanently
@@ -351,7 +351,7 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
       </div>
 
       {/* Attachments */}
-      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
+      <div id="attachments" className="scroll-mt-6 rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <h3 className="mb-1 font-semibold text-slate-900">Attachments</h3>
         <p className="mb-3 text-sm text-slate-500">
           Maximum size for a single file attached to a document.
@@ -391,7 +391,7 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
       </div>
 
       {/* Document organization */}
-      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
+      <div id="organization" className="scroll-mt-6 rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <h3 className="mb-1 font-semibold text-slate-900">Document organization</h3>
         <p className="mb-3 text-sm text-slate-500">
           Optional structure features, off by default. Turning them off later
@@ -421,7 +421,7 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
       </div>
 
       {/* Comments */}
-      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
+      <div id="comments" className="scroll-mt-6 rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <h3 className="mb-1 font-semibold text-slate-900">Comments</h3>
         <p className="mb-3 text-sm text-slate-500">
           Discussion threads under every document, with @mentions that notify
@@ -449,7 +449,7 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
       </div>
 
       {/* Outlook add-in */}
-      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
+      <div id="outlook" className="scroll-mt-6 rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <h3 className="mb-1 font-semibold text-slate-900">Outlook add-in</h3>
         <p className="mb-3 text-sm text-slate-500">
           Give your team CompassDocs in the Outlook ribbon: search, AI answers,
@@ -480,7 +480,7 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
       </div>
 
       {/* Security */}
-      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
+      <div id="session" className="scroll-mt-6 rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <h3 className="mb-1 font-semibold text-slate-900">Session timeout</h3>
         <p className="mb-3 text-sm text-slate-500">
           Signed-in users are logged out after this many minutes of inactivity.

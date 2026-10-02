@@ -4,13 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import { Spinner } from "@/components/Spinner";
 import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
-import { PageHeader } from "@/components/PageHeader";
 import {
   AtSign,
   BellRing,
   Braces,
   FileText,
-  Mail,
   RotateCcw,
   ShieldCheck,
   Siren,
@@ -143,24 +141,13 @@ export function EmailTemplatesPanel({ initial }: { initial: Template[] }) {
 
   return (
     <div className="space-y-4">
-      {/* This page sits under the Notifications section but is its own
-          route, so it carries the page-title h1 itself (the console layout
-          renders only an eyebrow). */}
-      <PageHeader
-        icon={<Mail />}
-        title="Email templates"
-        subtitle={
-          <>
-            Every alert email CompassDocs sends, editable. Dynamic tags like{" "}
-            <code className="rounded-sm bg-slate-100 px-1 py-0.5 text-xs">{"{{doc_title}}"}</code> are
-            replaced with the real value when each email goes out — use the{" "}
-            <span className="font-medium">Insert tag</span> menu in the editor toolbar. Newsletters
-            have their own editor under Settings → Newsletter.
-          </>
-        }
-        back={{ href: "/admin/notifications", label: "Notifications" }}
-        className=""
-      />
+      <p className="text-sm text-slate-500">
+        Every alert email CompassDocs sends, editable. Dynamic tags like{" "}
+        <code className="rounded-sm bg-slate-100 px-1 py-0.5 text-xs">{"{{doc_title}}"}</code> are
+        replaced with the real value when each email goes out — use the{" "}
+        <span className="font-medium">Insert tag</span> menu in the editor toolbar. Newsletters
+        have their own editor under Settings → Newsletter.
+      </p>
 
       <div className="space-y-3">
         {templates.map((t) => {

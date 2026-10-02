@@ -55,7 +55,7 @@ export function ScimPanel({ initial }: { initial: ScimStatus }) {
   }
 
   return (
-    <section className="mt-6 rounded-xl border border-slate-200 bg-surface p-5 shadow-xs">
+    <section id="scim" className="mt-6 scroll-mt-6 rounded-xl border border-slate-200 bg-surface p-5 shadow-xs">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="flex items-center gap-1.5 text-base font-semibold text-slate-900">
