@@ -4,6 +4,33 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.9.0] - 2026-10-02
+
+Documents, part one: the editor wraps where the page wraps, the table of
+contents moves into the rail, and publishing is a button.
+
+### Added
+- **Publishing is an explicit action with a visible status.** The editor
+  shows the saved state as a chip beside the title ("Draft", "Published",
+  "Not saved yet") and offers the actions that state and your rights
+  allow: Save draft and Publish on a draft; Save changes and Unpublish
+  (which asks first) on a published document; Submit for review when you
+  cannot publish directly. The Status select is gone, the scheduling
+  fields follow the real status, and Ctrl+S keeps the document as it is.
+- **The table of contents lives in the rail** at Wide and Full — "On this
+  page", capped at half the viewport with its own scroll — and stays a
+  collapsible card above the body at Normal and on narrow screens. Both
+  mark the heading you are reading as you scroll, and a link to a heading
+  lands on it when the page opens.
+
+### Changed
+- **The editor shares the reader's measure.** Rich text and the Preview tab
+  wrap running text at the same Normal / Wide / Full measure as the
+  document page, so the editor looks like what it produces instead of
+  running 230-character lines across a Full column; tables, code, callouts,
+  accordions, tabs and embeds keep the full width, and the newsletter and
+  template editors are unchanged.
+
 ## [1.8.2] - 2026-10-02
 
 The admin console, part three: a way to the fix, a picker instead of a
