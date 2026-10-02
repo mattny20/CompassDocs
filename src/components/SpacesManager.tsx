@@ -8,6 +8,7 @@ import { Lock, Globe, Building2, PencilRuler, ChevronUp, ChevronDown, Pencil, Pl
 import { EntityPicker } from "@/components/EntityPicker";
 import { Field, SectionEmpty, Select, TextInput, Toggle } from "@/components/form";
 import { toast } from "@/components/Toasts";
+import { confirmDialog, promptDialog } from "@/components/Dialog";
 import { SpaceIconPicker } from "./SpaceIconPicker";
 import type { Space } from "@/lib/types";
 
@@ -79,7 +80,17 @@ export function SpacesManager({
   }
 
   async function remove(space: SpaceRow) {
-    if (!confirm(`Delete the space “${space.name}”? This can't be undone.`)) return;
+    if (
+      !(await confirmDialog({
+        title: `Delete the space "${space.name}"?`,
+        body: "Its documents move to the Trash. This can't be undone.",
+        confirmLabel: "Delete space",
+        danger: true,
+        // Only make them type the name when there is something to lose.
+        typeToConfirm: space.doc_count > 0 ? space.name : undefined,
+      }))
+    )
+      return;
     const res = await fetch(`/api/admin/spaces/${space.id}`, { method: "DELETE" });
     if (!res.ok) {
       toast("error", (await res.json().catch(() => ({}))).error || "Could not delete the space.");
@@ -299,11 +310,14 @@ function SpaceForm({
       return;
     }
     if (visibility === "public" && space?.visibility !== "public") {
-      const ok = confirm(
-        "Make this space PUBLIC? Its published documents will be readable by anyone " +
-          "on the internet, without signing in (once the public site is enabled in " +
-          "Settings \u2192 Public site)."
-      );
+      const ok = await confirmDialog({
+        title: "Make this space public?",
+        body:
+          "Its published documents will be readable by anyone on the internet, without " +
+          "signing in, once the public site is enabled in Settings \u2192 Public site.",
+        confirmLabel: "Make public",
+        typeToConfirm: "PUBLIC",
+      });
       if (!ok) return;
     }
     setSaving(true);
@@ -698,7 +712,14 @@ function CategoryEditor({ spaceId, initial }: { spaceId: number; initial: Catego
   }
 
   async function rename(c: CategoryOption) {
-    const next = prompt("Rename category", c.name)?.trim();
+    const next = (
+      await promptDialog({
+        title: "Rename category",
+        label: "Category name",
+        initial: c.name,
+        confirmLabel: "Rename",
+      })
+    )?.trim();
     if (!next || next === c.name) return;
     await fetch(`/api/admin/spaces/${spaceId}/categories/${c.id}`, {
       method: "PATCH",
@@ -731,7 +752,15 @@ function CategoryEditor({ spaceId, initial }: { spaceId: number; initial: Catego
   }
 
   async function remove(c: CategoryOption) {
-    if (!confirm(`Delete the "${c.name}" category? Its documents move to General.`)) return;
+    if (
+      !(await confirmDialog({
+        title: `Delete the "${c.name}" category?`,
+        body: "Its documents move to General.",
+        confirmLabel: "Delete",
+        danger: true,
+      }))
+    )
+      return;
     await fetch(`/api/admin/spaces/${spaceId}/categories/${c.id}`, { method: "DELETE" });
     toast("ok", "Category deleted.");
     await reload();

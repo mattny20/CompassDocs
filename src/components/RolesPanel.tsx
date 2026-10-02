@@ -15,6 +15,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { buttonClass } from "@/components/Button";
+import { confirmDialog } from "@/components/Dialog";
 import {
   AlertTriangle,
   Check,
@@ -352,7 +353,15 @@ function RolesTab({
 
   async function remove() {
     if (!detail) return;
-    if (!confirm(`Delete "${detail.name}"? Everyone holding it loses those permissions.`)) return;
+    if (
+      !(await confirmDialog({
+        title: `Delete "${detail.name}"?`,
+        body: "Everyone holding it loses those permissions.",
+        confirmLabel: "Delete",
+        danger: true,
+      }))
+    )
+      return;
     setBusy(true);
     try {
       const res = await fetch(`/api/admin/rbac/roles/${detail.id}`, { method: "DELETE" });

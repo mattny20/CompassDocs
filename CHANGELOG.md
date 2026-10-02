@@ -4,6 +4,41 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.7.1] - 2026-10-02
+
+Forms, part two: a Save row that knows what you did, and dialogs that
+belong to the product.
+
+### Added
+- **Save knows whether there is anything to save.** Every settings page
+  with a Save button (Workspace, AI, Domain, Backups, Single sign-on,
+  SAML, Microsoft sync, directory offices, schedule and export presets)
+  shares one row: disabled while nothing changed, "Unsaved changes" with
+  a Ctrl/⌘+S hint while something has, "Saved" for a moment after, and
+  pinned to the bottom of the screen only while there is work to save.
+  Leaving the page with unsaved changes asks first — the guard the editor
+  already had, now shared with it. The editor shows the same state text.
+- **Dialogs that match the product.** Confirmations and small prompts no
+  longer use the browser's own boxes, which ignore the theme, sit outside
+  the overlay order and are suppressed in some kiosk profiles. The new
+  dialogs are themed, focus-trapped, close on Escape through the shared
+  overlay stack, hand focus back, and say what the button does ("Delete
+  user", not "OK"). Destructive ones start on Cancel. Temporary passwords
+  are typed into a masked field with a length check; renames and template
+  names validate before they are sent; "extend due dates" takes a bounded
+  number.
+- **Type to confirm** for the actions that cannot be undone: restoring a
+  database backup (RESTORE), making a space public (PUBLIC), and deleting
+  a space that still holds documents (its name). The two chained restore
+  confirmations are one dialog.
+- Changing someone's role from the users table asks first, and warns when
+  you are about to remove your own admin access.
+
+### Changed
+- 59 native confirmations across 42 files are the themed dialog. The
+  editor's leave prompt stays the browser's own on purpose: it must work
+  while any other dialog is open.
+
 ## [1.7.0] - 2026-10-02
 
 Forms, part one: fields that assistive tech understands, one input recipe,

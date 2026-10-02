@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { buttonClass } from "@/components/Button";
+import { confirmDialog } from "@/components/Dialog";
 import { CopyButton } from "@/components/CopyButton";
 import { controlClass } from "@/components/form";
 import { useRouter } from "next/navigation";
@@ -106,7 +107,7 @@ export function Attachments({
   }
 
   async function removeLink(l: DmsLinkItem) {
-    if (!confirm(`Remove link "${l.title}"?`)) return;
+    if (!(await confirmDialog({ title: `Remove link "${l.title}"?`, confirmLabel: "Remove", danger: true }))) return;
     const res = await fetch(`/api/documents/${documentId}/dms-links/${l.id}`, {
       method: "DELETE",
     });
@@ -133,7 +134,7 @@ export function Attachments({
   }
 
   async function remove(a: Att) {
-    if (!confirm(`Delete attachment "${a.filename}"?`)) return;
+    if (!(await confirmDialog({ title: `Delete attachment "${a.filename}"?`, confirmLabel: "Delete", danger: true }))) return;
     const res = await fetch(`/api/attachments/${a.id}`, { method: "DELETE" });
     if (res.ok) router.refresh();
   }

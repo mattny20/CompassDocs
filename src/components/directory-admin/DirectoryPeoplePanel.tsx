@@ -6,6 +6,7 @@
 
 import { useMemo, useState } from "react";
 import { buttonClass } from "@/components/Button";
+import { confirmDialog } from "@/components/Dialog";
 import { useRouter } from "next/navigation";
 import { Pin, PinOff, ArrowUp, ArrowDown, Camera, Trash2, Pencil, Eye, EyeOff } from "lucide-react";
 import { EntityPicker } from "@/components/EntityPicker";
@@ -155,7 +156,7 @@ export function DirectoryPeoplePanel({
     await onChange();
   }
   async function remove(p: DirectoryPerson) {
-    if (!confirm(`Remove ${p.name} from the directory?`)) return;
+    if (!(await confirmDialog({ title: `Remove ${p.name} from the directory?`, confirmLabel: "Remove", danger: true }))) return;
     await jsonFetch(`/api/admin/directory/people/${p.id}`, { method: "DELETE" });
     await onChange();
   }

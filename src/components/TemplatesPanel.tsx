@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Spinner } from "@/components/Spinner";
 import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
+import { confirmDialog } from "@/components/Dialog";
 import { useRouter } from "next/navigation";
 import {
   Braces,
@@ -226,7 +227,7 @@ function TemplateForm({
 
   async function reset() {
     if (!template?.builtin_key) return;
-    if (!confirm("Restore this built-in template to its shipped content?")) return;
+    if (!(await confirmDialog({ title: "Restore this built-in template to its shipped content?", confirmLabel: "Restore" }))) return;
     setBusy(true);
     const res = await fetch(`/api/admin/templates/${template.id}`, {
       method: "PATCH",
@@ -244,7 +245,15 @@ function TemplateForm({
 
   async function remove() {
     if (!template || template.builtin_key) return;
-    if (!confirm(`Delete the "${template.name}" template? This can't be undone.`)) return;
+    if (
+      !(await confirmDialog({
+        title: `Delete the "${template.name}" template?`,
+        body: "This can't be undone.",
+        confirmLabel: "Delete",
+        danger: true,
+      }))
+    )
+      return;
     setBusy(true);
     const res = await fetch(`/api/admin/templates/${template.id}`, { method: "DELETE" });
     setBusy(false);

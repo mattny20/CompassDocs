@@ -7,6 +7,7 @@ import { getAppSettings } from "@/lib/settings-store";
 import { settingsForUser } from "@/lib/format";
 import { countOpenSuggestions, countPendingChangeRequests, countTrashed } from "@/lib/db";
 import { ToastHost } from "@/components/Toasts";
+import { DialogHost } from "@/components/Dialog";
 import { UiScaleSync } from "@/components/UiScale";
 import { CommandPalette } from "@/components/palette/CommandPalette";
 import { navCapabilities } from "@/lib/nav-capabilities";
@@ -52,7 +53,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <main id="main" tabIndex={-1} className="flex-1 overflow-y-auto outline-none print:overflow-visible">
         <SettingsProvider value={settings}>
         <WidthProvider initial={user.page_width}>{children}
-        <ToastHost /></WidthProvider>
+        <ToastHost />
+        <DialogHost /></WidthProvider>
         </SettingsProvider>
       </main>
       <CommandPalette

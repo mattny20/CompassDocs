@@ -17,6 +17,7 @@ import {
 import { PrintButton } from "./PrintButton";
 import { Popover } from "./Popover";
 import { toast } from "./Toasts";
+import { confirmDialog, promptDialog } from "./Dialog";
 
 export function DocActions({
   id,
@@ -102,7 +103,12 @@ export function DocActions({
   }
 
   async function onSaveAsTemplate() {
-    const name = prompt("Template name — writers will see it in the template picker:");
+    const name = await promptDialog({
+      title: "Save as a template",
+      body: "Writers will see it in the template picker.",
+      label: "Template name",
+      confirmLabel: "Save template",
+    });
     if (!name?.trim()) return;
     setTemplating(true);
     const res = await fetch("/api/admin/templates", {
@@ -117,7 +123,15 @@ export function DocActions({
   }
 
   async function onDelete() {
-    if (!confirm("Move this document to the Trash? You can restore it later.")) return;
+    if (
+      !(await confirmDialog({
+        title: "Move this document to the Trash?",
+        body: "You can restore it from Settings → Trash.",
+        confirmLabel: "Move to Trash",
+        danger: true,
+      }))
+    )
+      return;
     setDeleting(true);
     const res = await fetch(`/api/documents/${id}`, { method: "DELETE" });
     if (res.ok) {

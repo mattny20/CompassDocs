@@ -9,6 +9,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { buttonClass } from "@/components/Button";
+import { confirmDialog } from "@/components/Dialog";
 import { controlClass } from "@/components/form";
 import { MessageSquare, Trash2 } from "lucide-react";
 import { timeAgo } from "@/lib/ui";
@@ -169,7 +170,7 @@ export function DocComments({
   }
 
   async function remove(id: number) {
-    if (!window.confirm("Remove this comment?")) return;
+    if (!(await confirmDialog({ title: "Remove this comment?", confirmLabel: "Remove", danger: true }))) return;
     const res = await fetch(`/api/comments/${id}`, { method: "DELETE" });
     if (res.ok) await load();
   }

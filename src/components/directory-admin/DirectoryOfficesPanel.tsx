@@ -6,6 +6,9 @@
 // people actually carry, and an admin can add one nobody is in yet.
 
 import { useMemo, useState } from "react";
+import { SaveRow } from "@/components/SaveRow";
+import { useLeaveGuard } from "@/lib/use-unsaved";
+import { confirmDialog } from "@/components/Dialog";
 import { buttonClass } from "@/components/Button";
 import { ArrowDown, ArrowUp, Building2, Plus, Trash2, X } from "lucide-react";
 import type { FieldOption } from "@/lib/directory-display";
@@ -42,6 +45,7 @@ export function DirectoryOfficesPanel({
   const [config, setConfig] = useState<OfficeConfig>(initial);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
+  useLeaveGuard(dirty, () => dirty);
   const [newOffice, setNewOffice] = useState("");
   const [newField, setNewField] = useState("");
 
@@ -91,8 +95,8 @@ export function DirectoryOfficesPanel({
     });
     setDirty(true);
   }
-  function clearProfile(office: string) {
-    if (!confirm(`Clear everything entered for ${office}?`)) return;
+  async function clearProfile(office: string) {
+    if (!(await confirmDialog({ title: `Clear everything entered for ${office}?`, confirmLabel: "Clear", danger: true }))) return;
     setConfig((c) => ({ ...c, profiles: c.profiles.filter((p) => p.office.toLowerCase() !== office.toLowerCase()) }));
     setDirty(true);
   }
@@ -125,10 +129,19 @@ export function DirectoryOfficesPanel({
     [next[i], next[j]] = [next[j], next[i]];
     setFields(next);
   }
-  function removeField(i: number) {
+  async function removeField(i: number) {
     const f = config.fields[i];
     const filled = config.profiles.filter((p) => (p.values[f.key] ?? "").trim()).length;
-    if (filled && !confirm(`Remove “${f.label}”? ${filled} office${filled === 1 ? " has" : "s have"} a value for it.`)) return;
+    if (
+      filled &&
+      !(await confirmDialog({
+        title: `Remove “${f.label}”?`,
+        body: `${filled} office${filled === 1 ? " has" : "s have"} a value for it.`,
+        confirmLabel: "Remove",
+        danger: true,
+      }))
+    )
+      return;
     setFields(config.fields.filter((_, j) => j !== i));
   }
   function addField() {
@@ -315,12 +328,7 @@ export function DirectoryOfficesPanel({
         </form>
       </div>
 
-      <div className="flex items-center gap-3">
-        <button type="button" onClick={save} disabled={saving || !dirty} className={buttonClass("primary")}>
-          {saving ? "Saving…" : "Save offices"}
-        </button>
-        {dirty ? <span className="text-xs ink-warn">Unsaved changes</span> : <span className="text-xs text-slate-500">Saved</span>}
-      </div>
+      <SaveRow dirty={dirty} busy={saving} onSave={save} label="Save offices" />
     </div>
   );
 }

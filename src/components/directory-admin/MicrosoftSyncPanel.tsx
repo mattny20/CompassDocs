@@ -5,6 +5,9 @@
 // settings, alongside the Google panel.
 
 import { useState } from "react";
+import { SaveRow } from "@/components/SaveRow";
+import { useLeaveGuard, useUnsavedChanges } from "@/lib/use-unsaved";
+import { confirmDialog } from "@/components/Dialog";
 import { EnterpriseBadge } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
@@ -41,9 +44,14 @@ interface GraphState {
 export function MicrosoftSyncPanel({ graph, report }: { graph: GraphState; report: SyncReport | null }) {
   const router = useRouter();
   const fmt = useFormatDate();
-  const [g, setG] = useState(graph);
-  const [secret, setSecret] = useState("");
+  const [g, setGRaw] = useState(graph);
+  const [secret, setSecretRaw] = useState("");
   const [saving, setSaving] = useState(false);
+
+  const { dirty, markDirty, markClean, hasUnsavedChanges } = useUnsavedChanges(JSON.stringify([g, secret]));
+  useLeaveGuard(dirty, hasUnsavedChanges);
+  const setG = (v: GraphState) => { markDirty(); setGRaw(v); };
+  const setSecret = (v: string) => { markDirty(); setSecretRaw(v); };
   const [syncing, setSyncing] = useState(false);
   const [preview, setPreview] = useState<{ data: SyncPreviewData; blocked?: { doomed: number; total: number; message?: string } | null; dryRun: boolean } | null>(null);
   const [previewing, setPreviewing] = useState(false);
@@ -117,8 +125,9 @@ export function MicrosoftSyncPanel({ graph, report }: { graph: GraphState; repor
       toast("error", data?.error || "Could not save.");
       return;
     }
-    if (data?.state) setG(data.state);
-    setSecret("");
+    markClean();
+    if (data?.state) setGRaw(data.state);
+    setSecretRaw("");
     toast("ok", "Microsoft 365 sync settings saved.");
   }
 
@@ -140,7 +149,7 @@ export function MicrosoftSyncPanel({ graph, report }: { graph: GraphState; repor
     else toast("ok", `Synced ${data?.count ?? "?"} people from Microsoft 365.`);
     if (data?.preview) setPreview({ data: data.preview, blocked: data.blocked ?? null, dryRun: false });
     const fresh = await fetch("/api/admin/directory/graph");
-    if (fresh.ok) setG(await fresh.json());
+    if (fresh.ok) setGRaw(await fresh.json());
     router.refresh();
   }
 
@@ -148,10 +157,12 @@ export function MicrosoftSyncPanel({ graph, report }: { graph: GraphState; repor
     const b = g.last_sync?.blocked;
     if (!b) return;
     if (
-      !confirm(
-        `Remove ${b.doomed} people who are no longer in the tenant? They will be deleted ` +
-          `from the directory. Manual entries are not affected.`
-      )
+      !(await confirmDialog({
+        title: `Remove ${b.doomed} people who are no longer in the tenant?`,
+        body: "They will be deleted from the directory. Manual entries are not affected.",
+        confirmLabel: `Remove ${b.doomed}`,
+        danger: true,
+      }))
     )
       return;
     await syncNow(true);
@@ -175,8 +186,9 @@ export function MicrosoftSyncPanel({ graph, report }: { graph: GraphState; repor
         blurb="Signs you in once as a tenant admin, creates the app registration with User.Read.All + GroupMember.Read.All, grants admin consent, and fills in the details below."
         doneMessage="Done — the Entra app was created, consented, and the settings below were filled in. Hit “Sync now” to run the first sync."
         onDone={(state) => {
-          setG(state);
-          setSecret("");
+          markClean();
+          setGRaw(state);
+          setSecretRaw("");
         }}
       />
 
@@ -229,17 +241,14 @@ export function MicrosoftSyncPanel({ graph, report }: { graph: GraphState; repor
         />
       </div>
 
-      <div className="mt-4 flex items-center gap-3">
-        <button onClick={save} disabled={saving} className={buttonClass("primary")}>
-          {saving ? "Saving…" : "Save"}
-        </button>
+      <SaveRow dirty={dirty} busy={saving} onSave={save} label="Save" className="mt-4">
         <button onClick={() => syncNow()} disabled={syncing || !g.tenant || !g.client_id || !(g.has_secret || secret)} className={buttonClass("secondary")} data-tt={!g.tenant || !g.client_id ? "Save the tenant, client ID, and secret first" : ""} aria-label={!g.tenant || !g.client_id ? "Save the tenant, client ID, and secret first" : ""}>
           {syncing ? "Syncing…" : "Sync now"}
         </button>
         <button onClick={previewSync} disabled={previewing || syncing || !g.tenant || !g.client_id || !(g.has_secret || secret)} className={buttonClass("secondary")} data-tt="Fetch from the tenant and show what a sync would add, change and remove — without writing anything">
           {previewing ? "Previewing…" : "Preview"}
         </button>
-      </div>
+      </SaveRow>
       {preview && <SyncPreview preview={preview.data} blocked={preview.blocked} dryRun={preview.dryRun} />}
 
       {g.last_sync?.blocked && (

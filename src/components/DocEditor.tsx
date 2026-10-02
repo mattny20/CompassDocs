@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { UnsavedHint } from "@/components/SaveRow";
+import { useLeaveGuard, useUnsavedChanges } from "@/lib/use-unsaved";
 import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
@@ -179,24 +181,6 @@ export function DocEditor({
   const mdRef = useRef<HTMLTextAreaElement>(null);
 
   // ── Unsaved work ─────────────────────────────────────────────────────────
-  // Two conditions must BOTH hold before this editor warns anyone, because a
-  // false "you have unsaved changes" prompt is a worse bug than the one this
-  // fixes:
-  //   1. `touched` — a real user-input handler ran. Nothing that happens while
-  //      the editor mounts goes through one: loading the document, the
-  //      parent-page lookup resolving and clearing a stale parent, tiptap
-  //      re-normalising the markdown it was handed. Those all reach state by
-  //      other routes, so they can never set this.
-  //   2. the field snapshot still differs from the last clean snapshot — so a
-  //      no-op change event, or an edit the user typed and then undid, is
-  //      clean again.
-  // While still untouched the baseline *follows* the current values, so any
-  // programmatic settling during mount re-baselines instead of dirtying.
-  const [touched, setTouched] = useState(false);
-  const touchedRef = useRef(false);
-  const baselineRef = useRef("");
-  const currentRef = useRef("");
-
   /** Every field a writer can change, serialised. */
   const snapshot = JSON.stringify([
     spaceId,
@@ -212,84 +196,18 @@ export function DocEditor({
     parentId,
     changeNote,
   ]);
-
-  useEffect(() => {
-    currentRef.current = snapshot;
-    if (!touchedRef.current) baselineRef.current = snapshot;
-  }, [snapshot]);
-
-  /** Called from user-input handlers only — never from a mount/lookup effect. */
-  function markDirty() {
-    if (touchedRef.current) return;
-    touchedRef.current = true;
-    setTouched(true);
-  }
-
-  /** Back to "nothing unsaved". `at` is the snapshot that was persisted. */
-  function markClean(at: string) {
-    touchedRef.current = false;
-    baselineRef.current = at;
-    setTouched(false);
-  }
-
+  // Shared with every settings page (lib/use-unsaved): the touched gate, the
+  // beforeunload guard and the in-app link guard. The leave prompt is the
+  // browser's own on purpose; editor-safety.spec listens for it.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const { dirty, markDirty, markClean, hasUnsavedChanges } = useUnsavedChanges(snapshot);
   const LEAVE_PROMPT = "You have unsaved changes. Discard them and leave the editor?";
-
-  /** True only when the user changed something AND it still differs. */
-  function hasUnsavedChanges() {
-    return touchedRef.current && currentRef.current !== baselineRef.current;
-  }
-
-  // Browser-level guard: reload, tab close, or a full navigation away. Only
-  // registered while the editor is actually dirty.
-  useEffect(() => {
-    if (!touched) return;
-    function onBeforeUnload(e: BeforeUnloadEvent) {
-      if (!touchedRef.current || currentRef.current === baselineRef.current) return;
-      e.preventDefault();
-      // Legacy browsers need returnValue set; the string itself is never shown.
-      e.returnValue = "";
-    }
-    window.addEventListener("beforeunload", onBeforeUnload);
-    return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [touched]);
-
-  // In-app navigation guard. beforeunload covers reloads and tab closes, but
-  // the way people actually lose work here is clicking the sidebar — a
-  // client-side route change the browser never hears about, and the App
-  // Router exposes no hook for. So we catch the click that causes it.
-  //
-  // Deliberately narrow: only a plain left-click on an in-app link outside
-  // the editor, and only while genuinely dirty. Anything that isn't going to
-  // replace this page — new-tab clicks, downloads, hash links, other origins,
-  // links inside the editor itself — is left completely alone.
-  useEffect(() => {
-    if (!touched) return;
-    function onClickCapture(e: MouseEvent) {
-      if (e.defaultPrevented || e.button !== 0) return;
-      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return; // new tab/window
-      const target = e.target as HTMLElement | null;
-      const link = target?.closest?.("a");
-      if (!link) return;
-      if (link.target === "_blank" || link.hasAttribute("download")) return;
-      const href = link.getAttribute("href");
-      if (!href || href.startsWith("#")) return;
-      if (new URL(link.href, window.location.href).origin !== window.location.origin) return;
-      // Links the writer is editing, not navigating.
-      if (rootRef.current?.contains(link)) return;
-      if (!hasUnsavedChanges()) return;
-      if (window.confirm(LEAVE_PROMPT)) return;
-      e.preventDefault();
-      e.stopPropagation();
-    }
-    document.addEventListener("click", onClickCapture, true);
-    return () => document.removeEventListener("click", onClickCapture, true);
-  }, [touched]);
+  useLeaveGuard(dirty, hasUnsavedChanges, { message: LEAVE_PROMPT, ignoreWithin: rootRef });
 
   // The Cancel/Save row is sticky, and so is the formatting toolbar inside the
   // editor card. Publish the row's measured height so the toolbar can pin
   // directly *below* it instead of underneath it (RichTextEditor reads
   // --rte-sticky-top, defaulting to 0 for its other hosts).
-  const rootRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
   const [headerH, setHeaderH] = useState(0);
   useEffect(() => {
@@ -624,6 +542,7 @@ export function DocEditor({
           {mode === "create" ? "New document" : "Edit document"}
         </h1>
         <div className="flex flex-wrap items-center gap-2">
+          <UnsavedHint dirty={dirty} className="mr-1 hidden sm:inline-flex" />
           <Link
             href={mode === "edit" && initial.id ? `/doc/${initial.id}` : "/"}
             onClick={(e) => {

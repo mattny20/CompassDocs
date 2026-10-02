@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { buttonClass } from "@/components/Button";
+import { confirmDialog } from "@/components/Dialog";
 import { useRouter } from "next/navigation";
 import { BackLink } from "@/components/BackLink";
 import {
@@ -270,7 +271,15 @@ export function NewsletterWorkspace({
         mode === "all"
           ? "every active user"
           : `members of ${groupIds.length} group${groupIds.length === 1 ? "" : "s"}`;
-      if (!confirm(`Send this newsletter to ${who}? This can't be undone.`)) return;
+      if (
+        !(await confirmDialog({
+          title: `Send this newsletter to ${who}?`,
+          body: "This can't be undone.",
+          confirmLabel: "Send",
+          danger: true,
+        }))
+      )
+        return;
     }
     const data = await call(
       `/api/newsletter/${n.id}/send`,
@@ -292,7 +301,15 @@ export function NewsletterWorkspace({
   }
 
   async function remove() {
-    if (!confirm("Delete this newsletter? This can't be undone.")) return;
+    if (
+      !(await confirmDialog({
+        title: "Delete this newsletter?",
+        body: "This can't be undone.",
+        confirmLabel: "Delete",
+        danger: true,
+      }))
+    )
+      return;
     const data = await call(`/api/newsletter/${n.id}`, { method: "DELETE" }, "delete");
     if (!data) return;
     router.push("/newsletter");

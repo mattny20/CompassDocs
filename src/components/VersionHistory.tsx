@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Spinner } from "@/components/Spinner";
 import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
+import { confirmDialog } from "@/components/Dialog";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -164,10 +165,10 @@ export function VersionHistory({
 
   async function restore(v: VersionItem) {
     const applies = docStatus !== "published" || canPublishDirect;
-    const q = applies
-      ? `Restore version ${v.rev}? The current content stays in the history — this adds a new version with the older text.`
-      : `Restore version ${v.rev}? Your restore will be submitted to the review queue.`;
-    if (!confirm(q)) return;
+    const body = applies
+      ? "The current content stays in the history — this adds a new version with the older text."
+      : "Your restore will be submitted to the review queue.";
+    if (!(await confirmDialog({ title: `Restore version ${v.rev}?`, body, confirmLabel: "Restore" }))) return;
     setRestoring(v.id);
     setError("");
     setNotice("");

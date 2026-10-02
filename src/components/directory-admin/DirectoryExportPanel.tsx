@@ -5,6 +5,9 @@
 // user sees before they change anything for themselves.
 
 import { useMemo, useState } from "react";
+import { SaveRow } from "@/components/SaveRow";
+import { useLeaveGuard } from "@/lib/use-unsaved";
+import { confirmDialog } from "@/components/Dialog";
 import { buttonClass } from "@/components/Button";
 import { Download, Copy, Plus, Trash2 } from "lucide-react";
 import type { DirectoryField } from "@/lib/directory";
@@ -96,6 +99,7 @@ export function DirectoryExportPanel({
   const [selected, setSelected] = useState(0);
   const [savingPresets, setSavingPresets] = useState(false);
   const [dirty, setDirty] = useState(false);
+  useLeaveGuard(dirty, () => dirty);
   const cur = presets[selected];
 
   function update(patch: Partial<ExportPreset>) {
@@ -114,9 +118,9 @@ export function DirectoryExportPanel({
     setSelected(presets.length);
     setDirty(true);
   }
-  function removePreset() {
+  async function removePreset() {
     if (presets.length <= 1) return;
-    if (!confirm(`Delete the "${cur.name}" preset?`)) return;
+    if (!(await confirmDialog({ title: `Delete the "${cur.name}" preset?`, confirmLabel: "Delete", danger: true }))) return;
     const next = presets.filter((_, i) => i !== selected);
     if (!next.some((p) => p.is_default)) next[0] = { ...next[0], is_default: true };
     setPresets(next);
@@ -401,12 +405,7 @@ export function DirectoryExportPanel({
             </Field>
           </div>
         </div>
-        <div className="mt-4 flex items-center gap-3">
-          <button type="button" onClick={savePresets} disabled={savingPresets || !dirty} className={buttonClass("primary")}>
-            {savingPresets ? "Saving…" : "Save presets"}
-          </button>
-          {dirty && <span className="text-xs ink-warn">Unsaved changes</span>}
-        </div>
+        <SaveRow dirty={dirty} busy={savingPresets} onSave={savePresets} label="Save presets" className="mt-4" />
       </div>
     </div>
   );

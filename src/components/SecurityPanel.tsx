@@ -7,6 +7,7 @@
 import { useState } from "react";
 import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
+import { confirmDialog } from "@/components/Dialog";
 import { controlClass } from "@/components/form";
 import type { SessionInfo } from "@/lib/db";
 import { useFormatDate } from "./SettingsProvider";
@@ -263,7 +264,15 @@ function Sessions({ initial }: { initial: SessionInfo[] }) {
   }
 
   async function revokeOthers() {
-    if (!confirm("Sign out everywhere else? All other devices will need to sign in again.")) return;
+    if (
+      !(await confirmDialog({
+        title: "Sign out everywhere else?",
+        body: "All other devices will need to sign in again.",
+        confirmLabel: "Sign out",
+        danger: true,
+      }))
+    )
+      return;
     setBusy(true);
     const res = await fetch("/api/account/sessions?others=1", { method: "DELETE" });
     setBusy(false);

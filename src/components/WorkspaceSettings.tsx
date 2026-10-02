@@ -17,6 +17,8 @@ import {
 import type { AppSettings } from "@/lib/settings";
 import { toast } from "@/components/Toasts";
 import { Field, TextInput, Select, Textarea, Toggle, rangeError } from "@/components/form";
+import { SaveRow } from "@/components/SaveRow";
+import { useLeaveGuard, useUnsavedChanges } from "@/lib/use-unsaved";
 import { contrastRatio, solidAccent } from "@/lib/theme";
 
 // IANA zones the runtime knows about, with a couple of common ones pinned first.
@@ -36,7 +38,12 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
   const [logoBusy, setLogoBusy] = useState(false);
   const [logoMsg, setLogoMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
+  const { dirty, markDirty, markClean, hasUnsavedChanges } = useUnsavedChanges(JSON.stringify(s));
+  useLeaveGuard(dirty, hasUnsavedChanges);
+
+  /** User edits only — the logo actions below persist on their own. */
   function set<K extends keyof AppSettings>(key: K, value: AppSettings[K]) {
+    markDirty();
     setS((prev) => ({ ...prev, [key]: value }));
   }
 
@@ -120,6 +127,7 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
       return;
     }
     const data = await res.json().catch(() => ({}));
+    markClean();
     if (data?.settings) setS(data.settings);
     toast("ok", "Workspace settings saved.");
     router.refresh();
@@ -498,15 +506,7 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
         </div>
       </div>
 
-      <div className="flex items-center gap-3">
-        <button
-          onClick={save}
-          disabled={saving}
-          className={buttonClass("primary")}
-        >
-          {saving ? "Saving…" : "Save changes"}
-        </button>
-      </div>
+      <SaveRow dirty={dirty} busy={saving} onSave={save} disabled={invalid} />
     </div>
   );
 }

@@ -8,6 +8,7 @@ import { useState } from "react";
 import { Check } from "lucide-react";
 import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
+import { confirmDialog } from "@/components/Dialog";
 import { toast } from "@/components/Toasts";
 import { Field, Select, TextInput } from "@/components/form";
 import { useFormatDate } from "./SettingsProvider";
@@ -110,7 +111,7 @@ export function WebhooksPanel({
   }
 
   async function remove(id: number) {
-    if (!confirm("Delete this webhook?")) return;
+    if (!(await confirmDialog({ title: "Delete this webhook?", confirmLabel: "Delete", danger: true }))) return;
     await fetch(`/api/admin/webhooks/${id}`, { method: "DELETE" });
     setHooks(hooks.filter((h) => h.id !== id));
   }

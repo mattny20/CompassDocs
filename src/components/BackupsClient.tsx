@@ -5,7 +5,10 @@ import { Check, Circle } from "lucide-react";
 import { buttonClass } from "@/components/Button";
 import { useRouter } from "next/navigation";
 import { toast } from "@/components/Toasts";
-import { Field, Select, TextInput } from "@/components/form";
+import { confirmDialog } from "@/components/Dialog";
+import { SaveRow } from "@/components/SaveRow";
+import { useLeaveGuard, useUnsavedChanges } from "@/lib/use-unsaved";
+import { Field, Select, TextInput, rangeError } from "@/components/form";
 import { formatDateTime } from "@/lib/format";
 import type { AppSettings, BackupFrequency } from "@/lib/settings";
 import { BACKUP_KEEP_MIN, BACKUP_KEEP_MAX } from "@/lib/settings";
@@ -41,8 +44,12 @@ export function BackupsClient({
   const [keep, setKeep] = useState(settings.backup_keep);
   const [savingSchedule, setSavingSchedule] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  const { dirty, markDirty, markClean, hasUnsavedChanges } = useUnsavedChanges(JSON.stringify([freq, keep]));
+  useLeaveGuard(dirty, hasUnsavedChanges);
+  const keepError = rangeError(keep, BACKUP_KEEP_MIN, BACKUP_KEEP_MAX);
 
   async function saveSchedule() {
+    if (keepError) return;
     setSavingSchedule(true);
     await fetch("/api/admin/settings", {
       method: "PATCH",
@@ -50,6 +57,7 @@ export function BackupsClient({
       body: JSON.stringify({ backup_frequency: freq, backup_keep: keep }),
     });
     setSavingSchedule(false);
+    markClean();
     toast("ok", "Backup schedule saved.");
     router.refresh();
   }
@@ -69,7 +77,14 @@ export function BackupsClient({
   }
 
   async function remove(b: BackupInfo) {
-    if (!confirm(`Delete backup ${b.name}? This removes it locally and from remote destinations.`))
+    if (
+      !(await confirmDialog({
+        title: `Delete backup ${b.name}?`,
+        body: "This removes it locally and from every remote destination.",
+        confirmLabel: "Delete backup",
+        danger: true,
+      }))
+    )
       return;
     setBusy(b.name);
     const res = await fetch(`/api/backups/${b.name}`, { method: "DELETE" });
@@ -84,12 +99,15 @@ export function BackupsClient({
 
   async function restore(b: BackupInfo) {
     if (
-      !confirm(
-        `Restore from ${b.name}?\n\nThis OVERWRITES the entire database — all current users, documents, and settings are replaced with the contents of this backup. This cannot be undone.`
-      )
+      !(await confirmDialog({
+        title: `Restore from ${b.name}?`,
+        body: "This overwrites the entire database: every current user, document and setting is replaced with the contents of this backup. It cannot be undone, and everyone will need to sign in again.",
+        confirmLabel: "Restore database",
+        danger: true,
+        typeToConfirm: "RESTORE",
+      }))
     )
       return;
-    if (!confirm("Are you absolutely sure? Everyone will need to sign in again.")) return;
     setBusy(b.name);
     const res = await fetch(`/api/backups/${b.name}/restore`, { method: "POST" });
     setBusy(null);
@@ -112,29 +130,29 @@ export function BackupsClient({
           </p>
           <div className="flex flex-wrap items-end gap-3">
             <Field label="Frequency">
-              <Select value={freq} onChange={(e) => setFreq(e.target.value as BackupFrequency)}>
+              <Select value={freq} onChange={(e) => {
+                  markDirty();
+                  setFreq(e.target.value as BackupFrequency);
+                }}>
                 <option value="off">Off</option>
                 <option value="daily">Daily</option>
                 <option value="weekly">Weekly</option>
               </Select>
             </Field>
-            <Field label={<>Keep ({BACKUP_KEEP_MIN}–{BACKUP_KEEP_MAX})</>}>
+            <Field label={<>Keep ({BACKUP_KEEP_MIN}–{BACKUP_KEEP_MAX})</>} error={keepError}>
               <TextInput
                 type="number"
                 min={BACKUP_KEEP_MIN}
                 max={BACKUP_KEEP_MAX}
                 value={keep}
-                onChange={(e) => setKeep(Number(e.target.value))}
+                onChange={(e) => {
+                  markDirty();
+                  setKeep(Number(e.target.value));
+                }}
                 className="max-w-24"
               />
             </Field>
-            <button
-              onClick={saveSchedule}
-              disabled={savingSchedule}
-              className={buttonClass("primary")}
-            >
-              {savingSchedule ? "Saving…" : "Save"}
-            </button>
+            <SaveRow dirty={dirty} busy={savingSchedule} onSave={saveSchedule} disabled={Boolean(keepError)} label="Save" sticky={false} />
           </div>
         </div>
 

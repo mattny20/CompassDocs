@@ -5,6 +5,8 @@
 // license nudge; licensed → the OIDC configuration form.
 
 import { useState } from "react";
+import { SaveRow } from "@/components/SaveRow";
+import { useLeaveGuard, useUnsavedChanges } from "@/lib/use-unsaved";
 import { Check } from "lucide-react";
 import { EnterpriseBadge } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
@@ -29,9 +31,15 @@ export interface SsoState {
 }
 
 export function SsoSettings({ initial }: { initial: SsoState }) {
-  const [s, setS] = useState(initial);
-  const [secret, setSecret] = useState("");
+  const [s, setSRaw] = useState(initial);
+  const [secret, setSecretRaw] = useState("");
   const [saving, setSaving] = useState(false);
+
+  const { dirty, markDirty, markClean, hasUnsavedChanges } = useUnsavedChanges(JSON.stringify([s, secret]));
+  useLeaveGuard(dirty, hasUnsavedChanges);
+  // User edits dirty the form; what the server hands back does not.
+  const setS = (v: typeof s) => { markDirty(); setSRaw(v); };
+  const setSecret = (v: string) => { markDirty(); setSecretRaw(v); };
   const [showAdvanced, setShowAdvanced] = useState(Boolean(initial.authority));
 
   const header = (
@@ -108,8 +116,9 @@ export function SsoSettings({ initial }: { initial: SsoState }) {
       toast("error", data?.error || "Could not save.");
       return;
     }
-    if (data?.state) setS(data.state);
-    setSecret("");
+    markClean();
+    if (data?.state) setSRaw(data.state);
+    setSecretRaw("");
     toast("ok", "Single sign-on settings saved.");
   }
 
@@ -140,8 +149,9 @@ export function SsoSettings({ initial }: { initial: SsoState }) {
           blurb="Signs you in once as a tenant admin and creates the app registration, secret, and settings below — nothing to copy by hand."
           doneMessage="Done — the Entra app was created and the settings below were filled in and enabled."
           onDone={(state) => {
-            setS(state);
-            setSecret("");
+            markClean();
+            setSRaw(state);
+            setSecretRaw("");
           }}
         />
 
@@ -289,23 +299,13 @@ export function SsoSettings({ initial }: { initial: SsoState }) {
           )}
         </div>
 
-        <div className="mt-4 flex items-center gap-3">
-          <button
-            onClick={save}
-            disabled={saving}
-            className={buttonClass("primary")}
-          >
-            {saving ? "Saving…" : "Save"}
-          </button>
+        <SaveRow dirty={dirty} busy={saving} onSave={save} label="Save" className="mt-4">
           {s.sso_enabled && configured && (
-            <a
-              href="/api/ee/sso/login"
-              className={buttonClass("secondary")}
-            >
+            <a href="/api/ee/sso/login" className={buttonClass("secondary")}>
               Test sign-in
             </a>
           )}
-        </div>
+        </SaveRow>
       </div>
     </div>
   );

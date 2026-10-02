@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
+import { confirmDialog } from "@/components/Dialog";
 import { useRouter } from "next/navigation";
 import { toast } from "@/components/Toasts";
 import { Field, TextInput } from "@/components/form";
@@ -120,7 +121,15 @@ function S3Card({
   });
 
   async function remove() {
-    if (!confirm("Remove the S3 destination? Backups will no longer be mirrored there.")) return;
+    if (
+      !(await confirmDialog({
+        title: "Remove the S3 destination?",
+        body: "Backups will no longer be mirrored there.",
+        confirmLabel: "Remove",
+        danger: true,
+      }))
+    )
+      return;
     await submitClear();
   }
   async function submitClear() {
@@ -212,7 +221,15 @@ function AzureCard({
   });
 
   async function remove() {
-    if (!confirm("Remove the Azure destination? Backups will no longer be mirrored there.")) return;
+    if (
+      !(await confirmDialog({
+        title: "Remove the Azure destination?",
+        body: "Backups will no longer be mirrored there.",
+        confirmLabel: "Remove",
+        danger: true,
+      }))
+    )
+      return;
     const res = await fetch("/api/admin/backup-destinations", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },

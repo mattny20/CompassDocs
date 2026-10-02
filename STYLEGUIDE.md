@@ -271,7 +271,7 @@ focus):
 - Destructive page-level actions live in a **danger zone** —
   `<DangerZone><DangerAction label description>…</DangerAction></DangerZone>`
   (red-bordered card, one per page, at the bottom). Per-row destructive
-  buttons in lists keep their strong `confirm()` instead.
+  buttons in lists ask with `confirmDialog({ danger: true })` instead.
 - **A section with several jobs gets pages, not a longer page.** When one
   settings section holds distinct tasks (the directory: people, fields,
   offices, export, sync), each task is a route under the section
@@ -339,6 +339,19 @@ One field recipe, one input recipe, one width scale. Everything lives in
 - Checkbox *lists*, radio groups and composite pickers (EntityPicker,
   SpaceIconPicker) keep their own markup; their text inputs still use the
   recipe.
+- **The Save row.** A page or card with a Save button uses `<SaveRow dirty
+  busy onSave label disabled allowPristine>` from `components/SaveRow`
+  with `useUnsavedChanges(snapshot)` and `useLeaveGuard(dirty,
+  hasUnsavedChanges)` from `lib/use-unsaved`: disabled while pristine,
+  "Unsaved changes" + a Ctrl/⌘+S hint while dirty (the shortcut saves),
+  "Saved" for a moment after, pinned to the bottom of the viewport only
+  while dirty, and a leave prompt on any in-app link or reload. Call
+  `markDirty()` from user-input handlers only — never from a mount or
+  load effect — and `markClean()` once the server has accepted the save,
+  before applying the state it returns. A row that is also a re-apply
+  (Domain "Save & apply") passes `allowPristine`. Secondary controls
+  (Test sign-in, Sync now) go in as children. Never a bare primary button
+  that never changes state.
 
 ## Wayfinding: back links and breadcrumbs
 
@@ -552,8 +565,10 @@ text-slate-500` before them ("Notary · Phoenix").
 - **Never fail silently.** Every `fetch` that can fail needs an `else` —
   `toast("error", …)` with the server's own `error` field when it sends one,
   falling back to a specific sentence ("Couldn't restore that document."),
-  never a bare "Action failed." No `alert()` in the app; `confirm()` stays
-  for per-row destructive actions (see Settings pages).
+  never a bare "Action failed." No `alert()`, `confirm()` or `prompt()` in
+  the app: a question is `confirmDialog()` / `promptDialog()` from
+  `components/Dialog` (see Overlays and modals). The one exception is the
+  leave guard in `lib/use-unsaved`, which is the browser's own on purpose.
 - `toast()` only shows where a `<ToastHost />` is mounted. One is in
   `(app)/layout.tsx` and one in `account/(settings)/layout.tsx` — a new shell
   outside those groups must mount its own or its toasts go nowhere.
@@ -606,6 +621,18 @@ per-route variants:
   overlay stack, focus back to the trigger. The trigger carries
   `aria-expanded` and `aria-haspopup`. Never hand-roll an `absolute …
   shadow-lg` panel (a guard test fails the build).
+- **Questions are dialogs**: `confirmDialog({ title, body, confirmLabel,
+  danger, typeToConfirm, secondary })` and `promptDialog({ title, label,
+  type, initial, validate, min, max })` from `components/Dialog`, one
+  `<DialogHost />` beside the ToastHost. Themed, focus-trapped, Escape
+  through the overlay stack, focus back to the trigger; the button says
+  what it does ("Delete user", never "OK"); a destructive dialog is
+  `danger` (red button, warning icon, focus starts on Cancel); an
+  irreversible one adds `typeToConfirm` (RESTORE, PUBLIC, the space's
+  name). A prompt validates inline (`validate`, or `min`/`max` for a
+  number) instead of letting the server refuse. Chained questions are one
+  dialog. Never `window.confirm` / `window.prompt` (the leave guard
+  excepted) and never a hand-rolled modal for a yes/no.
 - **Three elevation tiers**, as tokens: `shadow-card` (`shadow-xs`, a
   resting card), `shadow-float` (menus, popovers, dropdowns, toasts),
   `shadow-modal` (dialogs, the palette). Nothing else casts a shadow.

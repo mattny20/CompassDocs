@@ -5,6 +5,7 @@
 // management. Data arrives server-rendered; mutations refresh the route.
 
 import { buttonClass } from "@/components/Button";
+import { confirmDialog } from "@/components/Dialog";
 import { Spinner } from "@/components/Spinner";
 import { chipClass } from "@/components/Chip";
 import { controlClass } from "@/components/form";
@@ -377,8 +378,9 @@ export function StatusBoard({
                       the same shape VideoPlayer already uses. */}
                   {isAdmin && (
                     <button
-                      onClick={() => {
-                        if (confirm(`Stop tracking ${s.name}?`)) void api(`/api/admin/status?id=${s.id}`, undefined, "DELETE");
+                      onClick={async () => {
+                        if (await confirmDialog({ title: `Stop tracking ${s.name}?`, confirmLabel: "Stop tracking", danger: true }))
+                          void api(`/api/admin/status?id=${s.id}`, undefined, "DELETE");
                       }}
                       title="Stop tracking"
                       aria-label={`Stop tracking ${s.name}`}

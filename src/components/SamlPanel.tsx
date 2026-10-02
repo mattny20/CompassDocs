@@ -5,6 +5,8 @@
 // client secret). Shares the "sso" license entitlement with OIDC.
 
 import { useState } from "react";
+import { SaveRow } from "@/components/SaveRow";
+import { useLeaveGuard, useUnsavedChanges } from "@/lib/use-unsaved";
 import { EnterpriseBadge } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import type { Role } from "@/lib/types";
@@ -31,10 +33,14 @@ export interface SamlState {
 const urlCls = "block select-all rounded-md bg-slate-100 px-2 py-1 font-mono text-xs text-slate-700";
 
 export function SamlPanel({ initial }: { initial: SamlState }) {
-  const [s, setS] = useState<SamlState>(initial);
+  const [s, setSRaw] = useState<SamlState>(initial);
   const [metaXml, setMetaXml] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  const { dirty, markDirty, markClean, hasUnsavedChanges } = useUnsavedChanges(JSON.stringify(s));
+  useLeaveGuard(dirty, hasUnsavedChanges);
+  const setS = (v: SamlState) => { markDirty(); setSRaw(v); };
 
   const configured = Boolean(s.idp_sso_url && s.idp_issuer && s.idp_cert);
 
@@ -49,7 +55,8 @@ export function SamlPanel({ initial }: { initial: SamlState }) {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) toast("error", data?.error || "Could not save.");
       else {
-        setS(data.state as SamlState);
+        markClean();
+        setSRaw(data.state as SamlState);
         setMetaXml("");
         toast("ok", "SAML settings saved.");
       }
@@ -204,14 +211,7 @@ export function SamlPanel({ initial }: { initial: SamlState }) {
         )}
       </div>
 
-      <div className="mt-4 flex items-center gap-3 border-t border-slate-200 pt-3">
-        <button
-          onClick={saveAll}
-          disabled={saving}
-          className={buttonClass("primary")}
-        >
-          {saving ? "Saving…" : "Save"}
-        </button>
+      <SaveRow dirty={dirty} busy={saving} onSave={saveAll} label="Save" className="mt-4 border-t border-slate-200 pt-3">
         <Toggle
           label="Enabled on the login page"
           checked={s.saml_enabled}
@@ -226,7 +226,7 @@ export function SamlPanel({ initial }: { initial: SamlState }) {
             Test sign-in
           </a>
         )}
-      </div>
+      </SaveRow>
     </div>
   );
 }
