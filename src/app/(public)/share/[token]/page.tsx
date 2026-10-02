@@ -4,17 +4,14 @@
 // noindex: share links are unlisted, not published.
 
 import { notFound } from "next/navigation";
-import { chipClass } from "@/components/Chip";
 import type { Metadata } from "next";
 import { resolveShare, recordShareView } from "@/lib/shares";
 import { getAppSettings } from "@/lib/settings-store";
 import { formatDate } from "@/lib/format";
 import { listAttachments, isTrainingDeckDoc } from "@/lib/db";
-import { DOC_TYPE_LABEL } from "@/lib/types";
-import { MarkdownView } from "@/components/MarkdownView";
+import { StandaloneDoc } from "@/components/StandaloneDoc";
 import { PrintButton } from "@/components/PrintButton";
 import { Brand } from "@/components/Brand";
-import { Paperclip } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -58,51 +55,18 @@ export default async function SharedDocPage({ params }: { params: Promise<{ toke
       </header>
 
       <main className="mx-auto max-w-standalone px-6 py-10">
-        <div className="mb-4 flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900">{doc.title}</h1>
-            <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-500">
-              <span className={chipClass("neutral")}>
-                {DOC_TYPE_LABEL[doc.type]}
-              </span>
-              <span>Updated {formatDate(doc.updated_at, settings)}</span>
-            </div>
-          </div>
-          <PrintButton compact />
-        </div>
-
-        {doc.summary && <p className="mb-6 max-w-3xl text-lg leading-relaxed text-slate-600">{doc.summary}</p>}
-
-        {/* doc-read: reading measure on the document body (see globals.css). */}
-        <div className="doc-read rounded-xl border border-slate-200 bg-surface p-8 shadow-xs">
-          <MarkdownView
-            content={content}
-            docKey={`share-${doc.id}`}
-            slideBreaks={(await isTrainingDeckDoc(doc.id)) ? "hidden" : undefined}
-          />
-        </div>
-
-        {attachments.length > 0 && (
-          <div className="mt-6 rounded-xl border border-slate-200 bg-surface p-5 shadow-xs print:hidden">
-            <h2 className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-500">
-              <Paperclip className="h-3.5 w-3.5" aria-hidden /> Attachments
-            </h2>
-            <ul className="space-y-1">
-              {attachments.map((a) => (
-                <li key={a.id}>
-                  <a
-                    href={`/api/attachments/${a.id}?share=${token}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-sm font-medium text-compass-700 hover:underline"
-                  >
-                    {a.filename}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+        <StandaloneDoc
+          doc={{ ...doc, content }}
+          updatedLabel={`Updated ${formatDate(doc.updated_at, settings)}`}
+          docKey={`share-${doc.id}`}
+          slideBreaks={(await isTrainingDeckDoc(doc.id)) ? "hidden" : undefined}
+          attachments={attachments.map((a) => ({
+            id: a.id,
+            filename: a.filename,
+            href: `/api/attachments/${a.id}?share=${token}`,
+          }))}
+          trailing={<PrintButton compact />}
+        />
 
         <p className="mt-8 text-center text-xs text-slate-500 print:hidden">
           Shared from {settings.company_name} via CompassDocs.

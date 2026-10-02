@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiGuard } from "@/lib/api-auth";
 import { canSeeDrafts, spaceScopeFor } from "@/lib/access";
-import { listRecentlyViewedBy } from "@/lib/db";
+import { listRecentlyViewedBy, listLinksVisibleTo } from "@/lib/db";
 import { shareLinksEnabled } from "@/lib/shares";
 
 export const dynamic = "force-dynamic";
@@ -25,10 +25,14 @@ export async function GET(req: Request) {
   const limit = Math.min(12, Math.max(1, Number(searchParams.get("limit")) || 8));
 
   const [scope, drafts] = await Promise.all([spaceScopeFor(gate), canSeeDrafts(gate)]);
-  const [docs, shareLinks] = await Promise.all([
+  const [docs, shareLinks, quickLinks] = await Promise.all([
     listRecentlyViewedBy(gate.id, scope, drafts, limit),
     shareLinksEnabled(),
+    // The Links launchpad, filtered to this user's groups, so the palette
+    // can find a configured tool by name (1.9.2).
+    listLinksVisibleTo(gate.role === "admin" ? "all" : gate.id),
   ]);
+  const links = quickLinks.map((l) => ({ id: l.id, title: l.title, url: l.url, description: l.description }));
 
   const recent_docs = docs.map((d) => ({
     id: d.id,
@@ -42,7 +46,7 @@ export async function GET(req: Request) {
   }));
 
   return NextResponse.json(
-    { recent_docs, share_links_enabled: shareLinks },
+    { recent_docs, links, share_links_enabled: shareLinks },
     { headers: { "Cache-Control": "private, max-age=30" } }
   );
 }

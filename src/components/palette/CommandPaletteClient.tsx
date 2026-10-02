@@ -17,6 +17,7 @@ import type { SearchHit } from "@/lib/types";
 import {
   GROUP_LABEL,
   GROUP_ORDER,
+  MODE_CHIP,
   MODE_GROUPS,
   MODE_LABEL,
   MODE_PLACEHOLDER,
@@ -36,10 +37,12 @@ import { Kbd } from "./Kbd";
 import {
   commandItems,
   docItems,
+  linkItems,
   navItems,
   personItems,
   recentItems,
   spaceItems,
+  type LinkLite,
   type PersonHit,
   type RecentDoc,
   type SpaceLite,
@@ -92,6 +95,7 @@ export function CommandPaletteClient({
   const [docs, setDocs] = useState<SearchHit[]>([]);
   const [people, setPeople] = useState<PersonHit[]>([]);
   const [recents, setRecents] = useState<RecentDoc[]>([]);
+  const [links, setLinks] = useState<LinkLite[]>([]);
   const [loading, setLoading] = useState(false);
   const [pageCmds, setPageCmds] = useState<PageCommand[]>([]);
 
@@ -133,6 +137,7 @@ export function CommandPaletteClient({
       if (!res.ok) return;
       const data = await res.json();
       setRecents(Array.isArray(data.recent_docs) ? data.recent_docs : []);
+      setLinks(Array.isArray(data.links) ? data.links : []);
     } catch {
       // Recents are a nicety; the palette works fully without them.
     }
@@ -201,6 +206,7 @@ export function CommandPaletteClient({
       commandIds: commandIdSet,
       spaces,
       recents,
+      links,
       pageCommands: pageCmds,
       frecency: (id) => frecency.get(id) ?? 0,
     };
@@ -211,12 +217,13 @@ export function CommandPaletteClient({
       doc: docItems(docs),
       person: personItems(people),
       space: spaceItems(ctx),
+      link: linkItems(ctx),
     };
     const allowedKinds = MODE_GROUPS[mode];
     return GROUP_ORDER.filter((k) => !allowedKinds || allowedKinds.includes(k))
       .map((kind) => ({ kind, items: all[kind] ?? [] }))
       .filter((g) => g.items.length > 0);
-  }, [query, allowedNav, commandIdSet, spaces, recents, pageCmds, docs, people, mode, userId]);
+  }, [query, allowedNav, commandIdSet, spaces, recents, links, pageCmds, docs, people, mode, userId]);
 
   const flat = useMemo(() => groups.flatMap((g) => g.items), [groups]);
 
@@ -233,7 +240,8 @@ export function CommandPaletteClient({
       // Close first so any toast the action raises isn't hidden behind us.
       close();
       if (item.href) {
-        if (newTab) window.open(item.href, "_blank", "noopener,noreferrer");
+        // A Links shortcut leaves the app: a new tab, as on the Links page.
+        if (newTab || item.external) window.open(item.href, "_blank", "noopener,noreferrer");
         else router.push(item.href);
         return;
       }
@@ -484,11 +492,46 @@ export function CommandPaletteClient({
           {loading && <span className="shrink-0 text-xs text-slate-500">…</span>}
         </div>
 
+        {/* Mode chips (1.9.2): the Tab cycle, clickable. Mouse-down is
+            swallowed so the input keeps focus through the click, the same
+            way a result row does. */}
+        <div role="group" aria-label="Search in" className="flex flex-wrap items-center gap-1 border-b border-slate-100 px-3 py-1.5">
+          {MODE_CYCLE.map((m) => (
+            <button
+              key={m}
+              type="button"
+              aria-pressed={mode === m}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                setMode(m);
+                setCursor(0);
+                inputRef.current?.focus();
+              }}
+              className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                mode === m ? "bg-compass-600 text-white" : "text-slate-600 hover:bg-slate-100 hover:text-slate-800"
+              }`}
+            >
+              {MODE_CHIP[m]}
+            </button>
+          ))}
+          {/* A polite count for readers; the visible list speaks for itself. */}
+          <span role="status" aria-live="polite" className="sr-only">
+            {mode === "help"
+              ? ""
+              : loading
+                ? "Searching…"
+                : query.trim()
+                  ? `${flat.length} result${flat.length === 1 ? "" : "s"}`
+                  : ""}
+          </span>
+        </div>
+
         <div
           ref={listRef}
           id="cmd-listbox"
           role={mode === "help" ? undefined : "listbox"}
           aria-label={mode === "help" ? undefined : "Results"}
+          aria-busy={loading || undefined}
           className="max-h-[52vh] overflow-y-auto py-1"
         >
           {mode === "help" ? (
@@ -499,8 +542,12 @@ export function CommandPaletteClient({
             </p>
           ) : (
             groups.map((g) => (
-              <div key={g.kind}>
-                <p className="px-3 pb-0.5 pt-2 text-2xs font-semibold uppercase tracking-wider text-slate-500">
+              // A valid listbox: options grouped under labelled groups.
+              <div key={g.kind} role="group" aria-labelledby={`cmd-group-${g.kind}`}>
+                <p
+                  id={`cmd-group-${g.kind}`}
+                  className="px-3 pb-0.5 pt-2 text-2xs font-semibold uppercase tracking-wider text-slate-500"
+                >
                   {GROUP_LABEL[g.kind]}
                 </p>
                 {g.items.map((item) => {

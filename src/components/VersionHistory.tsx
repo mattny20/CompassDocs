@@ -312,7 +312,10 @@ export function VersionHistory({
               </div>
             </div>
           )}
-          <div className="max-h-[33.75rem] overflow-auto">
+          {/* Grows with the viewport (1.9.2): at 1440p the pane used to
+              scroll inside 540px while 900px of screen sat empty. Never
+              smaller than before. */}
+          <div className="max-h-[max(33.75rem,calc(100vh-16rem))] overflow-auto">
             {mode === "rendered" && blockRows ? (
               <RenderedDiff
                 blocks={blockRows}
@@ -366,7 +369,7 @@ export function VersionHistory({
                   v.id === oldId || v.id === newId ? "bg-compass-50/60" : ""
                 }`}
               >
-                <span className="flex items-center gap-2.5 text-xs text-slate-500">
+                <span className="flex items-center gap-2.5 text-xs text-slate-600">
                   <label
                     className="flex cursor-pointer items-center gap-1"
                     data-tt="Compare from this version (the older side)"
@@ -376,6 +379,7 @@ export function VersionHistory({
                       name="cmp-old"
                       checked={oldId === v.id}
                       onChange={() => setOldId(v.id)}
+                      aria-label={`Original: version ${v.rev}`}
                       className="accent-compass-600"
                     />
                     Original
@@ -389,6 +393,7 @@ export function VersionHistory({
                       name="cmp-new"
                       checked={newId === v.id}
                       onChange={() => setNewId(v.id)}
+                      aria-label={`Modified: version ${v.rev}`}
                       className="accent-compass-600"
                     />
                     Modified
@@ -407,7 +412,7 @@ export function VersionHistory({
                     </span>
                   )}
                 </span>
-                <span className="min-w-0 flex-1 truncate text-sm text-slate-500" title={v.note}>
+                <span className="min-w-0 flex-1 truncate text-sm text-slate-500" data-tt={v.note || undefined}>
                   {v.note}
                 </span>
                 <span className="text-xs text-slate-500" data-tt={v.whenExact} tabIndex={0}>

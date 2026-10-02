@@ -41,6 +41,26 @@ const GLYPH: Record<string, string> = {
   Right: "→",
 };
 
+/** What a screen reader says for a glyph cap (1.9.2): "Enter", not "↵". */
+const SPOKEN: Record<string, string> = {
+  Enter: "Enter",
+  Return: "Enter",
+  Escape: "Escape",
+  Esc: "Escape",
+  Tab: "Tab",
+  Shift: "Shift",
+  Backspace: "Backspace",
+  Delete: "Delete",
+  ArrowUp: "Up arrow",
+  ArrowDown: "Down arrow",
+  ArrowLeft: "Left arrow",
+  ArrowRight: "Right arrow",
+  Up: "Up arrow",
+  Down: "Down arrow",
+  Left: "Left arrow",
+  Right: "Right arrow",
+};
+
 /** The token that stands for "the platform's command modifier". */
 export const MOD_KEY = "Mod";
 
@@ -80,10 +100,17 @@ export function Kbd({
               <span aria-hidden style={{ gridArea: "1 / 1", visibility: "hidden" }}>
                 {WIDEST_MOD_LABEL}
               </span>
-              <span style={{ gridArea: "1 / 1", justifySelf: "center" }}>
+              <span aria-hidden style={{ gridArea: "1 / 1", justifySelf: "center" }}>
                 {mod ?? "\u00A0"}
               </span>
             </span>
+            {/* The glyph is for eyes; readers hear the key's name. */}
+            <span className="sr-only">{mod === "⌘" ? "Command" : mod ?? "Control"}</span>
+          </kbd>
+        ) : SPOKEN[key] ? (
+          <kbd key={`${key}-${i}`} className="cmd-kbd">
+            <span aria-hidden>{capLabel(key)}</span>
+            <span className="sr-only">{SPOKEN[key]}</span>
           </kbd>
         ) : (
           <kbd key={`${key}-${i}`} className="cmd-kbd">

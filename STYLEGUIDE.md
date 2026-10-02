@@ -808,6 +808,13 @@ did nothing to what they were reading. Choosing a wider page *is* a request for
 density, so the measure widens with it, while staying bounded: uncapped, that
 column is ~190 characters at 2000px.
 
+The share page and the public document page render `components/StandaloneDoc`
+(1.9.2) — one masthead, summary, reading card, attachments panel and print
+output — and pass the title as `dropTitle` to `MarkdownView`, as the document
+page does, so a body that opens with "# Title" is not shown twice
+(`lib/drop-title`: the first block only, an H1 only, loosely matched). No
+other `MarkdownView` host passes it.
+
 Surfaces with no `data-page-width` ancestor — the share page, the public
 document page — fall back to `60ch` / ~78 characters. They have no preference
 to read, and legibility is the right default for an anonymous reader.

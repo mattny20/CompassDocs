@@ -70,8 +70,8 @@ describe("style drift guard", () => {
       "components/PageHeader.tsx",
       // Document titles (text-3xl): the document is the thing itself.
       "app/(app)/doc/[id]/page.tsx",
-      "app/(public)/share/[token]/page.tsx",
-      "app/(public)/public/[space]/[doc]/page.tsx",
+      // The share and public document pages render this one masthead (1.9.2).
+      "components/StandaloneDoc.tsx",
       "components/NewsletterWorkspace.tsx", // the newsletter's subject in preview
       // Mastheads whose 48px icon tile or photo replaces the 24px lucide icon.
       "app/(app)/directory/[id]/page.tsx",
