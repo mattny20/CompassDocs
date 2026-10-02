@@ -20,6 +20,8 @@ import mdContainer from "markdown-it-container";
 import { Pencil, Trash2 } from "lucide-react";
 import { MermaidBlock, PlantUmlBlock, DecisionTreeBlock } from "./DocBlocks";
 import { VideoBlock, SiteEmbed, CALLOUT_STYLE } from "./DocBlocksStatic";
+import { promptDialog, formDialog } from "@/components/Dialog";
+import { videoEmbedUrl } from "@/lib/doc-blocks";
 
 const CALLOUT_KINDS = ["note", "info", "tip", "warning", "danger"] as const;
 
@@ -393,8 +395,18 @@ function VideoNodeView({ node, updateAttributes, deleteNode }: NodeViewProps) {
     >
       <EmbedCardControls
         label="video"
-        onEdit={() => {
-          const src = window.prompt("Video URL (YouTube, Vimeo, Loom, or a file):", node.attrs.src);
+        onEdit={async () => {
+          const src = await promptDialog({
+            title: "Edit video",
+            label: "Video URL",
+            type: "url",
+            initial: String(node.attrs.src ?? ""),
+            confirmLabel: "Save",
+            validate: (v) =>
+              videoEmbedUrl(v.trim())
+                ? undefined
+                : "Unsupported URL. Use YouTube, Vimeo, Loom, SharePoint/Stream, Google Drive, Wistia, Dailymotion, or a direct video file.",
+          });
           if (src !== null) updateAttributes({ src: src.trim() });
         }}
         onDelete={deleteNode}
@@ -479,11 +491,25 @@ function EmbedNodeView({ node, updateAttributes, deleteNode }: NodeViewProps) {
     >
       <EmbedCardControls
         label="website embed"
-        onEdit={() => {
-          const src = window.prompt("Page URL (https://…):", node.attrs.src);
-          if (src === null) return;
-          const height = window.prompt("Height in pixels (optional):", node.attrs.height || "420");
-          updateAttributes({ src: src.trim(), height: (height ?? "").trim() });
+        onEdit={async () => {
+          const r = await formDialog({
+            title: "Edit embed",
+            fields: [
+              { key: "src", label: "Page URL", type: "url", initial: String(node.attrs.src ?? "") },
+              {
+                key: "height",
+                label: "Height in pixels",
+                type: "number",
+                initial: String(node.attrs.height || "420"),
+                min: 100,
+                max: 2000,
+                required: false,
+              },
+            ],
+            confirmLabel: "Save",
+          });
+          if (r === null) return;
+          updateAttributes({ src: r.src.trim(), height: r.height.trim() });
         }}
         onDelete={deleteNode}
       />

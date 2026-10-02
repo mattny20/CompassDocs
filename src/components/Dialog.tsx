@@ -1,25 +1,25 @@
 "use client";
 
-// Themed confirm and prompt dialogs (STYLEGUIDE §Overlays and modals).
-// `confirmDialog()` and `promptDialog()` return promises, so a call site
-// reads like the native call it replaces:
+// Themed confirm, prompt and small-form dialogs (STYLEGUIDE §Overlays and
+// modals). The calls return promises, so a call site reads like the native
+// call it replaces:
 //
 //   if (!(await confirmDialog({ title: "Delete this webhook?", confirmLabel: "Delete", danger: true }))) return;
 //   const pw = await promptDialog({ title: "Set a temporary password", label: "Password", type: "password",
 //     validate: (v) => (v.length < 6 ? "At least 6 characters." : undefined) });
+//   const v = await formDialog({ title: "Insert button", fields: [{ key: "label", label: "Label" }, { key: "href", label: "Link URL", type: "url" }] });
 //
-// One DialogHost is mounted in the app layout beside the ToastHost. The
-// dialog sits on the shared overlay stack (Escape closes only it), traps
-// Tab, makes the page behind it inert, and hands focus back. Without a
-// host (a page outside the shell) the native dialogs are the fallback, so
-// nothing ever silently resolves. The editor's leave prompt stays native
-// on purpose (lib/use-unsaved).
+// One DialogHost is mounted in the app layout beside the ToastHost. Each
+// dialog is a Modal (overlay stack, focus trap, inert background, focus
+// back). Without a host (a page outside the shell) the native dialogs are
+// the fallback, so nothing ever silently resolves. The editor's leave
+// prompt stays native on purpose (lib/use-unsaved).
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { TriangleAlert } from "lucide-react";
 import { Button } from "./Button";
-import { Field, TextInput, rangeError } from "./form";
-import { useModalOverlay } from "./overlay/useModalOverlay";
+import { Field, TextInput, Textarea, rangeError } from "./form";
+import { Modal } from "./Modal";
 
 export interface ConfirmOptions {
   title: string;
@@ -35,28 +35,44 @@ export interface ConfirmOptions {
   secondary?: { label: string };
 }
 
-export interface PromptOptions {
-  title: string;
-  body?: ReactNode;
-  label: string;
+export interface DialogField {
+  key: string;
+  label: ReactNode;
   initial?: string;
   placeholder?: string;
-  type?: "text" | "password" | "number" | "url" | "email";
+  type?: "text" | "password" | "number" | "url" | "email" | "textarea";
   /** Return a message to block, undefined to accept. */
-  validate?: (value: string) => string | undefined;
+  validate?: (value: string, all: Record<string, string>) => string | undefined;
   /** For type="number": bounds checked with rangeError. */
   min?: number;
   max?: number;
   /** Empty is refused unless false. */
   required?: boolean;
+  help?: ReactNode;
+  /** Single-line extras (font-mono). */
+  className?: string;
+}
+
+export interface PromptOptions extends Omit<DialogField, "key" | "label"> {
+  title: string;
+  body?: ReactNode;
+  label: ReactNode;
   confirmLabel?: string;
   cancelLabel?: string;
-  help?: ReactNode;
+}
+
+export interface FormOptions {
+  title: string;
+  body?: ReactNode;
+  fields: DialogField[];
+  confirmLabel?: string;
+  cancelLabel?: string;
 }
 
 type Request =
   | { kind: "confirm"; opts: ConfirmOptions; resolve: (v: boolean | "secondary") => void }
-  | { kind: "prompt"; opts: PromptOptions; resolve: (v: string | null) => void };
+  | { kind: "prompt"; opts: PromptOptions; resolve: (v: string | null) => void }
+  | { kind: "form"; opts: FormOptions; resolve: (v: Record<string, string> | null) => void };
 
 let host: ((req: Request) => void) | null = null;
 
@@ -74,8 +90,21 @@ export function promptDialog(opts: PromptOptions): Promise<string | null> {
   });
 }
 
-const FOCUSABLE =
-  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+export function formDialog(opts: FormOptions): Promise<Record<string, string> | null> {
+  return new Promise((resolve) => {
+    if (host) host({ kind: "form", opts, resolve });
+    else if (typeof window === "undefined") resolve(null);
+    else {
+      const out: Record<string, string> = {};
+      for (const f of opts.fields) {
+        const v = window.prompt(typeof f.label === "string" ? f.label : opts.title, f.initial ?? "");
+        if (v === null) return resolve(null);
+        out[f.key] = v;
+      }
+      resolve(out);
+    }
+  });
+}
 
 export function DialogHost() {
   const [queue, setQueue] = useState<Request[]>([]);
@@ -94,70 +123,55 @@ export function DialogHost() {
   return <DialogCard key={queue.length} req={current} onDone={finish} />;
 }
 
+function fieldsOf(req: Request): DialogField[] {
+  if (req.kind === "confirm") return [];
+  if (req.kind === "form") return req.opts.fields;
+  const { title: _t, body: _b, label, confirmLabel: _c, cancelLabel: _x, ...rest } = req.opts;
+  return [{ key: "value", label, ...rest }];
+}
+
 function DialogCard({ req, onDone }: { req: Request; onDone: () => void }) {
-  const panel = useRef<HTMLFormElement>(null);
-  const [value, setValue] = useState(req.kind === "prompt" ? (req.opts.initial ?? "") : "");
-  const [error, setError] = useState<string | undefined>();
+  const fields = fieldsOf(req);
+  const [values, setValues] = useState<Record<string, string>>(() =>
+    Object.fromEntries(fields.map((f) => [f.key, f.initial ?? ""]))
+  );
+  const [errors, setErrors] = useState<Record<string, string | undefined>>({});
   const [typed, setTyped] = useState("");
-  const settled = useRef(false);
+  const [settled, setSettled] = useState(false);
   const titleId = "dialog-title";
   const bodyId = "dialog-body";
 
-  function settle(result: boolean | "secondary" | string | null) {
-    if (settled.current) return;
-    settled.current = true;
+  function settle(result: boolean | "secondary" | string | Record<string, string> | null) {
+    if (settled) return;
+    setSettled(true);
     if (req.kind === "confirm") req.resolve(result as boolean | "secondary");
-    else req.resolve(result as string | null);
+    else if (req.kind === "prompt") req.resolve(result as string | null);
+    else req.resolve(result as Record<string, string> | null);
     onDone();
   }
   const cancel = useCallback(() => settle(req.kind === "confirm" ? false : null), []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useModalOverlay(true, cancel, { panelRef: panel });
-
-  // Initial focus: the input when there is one, Cancel for a destructive
-  // confirm (so Enter can't delete by reflex), else the confirm button.
-  useEffect(() => {
-    const el = panel.current;
-    if (!el) return;
-    const input = el.querySelector<HTMLElement>("input");
-    const danger = req.kind === "confirm" && req.opts.danger;
-    const target = input ?? el.querySelector<HTMLElement>(danger ? '[data-dialog="cancel"]' : '[data-dialog="confirm"]');
-    (target ?? el).focus();
-  }, [req]);
-
-  function onKeyDown(e: React.KeyboardEvent) {
-    if (e.key !== "Tab" || !panel.current) return;
-    const items = Array.from(panel.current.querySelectorAll<HTMLElement>(FOCUSABLE));
-    if (items.length === 0) return;
-    const first = items[0];
-    const last = items[items.length - 1];
-    if (e.shiftKey && document.activeElement === first) {
-      e.preventDefault();
-      last.focus();
-    } else if (!e.shiftKey && document.activeElement === last) {
-      e.preventDefault();
-      first.focus();
-    }
-  }
-
   function submit(e?: React.FormEvent) {
     e?.preventDefault();
-    if (req.kind === "prompt") {
-      const o = req.opts;
-      const v = value;
-      let msg: string | undefined;
-      if ((o.required ?? true) && !v.trim()) msg = "Enter a value.";
-      else if (o.type === "number" && (o.min !== undefined || o.max !== undefined))
-        msg = rangeError(v, o.min ?? -Infinity, o.max ?? Infinity);
-      else if (o.validate) msg = o.validate(v);
-      if (msg) {
-        setError(msg);
-        return;
-      }
-      settle(v);
+    if (req.kind === "confirm") {
+      settle(true);
       return;
     }
-    settle(true);
+    const next: Record<string, string | undefined> = {};
+    for (const f of fields) {
+      const v = values[f.key] ?? "";
+      let msg: string | undefined;
+      if ((f.required ?? true) && !v.trim()) msg = "Enter a value.";
+      else if (f.type === "number" && v.trim() && (f.min !== undefined || f.max !== undefined))
+        msg = rangeError(v, f.min ?? -Infinity, f.max ?? Infinity);
+      else if (f.validate) msg = f.validate(v, values);
+      if (msg) next[f.key] = msg;
+    }
+    if (Object.values(next).some(Boolean)) {
+      setErrors(next);
+      return;
+    }
+    settle(req.kind === "prompt" ? values.value : values);
   }
 
   const danger = req.kind === "confirm" && Boolean(req.opts.danger);
@@ -167,18 +181,14 @@ function DialogCard({ req, onDone }: { req: Request; onDone: () => void }) {
   const cancelLabel = req.opts.cancelLabel ?? "Cancel";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onMouseDown={(e) => e.target === e.currentTarget && cancel()}>
-      <form
-        ref={panel}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        aria-describedby={req.opts.body ? bodyId : undefined}
-        tabIndex={-1}
-        onKeyDown={onKeyDown}
-        onSubmit={submit}
-        className="w-full max-w-md rounded-xl border border-slate-200 bg-surface p-5 shadow-modal outline-hidden"
-      >
+    <Modal
+      open
+      onClose={cancel}
+      labelledBy={titleId}
+      describedBy={req.opts.body ? bodyId : undefined}
+      className="w-full max-w-md rounded-xl border border-slate-200 bg-surface p-5 shadow-modal"
+    >
+      <form onSubmit={submit}>
         <div className="flex gap-3">
           {danger && (
             <span className="mt-0.5 shrink-0 text-red-600" aria-hidden>
@@ -197,23 +207,40 @@ function DialogCard({ req, onDone }: { req: Request; onDone: () => void }) {
           </div>
         </div>
 
-        {req.kind === "prompt" && (
-          <div className="mt-4">
-            <Field label={req.opts.label} error={error} help={req.opts.help}>
-              <TextInput
-                type={req.opts.type ?? "text"}
-                value={value}
-                onChange={(e) => {
-                  setValue(e.target.value);
-                  if (error) setError(undefined);
-                }}
-                placeholder={req.opts.placeholder}
-                min={req.opts.min}
-                max={req.opts.max}
-                autoComplete={req.opts.type === "password" ? "new-password" : "off"}
-                spellCheck={false}
-              />
-            </Field>
+        {fields.length > 0 && (
+          <div className="mt-4 space-y-3">
+            {fields.map((f, i) => (
+              <Field key={f.key} label={f.label} error={errors[f.key]} help={f.help}>
+                {f.type === "textarea" ? (
+                  <Textarea
+                    value={values[f.key] ?? ""}
+                    onChange={(e) => {
+                      setValues((v) => ({ ...v, [f.key]: e.target.value }));
+                      if (errors[f.key]) setErrors((er) => ({ ...er, [f.key]: undefined }));
+                    }}
+                    placeholder={f.placeholder}
+                    className={`h-24 ${f.className ?? ""}`.trim()}
+                    data-autofocus={i === 0 ? "" : undefined}
+                  />
+                ) : (
+                  <TextInput
+                    type={f.type ?? "text"}
+                    value={values[f.key] ?? ""}
+                    onChange={(e) => {
+                      setValues((v) => ({ ...v, [f.key]: e.target.value }));
+                      if (errors[f.key]) setErrors((er) => ({ ...er, [f.key]: undefined }));
+                    }}
+                    placeholder={f.placeholder}
+                    min={f.min}
+                    max={f.max}
+                    autoComplete={f.type === "password" ? "new-password" : "off"}
+                    spellCheck={false}
+                    className={f.className}
+                    data-autofocus={i === 0 ? "" : undefined}
+                  />
+                )}
+              </Field>
+            ))}
           </div>
         )}
 
@@ -226,13 +253,20 @@ function DialogCard({ req, onDone }: { req: Request; onDone: () => void }) {
                 </>
               }
             >
-              <TextInput value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" spellCheck={false} />
+              <TextInput
+                value={typed}
+                onChange={(e) => setTyped(e.target.value)}
+                autoComplete="off"
+                spellCheck={false}
+                data-autofocus=""
+              />
             </Field>
           </div>
         )}
 
         <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
-          <Button type="button" variant="ghost" data-dialog="cancel" onClick={cancel}>
+          {/* A destructive confirm starts on Cancel so Enter can't delete by reflex. */}
+          <Button type="button" variant="ghost" onClick={cancel} data-autofocus={danger && !needsWord ? "" : undefined}>
             {cancelLabel}
           </Button>
           {req.kind === "confirm" && req.opts.secondary && (
@@ -240,11 +274,16 @@ function DialogCard({ req, onDone }: { req: Request; onDone: () => void }) {
               {req.opts.secondary.label}
             </Button>
           )}
-          <Button type="submit" variant={danger ? "danger" : "primary"} data-dialog="confirm" disabled={!wordOk}>
+          <Button
+            type="submit"
+            variant={danger ? "danger" : "primary"}
+            disabled={!wordOk}
+            data-autofocus={!danger && fields.length === 0 ? "" : undefined}
+          >
             {confirmLabel}
           </Button>
         </div>
       </form>
-    </div>
+    </Modal>
   );
 }

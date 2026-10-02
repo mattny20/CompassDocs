@@ -1,14 +1,12 @@
 "use client";
 
-import { useState } from "react";
 import { buttonClass } from "@/components/Button";
 import { confirmDialog } from "@/components/Dialog";
 import { Table, Th, Td, TABLE_HEAD_ROW, TR } from "@/components/Table";
-import { useRouter } from "next/navigation";
+import { useAction } from "@/lib/use-action";
 import { Search, Trash2 } from "lucide-react";
 import { TypeBadge } from "./Badges";
 import { EmptyState } from "./form";
-import { toast } from "./Toasts";
 import { formatDate, formatDateTime } from "@/lib/format";
 import type { AppSettings } from "@/lib/settings";
 import type { DocType, DocStatus } from "@/lib/types";
@@ -34,15 +32,13 @@ export function TrashClient({
   settings: AppSettings;
   retentionDays: number;
 }) {
-  const router = useRouter();
-  const [busyId, setBusyId] = useState<number | null>(null);
+  const { run, isBusy, busy } = useAction();
 
   async function restore(d: TrashedDoc) {
-    setBusyId(d.id);
-    const res = await fetch(`/api/trash/${d.id}`, { method: "POST" });
-    setBusyId(null);
-    if (res.ok) router.refresh();
-    else toast("error", (await res.json().catch(() => ({})))?.error || "Couldn't restore that document.");
+    await run(d.id, () => fetch(`/api/trash/${d.id}`, { method: "POST" }), {
+      fallback: "Couldn't restore that document.",
+      ok: `Restored "${d.title}".`,
+    });
   }
 
   async function purge(d: TrashedDoc) {
@@ -55,12 +51,10 @@ export function TrashClient({
       }))
     )
       return;
-    setBusyId(d.id);
-    const res = await fetch(`/api/trash/${d.id}`, { method: "DELETE" });
-    setBusyId(null);
-    if (res.ok) router.refresh();
-    else
-      toast("error", (await res.json().catch(() => ({})))?.error || "Couldn't delete that document.");
+    await run(d.id, () => fetch(`/api/trash/${d.id}`, { method: "DELETE" }), {
+      fallback: "Couldn't delete that document.",
+      ok: `Deleted "${d.title}" permanently.`,
+    });
   }
 
   function purgeOn(deletedAt: string | null): string {
@@ -82,7 +76,7 @@ export function TrashClient({
 
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-surface shadow-xs">
-      <Table scroll aria-busy={busyId !== null}>
+      <Table scroll aria-busy={busy}>
         <thead className={TABLE_HEAD_ROW}>
           <tr>
             <Th>Document</Th>
@@ -92,7 +86,7 @@ export function TrashClient({
         </thead>
         <tbody>
           {docs.map((d) => (
-            <tr key={d.id} className={`${TR} ${busyId === d.id ? "opacity-50" : ""}`.trim()}>
+            <tr key={d.id} className={`${TR} ${isBusy(d.id) ? "opacity-50" : ""}`.trim()}>
               <Td>
                 <div className="flex items-center gap-2">
                   <TypeBadge type={d.type} />
@@ -115,7 +109,7 @@ export function TrashClient({
                 <div className="flex justify-end gap-1.5 text-xs">
                   <button
                     onClick={() => restore(d)}
-                    disabled={busyId === d.id}
+                    disabled={isBusy(d.id)}
                     className={buttonClass("secondary", "sm")}
                   >
                     Restore
@@ -123,7 +117,7 @@ export function TrashClient({
                   {isAdmin && (
                     <button
                       onClick={() => purge(d)}
-                      disabled={busyId === d.id}
+                      disabled={isBusy(d.id)}
                       className={buttonClass("danger", "sm")}
                     >
                       Delete forever

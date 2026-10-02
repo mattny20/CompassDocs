@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Spinner } from "@/components/Spinner";
 import { confirmDialog } from "@/components/Dialog";
+import { toast } from "@/components/Toasts";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { GitBranch, GitMerge, Trash2 } from "lucide-react";
@@ -66,22 +67,30 @@ export function BranchBanner({
     }
   }
 
+  // Discarding is reversible (the branch goes to the Trash), so it does not
+  // ask — it tells, with Undo.
   async function discard() {
-    if (
-      !(await confirmDialog({
-        title: "Discard this draft branch?",
-        body: "It moves to the Trash; the original is unaffected.",
-        confirmLabel: "Discard",
-        danger: true,
-      }))
-    )
-      return;
     setBusy("discard");
     setError("");
     const res = await fetch(`/api/documents/${branchId}`, { method: "DELETE" });
     if (res.ok) {
       router.push(`/doc/${sourceId}`);
       router.refresh();
+      toast("ok", "Branch discarded.", {
+        action: {
+          label: "Undo",
+          onClick: async () => {
+            const r = await fetch(`/api/trash/${branchId}`, { method: "POST" });
+            if (r.ok) {
+              toast("ok", "Branch restored.");
+              router.push(`/doc/${branchId}`);
+              router.refresh();
+            } else {
+              toast("error", (await r.json().catch(() => ({})))?.error || "Couldn't restore the branch — look in Settings → Trash.");
+            }
+          },
+        },
+      });
     } else {
       const data = await res.json().catch(() => ({}));
       setError(data?.error || "Couldn't discard the branch.");

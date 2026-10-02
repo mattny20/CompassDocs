@@ -122,21 +122,29 @@ export function DocActions({
     else toast("error", data?.error || "Couldn't create the template.");
   }
 
+  // Trashing is reversible, so it does not ask — it tells, with Undo
+  // (STYLEGUIDE §Feedback). Restore goes through the Trash API.
   async function onDelete() {
-    if (
-      !(await confirmDialog({
-        title: "Move this document to the Trash?",
-        body: "You can restore it from Settings → Trash.",
-        confirmLabel: "Move to Trash",
-        danger: true,
-      }))
-    )
-      return;
     setDeleting(true);
     const res = await fetch(`/api/documents/${id}`, { method: "DELETE" });
     if (res.ok) {
       router.push(`/spaces/${spaceSlug}`);
       router.refresh();
+      toast("ok", "Moved to the Trash.", {
+        action: {
+          label: "Undo",
+          onClick: async () => {
+            const r = await fetch(`/api/trash/${id}`, { method: "POST" });
+            if (r.ok) {
+              toast("ok", "Restored.");
+              router.push(`/doc/${id}`);
+              router.refresh();
+            } else {
+              toast("error", (await r.json().catch(() => ({})))?.error || "Couldn't restore the document — look in Settings → Trash.");
+            }
+          },
+        },
+      });
     } else {
       const data = await res.json().catch(() => ({}));
       setDeleting(false);

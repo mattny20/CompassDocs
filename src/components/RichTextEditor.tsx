@@ -23,6 +23,11 @@ import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import { EDITOR_BLOCK_EXTENSIONS, PreviewCodeBlock } from "./EditorBlocks";
 import { VideoInsertDialog } from "./VideoInsertDialog";
+import { promptDialog, formDialog } from "@/components/Dialog";
+import { Popover } from "@/components/Popover";
+import { TextInput } from "@/components/form";
+import { buttonClass } from "@/components/Button";
+import { videoEmbedUrl } from "@/lib/doc-blocks";
 import {
   Bold as BoldIcon,
   Italic as ItalicIcon,
@@ -591,8 +596,13 @@ export const RICH_BLOCK_BUTTONS: {
   { kind: "embed", label: "Website embed", Icon: Globe },
 ];
 
-// Rich-block templates for the toolbar buttons.
-function insertRichBlock(editor: Editor, kind: string): void {
+const VIDEO_URL_ERROR =
+  "Unsupported URL. Use YouTube, Vimeo, Loom, SharePoint/Stream, Google Drive, Wistia, Dailymotion, or a direct video file.";
+
+// Rich-block templates for the toolbar buttons. Async because the video and
+// embed kinds ask for a URL first; the chain is rebuilt after the await so it
+// never runs against a stale editor state.
+async function insertRichBlock(editor: Editor, kind: string): Promise<void> {
   const para = (text: string) => ({
     type: "paragraph",
     content: [{ type: "text", text }],
@@ -657,14 +667,34 @@ function insertRichBlock(editor: Editor, kind: string): void {
         .run();
       break;
     case "video": {
-      const src = window.prompt("Video URL (YouTube, Vimeo, Loom, or a video file):");
-      if (src?.trim()) chain.insertContent({ type: "videoEmbed", attrs: { src: src.trim() } }).run();
+      const src = await promptDialog({
+        title: "Insert video",
+        label: "Video URL",
+        type: "url",
+        placeholder: "YouTube, Vimeo, Loom, or a video file",
+        confirmLabel: "Insert",
+        validate: (v) => (videoEmbedUrl(v.trim()) ? undefined : VIDEO_URL_ERROR),
+      });
+      if (src?.trim()) {
+        editor.chain().focus().insertContent({ type: "videoEmbed", attrs: { src: src.trim() } }).run();
+      }
       break;
     }
     case "embed": {
-      const src = window.prompt("Page URL (https://…):");
-      if (src?.trim()) {
-        chain.insertContent({ type: "siteEmbed", attrs: { src: src.trim(), height: "420" } }).run();
+      const r = await formDialog({
+        title: "Embed a web page",
+        fields: [
+          { key: "src", label: "Page URL", type: "url", placeholder: "https://…" },
+          { key: "height", label: "Height in pixels", type: "number", initial: "420", min: 100, max: 2000, required: false },
+        ],
+        confirmLabel: "Embed",
+      });
+      if (r?.src.trim()) {
+        editor
+          .chain()
+          .focus()
+          .insertContent({ type: "siteEmbed", attrs: { src: r.src.trim(), height: r.height.trim() || "420" } })
+          .run();
       }
       break;
     }
@@ -727,15 +757,31 @@ function Toolbar({
     };
   }, [editor, painted]);
 
-  const promptLink = () => {
+  // Link popover: anchored under the toolbar's Link button. Btn renders a
+  // bare <button> without forwarding refs, so a `relative` wrapper span is
+  // the anchor and the trigger for outside-click and focus-return.
+  const [linkOpen, setLinkOpen] = useState(false);
+  const [linkUrl, setLinkUrl] = useState("");
+  const linkBtn = useRef<HTMLElement>(null);
+
+  const openLink = () => {
     const prev = editor.getAttributes("link").href as string | undefined;
-    const url = window.prompt("Link URL", prev || "https://");
-    if (url === null) return;
-    if (url === "") {
-      editor.chain().focus().extendMarkRange("link").unsetLink().run();
+    setLinkUrl(prev || "https://");
+    setLinkOpen(true);
+  };
+  const closeLink = () => setLinkOpen(false);
+  const removeLink = () => {
+    editor.chain().focus().extendMarkRange("link").unsetLink().run();
+    setLinkOpen(false);
+  };
+  const applyLink = () => {
+    const href = linkUrl.trim();
+    if (!href) {
+      removeLink();
       return;
     }
-    editor.chain().focus().extendMarkRange("link").setLink({ href: url }).run();
+    editor.chain().focus().extendMarkRange("link").setLink({ href }).run();
+    setLinkOpen(false);
   };
 
   function copyFormat() {
@@ -785,15 +831,20 @@ function Toolbar({
       .run();
   }
 
-  function insertButton() {
-    const label = window.prompt("Button label", "Read more");
-    if (label === null) return;
-    const href = window.prompt("Button link URL", "https://");
-    if (href === null) return;
+  async function insertButton() {
+    const r = await formDialog({
+      title: "Insert button",
+      fields: [
+        { key: "label", label: "Button label", initial: "Read more" },
+        { key: "href", label: "Link URL", type: "url", initial: "https://" },
+      ],
+      confirmLabel: "Insert",
+    });
+    if (r === null) return;
     editor
       .chain()
       .focus()
-      .insertContent({ type: "emailButton", attrs: { label: label.trim() || "Open", href: href.trim() } })
+      .insertContent({ type: "emailButton", attrs: { label: r.label.trim() || "Open", href: r.href.trim() } })
       .run();
   }
 
@@ -949,9 +1000,45 @@ function Toolbar({
         <PaintBucket className={TB_ICON} />
       </Btn>
       <Divider />
-      <Btn onClick={promptLink} active={editor.isActive("link")} label="Link">
-        <LinkIcon className={TB_ICON} />
-      </Btn>
+      <span ref={linkBtn} className="relative inline-flex">
+        <Btn onClick={openLink} active={editor.isActive("link")} expanded={linkOpen} label="Link">
+          <LinkIcon className={TB_ICON} />
+        </Btn>
+        <Popover open={linkOpen} onClose={closeLink} triggerRef={linkBtn} label="Link" align="end" width="w-80" padding="p-2">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              applyLink();
+            }}
+            className="space-y-2"
+          >
+            <TextInput
+              type="url"
+              value={linkUrl}
+              onChange={(e) => setLinkUrl(e.target.value)}
+              aria-label="Link URL"
+              placeholder="https://"
+              autoComplete="off"
+              spellCheck={false}
+              autoFocus
+              data-autofocus=""
+            />
+            <div className="flex items-center justify-end gap-1.5">
+              <button type="button" onClick={closeLink} className={buttonClass("ghost", "sm")}>
+                Cancel
+              </button>
+              {editor.isActive("link") && (
+                <button type="button" onClick={removeLink} className={buttonClass("ghost", "sm")}>
+                  Remove
+                </button>
+              )}
+              <button type="submit" className={buttonClass("primary", "sm")}>
+                Apply
+              </button>
+            </div>
+          </form>
+        </Popover>
+      </span>
       {onPickImage && (
         <>
           <Btn onClick={() => fileRef.current?.click()} label="Insert image (or paste / drag one in)">
@@ -1020,7 +1107,7 @@ function Toolbar({
         <Btn
           key={kind}
           onClick={() =>
-            kind === "video" ? setVideoDialogOpen(true) : insertRichBlock(editor, kind)
+            kind === "video" ? setVideoDialogOpen(true) : void insertRichBlock(editor, kind)
           }
           label={label}
         >
@@ -1178,12 +1265,16 @@ function Toolbar({
         <>
           <Divider />
           <Btn
-            onClick={() => {
+            onClick={async () => {
               const prev = (editor.getAttributes("image").alt as string) ?? "";
-              const alt = window.prompt(
-                "Describe this image (alt text — read aloud by screen readers, shown if the image can't load):",
-                prev
-              );
+              const alt = await promptDialog({
+                title: "Describe this image",
+                body: "Alt text is read aloud by screen readers and shown if the image can't load.",
+                label: "Alt text",
+                initial: prev,
+                required: false,
+                confirmLabel: "Save",
+              });
               if (alt === null) return;
               editor.chain().focus().updateAttributes("image", { alt: alt.trim() }).run();
             }}
@@ -1254,16 +1345,21 @@ function Toolbar({
         <>
           <Divider />
           <Btn
-            onClick={() => {
+            onClick={async () => {
               const attrs = editor.getAttributes("emailButton");
-              const label = window.prompt("Button label", String(attrs.label ?? ""));
-              if (label === null) return;
-              const href = window.prompt("Button link URL", String(attrs.href ?? "https://"));
-              if (href === null) return;
+              const r = await formDialog({
+                title: "Edit button",
+                fields: [
+                  { key: "label", label: "Button label", initial: String(attrs.label ?? "") },
+                  { key: "href", label: "Link URL", type: "url", initial: String(attrs.href ?? "https://") },
+                ],
+                confirmLabel: "Save",
+              });
+              if (r === null) return;
               editor
                 .chain()
                 .focus()
-                .updateAttributes("emailButton", { label: label.trim() || "Open", href: href.trim() })
+                .updateAttributes("emailButton", { label: r.label.trim() || "Open", href: r.href.trim() })
                 .run();
             }}
             label="Edit the button's label and link"
@@ -1295,11 +1391,14 @@ function Toolbar({
 function Btn({
   onClick,
   active,
+  expanded,
   label,
   children,
 }: {
   onClick: () => void;
   active?: boolean;
+  /** Set when the button opens a popover; drives aria-expanded. */
+  expanded?: boolean;
   label: string;
   children: React.ReactNode;
 }) {
@@ -1307,6 +1406,7 @@ function Btn({
     <button
       type="button"
       onClick={onClick}
+      aria-expanded={expanded}
       data-tt={label}
       // Below the control, like the font select beside it, so no bubble lands
       // on the sticky Save row; long labels wrap instead of becoming a 450px

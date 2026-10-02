@@ -15,10 +15,18 @@
 import { useEffect, useRef, useState } from "react";
 import { CircleAlert, CircleCheck, X } from "lucide-react";
 
+export interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
+
 export interface Toast {
   id: number;
   kind: "ok" | "error";
   text: string;
+  /** One button ("Undo") — the toast stays a little longer when it has one. */
+  action?: ToastAction;
+  ttl?: number;
 }
 
 let toastSeq = 1;
@@ -26,9 +34,15 @@ const EVENT = "cdc:toast";
 const TTL: Record<Toast["kind"], number> = { ok: 7000, error: 12000 };
 
 /** Show a toast from anywhere client-side. */
-export function toast(kind: "ok" | "error", text: string): void {
+export function toast(
+  kind: "ok" | "error",
+  text: string,
+  opts: { action?: ToastAction; ttl?: number } = {}
+): void {
   if (typeof window === "undefined") return;
-  window.dispatchEvent(new CustomEvent(EVENT, { detail: { id: toastSeq++, kind, text } }));
+  window.dispatchEvent(
+    new CustomEvent(EVENT, { detail: { id: toastSeq++, kind, text, action: opts.action, ttl: opts.ttl } })
+  );
 }
 
 /** Mounted once in the (app) layout. */
@@ -61,7 +75,7 @@ export function ToastHost() {
     const onToast = (e: Event) => {
       const t = (e as CustomEvent<Toast>).detail;
       setToasts((ts) => [...ts.slice(-3), t]);
-      arm(t.id, TTL[t.kind]);
+      arm(t.id, t.ttl ?? (t.action ? 10000 : TTL[t.kind]));
     };
     window.addEventListener(EVENT, onToast);
     const map = timers.current;
@@ -119,6 +133,18 @@ function ToastCard({
         <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
       )}
       <span className="min-w-0 flex-1 py-0.5">{t.text}</span>
+      {t.action && (
+        <button
+          type="button"
+          onClick={() => {
+            t.action!.onClick();
+            onDismiss(t.id);
+          }}
+          className="-my-0.5 inline-flex h-7 shrink-0 items-center rounded-md px-2 text-xs font-semibold underline-offset-2 transition hover:bg-black/5 hover:underline dark:hover:bg-white/10"
+        >
+          {t.action.label}
+        </button>
+      )}
       <button
         type="button"
         onClick={() => onDismiss(t.id)}

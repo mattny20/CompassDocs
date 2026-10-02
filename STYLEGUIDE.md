@@ -560,6 +560,17 @@ text-slate-500` before them ("Notary · Phoenix").
   announcement, back after two seconds. Never a hand-rolled copy handler.
 - Action results use **toasts** (bottom-right, auto-dismiss, ok/error
   styling) — not top-of-page notices that scroll out of view.
+- **Reversible actions tell, they don't ask.** Moving to the Trash,
+  discarding a branch, archiving: do it and toast with an Undo action
+  (`toast("ok", "Moved to the Trash.", { action: { label: "Undo", onClick } })`)
+  that reverses through the existing API. Only the genuinely irreversible
+  gets a `confirmDialog`, and its body ends "This cannot be undone."
+- **Row actions go through `useAction()`** (`lib/use-action`): `run(key,
+  () => fetch(…), { fallback, ok })` ignores a second click while the
+  first is in flight, toasts the server's `error` or the specific
+  `fallback`, toasts `ok`, and keeps `isBusy(key)` true until the
+  refreshed page has committed. Disable the row's controls with
+  `isBusy(key)`; never a bare fetch with a `setBusy` pair.
 - Errors render in red (`text-red-600`); never show a failure in the
   success style.
 - **Never fail silently.** Every `fetch` that can fail needs an `else` —
@@ -611,9 +622,17 @@ per-route variants:
   why the notifications dropdown clips today and the palette doesn't. No
   portals exist in this codebase; if a `transform` ever lands on the shell,
   add one rather than escalating z-index.
-- Use `useModalOverlay` (`components/overlay`): it registers the layer on
-  the LIFO overlay stack, sets `inert` + `aria-hidden` on the background,
-  locks scroll, and hands focus back to whatever opened it.
+- **A modal is `<Modal open onClose label|labelledBy layout scrim
+  closeOnBackdrop className>`** from `components/Modal`: a portal to
+  `<body>`, a layer on the LIFO overlay stack (Escape reaches only the
+  top-most one), `inert` + `aria-hidden` on the background, a scroll lock,
+  a Tab trap, initial focus on `[data-autofocus]` (else the first focusable
+  element), and focus handed back to whatever opened it. The dialogs, the
+  lightbox (`layout="fill"`), the video theater, the insert-video dialog
+  and the analytics drill-down are all this component. Never a hand-rolled
+  `fixed inset-0` layer with its own Escape listener or `body.style.overflow`
+  poke. `useModalOverlay` (`components/overlay`) is what Modal is built on;
+  reach for it directly only for a drawer that is not a dialog.
 - **Floating panels** (a menu, a column picker, a QR card, the bell) are
   `<Popover open onClose triggerRef role label align side width>` from
   `components/Popover`, with `MenuItem` / `MenuSeparator` for menus: one

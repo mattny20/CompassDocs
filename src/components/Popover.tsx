@@ -62,12 +62,40 @@ export function Popover({
       onClose();
     }
     document.addEventListener("mousedown", onPointer);
+    // A real menu: focus moves into it on open and arrows walk the items.
+    let raf = 0;
+    if (role === "menu") {
+      raf = requestAnimationFrame(() => {
+        panel.current?.querySelector<HTMLElement>('[role="menuitem"]:not([disabled])')?.focus();
+      });
+    }
     return () => {
       document.removeEventListener("mousedown", onPointer);
+      if (raf) cancelAnimationFrame(raf);
       pop();
       unbind();
     };
-  }, [open, onClose, triggerRef]);
+  }, [open, onClose, triggerRef, role]);
+
+  function onKeyDown(e: React.KeyboardEvent) {
+    if (role !== "menu" || !panel.current) return;
+    const items = Array.from(panel.current.querySelectorAll<HTMLElement>('[role="menuitem"]:not([disabled])'));
+    if (items.length === 0) return;
+    const i = items.indexOf(document.activeElement as HTMLElement);
+    let next: number | null = null;
+    if (e.key === "ArrowDown") next = i < 0 || i === items.length - 1 ? 0 : i + 1;
+    else if (e.key === "ArrowUp") next = i <= 0 ? items.length - 1 : i - 1;
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = items.length - 1;
+    else if (e.key === "Tab") {
+      // Tab leaves the menu: close it and let focus continue naturally.
+      onClose();
+      return;
+    }
+    if (next === null) return;
+    e.preventDefault();
+    items[next].focus();
+  }
 
   if (!open) return null;
   const pos = `${side === "top" ? "bottom-full mb-1" : "top-full mt-1"} ${align === "end" ? "right-0" : "left-0"}`;
@@ -76,6 +104,7 @@ export function Popover({
       ref={panel}
       role={role}
       aria-label={label}
+      onKeyDown={onKeyDown}
       className={`absolute z-30 ${pos} ${width} ${padding} rounded-lg border border-slate-200 bg-surface shadow-float ${className}`.trim()}
     >
       {children}

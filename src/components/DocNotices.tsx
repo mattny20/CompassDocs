@@ -20,6 +20,7 @@ import {
   SquarePen,
 } from "lucide-react";
 import { useFormatDate } from "./SettingsProvider";
+import { useAction } from "@/lib/use-action";
 
 const ROW = "flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5 text-sm";
 const ICON = "h-4 w-4 shrink-0";
@@ -50,8 +51,8 @@ export function DocNotices({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  const [reviewBusy, setReviewBusy] = useState(false);
   const [reviewed, setReviewed] = useState(false);
+  const { run, isBusy } = useAction();
 
   const hasAckRow = ack !== undefined && ack !== null;
   const hasReviewRow = Boolean(reviewOverdue) && !reviewed;
@@ -151,18 +152,17 @@ export function DocNotices({
           {reviewOverdue.canEdit && (
             <button
               onClick={async () => {
-                setReviewBusy(true);
-                const res = await fetch(`/api/documents/${docId}/review`, { method: "POST" });
-                setReviewBusy(false);
-                if (res.ok) {
-                  setReviewed(true);
-                  router.refresh();
-                }
+                const ok = await run(
+                  "review",
+                  () => fetch(`/api/documents/${docId}/review`, { method: "POST" }),
+                  { fallback: "Couldn't mark the document as reviewed." }
+                );
+                if (ok) setReviewed(true);
               }}
-              disabled={reviewBusy}
+              disabled={isBusy("review")}
               className={buttonClass("secondary")}
             >
-              {reviewBusy && <Spinner size="sm" />}
+              {isBusy("review") && <Spinner size="sm" />}
               Mark as reviewed
             </button>
           )}
