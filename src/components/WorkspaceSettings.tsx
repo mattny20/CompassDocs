@@ -30,7 +30,25 @@ function timeZones(): string[] {
   return all.includes("UTC") ? all : ["UTC", ...all];
 }
 
-export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
+export type WorkspaceScope = "branding" | "content";
+
+/** The settings each page owns; a save sends only its own keys, so the
+ *  other page's fields are never reset by a stale copy. */
+const SCOPE_KEYS: Record<WorkspaceScope, (keyof AppSettings)[]> = {
+  branding: ["company_name", "logo_url", "accent_color", "timezone", "date_format", "time_format"],
+  content: [
+    "trash_retention_days",
+    "max_attachment_mb",
+    "max_video_mb",
+    "nested_pages_enabled",
+    "backlinks_enabled",
+    "comments_enabled",
+    "comments_blocked_words",
+    "session_timeout_minutes",
+  ],
+};
+
+export function WorkspaceSettings({ initial, scope }: { initial: AppSettings; scope: WorkspaceScope }) {
   const router = useRouter();
   const [s, setS] = useState<AppSettings>(initial);
   const [saving, setSaving] = useState(false);
@@ -115,10 +133,11 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
       return;
     }
     setSaving(true);
+    const payload = Object.fromEntries(SCOPE_KEYS[scope].map((k) => [k, s[k]]));
     const res = await fetch("/api/admin/settings", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(s),
+      body: JSON.stringify(payload),
     });
     setSaving(false);
     if (!res.ok) {
@@ -137,6 +156,8 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
 
   return (
     <div className="space-y-6">
+      {scope === "branding" && (
+        <>
       {/* Branding */}
       <div id="branding" className="scroll-mt-6 rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <h3 className="mb-3 font-semibold text-slate-900">Branding</h3>
@@ -322,6 +343,10 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
         </div>
       </div>
 
+        </>
+      )}
+      {scope === "content" && (
+        <>
       {/* Trash retention */}
       <div id="trash" className="scroll-mt-6 rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <h3 className="mb-1 font-semibold text-slate-900">Trash retention</h3>
@@ -506,6 +531,8 @@ export function WorkspaceSettings({ initial }: { initial: AppSettings }) {
         </div>
       </div>
 
+        </>
+      )}
       <SaveRow dirty={dirty} busy={saving} onSave={save} disabled={invalid} />
     </div>
   );

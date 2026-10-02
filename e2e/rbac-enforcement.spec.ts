@@ -200,13 +200,13 @@ test("the roles console renders the matrix, assignments, and the health checks",
   await expect(page.getByText(/of \d+ permissions/)).toBeVisible();
   await expect(page.getByLabel("Filter permissions")).toBeVisible();
 
-  await page.getByRole("button", { name: "Assignments" }).click();
+  await page.getByRole("link", { name: "Assignments" }).click();
   await expect(page.getByRole("heading", { name: "Grant a role" })).toBeVisible();
 
-  await page.getByRole("button", { name: "Explain access" }).click();
+  await page.getByRole("link", { name: "Explain access" }).click();
   await expect(page.getByRole("heading", { name: /Explain someone/ })).toBeVisible();
 
-  await page.getByRole("button", { name: "Health" }).click();
+  await page.getByRole("link", { name: "Health", exact: true }).click();
   await expect(page.getByRole("heading", { name: /let people back in/ })).toBeVisible();
   await expect(page.getByText(/without an assignment/)).toBeVisible();
 

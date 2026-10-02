@@ -78,14 +78,7 @@ interface PickSpace {
   name: string;
 }
 
-type Tab = "roles" | "assignments" | "explain" | "health";
-
-const TABS: { key: Tab; label: string }[] = [
-  { key: "roles", label: "Roles" },
-  { key: "assignments", label: "Assignments" },
-  { key: "explain", label: "Explain access" },
-  { key: "health", label: "Health" },
-];
+export type Tab = "roles" | "assignments" | "explain" | "health";
 
 const primary = buttonClass("primary");
 const secondary = buttonClass("secondary");
@@ -120,6 +113,7 @@ export function RolesPanel({
   groups,
   spaces,
   legacyEnforcement,
+  tab,
 }: {
   roles: Role[];
   assignments: Assignment[];
@@ -129,8 +123,10 @@ export function RolesPanel({
   spaces: PickSpace[];
   /** True when COMPASSDOCS_AUTHZ_LEGACY=1 has parked the model in read-only. */
   legacyEnforcement: boolean;
+  /** The routed page (/admin/roles, /assignments, /explain, /health); the
+   *  tab row is the section's SubNav in the layout. */
+  tab: Tab;
 }) {
-  const [tab, setTab] = useState<Tab>("roles");
   const [roles, setRoles] = useState(initialRoles);
   const [assignments, setAssignments] = useState(initialAssignments);
 
@@ -158,22 +154,6 @@ export function RolesPanel({
         </div>
       )}
 
-      <div className="flex gap-1 border-b border-slate-200">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            onClick={() => setTab(t.key)}
-            className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition ${
-              tab === t.key
-                ? "border-compass-600 text-compass-700"
-                : "border-transparent text-slate-500 hover:text-slate-700"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
 
       {tab === "roles" && (
         <RolesTab roles={roles} permissions={permissions} assignments={assignments} onChanged={reload} />
