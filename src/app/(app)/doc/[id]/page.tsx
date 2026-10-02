@@ -304,8 +304,10 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
         />
       )}
 
-      {/* Rail beside the article at Wide/Full, under it at Normal. */}
+      {/* Rail beside the article at Wide/Full, under it at Normal; the table
+          of contents rides in the rail when there is one. */}
       <DocLayout
+        toc={<DocToc title={doc.title} />}
         aside={
           <>
             {nestedOn && (
@@ -366,7 +368,6 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
         }
       >
         <>
-          <DocToc title={doc.title} />
           {/* doc-read scopes the reading measure to the document body only —
               the masthead, rail, notices and sticky bar above keep the full
               width preference. */}

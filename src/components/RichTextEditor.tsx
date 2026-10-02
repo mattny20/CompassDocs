@@ -454,6 +454,7 @@ export function RichTextEditor({
   emailBlocks = false,
   tagMenu,
   docLinks = false,
+  measure = false,
 }: {
   value: string;
   onChange: (markdown: string) => void;
@@ -465,6 +466,10 @@ export function RichTextEditor({
   tagMenu?: { tag: string; label: string }[];
   /** [[ document-link autocomplete (backlinks feature, admin-gated). */
   docLinks?: boolean;
+  /** Cap running text at the reading measure, as the document page does
+   *  (`.doc-edit` in globals.css). The document editor sets it; the
+   *  newsletter and template editors do not. */
+  measure?: boolean;
 }) {
   // Keep the latest callback in a ref so the editor (created once) always
   // calls the current closure — uploads depend on live parent state.
@@ -564,7 +569,7 @@ export function RichTextEditor({
   }
 
   return (
-    <div>
+    <div className={measure ? "doc-edit" : undefined}>
       <Toolbar
         editor={editor}
         emailBlocks={emailBlocks}

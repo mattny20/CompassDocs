@@ -52,6 +52,11 @@ keep their own titles.
 - On the document page the right rail sits beside the article at Wide and
   Full and stacks under it at Normal (`components/DocLayout`): a 56rem column
   cannot share with an 18rem rail without squeezing prose to 45 characters.
+  The table of contents goes where the rail goes (1.9.0): pass it to
+  `DocLayout` as `toc`, which renders it first in the rail when the rail is
+  beside the article ("On this page", capped at half the viewport) and as a
+  collapsible card above the body when it is not. `DocToc` reads the placement
+  from context; both mark the heading being read with `aria-current="location"`.
 - The one such column is the **document reading measure**: put `doc-read` on
   the element wrapping the rendered document body, and `globals.css` caps the
   direct children of `.doc-read .doc-prose` at `var(--doc-measure)`, which
@@ -524,6 +529,13 @@ override, so never write a hue pair by hand. Status text is label-cased
 wrap the chip for documents. Categories (audit log) are labels, not
 states: they render `neutral`.
 
+**Status is shown, not chosen** (1.9.0). An entity's state is a chip where
+the person deciding what to do next can see it — the document editor shows
+its saved status beside the title — and changing it is a named action
+(Publish, Unpublish, Submit for review), never a `<select>` of states. The
+destructive direction asks first (`confirmDialog`); the keyboard save keeps
+the state as it is.
+
 **Attribute chips** (a directory field shown as chips, a tag list) are not
 status: render them with `FieldChips`, which shows the option's **label**
 (never a raw code — "Phoenix", not `PHX1`) in **neutral slate by default**.
@@ -834,6 +846,14 @@ Rules:
 - Never put `doc-wide` on the document's **running text** — paragraphs, lists,
   headings, blockquotes. Those are what the measure is for, and a full-width
   paragraph is the bug this section prevents.
+- **The editor shares the measure** (1.9.0). The document editor sets
+  `doc-edit` on the rich-text card (`<RichTextEditor measure>`) and on the
+  Preview tab, and `globals.css` caps the direct children of
+  `.doc-edit .doc-prose` exactly as `.doc-read` does, so what you type wraps
+  where the page will wrap it. Panels keep the column there too: tiptap's node
+  views (`data-node-view-wrapper`), the table wrapper, `pre`, and anything
+  carrying `doc-wide`. The newsletter and template editors host the same
+  component without `measure` — email has a width of its own.
 - A panel carrying long-form prose is a smell. Callouts are one to three
   sentences by convention; if one grows into an essay, the fix is to promote it
   out of the callout, not to re-narrow the panel.

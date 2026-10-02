@@ -10,6 +10,8 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ChevronDown, ClipboardCheck, House, ListChecks, ShieldCheck, Sparkles, SquareSplitVertical, Table as TableIcon, X } from "lucide-react";
 import { EmptyState, Select, TextInput } from "./form";
+import { StatusBadge } from "./Badges";
+import { confirmDialog } from "./Dialog";
 import { Popover } from "./Popover";
 import { EntityPicker } from "./EntityPicker";
 import { MarkdownView } from "./MarkdownView";
@@ -99,7 +101,11 @@ export function DocEditor({
   const [categoryId, setCategoryId] = useState<number | null>(initial.category_id ?? null);
   const [title, setTitle] = useState(initial.title);
   const [type, setType] = useState<DocType>(initial.type);
-  const [status, setStatus] = useState<DocStatus>(initial.status);
+  // The SAVED status (1.9.0): what the document is right now, shown as a chip
+  // beside the title. Null until a first save creates the row. Nobody picks
+  // a status from a select any more — Publish, Unpublish and Submit for
+  // review are the actions, and each save names the status it is for.
+  const [savedStatus, setSavedStatus] = useState<DocStatus | null>(initial.id ? initial.status : null);
   // Scheduled publish / auto-unpublish (datetime-local strings, "" = off).
   const toLocal = (iso?: string | null) => {
     if (!iso) return "";
@@ -188,7 +194,6 @@ export function DocEditor({
     categoryId,
     title,
     type,
-    status,
     publishAt,
     archiveAt,
     summary,
@@ -289,9 +294,32 @@ export function DocEditor({
     setAssist(null);
   }
 
-  // An editor without publish rights who marks the doc "published" is really
-  // submitting a change for approval.
-  const willSubmitForReview = !canPublish && status === "published";
+  // The actions this person has, from the saved state and their rights
+  // (decision D-7). Publishing is an explicit button, never a select:
+  //   not saved yet   Save draft · Publish          (or Save draft alone)
+  //   saved draft     Save draft · Publish          (or · Submit for review)
+  //   published       Unpublish · Save changes      (or Submit for review)
+  // A non-publisher's "publish" is a change request, which the API decides —
+  // the button says what will happen. On a brand-new document the API would
+  // quietly downgrade a publish to a draft, so there is no Submit until the
+  // draft exists.
+  const isPublished = savedStatus === "published";
+  const primary: { label: string; status: DocStatus } = isPublished
+    ? canPublish
+      ? { label: "Save changes", status: "published" }
+      : { label: "Submit for review", status: "published" }
+    : canPublish
+      ? { label: "Publish", status: "published" }
+      : savedStatus === "draft"
+        ? { label: "Submit for review", status: "published" }
+        : { label: "Save draft", status: "draft" };
+  const secondary: { label: string; status: DocStatus; confirm?: boolean } | null = isPublished
+    ? canPublish
+      ? { label: "Unpublish", status: "draft", confirm: true }
+      : null
+    : primary.status === "published"
+      ? { label: "Save draft", status: "draft" }
+      : null;
 
   /**
    * Upload an image and return its serving URL, creating a draft first when
@@ -322,6 +350,7 @@ export function DocEditor({
         if (!res.ok) throw new Error(data?.error || "Could not save a draft for the image.");
         id = data.doc.id as number;
         setDocId(id);
+        setSavedStatus("draft");
         setAutoDrafted(true);
       }
       const fd = new FormData();
@@ -407,7 +436,8 @@ export function DocEditor({
     return null;
   }
 
-  async function save() {
+  /** Save with the given status — the status is the action. */
+  async function save(status: DocStatus) {
     if (!title.trim()) {
       setError("A title is required.");
       return;
@@ -484,13 +514,26 @@ export function DocEditor({
   // point — so `blockModKey` (which deliberately permits typing) is the only
   // key guard, with no not-typing check. It is still gated on the overlay
   // stack so ⌘S under a modal doesn't save the page behind it.
+  // Ctrl+S keeps the document as it is: a draft stays a draft, a published
+  // document stays published (for a non-publisher that is a review request,
+  // exactly as the button beside Cancel says).
   const saveHotkeyRef = useRef<() => void>(() => {});
   useEffect(() => {
     saveHotkeyRef.current = () => {
       if (saving) return;
-      void save();
+      void save(savedStatus ?? "draft");
     };
   });
+
+  async function unpublish() {
+    const ok = await confirmDialog({
+      title: "Unpublish this document?",
+      body: "Readers lose access until it is published again. Your edits are kept with it as a draft.",
+      confirmLabel: "Unpublish",
+      danger: true,
+    });
+    if (ok === true) void save("draft");
+  }
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (blockModKey(e)) return;
@@ -539,9 +582,18 @@ export function DocEditor({
         ref={headerRef}
         className="sticky top-0 z-40 -mx-8 mb-6 flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-surface px-8 py-3"
       >
-        <h1 className="min-w-0 text-xl font-bold text-slate-900">
-          {mode === "create" ? "New document" : "Edit document"}
-        </h1>
+        <div className="flex min-w-0 flex-wrap items-center gap-2.5">
+          <h1 className="min-w-0 text-xl font-bold text-slate-900">
+            {mode === "create" ? "New document" : "Edit document"}
+          </h1>
+          {/* The saved state, where the person deciding what to do next can
+              see it. A new document has none until its first save. */}
+          {savedStatus ? (
+            <StatusBadge status={savedStatus} />
+          ) : (
+            <span className={chipClass("neutral")}>Not saved yet</span>
+          )}
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           <UnsavedHint dirty={dirty} className="mr-1 hidden sm:inline-flex" />
           <Link
@@ -556,20 +608,23 @@ export function DocEditor({
           >
             Cancel
           </Link>
+          {secondary && (
+            <button
+              type="button"
+              onClick={() => (secondary.confirm ? void unpublish() : void save(secondary.status))}
+              disabled={saving}
+              className={buttonClass("secondary")}
+            >
+              {secondary.label}
+            </button>
+          )}
           <button
-            onClick={save}
+            type="button"
+            onClick={() => void save(primary.status)}
             disabled={saving}
             className={buttonClass("primary")}
           >
-            {saving
-              ? "Saving…"
-              : willSubmitForReview
-                ? "Submit for review"
-                : mode === "create"
-                  ? status === "published"
-                    ? "Publish"
-                    : "Save draft"
-                  : "Save changes"}
+            {saving ? "Saving…" : primary.label}
           </button>
         </div>
       </div>
@@ -705,19 +760,9 @@ export function DocEditor({
               ))}
             </Select>
           </Field>
-          <Field label="Status">
-            <Select
-              value={status}
-              onChange={(e) => {
-                markDirty();
-                setStatus(e.target.value as DocStatus);
-              }}
-            >
-              <option value="draft">Draft</option>
-              <option value="published">Published</option>
-            </Select>
-          </Field>
-          {canPublish && docId && status === "draft" && (
+          {/* Scheduling follows the SAVED status: a draft can be published
+              at a time, a published document unpublished at one. */}
+          {canPublish && docId && savedStatus === "draft" && (
             <Field label="Publish automatically at (optional)">
               <TextInput
                 type="datetime-local"
@@ -729,7 +774,7 @@ export function DocEditor({
               />
             </Field>
           )}
-          {canPublish && docId && status === "published" && (
+          {canPublish && docId && savedStatus === "published" && (
             <Field label="Unpublish automatically at (optional)">
               <TextInput
                 type="datetime-local"
@@ -745,8 +790,8 @@ export function DocEditor({
 
         {!canPublish && (
           <p className="notice-warn rounded-lg border px-3 py-2 text-xs">
-            You can save drafts freely. Setting the status to <strong>Published</strong> submits
-            your change to the review queue for an approver to publish.
+            You can save drafts freely. <strong>Submit for review</strong> sends your change to
+            the review queue for an approver to publish.
           </p>
         )}
 
@@ -935,6 +980,7 @@ export function DocEditor({
               }}
               onUploadImage={uploadImage}
               docLinks={docLinks}
+              measure
             />
           ) : tab === "markdown" ? (
             <textarea
@@ -962,7 +1008,7 @@ export function DocEditor({
               className="h-[26.25rem] w-full resize-y rounded-b-lg px-4 py-3 font-mono text-sm text-slate-700 outline-hidden"
             />
           ) : (
-            <div className="min-h-[26.25rem] px-5 py-4">
+            <div className="doc-edit min-h-[26.25rem] px-5 py-4">
               {content.trim() ? (
                 // Training docs (an existing deck, or a doc being authored with a
                 // compliance block) preview --- as labeled slide-break markers.

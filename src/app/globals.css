@@ -422,6 +422,26 @@ mark {
   max-width: none;
 }
 
+/* The editor shares the measure (1.9.0). What you type wraps where the page
+ * will wrap it: before this the editor card ran ~230-character lines at 1920
+ * Full and looked nothing like the document it produces. `.doc-edit` is set
+ * by the document editor only (the rich-text card and the Preview tab); the
+ * newsletter and template editors host the same RichTextEditor and stay
+ * uncapped, because email has a width of its own.
+ *
+ * Same rule as the reader: running text is capped, panels keep the column.
+ * In tiptap the panels are node views (`data-node-view-wrapper`: callouts,
+ * accordions, tabs, video, embeds, code) and the table wrapper; the Preview
+ * tab renders MarkdownView, whose panels carry `doc-wide` as on the page. */
+.doc-edit .doc-prose > * {
+  max-width: var(--doc-measure, 60ch);
+}
+.doc-edit .doc-prose > :is([data-node-view-wrapper], .tableWrapper, table, pre, .doc-wide),
+.doc-edit .doc-prose > p:has(> img:only-child),
+.doc-edit .doc-prose > p:has(> a:only-child > img:only-child) {
+  max-width: none;
+}
+
 /* On paper the page box already provides the measure, and narrowing it further
    just wastes the sheet. */
 @media print {
