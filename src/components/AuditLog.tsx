@@ -5,8 +5,10 @@ import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import { Table, Th, Td, TABLE_HEAD_ROW, TR } from "@/components/Table";
 import { busyClass } from "@/components/Spinner";
+import { Pager } from "@/components/Pager";
 import { controlClass, SectionEmpty } from "@/components/form";
 import { toast } from "@/components/Toasts";
+import { actionLabel, humanise } from "@/lib/audit-labels";
 import { useFormatDate } from "./SettingsProvider";
 
 interface AuditRow {
@@ -30,84 +32,27 @@ interface Initial {
   limit: number;
 }
 
-// Human-friendly labels for known actions; anything else falls back to the key.
-const LABELS: Record<string, string> = {
-  "auth.login": "Signed in",
-  "auth.logout": "Signed out",
-  "auth.login_failed": "Failed sign-in",
-  "user.create": "Created user",
-  "user.role_change": "Changed role",
-  "user.reset_password": "Reset password",
-  "user.enable": "Enabled user",
-  "user.disable": "Disabled user",
-  "user.delete": "Deleted user",
-  "document.create": "Created document",
-  "document.update": "Edited document",
-  "document.publish": "Published document",
-  "document.delete": "Deleted document",
-  "document.restore": "Restored document",
-  "document.purge": "Purged document",
-  "auth.lockout": "Login lockout engaged",
-  "ack.requested": "Acknowledgement requested",
-  "ack.reminder_sent": "Acknowledgement reminder sent",
-  "scim.user_create": "SCIM provisioned user",
-  "scim.user_update": "SCIM updated user",
-  "scim.user_disable": "SCIM deactivated user",
-  "scim.user_enable": "SCIM reactivated user",
-  "scim.token_generated": "SCIM token generated",
-  "scim.enabled": "SCIM provisioning enabled",
-  "scim.disabled": "SCIM provisioning disabled",
-  "document.restore_version": "Restored previous version",
-  "document.branch_create": "Created draft branch",
-  "document.branch_merge": "Merged draft branch",
-  "change_request.submit": "Submitted for review",
-  "change_request.approve": "Approved change",
-  "change_request.reject": "Rejected change",
-  "space.create": "Created space",
-  "space.update": "Edited space",
-  "space.delete": "Deleted space",
-  "settings.workspace": "Updated workspace settings",
-  "settings.approval_mode": "Changed approval mode",
-  "settings.domain": "Updated domain & HTTPS",
-  "settings.ai_model": "Changed AI model",
-  "settings.ai_key_set": "Set AI API key",
-  "settings.ai_key_removed": "Removed AI API key",
-  "settings.backup_destination": "Updated backup destination",
-  "settings.email_template": "Edited email template",
-  "settings.email_template_reset": "Reset email template",
-  "settings.section_access": "Changed section access",
-  "settings.template_created": "Created document template",
-  "settings.template_updated": "Edited document template",
-  "settings.template_reset": "Reset document template",
-  "settings.template_deleted": "Deleted document template",
-  "document.review_schedule": "Changed review schedule",
-  "document.reviewed": "Marked document reviewed",
-  "document.share_created": "Created share link",
-  "document.share_revoked": "Revoked share link",
-  "settings.semantic_search": "Updated semantic search settings",
-  "settings.semantic_reindex": "Rebuilt semantic index",
-  "settings.backup_destination_removed": "Removed backup destination",
-  "backup.create": "Created backup",
-  "backup.delete": "Deleted backup",
-  "backup.restore": "Restored backup",
-  "audit.export": "Exported audit log",
-};
+// Action labels live in lib/audit-labels (shared with the export); the
+// category chip is a label, not a state, so every one renders neutral. A
+// rainbow of seven hues read as seven alert levels.
 
-// Categories are labels, not states: every one renders neutral. A rainbow
-// of seven hues read as seven alert levels.
-
-function actionLabel(a: string): string {
-  return LABELS[a] || a;
+/** A detail value as words: arrays join, objects are counted, booleans say
+ *  yes/no, and anything with underscores reads as a sentence. */
+function detailValue(v: unknown): string {
+  if (Array.isArray(v)) return v.map(detailValue).join(", ");
+  if (typeof v === "boolean") return v ? "yes" : "no";
+  if (typeof v === "object" && v !== null) return `${Object.keys(v).length} field${Object.keys(v).length === 1 ? "" : "s"}`;
+  const s = String(v);
+  return /^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/.test(s) ? humanise(s).toLowerCase() : s;
 }
 
 function detailText(row: AuditRow): string {
   const d = row.details;
   if (!d) return "";
   if (row.action === "user.role_change" && d.from && d.to) return `${d.from} → ${d.to}`;
-  if (Array.isArray((d as any).fields)) return `fields: ${(d as any).fields.join(", ")}`;
   const parts = Object.entries(d)
-    .filter(([, v]) => v !== undefined && v !== null && v !== "")
-    .map(([k, v]) => `${k}: ${v}`);
+    .filter(([, v]) => v !== undefined && v !== null && v !== "" && !(Array.isArray(v) && v.length === 0))
+    .map(([k, v]) => `${humanise(k)}: ${detailValue(v)}`);
   return parts.join(" · ");
 }
 
@@ -128,7 +73,6 @@ export function AuditLog({
   const [loading, setLoading] = useState(false);
 
   const limit = initial.limit;
-  const pages = Math.max(1, Math.ceil(total / limit));
 
   function filterParams(f: string, t: string, cat: string): URLSearchParams {
     const params = new URLSearchParams();
@@ -207,7 +151,7 @@ export function AuditLog({
             <option value="">All categories</option>
             {initial.categories.map((c) => (
               <option key={c} value={c}>
-                {c.replace(/_/g, " ")}
+                {humanise(c)}
               </option>
             ))}
           </select>
@@ -246,6 +190,7 @@ export function AuditLog({
         </div>
       </div>
 
+      <Pager page={page} limit={limit} total={total} onPage={(p) => load(p, category)} busy={loading} className="mb-3" />
       <div className={`rounded-xl border border-slate-200 bg-surface shadow-xs ${busyClass(loading)}`} aria-busy={loading}>
         <Table sticky>
           <thead className={TABLE_HEAD_ROW}>
@@ -259,7 +204,6 @@ export function AuditLog({
           </thead>
           <tbody>
             {rows.map((row) => {
-              const cat = row.action.split(".")[0];
               const detail = detailText(row);
               return (
                 <tr key={row.id} className={`${TR} align-top`}>
@@ -283,7 +227,7 @@ export function AuditLog({
                   <Td className="break-all text-slate-600">
                     {row.target_label || (row.target_id ? `#${row.target_id}` : "—")}
                     {row.target_type && (
-                      <span className="ml-1 text-xs text-slate-500">{row.target_type}</span>
+                      <span className="ml-1 text-xs text-slate-500">{humanise(row.target_type).toLowerCase()}</span>
                     )}
                   </Td>
                   <Td fit className="font-mono text-xs text-slate-500">
@@ -303,29 +247,7 @@ export function AuditLog({
         </Table>
       </div>
 
-      {pages > 1 && (
-        <div className="flex items-center justify-between text-sm text-slate-500">
-          <span>
-            Page {page + 1} of {pages}
-          </span>
-          <div className="flex gap-2">
-            <button
-              onClick={() => load(page - 1, category)}
-              disabled={page <= 0 || loading}
-              className={buttonClass("secondary")}
-            >
-              ← Newer
-            </button>
-            <button
-              onClick={() => load(page + 1, category)}
-              disabled={page >= pages - 1 || loading}
-              className={buttonClass("secondary")}
-            >
-              Older →
-            </button>
-          </div>
-        </div>
-      )}
+      <Pager page={page} limit={limit} total={total} onPage={(p) => load(p, category)} busy={loading} />
     </div>
   );
 }

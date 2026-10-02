@@ -626,7 +626,7 @@ export function AnalyticsClient() {
             <Card
               icon={<Moon className="h-4 w-4" />}
               title="Least viewed documents"
-              sub="Published docs nobody is finding — candidates to refresh, promote, or retire"
+              sub="Published documents nobody is finding — candidates to refresh, promote, or retire"
             >
               {data.least.length === 0 ? (
                 <SectionEmpty className="py-6 text-center">No published documents match these filters.</SectionEmpty>

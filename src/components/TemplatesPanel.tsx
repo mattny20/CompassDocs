@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Spinner } from "@/components/Spinner";
+import { SettingsLink } from "@/components/SettingsLink";
 import { chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import { confirmDialog } from "@/components/Dialog";
@@ -67,7 +68,7 @@ export function TemplatesPanel({ initial }: { initial: TemplateRow[] }) {
             <code className="rounded-sm bg-slate-100 px-1 py-0.5 text-xs">{"{{date}}"}</code> fill in
             automatically; anything else (say{" "}
             <code className="rounded-sm bg-slate-100 px-1 py-0.5 text-xs">{"{{owner}}"}</code>) stays
-            visible as a prompt for the writer. Set a per-space default under Settings → Spaces, or
+            visible as a prompt for the writer. Set a per-space default under <SettingsLink href="/admin/spaces" />, or
             save any existing document as a template from its page actions.
           </p>
         </div>

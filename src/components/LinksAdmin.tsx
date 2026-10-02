@@ -7,6 +7,7 @@
 
 import { useRef, useState } from "react";
 import { buttonClass } from "@/components/Button";
+import { SettingsLink } from "@/components/SettingsLink";
 import {
   Plus,
   Pencil,
@@ -17,6 +18,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { Field, SectionEmpty, Select, TextInput } from "@/components/form";
+import { EntityPicker } from "@/components/EntityPicker";
 import { confirmDialog, promptDialog } from "@/components/Dialog";
 import { useAction } from "@/lib/use-action";
 
@@ -50,8 +52,19 @@ const EMPTY_FORM = {
   description: "",
   category_id: null as number | null,
   icon_type: "favicon" as AdminLink["icon_type"],
+  // `restrict` is the radio, `group_ids` the picker. Kept apart so removing
+  // the last chip leaves the link restricted-to-nobody (and unsaveable)
+  // instead of silently opening it to everyone. The payload is group_ids only.
+  restrict: false,
   group_ids: [] as number[],
 };
+
+/** Restricted visibility with nobody picked: the one state Save refuses. */
+function groupsError(form: typeof EMPTY_FORM): string | undefined {
+  return form.restrict && form.group_ids.length === 0
+    ? "Pick at least one group, or choose Everyone."
+    : undefined;
+}
 
 export function LinksAdmin({
   initialCategories,
@@ -185,6 +198,7 @@ export function LinksAdmin({
       description: l.description,
       category_id: l.category_id,
       icon_type: l.icon_type,
+      restrict: l.group_ids.length > 0,
       group_ids: l.group_ids,
     });
     setIconFile(null);
@@ -197,6 +211,10 @@ export function LinksAdmin({
       setError("A title and URL are required.");
       return;
     }
+    if (groupsError(form)) {
+      setError(groupsError(form)!);
+      return;
+    }
     setBusy(true);
     setError("");
     const payload = {
@@ -205,7 +223,7 @@ export function LinksAdmin({
       description: form.description,
       category_id: form.category_id,
       icon_type: form.icon_type,
-      group_ids: form.group_ids,
+      group_ids: form.restrict ? form.group_ids : [],
     };
     const res =
       editing === "new"
@@ -545,7 +563,7 @@ function LinkForm({
         </div>
         {form.icon_type === "brand" && !brandLogo && (
           <p className="mt-1 text-xs ink-warn">
-            No workspace logo is set (Settings → Workspace) — the link will show a letter tile.
+            No workspace logo is set (<SettingsLink href="/admin/workspace" />) — the link will show a letter tile.
           </p>
         )}
         {form.icon_type === "custom" && (
@@ -572,8 +590,8 @@ function LinkForm({
           <input
             type="radio"
             name="link_vis"
-            checked={form.group_ids.length === 0}
-            onChange={() => setForm({ ...form, group_ids: [] })}
+            checked={!form.restrict}
+            onChange={() => setForm({ ...form, restrict: false, group_ids: [] })}
             className="accent-compass-600"
           />
           Everyone
@@ -582,33 +600,27 @@ function LinkForm({
           <input
             type="radio"
             name="link_vis"
-            checked={form.group_ids.length > 0}
-            onChange={() => groups.length && setForm({ ...form, group_ids: [groups[0].id] })}
+            checked={form.restrict}
+            onChange={() => groups.length && setForm({ ...form, restrict: true })}
             disabled={groups.length === 0}
             className="accent-compass-600"
           />
           Only these groups{groups.length === 0 && " (no groups exist yet)"}
         </label>
-        {form.group_ids.length > 0 && (
-          <div className="ml-6 mt-1.5 flex flex-wrap gap-x-4 gap-y-1">
-            {groups.map((g) => (
-              <label key={g.id} className="flex cursor-pointer items-center gap-1.5">
-                <input
-                  type="checkbox"
-                  checked={form.group_ids.includes(g.id)}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      group_ids: e.target.checked
-                        ? [...form.group_ids, g.id]
-                        : form.group_ids.filter((id) => id !== g.id),
-                    })
-                  }
-                  className="accent-compass-600"
-                />
-                {g.name}
-              </label>
-            ))}
+        {form.restrict && (
+          <div className="ml-6 mt-1.5 max-w-xl">
+            <EntityPicker
+              label="Groups"
+              options={groups.map((g) => ({ id: g.id, label: g.name }))}
+              value={form.group_ids}
+              onChange={(ids) => setForm({ ...form, group_ids: ids })}
+              placeholder="Search groups…"
+            />
+            {groupsError(form) && (
+              <span role="alert" className="mt-1 block text-xs text-red-600">
+                {groupsError(form)}
+              </span>
+            )}
           </div>
         )}
       </fieldset>
@@ -618,7 +630,7 @@ function LinkForm({
       <div className="mt-4 flex gap-2">
         <button
           onClick={onSave}
-          disabled={busy}
+          disabled={busy || !!groupsError(form)}
           className={buttonClass("primary")}
         >
           {busy ? "Saving…" : editingLink ? "Save changes" : "Add link"}

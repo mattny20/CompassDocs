@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { requireUser } from "@/lib/auth";
+import { requireUser, reachableSettingsSections } from "@/lib/auth";
 import { Sidebar } from "@/components/Sidebar";
 import { WidthProvider } from "@/components/PageWidth";
 import { SettingsProvider } from "@/components/SettingsProvider";
@@ -8,6 +8,7 @@ import { settingsForUser } from "@/lib/format";
 import { countOpenSuggestions, countPendingChangeRequests, countTrashed } from "@/lib/db";
 import { ToastHost } from "@/components/Toasts";
 import { DialogHost } from "@/components/Dialog";
+import { ReachableSettingsProvider } from "@/components/SettingsLink";
 import { UiScaleSync } from "@/components/UiScale";
 import { CommandPalette } from "@/components/palette/CommandPalette";
 import { navCapabilities } from "@/lib/nav-capabilities";
@@ -23,6 +24,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // The badge counts are the capabilities they gate, so they follow rather
   // than race them: no point counting a review queue the user cannot open.
   const caps = await navCapabilities(user);
+  const reachable = await reachableSettingsSections(user);
   const [reviewCount, trashCount, paletteSpaces, workspaceSettings] = await Promise.all([
     caps.isApprover
       ? Promise.all([countOpenSuggestions(), countPendingChangeRequests()]).then(
@@ -52,9 +54,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           area in Safari. */}
       <main id="main" tabIndex={-1} className="flex-1 overflow-y-auto outline-none print:overflow-visible">
         <SettingsProvider value={settings}>
+        <ReachableSettingsProvider sections={reachable}>
         <WidthProvider initial={user.page_width}>{children}
         <ToastHost />
         <DialogHost /></WidthProvider>
+        </ReachableSettingsProvider>
         </SettingsProvider>
       </main>
       <CommandPalette

@@ -7,9 +7,10 @@
 import { useState } from "react";
 import { chipClass, EnterpriseBadge } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
+import { SettingsLink } from "@/components/SettingsLink";
 import { confirmDialog } from "@/components/Dialog";
 import { useRouter } from "next/navigation";
-import { UsersRound, RefreshCw, CloudDownload, Trash2, Pencil, X } from "lucide-react";
+import { UsersRound, RefreshCw, CloudDownload, Trash2, Pencil, Plus, X } from "lucide-react";
 import { EntityPicker } from "@/components/EntityPicker";
 import { controlClass, SectionEmpty, TextInput } from "@/components/form";
 import { toast } from "@/components/Toasts";
@@ -41,6 +42,7 @@ export function GroupsPanel({
   const router = useRouter();
   const [groups, setGroups] = useState<GroupRow[]>(initial);
   const [open, setOpen] = useState<number | null>(null);
+  const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -71,8 +73,15 @@ export function GroupsPanel({
       return;
     }
     setNewName("");
+    setCreating(false);
     toast("ok", `Group “${name}” created.`);
     await refresh();
+  }
+
+  function cancelCreate() {
+    setCreating(false);
+    setNewName("");
+    setError("");
   }
 
   async function remove(g: GroupRow) {
@@ -103,11 +112,18 @@ export function GroupsPanel({
 
   return (
     <div className="space-y-6">
-      <div>
-        <p className="mt-1 text-sm text-slate-500">
-          Groups control who can see private spaces (Settings → Spaces). Add users by hand, or
+      {/* One primary create action, top-right of the intro row; the inline
+          form it reveals sits above the list it adds to. */}
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <p className="mt-1 max-w-2xl text-sm text-slate-500">
+          Groups control who can see private spaces (<SettingsLink href="/admin/spaces" />). Add users by hand, or
           import groups from Microsoft Entra to keep membership synced with your directory.
         </p>
+        {!creating && (
+          <button onClick={() => setCreating(true)} className={buttonClass("primary")}>
+            <Plus className="h-4 w-4" aria-hidden /> New group
+          </button>
+        )}
       </div>
 
       {error && (
@@ -115,23 +131,33 @@ export function GroupsPanel({
           {error}
         </div>
       )}
-      <div className="flex gap-2">
-        <TextInput
-          value={newName}
-          onChange={(e) => setNewName(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && create()}
-          className="flex-1"
-          placeholder="New group name — e.g. Engineering, HR, Leadership"
-          maxLength={80}
-        />
-        <button
-          onClick={create}
-          disabled={busy}
-          className={buttonClass("primary")}
-        >
-          Create group
-        </button>
-      </div>
+      {creating && (
+        <div className="flex flex-wrap gap-2 rounded-xl border border-compass-200 bg-compass-50/40 p-4">
+          <TextInput
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") create();
+              if (e.key === "Escape") cancelCreate();
+            }}
+            className="min-w-56 flex-1"
+            placeholder="New group name — e.g. Engineering, HR, Leadership"
+            aria-label="New group name"
+            maxLength={80}
+            autoFocus
+          />
+          <button
+            onClick={create}
+            disabled={busy}
+            className={buttonClass("primary")}
+          >
+            Create group
+          </button>
+          <button type="button" onClick={cancelCreate} className={buttonClass("ghost")}>
+            Cancel
+          </button>
+        </div>
+      )}
 
       <div className="space-y-2">
         {groups.map((g) => (
@@ -146,9 +172,12 @@ export function GroupsPanel({
             deleting={isBusy(g.id)}
           />
         ))}
-        {groups.length === 0 && (
-          <SectionEmpty className="py-6">
-            No groups yet. Create one above, then grant it on a private space.
+        {groups.length === 0 && !creating && (
+          <SectionEmpty
+            className="py-6"
+            action={{ label: "Create your first group", onClick: () => setCreating(true) }}
+          >
+            No groups yet — create one, then grant it on a private space.
           </SectionEmpty>
         )}
       </div>
@@ -457,11 +486,7 @@ function EntraSection({
         </p>
       ) : !entra.configured ? (
         <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-500">
-          Connect Microsoft 365 first under{" "}
-          <a href="/admin/directory" className="font-medium text-compass-700 underline">
-            Settings → Directory
-          </a>{" "}
-          — group sync reuses the same app registration (it also needs the GroupMember.Read.All
+          Connect Microsoft 365 first under <SettingsLink href="/admin/directory" /> — group sync reuses the same app registration (it also needs the GroupMember.Read.All
           application permission, which the one-click setup grants).
         </p>
       ) : null}

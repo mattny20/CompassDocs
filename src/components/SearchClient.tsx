@@ -164,7 +164,7 @@ export function SearchClient({
           </div>
           {asking ? (
             <div className="flex items-center gap-2 py-3 text-slate-500">
-              <Spinner /> Thinking through your docs…
+              <Spinner /> Thinking through your documents…
             </div>
           ) : (
             answer && (
@@ -278,7 +278,7 @@ export function SearchClient({
                     <code className="rounded-sm bg-slate-100 px-1 font-mono text-xs">space:engineering</code>{" "}
                     <code className="rounded-sm bg-slate-100 px-1 font-mono text-xs">author:&quot;maya&quot;</code>
                   </li>
-                  <li>· The answer above may still help — it reads across all your docs.</li>
+                  <li>· The answer above may still help — it reads across all your documents.</li>
                 </ul>
               </EmptyState>
             )}

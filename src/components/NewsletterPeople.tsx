@@ -6,6 +6,7 @@
 
 import { useRef, useState } from "react";
 import { buttonClass } from "@/components/Button";
+import { SettingsLink } from "@/components/SettingsLink";
 import Link from "next/link";
 import { Mail, Plus, X, Image as ImageIcon } from "lucide-react";
 import { Field, Select, TextInput } from "@/components/form";
@@ -390,7 +391,7 @@ export function NewsletterPeople({
         <h2 className="font-semibold text-slate-900">From addresses</h2>
         <p className="mt-1 text-sm text-slate-500">
           Senders a newsletter can go out as — composers pick one per newsletter, or leave
-          the workspace default from Settings → Notifications. Use{" "}
+          the workspace default from <SettingsLink href="/admin/notifications/email" />. Use{" "}
           <code className="rounded-sm bg-slate-100 px-1 text-xs">address@domain</code> or{" "}
           <code className="rounded-sm bg-slate-100 px-1 text-xs">Name &lt;address@domain&gt;</code>.
         </p>

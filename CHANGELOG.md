@@ -4,6 +4,39 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.8.2] - 2026-10-02
+
+The admin console, part three: a way to the fix, a picker instead of a
+wall, one place for "New", a Trash that scales, and a vocabulary.
+
+### Added
+- **Failing diagnostics link to their fix.** "Email (SMTP) — Attention"
+  now carries "Set up SMTP"; AI, semantic search, the licence and the
+  MCP connector likewise. Every "Settings → X" reference in the product
+  is a link when you can open that section and plain text when you
+  cannot, and each settings section has a Docs button to its page on
+  docs.compassdocs.io.
+- **A searchable picker replaces the checkbox walls** for webhook spaces,
+  link groups, newsletter and announcement audiences: type to find,
+  chips to remove, Enter never submits the form by accident. A link
+  restricted to groups can no longer widen to everyone by removing the
+  last chip — Save waits for a group or "Everyone".
+- **The Trash is paged and searchable.** Fifty at a time with "Showing
+  1–50 of 4,333", a filter by title or space, and no document bodies
+  loaded to draw a list. Users and Spaces share the same filter box with
+  a live "3 of 89" count; the audit log's pager sits above and below the
+  table.
+- **One place for the primary create action**: top-right of the intro
+  row, opening the inline form above the list. "Add user" moves there
+  (Auto-link beside it), Groups gets "New group", Spaces already had it.
+
+### Changed
+- The audit log never prints a raw key: 163 actions have labels
+  ("Updated person", "Assigned training") and anything unknown reads
+  "Directory · Person updated". "Users & roles" is "Users"; "docs" is
+  "documents"; controls that narrow a list say "Filter …", lookups that
+  fetch say "Search …". The guide has a Vocabulary section.
+
 ## [1.8.1] - 2026-10-02
 
 The admin console, part two: sections with several jobs get pages.

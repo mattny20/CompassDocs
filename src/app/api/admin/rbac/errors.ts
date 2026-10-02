@@ -22,7 +22,7 @@ const MESSAGES: Record<RoleMutationError, { status: number; error: string }> = {
   in_use: {
     status: 400,
     error:
-      "This assignment mirrors the person's role. Change it in Settings → Users & roles so both move together.",
+      "This assignment mirrors the person's role. Change it in Settings → Users so both move together.",
   },
 };
 

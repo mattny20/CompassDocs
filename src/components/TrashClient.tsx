@@ -6,7 +6,11 @@ import { Table, Th, Td, TABLE_HEAD_ROW, TR } from "@/components/Table";
 import { useAction } from "@/lib/use-action";
 import { Search, Trash2 } from "lucide-react";
 import { TypeBadge } from "./Badges";
-import { EmptyState } from "./form";
+import { EmptyState, SectionEmpty } from "./form";
+import { ListFilter } from "./ListFilter";
+import { Pager } from "./Pager";
+import { useRouter } from "next/navigation";
+import { useRef, useState } from "react";
 import { formatDate, formatDateTime } from "@/lib/format";
 import type { AppSettings } from "@/lib/settings";
 import type { DocType, DocStatus } from "@/lib/types";
@@ -23,16 +27,46 @@ interface TrashedDoc {
 
 export function TrashClient({
   docs,
+  total,
+  page,
+  pageSize,
+  query,
   isAdmin,
   settings,
   retentionDays,
 }: {
   docs: TrashedDoc[];
+  /** Rows matching the filter, across all pages. */
+  total: number;
+  page: number;
+  pageSize: number;
+  /** The server-side filter (?q=). */
+  query: string;
   isAdmin: boolean;
   settings: AppSettings;
   retentionDays: number;
 }) {
   const { run, isBusy, busy } = useAction();
+  const router = useRouter();
+  // The filter and the page live in the URL so the list is paged and
+  // searched by the server (the Trash no longer loads every body); typing
+  // is debounced before the route changes.
+  const [draft, setDraft] = useState(query);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function go(next: { q?: string; page?: number }) {
+    const q = next.q ?? query;
+    const p = next.page ?? 0;
+    const sp = new URLSearchParams();
+    if (q) sp.set("q", q);
+    if (p > 0) sp.set("page", String(p));
+    const qs = sp.toString();
+    router.replace(qs ? `/trash?${qs}` : "/trash");
+  }
+  function onFilter(v: string) {
+    setDraft(v);
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => go({ q: v, page: 0 }), 250);
+  }
 
   async function restore(d: TrashedDoc) {
     await run(d.id, () => fetch(`/api/trash/${d.id}`, { method: "POST" }), {
@@ -63,7 +97,7 @@ export function TrashClient({
     return formatDate(due.toISOString(), settings);
   }
 
-  if (docs.length === 0) {
+  if (total === 0 && !query) {
     return (
       <EmptyState
         icon={<Trash2 />}
@@ -74,7 +108,15 @@ export function TrashClient({
     );
   }
 
+  const pager = <Pager page={page} limit={pageSize} total={total} onPage={(p) => go({ page: p })} busy={busy} />;
+
   return (
+    <div className="space-y-3">
+    <ListFilter value={draft} onChange={onFilter} label="Filter the Trash" noun="documents" shown={total} total={total} placeholder="Filter by title or space…" />
+    {pager}
+    {docs.length === 0 ? (
+      <SectionEmpty className="px-4 py-6">No trashed documents match your filter.</SectionEmpty>
+    ) : (
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-surface shadow-xs">
       <Table scroll aria-busy={busy}>
         <thead className={TABLE_HEAD_ROW}>
@@ -129,6 +171,9 @@ export function TrashClient({
           ))}
         </tbody>
       </Table>
+    </div>
+    )}
+    {total > pageSize && pager}
     </div>
   );
 }

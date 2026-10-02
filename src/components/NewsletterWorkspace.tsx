@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { buttonClass } from "@/components/Button";
+import { SettingsLink } from "@/components/SettingsLink";
 import { confirmDialog } from "@/components/Dialog";
 import { useRouter } from "next/navigation";
 import { BackLink } from "@/components/BackLink";
@@ -29,6 +30,7 @@ import { MarkdownView } from "./MarkdownView";
 import { StatusBadge } from "./NewsletterList";
 import { useFormatDate } from "./SettingsProvider";
 import { controlClass, SectionEmpty } from "@/components/form";
+import { EntityPicker } from "@/components/EntityPicker";
 
 interface NewsletterDetail {
   id: number;
@@ -428,7 +430,7 @@ export function NewsletterWorkspace({
       {!smtpReady && !isSent && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
           Email needs SMTP — an admin can set it up under{" "}
-          <span className="font-medium">Settings → Notifications</span>. You can still draft
+          <SettingsLink href="/admin/notifications/email" />. You can still draft
           and review in the meantime.
         </div>
       )}
@@ -551,23 +553,18 @@ export function NewsletterWorkspace({
                 Selected groups only
               </label>
               {mode === "groups" && (
-                <div className="ml-6 flex flex-wrap gap-x-4 gap-y-1 pt-1">
-                  {groups.map((g) => (
-                    <label key={g.id} className="flex cursor-pointer items-center gap-1.5">
-                      <input
-                        type="checkbox"
-                        checked={groupIds.includes(g.id)}
-                        onChange={(e) =>
-                          setGroupIds((prev) =>
-                            e.target.checked ? [...prev, g.id] : prev.filter((x) => x !== g.id)
-                          )
-                        }
-                        className="accent-compass-600"
-                      />
-                      {g.name}
-                      <span className="text-xs text-slate-500">{g.member_count}</span>
-                    </label>
-                  ))}
+                <div className="ml-6 max-w-xl pt-1">
+                  <EntityPicker
+                    label="Groups"
+                    options={groups.map((g) => ({
+                      id: g.id,
+                      label: g.name,
+                      sublabel: `${g.member_count} member${g.member_count === 1 ? "" : "s"}`,
+                    }))}
+                    value={groupIds}
+                    onChange={setGroupIds}
+                    placeholder="Search groups…"
+                  />
                 </div>
               )}
             </div>
@@ -577,8 +574,8 @@ export function NewsletterWorkspace({
             <legend className="px-1 text-xs font-medium text-slate-500">Approvers</legend>
             {approverPool.length === 0 ? (
               <p className="text-sm text-slate-500">
-                No approvers yet — an admin can grant the approver capability under
-                Settings → Newsletter.
+                No approvers yet — an admin can grant the approver capability under{" "}
+                <SettingsLink href="/admin/newsletter" />.
               </p>
             ) : (
               <>

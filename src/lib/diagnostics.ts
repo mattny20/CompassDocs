@@ -19,7 +19,21 @@ export interface DiagnosticCheck {
   label: string;
   status: CheckStatus;
   detail: string;
+  /**
+   * The settings page that fixes a non-pass outcome, when one exists. Only set
+   * where a page really owns the fix — database, upload storage, metrics and
+   * outbound egress are container/server configuration with no page.
+   */
+  fix?: { href: string; label: string };
 }
+
+const FIX = {
+  smtp: { href: "/admin/notifications/email", label: "Set up SMTP" },
+  ai: { href: "/admin/ai", label: "Connect a provider" },
+  semantic: { href: "/admin/ai", label: "Semantic search settings" },
+  license: { href: "/admin/license", label: "Open License" },
+  domain: { href: "/admin/domain", label: "Open Domain & HTTPS" },
+} as const;
 
 async function checkDatabase(): Promise<DiagnosticCheck> {
   const started = Date.now();
@@ -68,6 +82,7 @@ async function checkSmtp(): Promise<DiagnosticCheck> {
         label: "Email (SMTP)",
         status: "warn",
         detail: "Not configured — subscriptions, reminders, and newsletters can't send.",
+        fix: FIX.smtp,
       };
     }
     return {
@@ -82,6 +97,7 @@ async function checkSmtp(): Promise<DiagnosticCheck> {
       label: "Email (SMTP)",
       status: "fail",
       detail: e instanceof Error ? e.message : String(e),
+      fix: FIX.smtp,
     };
   }
 }
@@ -96,9 +112,10 @@ async function checkAi(): Promise<DiagnosticCheck> {
           label: "AI assistant",
           status: "warn",
           detail: "Not configured — Ask, proofreading, and writing help are off.",
+          fix: FIX.ai,
         };
   } catch (e) {
-    return { key: "ai", label: "AI assistant", status: "fail", detail: e instanceof Error ? e.message : String(e) };
+    return { key: "ai", label: "AI assistant", status: "fail", detail: e instanceof Error ? e.message : String(e), fix: FIX.ai };
   }
 }
 
@@ -111,6 +128,7 @@ async function checkSemantic(): Promise<DiagnosticCheck> {
         label: "Semantic search",
         status: "warn",
         detail: "Disabled — search is keyword-only.",
+        fix: FIX.semantic,
       };
     }
     const vector = await vectorAvailable();
@@ -121,6 +139,7 @@ async function checkSemantic(): Promise<DiagnosticCheck> {
           label: "Semantic search",
           status: "fail",
           detail: "Enabled but the pgvector extension is unavailable in this database.",
+          fix: FIX.semantic,
         };
   } catch (e) {
     return {
@@ -128,6 +147,7 @@ async function checkSemantic(): Promise<DiagnosticCheck> {
       label: "Semantic search",
       status: "fail",
       detail: e instanceof Error ? e.message : String(e),
+      fix: FIX.semantic,
     };
   }
 }
@@ -149,16 +169,17 @@ async function checkLicense(): Promise<DiagnosticCheck> {
           label: "License",
           status: "warn",
           detail: `Expired — in grace period, ${s.daysLeft} days left to renew.`,
+          fix: FIX.license,
         };
       case "expired":
-        return { key: "license", label: "License", status: "warn", detail: "Expired — enterprise features are off." };
+        return { key: "license", label: "License", status: "warn", detail: "Expired — enterprise features are off.", fix: FIX.license };
       case "invalid":
-        return { key: "license", label: "License", status: "fail", detail: `Invalid: ${s.reason}` };
+        return { key: "license", label: "License", status: "fail", detail: `Invalid: ${s.reason}`, fix: FIX.license };
       default:
         return { key: "license", label: "License", status: "pass", detail: "Community edition (no license needed)." };
     }
   } catch (e) {
-    return { key: "license", label: "License", status: "fail", detail: e instanceof Error ? e.message : String(e) };
+    return { key: "license", label: "License", status: "fail", detail: e instanceof Error ? e.message : String(e), fix: FIX.license };
   }
 }
 
@@ -256,11 +277,14 @@ async function checkMcpConnector(req: Request): Promise<DiagnosticCheck> {
     const summary = `Sign-in advertised at ${issuer}/oauth/authorize${
       customDomain ? " (from the custom domain setting)" : " (derived from request headers)"
     }.`;
+    // Every non-pass outcome here is cured (or at least diagnosed) by the
+    // custom-domain setting, which the problem texts already point at.
     return {
       key,
       label,
       status,
       detail: problems.length ? `${summary} ${problems.join(" ")}` : `${summary} Discovery, authorize, and token endpoints all line up.`,
+      ...(status !== "pass" ? { fix: FIX.domain } : {}),
     };
   } catch (e) {
     return { key, label, status: "fail", detail: e instanceof Error ? e.message : String(e) };

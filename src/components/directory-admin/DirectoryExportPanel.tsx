@@ -6,6 +6,7 @@
 
 import { useMemo, useState } from "react";
 import { SaveRow } from "@/components/SaveRow";
+import { SettingsLink } from "@/components/SettingsLink";
 import { useLeaveGuard } from "@/lib/use-unsaved";
 import { confirmDialog } from "@/components/Dialog";
 import { buttonClass } from "@/components/Button";
@@ -346,7 +347,7 @@ export function DirectoryExportPanel({
               <p className="mb-3 text-xs text-slate-500">
                 {smtpConfigured
                   ? "The file this preset makes, sent as an attachment — a monthly directory to the office managers, a weekly who's who to reception."
-                  : "SMTP is not set up (Settings → Notifications); the schedule is kept but nothing is sent until it is."}
+                  : <>SMTP is not set up (<SettingsLink href="/admin/notifications/email" />); the schedule is kept but nothing is sent until it is.</>}
               </p>
               <div className="grid gap-3 sm:grid-cols-4">
                 <Field label="How often">

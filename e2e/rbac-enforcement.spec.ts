@@ -137,7 +137,7 @@ test("built-in roles are read-only, and their ladder assignments cannot be revok
       method: "DELETE",
     });
     expect(revoke.status, "the ladder mirror cannot be revoked here").toBe(400);
-    expect(revoke.body?.error, "and it says where to do it instead").toContain("Users & roles");
+    expect(revoke.body?.error, "and it says where to do it instead").toContain("Settings → Users");
 
     // Nothing was actually removed.
     expect((await api(page, "/api/admin/rbac/audit")).body?.users_without_assignment).toBe(0);

@@ -6,6 +6,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Network, Users } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
+import { SettingsLink } from "@/components/SettingsLink";
 import { requireUser } from "@/lib/auth";
 import { getPersonById, listFields, listPeople } from "@/lib/directory";
 import { buildOrgChart, chainAbove, managerField, teamBelow } from "@/lib/directory-org";
@@ -71,7 +72,7 @@ export default async function TeamPage({ params }: { params: Promise<{ id: strin
       )}
 
       {!mf ? (
-        <EmptyState icon={<Network />} title="No org chart yet" body="The directory has no Reports to field. An admin can add it under Settings → Directory → Fields." />
+        <EmptyState icon={<Network />} title="No org chart yet" body={<>The directory has no Reports to field. An admin can add it under <SettingsLink href="/admin/directory/fields">Settings → Directory → Fields</SettingsLink>.</>} />
       ) : total === 0 ? (
         <EmptyState icon={<Users />} title="No reports" body={`Nobody lists ${person.name} as the person they report to.`} />
       ) : (

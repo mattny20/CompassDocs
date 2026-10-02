@@ -67,6 +67,12 @@ export interface SettingsSection {
   /** In-page cards (anchors), searchable as "Section › Topic". */
   topics?: SettingsTopic[];
   /**
+   * The matching page on the docs site, rendered as a "Docs" button in the
+   * section header. Only set where a page exists at that URL — the docs
+   * repo's src/content/docs/<path>.md is the proof.
+   */
+  docs?: string;
+  /**
    * The permission that opens this section (0.93). Declared here rather than in
    * the page so the rail, the page guard, and the search results can never
    * disagree about who may see it — a nav entry that 404s on click is the
@@ -84,8 +90,8 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
   {
     label: "Platform",
     sections: [
-      { href: "/admin", label: "System", icon: Monitor, description: "Version, updates, health, and diagnostics for this deployment.", keywords: "version update health status docker diagnostics metrics prometheus probes healthz readyz observability", permission: "system.diagnostics_read" },
-      { href: "/admin/workspace", label: "Workspace", icon: Palette, description: "Name, branding, accent color, and workspace-wide content options.", keywords: "name logo accent color brand theme icon company date format nested pages backlinks sub-pages tree comments", permission: "workspace.branding_manage", pages: [
+      { href: "/admin", label: "System", icon: Monitor, description: "Version, updates, health, and diagnostics for this deployment.", keywords: "version update health status docker diagnostics metrics prometheus probes healthz readyz observability", permission: "system.diagnostics_read", docs: "https://docs.compassdocs.io/self-hosting/monitoring/" },
+      { href: "/admin/workspace", label: "Workspace", icon: Palette, description: "Name, branding, accent color, and workspace-wide content options.", keywords: "name logo accent color brand theme icon company date format nested pages backlinks sub-pages tree comments", permission: "workspace.branding_manage", docs: "https://docs.compassdocs.io/admin/appearance/", pages: [
           { href: "/admin/workspace", label: "Branding", icon: Palette, keywords: "name logo accent colour date time" },
           { href: "/admin/workspace/content", label: "Content", icon: FileText, keywords: "retention attachments comments nested pages approval session" },
         ], topics: [
@@ -99,43 +105,43 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
           { href: "/admin/workspace/content#session", label: "Session timeout", keywords: "session timeout inactivity logout minutes" },
           { href: "/admin/workspace/content#approval", label: "Approval workflow", keywords: "approval workflow review publish approvers" },
         ] },
-      { href: "/admin/domain", label: "Domain & HTTPS", icon: Globe, description: "Hostname, certificates, and TLS.", keywords: "tls ssl certificate caddy hostname url", permission: "workspace.domain_manage", topics: [
+      { href: "/admin/domain", label: "Domain & HTTPS", icon: Globe, description: "Hostname, certificates, and TLS.", keywords: "tls ssl certificate caddy hostname url", permission: "workspace.domain_manage", docs: "https://docs.compassdocs.io/self-hosting/custom-domain/", topics: [
           { href: "/admin/domain#domain", label: "Custom domain", keywords: "hostname dns" },
           { href: "/admin/domain#tls", label: "HTTPS / TLS", keywords: "certificate let's encrypt self-signed pem key caddy" },
           { href: "/admin/domain#cookies", label: "Session cookie security", keywords: "secure cookie https http login loop" },
         ] },
-      { href: "/admin/license", label: "License", icon: KeyRound, description: "Enterprise license and entitlements.", keywords: "enterprise entitlements sso scim policy audit export training", permission: "workspace.settings_read" },
+      { href: "/admin/license", label: "License", icon: KeyRound, description: "Enterprise license and entitlements.", keywords: "enterprise entitlements sso scim policy audit export training", permission: "workspace.settings_read", docs: "https://docs.compassdocs.io/admin/license/" },
     ],
   },
   {
     label: "Content",
     sections: [
-      { href: "/admin/spaces", label: "Spaces", icon: FolderKanban, description: "Create spaces, control visibility, categories, and edit rights.", keywords: "visibility private public categories edit rights permissions subscriptions", permission: "space.manage_members" },
-      { href: "/admin/templates", label: "Templates", icon: LayoutTemplate, description: "Document templates and per-space defaults.", keywords: "document template sop runbook policy postmortem meeting notes decision record placeholder default blank", permission: "template.manage" },
-      { href: "/admin/public-site", label: "Public site", icon: Megaphone, description: "What anonymous visitors can see, and how it's indexed.", keywords: "anonymous internet seo indexing share", permission: "workspace.public_site_manage" },
-      { href: "/admin/links", label: "Links", icon: SquareArrowOutUpRight, description: "The launchpad of external shortcuts on the dashboard.", keywords: "quick launchpad shortcuts tools", permission: "link.manage" },
-      { href: "/admin/newsletter", label: "Newsletter", icon: Mail, description: "Contributors, approvers, scheduling, and appearance.", keywords: "email campaign digest contributors approvers schedule appearance", permission: "newsletter.configure" },
-      { href: "/admin/health", label: "Content health", icon: HeartPulse, description: "Broken links, stale docs, orphans, and quality reports.", keywords: "broken links orphans stale duplicates unread overdue review rot quality report", permission: "system.diagnostics_read" },
-      { href: "/admin/data", label: "Import & export", icon: Package, description: "Move content in and out as Markdown.", keywords: "markdown zip migrate confluence notion download", permission: "system.export" },
+      { href: "/admin/spaces", label: "Spaces", icon: FolderKanban, description: "Create spaces, control visibility, categories, and edit rights.", keywords: "visibility private public categories edit rights permissions subscriptions", permission: "space.manage_members", docs: "https://docs.compassdocs.io/admin/spaces-and-permissions/" },
+      { href: "/admin/templates", label: "Templates", icon: LayoutTemplate, description: "Document templates and per-space defaults.", keywords: "document template sop runbook policy postmortem meeting notes decision record placeholder default blank", permission: "template.manage", docs: "https://docs.compassdocs.io/guides/templates/" },
+      { href: "/admin/public-site", label: "Public site", icon: Megaphone, description: "What anonymous visitors can see, and how it's indexed.", keywords: "anonymous internet seo indexing share", permission: "workspace.public_site_manage", docs: "https://docs.compassdocs.io/admin/public-site/" },
+      { href: "/admin/links", label: "Links", icon: SquareArrowOutUpRight, description: "The launchpad of external shortcuts on the dashboard.", keywords: "quick launchpad shortcuts tools", permission: "link.manage", docs: "https://docs.compassdocs.io/admin/quick-links/" },
+      { href: "/admin/newsletter", label: "Newsletter", icon: Mail, description: "Contributors, approvers, scheduling, and appearance.", keywords: "email campaign digest contributors approvers schedule appearance", permission: "newsletter.configure", docs: "https://docs.compassdocs.io/admin/newsletter/" },
+      { href: "/admin/health", label: "Content health", icon: HeartPulse, description: "Broken links, stale documents, orphans, and quality reports.", keywords: "broken links orphans stale duplicates unread overdue review rot quality report", permission: "system.diagnostics_read", docs: "https://docs.compassdocs.io/admin/content-health/" },
+      { href: "/admin/data", label: "Import & export", icon: Package, description: "Move content in and out as Markdown.", keywords: "markdown zip migrate confluence notion download", permission: "system.export", docs: "https://docs.compassdocs.io/guides/import-export/" },
     ],
   },
   {
     label: "People & access",
     sections: [
-      { href: "/admin/users", label: "Users & roles", icon: Users, description: "Accounts, roles, and password resets.", keywords: "people accounts password reset viewer editor approver admin disable", permission: "user.read" },
-      { href: "/admin/roles", label: "Roles & permissions", icon: ShieldCheck, description: "Custom roles, the permission matrix, and who holds what.", keywords: "rbac permission role custom grant assign scope matrix explain access control least privilege", permission: "role.read", pages: [
+      { href: "/admin/users", label: "Users", icon: Users, description: "Accounts, roles, and password resets.", keywords: "users roles people accounts password reset viewer editor approver admin disable", permission: "user.read", docs: "https://docs.compassdocs.io/admin/users-and-roles/" },
+      { href: "/admin/roles", label: "Roles & permissions", icon: ShieldCheck, description: "Custom roles, the permission matrix, and who holds what.", keywords: "rbac permission role custom grant assign scope matrix explain access control least privilege", permission: "role.read", docs: "https://docs.compassdocs.io/admin/roles-and-permissions/", pages: [
           { href: "/admin/roles", label: "Roles", icon: ShieldCheck, keywords: "roles permission matrix custom" },
           { href: "/admin/roles/assignments", label: "Assignments", icon: ClipboardList, keywords: "assign grant holders delegate space-scoped" },
           { href: "/admin/roles/explain", label: "Explain access", icon: Search, keywords: "explain why can they access effective permissions" },
           { href: "/admin/roles/health", label: "Health", icon: HeartPulse, keywords: "health orphan unused roles findings" },
         ] },
-      { href: "/admin/groups", label: "Groups", icon: UsersRound, description: "Hand-made and Entra-synced groups.", keywords: "membership teams entra sync access leads", permission: "group.read" },
-      { href: "/admin/sso", label: "Single sign-on", icon: Fingerprint, description: "OIDC and SAML sign-in, plus SCIM provisioning.", keywords: "oidc entra azure microsoft login saml identity scim provisioning", permission: "identity.sso_read", topics: [
+      { href: "/admin/groups", label: "Groups", icon: UsersRound, description: "Hand-made and Entra-synced groups.", keywords: "membership teams entra sync access leads", permission: "group.read", docs: "https://docs.compassdocs.io/admin/spaces-and-permissions/#groups" },
+      { href: "/admin/sso", label: "Single sign-on", icon: Fingerprint, description: "OIDC and SAML sign-in, plus SCIM provisioning.", keywords: "oidc entra azure microsoft login saml identity scim provisioning", permission: "identity.sso_read", docs: "https://docs.compassdocs.io/admin/sso/", topics: [
           { href: "/admin/sso#oidc", label: "Microsoft Entra ID (OIDC)", keywords: "entra azure oidc tenant client secret" },
           { href: "/admin/sso#saml", label: "SAML 2.0", keywords: "saml idp metadata certificate okta" },
           { href: "/admin/sso#scim", label: "SCIM provisioning", keywords: "scim provisioning token entra users groups" },
         ] },
-      { href: "/admin/directory", label: "Directory", icon: BookUser, description: "People sync from Microsoft 365, attributes, and profiles.", keywords: "people microsoft 365 sync attributes profiles photos", permission: "directory.sync_manage", pages: [
+      { href: "/admin/directory", label: "Directory", icon: BookUser, description: "People sync from Microsoft 365, attributes, and profiles.", keywords: "people microsoft 365 sync attributes profiles photos", permission: "directory.sync_manage", docs: "https://docs.compassdocs.io/guides/directory/", pages: [
           { href: "/admin/directory", label: "People", icon: Users, keywords: "people entries import csv" },
           { href: "/admin/directory/fields", label: "Fields", icon: ListChecks, keywords: "fields attributes mapping visibility" },
           { href: "/admin/directory/offices", label: "Offices", icon: Building2, keywords: "offices locations addresses" },
@@ -147,7 +153,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
   {
     label: "AI",
     sections: [
-      { href: "/admin/ai", label: "AI", icon: Sparkles, description: "Claude API, Ask, proofreading, and semantic search.", keywords: "anthropic claude api key model ask proofread semantic search embeddings vector voyage openai ollama", permission: "integration.ai_config_read", topics: [
+      { href: "/admin/ai", label: "AI", icon: Sparkles, description: "Claude API, Ask, proofreading, and semantic search.", keywords: "anthropic claude api key model ask proofread semantic search embeddings vector voyage openai ollama", permission: "integration.ai_config_read", docs: "https://docs.compassdocs.io/configuration/ai-search/", topics: [
           { href: "/admin/ai#provider", label: "Provider", keywords: "anthropic openai ollama provider" },
           { href: "/admin/ai#key", label: "Anthropic API key", keywords: "api key sk-ant" },
           { href: "/admin/ai#model", label: "Model", keywords: "model opus sonnet haiku" },
@@ -158,18 +164,18 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
   {
     label: "Operations",
     sections: [
-      { href: "/admin/notifications", label: "Notifications", icon: BellRing, description: "Webhooks, SMTP, channels, and email templates.", keywords: "webhooks slack teams webex smtp email templates alerts channels", permission: "integration.webhook_read", pages: [
+      { href: "/admin/notifications", label: "Notifications", icon: BellRing, description: "Webhooks, SMTP, channels, and email templates.", keywords: "webhooks slack teams webex smtp email templates alerts channels", permission: "integration.webhook_read", docs: "https://docs.compassdocs.io/admin/notifications/", pages: [
           { href: "/admin/notifications", label: "Webhooks", icon: Webhook, keywords: "webhook slack teams webex channel events" },
           { href: "/admin/notifications/email", label: "Email", icon: Share2, keywords: "smtp mail server host port from" },
           { href: "/admin/notifications/templates", label: "Email templates", icon: MailPlus, keywords: "email templates subject body tags" },
           { href: "/admin/notifications/chat", label: "Ask in chat", icon: MessageSquare, keywords: "ask chat slack teams bot" },
         ] },
-      { href: "/admin/backups", label: "Backups", icon: DatabaseBackup, description: "Schedules, destinations, and restores.", keywords: "restore s3 azure destination encrypted schedule", permission: "system.backup_read", topics: [
+      { href: "/admin/backups", label: "Backups", icon: DatabaseBackup, description: "Schedules, destinations, and restores.", keywords: "restore s3 azure destination encrypted schedule", permission: "system.backup_read", docs: "https://docs.compassdocs.io/self-hosting/backups/", topics: [
           { href: "/admin/backups#schedule", label: "Automatic backups", keywords: "schedule frequency keep daily weekly" },
           { href: "/admin/backups#destinations", label: "Destinations", keywords: "s3 azure blob off-site mirror" },
           { href: "/admin/backups#backups", label: "Backups and restore", keywords: "restore download backup now" },
         ] },
-      { href: "/admin/audit", label: "Audit log", icon: ScrollText, description: "Who did what, when.", keywords: "security events history who did what export", permission: "audit.read" },
+      { href: "/admin/audit", label: "Audit log", icon: ScrollText, description: "Who did what, when.", keywords: "security events history who did what export", permission: "audit.read", docs: "https://docs.compassdocs.io/admin/audit-log/" },
     ],
   },
 ];

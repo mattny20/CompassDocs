@@ -9,6 +9,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { chipClass } from "@/components/Chip";
 import Link from "next/link";
+import { SettingsLink } from "@/components/SettingsLink";
 import { ChevronDown, ChevronRight, Users, Network, Settings } from "lucide-react";
 import type { DirectoryPerson, DirectoryField } from "@/lib/directory";
 import { initialsOf } from "@/lib/directory-display";
@@ -99,7 +100,7 @@ export function OrgChart({
         body={
           isAdmin
             ? "Set who each person reports to on the People page, import a CSV with a Reports to column, or map the field to your identity system under Fields."
-            : "Nobody's Reports to is filled in yet. Admins set it under Settings → Directory."
+            : <>Nobody&apos;s Reports to is filled in yet. Admins set it under <SettingsLink href="/admin/directory" />.</>
         }
         action={isAdmin ? { href: "/admin/directory", label: "Directory settings", icon: <Settings /> } : undefined}
       />
