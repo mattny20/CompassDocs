@@ -2155,11 +2155,15 @@ function mapDoc(row: any): DocumentWithSpace {
 
 // --- Spaces ------------------------------------------------------------------
 
-export async function listSpaces(scope: SpaceScope): Promise<(Space & { doc_count: number })[]> {
+export async function listSpaces(
+  scope: SpaceScope
+): Promise<(Space & { doc_count: number; last_activity: string | null })[]> {
   const filter = Array.isArray(scope) ? " WHERE s.id = ANY($1)" : "";
   return q(
     `SELECT s.*, (SELECT COUNT(*)::int FROM documents d
-       WHERE d.space_id = s.id AND d.deleted_at IS NULL AND d.branch_of IS NULL) AS doc_count
+       WHERE d.space_id = s.id AND d.deleted_at IS NULL AND d.branch_of IS NULL) AS doc_count,
+       (SELECT MAX(d.updated_at) FROM documents d
+       WHERE d.space_id = s.id AND d.deleted_at IS NULL AND d.branch_of IS NULL) AS last_activity
      FROM spaces s${filter} ORDER BY s.name`,
     Array.isArray(scope) ? [scope] : []
   );
@@ -2376,6 +2380,30 @@ export async function listRecentDocuments(
   const scoped = Array.isArray(scope) ? " AND d.space_id = ANY($2)" : "";
   const rows = await q(
     `${DOC_SELECT} WHERE d.deleted_at IS NULL AND d.branch_of IS NULL${filter}${scoped} ORDER BY d.updated_at DESC LIMIT $1`,
+    Array.isArray(scope) ? [limit, scope] : [limit]
+  );
+  return rows.map(mapDoc);
+}
+
+/**
+ * The most-read documents of the last 30 days within the viewer's scope —
+ * the Ask page's first-run suggestions (1.9.3). Published only unless the
+ * caller may see drafts; never a branch or a trashed document.
+ */
+export async function listPopularDocuments(
+  scope: SpaceScope,
+  includeDrafts = false,
+  limit = 6
+): Promise<DocumentWithSpace[]> {
+  const filter = includeDrafts ? "" : " AND d.status = 'published'";
+  const scoped = Array.isArray(scope) ? " AND d.space_id = ANY($2)" : "";
+  const rows = await q(
+    `${DOC_SELECT} JOIN (
+       SELECT v.document_id, COUNT(*)::int AS views FROM doc_views v
+       WHERE v.viewed_at > now() - interval '30 days' GROUP BY v.document_id
+     ) pv ON pv.document_id = d.id
+     WHERE d.deleted_at IS NULL AND d.branch_of IS NULL${filter}${scoped}
+     ORDER BY pv.views DESC, d.updated_at DESC LIMIT $1`,
     Array.isArray(scope) ? [limit, scope] : [limit]
   );
   return rows.map(mapDoc);

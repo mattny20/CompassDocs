@@ -22,7 +22,8 @@ import { timeAgo } from "@/lib/ui";
 import { AnnouncementBoard } from "@/components/AnnouncementBoard";
 import { NewsletterBoard } from "@/components/NewsletterBoard";
 import { DashboardGreeting } from "@/components/DashboardGreeting";
-import { StatusBadge } from "@/components/Badges";
+import { StatusBadge, TypeBadge } from "@/components/Badges";
+import { SectionEmpty } from "@/components/form";
 import { listReviewsDue } from "@/lib/reviews";
 import { formatDate, settingsForUser } from "@/lib/format";
 import {
@@ -32,7 +33,6 @@ import {
   ClipboardCheck,
   GitPullRequest,
   MessageSquareText,
-  FileClock,
   PenLine,
   ChevronRight,
 } from "lucide-react";
@@ -63,7 +63,9 @@ export default async function DashboardPage() {
     statusProblems,
   ] = await Promise.all([
     listSpaces(scope),
-    listRecentDocuments(8, isEditor, scope),
+    // Over-fetched: the pick-up cards above take their documents out of
+    // this list, and it must still show eight.
+    listRecentDocuments(16, isEditor, scope),
     listRecentlyViewedBy(user.id, scope, isEditor, 5),
     isEditor ? listDraftsByAuthor(user.name, scope, 3) : Promise.resolve([]),
     listActiveAnnouncementsFor(user.id),
@@ -77,6 +79,14 @@ export default async function DashboardPage() {
   // Drafts also appear in "recently viewed" — don't show them twice.
   const draftIds = new Set(myDrafts.map((d) => d.id));
   const continueDocs = recentlyViewed.filter((d) => !draftIds.has(d.id)).slice(0, 4);
+  // Latest never repeats what the pick-up cards already show (1.9.3).
+  const shownAbove = new Set([...myDrafts, ...continueDocs].map((d) => d.id));
+  const latest = recent.filter((d) => !shownAbove.has(d.id)).slice(0, 8);
+  // Spaces: the eight most recently active, in a compact grid; the rest are
+  // one click away in the sidebar and on the space pages.
+  const activeSpaces = [...spaces]
+    .sort((a, b) => (b.last_activity ?? "").localeCompare(a.last_activity ?? "") || a.name.localeCompare(b.name))
+    .slice(0, 8);
 
   const attentionCount =
     pendingAcks.length + reviewsDue.length + pendingCrs.length + openSuggestions.length;
@@ -268,7 +278,7 @@ export default async function DashboardPage() {
             <h2 className="text-lg font-semibold text-slate-900">Latest in your spaces</h2>
           </div>
           <div className="divide-y divide-slate-100 rounded-xl border border-slate-200 bg-surface shadow-xs">
-            {recent.map((d) => (
+            {latest.map((d) => (
               <Link
                 key={d.id}
                 href={`/doc/${d.id}`}
@@ -288,13 +298,12 @@ export default async function DashboardPage() {
                     {d.author} · {d.space_name} · {timeAgo(d.updated_at)}
                   </span>
                 </span>
-                <FileClock className="h-4 w-4 shrink-0 text-slate-300 group-hover:text-compass-400" aria-hidden />
+                {/* What it is, not an inert clock that looked like a button. */}
+                <TypeBadge type={d.type} />
               </Link>
             ))}
-            {recent.length === 0 && (
-              <p className="px-4 py-8 text-center text-sm text-slate-500">
-                Nothing here yet — publish a first document to get the ball rolling.
-              </p>
+            {latest.length === 0 && (
+              <SectionEmpty>Nothing here yet — publish a first document to get the ball rolling.</SectionEmpty>
             )}
           </div>
         </section>
@@ -303,31 +312,38 @@ export default async function DashboardPage() {
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-lg font-semibold text-slate-900">Spaces</h2>
           </div>
-          <div className="grid grid-cols-1 gap-3 @2xl:grid-cols-2">
-            {spaces.map((s) => (
+          {/* A compact grid of the eight most recently active spaces (1.9.3):
+              thirty spaces used to be thirty 70px cards in one column. */}
+          <div className="card-grid gap-2.5 [--card-min:11rem]">
+            {activeSpaces.map((s) => (
               <Link
                 key={s.id}
                 href={`/spaces/${s.slug}`}
-                className="group flex items-center gap-3 rounded-xl border border-slate-200 bg-surface p-3.5 shadow-xs transition hover:border-compass-300 hover:shadow-md"
+                className="group flex items-center gap-2.5 rounded-xl border border-slate-200 bg-surface p-2.5 shadow-xs transition hover:border-compass-300 hover:shadow-md"
               >
                 <div
-                  className="grid h-10 w-10 shrink-0 place-items-center rounded-lg text-xl"
+                  className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-base"
                   style={{ backgroundColor: `${s.color}1a` }}
                 >
                   {s.icon}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <h3 className="truncate font-semibold text-slate-900 group-hover:text-compass-700">
+                  <h3 className="truncate text-sm font-semibold text-slate-900 group-hover:text-compass-700">
                     {s.name}
                   </h3>
                   <p className="truncate text-xs text-slate-500">
                     {s.doc_count} document{s.doc_count === 1 ? "" : "s"}
                   </p>
                 </div>
-                <ChevronRight className="h-4 w-4 shrink-0 text-slate-300 group-hover:text-compass-500" aria-hidden />
               </Link>
             ))}
           </div>
+          {spaces.length === 0 && <SectionEmpty>No spaces yet.</SectionEmpty>}
+          {spaces.length > activeSpaces.length && (
+            <p className="mt-2 text-xs text-slate-500">
+              {spaces.length - activeSpaces.length} more in the sidebar.
+            </p>
+          )}
         </section>
       </div>
     </PageContainer>

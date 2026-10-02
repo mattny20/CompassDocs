@@ -4,6 +4,29 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.9.3] - 2026-10-02
+
+Documents, part four: the places you find things.
+
+### Added
+- **The Ask page has a first-run state.** Before a question it offers
+  suggested questions, operator chips (type: tag: space: author:) that
+  insert at the caret, the documents people here read most this month
+  (scoped to what you can see), and your own recent questions, kept in
+  this browser only. A question in the address bar still runs at once.
+
+### Changed
+- **The dashboard's Spaces are a compact grid** of the eight most recently
+  active, instead of one 70px card per space in a single column; Latest
+  never repeats a document already in the pick-up cards and always shows
+  eight; the inert clock icon on each row is the document's type badge.
+- **Search results use the screen**: a column grid (one at Normal, two at
+  Wide, three on a wide monitor) with two-line snippets, and the empty
+  state spans it. The "related" badge explains itself to readers too.
+- **Inside a space, cards show the author** and a "Review overdue" chip
+  instead of repeating the space's own name, and the layout switcher is
+  the house segmented control.
+
 ## [1.9.2] - 2026-10-02
 
 Documents, part three: one standalone document, a history pane that uses
