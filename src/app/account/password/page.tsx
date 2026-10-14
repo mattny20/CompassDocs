@@ -4,6 +4,7 @@ import { getAppSettings } from "@/lib/settings-store";
 import { Brand } from "@/components/Brand";
 import { ChangePasswordForm } from "@/components/ChangePasswordForm";
 import { SignOutLink } from "@/components/SignOutLink";
+import { safeReturnPath } from "@/lib/return-to";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Set a new password", robots: { index: false, follow: false } };
@@ -11,9 +12,15 @@ export const metadata = { title: "Set a new password", robots: { index: false, f
 // The forced first-login / admin-reset flow. Routine password changes live
 // in Account → Security, so anyone who is not forced is sent there — this
 // page has exactly one job.
-export default async function ChangePasswordPage() {
+export default async function ChangePasswordPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ next?: string }>;
+}) {
   const user = await requireUser();
   if (!user.must_change_password) redirect("/account/security");
+  // Where sign-in was headed before the forced change interrupted it.
+  const next = safeReturnPath((await searchParams).next);
   const settings = await getAppSettings();
 
   return (
@@ -28,7 +35,7 @@ export default async function ChangePasswordPage() {
           </p>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-surface p-6 shadow-xs">
-          <ChangePasswordForm forced />
+          <ChangePasswordForm forced next={next} />
         </div>
         <p className="mt-4 text-center text-sm text-slate-500">
           Not you? <SignOutLink className="link font-medium" />

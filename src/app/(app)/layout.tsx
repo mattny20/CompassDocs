@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
-import { requireUser, reachableSettingsSections } from "@/lib/auth";
+import { requireUser, reachableSettingsSections, currentPagePath } from "@/lib/auth";
+import { safeReturnPath } from "@/lib/return-to";
 import { Sidebar } from "@/components/Sidebar";
 import { WidthProvider } from "@/components/PageWidth";
 import { SettingsProvider } from "@/components/SettingsProvider";
@@ -18,8 +19,12 @@ import { listSpaces } from "@/lib/db";
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
 
-  // Force the first-login password change before anything else is usable.
-  if (user.must_change_password) redirect("/account/password");
+  // Force the first-login password change before anything else is usable —
+  // and come back to this page once it is done.
+  if (user.must_change_password) {
+    const back = safeReturnPath(await currentPagePath());
+    redirect(back === "/" ? "/account/password" : `/account/password?next=${encodeURIComponent(back)}`);
+  }
 
   // The badge counts are the capabilities they gate, so they follow rather
   // than race them: no point counting a review queue the user cannot open.

@@ -39,7 +39,14 @@ export function LoginForm({ next = "/" }: { next?: string }) {
         return;
       }
       if (!res.ok) throw new Error(data?.error || "Sign in failed.");
-      router.push(data.must_change_password ? "/account/password" : next);
+      // A forced password change comes first, then the page they wanted.
+      router.push(
+        data.must_change_password
+          ? next === "/"
+            ? "/account/password"
+            : `/account/password?next=${encodeURIComponent(next)}`
+          : next
+      );
       router.refresh();
     } catch (e: any) {
       setError(e.message);

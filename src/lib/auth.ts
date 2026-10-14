@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { loginHref } from "./return-to";
 import {
   getUserByUsername,
   getSessionUser,
@@ -136,10 +137,29 @@ async function newsletterLevel(
   return "none";
 }
 
-/** For server components/pages: redirect to /login when not authenticated. */
+/**
+ * The page being rendered, as "/path?query", for a redirect that should come
+ * back here afterwards (1.9.4). Server components cannot read the request
+ * URL; src/proxy.ts forwards it as a header for every page request. Empty
+ * when the header is missing (an API route, a test harness), in which case
+ * the caller falls back to the dashboard.
+ */
+export async function currentPagePath(): Promise<string> {
+  try {
+    return (await headers()).get("x-compass-path") ?? "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * For server components/pages: redirect to /login when not authenticated —
+ * with the page they wanted as `?next=`, so a link to a document that was
+ * opened signed-out lands on the document after sign-in, not the dashboard.
+ */
 export async function requireUser(): Promise<SessionUser> {
   const user = await getCurrentUser();
-  if (!user) redirect("/login");
+  if (!user) redirect(loginHref(await currentPagePath()));
   return user;
 }
 
