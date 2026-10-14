@@ -12,9 +12,9 @@
 //     "//host", "/\host" and anything else the parser reads as another host
 //     do not;
 //   - after resolving dot segments and percent-decoding it is not the
-//     sign-in page, an API route or the setup wizard ("/doc/../api/x" and
-//     "/%61pi/x" count as "/api/x"), so a bad value cannot loop or fire a
-//     request on the user's behalf;
+//     sign-in page, an API route, the setup wizard or the forced password
+//     change ("/doc/../api/x" and "/%61pi/x" count as "/api/x"), so a bad
+//     value cannot loop or fire a request on the user's behalf;
 //   - it is short and free of control characters (a Location header is one
 //     line).
 //
@@ -27,7 +27,10 @@
 // the login form (client) and the enterprise overlay, which keeps a copy.
 
 const MAX_LENGTH = 2000;
-const BLOCKED = ["/login", "/api", "/setup", "/logout"];
+// /account/password is the forced-change step, a stop on the way and never a
+// destination: a session that expires there would otherwise come back to it
+// after the change and bounce to Account → Security.
+const BLOCKED = ["/login", "/api", "/setup", "/logout", "/account/password"];
 const ORIGIN = "http://compass.invalid";
 
 /** The same-app path `raw` names, or `fallback` ("/") when it is not one. */

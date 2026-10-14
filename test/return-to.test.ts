@@ -64,6 +64,8 @@ test("the sign-in page, API routes and the setup wizard are never a destination,
     "/api",
     "/setup",
     "/logout",
+    "/account/password",
+    "/account/password?next=%2Fdoc%2F1",
     "/doc/../api/documents/1",
     "/doc/%2e%2e/login",
     "/%61pi/export",
@@ -75,6 +77,7 @@ test("the sign-in page, API routes and the setup wizard are never a destination,
   // A page whose name merely starts with those letters is fine.
   assert.equal(safeReturnPath("/loginwall"), "/loginwall");
   assert.equal(safeReturnPath("/apis"), "/apis");
+  assert.equal(safeReturnPath("/account/security"), "/account/security");
   // A malformed escape is not a page either.
   assert.equal(safeReturnPath("/doc/%E0%A4%A"), "/");
 });
