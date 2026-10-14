@@ -10,7 +10,8 @@
 //
 //   - it is a path (starts with "/") and still resolves to that origin —
 //     "//host", "/\host" and anything else the parser reads as another host
-//     do not;
+//     do not, nor does a path that only becomes "//host" once dot segments
+//     resolve ("/..//host");
 //   - after resolving dot segments and percent-decoding it is not the
 //     sign-in page, an API route, the setup wizard or the forced password
 //     change ("/doc/../api/x" and "/%61pi/x" count as "/api/x"), so a bad
@@ -47,6 +48,11 @@ export function safeReturnPath(raw: string | null | undefined, fallback = "/"): 
     return fallback;
   }
   if (url.origin !== ORIGIN || url.username || url.password) return fallback;
+  // Dot segments can resolve to a path that starts with "//" ("/..//host"):
+  // the origin check passes, but the bare string is protocol-relative when
+  // the browser reads it back. The result must mean the same thing on its
+  // own as it did here.
+  if (url.pathname.startsWith("//")) return fallback;
   let decoded: string;
   try {
     decoded = decodeURIComponent(url.pathname).toLowerCase();

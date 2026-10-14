@@ -37,6 +37,10 @@ test("anything that could leave the app falls back to the dashboard", () => {
     "//evil.example/doc/1",
     "/\\evil.example",
     "/\\\\evil.example",
+    "/..//evil.example",
+    "/.//evil.example",
+    "/%2e%2e//evil.example",
+    "/a/..//evil.example/doc/1?x=1",
     "/%5C%5Cevil.example/x".replace(/%5C/g, "\\"),
     "javascript:alert(1)",
     "evil.example",
@@ -80,6 +84,16 @@ test("the sign-in page, API routes and the setup wizard are never a destination,
   assert.equal(safeReturnPath("/account/security"), "/account/security");
   // A malformed escape is not a page either.
   assert.equal(safeReturnPath("/doc/%E0%A4%A"), "/");
+});
+
+test("the result is a fixed point: sanitising it again changes nothing", () => {
+  // "/..\\evil.example" is a backslash the parser reads as "/", so it is the
+  // on-site path "/evil.example" — allowed, and it must stay on-site.
+  for (const raw of ["/..\\evil.example", "/doc/42", "/search?q=hello%20world", "/doc/42/../43", "/doc/42?q=日本", "/spaces/caf\u00e9", "/a/..//x", "/..//evil.example", "/oauth/authorize?client_id=c"]) {
+    const once = safeReturnPath(raw);
+    assert.equal(safeReturnPath(once), once, `fixed point for ${raw}`);
+    assert.equal(new URL(once, "https://compass.example/login").origin, "https://compass.example", `stays on-site for ${raw}`);
+  }
 });
 
 test("a custom fallback is honoured", () => {
