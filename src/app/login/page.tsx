@@ -6,6 +6,7 @@ import { getSsoConfig, ssoConfigured } from "@/lib/sso-config";
 import { getSamlConfig, samlConfigured } from "@/lib/saml-config";
 import { featureEnabled } from "@/lib/ee";
 import { LoginForm } from "@/components/LoginForm";
+import { safeReturnPath, withReturnPath } from "@/lib/return-to";
 import { Brand } from "@/components/Brand";
 
 export const dynamic = "force-dynamic";
@@ -28,12 +29,6 @@ const SSO_ERRORS: Record<string, string> = {
   internal: "Something went wrong during sign-in. Please try again.",
 };
 
-/** Only same-app paths may be used as a post-login destination. */
-function safeNext(next: string | undefined): string {
-  if (next && next.startsWith("/") && !next.startsWith("//")) return next;
-  return "/";
-}
-
 export default async function LoginPage({
   searchParams,
 }: {
@@ -43,7 +38,10 @@ export default async function LoginPage({
   if (await needsSetup()) redirect("/setup");
   const user = await getCurrentUser();
   const paramsEarly = await searchParams;
-  if (user) redirect(safeNext(paramsEarly.next));
+  // Already signed in: straight to the page they wanted (lib/return-to keeps
+  // this on-site, never the sign-in page or an API route).
+  const next = safeReturnPath(paramsEarly.next);
+  if (user) redirect(next);
   const [settings, ssoCfg, samlCfg, ssoLicensed, params] = await Promise.all([
     getAppSettings(),
     getSsoConfig(),
@@ -74,7 +72,7 @@ export default async function LoginPage({
               <div className="space-y-2">
                 {ssoActive && (
                   <a
-                    href="/api/ee/sso/login"
+                    href={withReturnPath("/api/ee/sso/login", next)}
                     className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-surface px-4 py-2 font-semibold text-slate-700 shadow-xs transition hover:bg-slate-50"
                   >
                     {/* Microsoft logo — four squares */}
@@ -89,7 +87,7 @@ export default async function LoginPage({
                 )}
                 {samlActive && (
                   <a
-                    href="/api/ee/saml/login"
+                    href={withReturnPath("/api/ee/saml/login", next)}
                     className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-surface px-4 py-2 font-semibold text-slate-700 shadow-xs transition hover:bg-slate-50"
                   >
                     <svg viewBox="0 0 24 24" className="h-4 w-4 text-compass-600" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
@@ -109,7 +107,7 @@ export default async function LoginPage({
               )}
             </>
           )}
-          {!(anySso && ssoCfg.ssoOnly) && <LoginForm next={safeNext(params.next)} />}
+          {!(anySso && ssoCfg.ssoOnly) && <LoginForm next={next} />}
         </div>
       </div>
     </div>

@@ -4,6 +4,19 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.9.4] - 2026-10-14
+
+### Fixed
+- **A link opened while signed out now lands on that page after sign-in**
+  instead of the dashboard. Someone who receives a link to a document,
+  a search or any other page and is not signed in is sent to the sign-in
+  page with the page remembered, and arrives there once they sign in —
+  with a password, through Microsoft or SAML single sign-on, and even
+  when a first-login password change comes first. The remembered page
+  can only ever be a page in this workspace: an address that points
+  off-site, at the sign-in page itself or at an API falls back to the
+  dashboard.
+
 ## [1.9.3] - 2026-10-02
 
 Documents, part four: the places you find things.

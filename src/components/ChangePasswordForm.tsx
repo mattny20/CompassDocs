@@ -6,7 +6,14 @@ import { Field, FormError, TextInput } from "@/components/form";
 import { PASSWORD_HELP, PASSWORD_MIN, passwordProblem } from "@/lib/password-policy";
 import { useRouter } from "next/navigation";
 
-export function ChangePasswordForm({ forced }: { forced: boolean }) {
+export function ChangePasswordForm({
+  forced,
+  next: destination = "/",
+}: {
+  forced: boolean;
+  /** Where to go once the forced change is done (already sanitised). */
+  next?: string;
+}) {
   const router = useRouter();
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
@@ -35,7 +42,7 @@ export function ChangePasswordForm({ forced }: { forced: boolean }) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Could not change password.");
-      router.push("/");
+      router.push(forced ? destination : "/");
       router.refresh();
     } catch (e: any) {
       setError(e.message);
