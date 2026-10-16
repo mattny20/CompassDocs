@@ -192,6 +192,8 @@ export interface Document {
   ack_version_id: number | null;
   /** Last time a compliance reminder went out for this doc (enterprise). */
   ack_last_reminded_at?: string | null;
+  /** How the document treats a text edit (A5, 1.10.1): 'ask' the editor each time, 'material' only when the change looks material, 'reset' always re-ask everyone. */
+  ack_edit_default: AckEditDefault;
   /** Non-null = this doc is a draft branch of that document. */
   branch_of: number | null;
   /** Nested pages: the parent document (null = top level). */
@@ -226,6 +228,9 @@ export interface DocumentWithSpace extends Document {
 
 /** What a caller asks updateDocument to do with existing confirmations when the text changes. */
 export type AckPolicy = "keep" | "reset" | "auto";
+
+/** A document's answer to "when the text changes" (A5, 1.10.1); the workspace default lives in Program settings. */
+export type AckEditDefault = "ask" | "material" | "reset";
 
 /** Where a decision came from (the C1 vocabulary). */
 export type AckSource =

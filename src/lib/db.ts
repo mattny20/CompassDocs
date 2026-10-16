@@ -133,7 +133,7 @@ async function initialize(): Promise<void> {
   const client = await pool().connect();
   try {
     await client.query("SELECT pg_advisory_lock(id) FROM (SELECT 728341 AS id) t");
-    await client.query(SCHEMA_SQL);
+    await client.query(guardAddColumns(SCHEMA_SQL));
     await syncPresetRoles(client);
     await migrateLadderToAssignments(client);
     await migrateDelegationToAssignments(client);
@@ -153,6 +153,25 @@ async function initialize(): Promise<void> {
     await client.query("SELECT pg_advisory_unlock(728341)").catch(() => {});
     client.release();
   }
+}
+
+/**
+ * Rewrites every `ALTER TABLE t ADD COLUMN IF NOT EXISTS c …;` in the schema
+ * into a block that looks the column up first. Postgres takes the table's
+ * ACCESS EXCLUSIVE lock before it checks IF NOT EXISTS, so each of those
+ * statements locked users, documents and the rest on every boot; a boot that
+ * raced a save (two instances, or the integration suite's parallel
+ * processes) could deadlock against it (1.10.0 integration logs, and a
+ * rolling upgrade with traffic on the old instance). With the lookup first,
+ * a later boot touches no table whose columns are already there, and the
+ * first boot runs the identical ALTER. Exported for its unit test.
+ */
+export function guardAddColumns(sql: string): string {
+  return sql.replace(
+    /ALTER TABLE (\w+) ADD COLUMN IF NOT EXISTS\s+(\w+)\s+([^;]+);/g,
+    (_m, table: string, column: string, definition: string) =>
+      `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = '${table}' AND column_name = '${column}') THEN ALTER TABLE ${table} ADD COLUMN ${column} ${definition.replace(/\s+/g, " ").trim()}; END IF; END $$;`
+  );
 }
 
 const SCHEMA_SQL = `

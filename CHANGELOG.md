@@ -56,15 +56,23 @@ shield, a deliberate re-ask, and a portal that asks before it sends.
   can see this space (42 people) will be asked to read and confirm this
   document.") and **Require and notify** / **Require quietly**; Cancel
   leaves it off. Switching it off keeps the record and offers **Undo** in
-  the toast. Under *material* the editor's question opens only for a
-  change the heuristic calls material or borderline; an editorial-looking
-  save is kept without asking ("Saved as an editorial fix (document
-  setting). Confirmations kept."). Under *always* nothing is asked, the
-  note is required and the toast says how many people will be asked. The
-  approver's progress row left the notice strip: the popover carries it,
-  so an approver who is also a reader no longer sees two rows. The portal
-  shows the setting as a chip (**Asks editor** / **Asks when material** /
-  **Always re-asks**).
+  the toast. A document receives the workspace value from Program settings
+  the first time it is set to required. Under *material* the editor's
+  question opens only for a change the heuristic calls material or
+  borderline; an editorial-looking save is kept without asking ("Saved as
+  an editorial fix (document setting). Confirmations kept.") and recorded
+  on the History tab from source *Default*, so it is never silent. Under
+  *always* nothing is asked, the change note is required (the field says
+  so inline) and the toast reads "Saved. 42 people will be asked to
+  re-confirm." Callers that cannot ask (merge, restore, the API, MCP,
+  imports, an approval, a scheduled publish) follow the same default, so a
+  procedure set to *material* no longer re-asks everyone for a corrected
+  typo that came in through the API. The help under the change note says
+  which applies. The approver's progress row left the notice strip: the
+  popover carries it, so an approver who is also a reader no longer sees
+  two rows. The portal shows the setting as a chip (**Asks editor** /
+  **Asks when material** / **Always re-asks**) with the full option
+  sentence as its tooltip.
 - **Ask everyone to re-confirm, without editing.** Until now the only way
   to ask readers again was to change the text. **Ask everyone to
   re-confirm…** sits in three places that always read the same: the
@@ -123,8 +131,12 @@ shield, a deliberate re-ask, and a portal that asks before it sends.
   too** (on by default). **Confirmation statement**: the **Default
   statement** on the card at the end of every policy, with a live preview
   (one sentence of up to 300 characters; the house sentence until
-  changed). Until an administrator changes something, every default
-  reproduces the behaviour the product already had. Deadlines, reminders,
+  changed). Both are honoured in this release: the end-of-document card
+  shows the workspace's statement, and when the reason requirement is
+  off an editorial fix needs no change note (the field reads "Change note
+  (optional)"; a material change always needs one, and anything typed is
+  recorded either way). Until an administrator changes something, every
+  default reproduces the behaviour the product already had. Deadlines, reminders,
   annual re-confirmation, evidence and the typed signature arrive with the
   items that honour them, so the page never shows a control nothing
   reads.
@@ -147,9 +159,16 @@ shield, a deliberate re-ask, and a portal that asks before it sends.
   workspace that edited the template keeps its own wording and adopts the
   new tags and sentence when it next edits or resets it.
 - **API.** `PATCH /api/documents/{id}/ack` takes `{ required?,
-  edit_default?, notify? }` (400 with no known field) and answers
-  `{ ok, ack_required, edit_default, queued, eligible }`; the summary
-  carries `edit_default` and `workspace_edit_default`. `POST
+  edit_default?, notify? }` (400 with no known field or a wrong type;
+  `required: true` runs the portal's request sequence, with `notify`
+  defaulting to false as the 1.10.0 toggle told nobody, and is a no-op on
+  a document that already requires confirmation) and answers `{ ok,
+  ack_required, edit_default, queued, eligible }`; `GET
+  /api/documents/{id}/ack` adds `workspace_edit_default` and
+  `keep_reason_required`, and `edit_default` is now the document's real
+  value. `PUT /api/documents/{id}` with `ack_policy: "keep"` no longer
+  needs a 10-character `ack_reason` when Program settings turns off
+  "Require a reason for editorial fixes too"; `reset` always needs one. `POST
   /api/documents/{id}/ack/reconfirm { reason }` answers `{ ok, reset,
   queued }` (400 when the document is not published or not required, or
   the reason is under 10 characters; 402 unlicensed; 403 without either
@@ -207,6 +226,11 @@ shield, a deliberate re-ask, and a portal that asks before it sends.
   "acknowledge".
 
 ### Upgrading
+- **Boot takes fewer locks.** Every `ADD COLUMN IF NOT EXISTS` in the
+  schema now looks the column up before it runs, so a boot against an
+  up-to-date database takes no exclusive lock on `users`, `documents` or
+  any other table (Postgres locked each of them for a moment on every
+  start, and a start that raced a save could deadlock against it).
 - The schema adds the tables `ack_notices` and `ack_outbox`,
   `documents.ack_edit_default`, and five columns on `doc_versions`
   (`published_by`, `published_by_name`, `approved_by`, `approved_by_name`,
