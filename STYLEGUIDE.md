@@ -152,7 +152,17 @@ a top-level page and uses `PageContainer`, however standalone it feels.
   sentence** (the confirmation statement, see §Vocabulary) and nothing
   else, an optional meta line (`text-xs text-slate-500`: "Version 12 ·
   published {date} by {author}"), and **one `lg` primary `Button`**
-  (`busy`, wired through `useAction()`, full width under `sm`). The done
+  (`busy`, wired through `useAction()`, full width under `sm`). A
+  re-confirmation (1.11.0) adds, above the statement, **one reason line**
+  (`text-sm font-medium text-slate-700`: the change note, the manager's
+  reason or the annual cycle) and, only when the text changed, a native
+  `<details>` disclosure (the `DocBlocksStatic` accordion recipe:
+  `rounded-lg border border-slate-200 bg-surface text-left`, a `summary`
+  in `text-sm font-semibold`) listing the versions since the confirmed one
+  above `DocDiff` with a "+{added} / −{removed} lines" header and an
+  "Open in version history" link; a re-ask that changed no text shows the
+  reason line and no disclosure. The sticky control reads **Re-confirm
+  needed** when an earlier confirmation lapsed. The done
   state is plain text inside the same card — the emerald `CircleCheckBig`
   and "You confirmed version 12 on {date}" — never a second card or an
   inline flash; the toast is the announcement, and focus moves to the
