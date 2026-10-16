@@ -163,8 +163,18 @@ test("admin requires confirmation; the reader is pointed to the card, confirms t
     await expect(page.getByRole("link", { name: "Confirmation pending" })).toHaveCount(0);
 
     // Confirm: a toast announces, the card shows the record, focus stays on
-    // the section, the sticky bar becomes a chip and the strip agrees.
-    await card.getByRole("button", { name: CONFIRM }).click();
+    // the section, the sticky bar becomes a chip and the strip agrees. The
+    // card's POST carries the self-reported latch (C3, 1.11.0): the end has
+    // been on screen, so reached_end is true. It never carries a read time;
+    // the server sums that from the view heartbeats.
+    const [confirmPost] = await Promise.all([
+      page.waitForRequest((r) => r.method() === "POST" && r.url().includes(`/api/documents/${docId}/ack`)),
+      card.getByRole("button", { name: CONFIRM }).click(),
+    ]);
+    const confirmBody = confirmPost.postDataJSON() as Record<string, unknown>;
+    expect(confirmBody.reached_end, "the card reports that the end was on screen").toBe(true);
+    expect(typeof confirmBody.version_id).toBe("number");
+    expect("read_seconds" in confirmBody, "the client never sends a read time").toBe(false);
     await expect(page.locator('[role="status"]').getByText("Confirmation recorded.")).toBeVisible();
     await expect(card.getByRole("heading", { name: "Confirmation recorded" })).toBeVisible();
     await expect(card.getByText(CONFIRMED)).toBeVisible();
@@ -182,6 +192,16 @@ test("admin requires confirmation; the reader is pointed to the card, confirms t
     const mine = (roster.body?.rows ?? []).find((r: { username: string }) => r.username === ADMIN.username);
     expect(mine?.acknowledged_at, "the admin's row is confirmed").toBeTruthy();
     expect((roster.body?.rows ?? []).filter((r: { acknowledged_at: string | null }) => r.acknowledged_at).length).toBeGreaterThanOrEqual(1);
+    // The record keeps the evidence (C3): the self-reported flag as posted,
+    // and a server-derived read time (the page's view was registered on
+    // mount, so a whole number of seconds, possibly 0, never a client value).
+    expect(mine?.reached_end, "the record keeps the self-reported flag").toBe(true);
+    expect(Number.isInteger(mine?.read_seconds) && mine.read_seconds >= 0, `read_seconds is summed on the server: ${mine?.read_seconds}`).toBe(true);
+    const unconfirmed = (roster.body?.rows ?? []).find((r: { acknowledged_at: string | null }) => !r.acknowledged_at);
+    if (unconfirmed) {
+      expect(unconfirmed.read_seconds, "a pending row has no read time").toBeNull();
+      expect(unconfirmed.reached_end, "and no report").toBeNull();
+    }
 
     // A fresh load renders the server's record, not a remembered click.
     await page.goto(`/doc/${docId}`);
@@ -1017,6 +1037,185 @@ test("API: a no-op merge still records the branch, and GET /ack on a draft follo
     if (roleId) await api(page, `/api/admin/rbac/roles/${roleId}`, { method: "DELETE" });
     if (userId) await api(page, `/api/admin/users/${userId}`, { method: "DELETE" });
     if (branchId) await api(page, `/api/trash/${branchId}`, { method: "DELETE" });
+    if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
+  }
+});
+
+// ── What changed since you confirmed (B3, 1.11.0) ───────────────────────────
+//
+// A re-confirmation never looks like a first request. After a material
+// change the strip says the document changed since the reader confirmed it
+// (with the day), the sticky control reads "Re-confirm needed", and the card
+// carries the change note above the statement plus a disclosure listing the
+// versions since the confirmed one, the rendered diff against it with a
+// "+n / −n lines" header, and a link that opens the same compare in version
+// history. A manual re-ask with no text change shows the manager's reason
+// and no disclosure: nothing changed to show. Licensed builds only (see
+// above).
+
+const CHANGED_SINCE = /^This document changed since you confirmed it on .+\. Please read the changes and confirm again\.$/;
+const ASKED_AGAIN = /^Everyone was asked to confirm this document again on .+\. Please read it and confirm again\.$/;
+
+/** Confirm the newest version through the API; returns that version's id. */
+async function confirmLatestVersion(page: Page, docId: number): Promise<number> {
+  const summary = await api(page, `/api/documents/${docId}/ack`);
+  expect(summary.status, "summary readable").toBe(200);
+  const versionId = summary.body?.latest_version_id;
+  expect(versionId, "the latest version id").toBeTruthy();
+  const confirmed = await api(page, `/api/documents/${docId}/ack`, { method: "POST", body: { version_id: versionId } });
+  expect(confirmed.status, "confirmed").toBe(200);
+  return versionId;
+}
+
+test("re-confirmation after a material change: the strip names the day, the sticky control says re-confirm, the card shows the note, the diff and the history compare", async ({ page }) => {
+  test.setTimeout(120_000);
+  await login(page, ADMIN);
+  const title = `E2E ack since ${stamp()}`;
+  let docId: number | undefined;
+  try {
+    docId = await makePolicy(page, title);
+    test.skip(
+      (await requireConfirmation(page, docId)) === "unlicensed",
+      "policy_ack is not licensed in this build; the EE rig runs the flow"
+    );
+    const v1 = await confirmLatestVersion(page, docId);
+    expect((await rosterCount(page, docId)).confirmed).toBe(1);
+
+    // A material change with the decision taken through the API: the
+    // confirmation lapses and the ledger keeps the note.
+    const NOTE = "Expense cap raised to 75; receipts required over 20";
+    const edited = await api(page, `/api/documents/${docId}`, {
+      method: "PUT",
+      body: {
+        content: `${BODY}\n\nThe cap is now 75.`,
+        status: "published",
+        ack_policy: "reset",
+        ack_reason: NOTE,
+        versionNote: NOTE,
+      },
+    });
+    expect(edited.status).toBe(200);
+    expect(edited.body?.ack_outcome?.reset, "everyone was asked again").toBe(true);
+    expect((await rosterCount(page, docId)).confirmed).toBe(0);
+
+    await page.goto(`/doc/${docId}`);
+    await expect(page.locator("h1")).toContainText(title);
+
+    // The strip: one sentence naming the day, the same one action; the
+    // first-request sentence is gone.
+    await expect(page.getByText(CHANGED_SINCE)).toBeVisible();
+    await expect(page.getByText(POINTER)).toHaveCount(0);
+    const jump = page.getByRole("link", { name: "Jump to confirmation" });
+    await expect(jump).toBeVisible();
+    await expect(jump).toHaveAttribute("href", "#confirm-reading");
+
+    // The sticky control, before the end has been on screen: still a jump
+    // link, with the re-confirmation label.
+    await page.locator("#main").evaluate((el) => el.scrollTo(0, 600));
+    await page.waitForTimeout(400);
+    const sticky = page.getByRole("link", { name: "Re-confirm needed" });
+    await expect(sticky).toBeVisible();
+    await expect(sticky).toHaveAttribute("href", "#confirm-reading");
+    await expect(page.getByRole("link", { name: "Confirmation pending" })).toHaveCount(0);
+
+    // The card: the change note above the statement, then the disclosure
+    // with the version since, the diff header, the added text and the link.
+    const card = page.locator("#confirm-reading");
+    await expect(card.getByRole("heading", { name: "Confirm you've read this document" })).toBeVisible();
+    await expect(card.getByText(new RegExp(`^Updated .+ by .+: "${NOTE}"$`))).toBeVisible();
+    await expect(card.getByText(STATEMENT)).toBeVisible();
+    const details = card.locator("details");
+    await expect(details).toHaveCount(1);
+    const disclosure = details.locator("summary");
+    await expect(disclosure).toHaveText("What changed since you last confirmed (1 version)");
+    await disclosure.click();
+    await expect(details).toHaveAttribute("open", "");
+    await expect(details.getByText(/^Compared with version 1, which you confirmed on /)).toBeVisible();
+    await expect(details.getByText("v2", { exact: true })).toBeVisible();
+    await expect(details.getByText(NOTE, { exact: true })).toBeVisible();
+    await expect(details.getByText(/^\+\d+ \/ −\d+ lines$/)).toBeVisible();
+    // The added paragraph renders inside the card's diff (the article shows
+    // it too, so the check stays inside the disclosure).
+    await expect(details.getByText("The cap is now 75.")).toBeVisible();
+    const open = details.getByRole("link", { name: "Open in version history" });
+    await expect(open).toHaveAttribute("href", `/doc/${docId}/history?from=${v1}&to=current`);
+
+    // The link opens the same compare: the confirmed version against the
+    // current one, both radios already set.
+    await open.click();
+    await page.waitForURL(`**/doc/${docId}/history?from=${v1}&to=current`);
+    await expect(page.getByText(/Original v1 → modified v2/)).toBeVisible();
+    await expect(page.getByRole("radio", { name: "Original: version 1" })).toBeChecked();
+    await expect(page.getByRole("radio", { name: "Modified: version 2" })).toBeChecked();
+
+    // Back on the document, confirming records version 2 and the three
+    // surfaces agree again.
+    await page.goto(`/doc/${docId}`);
+    await expect(page.getByText(CHANGED_SINCE)).toBeVisible();
+    await card.getByRole("button", { name: CONFIRM }).click();
+    await expect(page.locator('[role="status"]').getByText("Confirmation recorded.")).toBeVisible();
+    await expect(card.getByText(/^You confirmed version 2 on /)).toBeVisible();
+    await expect(page.getByText(CHANGED_SINCE)).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "Re-confirm needed" })).toHaveCount(0);
+    await expect(page.locator("div.sticky.top-0").getByText(/^Confirmed /)).toBeVisible();
+    expect((await rosterCount(page, docId)).confirmed).toBe(1);
+  } finally {
+    if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
+  }
+});
+
+test("a manual re-ask with no text change: the reason line, an honest strip sentence and no disclosure", async ({ page }) => {
+  test.setTimeout(120_000);
+  await login(page, ADMIN);
+  const title = `E2E ack manual ${stamp()}`;
+  let docId: number | undefined;
+  try {
+    docId = await makePolicy(page, title);
+    test.skip(
+      (await requireConfirmation(page, docId)) === "unlicensed",
+      "policy_ack is not licensed in this build; the EE rig runs the flow"
+    );
+    await confirmLatestVersion(page, docId);
+    expect((await rosterCount(page, docId)).confirmed).toBe(1);
+
+    // Ask everyone to re-confirm without editing (A7): no version is
+    // written, the confirmation lapses, the reason is on the ledger.
+    const REASON = "Section 4 now applies to contractors too";
+    const asked = await api(page, `/api/documents/${docId}/ack/reconfirm`, { method: "POST", body: { reason: REASON } });
+    expect(asked.status, "the re-ask was accepted").toBe(200);
+    expect(asked.body?.ok).toBe(true);
+    expect((await rosterCount(page, docId)).confirmed).toBe(0);
+
+    await page.goto(`/doc/${docId}`);
+    await expect(page.locator("h1")).toContainText(title);
+
+    // The strip does not claim the document changed: it says who asked.
+    await expect(page.getByText(ASKED_AGAIN)).toBeVisible();
+    await expect(page.getByText(CHANGED_SINCE)).toHaveCount(0);
+    await expect(page.getByText(POINTER)).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "Jump to confirmation" })).toBeVisible();
+
+    // The card: the manager's reason in place of the disclosure, the
+    // statement under it, no diff and no history link.
+    const card = page.locator("#confirm-reading");
+    await expect(card.getByText(new RegExp(`^.+ asked everyone to confirm this document again on .+: "${REASON}"$`))).toBeVisible();
+    await expect(card.getByText(STATEMENT)).toBeVisible();
+    await expect(card.locator("details")).toHaveCount(0);
+    await expect(card.getByRole("link", { name: "Open in version history" })).toHaveCount(0);
+    await expect(card.getByRole("button", { name: CONFIRM })).toBeEnabled();
+
+    // The sticky control still says a re-confirmation is needed.
+    await page.locator("#main").evaluate((el) => el.scrollTo(0, 600));
+    await page.waitForTimeout(400);
+    await expect(page.getByRole("link", { name: "Re-confirm needed" })).toBeVisible();
+
+    // Confirming records the same version again; the ledger keeps both rows.
+    await card.getByRole("button", { name: CONFIRM }).click();
+    await expect(page.locator('[role="status"]').getByText("Confirmation recorded.")).toBeVisible();
+    await expect(card.getByText(/^You confirmed version 1 on /)).toBeVisible();
+    await expect(page.getByText(ASKED_AGAIN)).toHaveCount(0);
+    expect((await rosterCount(page, docId)).confirmed).toBe(1);
+  } finally {
     if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
   }
 });

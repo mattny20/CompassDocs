@@ -137,6 +137,8 @@ export function VersionHistory({
   versions,
   branches,
   decisions = [],
+  initialOld = null,
+  initialNew = null,
 }: {
   docId: number;
   docStatus: string;
@@ -149,11 +151,16 @@ export function VersionHistory({
   /** Read-confirmation decisions, newest first; only for documents that
    *  require confirmation (the page passes nothing otherwise). */
   decisions?: VersionDecision[];
+  /** A compare to open with (B3, 1.11.0): the page resolves ?from / ?to to
+   *  ids of this document's own versions; null falls back to the default. */
+  initialOld?: number | null;
+  initialNew?: number | null;
 }) {
   const router = useRouter();
-  // Default compare: previous vs current (when there are at least two).
-  const [oldId, setOldId] = useState<number | null>(versions[1]?.id ?? null);
-  const [newId, setNewId] = useState<number | null>(versions[0]?.id ?? null);
+  // Default compare: previous vs current (when there are at least two),
+  // unless the page arrived with a compare of its own.
+  const [oldId, setOldId] = useState<number | null>(initialOld ?? versions[1]?.id ?? null);
+  const [newId, setNewId] = useState<number | null>(initialNew ?? versions[0]?.id ?? null);
   // Rendered (doc-layout) compare is the default; the source-level views
   // remain a click away for people who want the exact markdown changes.
   const [mode, setMode] = useState<"rendered" | "split" | "inline">("rendered");

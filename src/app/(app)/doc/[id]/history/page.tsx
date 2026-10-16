@@ -22,7 +22,14 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   return { title: doc?.title ? `History · ${doc.title}` : "Version history" };
 }
 
-export default async function HistoryPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function HistoryPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  /** A compare to open with (B3): ?from={versionId}&to={versionId|current}. */
+  searchParams: Promise<{ from?: string; to?: string }>;
+}) {
   const user = await requireUser();
   const { id } = await params;
   const doc = await cachedDocument(Number(id));
@@ -40,6 +47,25 @@ export default async function HistoryPage({ params }: { params: Promise<{ id: st
     // and which were kept. Only a document that requires confirmation has one.
     doc.ack_required === 1 ? listAckDecisions(doc.id) : Promise.resolve([] as AckDecision[]),
   ]);
+
+  // The compare the link asked for (the card's "Open in version history",
+  // B3). Only this document's own version ids are honoured, "current" is
+  // the newest, and anything else (another document's id, a typo, the same
+  // version on both sides) falls back to the default compare, so the link
+  // can never show a version the three checks above did not admit.
+  const sp = await searchParams;
+  const resolve = (raw: string | undefined): number | null => {
+    if (!raw) return null;
+    if (raw === "current") return versions[0]?.id ?? null;
+    const n = Number(raw);
+    return Number.isInteger(n) && versions.some((v) => v.id === n) ? n : null;
+  };
+  let initialOld = resolve(sp.from);
+  let initialNew = resolve(sp.to);
+  if (initialOld !== null && initialOld === initialNew) {
+    initialOld = null;
+    initialNew = null;
+  }
 
   // Oldest = v1; the list arrives newest-first.
   const items = versions.map((v, i) => ({
@@ -92,6 +118,8 @@ export default async function HistoryPage({ params }: { params: Promise<{ id: st
           decided_by_name: d.decided_by_name,
           submitted_by_name: d.submitted_by_name,
         }))}
+        initialOld={initialOld}
+        initialNew={initialNew}
       />
     </PageContainer>
   );

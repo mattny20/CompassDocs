@@ -25,6 +25,7 @@ import {
   ChevronRight,
   Check,
   CircleDashed,
+  CirclePause,
   Settings2,
   X,
 } from "lucide-react";
@@ -56,6 +57,8 @@ export interface DocRow {
   title: string;
   space_name: string;
   space_icon: string;
+  /** 'draft' is a paused policy (G2): unpublished with the requirement on; it is out of the tiles and has no actions. */
+  status: "draft" | "published";
   updated_at: string;
   ack_last_reminded_at: string | null;
   required: number;
@@ -368,6 +371,11 @@ export function CompliancePanel({
   }
 
   const { kpis: k, can } = data;
+  // A paused policy (unpublished, requirement still on) is listed apart from
+  // the live ones, with no actions: every row action needs a published
+  // document, and the server's tiles already leave it out (G2).
+  const active = data.docs.filter((d) => d.status === "published");
+  const paused = data.docs.filter((d) => d.status !== "published");
   const peopleRows = data.users.filter((u) => u.required > 0);
   const peoplePager =
     peopleRows.length > PEOPLE_PAGE ? (
@@ -469,15 +477,17 @@ export function CompliancePanel({
 
         {/* Per-policy progress */}
         <Card title="Policy progress" icon={<FileCheck />} padding="none">
-          {data.docs.length === 0 ? (
+          {active.length === 0 ? (
             <SectionEmpty className="px-4 py-8 text-center">
-              {can.manage
-                ? "No documents require read confirmation yet. Request one above."
-                : "No documents require read confirmation yet."}
+              {paused.length > 0
+                ? "No published document requires read confirmation right now. The paused policies below resume when they are published again."
+                : can.manage
+                  ? "No documents require read confirmation yet. Request one above."
+                  : "No documents require read confirmation yet."}
             </SectionEmpty>
           ) : (
             <ul className="divide-y divide-slate-100">
-              {data.docs.map((d) => {
+              {active.map((d) => {
                 const pct = d.required ? Math.round((d.acked / d.required) * 100) : 100;
                 const complete = d.acked >= d.required;
                 const roster = rosters[d.id];
@@ -684,6 +694,7 @@ export function CompliancePanel({
               })}
             </ul>
           )}
+          {paused.length > 0 && <PausedPolicies rows={paused} date={fmt.date} />}
         </Card>
 
         {/* Per-person standing */}
@@ -744,6 +755,52 @@ export function CompliancePanel({
         </Card>
       </div>
     </div>
+  );
+}
+
+/**
+ * Policies that are unpublished with the requirement still on (G2, 1.11.0).
+ * Nothing is reset and nobody is asked while a document is down, so each
+ * row shows its standing and an "Unpublished" chip and offers no action:
+ * Remind, the re-ask, Stop requiring and the record download all need a
+ * published document, and the tiles above leave the group out. Collapsed
+ * by default, the way the record page folds former staff away.
+ */
+function PausedPolicies({ rows, date }: { rows: DocRow[]; date: (iso: string) => string }) {
+  return (
+    <details className="border-t border-slate-100 [&[open]>summary]:border-b [&[open]>summary]:border-slate-100">
+      <summary className="cursor-pointer select-none px-4 py-3 text-sm font-semibold text-slate-700 hover:text-compass-700 marker:text-compass-500">
+        Paused (unpublished) ({rows.length})
+      </summary>
+      <p className="px-4 pt-3 text-sm text-slate-500">
+        Unpublished documents that still require read confirmation. Confirmations are kept, and nobody is
+        asked or counted while a document is unpublished. Publishing it again resumes the programme where
+        it left off.
+      </p>
+      <ul className="divide-y divide-slate-100">
+        {rows.map((d) => (
+          <li key={d.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
+            <div className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-medium text-slate-800">
+                {d.space_icon} {d.title}
+              </span>
+              <span className="block text-xs text-slate-500">Updated {date(d.updated_at)}</span>
+            </div>
+            <span
+              className={chipClass("neutral", "sm")}
+              tabIndex={0}
+              data-tt="Read confirmation is paused while the document is unpublished. Confirmations are kept."
+              data-tt-wrap=""
+            >
+              <CirclePause className="h-3 w-3" aria-hidden /> Unpublished
+            </span>
+            <span className="text-xs text-slate-500">
+              {d.acked} of {people(d.required)} confirmed
+            </span>
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
 

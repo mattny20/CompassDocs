@@ -171,8 +171,31 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     schedulePatch[field] = when.toISOString();
   }
 
+  // What to do with existing confirmations if this save changes the text of
+  // a confirmed document (A2): 'keep' or 'reset' with a change note of 10+
+  // characters, or nothing, which is 'auto' and follows the document's edit
+  // default (A5: 'ask' and 'reset' reset, 'material' keeps a change that
+  // looks editorial). Only an absent field means 'auto': the literal string
+  // is not part of the public vocabulary and is refused like any other
+  // unknown value. The policy is checked here, before the review queue and
+  // the direct save alike, and the reason inside updateDocument, before any
+  // write, so a refused save leaves the document untouched. The keep side's
+  // note follows the workspace's "Require a reason for editorial fixes too"
+  // (E4); the reset side always needs one. The reason is capped at the
+  // dialog's own limit so the ledger, the audit echo and the CSV cells stay
+  // bounded whatever client sent it.
+  const ackPolicyRaw = body?.ack_policy;
+  if (ackPolicyRaw != null && ackPolicyRaw !== "keep" && ackPolicyRaw !== "reset") {
+    return NextResponse.json({ error: "ack_policy must be 'keep' or 'reset'." }, { status: 400 });
+  }
+  const ackPolicy: "keep" | "reset" | "auto" = ackPolicyRaw ?? "auto";
+  const ackReason =
+    typeof body?.ack_reason === "string" ? body.ack_reason.trim().slice(0, ACK_REASON_MAX) : "";
+
   if (affectsLive && !canPublish) {
-    // Editor in strict mode: queue a change request; leave the live doc untouched.
+    // Editor in strict mode: queue a change request; leave the live doc
+    // untouched. The editor's choice travels with the request as the
+    // submitter's recommendation (A6); the approver decides at approval.
     const kind = existing.status === "draft" ? "publish" : "edit";
     const crId = await createChangeRequest({
       document_id: existing.id,
@@ -186,6 +209,8 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       note: String(body?.versionNote ?? "").trim(),
       created_by: user.id,
       space_id: moving ? targetSpaceId : null,
+      ack_policy: ackPolicy,
+      ack_reason: ackReason,
     });
     await audit({
       actor: actorFrom(user),
@@ -214,25 +239,6 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     return NextResponse.json({ pending: true, changeRequestId: crId, docId: existing.id });
   }
 
-  // What to do with existing confirmations if this save changes the text of
-  // a confirmed document (A2): 'keep' or 'reset' with a change note of 10+
-  // characters, or nothing, which is 'auto' and follows the document's edit
-  // default (A5: 'ask' and 'reset' reset, 'material' keeps a change that
-  // looks editorial). Only an absent field means 'auto': the literal string
-  // is not part of the public vocabulary and is refused like any other
-  // unknown value. The policy is checked here and the reason inside
-  // updateDocument, before any write, so a refused save leaves the document
-  // untouched. The keep side's note follows the workspace's "Require a
-  // reason for editorial fixes too" (E4); the reset side always needs one.
-  // The reason is capped at the dialog's own limit so the ledger, the audit
-  // echo and the CSV cells stay bounded whatever client sent it.
-  const ackPolicyRaw = body?.ack_policy;
-  if (ackPolicyRaw != null && ackPolicyRaw !== "keep" && ackPolicyRaw !== "reset") {
-    return NextResponse.json({ error: "ack_policy must be 'keep' or 'reset'." }, { status: 400 });
-  }
-  const ackPolicy: "keep" | "reset" | "auto" = ackPolicyRaw ?? "auto";
-  const ackReason =
-    typeof body?.ack_reason === "string" ? body.ack_reason.trim().slice(0, ACK_REASON_MAX) : "";
   const ackKeepReasonRequired = (await getComplianceSettings()).ack_defaults.keep_reason_required;
 
   // Otherwise apply directly (draft edit, or a privileged/open-mode change).

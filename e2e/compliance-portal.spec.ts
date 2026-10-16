@@ -6,6 +6,9 @@ import { ADMIN, login, api } from "./helpers";
 // audience count and Cancel sends nothing; Remind asks "Remind N people?";
 // a second reminder inside the hour is refused (429); Stop requiring tells
 // with an Undo that re-requests quietly; the two CSVs download.
+// 1.11.0 (G2): an unpublished policy is paused, not gone: it moves to the
+// collapsed "Paused (unpublished)" group with an Unpublished chip and no
+// row actions, the tiles leave it out, and republishing moves it back.
 //
 // Read confirmation is entitlement-gated (policy_ack). CI runs the community
 // build, so each test skips itself when the portal answers 402 and runs in
@@ -344,6 +347,104 @@ test("the row's re-ask opens the question, refuses a short reason, resets the ro
     expect(perPerson.status).toBe(400);
     expect(perPerson.body?.error).toBe("Per-person re-asks arrive with audiences.");
     expect((await auditRows(page, "ack.reconfirmation_requested", docId)).length, "none of the refusals is on the record").toBe(1);
+  } finally {
+    if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
+  }
+});
+
+test("an unpublished policy is paused: it moves to the collapsed group with the chip and no actions, leaves the tiles, and comes back on republish", async ({ page }) => {
+  test.setTimeout(90_000);
+  await login(page, ADMIN);
+  const title = `E2E portal paused ${stamp()}`;
+  let docId: number | undefined;
+  try {
+    docId = await makePolicy(page, title);
+    test.skip(!(await portalLicensed(page)), "policy_ack is not licensed in this build; the EE rig runs the flow");
+    const on = await api(page, "/api/admin/compliance", {
+      method: "POST",
+      body: { docId, action: "request", notify: false },
+    });
+    expect(on.status, "requested quietly").toBe(200);
+    // The admin confirms, so the row carries a confirmation the pause must keep.
+    const summary = await api(page, `/api/documents/${docId}/ack`);
+    expect(summary.status).toBe(200);
+    const confirmed = await api(page, `/api/documents/${docId}/ack`, {
+      method: "POST",
+      body: { version_id: summary.body?.latest_version_id },
+    });
+    expect(confirmed.status, "the admin confirmed").toBe(200);
+
+    type Row = { id: number; status: string; required: number; acked: number };
+    const portal = async () => {
+      const res = await api(page, "/api/admin/compliance");
+      expect(res.status).toBe(200);
+      const docs: Row[] = res.body?.docs ?? [];
+      return { kpis: res.body?.kpis, docs, mine: docs.find((d) => d.id === docId) };
+    };
+    const live = await portal();
+    expect(live.mine?.status).toBe("published");
+    expect(live.mine?.acked).toBe(1);
+
+    // Unpublish: the requirement stays on, the row stays, with its status
+    // and its counts, and the tiles are the sums over the published rows
+    // only (other specs run beside this one, so the invariant is checked
+    // against the payload rather than against a snapshot).
+    const down = await api(page, `/api/documents/${docId}`, { method: "PUT", body: { status: "draft" } });
+    expect(down.status).toBe(200);
+    expect(down.body?.doc?.status).toBe("draft");
+    expect(await ackRequired(page, docId), "the requirement is not switched off").toBe(1);
+    const paused = await portal();
+    expect(paused.mine?.status).toBe("draft");
+    expect(paused.mine?.acked, "the confirmation is kept").toBe(1);
+    expect(paused.mine?.required).toBeGreaterThanOrEqual(1);
+    const published = paused.docs.filter((d) => d.status === "published");
+    expect(paused.kpis?.policies, "the tile counts published policies only").toBe(published.length);
+    expect(paused.kpis?.required).toBe(published.reduce((n, d) => n + d.required, 0));
+    expect(paused.kpis?.acked).toBe(published.reduce((n, d) => n + d.acked, 0));
+    expect(paused.kpis?.outstanding).toBe(paused.kpis.required - paused.kpis.acked);
+
+    // The portal: the only row with this title sits inside the collapsed
+    // group, with the chip, its standing and no action at all.
+    await page.goto("/compliance");
+    await expect(page.getByRole("heading", { name: /^Compliance/ })).toBeVisible();
+    const group = page.locator("details", { hasText: "Paused (unpublished)" });
+    await expect(group).toBeVisible();
+    await expect(group.locator("summary")).toHaveText(/^Paused \(unpublished\) \(\d+\)$/);
+    expect(await page.locator("li", { hasText: title }).count(), "one row for the policy").toBe(1);
+    const row = group.locator("li", { hasText: title });
+    await expect(row).toHaveCount(1);
+    await group.locator("summary").click();
+    await expect(row).toBeVisible();
+    await expect(row.getByText("Unpublished", { exact: true })).toBeVisible();
+    await expect(
+      row.locator('[data-tt="Read confirmation is paused while the document is unpublished. Confirmations are kept."]')
+    ).toHaveCount(1);
+    await expect(row.getByText(/^1 of \d+ (person|people) confirmed$/)).toBeVisible();
+    await expect(row.getByRole("button")).toHaveCount(0);
+    await expect(row.getByRole("link")).toHaveCount(0);
+    // The Policies tile is the server's published count (the payload
+    // invariant above); it is read again here because other specs may have
+    // added a policy in between.
+    const tile = page.locator("div", { has: page.getByText("Policies requiring confirmation", { exact: true }) }).last();
+    await expect(tile.locator(".text-2xl")).toHaveText(String((await portal()).kpis.policies));
+    // The paused policy cannot be acted on through the API either.
+    const remind = await api(page, "/api/admin/compliance", { method: "POST", body: { docId, action: "remind" } });
+    expect(remind.status, "Remind needs a published document").toBe(404);
+
+    // Republish the unchanged text: the row moves back to the live list
+    // with its actions, nobody is asked again, and the group is empty.
+    const up = await api(page, `/api/documents/${docId}`, { method: "PUT", body: { status: "published" } });
+    expect(up.status).toBe(200);
+    expect(up.body?.ack_outcome?.reset, "republishing the confirmed text asks nobody").toBe(false);
+    const resumed = await portal();
+    expect(resumed.mine?.status).toBe("published");
+    expect(resumed.mine?.acked).toBe(1);
+    await page.reload();
+    const back = page.locator("li", { hasText: title });
+    await expect(back).toHaveCount(1);
+    await expect(page.locator("details", { hasText: "Paused (unpublished)" }).locator("li", { hasText: title })).toHaveCount(0);
+    await expect(back.getByRole("button", { name: "Stop requiring" })).toBeVisible();
+    await expect(back.getByRole("link", { name: "Download this policy's compliance record" })).toBeVisible();
   } finally {
     if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
   }

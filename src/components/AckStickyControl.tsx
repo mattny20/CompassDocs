@@ -3,7 +3,8 @@
 // Read-confirmation state in the sticky document bar (B2, 1.10.0). Rendered
 // as the bar's first child, before the title, so it survives truncation.
 // While pending it is a jump link to the card at the end — "Confirmation
-// pending", or "Confirm now" once the end of the article has been on screen
+// pending", or "Re-confirm needed" when an earlier confirmation lapsed (B3,
+// 1.11.0), or "Confirm now" once the end of the article has been on screen
 // (B5's latch changes the cue, never the control). Once confirmed it is a
 // status chip, not a link: chips show status (the reader's own record page,
 // My policies, arrives in 1.11.1). Under sm it collapses to the icon and one
@@ -31,6 +32,7 @@ export function AckStickyControl() {
     );
   }
 
+  const again = Boolean(ack.prior);
   return (
     <Button
       variant="secondary"
@@ -41,8 +43,10 @@ export function AckStickyControl() {
       data-tt="Jump to the confirmation at the end"
       data-tt-pos="bottom"
     >
-      <span className="hidden sm:inline">{ack.reachedEnd ? "Confirm now" : "Confirmation pending"}</span>
-      <span className="text-2xs sm:hidden">Pending</span>
+      <span className="hidden sm:inline">
+        {ack.reachedEnd ? "Confirm now" : again ? "Re-confirm needed" : "Confirmation pending"}
+      </span>
+      <span className="text-2xs sm:hidden">{again ? "Re-confirm" : "Pending"}</span>
     </Button>
   );
 }

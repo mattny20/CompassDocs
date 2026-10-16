@@ -11,7 +11,19 @@
 // Nothing here is gated (B5): the button is live from first paint. The POST
 // carries the version id the page rendered, so a document that changed while
 // the person was reading answers 409 {stale} and the page refreshes into the
-// new text instead of recording a confirmation of words they never saw.
+// new text instead of recording a confirmation of words they never saw. It
+// also carries `reached_end` (C3, 1.11.0): whether the end of the article
+// has been on screen, read from the shared latch; a self-report, stored as
+// evidence beside the server-measured reading time, never a gate.
+//
+// A re-confirmation (B3, 1.11.0) does not look like a first request: above
+// the statement one line says why the reader is asked again (the change
+// note, the manager's reason, or the annual cycle), and when the text
+// changed a native <details> lists the versions since the one they
+// confirmed with the rendered diff against it and a link to the same
+// compare in version history. A manual or annual re-ask with no text change
+// shows the reason line and no disclosure: nothing changed to show. The
+// texts arrive as props from the page, so no endpoint serves them.
 //
 // The card is print:hidden; a one-line standing statement takes its place on
 // paper so a printed policy carries the printer's own status.
@@ -21,14 +33,18 @@
 // is the programme view, gated on compliance.program_read, so a link there
 // would bounce most readers to the dashboard.
 
-import { useRef } from "react";
+import { useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { CircleCheckBig, ShieldCheck } from "lucide-react";
+import Link from "next/link";
+import { CircleCheckBig, History, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/Button";
 import { CARD_CLASS } from "@/components/Card";
 import { CardTitle } from "@/components/Heading";
+import { DocDiff } from "@/components/DocDiff";
 import { useFormatDate } from "@/components/SettingsProvider";
-import { useAckState } from "@/components/AckState";
+import { monthsLabel, useAckState } from "@/components/AckState";
+import type { AckReason } from "@/components/AckState";
+import { diffLines, diffStats } from "@/lib/diff";
 import { useAction } from "@/lib/use-action";
 import { CONFIRM_SECTION_ID } from "@/lib/use-reached-end";
 
@@ -38,11 +54,49 @@ export const DEFAULT_CONFIRMATION_STATEMENT = "I confirm that I have read and un
 const STALE_MESSAGE =
   "This document changed while you were reading it. The page has been refreshed; please read the changes.";
 
+/** A version written since the one the reader confirmed (B3). */
+export interface VersionSince {
+  id: number;
+  rev: number;
+  note: string;
+  author: string;
+  createdAt: string;
+}
+
+/** A title and a text to compare (the confirmed version and the text on screen). */
+export interface AckText {
+  title: string;
+  content: string;
+}
+
+/**
+ * The one line above the statement that says why the reader is asked again.
+ * Every text change reads as an update with its note; the manual and
+ * per-person re-asks name who asked and why; the annual cycle says how long
+ * it has been.
+ */
+export function reasonSentence(r: AckReason, date: (iso: string) => string): string {
+  const quoted = (note: string) => (note ? `: "${note}"` : ".");
+  switch (r.kind) {
+    case "edit":
+      return `Updated ${date(r.at)}${r.by ? ` by ${r.by}` : ""}${quoted(r.note)}`;
+    case "manual":
+      return `${r.by || "A manager"} asked everyone to confirm this document again on ${date(r.at)}${quoted(r.note)}`;
+    case "person":
+      return `${r.by || "A manager"} asked you to confirm this document again on ${date(r.at)}${quoted(r.note)}`;
+    case "recurrence":
+      return `Annual re-confirmation. It has been ${monthsLabel(r.months)} since you confirmed this document. Please read it again and confirm.`;
+  }
+}
+
 export function AckCard({
   docId,
   statement = DEFAULT_CONFIRMATION_STATEMENT,
   meta,
   readerName,
+  current,
+  baseline = null,
+  changesSince = [],
 }: {
   docId: number;
   /** The confirmation statement (the only sentence on the card). */
@@ -51,16 +105,29 @@ export function AckCard({
   meta: { rev: number | null; publishedLabel: string | null; author: string; approvedBy?: string };
   /** The signed-in reader, for the printed standing line. */
   readerName: string;
+  /** The text on screen, for the what-changed diff (B3). */
+  current?: AckText;
+  /** The text the reader confirmed (B3); null when it cannot be read. */
+  baseline?: AckText | null;
+  /** Versions written since the confirmed one, newest first (B3). */
+  changesSince?: VersionSince[];
 }) {
   const ack = useAckState();
   const fmt = useFormatDate();
   const router = useRouter();
   const { run, isBusy } = useAction();
   const section = useRef<HTMLElement>(null);
+  // Lines added and removed since the confirmed version: the disclosure's
+  // header. Measured once per pair of texts, and only when there is a pair.
+  const stats = useMemo(
+    () => (baseline && current ? diffStats(diffLines(baseline.content, current.content)) : null),
+    [baseline, current]
+  );
 
   if (!ack || !ack.canSubmit) return null;
 
   const confirmed = ack.ackedAt !== null;
+  const prior = confirmed ? null : (ack.prior ?? null);
   const versionLabel = (rev: number | null) => (rev !== null ? `version ${rev}` : null);
 
   async function confirm() {
@@ -77,7 +144,9 @@ export function AckCard({
         const res = await fetch(`/api/documents/${docId}/ack`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ version_id: ack.versionId }),
+          // The self-reported evidence (C3) rides with the version: the
+          // server measures the reading time itself and trusts nothing else.
+          body: JSON.stringify({ version_id: ack.versionId, reached_end: ack.reachedEnd }),
         });
         if (res.status === 409) {
           const data = (await res.json().catch(() => ({}))) as { stale?: boolean; error?: string };
@@ -130,6 +199,12 @@ export function AckCard({
       : `You confirmed reading this document on ${fmt.dateTime(ack.ackedAt)}.`
     : "";
 
+  // The disclosure exists only when the text changed since the confirmed
+  // version; a manual or annual re-ask without a text change has nothing
+  // to show, and the reason line stands alone.
+  const showChanges = Boolean(prior && prior.changed && changesSince.length > 0);
+  const historyHref = prior && prior.versionId !== null ? `/doc/${docId}/history?from=${prior.versionId}&to=current` : null;
+
   return (
     <>
       <section
@@ -173,8 +248,73 @@ export function AckCard({
             </>
           ) : (
             <>
+              {prior?.reason && (
+                <p className="mt-2 max-w-md text-sm font-medium text-slate-700">
+                  {reasonSentence(prior.reason, fmt.date)}
+                </p>
+              )}
               <p className="mt-2 max-w-md text-sm text-slate-600">{statement}</p>
               {metaLine && <p className="mt-1 text-xs text-slate-500">{metaLine}</p>}
+
+              {showChanges && prior && (
+                <details className="mt-5 w-full rounded-lg border border-slate-200 bg-surface text-left [&[open]>summary]:border-b [&[open]>summary]:border-slate-100">
+                  <summary className="cursor-pointer select-none px-4 py-2.5 text-sm font-semibold text-slate-700 hover:text-compass-700 marker:text-compass-500">
+                    What changed since you last confirmed ({changesSince.length} version
+                    {changesSince.length === 1 ? "" : "s"})
+                  </summary>
+                  {prior.rev !== null && (
+                    <p className="px-4 pt-3 text-xs text-slate-500">
+                      Compared with version {prior.rev}
+                      {prior.inferred ? " (version inferred)" : ""}, which you confirmed on {fmt.date(prior.ackedAt)}.
+                    </p>
+                  )}
+                  <ol className="divide-y divide-slate-100 px-4 py-1 text-sm">
+                    {changesSince.map((v) => (
+                      <li key={v.id} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 py-2">
+                        <span className="font-medium text-slate-800">v{v.rev}</span>
+                        {v.note && <span className="min-w-0 flex-1 text-slate-700">{v.note}</span>}
+                        <span className="text-xs text-slate-500">
+                          {v.author}
+                          {v.author ? " · " : ""}
+                          {fmt.date(v.createdAt)}
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
+                  {stats && baseline && current && (
+                    <>
+                      <div className="border-t border-slate-100 px-4 py-2 text-xs font-medium text-slate-700">
+                        <span className="text-emerald-600">+{stats.added}</span> /{" "}
+                        <span className="text-red-500">−{stats.removed}</span> lines
+                      </div>
+                      {/* Bounded so a long policy's diff never swallows the
+                          page; the diff folds unchanged runs on its own. */}
+                      <div className="max-h-[max(24rem,50vh)] overflow-auto border-t border-slate-100">
+                        <DocDiff
+                          oldText={baseline.content}
+                          newText={current.content}
+                          oldTitle={baseline.title}
+                          newTitle={current.title}
+                          docKey={`since-${docId}`}
+                          className="overflow-x-auto"
+                        />
+                      </div>
+                    </>
+                  )}
+                  {historyHref && (
+                    <div className="border-t border-slate-100 px-4 py-2.5 text-sm">
+                      <Link
+                        href={historyHref}
+                        className="inline-flex items-center gap-1.5 font-medium text-compass-700 hover:underline"
+                      >
+                        <History className="h-4 w-4" aria-hidden />
+                        Open in version history
+                      </Link>
+                    </div>
+                  )}
+                </details>
+              )}
+
               <Button
                 variant="primary"
                 size="lg"

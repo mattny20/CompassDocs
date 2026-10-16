@@ -13,7 +13,10 @@
 // disagree. The approver's progress ("14 of 20 people have confirmed") left
 // this strip in 1.10.1: the shield popover (AckSettings, A5) carries the
 // counts and the "View record" link, which also ends the two stacked rows an
-// approver who is also a reader used to see.
+// approver who is also a reader used to see. When an earlier confirmation
+// lapsed (B3, 1.11.0) the sentence says so, honestly: "changed since you
+// confirmed it on 3 Mar" only when the text did change, and the re-ask's
+// own shape otherwise. The change notes and the diff stay in the card.
 
 import { useState } from "react";
 import { Spinner } from "@/components/Spinner";
@@ -30,11 +33,39 @@ import {
 } from "lucide-react";
 import { useFormatDate } from "./SettingsProvider";
 import { useAction } from "@/lib/use-action";
-import { jumpToConfirmation, useAckState } from "@/components/AckState";
+import { jumpToConfirmation, monthsLabel, useAckState } from "@/components/AckState";
+import type { PriorConfirmation } from "@/components/AckState";
 import { CONFIRM_SECTION_ID } from "@/lib/use-reached-end";
 
 const ROW = "flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5 text-sm";
 const ICON = "h-4 w-4 shrink-0";
+
+const FIRST_REQUEST = "Please read this document carefully. You'll be asked to confirm at the end.";
+
+/**
+ * The one sentence for a reader whose confirmation lapsed. A text change
+ * says so whatever caused the reset; without one the sentence takes the
+ * shape of the re-ask (manual, annual, per-person) so nobody is told a
+ * document changed when it did not. The last line covers a marker that
+ * moved with neither a version nor a ledger row (a reset from before
+ * 1.10.0).
+ */
+export function reconfirmSentence(prior: PriorConfirmation, date: (iso: string) => string): string {
+  if (prior.changed) {
+    return `This document changed since you confirmed it on ${date(prior.ackedAt)}. Please read the changes and confirm again.`;
+  }
+  const r = prior.reason;
+  if (r?.kind === "recurrence") {
+    return `It has been ${monthsLabel(r.months)} since you confirmed this document. Please read it again and confirm.`;
+  }
+  if (r?.kind === "manual") {
+    return `Everyone was asked to confirm this document again on ${date(r.at)}. Please read it and confirm again.`;
+  }
+  if (r?.kind === "person") {
+    return `${r.by} asked you to confirm this document again on ${date(r.at)}. Please read it and confirm again.`;
+  }
+  return "You were asked to confirm this document again. Please read it and confirm again.";
+}
 
 export function DocNotices({
   docId,
@@ -59,6 +90,7 @@ export function DocNotices({
   const ackState = useAckState();
   const ackedAt = ackState?.ackedAt ?? null;
   const ackedRev = ackState?.ackedRev ?? null;
+  const prior = ackState?.prior ?? null;
 
   const [reviewed, setReviewed] = useState(false);
   const { run, isBusy } = useAction();
@@ -93,9 +125,7 @@ export function DocNotices({
         ) : ack.canSubmit ? (
           <div className={`${ROW} notice-warn`}>
             <FileCheck className={ICON} aria-hidden />
-            <p className="min-w-0 flex-1">
-              Please read this document carefully. You&apos;ll be asked to confirm at the end.
-            </p>
+            <p className="min-w-0 flex-1">{prior ? reconfirmSentence(prior, fmt.date) : FIRST_REQUEST}</p>
             <Button
               variant="secondary"
               size="sm"

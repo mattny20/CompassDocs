@@ -25,6 +25,8 @@ import { overlayOpen } from "@/lib/overlay-stack";
 import { DOC_TYPES } from "@/lib/types";
 import type { DocType, DocStatus, Space } from "@/lib/types";
 import type { EditDefault } from "@/lib/compliance-settings";
+import { changeSummary, suggestReconfirm } from "@/lib/diff";
+import { people } from "@/components/compliance/copy";
 
 type EditorTab = "rich" | "markdown" | "preview";
 
@@ -225,6 +227,54 @@ export function DocEditor({
   const [autoDrafted, setAutoDrafted] = useState(false);
   const [conflict, setConflict] = useState(false);
   const [otherEditors, setOtherEditors] = useState<string[]>([]);
+
+  // The schedule hint (H2, 1.11.0). Arming "Publish automatically at" on a
+  // draft that requires read confirmation, whose title or text differs from
+  // the version people confirmed, says now what the scheduler will do when
+  // it fires, because nobody is there to be asked then: under the document's
+  // 'material' setting an editorial-looking drift is kept (the same measure
+  // the scheduler takes), otherwise everyone is asked again. The confirmed
+  // text is fetched once per editor session and compared locally as the
+  // fields change, so typing never refetches.
+  const baselineRef = useRef<Promise<AckFetched | null> | null>(null);
+  const [scheduleHint, setScheduleHint] = useState<string | undefined>();
+  useEffect(() => {
+    if (!ack || !docId || savedStatus !== "draft" || !publishAt) {
+      setScheduleHint(undefined);
+      return;
+    }
+    let cancelled = false;
+    baselineRef.current ??= fetch(`/api/documents/${docId}/ack?baseline=1`, { cache: "no-store" })
+      .then((r) => (r.ok ? (r.json() as Promise<AckFetched>) : null))
+      .catch(() => null);
+    void baselineRef.current.then((fetched) => {
+      if (cancelled) return;
+      const baseline: ReconfirmText | null = fetched?.baseline
+        ? { title: fetched.baseline.title, content: fetched.baseline.content }
+        : null;
+      const next: ReconfirmText = { title: title.trim(), content };
+      if (!baseline || sameText(baseline, next)) {
+        setScheduleHint(undefined);
+        return;
+      }
+      const rev = fetched?.baseline?.rev ?? fetched?.rev ?? ack.summary.rev;
+      const since = rev !== null ? `version ${rev}` : "the confirmed version";
+      const editDefault = fetched?.edit_default ?? ack.editDefault;
+      const suggestion = suggestReconfirm(
+        changeSummary(baseline.content, next.content, { oldTitle: baseline.title, newTitle: next.title })
+      );
+      const kept = editDefault === "material" && suggestion.policy === "keep" && suggestion.confidence === "high";
+      const current = fetched?.current ?? ackCounts.current;
+      setScheduleHint(
+        kept
+          ? `Publishing on schedule will keep confirmations: the change since ${since} looks editorial (document setting).`
+          : `Publishing on schedule will ask ${current > 0 ? people(current) : "readers"} to re-confirm: the text changed since ${since}.`
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [ack, docId, savedStatus, publishAt, title, content, ackCounts.current]);
 
   // Editing presence: heartbeat every 30s while an existing doc is open, so
   // anyone else opening the same editor sees a "also editing" banner. Best
@@ -768,9 +818,14 @@ export function DocEditor({
   });
 
   async function unpublish() {
+    // A document that requires read confirmation says what happens to the
+    // programme (G2, 1.11.0): nothing is reset and nobody is asked while it
+    // is down; the portal lists it as paused until it is published again.
     const ok = await confirmDialog({
       title: "Unpublish this document?",
-      body: "Readers lose access until it is published again. Your edits are kept with it as a draft.",
+      body:
+        "Readers lose access until it is published again. Your edits are kept with it as a draft." +
+        (ack ? " Read confirmation is paused while the document is unpublished. Confirmations are kept." : ""),
       confirmLabel: "Unpublish",
       danger: true,
     });
@@ -1034,7 +1089,7 @@ export function DocEditor({
           {/* Scheduling follows the SAVED status: a draft can be published
               at a time, a published document unpublished at one. */}
           {canPublish && docId && savedStatus === "draft" && (
-            <Field label="Publish automatically at (optional)">
+            <Field label="Publish automatically at (optional)" help={scheduleHint}>
               <TextInput
                 type="datetime-local"
                 value={publishAt}

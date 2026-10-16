@@ -18,12 +18,20 @@ import { requireUser } from "@/lib/auth";
 import { userHolds, canPublishDirectly, canSeeDrafts, spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
 import { resolveAuthorPerson } from "@/lib/directory";
 import { featureEnabled } from "@/lib/ee";
-import { getCurrentAck, getAckVersionInfo, ackSummary, lastAckDecision } from "@/lib/db";
+import {
+  getCurrentAck,
+  getLatestAck,
+  getAckVersionInfo,
+  getAttestedVersion,
+  ackSummary,
+  lastAckDecision,
+} from "@/lib/db";
 import { getComplianceSettings } from "@/lib/compliance-settings";
 import { askedClause } from "./acknowledgements/ack-sentence";
 import { DocNotices } from "@/components/DocNotices";
 import { StickyDocBar } from "@/components/StickyDocBar";
 import { AckProvider } from "@/components/AckState";
+import type { AckReason, PriorConfirmation } from "@/components/AckState";
 import { AckCard } from "@/components/AckCard";
 import { AckStickyControl } from "@/components/AckStickyControl";
 import { RelativeTime } from "@/components/RelativeTime";
@@ -59,6 +67,15 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   return { title: doc?.title ? `${doc.title}` : "Document" };
 }
 
+/** Whole calendar months from one moment to another, at least one ("It has been 12 months since…"). */
+function monthsBetween(fromIso: string, toIso: string): number {
+  const from = new Date(fromIso);
+  const to = new Date(toIso);
+  let months = (to.getUTCFullYear() - from.getUTCFullYear()) * 12 + (to.getUTCMonth() - from.getUTCMonth());
+  if (to.getUTCDate() < from.getUTCDate()) months -= 1;
+  return Math.max(1, months);
+}
+
 export default async function DocPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requireUser();
   const { id } = await params;
@@ -76,7 +93,8 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
   ]);
   if (doc.status === "draft" && !isStaff) notFound();
 
-  const versionCount = (await listVersions(doc.id)).length;
+  const versions = await listVersions(doc.id);
+  const versionCount = versions.length;
   const relations =
     doc.branch_of === null ? await relationsFor(doc.id, scope, seeDraftsAnywhere) : [];
   const pending = (await userHolds(user, "change_request.read", {
@@ -154,6 +172,58 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
     ? await Promise.all([getCurrentAck(doc.id, user.id), getAckVersionInfo(doc.id)])
     : [undefined, null];
   const showAckCard = ackActive && canSubmitAck;
+  // The re-confirmation view (B3): when no confirmation counts but the
+  // reader has one that lapsed, the page works out what they confirmed
+  // (getLatestAck, the version inferred for rows from before 1.10.0),
+  // which versions came since, the text they confirmed (getAttestedVersion,
+  // C5) and why they are asked again: the newest reset since they
+  // confirmed, from the ledger, or the newest version's note when the
+  // ledger has no row for it (a reset from before 1.10.0 left none). The
+  // texts travel to the card as props, so no endpoint serves them.
+  const priorAck = ackActive && !myAck ? await getLatestAck(doc.id, user.id) : undefined;
+  const confirmedVersionId = priorAck?.version_id ?? null;
+  const revOf = new Map(versions.map((v, i) => [v.id, versions.length - i]));
+  const changesSince = confirmedVersionId !== null ? versions.filter((v) => v.id > confirmedVersionId) : [];
+  const [baselineVersion, lapseDecision] = priorAck
+    ? await Promise.all([
+        confirmedVersionId !== null ? getAttestedVersion(confirmedVersionId) : Promise.resolve(undefined),
+        lastAckDecision(doc.id, { outcome: "reset" }),
+      ])
+    : [undefined, null];
+  const baseline =
+    baselineVersion && baselineVersion.document_id === doc.id
+      ? { title: baselineVersion.title, content: baselineVersion.content }
+      : null;
+  const newestSince = changesSince[0];
+  // Only a reset taken after the person confirmed can be why they are asked
+  // again; an older row belongs to a lapse they already dealt with.
+  const lapseRow =
+    priorAck && lapseDecision && new Date(lapseDecision.decided_at).getTime() >= new Date(priorAck.acknowledged_at).getTime()
+      ? lapseDecision
+      : null;
+  const ackReason: AckReason | null =
+    priorAck && lapseRow
+      ? lapseRow.source === "recurrence"
+        ? { kind: "recurrence", months: monthsBetween(priorAck.acknowledged_at, lapseRow.decided_at) }
+        : {
+            kind: lapseRow.scope === "users" ? "person" : lapseRow.source === "manual" ? "manual" : "edit",
+            at: lapseRow.decided_at,
+            by: lapseRow.decided_by_name || newestSince?.author || "",
+            note: lapseRow.reason,
+          }
+      : newestSince
+        ? { kind: "edit", at: newestSince.created_at, by: newestSince.author, note: newestSince.note }
+        : null;
+  const prior: PriorConfirmation | null = priorAck
+    ? {
+        ackedAt: priorAck.acknowledged_at,
+        versionId: confirmedVersionId,
+        rev: priorAck.rev,
+        inferred: priorAck.version_inferred,
+        changed: changesSince.length > 0,
+        reason: ackReason,
+      }
+    : null;
   // The workspace defaults (E4): the statement readers agree to on the card,
   // and the edit default the shield popover marks "(workspace default)".
   const complianceSettings = ackEnabled ? await getComplianceSettings() : null;
@@ -208,6 +278,7 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
         versionId: ackVersion?.latest_version_id ?? ackVersion?.version_id ?? doc.ack_version_id,
         rev: ackVersion?.latest_rev ?? ackVersion?.rev ?? null,
         canSubmit: canSubmitAck,
+        prior,
       }
     : null;
   const ackPublishedLabel = ackActive
@@ -470,6 +541,17 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
                   doc.author,
                 approvedBy: ackVersion?.latest_approved_by_name || undefined,
               }}
+              // The re-confirmation view (B3): the text on screen, the text
+              // the reader confirmed and the versions in between.
+              current={{ title: doc.title, content: doc.content }}
+              baseline={baseline}
+              changesSince={changesSince.map((v) => ({
+                id: v.id,
+                rev: revOf.get(v.id) ?? 0,
+                note: v.note,
+                author: v.author,
+                createdAt: v.created_at,
+              }))}
             />
           )}
 

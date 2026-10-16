@@ -86,6 +86,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
     if (fresh) {
       const placedDoc = await updateDocument(doc.id, {
         content: withImagePlaced(fresh.content, markdown, ticket.insert_mode),
+        versionNote: "Added file",
+        // A dropped file is a text change nobody can be asked about (the
+        // drop link has no editor behind it), so it keeps confirmations
+        // (G2, 1.11.0) and is recorded from source 'ticket': a 'kept' row
+        // on the History tab, counted by the portal's drift chip, so a
+        // picture that was the policy is seen and re-asked by hand. The
+        // fixed reason stands in for the editor's note, whatever Program
+        // settings asks of a person.
+        ackPolicy: "keep",
+        ackReason: "Added file",
+        ackKeepReasonRequired: false,
         ackSource: "ticket",
         ackActor: owner ? { id: owner.id, name: owner.name || owner.username } : undefined,
         ackOrigin: requestOrigin(req),

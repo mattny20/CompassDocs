@@ -7,12 +7,21 @@ import { toast } from "@/components/Toasts";
 import type { ImportResult } from "@/lib/transfer";
 import { Download } from "lucide-react";
 
+/** "3 policies" / "1 policy": the import's own count noun. */
+function policies(n: number): string {
+  return `${n} ${n === 1 ? "policy" : "policies"}`;
+}
+
 export function ImportExport() {
   const router = useRouter();
   const fileInput = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState("");
   const [importing, setImporting] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
+  // Off by default (H2, 1.11.0): an import cannot ask whether a change is
+  // editorial, so a published document that requires read confirmation is
+  // left unchanged unless the admin says otherwise.
+  const [overwritePolicies, setOverwritePolicies] = useState(false);
 
   async function runImport() {
     const file = fileInput.current?.files?.[0];
@@ -24,6 +33,7 @@ export function ImportExport() {
     setResult(null);
     const body = new FormData();
     body.append("file", file);
+    if (overwritePolicies) body.append("overwrite_policies", "1");
     const res = await fetch("/api/import", { method: "POST", body });
     setImporting(false);
     const data = await res.json().catch(() => ({}));
@@ -78,6 +88,22 @@ export function ImportExport() {
             {importing ? "Importing…" : "Import"}
           </button>
         </div>
+        {/* Native checkbox: the global accent-color rule paints it (STYLEGUIDE §Color and theming). */}
+        <label className="mt-3 flex cursor-pointer items-start gap-2 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            checked={overwritePolicies}
+            onChange={(e) => setOverwritePolicies(e.target.checked)}
+            className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300"
+          />
+          <span>
+            Also overwrite documents that require read confirmation
+            <span className="mt-0.5 block text-xs text-slate-500">
+              Off, published documents that require read confirmation are left unchanged and listed
+              below. On, a changed text asks their readers to re-confirm, as any other edit would.
+            </span>
+          </span>
+        </label>
 
         {result && (
           <div className="notice-ok mt-3 rounded-lg px-3 py-2 text-sm">
@@ -90,6 +116,16 @@ export function ImportExport() {
               </>
             )}
             .
+            {/* What the import did to readers' confirmations (H2, 1.11.0), in people and policies. */}
+            {(result.reconfirm_requested ?? 0) > 0 && (
+              <span className="block">{policies(result.reconfirm_requested)} will ask people to re-confirm.</span>
+            )}
+            {(result.policies_skipped ?? 0) > 0 && (
+              <span className="block">
+                {policies(result.policies_skipped)} that require read confirmation{" "}
+                {result.policies_skipped === 1 ? "was" : "were"} left unchanged.
+              </span>
+            )}
             {result.errors.length > 0 && (
               <details className="mt-1">
                 <summary className="cursor-pointer text-xs font-medium text-emerald-700">

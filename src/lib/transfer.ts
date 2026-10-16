@@ -83,7 +83,39 @@ export interface ImportResult {
   spacesCreated: number;
   skipped: number;
   errors: string[];
+  /**
+   * Published documents that require read confirmation and were left
+   * unchanged because overwriting them was not allowed (H2, 1.11.0). Each is
+   * also counted in `skipped` and named in `errors` with the reason.
+   */
+  policies_skipped: number;
+  /** Policies the import overwrote with a changed text, whose readers will be asked to re-confirm (H2, 1.11.0). */
+  reconfirm_requested: number;
 }
+
+/** Who ran the import: the ledger's actor on every decision it takes (H2). */
+export interface Importer {
+  id: number | null;
+  name: string;
+}
+
+export interface ImportOptions {
+  /**
+   * Overwrite published documents that require read confirmation (the admin
+   * checkbox "Also overwrite documents that require read confirmation"; off
+   * by default). An import cannot ask whether a change is editorial, so
+   * every such document is skipped unless the importer said so; when
+   * allowed, the document's edit default decides (ackPolicy 'auto', source
+   * 'import') and readers are told as after any other text change.
+   */
+  overwritePolicies?: boolean;
+  /** The request's origin, carried on the notice a reset queues (absolute links without custom_domain). */
+  origin?: string;
+}
+
+/** The reason an untouched policy is listed under, so the admin knows which box to tick. */
+export const IMPORT_POLICY_SKIPPED =
+  'requires read confirmation and was left unchanged. Tick "Also overwrite documents that require read confirmation" to replace it.';
 
 /**
  * Import documents from an export zip (or any zip of front-matter Markdown).
@@ -91,9 +123,21 @@ export interface ImportResult {
  * place, or created. Missing spaces are created (using manifest metadata when
  * present). Returns a summary.
  */
-export async function importFromZip(buffer: Buffer, importerName: string): Promise<ImportResult> {
+export async function importFromZip(
+  buffer: Buffer,
+  importer: Importer,
+  opts: ImportOptions = {}
+): Promise<ImportResult> {
   const zip = await JSZip.loadAsync(buffer);
-  const res: ImportResult = { created: 0, updated: 0, spacesCreated: 0, skipped: 0, errors: [] };
+  const res: ImportResult = {
+    created: 0,
+    updated: 0,
+    spacesCreated: 0,
+    skipped: 0,
+    errors: [],
+    policies_skipped: 0,
+    reconfirm_requested: 0,
+  };
 
   // Optional manifest → nice space names/icons/colours.
   const manifestSpaces: Record<string, any> = {};
@@ -156,14 +200,23 @@ export async function importFromZip(buffer: Buffer, importerName: string): Promi
       const tags = normalizeTags(data.tags);
       const content = parsed.content ?? "";
       const summary = String(data.summary || "").trim();
-      const author = String(data.author || "").trim() || importerName;
+      const author = String(data.author || "").trim() || importer.name;
 
       // Match how createDocument slugs, so re-importing updates in place.
       const docSlug = slugify(title) || "untitled";
       const existing = await getDocumentBySpaceAndSlug(spaceId, docSlug);
 
       if (existing) {
-        await updateDocument(existing.id, {
+        // A published policy is never overwritten by accident: nobody is
+        // there to say whether the zip's text is an editorial fix, and a
+        // reset tells everyone who confirmed it (H2, 1.11.0).
+        if (existing.status === "published" && existing.ack_required === 1 && !opts.overwritePolicies) {
+          res.skipped++;
+          res.policies_skipped++;
+          res.errors.push(`${f.name}: "${existing.title}" ${IMPORT_POLICY_SKIPPED}`);
+          continue;
+        }
+        const updated = await updateDocument(existing.id, {
           title,
           type,
           status,
@@ -172,8 +225,14 @@ export async function importFromZip(buffer: Buffer, importerName: string): Promi
           tags,
           author,
           versionNote: "Imported",
+          // 'auto': the document's edit default decides, as for every writer
+          // that cannot ask; the ledger row names the importer and the source.
+          ackPolicy: "auto",
           ackSource: "import",
+          ackActor: importer,
+          ackOrigin: opts.origin ?? "",
         });
+        if (updated?.ack_outcome?.reset) res.reconfirm_requested++;
         res.updated++;
       } else {
         await createDocument({
