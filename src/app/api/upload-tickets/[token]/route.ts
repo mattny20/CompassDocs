@@ -73,6 +73,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
     return NextResponse.json({ error: LINK_MESSAGE.used }, { status: 410 });
   }
 
+  // The person who minted the link is the actor for everything that follows:
+  // the edit that places the image, its confirmation decision and the audit.
+  const owner = await getUserById(ticket.created_by);
+
   const alt = ticket.alt.trim() || att.filename;
   const markdown = `![${alt}](/api/attachments/${att.id})`;
   let placed = false;
@@ -81,12 +85,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
     if (fresh) {
       await updateDocument(doc.id, {
         content: withImagePlaced(fresh.content, markdown, ticket.insert_mode),
+        ackSource: "ticket",
+        ackActor: owner ? { id: owner.id, name: owner.name || owner.username } : undefined,
       });
       placed = true;
     }
   }
 
-  const owner = await getUserById(ticket.created_by);
   await audit({
     actor: owner ? { id: owner.id, name: owner.name || owner.username, role: owner.role } : { name: "system" },
     action: "attachment.upload",

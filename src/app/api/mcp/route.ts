@@ -36,7 +36,7 @@ import { publicOrigin } from "@/lib/oauth";
 import { notifyWebhooks } from "@/lib/webhooks";
 import { notifyCrSubmitted } from "@/lib/notifications";
 import { notifySpaceSubscribers } from "@/lib/subscriptions";
-import { audit, actorFrom } from "@/lib/audit";
+import { audit, auditAckDecision, actorFrom } from "@/lib/audit";
 import {
   intakeFromBase64,
   intakeFromUrl,
@@ -723,6 +723,8 @@ async function callTool(user: User, name: string, args: any, origin: string) {
         space_id: targetSpaceId,
         author: user.name || user.username,
         versionNote: note || "Edited via Claude connector",
+        ackSource: "mcp",
+        ackActor: { id: user.id, name: user.name || user.username },
       });
 
       // Nested pages: parent moves are organizational and apply directly.
@@ -734,6 +736,21 @@ async function callTool(user: User, name: string, args: any, origin: string) {
         } else {
           parentNote = "Nested pages are disabled in this workspace — parent unchanged.";
         }
+      }
+
+      // A save that changed nothing is answered with the unchanged document:
+      // no webhook, no subscriber notice, no audit row claiming an edit that
+      // did not happen (A2, as the app's PUT does). The parent move above is
+      // a separate record and still applied.
+      if (doc?.ack_outcome?.changed === false) {
+        return toolJson({
+          ok: true,
+          id: doc.id,
+          status: doc.status,
+          url: `/doc/${doc.id}`,
+          unchanged: true,
+          note: parentNote ?? "Nothing changed: the document already had this title, text and metadata.",
+        });
       }
 
       const justPublished = existing.status !== "published" && doc?.status === "published";
@@ -766,6 +783,9 @@ async function callTool(user: User, name: string, args: any, origin: string) {
         targetLabel: proposed.title,
         details: { via: "mcp", ...(moving ? { moved_to: targetSpaceId } : {}) },
       });
+      // The confirmation decision an edit of a confirmed, published document
+      // took is echoed to the audit log like a PUT's (C1).
+      await auditAckDecision(existing, doc, { actor: actorFrom(user) });
       return toolJson({ ok: true, id: doc!.id, status: doc!.status, url: `/doc/${doc!.id}`, note: parentNote });
     }
 
@@ -831,6 +851,8 @@ async function callTool(user: User, name: string, args: any, origin: string) {
         if (fresh) {
           await updateDocument(doc.id, {
             content: withImagePlaced(fresh.content, markdown, insert),
+            ackSource: "image",
+            ackActor: { id: user.id, name: user.name || user.username },
           });
           placed = true;
         }

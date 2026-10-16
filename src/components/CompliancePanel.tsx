@@ -1,8 +1,8 @@
 "use client";
 
-// Central compliance portal: org-wide acknowledgement progress across every
-// policy, per-user standing, request-acknowledgement for any published doc,
-// and one-click reminders to stragglers. Enterprise (policy_ack).
+// Central compliance portal: org-wide read-confirmation progress across every
+// policy, per-user standing, asking for a read confirmation of any published
+// doc, and one-click reminders to stragglers. Enterprise (policy_ack).
 
 import { useCallback, useEffect, useState } from "react";
 import { LoadingRow, Spinner } from "@/components/Spinner";

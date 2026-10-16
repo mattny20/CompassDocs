@@ -4,9 +4,10 @@
 //
 // Server-only: uses the Postgres pool.
 
-import { pool } from "./db";
+import { createHash } from "node:crypto";
+import { pool, lastAckDecision } from "./db";
 import { logEvent } from "./log";
-import type { SessionUser } from "./types";
+import type { AckOutcomeInfo, SessionUser } from "./types";
 
 export interface AuditActor {
   id?: number | null;
@@ -173,6 +174,45 @@ export async function auditAck(
       ...(extra.details ?? {}),
     },
     ip: extra.ip,
+  });
+}
+
+/**
+ * Echo the confirmation decision a save just took into the audit log (C1):
+ * the ledger row is the record, the audit entry is its echo with the same
+ * version, counts and reason. A decision is taken only when the text of a
+ * confirmed, published document changed (updateDocument's `decides`), so
+ * anything else, including a silent marker advance with the requirement off,
+ * writes nothing. Every route that calls updateDocument (PUT, merge, restore,
+ * the v1 API, the MCP connector) uses this one helper so the echo cannot
+ * drift between them.
+ */
+export async function auditAckDecision(
+  before: { ack_required: number },
+  doc:
+    | { id: number; title: string; content: string; status: string; ack_outcome?: AckOutcomeInfo }
+    | undefined,
+  extra: Pick<AckAuditExtra, "actor" | "ip"> = {}
+): Promise<void> {
+  const outcome = doc?.ack_outcome;
+  if (!doc || !outcome?.substantive || before.ack_required !== 1 || doc.status !== "published") return;
+  const decision = await lastAckDecision(doc.id);
+  if (!decision) return;
+  await auditAck(outcome.reset ? "ack.confirmations_reset" : "ack.confirmations_kept", doc, {
+    actor: extra.actor,
+    ip: extra.ip,
+    version_id: decision.version_id,
+    version: decision.rev,
+    content_sha256: createHash("sha256").update(doc.content).digest("hex"),
+    source: decision.source,
+    reason: decision.reason,
+    details: {
+      confirmations_affected: decision.confirmations_affected,
+      eligible: decision.eligible,
+      suggested: decision.suggested,
+      overrode_suggestion: decision.overrode_suggestion,
+      change_pct: decision.change_pct,
+    },
   });
 }
 

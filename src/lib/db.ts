@@ -4811,6 +4811,8 @@ export interface ComplianceDocRow {
   updated_at: string;
   ack_revision_at: string;
   ack_version_id: number | null;
+  /** The marker version's number ("v12"), null when the version row is gone. */
+  ack_rev: number | null;
   ack_last_reminded_at: string | null;
   required: number;
   acked: number;
@@ -4829,6 +4831,7 @@ export async function complianceDocs(): Promise<ComplianceDocRow[]> {
   const docs = await q<Omit<ComplianceDocRow, "last_decision" | "last_reset" | "kept_since_reset" | "drift_pct">>(
     `SELECT d.id, d.title, s.name AS space_name, s.icon AS space_icon,
             d.updated_at, d.ack_revision_at, d.ack_version_id, d.ack_last_reminded_at,
+            ${VERSION_REV("d.ack_version_id")} AS ack_rev,
             COUNT(u.id)::int AS required,
             COUNT(u.id) FILTER (WHERE a.acknowledged_at IS NOT NULL)::int AS acked
      FROM documents d

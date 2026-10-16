@@ -6,7 +6,7 @@ import {
   createChangeRequest,
   } from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
-import { audit, actorFrom, ipFrom } from "@/lib/audit";
+import { audit, auditAckDecision, actorFrom, ipFrom } from "@/lib/audit";
 import { notifyCrSubmitted } from "@/lib/notifications";
 import { requestOrigin } from "@/lib/oauth";
 import { canPublishDirectly, spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
@@ -97,6 +97,8 @@ export async function POST(
     author: user.name || user.username,
     versionNote: note,
     restoredFrom: version.id,
+    ackSource: "restore",
+    ackActor: { id: user.id, name: user.name || user.username },
   });
   await audit({
     actor: actorFrom(user),
@@ -107,5 +109,8 @@ export async function POST(
     details: { versionId: version.id },
     ip: ipFrom(req),
   });
-  return NextResponse.json({ doc: updated });
+  // Restoring an older text over a confirmed, published document takes a
+  // confirmation decision; echo it to the audit log like a PUT's (C1).
+  await auditAckDecision(doc, updated, { actor: actorFrom(user), ip: ipFrom(req) });
+  return NextResponse.json({ doc: updated, ack_outcome: updated?.ack_outcome });
 }

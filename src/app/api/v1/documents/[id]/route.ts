@@ -10,7 +10,7 @@ import {
 } from "@/lib/db";
 import { spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
 import { type DocType } from "@/lib/types";
-import { audit, actorFrom, ipFrom } from "@/lib/audit";
+import { audit, auditAckDecision, actorFrom, ipFrom } from "@/lib/audit";
 import { notifySpaceSubscribers } from "@/lib/subscriptions";
 import { notifyCrSubmitted } from "@/lib/notifications";
 import { requestOrigin } from "@/lib/oauth";
@@ -128,8 +128,17 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     ...next,
     author: user.name || user.username,
     versionNote: String(body.note ?? "").trim() || "Updated via API",
+    ackSource: "api",
+    ackActor: { id: user.id, name: user.name || user.username },
   });
   if (!updated) return v1Error(404, "Document not found.");
+
+  // A PATCH that changed nothing is answered with the unchanged document and
+  // nothing else happens: no audit row claiming an edit that did not happen,
+  // no subscriber notice (A2, as the app's PUT does).
+  if (updated.ack_outcome?.changed === false) {
+    return NextResponse.json({ document: v1Doc(updated, true) });
+  }
 
   await audit({
     actor: actorFrom(user),
@@ -152,6 +161,9 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       origin: requestOrigin(req),
     });
   }
+  // The confirmation decision an API edit of a confirmed, published document
+  // took is echoed to the audit log like a PUT's (C1).
+  await auditAckDecision(doc, updated, { actor: actorFrom(user), ip: ipFrom(req) });
   return NextResponse.json({ document: v1Doc(updated, true) });
 }
 

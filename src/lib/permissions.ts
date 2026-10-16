@@ -761,7 +761,7 @@ export const SECTION_ROLES = {
   },
   "compliance-manager": {
     label: "Compliance manager",
-    description: "Run the policy-acknowledgement program: progress, requests, reminders, exports.",
+    description: "Run the read-confirmation program: progress, requests, reminders, exports.",
     section: "compliance",
     permissions: [
       "compliance.export",

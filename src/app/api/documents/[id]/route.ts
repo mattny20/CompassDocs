@@ -1,16 +1,14 @@
 import { NextResponse } from "next/server";
-import { createHash } from "node:crypto";
 import {
   getDocument,
   getSpaceById,
   updateDocument,
   deleteDocument,
   createChangeRequest,
-  lastAckDecision,
   AckReasonRequiredError,
 } from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
-import { audit, auditAck, actorFrom, ipFrom } from "@/lib/audit";
+import { audit, auditAckDecision, actorFrom, ipFrom } from "@/lib/audit";
 import { notifyWebhooks } from "@/lib/webhooks";
 import { notifyCrSubmitted } from "@/lib/notifications";
 import { notifySpaceSubscribers } from "@/lib/subscriptions";
@@ -303,32 +301,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   // The confirmation decision, when one was taken (the text of a confirmed,
   // published document changed): the ledger row is the record, the audit
   // entry is its echo with the same version, counts and reason (C1).
-  if (
-    doc &&
-    ackOutcome?.substantive &&
-    existing.ack_required === 1 &&
-    doc.status === "published"
-  ) {
-    const decision = await lastAckDecision(doc.id);
-    if (decision) {
-      await auditAck(ackOutcome.reset ? "ack.confirmations_reset" : "ack.confirmations_kept", doc, {
-        actor: actorFrom(user),
-        ip: ipFrom(req),
-        version_id: decision.version_id,
-        version: decision.rev,
-        content_sha256: createHash("sha256").update(doc.content).digest("hex"),
-        source: decision.source,
-        reason: decision.reason,
-        details: {
-          confirmations_affected: decision.confirmations_affected,
-          eligible: decision.eligible,
-          suggested: decision.suggested,
-          overrode_suggestion: decision.overrode_suggestion,
-          change_pct: decision.change_pct,
-        },
-      });
-    }
-  }
+  await auditAckDecision(existing, doc, { actor: actorFrom(user), ip: ipFrom(req) });
   return NextResponse.json({ doc, parentWarning, ack_outcome: ackOutcome });
 }
 

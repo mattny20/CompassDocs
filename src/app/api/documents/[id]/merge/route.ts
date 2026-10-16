@@ -6,7 +6,7 @@ import {
   createChangeRequest,
   } from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
-import { audit, actorFrom, ipFrom } from "@/lib/audit";
+import { audit, auditAckDecision, actorFrom, ipFrom } from "@/lib/audit";
 import { notifySpaceSubscribers } from "@/lib/subscriptions";
 import { notifyCrSubmitted } from "@/lib/notifications";
 import { requestOrigin } from "@/lib/oauth";
@@ -99,8 +99,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     type: branch.type,
     author: user.name || user.username,
     versionNote,
+    ackSource: "merge",
+    ackActor: { id: user.id, name: user.name || user.username },
   });
   await deleteDocument(branch.id);
+  // A branch whose text already matches its source has nothing to merge: the
+  // source comes back unchanged (no version, no reset) and the branch still
+  // moves to the Trash, but nobody is notified and no audit row claims an
+  // edit that did not happen (A2, as PUT does for a no-op save).
+  if (updated?.ack_outcome?.changed === false) {
+    return NextResponse.json({ doc: updated, ack_outcome: updated.ack_outcome });
+  }
   await audit({
     actor: actorFrom(user),
     action: "document.branch_merge",
@@ -122,5 +131,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       origin: requestOrigin(req),
     });
   }
-  return NextResponse.json({ doc: updated });
+  // The confirmation decision a merge of a confirmed, published document
+  // took is echoed to the audit log like a PUT's (C1).
+  await auditAckDecision(source, updated, { actor: actorFrom(user), ip: ipFrom(req) });
+  return NextResponse.json({ doc: updated, ack_outcome: updated?.ack_outcome });
 }
