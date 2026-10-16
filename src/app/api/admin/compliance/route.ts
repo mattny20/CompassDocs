@@ -1,32 +1,38 @@
 import { NextResponse } from "next/server";
-import { sectionApiGuard } from "@/lib/api-auth";
+import { complianceGuard, type ComplianceKey } from "@/lib/api-auth";
 import { featureEnabled } from "@/lib/ee";
 import {
   complianceDocs,
   complianceUserSummary,
-  compliancePendingUsers,
   ackCandidateDocs,
   ackStatusForDocument,
   ackFormerStaffRows,
+  ackSummary,
   getDocument,
   setAckRequired,
-  setAckLastReminded,
 } from "@/lib/db";
-import { notifyAckRequest } from "@/lib/compliance";
-import { audit, actorFrom, ipFrom } from "@/lib/audit";
+import { requestAcknowledgement, enqueueReminder } from "@/lib/compliance";
+import { audit, auditAck, actorFrom, ipFrom } from "@/lib/audit";
+import { userHolds } from "@/lib/access";
 import { requestOrigin } from "@/lib/oauth";
 import type { SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-// Central compliance portal (admins): org-wide read-confirmation progress,
-// asking for a read confirmation of any published doc, and reminders to
-// stragglers.
+// Central compliance portal: org-wide read-confirmation progress, asking for
+// a read confirmation of any published doc, reminders to stragglers, and
+// stopping the requirement. Three keys gate it (F6, 1.10.1): program_read
+// for the JSON, export for the CSV matrix, program_manage for every POST.
 
 const REMIND_COOLDOWN_MS = 60 * 60 * 1000; // one reminder per doc per hour
 
-async function gated() {
-  const gate = await sectionApiGuard("compliance");
+/** The literal set of portal actions. Anything else is 400, never "request". */
+const ACTIONS = ["request", "remind", "stop"] as const;
+type Action = (typeof ACTIONS)[number];
+const isAction = (v: unknown): v is Action => ACTIONS.includes(v as Action);
+
+async function gated(key: ComplianceKey): Promise<{ denied: NextResponse } | { user: SessionUser }> {
+  const gate = await complianceGuard(key);
   if (gate instanceof NextResponse) return { denied: gate };
   if (!(await featureEnabled("policy_ack"))) {
     return {
@@ -36,28 +42,51 @@ async function gated() {
       ),
     };
   }
-  return { user: gate as SessionUser };
+  return { user: gate };
+}
+
+/** A published document by id, or undefined (a NaN id never reaches the database). */
+async function publishedDoc(raw: unknown) {
+  const id = Number(raw);
+  if (!Number.isInteger(id) || id <= 0) return undefined;
+  const doc = await getDocument(id);
+  return doc && doc.status === "published" ? doc : undefined;
 }
 
 export async function GET(req: Request) {
-  const { denied, user } = await gated();
-  if (denied || !user) return denied!;
-
-  const [docs, users, candidates] = await Promise.all([
-    complianceDocs(),
-    complianceUserSummary(),
-    ackCandidateDocs(),
-  ]);
-
   const url = new URL(req.url);
-  if (url.searchParams.get("format") === "csv") {
+  const csv = url.searchParams.get("format") === "csv";
+  const preview = url.searchParams.get("preview");
+
+  // The key follows the shape of the answer: the matrix is an export of
+  // personal data, everything else is reading the programme.
+  const gate = await gated(csv ? "compliance.export" : "compliance.program_read");
+  if ("denied" in gate) return gate.denied;
+  const { user } = gate;
+
+  if (preview !== null) {
+    // ?preview={docId} -> the audience the Request question names (A8):
+    // how many people would be asked right now. Counts only, no names.
+    const doc = await publishedDoc(preview);
+    if (!doc) {
+      return NextResponse.json({ error: "Document not found or not published." }, { status: 404 });
+    }
+    const summary = await ackSummary(doc.id);
+    return NextResponse.json(
+      { eligible: summary.eligible, pending: summary.pending, required: summary.required },
+      { headers: { "Cache-Control": "no-store" } }
+    );
+  }
+
+  if (csv) {
     // Full matrix: one row per (policy, eligible user), then one per former
     // staff member with a record. Existing columns stay in place;
     // revision_as_of is the confirmation marker date since 1.10.0 (it was
     // updated_at); the version, hash, source and former_staff columns are
     // appended, then the ledger's asked_at, asked_by, reason and
     // kept_since_asked (C1; asked_by and reason are empty when the marker
-    // predates the ledger).
+    // predates the ledger). No IP column here: with_ip is false.
+    const docs = await complianceDocs();
     const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
     const lines = [
       "document,space,revision_as_of,name,username,email,role,acknowledged_at,version,version_id,content_sha256,version_source,former_staff,asked_at,asked_by,reason,kept_since_asked",
@@ -111,6 +140,17 @@ export async function GET(req: Request) {
         );
       }
     }
+    // Every export is on the record before the response streams (F6): an
+    // access review samples exactly this.
+    await audit({
+      actor: actorFrom(user),
+      action: "ack.export",
+      targetType: "compliance",
+      targetId: null,
+      targetLabel: "All policies",
+      details: { format: "matrix", doc_id: "all", rows: lines.length - 1, with_ip: false },
+      ip: ipFrom(req),
+    });
     return new Response(lines.join("\n") + "\n", {
       headers: {
         "Content-Type": "text/csv; charset=utf-8",
@@ -118,6 +158,14 @@ export async function GET(req: Request) {
       },
     });
   }
+
+  const [docs, users, candidates, manage, canExport] = await Promise.all([
+    complianceDocs(),
+    complianceUserSummary(),
+    ackCandidateDocs(),
+    userHolds(user, "compliance.program_manage", { legacyMin: "admin" }),
+    userHolds(user, "compliance.export", { legacyMin: "admin" }),
+  ]);
 
   const required = docs.reduce((n, d) => n + d.required, 0);
   const acked = docs.reduce((n, d) => n + d.acked, 0);
@@ -135,62 +183,108 @@ export async function GET(req: Request) {
     docs,
     users,
     candidates,
+    // What the viewer may do, so the portal hides Request, Remind, Stop
+    // requiring and Export from a read-only holder instead of letting them
+    // find the 403 (F6/F7).
+    can: { manage, export: canExport },
   });
 }
 
+// POST { docId, action: 'request' | 'remind' | 'stop', notify?: boolean }
+//
+// request: the document starts requiring read confirmation; with notify
+//   (the default) a 'request' notice is queued for everyone who can see it
+//   and delivered by the outbox within a minute; notify: false ("Require
+//   quietly") switches it on and tells nobody. Answers { ok, queued, eligible }.
+// remind: a 'reminder' notice is queued for everyone still pending, at most
+//   once per policy per hour (429 inside the hour). Answers { ok, queued }.
+// stop: the requirement is switched off; the record is kept. Answers
+//   { ok, acked, required } as they stood at that moment.
+//
+// The drain writes ack.requested / ack.reminder_sent with the real counts
+// once the notices have gone out (H4); this route records the requirement
+// changing hands: document.ack_required { notify, eligible, queued } and
+// document.ack_removed { acked, required } (the same rows the document
+// shield writes, so the two paths read the same in the audit log).
 export async function POST(req: Request) {
-  const { denied, user } = await gated();
-  if (denied || !user) return denied!;
+  const gate = await gated("compliance.program_manage");
+  if ("denied" in gate) return gate.denied;
+  const { user } = gate;
 
-  let body: any;
+  let body: { docId?: unknown; action?: unknown; notify?: unknown };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON." }, { status: 400 });
   }
-  const docId = Number(body?.docId);
-  const action = body?.action === "remind" ? "remind" : "request";
-  const doc = await getDocument(docId);
-  if (!doc || doc.status !== "published") {
+  if (!isAction(body?.action)) {
+    return NextResponse.json({ error: "Unknown action." }, { status: 400 });
+  }
+  const action = body.action;
+  const doc = await publishedDoc(body?.docId);
+  if (!doc) {
     return NextResponse.json({ error: "Document not found or not published." }, { status: 404 });
   }
+  const actor = actorFrom(user);
+  const ip = ipFrom(req);
+  /** The outbox row's actor: the same name the audit row carries. */
+  const sender = { id: user.id, name: user.name || user.username };
 
   if (action === "request") {
     if (doc.ack_required === 1) {
       return NextResponse.json({ error: "This document already asks for a read confirmation." }, { status: 400 });
     }
-    await setAckRequired(doc.id, true);
-  } else if (doc.ack_required !== 1) {
-    return NextResponse.json({ error: "This document doesn't ask for a read confirmation." }, { status: 400 });
-  } else if (
-    doc.ack_last_reminded_at &&
-    Date.now() - new Date(doc.ack_last_reminded_at).getTime() < REMIND_COOLDOWN_MS
-  ) {
-    return NextResponse.json(
-      { error: "A reminder went out less than an hour ago — give people a moment." },
-      { status: 429 }
-    );
+    const notify = body.notify !== false;
+    // The audience as it stands when the requirement is switched on: the
+    // number the question showed, kept on the audit row.
+    const summary = await ackSummary(doc.id);
+    // Switches the requirement on, stamps the Remind cooldown and, with
+    // notify, queues the 'request' notice for the outbox (src/lib/compliance).
+    const { queued } = await requestAcknowledgement(doc, sender, requestOrigin(req), { notify });
+    await auditAck("document.ack_required", doc, {
+      actor,
+      ip,
+      version_id: summary.latest_version_id,
+      version: summary.latest_rev,
+      source: "manual",
+      details: { notify, eligible: summary.eligible, queued },
+    });
+    return NextResponse.json({ ok: true, queued, eligible: summary.eligible });
   }
 
-  const pending = await compliancePendingUsers(doc.id);
-  const { emailed, noticed } = await notifyAckRequest({
-    docId: doc.id,
-    docTitle: doc.title,
-    users: pending,
-    requesterId: user.id,
-    requesterName: user.name || user.username,
-    origin: requestOrigin(req),
-    mode: action === "remind" ? "reminder" : "request",
+  if (doc.ack_required !== 1) {
+    return NextResponse.json({ error: "This document doesn't ask for a read confirmation." }, { status: 400 });
+  }
+
+  if (action === "remind") {
+    if (
+      doc.ack_last_reminded_at &&
+      Date.now() - new Date(doc.ack_last_reminded_at).getTime() < REMIND_COOLDOWN_MS
+    ) {
+      return NextResponse.json(
+        { error: "A reminder went out less than an hour ago. Give people a moment." },
+        { status: 429 }
+      );
+    }
+    // Queues the 'reminder' notice and stamps the cooldown in the request
+    // path (not the drain), so a second click inside the hour is refused
+    // before anything is delivered.
+    const { queued } = await enqueueReminder(doc, sender, requestOrigin(req));
+    return NextResponse.json({ ok: true, queued });
+  }
+
+  // stop: counted before the flip, so "removed" says what standing the
+  // record had at that moment (acked of required), exactly as the shield's
+  // switch-off does (C1). The record itself is kept.
+  const summary = await ackSummary(doc.id);
+  await setAckRequired(doc.id, false);
+  await auditAck("document.ack_removed", doc, {
+    actor,
+    ip,
+    version_id: summary.version_id,
+    version: summary.rev,
+    source: "manual",
+    details: { acked: summary.current, required: summary.eligible },
   });
-  await setAckLastReminded(doc.id);
-  await audit({
-    actor: actorFrom(user),
-    action: action === "remind" ? "ack.reminder_sent" : "ack.requested",
-    targetType: "document",
-    targetId: doc.id,
-    targetLabel: doc.title,
-    details: { pending: pending.length, emailed, noticed },
-    ip: ipFrom(req),
-  });
-  return NextResponse.json({ ok: true, pending: pending.length, emailed, noticed });
+  return NextResponse.json({ ok: true, acked: summary.current, required: summary.eligible });
 }

@@ -155,3 +155,31 @@ export async function sectionApiGuard(
   }
   return user;
 }
+
+/** The three keys the compliance portal and every later compliance route are gated on (F6). */
+export type ComplianceKey = "compliance.program_read" | "compliance.program_manage" | "compliance.export";
+
+/**
+ * Guard for the compliance portal's routes (F6, 1.10.1): the Compliance
+ * section gate (compliance.program_read: admins and anyone delegated the
+ * section) followed by the handler's own key, so a custom role sold as
+ * read-only can look at the programme but neither mail the workspace
+ * (program_manage: request, remind, stop, settings, bulk) nor export
+ * personal data (export: every CSV and package). apiGuard takes exactly one
+ * permission and section keys are global, so the composition lives here and
+ * every new compliance route uses it rather than sectionApiGuard alone.
+ *
+ * program_read IS the section gate, so it is not evaluated twice. For the
+ * two stronger keys the break-glass ladder rung is admin: before 0.93 only
+ * administrators could run or export the programme.
+ */
+export async function complianceGuard(key: ComplianceKey): Promise<SessionUser | NextResponse> {
+  const gate = await sectionApiGuard("compliance");
+  if (gate instanceof NextResponse) return gate;
+  if (key === "compliance.program_read") return gate;
+  const { userHolds } = await import("./access");
+  if (!(await userHolds(gate, key, { legacyMin: "admin" }))) {
+    return NextResponse.json({ error: "You don't have permission for that." }, { status: 403 });
+  }
+  return gate;
+}
