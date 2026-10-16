@@ -79,8 +79,9 @@ export function DocNotices({
     <div className="mb-8 divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-surface print:hidden">
       {/* Reader row: tinted by the notice classes (both themes), ink
           inherited so the icon follows. One sentence and one action while
-          pending; one sentence once confirmed (the record link is in the
-          card); the permission explanation when the role cannot record one. */}
+          pending (the action is w-full under sm: on a phone the row wraps
+          and the link takes the second line); one sentence once confirmed;
+          the permission explanation when the role cannot record one. */}
       {hasAckRow &&
         ack &&
         (ackedAt ? (

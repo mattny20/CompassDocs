@@ -5,8 +5,9 @@
 // While pending it is a jump link to the card at the end — "Confirmation
 // pending", or "Confirm now" once the end of the article has been on screen
 // (B5's latch changes the cue, never the control). Once confirmed it is a
-// status chip, not a link: chips show status, and the "View your record"
-// link lives in the card. Under sm it collapses to the icon and one word.
+// status chip, not a link: chips show status (the reader's own record page,
+// My policies, arrives in 1.11.1). Under sm it collapses to the icon and one
+// word.
 
 import { CircleCheckBig, FileCheck } from "lucide-react";
 import { Button } from "@/components/Button";

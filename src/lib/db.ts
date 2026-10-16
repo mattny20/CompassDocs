@@ -748,6 +748,9 @@ const SCHEMA_SQL = `
   ALTER TABLE documents ALTER COLUMN ack_revision_at SET NOT NULL;
   -- The version everyone is asked to confirm (the marker's version).
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS ack_version_id integer REFERENCES doc_versions(id) ON DELETE SET NULL;
+  -- The FK's ON DELETE SET NULL fires once per version row a purge removes;
+  -- without this index each firing is a sequential scan of documents.
+  CREATE INDEX IF NOT EXISTS idx_documents_ack_version ON documents(ack_version_id);
   -- What each person confirmed: the version row and the SHA-256 of its text.
   -- version_id is a plain integer on purpose (like training's
   -- confirmed_version): a purged document takes its doc_versions rows with it,
@@ -817,6 +820,10 @@ const SCHEMA_SQL = `
     notified_at timestamptz
   );
   CREATE INDEX IF NOT EXISTS idx_ack_decisions_doc ON ack_decisions(document_id, decided_at DESC);
+  -- Both person FKs are ON DELETE SET NULL; indexed so deleting an account
+  -- is not a scan of the ledger.
+  CREATE INDEX IF NOT EXISTS idx_ack_decisions_decided_by ON ack_decisions(decided_by);
+  CREATE INDEX IF NOT EXISTS idx_ack_decisions_submitted_by ON ack_decisions(submitted_by);
 
   -- Training decks (enterprise "training" entitlement): a published document
   -- becomes a slide deck (split on ---) that can be assigned to users with a
@@ -1775,18 +1782,28 @@ async function migrateVisibilityTiers(client: import("pg").PoolClient) {
  *     person confirmed. content_sha256 stays NULL, which is how every surface
  *     tells an inferred row ("version inferred") from a recorded one.
  *
- * Guarded by a settings flag so a tenant that later edits documents never has
- * its ledger re-inferred underneath it; ack_marker_schema tells support the
+ * The documents half runs on every boot: it only touches rows without a
+ * marker version, and a document created while the workspace was rolled
+ * back to 1.9.x (whose createDocument writes no stamp) must get one when
+ * 1.10 boots again. The confirmation inference stays one-shot behind the
+ * settings flag, so a tenant that later edits documents never has its
+ * ledger re-inferred underneath it; ack_marker_schema tells support the
  * tenant has been through it.
  */
 async function migrateAckRevisions(client: import("pg").PoolClient) {
-  const done = await client.query("SELECT 1 FROM settings WHERE key = 'migrated_ack_revisions'");
-  if (done.rowCount) return;
   const docs = await client.query(
-    `UPDATE documents d SET ack_version_id = v.latest
-     FROM (SELECT document_id, MAX(id) AS latest FROM doc_versions GROUP BY document_id) v
-     WHERE v.document_id = d.id AND d.ack_version_id IS NULL`
+    `UPDATE documents d
+     SET ack_version_id = (SELECT MAX(v.id) FROM doc_versions v WHERE v.document_id = d.id)
+     WHERE d.ack_version_id IS NULL
+       AND EXISTS (SELECT 1 FROM doc_versions v WHERE v.document_id = d.id)`
   );
+  const done = await client.query("SELECT 1 FROM settings WHERE key = 'migrated_ack_revisions'");
+  if (done.rowCount) {
+    if (docs.rowCount) {
+      console.log(`[ack] stamped the confirmation marker on ${docs.rowCount} document(s) created without one`);
+    }
+    return;
+  }
   const acks = await client.query(
     `UPDATE acknowledgements a SET version_id = (
        SELECT v.id FROM doc_versions v
@@ -1823,10 +1840,29 @@ async function migrateAckRetention(client: import("pg").PoolClient) {
     ["document_id", "documents"],
   ] as const) {
     const name = `acknowledgements_${column}_fkey`;
-    await client.query(`ALTER TABLE acknowledgements DROP CONSTRAINT IF EXISTS ${name}`);
+    // The swap is one short transaction, so the table is never without the
+    // constraint: during a rolling upgrade a 1.9.x instance still serving
+    // could otherwise delete a person or purge a policy in the gap and leave
+    // orphan rows that make VALIDATE fail and wedge every later boot.
+    // VALIDATE runs outside it, under SHARE UPDATE EXCLUSIVE, so writes are
+    // not blocked while a years-deep table is checked.
+    await client.query("BEGIN");
+    try {
+      await client.query(`ALTER TABLE acknowledgements DROP CONSTRAINT IF EXISTS ${name}`);
+      await client.query(
+        `ALTER TABLE acknowledgements ADD CONSTRAINT ${name}
+           FOREIGN KEY (${column}) REFERENCES ${target}(id) ON DELETE SET NULL NOT VALID`
+      );
+      await client.query("COMMIT");
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw e;
+    }
+    // A stray row (a hand edit, or an older instance that slipped through)
+    // must not wedge the boot either: the record stays, its dead link goes.
     await client.query(
-      `ALTER TABLE acknowledgements ADD CONSTRAINT ${name}
-         FOREIGN KEY (${column}) REFERENCES ${target}(id) ON DELETE SET NULL NOT VALID`
+      `UPDATE acknowledgements a SET ${column} = NULL
+       WHERE a.${column} IS NOT NULL AND NOT EXISTS (SELECT 1 FROM ${target} t WHERE t.id = a.${column})`
     );
     await client.query(`ALTER TABLE acknowledgements VALIDATE CONSTRAINT ${name}`);
   }
@@ -2845,6 +2881,14 @@ export interface AckActor {
   name: string;
 }
 
+/**
+ * A save's outcome together with the ledger row it wrote (null when no
+ * decision was taken). The audit echo (auditAckDecision) reads that row by
+ * id, never "the newest row for the document", so two concurrent saves of
+ * one document cannot echo each other's decision.
+ */
+export type AckOutcomeWithDecision = AckOutcomeInfo & { decision_id: number | null };
+
 /** The shortest change note a person may give when the text of a confirmed document changes. */
 export const ACK_REASON_MIN = 10;
 
@@ -2916,7 +2960,7 @@ export type UpdateDocumentInput = Partial<DocInput> & {
 export async function updateDocument(
   id: number,
   input: UpdateDocumentInput
-): Promise<(DocumentWithSpace & { ack_outcome?: AckOutcomeInfo }) | undefined> {
+): Promise<(DocumentWithSpace & { ack_outcome?: AckOutcomeWithDecision }) | undefined> {
   const existing = await getDocument(id);
   if (!existing) return undefined;
 
@@ -2938,13 +2982,14 @@ export async function updateDocument(
 
   const policy: AckPolicy = input.ackPolicy ?? "auto";
   const source: AckSource = input.ackSource ?? "default";
-  const outcomeOf = (o: Partial<AckOutcomeInfo>): AckOutcomeInfo => ({
+  const outcomeOf = (o: Partial<AckOutcomeWithDecision>): AckOutcomeWithDecision => ({
     changed: false,
     substantive: false,
     reset: false,
     confirmations_reset: 0,
     policy,
     source,
+    decision_id: null,
     ...o,
   });
 
@@ -3063,10 +3108,17 @@ export async function updateDocument(
         submittedPolicy: policy === "auto" ? ("" as const) : policy,
       };
       if (policy === "keep") {
-        await keepAcknowledgements(client, id, decision);
+        const k = await keepAcknowledgements(client, id, decision);
+        ack = outcomeOf({ changed: true, substantive: true, decision_id: k.decision_id });
       } else {
         const r = await resetAcknowledgements(client, id, decision);
-        ack = outcomeOf({ changed: true, substantive: true, reset: true, confirmations_reset: r.confirmations_reset });
+        ack = outcomeOf({
+          changed: true,
+          substantive: true,
+          reset: true,
+          confirmations_reset: r.confirmations_reset,
+          decision_id: r.decision_id,
+        });
       }
     } else if (silentAdvance && versionId !== null) {
       // Rule 3: nobody is being asked, so the marker simply follows the text.
@@ -3207,11 +3259,19 @@ export async function purgeDocument(id: number): Promise<boolean> {
   const client = await pool().connect();
   try {
     await client.query("BEGIN");
-    await archiveAttestedTexts(client, [id]);
-    const res = await client.query(
-      "DELETE FROM documents WHERE id = $1 AND deleted_at IS NOT NULL",
+    // Only a document in the Trash can be purged, and the check comes before
+    // the archive: a live document's versions are never copied into
+    // attested_texts (the route passes any id through).
+    const trashed = await client.query(
+      "SELECT 1 FROM documents WHERE id = $1 AND deleted_at IS NOT NULL FOR UPDATE",
       [id]
     );
+    if (trashed.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return false;
+    }
+    await archiveAttestedTexts(client, [id]);
+    const res = await client.query("DELETE FROM documents WHERE id = $1", [id]);
     await client.query("COMMIT");
     return (res.rowCount ?? 0) > 0;
   } catch (e) {
@@ -3812,15 +3872,27 @@ export async function deleteUser(id: number): Promise<boolean> {
     [id]
   ).catch(() => {});
   // Read confirmations are kept (their FK is ON DELETE SET NULL since 1.10.0);
-  // make sure every row carries the name snapshot the record will show once
-  // the join target is gone (rows written by 1.9.x after a rollback lack it).
-  await q(
-    `UPDATE acknowledgements a SET user_name = u.name, user_email = u.email
-     FROM users u WHERE u.id = $1 AND a.user_id = $1 AND a.user_name = ''`,
-    [id]
-  ).catch(() => {});
-  const res = await pool().query("DELETE FROM users WHERE id = $1", [id]);
-  return (res.rowCount ?? 0) > 0;
+  // every row must carry the name snapshot the record will show once the
+  // join target is gone (rows written by 1.9.x after a rollback lack it).
+  // The snapshot and the delete are one transaction, and a failed snapshot
+  // keeps the account: it is the only thing that will ever name the record.
+  const client = await pool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      `UPDATE acknowledgements a SET user_name = u.name, user_email = u.email
+       FROM users u WHERE u.id = $1 AND a.user_id = $1 AND a.user_name = ''`,
+      [id]
+    );
+    const res = await client.query("DELETE FROM users WHERE id = $1", [id]);
+    await client.query("COMMIT");
+    return (res.rowCount ?? 0) > 0;
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
 /** How many attestation records a user has (kept after deleteUser; the audit detail). */
@@ -4850,10 +4922,10 @@ export async function complianceDocs(): Promise<ComplianceDocRow[]> {
   if (docs.length === 0) return [];
   const ids = docs.map((d) => d.id);
   // Three set-based reads instead of three per policy: the newest decision,
-  // the newest reset, and the kept-since-reset counts with the texts needed
-  // to measure drift (only for policies that have kept edits).
+  // the newest reset, and the kept edits since the marker with the drift
+  // they left (from the rows, no document text crosses the wire).
   const briefCols = "x.document_id, x.decided_at, x.decided_by_name, x.reason, x.outcome, x.source";
-  const [latest, resets, drift] = await Promise.all([
+  const [latest, resets, driftBy] = await Promise.all([
     q<AckDecisionBrief & { document_id: number }>(
       `SELECT DISTINCT ON (x.document_id) ${briefCols} FROM ack_decisions x
        WHERE x.document_id = ANY($1) ORDER BY x.document_id, x.decided_at DESC, x.id DESC`,
@@ -4865,18 +4937,7 @@ export async function complianceDocs(): Promise<ComplianceDocRow[]> {
        ORDER BY x.document_id, x.decided_at DESC, x.id DESC`,
       [ids]
     ),
-    q<{ id: number; n: number; title: string; content: string; base_title: string | null; base_content: string | null }>(
-      `SELECT d.id, k.n, d.title, d.content, v.title AS base_title, v.content AS base_content
-       FROM documents d
-       JOIN (
-         SELECT x.document_id, COUNT(*)::int AS n FROM ack_decisions x
-         JOIN documents dd ON dd.id = x.document_id
-         WHERE x.document_id = ANY($1) AND x.outcome = 'kept' AND x.decided_at >= dd.ack_revision_at
-         GROUP BY x.document_id
-       ) k ON k.document_id = d.id
-       LEFT JOIN doc_versions v ON v.id = d.ack_version_id`,
-      [ids]
-    ),
+    keptSinceMarker(ids),
   ]);
   const brief = (r: AckDecisionBrief & { document_id: number }): AckDecisionBrief => ({
     decided_at: r.decided_at,
@@ -4887,18 +4948,6 @@ export async function complianceDocs(): Promise<ComplianceDocRow[]> {
   });
   const latestBy = new Map(latest.map((r) => [r.document_id, brief(r)]));
   const resetBy = new Map(resets.map((r) => [r.document_id, brief(r)]));
-  const driftBy = new Map(
-    drift.map((r) => [
-      r.id,
-      {
-        n: r.n,
-        pct:
-          r.base_content == null
-            ? 0
-            : changeSummary(r.base_content, r.content, { oldTitle: r.base_title, newTitle: r.title }).pct,
-      },
-    ])
-  );
   return docs.map((d) => ({
     ...d,
     last_decision: latestBy.get(d.id) ?? null,
@@ -4977,6 +5026,16 @@ export async function setAckLastReminded(docId: number): Promise<void> {
  * so a row can never cite words the person did not see. The name, email and
  * title snapshots are written on every insert (C5).
  *
+ * The checks and the insert run in one transaction that first locks the
+ * document row. A save that is resetting the marker holds the same lock for
+ * the length of its own transaction, so this either runs before it (and the
+ * reset then stamps a wall-clock marker later than this row, which goes
+ * stale) or after it (and the checks see the committed new version and
+ * marker, so the old version is refused). Without the lock a confirmation
+ * could land inside the reset's window citing the old text while counting
+ * as current. The row's own stamp is the wall clock at insert, not the
+ * transaction start, for the same reason.
+ *
  * A second row is accepted when the person's current confirmation cites an
  * older version than the latest (a kept edit): the ledger keeps both, and
  * the newer one is what the record shows.
@@ -4987,30 +5046,65 @@ export async function recordAcknowledgement(
   ip: string,
   versionId: number
 ): Promise<{ recorded: boolean; stale: boolean }> {
-  const current = await getCurrentAck(docId, userId);
-  if (current && current.version_id === versionId) return { recorded: false, stale: false };
-  const version = (
-    await q<{ id: number; content: string }>(
-      "SELECT id, content FROM doc_versions WHERE id = $1 AND document_id = $2",
-      [versionId, docId]
-    )
-  )[0];
-  if (!version) return { recorded: false, stale: true };
-  const sha = createHash("sha256").update(version.content).digest("hex");
-  const inserted = await q<{ id: number }>(
-    `INSERT INTO acknowledgements
-       (document_id, user_id, ip, version_id, content_sha256, user_name, user_email, document_title)
-     SELECT d.id, u.id, $3, $4, $5, u.name, u.email, d.title
-     FROM documents d
-     JOIN users u ON u.id = $2
-     WHERE d.id = $1
-       AND $4 = (SELECT MAX(v.id) FROM doc_versions v WHERE v.document_id = d.id)
-       AND (d.ack_version_id IS NULL OR d.ack_version_id <= $4)
-     RETURNING id`,
-    [docId, userId, ip.slice(0, 100), versionId, sha]
-  );
-  if (inserted.length === 0) return { recorded: false, stale: true };
-  return { recorded: true, stale: false };
+  await ready();
+  const client = await pool().connect();
+  try {
+    await client.query("BEGIN");
+    const doc = (
+      await client.query<{ ack_version_id: number | null }>(
+        "SELECT ack_version_id FROM documents WHERE id = $1 FOR UPDATE",
+        [docId]
+      )
+    ).rows[0];
+    if (!doc) {
+      await client.query("ROLLBACK");
+      return { recorded: false, stale: true };
+    }
+    const current = await currentAckRow(client, docId, userId);
+    if (current && current.version_id === versionId) {
+      await client.query("ROLLBACK");
+      return { recorded: false, stale: false };
+    }
+    const latest =
+      (
+        await client.query<{ id: number | null }>(
+          "SELECT MAX(id) AS id FROM doc_versions WHERE document_id = $1",
+          [docId]
+        )
+      ).rows[0]?.id ?? null;
+    const version = (
+      await client.query<{ content: string }>(
+        "SELECT content FROM doc_versions WHERE id = $1 AND document_id = $2",
+        [versionId, docId]
+      )
+    ).rows[0];
+    if (!version || latest !== versionId || (doc.ack_version_id !== null && doc.ack_version_id > versionId)) {
+      await client.query("ROLLBACK");
+      return { recorded: false, stale: true };
+    }
+    const sha = createHash("sha256").update(version.content).digest("hex");
+    const inserted = await client.query<{ id: number }>(
+      `INSERT INTO acknowledgements
+         (document_id, user_id, ip, version_id, content_sha256, user_name, user_email, document_title, acknowledged_at)
+       SELECT d.id, u.id, $3, $4, $5, u.name, u.email, d.title, clock_timestamp()
+       FROM documents d
+       JOIN users u ON u.id = $2
+       WHERE d.id = $1
+       RETURNING id`,
+      [docId, userId, ip.slice(0, 100), versionId, sha]
+    );
+    if (inserted.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return { recorded: false, stale: true };
+    }
+    await client.query("COMMIT");
+    return { recorded: true, stale: false };
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
 export interface CurrentAck {
@@ -5025,17 +5119,22 @@ export interface CurrentAck {
 
 /** The user's confirmation that is current against the doc's marker, if any. */
 export async function getCurrentAck(docId: number, userId: number): Promise<CurrentAck | undefined> {
-  return (
-    await q<CurrentAck>(
-      `SELECT a.acknowledged_at, a.version_id, a.content_sha256,
-              ${VERSION_REV("a.version_id")} AS rev
-       FROM acknowledgements a
-       JOIN documents d ON d.id = a.document_id
-       WHERE a.document_id = $1 AND a.user_id = $2 AND ${ACK_CURRENT}
-       ORDER BY a.acknowledged_at DESC, a.id DESC LIMIT 1`,
-      [docId, userId]
-    )
-  )[0];
+  await ready();
+  return currentAckRow(pool(), docId, userId);
+}
+
+/** getCurrentAck on a given client (recordAcknowledgement asks inside its own transaction). */
+async function currentAckRow(client: Queryable, docId: number, userId: number): Promise<CurrentAck | undefined> {
+  const r = await client.query<CurrentAck>(
+    `SELECT a.acknowledged_at, a.version_id, a.content_sha256,
+            ${VERSION_REV("a.version_id")} AS rev
+     FROM acknowledgements a
+     JOIN documents d ON d.id = a.document_id
+     WHERE a.document_id = $1 AND a.user_id = $2 AND ${ACK_CURRENT}
+     ORDER BY a.acknowledged_at DESC, a.id DESC LIMIT 1`,
+    [docId, userId]
+  );
+  return r.rows[0];
 }
 
 export interface AckVersionInfo {
@@ -5257,20 +5356,32 @@ export async function anonymiseComplianceRecord(
 ): Promise<{ rows: number; snapshots_rewritten: number }> {
   await ready();
   const alias = `Former staff #${userId}`;
-  const res = await pool().query(
-    `UPDATE acknowledgements
-     SET user_name = $2, user_email = '', ip = ''
-     WHERE user_id = $1`,
-    [userId, alias]
-  );
-  const decisions = await pool().query(
-    `UPDATE ack_decisions
-     SET decided_by_name = CASE WHEN decided_by = $1 THEN $2 ELSE decided_by_name END,
-         submitted_by_name = CASE WHEN submitted_by = $1 THEN $2 ELSE submitted_by_name END
-     WHERE decided_by = $1 OR submitted_by = $1`,
-    [userId, alias]
-  );
-  return { rows: (res.rowCount ?? 0) + (decisions.rowCount ?? 0), snapshots_rewritten: 0 };
+  // One transaction: an erasure that renamed the confirmations but not the
+  // decisions (or the reverse) would be half a promise.
+  const client = await pool().connect();
+  try {
+    await client.query("BEGIN");
+    const res = await client.query(
+      `UPDATE acknowledgements
+       SET user_name = $2, user_email = '', ip = ''
+       WHERE user_id = $1`,
+      [userId, alias]
+    );
+    const decisions = await client.query(
+      `UPDATE ack_decisions
+       SET decided_by_name = CASE WHEN decided_by = $1 THEN $2 ELSE decided_by_name END,
+           submitted_by_name = CASE WHEN submitted_by = $1 THEN $2 ELSE submitted_by_name END
+       WHERE decided_by = $1 OR submitted_by = $1`,
+      [userId, alias]
+    );
+    await client.query("COMMIT");
+    return { rows: (res.rowCount ?? 0) + (decisions.rowCount ?? 0), snapshots_rewritten: 0 };
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
 /** Attestation counts by user id (the Users page shows the erasure action only where there is a record). */
@@ -5318,6 +5429,13 @@ export interface AckDecisionRow {
   confirmations_affected?: number | null;
   eligible?: number | null;
   notified_at?: string | null;
+  /**
+   * When the decision was taken; the wall clock at insert when absent.
+   * resetAcknowledgements passes the marker it just wrote, so the row and
+   * the marker carry one stamp. Never the transaction's start time: a
+   * confirmation that took the row lock first commits later than that.
+   */
+  decided_at?: string | null;
 }
 
 /** Insert one decision row; returns its id. Called by the two writers only. */
@@ -5327,8 +5445,9 @@ export async function recordAckDecision(client: Queryable, row: AckDecisionRow):
        (document_id, document_title, version_id, outcome, source, scope,
         decided_by, decided_by_name, submitted_policy, submitted_by, submitted_by_name,
         reason, suggested, overrode_suggestion, change_pct, change_json,
-        confirmations_affected, eligible, notified_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+        confirmations_affected, eligible, notified_at, decided_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,
+             COALESCE($20::timestamptz, clock_timestamp()))
      RETURNING id`,
     [
       row.document_id,
@@ -5350,6 +5469,7 @@ export async function recordAckDecision(client: Queryable, row: AckDecisionRow):
       row.confirmations_affected ?? null,
       row.eligible ?? null,
       row.notified_at ?? null,
+      row.decided_at ?? null,
     ]
   );
   return r.rows[0].id;
@@ -5422,7 +5542,15 @@ function decisionColumns(docId: number, title: string, outcome: AckOutcome, opts
  * writes documents.ack_revision_at / ack_version_id.
  *
  * `silent` is rule 3 of updateDocument: the requirement is off, nobody is
- * being asked, the marker simply follows the text. No row is written.
+ * being asked, the marker simply follows the text. No row is written and
+ * the audience is not counted (that join runs on every text save of every
+ * document whose requirement is off, for a number nobody reads).
+ *
+ * The marker is the wall clock at the moment it moves (clock_timestamp()),
+ * not the transaction's start (now()): a confirmation whose transaction took
+ * the document's row lock first commits with a stamp later than our start,
+ * and would otherwise count as current for text it predates. The decision
+ * row carries the same stamp as the marker.
  *
  * No notice goes out in this release: the re-confirmation notice (H1) and
  * the outbox it queues through (H4) ship in 1.10.1, and notified_at stays
@@ -5433,18 +5561,20 @@ export async function resetAcknowledgements(
   docId: number,
   opts: AckDecisionInput & { silent?: boolean }
 ): Promise<{ decision_id: number | null; confirmations_reset: number; eligible: number }> {
-  const counts = await ackCounts(client, docId);
-  const moved = await client.query<{ title: string }>(
-    "UPDATE documents SET ack_revision_at = now(), ack_version_id = $2 WHERE id = $1 RETURNING title",
+  // Counted before the marker moves: afterwards nothing is current.
+  const counts = opts.silent ? null : await ackCounts(client, docId);
+  const moved = await client.query<{ title: string; marker: string }>(
+    `UPDATE documents SET ack_revision_at = clock_timestamp(), ack_version_id = $2
+     WHERE id = $1 RETURNING title, ack_revision_at::text AS marker`,
     [docId, opts.versionId]
   );
-  if (opts.silent || moved.rowCount === 0) {
-    return { decision_id: null, confirmations_reset: counts.current, eligible: counts.eligible };
+  if (!counts || moved.rowCount === 0) {
+    return { decision_id: null, confirmations_reset: counts?.current ?? 0, eligible: counts?.eligible ?? 0 };
   }
-  const decisionId = await recordAckDecision(
-    client,
-    decisionColumns(docId, moved.rows[0].title, "reset", opts, counts)
-  );
+  const decisionId = await recordAckDecision(client, {
+    ...decisionColumns(docId, moved.rows[0].title, "reset", opts, counts),
+    decided_at: moved.rows[0].marker,
+  });
   return { decision_id: decisionId, confirmations_reset: counts.current, eligible: counts.eligible };
 }
 
@@ -5502,35 +5632,55 @@ export async function lastAckDecision(
   return rows[0] ?? null;
 }
 
+/** One decision row by id: the audit echo reads the row a save just wrote, never "the newest". */
+export async function getAckDecision(id: number): Promise<AckDecision | null> {
+  const rows = await q<AckDecision>(`${DECISION_SELECT} WHERE x.id = $1`, [id]);
+  return rows[0] ?? null;
+}
+
 /**
  * Kept edits since everyone was last asked (decisions since the marker), and
  * how far the live text has drifted from the confirmed version, in % of
- * words (measured against the texts, not summed from the rows, so three
- * edits to the same paragraph count once).
+ * words: three edits to the same paragraph count once, because every
+ * decision row measures the new text against the version at the marker
+ * (updateDocument's baseline), never against the previous save, so the
+ * newest kept row's change_pct is that drift and no document text has to
+ * be read to answer. Only a row written without a measurement (a kept row
+ * inserted by hand) falls back to measuring the texts.
  */
 export async function keptSinceLastReset(docId: number): Promise<{ count: number; drift_pct: number }> {
-  const kept = await q<{ n: number }>(
-    `SELECT COUNT(*)::int AS n FROM ack_decisions x
+  const kept = (await keptSinceMarker([docId])).get(docId);
+  return kept ? { count: kept.n, drift_pct: kept.pct } : { count: 0, drift_pct: 0 };
+}
+
+/** keptSinceLastReset for many documents at once (the portal); documents with no kept edits are absent. */
+async function keptSinceMarker(ids: number[]): Promise<Map<number, { n: number; pct: number }>> {
+  const out = new Map<number, { n: number; pct: number }>();
+  if (ids.length === 0) return out;
+  const rows = await q<{ document_id: number; n: number; change_pct: number | null }>(
+    `SELECT DISTINCT ON (x.document_id) x.document_id,
+            COUNT(*) OVER (PARTITION BY x.document_id)::int AS n,
+            x.change_pct::float8 AS change_pct
+     FROM ack_decisions x
      JOIN documents d ON d.id = x.document_id
-     WHERE x.document_id = $1 AND x.outcome = 'kept' AND x.decided_at >= d.ack_revision_at`,
-    [docId]
+     WHERE x.document_id = ANY($1) AND x.outcome = 'kept' AND x.decided_at >= d.ack_revision_at
+     ORDER BY x.document_id, x.decided_at DESC, x.id DESC`,
+    [ids]
   );
-  const count = kept[0]?.n ?? 0;
-  if (count === 0) return { count: 0, drift_pct: 0 };
-  const texts = (
-    await q<{ title: string; content: string; base_title: string | null; base_content: string | null }>(
-      `SELECT d.title, d.content, v.title AS base_title, v.content AS base_content
-       FROM documents d LEFT JOIN doc_versions v ON v.id = d.ack_version_id
-       WHERE d.id = $1`,
-      [docId]
-    )
-  )[0];
-  if (!texts || texts.base_content == null) return { count, drift_pct: 0 };
-  const pct = changeSummary(texts.base_content, texts.content, {
-    oldTitle: texts.base_title,
-    newTitle: texts.title,
-  }).pct;
-  return { count, drift_pct: pct };
+  for (const r of rows) out.set(r.document_id, { n: r.n, pct: r.change_pct ?? 0 });
+  const unmeasured = rows.filter((r) => r.change_pct == null).map((r) => r.document_id);
+  if (unmeasured.length === 0) return out;
+  const texts = await q<{ id: number; title: string; content: string; base_title: string | null; base_content: string | null }>(
+    `SELECT d.id, d.title, d.content, v.title AS base_title, v.content AS base_content
+     FROM documents d LEFT JOIN doc_versions v ON v.id = d.ack_version_id
+     WHERE d.id = ANY($1)`,
+    [unmeasured]
+  );
+  for (const t of texts) {
+    if (t.base_content == null) continue;
+    out.get(t.id)!.pct = changeSummary(t.base_content, t.content, { oldTitle: t.base_title, newTitle: t.title }).pct;
+  }
+  return out;
 }
 
 export interface AckSummary {
@@ -7936,13 +8086,34 @@ export async function countPendingChangeRequests(): Promise<number> {
   )[0].n;
 }
 
-/** Approve a change request: apply its proposed state to the document. */
+/** What approving a change request did to the document and its confirmations. */
+export interface ApproveChangeRequestResult {
+  /** False when the proposed title and text equal the live row: no version row was written. */
+  version_written: boolean;
+  /** As updateDocument reports it; the route echoes it to the audit log through auditAckDecision. */
+  ack_outcome: AckOutcomeWithDecision;
+}
+
+/**
+ * Approve a change request: apply its proposed state to the document. An
+ * approval is a text write like any other, so it takes updateDocument's
+ * decisions (A2): no version row when the proposed title and text equal the
+ * live row; `substantive` is measured against the version everyone was last
+ * asked to confirm; on a confirmed, published document that resets in this
+ * release (the submitter's recommendation travels with the request from
+ * A6, 1.11.0), with the reviewer as decider and the submitter beside them
+ * (C1) and the request's change note as the reason; with the requirement
+ * off the marker follows the text silently (rule 3); into a draft the marker
+ * waits for the publish. Everything runs in one transaction on a locked
+ * document row. Returns false when the request is no longer pending or its
+ * document is gone.
+ */
 export async function approveChangeRequest(
   id: number,
   reviewerId: number,
   reviewerName: string,
   note = ""
-): Promise<boolean> {
+): Promise<ApproveChangeRequestResult | false> {
   await ready();
   const client = await pool().connect();
   try {
@@ -7954,6 +8125,41 @@ export async function approveChangeRequest(
       await client.query("ROLLBACK");
       return false;
     }
+    const live = (
+      await client.query<{
+        title: string;
+        content: string;
+        status: string;
+        ack_required: number;
+        ack_version_id: number | null;
+      }>("SELECT title, content, status, ack_required, ack_version_id FROM documents WHERE id = $1 FOR UPDATE", [
+        cr.document_id,
+      ])
+    ).rows[0];
+    if (!live) {
+      await client.query("ROLLBACK");
+      return false;
+    }
+
+    // The same rules as updateDocument, on the proposed row.
+    const versionWorthy = cr.title !== live.title || cr.content !== live.content;
+    const baseline = live.ack_version_id
+      ? (
+          await client.query<{ title: string; content: string }>(
+            "SELECT title, content FROM doc_versions WHERE id = $1 AND document_id = $2",
+            [live.ack_version_id, cr.document_id]
+          )
+        ).rows[0]
+      : undefined;
+    const base = baseline ?? { title: live.title, content: live.content };
+    const driftsFromBaseline = cr.content !== base.content || cr.title !== base.title;
+    const publishing = live.status !== "published" && cr.target_status === "published";
+    const substantive = driftsFromBaseline && (versionWorthy || publishing);
+    const decides = substantive && live.ack_required === 1 && cr.target_status === "published";
+    const silentAdvance = substantive && live.ack_required !== 1;
+    // Keep the submitter's change note; record who approved it.
+    const versionNote = cr.note ? `${cr.note} — approved by ${reviewerName}` : `Approved by ${reviewerName}`;
+
     await client.query(
       `UPDATE documents SET title=$1, slug=$2, type=$3, status=$4, content=$5, summary=$6, tags=$7,
          space_id=COALESCE($8, space_id), updated_at=now()
@@ -7970,23 +8176,62 @@ export async function approveChangeRequest(
         cr.document_id,
       ]
     );
-    await client.query(
-      "INSERT INTO doc_versions (document_id, title, content, author, note) VALUES ($1,$2,$3,$4,$5)",
-      [
-        cr.document_id,
-        cr.title,
-        cr.content,
-        cr.author_name,
-        // Keep the submitter's change note; record who approved it.
-        cr.note ? `${cr.note} — approved by ${reviewerName}` : `Approved by ${reviewerName}`,
-      ]
-    );
+    // The version the decision is about: the row written now, or (publish
+    // transition without a text change) the newest row already there.
+    let versionId: number | null = null;
+    if (versionWorthy) {
+      const v = await client.query<{ id: number }>(
+        "INSERT INTO doc_versions (document_id, title, content, author, note) VALUES ($1,$2,$3,$4,$5) RETURNING id",
+        [cr.document_id, cr.title, cr.content, cr.author_name, versionNote]
+      );
+      versionId = v.rows[0].id;
+    } else if (substantive) {
+      const v = await client.query<{ id: number | null }>(
+        "SELECT MAX(id) AS id FROM doc_versions WHERE document_id = $1",
+        [cr.document_id]
+      );
+      versionId = v.rows[0]?.id ?? null;
+    }
+
+    const actor: AckActor = { id: reviewerId, name: reviewerName };
+    let ack: AckOutcomeWithDecision = {
+      changed: true,
+      substantive,
+      reset: false,
+      confirmations_reset: 0,
+      policy: "auto",
+      source: "approval",
+      decision_id: null,
+    };
+    if (decides && versionId !== null) {
+      const summary = changeSummary(base.content, cr.content, { oldTitle: base.title, newTitle: cr.title });
+      const r = await resetAcknowledgements(client, cr.document_id, {
+        versionId,
+        actor,
+        source: "approval",
+        reason: cr.note.trim() || versionNote,
+        summary,
+        suggested: suggestReconfirm(summary).policy,
+        submittedPolicy: "",
+        submittedBy: { id: cr.created_by, name: cr.author_name },
+      });
+      ack = { ...ack, reset: true, confirmations_reset: r.confirmations_reset, decision_id: r.decision_id };
+    } else if (silentAdvance && versionId !== null) {
+      await resetAcknowledgements(client, cr.document_id, {
+        versionId,
+        actor,
+        source: "approval",
+        reason: "",
+        silent: true,
+      });
+    }
+
     await client.query(
       "UPDATE change_requests SET status='approved', reviewed_by=$1, reviewed_at=now(), review_note=$2 WHERE id=$3",
       [reviewerId, note, id]
     );
     await client.query("COMMIT");
-    return true;
+    return { version_written: versionWorthy, ack_outcome: ack };
   } catch (e) {
     await client.query("ROLLBACK").catch(() => {});
     throw e;

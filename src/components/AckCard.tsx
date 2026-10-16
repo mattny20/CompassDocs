@@ -15,14 +15,18 @@
 //
 // The card is print:hidden; a one-line standing statement takes its place on
 // paper so a printed policy carries the printer's own status.
+//
+// The confirmed state is a sentence, not a link: "View your record" arrives
+// with My policies (1.11.1), the one page every reader can open. /compliance
+// is the programme view, gated on compliance.program_read, so a link there
+// would bounce most readers to the dashboard.
 
 import { useRef } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CircleCheckBig, ClipboardCheck, ShieldCheck } from "lucide-react";
+import { CircleCheckBig, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/Button";
 import { CARD_CLASS } from "@/components/Card";
-import { CARD_TITLE_TEXT } from "@/components/Heading";
+import { CardTitle } from "@/components/Heading";
 import { useFormatDate } from "@/components/SettingsProvider";
 import { useAckState } from "@/components/AckState";
 import { useAction } from "@/lib/use-action";
@@ -39,7 +43,6 @@ export function AckCard({
   statement = DEFAULT_CONFIRMATION_STATEMENT,
   meta,
   readerName,
-  recordHref = "/compliance",
 }: {
   docId: number;
   /** The confirmation statement (the only sentence on the card). */
@@ -48,8 +51,6 @@ export function AckCard({
   meta: { rev: number | null; publishedLabel: string | null; author: string };
   /** The signed-in reader, for the printed standing line. */
   readerName: string;
-  /** Where "View your record" goes (My policies on /compliance until F3). */
-  recordHref?: string;
 }) {
   const ack = useAckState();
   const fmt = useFormatDate();
@@ -146,9 +147,9 @@ export function AckCard({
               <ShieldCheck className="h-6 w-6" aria-hidden />
             )}
           </span>
-          <h2 id={`${CONFIRM_SECTION_ID}-title`} className={`${CARD_TITLE_TEXT} mt-3`}>
+          <CardTitle as="h2" id={`${CONFIRM_SECTION_ID}-title`} className="mt-3">
             {confirmed ? "Confirmation recorded" : "Confirm you've read this document"}
-          </h2>
+          </CardTitle>
 
           {confirmed ? (
             <>
@@ -168,12 +169,6 @@ export function AckCard({
                   Re-confirm the current text{ack.rev !== null ? ` (v${ack.rev})` : ""}
                 </Button>
               )}
-              <Link
-                href={recordHref}
-                className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-compass-600 hover:underline"
-              >
-                <ClipboardCheck className="h-4 w-4" aria-hidden /> View your record
-              </Link>
             </>
           ) : (
             <>

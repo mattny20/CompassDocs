@@ -135,7 +135,9 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 
   // A PATCH that changed nothing is answered with the unchanged document and
   // nothing else happens: no audit row claiming an edit that did not happen,
-  // no subscriber notice (A2, as the app's PUT does).
+  // no subscriber notice (A2, as the app's PUT does). Every field this
+  // endpoint accepts goes through updateDocument, so a metadata-only change
+  // (tags, summary, type, status) is `changed: true` and audited below.
   if (updated.ack_outcome?.changed === false) {
     return NextResponse.json({ document: v1Doc(updated, true) });
   }

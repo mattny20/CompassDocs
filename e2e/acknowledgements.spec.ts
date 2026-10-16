@@ -163,55 +163,59 @@ test("admin requires confirmation; the reader is pointed to the card, confirms t
   }
 });
 
-test("at 375px the sticky bar shows the confirmation control and the title only", async ({ browser }) => {
-  const ctx = await browser.newContext({ viewport: { width: 375, height: 667 }, isMobile: true, hasTouch: true });
-  const page = await ctx.newPage();
-  await login(page, ADMIN);
-  const title = `E2E ack phone ${stamp()}`;
-  let docId: number | undefined;
-  try {
-    docId = await makePolicy(page, title);
-    test.skip(
-      (await requireConfirmation(page, docId)) === "unlicensed",
-      "policy_ack is not licensed in this build; the EE rig runs the flow"
-    );
-    await page.goto(`/doc/${docId}`);
-    await expect(page.locator("h1")).toContainText(title);
+// Under sm the bar collapses to the control and the title. Two phone widths:
+// the tightest common one (375) and the one most phones report (390).
+for (const width of [375, 390]) {
+  test(`at ${width}px the sticky bar shows the confirmation control and the title only`, async ({ browser }) => {
+    const ctx = await browser.newContext({ viewport: { width, height: 667 }, isMobile: true, hasTouch: true });
+    const page = await ctx.newPage();
+    await login(page, ADMIN);
+    const title = `E2E ack phone ${stamp()}`;
+    let docId: number | undefined;
+    try {
+      docId = await makePolicy(page, title);
+      test.skip(
+        (await requireConfirmation(page, docId)) === "unlicensed",
+        "policy_ack is not licensed in this build; the EE rig runs the flow"
+      );
+      await page.goto(`/doc/${docId}`);
+      await expect(page.locator("h1")).toContainText(title);
 
-    // The pointer's action is full width under sm.
-    const jump = page.getByRole("link", { name: "Jump to confirmation" });
-    await expect(jump).toBeVisible();
-    expect((await jump.boundingBox())!.width, "the jump link fills the row").toBeGreaterThan(250);
+      // The pointer's action is full width under sm.
+      const jump = page.getByRole("link", { name: "Jump to confirmation" });
+      await expect(jump).toBeVisible();
+      expect((await jump.boundingBox())!.width, "the jump link fills the row").toBeGreaterThan(250);
 
-    // Scroll the masthead away: the bar carries the collapsed control and
-    // the title; the toolbar and the status chip are hidden, and nothing
-    // scrolls sideways.
-    await page.locator("#main").evaluate((el) => el.scrollTo(0, 600));
-    await page.waitForTimeout(400);
-    const bar = page.locator("div.sticky.top-0");
-    const control = bar.getByRole("link", { name: "Pending" });
-    await expect(control).toBeVisible();
-    await expect(control).toHaveAttribute("href", "#confirm-reading");
-    await expect(bar.getByText(title)).toBeVisible();
-    await expect(bar.getByRole("button", { name: "Edit document" })).toBeHidden();
-    await expect(bar.getByText("Published", { exact: true })).toBeHidden();
-    const overflow = await page.locator("#main").evaluate((el) => el.scrollWidth - el.clientWidth);
-    expect(overflow, "no horizontal scroll").toBeLessThanOrEqual(0);
+      // Scroll the masthead away: the bar carries the collapsed control and
+      // the title; the toolbar and the status chip are hidden, and nothing
+      // scrolls sideways.
+      await page.locator("#main").evaluate((el) => el.scrollTo(0, 600));
+      await page.waitForTimeout(400);
+      const bar = page.locator("div.sticky.top-0");
+      const control = bar.getByRole("link", { name: "Pending" });
+      await expect(control).toBeVisible();
+      await expect(control).toHaveAttribute("href", "#confirm-reading");
+      await expect(bar.getByText(title)).toBeVisible();
+      await expect(bar.getByRole("button", { name: "Edit document" })).toBeHidden();
+      await expect(bar.getByText("Published", { exact: true })).toBeHidden();
+      const overflow = await page.locator("#main").evaluate((el) => el.scrollWidth - el.clientWidth);
+      expect(overflow, "no horizontal scroll").toBeLessThanOrEqual(0);
 
-    // At the end: the card's button fills the width, and the collapsed
-    // label stays one word even once the end has been on screen.
-    await page.locator("#main").evaluate((el) => el.scrollTo(0, el.scrollHeight));
-    await page.waitForTimeout(400);
-    const confirm = page.getByRole("button", { name: CONFIRM });
-    await expect(confirm).toBeVisible();
-    expect((await confirm.boundingBox())!.width, "the confirm button fills the card").toBeGreaterThan(250);
-    await expect(bar.getByRole("link", { name: "Pending" })).toBeVisible();
-    await expect(bar.getByRole("link", { name: "Confirm now" })).toHaveCount(0);
-  } finally {
-    if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
-    await ctx.close();
-  }
-});
+      // At the end: the card's button fills the width, and the collapsed
+      // label stays one word even once the end has been on screen.
+      await page.locator("#main").evaluate((el) => el.scrollTo(0, el.scrollHeight));
+      await page.waitForTimeout(400);
+      const confirm = page.getByRole("button", { name: CONFIRM });
+      await expect(confirm).toBeVisible();
+      expect((await confirm.boundingBox())!.width, "the confirm button fills the card").toBeGreaterThan(250);
+      await expect(bar.getByRole("link", { name: "Pending" })).toBeVisible();
+      await expect(bar.getByRole("link", { name: "Confirm now" })).toHaveCount(0);
+    } finally {
+      if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
+      await ctx.close();
+    }
+  });
+}
 
 // ── The editor (A3): the re-confirmation question on save ───────────────────
 //
@@ -219,21 +223,50 @@ test("at 375px the sticky bar shows the confirmation control and the title only"
 // see it, BEFORE anything is busy: Ctrl+S and Save changes both open the
 // question; Escape cancels and leaves the editor dirty with Save idle; both
 // choices require a change note; "keep" leaves the roster alone, "reset"
-// zeroes it; a tag-only save never asks. Licensed builds only (see above).
+// zeroes it; a tag-only save never asks, not even after a kept edit has left
+// the live text different from the confirmed version. Bulk cannot take the
+// decision at all: it skips a drifted draft and says why (A2). Licensed
+// builds only (see above).
 
 const QUESTION = "How should readers see this change?";
 const EDITORIAL = /^Editorial fix/;
 const MATERIAL = /^Material change/;
 
-async function openEditorAndType(page: Page, docId: number, text: string) {
+/** Open the editor and let tiptap's markdown round-trip settle. */
+async function openEditor(page: Page, docId: number) {
   await page.goto(`/doc/${docId}/edit`);
   const editor = page.locator(".tiptap").first();
   await editor.waitFor({ state: "visible", timeout: 15000 });
-  // Let tiptap's markdown round-trip settle before the change is made.
   await page.waitForTimeout(1500);
+  return editor;
+}
+
+async function openEditorAndType(page: Page, docId: number, text: string) {
+  const editor = await openEditor(page, docId);
   await editor.click();
   await page.keyboard.press("End");
   await page.keyboard.type(text);
+}
+
+/**
+ * Click Save changes and prove the question never opened: the navigation to
+ * the document must win the race against the dialog. (Counting dialogs after
+ * the navigation proves nothing; none can be open on the document page.)
+ */
+async function saveNeverAsks(page: Page, docId: number) {
+  const dialog = page.getByRole("dialog", { name: QUESTION });
+  await page.getByRole("button", { name: "Save changes" }).click();
+  const first = await Promise.race([
+    dialog.waitFor({ state: "visible", timeout: 15000 }).then(
+      () => "asked" as const,
+      () => "asked-timeout" as const
+    ),
+    page.waitForURL(`**/doc/${docId}`, { timeout: 15000 }).then(
+      () => "saved" as const,
+      () => "save-timeout" as const
+    ),
+  ]);
+  expect(first, "the save went through without the question").toBe("saved");
 }
 
 /** The roster as counts: confirmed people and the audience. */
@@ -291,7 +324,9 @@ test("editing a confirmed document: Ctrl+S asks, Escape keeps the editor dirty, 
     const dialog = page.getByRole("dialog", { name: QUESTION });
     await expect(dialog).toBeVisible();
     await expect(
-      dialog.getByText(new RegExp(`^${before.confirmed} of ${before.total} people have confirmed version \\d+ of`))
+      dialog.getByText(
+        new RegExp(`^${before.confirmed} of ${before.total} (person has|people have) confirmed version \\d+ of`)
+      )
     ).toBeVisible();
     await expect(dialog.getByRole("radio", { name: EDITORIAL })).toBeVisible();
     await expect(dialog.getByRole("radio", { name: MATERIAL })).toBeVisible();
@@ -326,6 +361,9 @@ test("editing a confirmed document: Ctrl+S asks, Escape keeps the editor dirty, 
     const kept = await rosterCount(page, docId);
     expect(kept.confirmed, "a kept edit leaves the roster alone").toBe(before.confirmed);
     expect(kept.total).toBe(before.total);
+    const keptSummary = await api(page, `/api/documents/${docId}/ack`);
+    expect(keptSummary.body?.last_decision?.outcome, "the keep is a ledger row").toBe("kept");
+    const keptDecisionId = keptSummary.body.last_decision.id;
 
     // After a kept edit the reader's confirmation cites an older version than
     // the text on screen: the card offers to re-confirm the current text.
@@ -335,6 +373,19 @@ test("editing a confirmed document: Ctrl+S asks, Escape keeps the editor dirty, 
     await expect(page.locator('[role="status"]').getByText("Confirmation recorded.")).toBeVisible();
     await expect(again).toHaveCount(0);
     expect((await rosterCount(page, docId)).confirmed).toBe(before.confirmed);
+
+    // The live text now differs from the confirmed version, but this save
+    // changes none of it: a tag-only save after a kept edit neither asks nor
+    // resets. The roster is unchanged and the ledger's newest row is still
+    // the keep.
+    await openEditor(page, docId);
+    await page.getByLabel("Tags (comma separated)").fill("e2e, kept-then-tagged");
+    await saveNeverAsks(page, docId);
+    const tagged = await rosterCount(page, docId);
+    expect(tagged.confirmed, "a tag-only save after a kept edit resets nobody").toBe(before.confirmed);
+    expect(tagged.total).toBe(before.total);
+    const taggedSummary = await api(page, `/api/documents/${docId}/ack`);
+    expect(taggedSummary.body?.last_decision?.id, "no new decision row").toBe(keptDecisionId);
 
     // Reset: the primary names the people asked, the toast says so, and the
     // roster is zeroed.
@@ -358,15 +409,84 @@ test("editing a confirmed document: Ctrl+S asks, Escape keeps the editor dirty, 
     expect(after.confirmed, "a reset zeroes the roster").toBe(0);
     expect(after.total).toBe(before.total);
 
-    // A tag-only save never asks.
-    await page.goto(`/doc/${docId}/edit`);
-    await page.locator(".tiptap").first().waitFor({ state: "visible", timeout: 15000 });
-    await page.waitForTimeout(1500);
+    // After the reset the live text is the confirmed text again: a tag-only
+    // save still never asks, and leaves the roster as the reset left it.
+    await openEditor(page, docId);
     await page.getByLabel("Tags (comma separated)").fill("e2e, read-confirmation");
-    await page.getByRole("button", { name: "Save changes" }).click();
-    await page.waitForURL(`**/doc/${docId}`, { timeout: 15000 });
-    await expect(page.getByRole("dialog")).toHaveCount(0);
-    expect((await rosterCount(page, docId)).total).toBe(before.total);
+    await saveNeverAsks(page, docId);
+    const afterTags = await rosterCount(page, docId);
+    expect(afterTags.confirmed).toBe(0);
+    expect(afterTags.total).toBe(before.total);
+  } finally {
+    if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
+  }
+});
+
+const BULK_SKIP_REASON = "requires a re-confirmation decision; publish it individually";
+
+test("bulk publish skips a drifted draft that requires confirmation, and publishes an unchanged one", async ({ page }) => {
+  await login(page, ADMIN);
+  const title = `E2E ack bulk ${stamp()}`;
+  let docId: number | undefined;
+  try {
+    docId = await makePolicy(page, title);
+    test.skip(
+      (await requireConfirmation(page, docId)) === "unlicensed",
+      "policy_ack is not licensed in this build; the EE rig runs the flow"
+    );
+    const summary = await api(page, `/api/documents/${docId}/ack`);
+    expect(summary.status).toBe(200);
+    const confirmed = await api(page, `/api/documents/${docId}/ack`, {
+      method: "POST",
+      body: { version_id: summary.body?.latest_version_id },
+    });
+    expect(confirmed.status).toBe(200);
+    const before = await rosterCount(page, docId);
+    expect(before.confirmed).toBeGreaterThanOrEqual(1);
+
+    // Unpublish, then change the text as a draft: the decision waits for the
+    // publish, so nothing is asked yet and the roster is untouched.
+    const unpublished = await api(page, `/api/documents/${docId}`, { method: "PUT", body: { status: "draft" } });
+    expect(unpublished.status).toBe(200);
+    expect(unpublished.body?.doc?.status).toBe("draft");
+    const drifted = await api(page, `/api/documents/${docId}`, {
+      method: "PUT",
+      body: { content: `${BODY}\n\nThe cap is now 75.`, versionNote: "Draft edit before a bulk publish" },
+    });
+    expect(drifted.status).toBe(200);
+    expect(drifted.body?.ack_outcome?.reset, "a draft edit decides nothing").toBe(false);
+    expect((await rosterCount(page, docId)).confirmed).toBe(before.confirmed);
+
+    // Bulk cannot take the decision for the editor: the document is skipped
+    // with the exact reason, stays a draft, and nobody is reset.
+    const skipped = await api(page, "/api/documents/bulk", {
+      method: "POST",
+      body: { action: "status", status: "published", ids: [docId] },
+    });
+    expect(skipped.status).toBe(200);
+    expect(skipped.body?.updated).toBe(0);
+    expect(skipped.body?.skipped).toEqual([{ id: docId, title, reason: BULK_SKIP_REASON }]);
+    expect((await api(page, `/api/documents/${docId}`)).body?.doc?.status).toBe("draft");
+    expect((await rosterCount(page, docId)).confirmed).toBe(before.confirmed);
+
+    // With the confirmed text back there is nothing to decide: bulk publishes
+    // it, and republishing the text people confirmed asks nobody again.
+    const restored = await api(page, `/api/documents/${docId}`, {
+      method: "PUT",
+      body: { content: BODY, versionNote: "Back to the confirmed text" },
+    });
+    expect(restored.status).toBe(200);
+    const published = await api(page, "/api/documents/bulk", {
+      method: "POST",
+      body: { action: "status", status: "published", ids: [docId] },
+    });
+    expect(published.status).toBe(200);
+    expect(published.body?.updated).toBe(1);
+    expect(published.body?.skipped).toEqual([]);
+    expect((await api(page, `/api/documents/${docId}`)).body?.doc?.status).toBe("published");
+    const after = await rosterCount(page, docId);
+    expect(after.confirmed, "republishing the confirmed text asks nobody again").toBe(before.confirmed);
+    expect(after.total).toBe(before.total);
   } finally {
     if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
   }

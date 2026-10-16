@@ -22,9 +22,12 @@ sits where reading ends. (Enterprise, `policy_ack`.)
   "Save. Keep confirmations" or "Save and ask 42 people to re-confirm".
   Ctrl+S, Save changes, Publish on a drifted draft and Submit for review
   all pass through it; Cancel leaves the editor dirty; a save that only
-  touches tags, the summary, the category or the type never asks.
-  Without publish rights the dialog asks for a recommendation that travels
-  with the change request.
+  touches tags, the summary, the category or the type never asks, even
+  after an editorial fix. Without publish rights the dialog asks for a
+  recommendation instead of a decision: the change note travels with the
+  change request, but the recommendation itself is not recorded in this
+  release (recording it, and the approver's choice, arrive in 1.11.0),
+  and approving a text change asks everyone again.
 - **Confirm at the end.** A document that requires read confirmation ends
   with a confirmation card after the text: the statement ("I confirm that
   I have read and understood this document."), the version being
@@ -45,7 +48,8 @@ sits where reading ends. (Enterprise, `policy_ack`.)
   refreshes. Confirmations made before 1.10.0 show "version inferred".
 - **The decision ledger.** Every keep and every reset is a row: the
   version, who decided (and who submitted, on an approval), the source
-  (edit, merge, restore, bulk, API, MCP, import, image, ticket, default),
+  (edit, merge, restore, approval, schedule, bulk, API, MCP, import,
+  image, ticket, default),
   the reason, what the heuristic suggested and whether it was overridden,
   the share of words changed, and how many confirmations it touched.
   The per-document record is now a **Read confirmation** section with a
@@ -62,8 +66,11 @@ sits where reading ends. (Enterprise, `policy_ack`.)
   policy from the Trash first archives every version a record cites, so a
   stored hash stays verifiable after the document is gone. Settings →
   Users gains **Anonymise compliance record…** (typed confirmation) which
-  replaces a person's name, email and IP on every record with "Former
-  staff #id"; counts, dates, versions and hashes stay.
+  replaces a person's name, email and IP on every confirmation and
+  decision with "Former staff #id"; counts, dates, versions and hashes
+  stay. Audit log entries are kept as written: each
+  `document.acknowledge` row still carries the name, IP and browser
+  recorded at confirmation, and `ack.anonymised` names the account.
 - **One word for read confirmation.** The product now says "read
   confirmation" everywhere a person reads it: readers confirm or
   re-confirm, chips read Confirmed / Pending, a text is "version 12"
@@ -87,7 +94,7 @@ sits where reading ends. (Enterprise, `policy_ack`.)
   (`ack.confirmations_kept`, `ack.confirmations_reset`, `ack.anonymised`
   and the rest of the family), labels for `document.ack_required` and
   `document.ack_removed`, the version and hash on `document.acknowledge`.
-- New tests: the integration suite grows from 117 to 188 (version
+- New tests: the integration suite grows from 118 to 188 (version
   anchoring, retention, the decision ledger, the change heuristic, the
   roster sentence, and a double-boot upgrade check), plus an e2e spec for
   the reader flow, the phone sticky bar and the editor question.
@@ -101,11 +108,16 @@ sits where reading ends. (Enterprise, `policy_ack`.)
   republishing unchanged text, trash and restore, bulk edits and a save
   with nothing changed never ask anyone again. A save that changes nothing
   is not a save: no version, no "updated" time, no notice.
-- Callers that cannot ask (branch merge, version restore, bulk edits, the
-  MCP connector, the v1 API, image placement, importers) reset
-  confirmations when they change the text, with the version note as the
-  reason; the decision is recorded with its source. The choice for merge,
-  restore and change-request approval arrives in 1.11.0.
+- Callers that cannot ask (branch merge, version restore, change-request
+  approval, a scheduled publish of a draft whose text drifted from the
+  confirmed version, the MCP connector, the v1 API, image placement,
+  importers) reset confirmations when they change the text, with the
+  version note (on an approval, the change request's note) as the reason;
+  the decision is recorded with its source, and an approval row names the
+  submitter beside the approver. A bulk publish of such a drifted draft is
+  skipped instead, with "requires a re-confirmation decision; publish it
+  individually". The choice for merge, restore and change-request approval
+  arrives in 1.11.0.
 - A reset sends no notice in this release; the re-confirmation notice and
   the outbox it queues through arrive in 1.10.1.
 - Both compliance CSVs keep every existing column in place;
@@ -131,6 +143,12 @@ sits where reading ends. (Enterprise, `policy_ack`.)
   on re-upgrade confirmations that 1.9.x showed as stale become current
   again until the next text change; records whose person or policy was
   deleted while on 1.10 are invisible to 1.9.x and reappear on re-upgrade.
+  Two more consequences of time spent on 1.9.x: the one-shot inference
+  does not run again, so documents and confirmations created there carry
+  no version id after the re-upgrade (they show "version inferred" with no
+  number; a document's marker catches up at its next text change), and
+  accounts deleted there leave their records without a name or email
+  snapshot.
 - Integrations that edit policies through the v1 API or the MCP connector
   keep working; a text change resets confirmations as before.
 

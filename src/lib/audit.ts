@@ -5,7 +5,7 @@
 // Server-only: uses the Postgres pool.
 
 import { createHash } from "node:crypto";
-import { pool, lastAckDecision } from "./db";
+import { pool, getAckDecision } from "./db";
 import { logEvent } from "./log";
 import type { AckOutcomeInfo, SessionUser } from "./types";
 

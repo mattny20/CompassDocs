@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { Spinner } from "@/components/Spinner";
 import { chipClass } from "@/components/Chip";
-import { buttonClass } from "@/components/Button";
+import { Button, buttonClass } from "@/components/Button";
 import { confirmDialog } from "@/components/Dialog";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -14,6 +14,7 @@ import {
   RotateCcw,
   Columns2,
   AlignJustify,
+  UnfoldVertical,
 } from "lucide-react";
 import { diffBlocks, diffLines, diffStats, withFolds } from "@/lib/diff";
 import type { BlockDiffRow, DiffRow, DiffSegment, DisplayRow } from "@/lib/diff";
@@ -86,16 +87,15 @@ function LineNo({ n }: { n?: number }) {
   );
 }
 
+/** The fold between changed hunks: a ghost Button (STYLEGUIDE §Buttons), not
+ *  a hand-styled text link. */
 function FoldRow({ hidden, cols, onExpand }: { hidden: number; cols: number; onExpand: () => void }) {
   return (
     <tr>
       <td colSpan={cols} className="bg-slate-50/80 px-2 py-0.5 text-center">
-        <button
-          onClick={onExpand}
-          className="text-2xs font-medium text-compass-600 hover:underline"
-        >
-          ⋯ {hidden} unchanged line{hidden === 1 ? "" : "s"} — show
-        </button>
+        <Button variant="ghost" size="sm" icon={<UnfoldVertical />} onClick={onExpand}>
+          Show {hidden} unchanged line{hidden === 1 ? "" : "s"}
+        </Button>
       </td>
     </tr>
   );
@@ -567,9 +567,9 @@ function RenderedDiff({
       {chunks.map((c, ci) =>
         c.fold !== undefined ? (
           <div key={`f${ci}`} className="rounded-md bg-slate-50/80 py-1 text-center">
-            <button onClick={onExpand} className="text-2xs font-medium text-compass-600 hover:underline">
-              ⋯ {c.fold} unchanged section{c.fold === 1 ? "" : "s"} — show
-            </button>
+            <Button variant="ghost" size="sm" icon={<UnfoldVertical />} onClick={onExpand}>
+              Show {c.fold} unchanged section{c.fold === 1 ? "" : "s"}
+            </Button>
           </div>
         ) : (
           (c.rows ?? []).map((b) => (

@@ -61,14 +61,17 @@ export function CardTitle({
   icon,
   className = "mb-1",
   as: Tag = "h3",
+  id,
 }: {
   children: ReactNode;
   icon?: ReactNode;
   className?: string;
   as?: "h2" | "h3";
+  /** For a section's `aria-labelledby` (the end-of-article card). */
+  id?: string;
 }) {
   return (
-    <Tag className={`flex items-center gap-2 ${CARD_TITLE_TEXT} ${className}`}>
+    <Tag id={id} className={`flex items-center gap-2 ${CARD_TITLE_TEXT} ${className}`}>
       <Glyph icon={icon} size="[&>svg]:h-4 [&>svg]:w-4" />
       {children}
     </Tag>

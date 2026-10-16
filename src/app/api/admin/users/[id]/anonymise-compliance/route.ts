@@ -1,16 +1,19 @@
 import { NextResponse } from "next/server";
 import { getUserById, anonymiseComplianceRecord } from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
+import { featureEnabled } from "@/lib/ee";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
 import type { SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 // POST — the erasure path for a person's attestation records (C5). Replaces
-// their name, email and IP on every confirmation with "Former staff #id";
-// counts, dates, versions and hashes stay. Irreversible, so the UI asks with
-// a typed confirmation. Needs both the account-deletion right and the
-// compliance program right: neither alone should be able to rewrite evidence.
+// their name, email and IP on every confirmation and decision with "Former
+// staff #id"; counts, dates, versions and hashes stay. Irreversible, so the
+// UI asks with a typed confirmation. Needs both the account-deletion right
+// and the compliance program right: neither alone should be able to rewrite
+// evidence. Licence-gated like every other read-confirmation endpoint, so
+// the API and the Users page (which hides the button unlicensed) agree.
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const gate = await apiGuard("admin", "user.delete");
   if (gate instanceof NextResponse) return gate;
@@ -19,6 +22,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const { grantsFor, admits, legacyAuthzEnforcement } = await import("@/lib/authz");
   if (!legacyAuthzEnforcement() && !admits(await grantsFor(admin.id), "compliance.program_manage")) {
     return NextResponse.json({ error: "You don't have permission for that." }, { status: 403 });
+  }
+  if (!(await featureEnabled("policy_ack"))) {
+    return NextResponse.json(
+      { error: "Read confirmations are not included in your license." },
+      { status: 402 }
+    );
   }
 
   const { id } = await params;

@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server";
 import { getDocument, recordAcknowledgement, getCurrentAck, setAckRequired } from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
-import { spaceScopeFor, scopeAllows } from "@/lib/access";
+import { spaceScopeFor, scopeAllows, canSeeDrafts, userHolds } from "@/lib/access";
 import { featureEnabled } from "@/lib/ee";
 import { ackSummary } from "@/lib/db";
-import { userHolds } from "@/lib/access";
 import { auditAck, actorFrom, ipFrom } from "@/lib/audit";
 import type { SessionUser } from "@/lib/types";
 
@@ -17,7 +16,10 @@ export const dynamic = "force-dynamic";
 // With ?baseline=1 it adds the text readers last confirmed, so the editor
 // can measure the drift since then on the client. Anyone who may edit the
 // document or read its roster may ask; apiGuard takes one permission, so the
-// OR is written with userHolds.
+// OR is written with userHolds. A draft is hidden from anyone who may not
+// read drafts, exactly as GET /api/documents/[id] hides it: the marker
+// follows a draft's latest text while the requirement is off (A2 rule 3),
+// so its "baseline" is the draft itself.
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const gate = await apiGuard("viewer");
   if (gate instanceof NextResponse) return gate;
@@ -26,6 +28,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const { id } = await params;
   const doc = await getDocument(Number(id));
   if (!doc || !scopeAllows(await spaceScopeFor(user), doc.space_id)) {
+    return NextResponse.json({ error: "Not found." }, { status: 404 });
+  }
+  if (doc.status === "draft" && !(await canSeeDrafts(user, doc.space_id))) {
     return NextResponse.json({ error: "Not found." }, { status: 404 });
   }
   const allowed =

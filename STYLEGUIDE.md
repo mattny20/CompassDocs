@@ -61,14 +61,14 @@ keep their own titles.
   takes arbitrary children; on the document page they are the
   read-confirmation control (`AckStickyControl`, rendered **before the
   title** so it survives truncation), the `StatusBadge`, the truncated title
-  and a copy of `DocActions` that receives the same `ack` prop as the
-  masthead copy, so the shield popover is reachable while scrolled. Under
-  `sm` the bar shows the **control and the title only**: the `DocActions`
-  wrapper is `hidden sm:flex`, the control collapses to its icon plus
-  "Pending" / "Confirmed" (`text-2xs`), and nothing scrolls sideways
-  (`e2e/acknowledgements.spec.ts` asserts it at 375px and 390px). Nine
-  36px icon buttons do not fit beside a title on a phone, and the bar is
-  exactly where a reader halfway down a policy looks.
+  and a copy of `DocActions` without the `ack` prop (the shield toggle
+  keeps its state locally, so two copies would disagree after a click; A5
+  moves it into a popover). Under `sm` the bar shows the **control and the
+  title only**: the `DocActions` wrapper is `hidden sm:flex`, the control
+  collapses to its icon plus "Pending" / "Confirmed" (`text-2xs`), and the
+  bar itself never scrolls sideways (`e2e/acknowledgements.spec.ts` asserts
+  it at 375px). Nine 36px icon buttons do not fit beside a title on a phone,
+  and the bar is exactly where a reader halfway down a policy looks.
 - The document editor follows the same rule (1.9.1): at Wide and Full its
   properties sit in a sticky 18rem column beside the editor card, placed by a
   CSS grid (`lg:grid-cols-[minmax(0,1fr)_18rem]`) so each field is rendered
@@ -153,10 +153,13 @@ a top-level page and uses `PageContainer`, however standalone it feels.
   else, an optional meta line (`text-xs text-slate-500`: "Version 12 ·
   published {date} by {author}"), and **one `lg` primary `Button`**
   (`busy`, wired through `useAction()`, full width under `sm`). The done
-  state is plain text inside the same card — the emerald `CircleCheckBig`,
-  "You confirmed version 12 on {date}" and a `Link` to the record — never a
-  second card or an inline flash; the toast is the announcement, and focus
-  moves to the section after success. The strip at the top keeps **one
+  state is plain text inside the same card — the emerald `CircleCheckBig`
+  and "You confirmed version 12 on {date}" — never a second card or an
+  inline flash; the toast is the announcement, and focus moves to the
+  section after success. The card links nowhere until a page every reader
+  can open exists (My policies, 1.11.1): `/compliance` is gated on
+  `compliance.program_read`, so "View your record" there would bounce most
+  readers to the dashboard. The strip at the top keeps **one
   sentence and one action**: a `secondary` `sm` `<Button
   href="#confirm-reading">` (a real anchor so it works without JS;
   `onClick` adds `scrollIntoView` unless reduced motion, then focuses the
@@ -590,7 +593,8 @@ a menu. The document sticky bar is the worked example (B2): while a read
 confirmation is pending the control is a `secondary` `sm` `<Button href>`
 that jumps to the card at the end of the article, and once confirmed it
 becomes `chipClass("ok", "sm")` with `CircleCheckBig` and "Confirmed
-{date}" — a status, not a link; "View your record" is a `Link` in the card.
+{date}" — a status, not a link ("View your record" arrives with My
+policies in 1.11.1, in the card, never on the chip).
 The read-confirmation chips are a closed set — **Confirmed** (`ok`),
 **Pending** (`warn`), **Overdue** (`error`), **Exempt** (`neutral`) — and
 nothing else for a confirmation's state (never "Acknowledged").
@@ -1083,6 +1087,11 @@ a label on paper.
 
 - Interactive icon-only elements: `aria-label` always.
 - Keyboard: anything hoverable must be reachable and reveal its tooltip on
-  `focus-visible` (the `data-tt` CSS handles this).
+  `focus-visible` (the `data-tt` CSS handles this). A `data-tt` on a
+  non-interactive element (a chip, an exact-time span) gets `tabIndex={0}`,
+  and sits beside a `<button>`, never inside one — a focusable element
+  inside a button is not valid HTML. Inside a sideways-scrolling table the
+  bubble is clipped (§Tooltips), so an explanation there is a footnote
+  under the table instead.
 - Secondary text must clear WCAG AA on the canvas tint — that's why our
   `--slate-500` is darker than stock Tailwind; don't "fix" it back.

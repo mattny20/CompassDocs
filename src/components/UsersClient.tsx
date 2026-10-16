@@ -178,11 +178,13 @@ function UserTable({
 
   // The erasure path for attestation records (C5): irreversible, so it asks
   // with the username typed. The records themselves stay (counts, dates,
-  // versions, hashes); only who they name is replaced.
+  // versions, hashes); only who they name is replaced. The copy names
+  // exactly what anonymiseComplianceRecord rewrites (confirmation and
+  // decision rows); the audit log is not rewritten, and says so.
   async function anonymise(u: User) {
     const ok = await confirmDialog({
       title: `Anonymise ${u.name || u.username}'s compliance record?`,
-      body: `Replaces this person's name, email, IP address and browser details on every confirmation, decision and notice with "Former staff #${u.id}". Counts, dates, versions and hashes stay. This cannot be undone.`,
+      body: `Replaces this person's name, email and IP address on every confirmation and decision record with "Former staff #${u.id}". Counts, dates, versions and hashes stay. Audit log entries are kept as recorded. This cannot be undone.`,
       confirmLabel: "Anonymise record",
       danger: true,
       typeToConfirm: u.username,

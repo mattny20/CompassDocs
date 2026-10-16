@@ -276,43 +276,51 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
                   return (
                     <li key={d.id}>
                       <div className="flex flex-wrap items-center gap-3 px-4 py-3">
-                        <button
-                          onClick={() => toggleDetail(d.id)}
-                          className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                        >
-                          {open === d.id ? (
-                            <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
-                          ) : (
-                            <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
-                          )}
-                          <span className="min-w-0">
-                            <span className="block truncate text-sm font-medium text-slate-800">
-                              {d.space_icon} {d.title}
-                            </span>
-                            <span className="block text-xs text-slate-500">
-                              Updated {fmt.date(d.updated_at)} ·{" "}
-                              {d.ack_last_reminded_at
-                                ? `last reminded ${timeAgo(d.ack_last_reminded_at)}`
-                                : "never reminded"}
-                            </span>
-                            {lastAsk(d) && (
+                        <div className="min-w-0 flex-1">
+                          <button
+                            onClick={() => toggleDetail(d.id)}
+                            className="flex w-full min-w-0 items-center gap-2 text-left"
+                          >
+                            {open === d.id ? (
+                              <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+                            ) : (
+                              <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
+                            )}
+                            <span className="min-w-0">
+                              <span className="block truncate text-sm font-medium text-slate-800">
+                                {d.space_icon} {d.title}
+                              </span>
                               <span className="block text-xs text-slate-500">
-                                {askedLine(lastAsk(d)!, fmt.date)}
+                                Updated {fmt.date(d.updated_at)} ·{" "}
+                                {d.ack_last_reminded_at
+                                  ? `last reminded ${timeAgo(d.ack_last_reminded_at)}`
+                                  : "never reminded"}
                               </span>
-                            )}
-                            {(d.kept_since_reset ?? 0) > 0 && (
-                              <span className="mt-1 block">
-                                <span
-                                  className={chipClass("neutral", "sm")}
-                                  data-tt="Edits the editor said did not need everyone to re-confirm; drift is how far the text now differs from the version people confirmed"
-                                  data-tt-wrap=""
-                                >
-                                  {driftLabel(d)}
+                              {lastAsk(d) && (
+                                <span className="block text-xs text-slate-500">
+                                  {askedLine(lastAsk(d)!, fmt.date)}
                                 </span>
+                              )}
+                            </span>
+                          </button>
+                          {/* The drift chip sits beside the disclosure button, not
+                              inside it: a tooltip must be reachable by keyboard
+                              (STYLEGUIDE §Accessibility), and a focusable element
+                              inside a <button> is not valid HTML. pl-6 lines it up
+                              under the title (chevron 16px + gap 8px). */}
+                          {(d.kept_since_reset ?? 0) > 0 && (
+                            <span className="mt-1 block pl-6">
+                              <span
+                                className={chipClass("neutral", "sm")}
+                                tabIndex={0}
+                                data-tt="Edits the editor said did not need everyone to re-confirm; drift is how far the text now differs from the version people confirmed"
+                                data-tt-wrap=""
+                              >
+                                {driftLabel(d)}
                               </span>
-                            )}
-                          </span>
-                        </button>
+                            </span>
+                          )}
+                        </div>
                         <div className="w-40">
                           <div className="mb-0.5 flex justify-between text-xs">
                             <span className={complete ? "font-medium text-emerald-600" : "text-slate-500"}>

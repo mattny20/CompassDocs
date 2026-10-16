@@ -105,20 +105,23 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   await deleteDocument(branch.id);
   // A branch whose text already matches its source has nothing to merge: the
   // source comes back unchanged (no version, no reset) and the branch still
-  // moves to the Trash, but nobody is notified and no audit row claims an
-  // edit that did not happen (A2, as PUT does for a no-op save).
-  if (updated?.ack_outcome?.changed === false) {
-    return NextResponse.json({ doc: updated, ack_outcome: updated.ack_outcome });
-  }
+  // moves to the Trash. The branch's own lifecycle (merged, then trashed) is
+  // recorded either way, with `changed: false` saying the source was not
+  // touched; nobody is notified and no decision is echoed (A2, as PUT does
+  // for a no-op save).
+  const unchanged = updated?.ack_outcome?.changed === false;
   await audit({
     actor: actorFrom(user),
     action: "document.branch_merge",
     targetType: "document",
     targetId: source.id,
     targetLabel: branch.title,
-    details: { branchId: branch.id },
+    details: { branchId: branch.id, changed: !unchanged },
     ip: ipFrom(req),
   });
+  if (unchanged) {
+    return NextResponse.json({ doc: updated, ack_outcome: updated?.ack_outcome });
+  }
   if (updated && updated.status === "published") {
     void notifySpaceSubscribers({
       spaceId: updated.space_id,

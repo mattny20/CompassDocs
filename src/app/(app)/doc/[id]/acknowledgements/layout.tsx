@@ -54,10 +54,12 @@ export default async function AcknowledgementsLayout({
         title="Read confirmation"
         subtitle={subtitle}
         actions={
+          // The record is printed as evidence: controls stay off paper
+          // (STYLEGUIDE §Print), as does the Record · History row below.
           <a
             href={`/api/documents/${doc.id}/acknowledgements?format=csv`}
             data-tt="Download the record as CSV"
-            className={buttonClass("secondary")}
+            className={buttonClass("secondary", "md", "print:hidden")}
           >
             <Download className="h-4 w-4" /> Export CSV
           </a>

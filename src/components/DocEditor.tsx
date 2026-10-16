@@ -115,10 +115,15 @@ interface AckOutcome {
   source?: string;
 }
 
-/** Line endings and trailing whitespace are not a change in the text. */
+/**
+ * The server's own test, character for character (updateDocument, A2): the
+ * two sides must agree on what "the text changed" means, or a save the
+ * editor calls unchanged would reach the server as an unasked change and
+ * reset everyone with no dialog. The title is trimmed on both sides already
+ * (the editor sends title.trim(), the route trims again).
+ */
 function sameText(a: ReconfirmText, b: ReconfirmText): boolean {
-  const norm = (s: string) => s.replace(/\r\n?/g, "\n").trimEnd();
-  return a.title.trim() === b.title.trim() && norm(a.content) === norm(b.content);
+  return a.title === b.title && a.content === b.content;
 }
 
 export function DocEditor({
@@ -509,12 +514,16 @@ export function DocEditor({
   }
 
   /**
-   * The re-confirmation question (A3). Opens only when the document asks
-   * readers to confirm, the resulting status is published, and the text or
-   * title differs from the confirmed baseline (fetched with ?baseline=1 so
-   * the drift since the last re-confirmation is measured, not just this
-   * session's edit). A metadata-only save never asks. Returns `{ ask: false }`
-   * when there is nothing to ask; otherwise the answer, null for Cancel.
+   * The re-confirmation question (A3). Opens exactly when the server would
+   * take a decision (updateDocument rule 2): the document asks readers to
+   * confirm, the resulting status is published, THIS save changes the text
+   * or title against the loaded document (or publishes a draft), AND the
+   * result differs from the confirmed baseline (fetched with ?baseline=1 so
+   * the drift since the last re-confirmation is what the dialog measures).
+   * So a metadata-only save never asks, not even after a kept edit left the
+   * live text ahead of the baseline, and a save that reverts to the
+   * confirmed text never asks either. Returns `{ ask: false }` when there is
+   * nothing to ask; otherwise the answer, null for Cancel.
    */
   async function askReconfirm(
     status: DocStatus
@@ -522,6 +531,11 @@ export function DocEditor({
     if (!ack || !docId || status !== "published") return { ask: false };
     const next: ReconfirmText = { title: title.trim(), content };
     const loaded: ReconfirmText = { title: initial.title, content: initial.content };
+    // Publishing a draft counts at the transition, however many saves the
+    // draft took (the marker waited for this moment); otherwise only a save
+    // that writes a version can be a change readers see.
+    const publishing = savedStatus !== "published";
+    if (!publishing && sameText(loaded, next)) return { ask: false };
     let fetched: AckFetched | null = null;
     try {
       const res = await fetch(`/api/documents/${docId}/ack?baseline=1`, { cache: "no-store" });

@@ -1,4 +1,5 @@
 import { Chip, chipClass } from "@/components/Chip";
+import { SectionEmpty } from "@/components/form";
 import { ackFormerStaffRows } from "@/lib/db";
 import type { AckStatusRow, AckFormerStaffRow } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings-store";
@@ -19,15 +20,14 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   return { title: doc?.title ? `Read confirmation · ${doc.title}` : "Read confirmation" };
 }
 
-const INFERRED_TT =
-  "Version inferred from the confirmation time; confirmations before 1.10.0 did not record it";
-
-/** "v12", with the inferred tooltip on rows from before 1.10.0. */
+/** "v12", marked "(inferred)" on rows from before 1.10.0. The explanation is
+ *  a footnote under the table, not a tooltip: the table scrolls sideways
+ *  inside its card, and a tooltip bubble is clipped by that container. */
 function VersionCell({ row }: { row: Pick<AckStatusRow, "rev" | "version_source"> }) {
   if (!row.rev) return <>—</>;
   if (row.version_source === "inferred") {
     return (
-      <span data-tt={INFERRED_TT} data-tt-wrap="" className="inline-flex items-center gap-1.5">
+      <span className="inline-flex items-center gap-1.5">
         v{row.rev}
         <span className="text-xs text-slate-500">(inferred)</span>
       </span>
@@ -35,6 +35,9 @@ function VersionCell({ row }: { row: Pick<AckStatusRow, "rev" | "version_source"
   }
   return <>v{row.rev}</>;
 }
+
+const INFERRED_NOTE =
+  "Confirmations before 1.10.0 did not record the version; where a version is marked (inferred) it is the one that was current at the time of the confirmation.";
 
 export default async function AcknowledgementsPage({
   params,
@@ -52,55 +55,73 @@ export default async function AcknowledgementsPage({
   const fmt = settingsForUser(settings, user);
   const acked = rows.filter((r) => r.acknowledged_at);
   const pending = rows.filter((r) => !r.acknowledged_at);
+  const anyInferred = [...rows, ...former].some((r) => r.rev && r.version_source === "inferred");
 
   return (
     <>
-      <div className="mb-4 h-2 overflow-hidden rounded-full bg-slate-100">
-        <div
-          className="h-full rounded-full bg-compass-500"
-          style={{ width: `${rows.length ? Math.round((acked.length / rows.length) * 100) : 0}%` }}
-        />
-      </div>
+      {/* The progress bar and the table need people to be asked; a freshly
+          required document in a space with no readers yet gets the
+          section-level empty state instead of a 0% bar over an empty body. */}
+      {rows.length > 0 && (
+        <div className="mb-4 h-2 overflow-hidden rounded-full bg-slate-100">
+          <div
+            className="h-full rounded-full bg-compass-500"
+            style={{ width: `${Math.round((acked.length / rows.length) * 100)}%` }}
+          />
+        </div>
+      )}
 
+      {/* overflow-hidden keeps the rounded corners; the Table's own scroll
+          wrapper carries the sideways scroll on a phone (five columns, three
+          of them nowrap, outgrow 375px). */}
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-surface shadow-xs">
-        <Table>
-          <thead className={TABLE_HEAD_ROW}>
-            <tr>
-              <Th>Person</Th>
-              <Th>Role</Th>
-              <Th fit>Status</Th>
-              <Th fit>Confirmed</Th>
-              <Th fit>Version</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {[...pending, ...acked].map((r) => (
-              <tr key={r.id} className={TR}>
-                <Td>
-                  <span className="font-medium text-slate-800">{r.name || r.username}</span>
-                  {r.email && <span className="ml-2 text-xs text-slate-500">{r.email}</span>}
-                </Td>
-                <Td className="text-slate-500">{r.role}</Td>
-                <Td fit>
-                  {r.acknowledged_at ? (
-                    <span className={chipClass("ok")}>Confirmed</span>
-                  ) : (
-                    <span className={chipClass("warn")}>Pending</span>
-                  )}
-                </Td>
-                <Td fit className="text-slate-500">
-                  {r.acknowledged_at ? formatDateTime(r.acknowledged_at, fmt) : "—"}
-                </Td>
-                <Td fit className="text-slate-500">
-                  <VersionCell row={r} />
-                </Td>
+        {rows.length === 0 ? (
+          <SectionEmpty className="px-4 py-6">
+            No one is asked to confirm this document yet. Everyone who can see it is listed here once it
+            is published.
+          </SectionEmpty>
+        ) : (
+          <Table scroll minWidth="40rem">
+            <thead className={TABLE_HEAD_ROW}>
+              <tr>
+                <Th>Person</Th>
+                <Th>Role</Th>
+                <Th fit>Status</Th>
+                <Th fit>Confirmed</Th>
+                <Th fit>Version</Th>
               </tr>
-            ))}
-          </tbody>
-        </Table>
+            </thead>
+            <tbody>
+              {[...pending, ...acked].map((r) => (
+                <tr key={r.id} className={TR}>
+                  <Td>
+                    <span className="font-medium text-slate-800">{r.name || r.username}</span>
+                    {r.email && <span className="ml-2 text-xs text-slate-500">{r.email}</span>}
+                  </Td>
+                  <Td className="text-slate-500">{r.role}</Td>
+                  <Td fit>
+                    {r.acknowledged_at ? (
+                      <span className={chipClass("ok")}>Confirmed</span>
+                    ) : (
+                      <span className={chipClass("warn")}>Pending</span>
+                    )}
+                  </Td>
+                  <Td fit className="text-slate-500">
+                    {r.acknowledged_at ? formatDateTime(r.acknowledged_at, fmt) : "—"}
+                  </Td>
+                  <Td fit className="text-slate-500">
+                    <VersionCell row={r} />
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        )}
       </div>
 
       {former.length > 0 && <FormerStaff rows={former} fmt={fmt} />}
+
+      {anyInferred && <p className="mt-3 text-xs text-slate-500">{INFERRED_NOTE}</p>}
     </>
   );
 }
@@ -126,7 +147,7 @@ function FormerStaff({
         People who confirmed this document but are no longer asked. Their records are kept and are not
         counted above.
       </p>
-      <Table className="mt-2">
+      <Table scroll minWidth="36rem" className="mt-2">
         <thead className={TABLE_HEAD_ROW}>
           <tr>
             <Th>Person</Th>

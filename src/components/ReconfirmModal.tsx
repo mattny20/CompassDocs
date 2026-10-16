@@ -231,6 +231,9 @@ export function ReconfirmModal({
   }
 
   const versionPhrase = opts.rev !== null ? `version ${opts.rev}` : "the current version";
+  // The same agreement rule as the roster sentence (ack-sentence.ts): the
+  // audience decides the noun, "1 of 1 person has", "3 of 50 people have".
+  const audience = opts.eligible === 1 ? "person has" : "people have";
   const resets =
     opts.current === 1 ? "1 confirmation is reset" : `${opts.current} confirmations are reset`;
   const cards: Array<{ value: AckPolicy; label: string; description: string }> = [
@@ -260,11 +263,14 @@ export function ReconfirmModal({
           {RECONFIRM_TITLE[opts.mode]}
         </h2>
         <p id={ledeId} className="mt-1 text-sm text-slate-600">
-          {opts.current} of {opts.eligible} people have confirmed {versionPhrase} of &ldquo;{opts.docTitle}&rdquo;.
+          {opts.current} of {opts.eligible} {audience} confirmed {versionPhrase} of &ldquo;{opts.docTitle}&rdquo;.
         </p>
 
         {/* Native radios: Tab lands on the chosen card, arrows move the choice,
-            Enter submits (handled here so every browser agrees). */}
+            Enter submits (handled here so every browser agrees). The wrapping
+            label is the click target; the input's accessible name is the
+            label line alone and the sentence under it is its description,
+            so a screen reader does not read the whole card on every arrow. */}
         <div
           role="radiogroup"
           aria-labelledby={titleId}
@@ -278,6 +284,8 @@ export function ReconfirmModal({
         >
           {cards.map((c) => {
             const checked = policy === c.value;
+            const labelId = `ack-policy-${c.value}-label`;
+            const descId = `ack-policy-${c.value}-desc`;
             return (
               <label
                 key={c.value}
@@ -291,12 +299,18 @@ export function ReconfirmModal({
                   value={c.value}
                   checked={checked}
                   onChange={() => setPolicy(c.value)}
+                  aria-labelledby={labelId}
+                  aria-describedby={descId}
                   data-autofocus={checked ? "" : undefined}
                   className="mt-0.5 h-4 w-4 shrink-0 accent-compass-600"
                 />
                 <span className="min-w-0">
-                  <span className="block text-sm font-medium text-slate-800">{c.label}</span>
-                  <span className="mt-0.5 block text-xs text-slate-500">{c.description}</span>
+                  <span id={labelId} className="block text-sm font-medium text-slate-800">
+                    {c.label}
+                  </span>
+                  <span id={descId} className="mt-0.5 block text-xs text-slate-500">
+                    {c.description}
+                  </span>
                 </span>
               </label>
             );
@@ -304,15 +318,16 @@ export function ReconfirmModal({
         </div>
 
         <p className="mt-3 text-sm text-slate-600">{opts.hint}</p>
-        <button
-          type="button"
-          onClick={() => setShowDiff((o) => !o)}
+        <Button
+          variant="ghost"
+          size="sm"
+          icon={showDiff ? <ChevronDown /> : <ChevronRight />}
           aria-expanded={showDiff}
-          className="mt-1 inline-flex items-center gap-1 text-sm font-medium text-compass-600 hover:underline"
+          onClick={() => setShowDiff((o) => !o)}
+          className="mt-1 -ml-2.5"
         >
-          {showDiff ? <ChevronDown className="h-4 w-4" aria-hidden /> : <ChevronRight className="h-4 w-4" aria-hidden />}
           {showDiff ? "Hide changes" : "Show changes"}
-        </button>
+        </Button>
         {showDiff && (
           <div className="mt-2 max-h-72 overflow-auto rounded-lg border border-slate-200">
             <DocDiff
