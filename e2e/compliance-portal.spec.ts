@@ -409,7 +409,7 @@ test("an unpublished policy is paused: it moves to the collapsed group with the 
     await expect(page.getByRole("heading", { name: /^Compliance/ })).toBeVisible();
     const group = page.locator("details", { hasText: "Paused (unpublished)" });
     await expect(group).toBeVisible();
-    await expect(group.locator("summary")).toHaveText(/^Paused \(unpublished\) \(\d+\)$/);
+    await expect(group.locator("summary")).toHaveText(/^Paused \(unpublished\) · \d+$/);
     expect(await page.locator("li", { hasText: title }).count(), "one row for the policy").toBe(1);
     const row = group.locator("li", { hasText: title });
     await expect(row).toHaveCount(1);
@@ -424,9 +424,10 @@ test("an unpublished policy is paused: it moves to the collapsed group with the 
     await expect(row.getByRole("link")).toHaveCount(0);
     // The Policies tile is the server's published count (the payload
     // invariant above); it is read again here because other specs may have
-    // added a policy in between.
-    const tile = page.locator("div", { has: page.getByText("Policies requiring confirmation", { exact: true }) }).last();
-    await expect(tile.locator(".text-2xl")).toHaveText(String((await portal()).kpis.policies));
+    // added a policy in between. The tiles are a description list: the
+    // label is the term and its number the definition.
+    const tile = page.getByRole("term").filter({ hasText: "Policies requiring confirmation" }).locator("..");
+    await expect(tile.getByRole("definition")).toHaveText(String((await portal()).kpis.policies));
     // The paused policy cannot be acted on through the API either.
     const remind = await api(page, "/api/admin/compliance", { method: "POST", body: { docId, action: "remind" } });
     expect(remind.status, "Remind needs a published document").toBe(404);

@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import JSZip from "jszip";
 import { ADMIN, login, api } from "./helpers";
 
 // 1.10.0 (B1, B2, B5): a read confirmation is recorded in a card after the
@@ -183,7 +184,7 @@ test("admin requires confirmation; the reader is pointed to the card, confirms t
     await expect(card.getByRole("link", { name: "View your record" })).toHaveCount(0);
     await expect(card).toBeFocused();
     await expect(page.getByRole("button", { name: CONFIRM })).toHaveCount(0);
-    await expect(page.locator("div.sticky.top-0").getByText(/^Confirmed /)).toBeVisible();
+    await expect(page.getByRole("region", { name: "Document bar" }).getByText(/^Confirmed /)).toBeVisible();
     await expect(page.getByRole("link", { name: "Jump to confirmation" })).toHaveCount(0);
 
     // The roster counts it.
@@ -251,7 +252,7 @@ for (const width of [375, 390]) {
       // scrolls sideways.
       await page.locator("#main").evaluate((el) => el.scrollTo(0, 600));
       await page.waitForTimeout(400);
-      const bar = page.locator("div.sticky.top-0");
+      const bar = page.getByRole("region", { name: "Document bar" });
       const control = bar.getByRole("link", { name: "Pending" });
       await expect(control).toBeVisible();
       await expect(control).toHaveAttribute("href", "#confirm-reading");
@@ -1157,7 +1158,7 @@ test("re-confirmation after a material change: the strip names the day, the stic
     await expect(card.getByText(/^You confirmed version 2 on /)).toBeVisible();
     await expect(page.getByText(CHANGED_SINCE)).toHaveCount(0);
     await expect(page.getByRole("link", { name: "Re-confirm needed" })).toHaveCount(0);
-    await expect(page.locator("div.sticky.top-0").getByText(/^Confirmed /)).toBeVisible();
+    await expect(page.getByRole("region", { name: "Document bar" }).getByText(/^Confirmed /)).toBeVisible();
     expect((await rosterCount(page, docId)).confirmed).toBe(1);
   } finally {
     if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
@@ -1216,6 +1217,144 @@ test("a manual re-ask with no text change: the reason line, an honest strip sent
     await expect(page.getByText(ASKED_AGAIN)).toHaveCount(0);
     expect((await rosterCount(page, docId)).confirmed).toBe(1);
   } finally {
+    if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
+  }
+});
+
+// 1.11.0 (H2): the schedule hint. Arming "Publish automatically at" on a
+// draft that requires read confirmation, whose text differs from the version
+// people confirmed, says now what the scheduler will do when it fires (nobody
+// is there to be asked then): everyone is asked again, or, under the
+// document's 'material' setting, an editorial-looking change is kept. The
+// hint goes when the text equals the confirmed version again.
+test("the schedule hint says what publishing on schedule will do to confirmations", async ({ page }) => {
+  test.setTimeout(120_000);
+  await login(page, ADMIN);
+  const title = `E2E ack schedule hint ${stamp()}`;
+  const PUBLISH_AT = "2030-01-01T09:00";
+  const SCHEDULE_FIELD = "Publish automatically at (optional)";
+  let docId: number | undefined;
+  try {
+    docId = await makePolicy(page, title);
+    test.skip(
+      (await requireConfirmation(page, docId)) === "unlicensed",
+      "policy_ack is not licensed in this build; the EE rig runs the flow"
+    );
+    await confirmLatestVersion(page, docId);
+    expect((await rosterCount(page, docId)).confirmed).toBe(1);
+    // Taken down as a draft (a status change alone asks nothing and writes
+    // no version), so the editor shows the schedule field.
+    const down = await api(page, `/api/documents/${docId}`, { method: "PUT", body: { status: "draft" } });
+    expect(down.status).toBe(200);
+    expect(down.body?.doc?.status).toBe("draft");
+
+    // A change plus a time: the ask variant, naming the people and the version.
+    await openEditorAndType(page, docId, " Done.");
+    await page.getByLabel(SCHEDULE_FIELD).fill(PUBLISH_AT);
+    await expect(
+      page.getByText(/^Publishing on schedule will ask 1 person to re-confirm: the text changed since version 1\.$/)
+    ).toBeVisible();
+
+    // The change undone: the text equals the confirmed version again, and
+    // the hint goes (the time is still set).
+    const editor = page.locator(".tiptap").first();
+    await editor.locator("p").last().click();
+    await page.keyboard.press("End");
+    for (let i = 0; i < " Done.".length; i++) await page.keyboard.press("Backspace");
+    await expect(page.getByText(/^Publishing on schedule/)).toHaveCount(0);
+    await expect(page.getByLabel(SCHEDULE_FIELD)).toHaveValue(PUBLISH_AT);
+
+    // Under 'material' an editorial-looking change is kept, and the hint
+    // says so. The editor reads the setting and the confirmed text once per
+    // session, so it is reopened (the leave guard is answered).
+    expect((await api(page, `/api/documents/${docId}/ack`, { method: "PATCH", body: { edit_default: "material" } })).status).toBe(200);
+    page.once("dialog", (d) => void d.accept());
+    await openEditorAndType(page, docId, " Done.");
+    await page.getByLabel(SCHEDULE_FIELD).fill(PUBLISH_AT);
+    await expect(
+      page.getByText("Publishing on schedule will keep confirmations: the change since version 1 looks editorial (document setting).")
+    ).toBeVisible();
+    await expect(page.getByText(/will ask .* to re-confirm/)).toHaveCount(0);
+    // Nothing was published or decided by looking.
+    expect((await rosterCount(page, docId)).confirmed).toBe(1);
+    expect((await api(page, `/api/documents/${docId}`)).body?.doc?.status).toBe("draft");
+  } finally {
+    if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
+  }
+});
+
+// 1.11.0 (H2): the admin import page. A published document that requires
+// read confirmation is never overwritten by accident: with the box off it is
+// left unchanged and listed by name, while an ordinary document in the same
+// zip is updated; with the box on it is overwritten and its edit default
+// decides (under the recommended default everyone is asked again).
+test("importing a zip leaves a confirmed policy unchanged unless the box is ticked, then asks its readers again", async ({ page }) => {
+  test.setTimeout(120_000);
+  await login(page, ADMIN);
+  const policyTitle = `E2E import policy ${stamp()}`;
+  const plainTitle = `E2E import plain ${stamp()}`;
+  const IMPORTED_POLICY = `${BODY}\n\nImported paragraph.`;
+  const IMPORTED_PLAIN = "Plain text, imported.";
+  let docId: number | undefined;
+  let plainId: number | undefined;
+  try {
+    docId = await makePolicy(page, policyTitle);
+    test.skip(
+      (await requireConfirmation(page, docId)) === "unlicensed",
+      "policy_ack is not licensed in this build; the EE rig runs the flow"
+    );
+    await confirmLatestVersion(page, docId);
+    expect((await rosterCount(page, docId)).confirmed).toBe(1);
+    const plain = await api(page, "/api/documents", {
+      method: "POST",
+      body: { space_id: 1, title: plainTitle, type: "knowledge", status: "published", content: "Plain text.", tags: [] },
+    });
+    expect(plain.status, "plain document created").toBe(201);
+    plainId = plain.body?.doc?.id;
+    const spaces = await api(page, "/api/admin/spaces");
+    const spaceSlug: string | undefined = (spaces.body?.spaces ?? []).find((s: { id: number }) => s.id === 1)?.slug;
+    expect(spaceSlug, "the space's slug").toBeTruthy();
+
+    // The zip: both documents by title in the same space, each with a changed
+    // text (documents are matched by space and title slug).
+    const md = (t: string, type: string, body: string) =>
+      `---\ntitle: ${JSON.stringify(t)}\ntype: ${type}\nstatus: published\nspace: ${spaceSlug}\n---\n${body}`;
+    const zip = new JSZip();
+    zip.file(`documents/${spaceSlug}/policy.md`, md(policyTitle, "policy", IMPORTED_POLICY));
+    zip.file(`documents/${spaceSlug}/plain.md`, md(plainTitle, "knowledge", IMPORTED_PLAIN));
+    const buffer = await zip.generateAsync({ type: "nodebuffer" });
+
+    await page.goto("/admin/data");
+    await expect(page.getByRole("heading", { name: "Backup & transfer" })).toBeVisible();
+    const box = page.getByRole("checkbox", { name: /^Also overwrite documents that require read confirmation/ });
+    await expect(box, "off by default").not.toBeChecked();
+    await page.locator('input[type="file"]').first().setInputFiles({ name: "e2e-import.zip", mimeType: "application/zip", buffer });
+    await page.getByRole("button", { name: "Import", exact: true }).click();
+
+    // Box off: the policy is left unchanged and named; the plain document is updated.
+    await expect(page.getByText("1 policy that requires read confirmation was left unchanged.")).toBeVisible();
+    await expect(page.getByText(/will ask people to re-confirm/)).toHaveCount(0);
+    await page.locator("summary", { hasText: /warning/ }).click();
+    const listed = page.locator("li", { hasText: policyTitle });
+    await expect(listed).toHaveCount(1);
+    await expect(listed).toContainText("requires read confirmation and was left unchanged");
+    expect((await api(page, `/api/documents/${docId}`)).body?.doc?.content, "the policy is untouched").toBe(BODY);
+    expect((await api(page, `/api/documents/${plainId}`)).body?.doc?.content?.trim(), "the plain document was updated").toBe(IMPORTED_PLAIN);
+    expect((await rosterCount(page, docId)).confirmed, "the confirmation stands").toBe(1);
+
+    // Box on: the policy is overwritten and, under the recommended default,
+    // its readers are asked again; the row is from source "import".
+    await box.check();
+    await page.getByRole("button", { name: "Import", exact: true }).click();
+    await expect(page.getByText("1 policy will ask people to re-confirm.")).toBeVisible();
+    await expect(page.getByText(/left unchanged/)).toHaveCount(0);
+    expect((await api(page, `/api/documents/${docId}`)).body?.doc?.content?.trim()).toBe(IMPORTED_POLICY);
+    expect((await rosterCount(page, docId)).confirmed, "the confirmation lapsed").toBe(0);
+    const summary = await api(page, `/api/documents/${docId}/ack`);
+    expect(summary.body?.last_decision?.outcome).toBe("reset");
+    expect(summary.body?.last_decision?.source).toBe("import");
+  } finally {
+    if (plainId) await api(page, `/api/documents/${plainId}`, { method: "DELETE" });
     if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
   }
 });

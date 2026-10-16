@@ -339,7 +339,30 @@ changed since they confirmed, and reading evidence lands on the record.
   unchanged. The editor's question takes three more modes (approve,
   restore and merge) and an optional title; in every mode the note typed
   in it is the version note as well as the recorded reason; the save and
-  submit modes and their labels are unchanged.
+  submit modes and their labels are unchanged. A merge or a restore that
+  goes to the review queue asks the submit question in the app ("Submit
+  changes to a confirmed document?", the same two cards, the note
+  prefilled from the banner's note or "Restored version 9 from
+  2026-02-01", a primary that reads **Submit. Recommend keeping
+  confirmations** / **Submit. Recommend re-confirmation**), so the request
+  carries the submitter's recommendation and reason the way the editor's
+  own submission does. Version history and the History tab show what the
+  submitter recommended when the approver overrode it: "Editorial (kept)
+  recommended material change by Alex, approved by Priya"; when the two
+  agree the line stays "recommended by Alex, approved by Priya". Keyboard
+  focus returns to the button that opened a question from a 428, so
+  Cancel no longer leaves a keyboard user at the top of the page; each
+  review-queue card is an article named by the request's title.
+- The History tab's source label for a branch merge reads **Merge** (was
+  "Branch merge"). The compliance portal's paused group reads **Paused
+  (unpublished) · 3**, its description says "program", and the four tiles
+  are a description list, so the number is the definition of its label
+  for assistive technology. The admin import page's checkbox help says
+  what the import does: "On, such documents are overwritten and each
+  one's edit default decides what readers see (under the recommended
+  default everyone is asked to re-confirm)." Every scrolling table (the
+  Record tab among them) prints whole on a portrait page: the minimum
+  width that makes it scroll on screen is dropped in print.
 - An approval of a text change to a confirmed policy no longer resets by
   default when the submitter recommended keeping confirmations: the
   recommendation applies unless the approver overrides it. A request with
