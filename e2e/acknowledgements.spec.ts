@@ -212,3 +212,162 @@ test("at 375px the sticky bar shows the confirmation control and the title only"
     await ctx.close();
   }
 });
+
+// ── The editor (A3): the re-confirmation question on save ───────────────────
+//
+// A save that changes the text of a confirmed document asks how readers should
+// see it, BEFORE anything is busy: Ctrl+S and Save changes both open the
+// question; Escape cancels and leaves the editor dirty with Save idle; both
+// choices require a change note; "keep" leaves the roster alone, "reset"
+// zeroes it; a tag-only save never asks. Licensed builds only (see above).
+
+const QUESTION = "How should readers see this change?";
+const EDITORIAL = /^Editorial fix/;
+const MATERIAL = /^Material change/;
+
+async function openEditorAndType(page: Page, docId: number, text: string) {
+  await page.goto(`/doc/${docId}/edit`);
+  const editor = page.locator(".tiptap").first();
+  await editor.waitFor({ state: "visible", timeout: 15000 });
+  // Let tiptap's markdown round-trip settle before the change is made.
+  await page.waitForTimeout(1500);
+  await editor.click();
+  await page.keyboard.press("End");
+  await page.keyboard.type(text);
+}
+
+/** The roster as counts: confirmed people and the audience. */
+async function rosterCount(page: Page, docId: number): Promise<{ confirmed: number; total: number }> {
+  const roster = await api(page, `/api/documents/${docId}/acknowledgements`);
+  expect(roster.status, "roster readable").toBe(200);
+  const rows: { acknowledged_at: string | null }[] = roster.body?.rows ?? [];
+  return { confirmed: rows.filter((r) => r.acknowledged_at).length, total: rows.length };
+}
+
+test("editing a confirmed document: Ctrl+S asks, Escape keeps the editor dirty, keep and reset do what they say, a tag-only save never asks", async ({ page }) => {
+  test.setTimeout(120_000);
+  await login(page, ADMIN);
+  const title = `E2E ack editor ${stamp()}`;
+  let docId: number | undefined;
+  try {
+    docId = await makePolicy(page, title);
+    test.skip(
+      (await requireConfirmation(page, docId)) === "unlicensed",
+      "policy_ack is not licensed in this build; the EE rig runs the flow"
+    );
+
+    // GET /ack: the summary for people who may edit; ?baseline=1 adds the
+    // confirmed text. The admin confirms the latest version so the roster
+    // has one current confirmation to keep or reset.
+    const withBaseline = await api(page, `/api/documents/${docId}/ack?baseline=1`);
+    expect(withBaseline.status).toBe(200);
+    expect(withBaseline.body?.required).toBe(true);
+    expect(withBaseline.body?.edit_default).toBe("ask");
+    expect(typeof withBaseline.body?.baseline?.content, "the baseline text travels").toBe("string");
+    expect(withBaseline.body?.latest_version_id, "the latest version id").toBeTruthy();
+    const confirmed = await api(page, `/api/documents/${docId}/ack`, {
+      method: "POST",
+      body: { version_id: withBaseline.body.latest_version_id },
+    });
+    expect(confirmed.status).toBe(200);
+    const before = await rosterCount(page, docId);
+    expect(before.confirmed).toBeGreaterThanOrEqual(1);
+    const summary = await api(page, `/api/documents/${docId}/ack`);
+    expect(summary.status).toBe(200);
+    expect(summary.body?.current).toBe(before.confirmed);
+    expect(summary.body?.eligible).toBe(before.total);
+
+    // The editor shows the count beside the status, and the change note is
+    // the relabelled textarea.
+    await openEditorAndType(page, docId, " Edited once.");
+    const header = page.locator("h1", { hasText: "Edit document" }).locator("..");
+    await expect(header.getByText(`Read confirmation · ${before.confirmed} of ${before.total}`)).toBeVisible();
+    await expect(page.getByLabel("Change note")).toHaveAttribute("maxlength", "500");
+    await expect(page.getByText("Saving will ask whether readers must re-confirm.")).toBeVisible();
+
+    // Ctrl+S opens the question; Escape cancels, the editor stays dirty and
+    // Save is idle (never "Saving…").
+    await page.keyboard.press("Control+s");
+    const dialog = page.getByRole("dialog", { name: QUESTION });
+    await expect(dialog).toBeVisible();
+    await expect(
+      dialog.getByText(new RegExp(`^${before.confirmed} of ${before.total} people have confirmed version \\d+ of`))
+    ).toBeVisible();
+    await expect(dialog.getByRole("radio", { name: EDITORIAL })).toBeVisible();
+    await expect(dialog.getByRole("radio", { name: MATERIAL })).toBeVisible();
+    await expect(dialog.getByText(/^(Looks editorial|Looks material|Borderline)/)).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Show changes" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+    expect(page.url()).toContain(`/doc/${docId}/edit`);
+    await expect(page.getByText("Unsaved changes")).toBeVisible();
+    const save = page.getByRole("button", { name: "Save changes" });
+    await expect(save).toBeEnabled();
+    await expect(page.getByRole("button", { name: /Saving/ })).toHaveCount(0);
+
+    // Keep: the button says what it does, an empty note is refused, a note
+    // saves, the toast reports the outcome and the roster is untouched.
+    await save.click();
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("radio", { name: EDITORIAL }).check();
+    const keep = dialog.getByRole("button", { name: "Save. Keep confirmations" });
+    await expect(keep).toBeVisible();
+    await dialog.getByLabel("Change note").fill("");
+    await keep.click();
+    await expect(dialog.getByRole("alert")).toHaveText(/at least 10 characters/);
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByLabel("Change note")).toBeFocused();
+    await dialog.getByLabel("Change note").fill("Fixed a typo in the first section");
+    await keep.click();
+    await page.waitForURL(`**/doc/${docId}`, { timeout: 15000 });
+    await expect(
+      page.locator('[role="status"]').getByText("Saved as an editorial fix. Confirmations kept.")
+    ).toBeVisible();
+    const kept = await rosterCount(page, docId);
+    expect(kept.confirmed, "a kept edit leaves the roster alone").toBe(before.confirmed);
+    expect(kept.total).toBe(before.total);
+
+    // After a kept edit the reader's confirmation cites an older version than
+    // the text on screen: the card offers to re-confirm the current text.
+    const again = page.getByRole("button", { name: /^Re-confirm the current text/ });
+    await expect(again).toBeVisible();
+    await again.click();
+    await expect(page.locator('[role="status"]').getByText("Confirmation recorded.")).toBeVisible();
+    await expect(again).toHaveCount(0);
+    expect((await rosterCount(page, docId)).confirmed).toBe(before.confirmed);
+
+    // Reset: the primary names the people asked, the toast says so, and the
+    // roster is zeroed.
+    await openEditorAndType(page, docId, " The cap is now 75.");
+    await page.keyboard.press("Control+s");
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("radio", { name: MATERIAL }).check();
+    const reset = dialog.getByRole("button", {
+      name: new RegExp(`^Save and ask ${before.confirmed} (person|people) to re-confirm$`),
+    });
+    await expect(reset).toBeVisible();
+    await dialog.getByLabel("Change note").fill("Expense cap raised to 75; receipts required over 20");
+    await reset.click();
+    await page.waitForURL(`**/doc/${docId}`, { timeout: 15000 });
+    await expect(
+      page
+        .locator('[role="status"]')
+        .getByText(new RegExp(`^Saved\\. ${before.confirmed} (person|people) will be asked to re-confirm\\.$`))
+    ).toBeVisible();
+    const after = await rosterCount(page, docId);
+    expect(after.confirmed, "a reset zeroes the roster").toBe(0);
+    expect(after.total).toBe(before.total);
+
+    // A tag-only save never asks.
+    await page.goto(`/doc/${docId}/edit`);
+    await page.locator(".tiptap").first().waitFor({ state: "visible", timeout: 15000 });
+    await page.waitForTimeout(1500);
+    await page.getByLabel("Tags (comma separated)").fill("e2e, read-confirmation");
+    await page.getByRole("button", { name: "Save changes" }).click();
+    await page.waitForURL(`**/doc/${docId}`, { timeout: 15000 });
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    expect((await rosterCount(page, docId)).total).toBe(before.total);
+  } finally {
+    if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
+  }
+});

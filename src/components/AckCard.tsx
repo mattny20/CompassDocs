@@ -153,6 +153,21 @@ export function AckCard({
           {confirmed ? (
             <>
               <p className="mt-2 max-w-md text-sm text-slate-600">{confirmedSentence}</p>
+              {/* A kept edit (A2): the confirmation still counts but cites an
+                  older version than the text on screen. Re-confirming posts
+                  the latest version id; the ledger keeps both rows. */}
+              {ack.ackedVersionId !== null && ack.versionId !== null && ack.ackedVersionId !== ack.versionId && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  icon={<ShieldCheck />}
+                  busy={isBusy("ack")}
+                  onClick={() => void confirm()}
+                  className="mt-3"
+                >
+                  Re-confirm the current text{ack.rev !== null ? ` (v${ack.rev})` : ""}
+                </Button>
+              )}
               <Link
                 href={recordHref}
                 className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-compass-600 hover:underline"

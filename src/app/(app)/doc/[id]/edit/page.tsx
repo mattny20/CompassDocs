@@ -5,10 +5,12 @@ import {
   getApprovalMode,
   listAllSpaceCategories,
   isTrainingDeckDoc,
+  ackSummary,
 } from "@/lib/db";
 import { requirePermission } from "@/lib/auth";
 import { canPublishDirectly, spaceScopeFor, scopeAllows, canEditSpace, editableScopeFor } from "@/lib/access";
 import { getAppSettings } from "@/lib/settings-store";
+import { featureEnabled } from "@/lib/ee";
 import { DocEditor } from "@/components/DocEditor";
 
 import type { Metadata } from "next";
@@ -37,6 +39,13 @@ export default async function EditDocPage({ params }: { params: Promise<{ id: st
   );
   const canPublish = await canPublishDirectly(user, doc.space_id);
   const settings = await getAppSettings();
+  // Read confirmation (A3): a confirmed document tells the editor so a save
+  // that changes its text can ask how readers should see the change. The
+  // counts come from the one summary statement (never names); the confirmed
+  // baseline text is fetched by the editor only when a save needs it.
+  const ackActive =
+    doc.ack_required === 1 && doc.branch_of === null && (await featureEnabled("policy_ack"));
+  const ack = ackActive ? await ackSummary(doc.id, {}) : null;
 
   return (
     <DocEditor
@@ -62,6 +71,21 @@ export default async function EditDocPage({ params }: { params: Promise<{ id: st
         publish_at: doc.publish_at ?? null,
         archive_at: doc.archive_at ?? null,
         updated_at: doc.updated_at,
+        ack: ack
+          ? {
+              required: ack.required,
+              editDefault: ack.edit_default,
+              summary: {
+                eligible: ack.eligible,
+                current: ack.current,
+                pending: ack.pending,
+                version_id: ack.version_id,
+                rev: ack.rev,
+                latest_version_id: ack.latest_version_id,
+                latest_rev: ack.latest_rev,
+              },
+            }
+          : undefined,
       }}
     />
   );
