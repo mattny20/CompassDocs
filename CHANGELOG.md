@@ -74,10 +74,16 @@ changed since they confirmed, and reading evidence lands on the record.
   the confirmed version itself, merging a branch whose text matches it, or
   a merge that changes nothing substantive asks nothing (a bad `ack_policy`
   value is still refused). In the app the note typed in the question is
-  the version note and the recorded reason, for a restore as for a merge.
-  The decision is recorded on the History tab from source *Merge* or
-  *Restore* with the reason, and the audit rows `document.branch_merge`
-  and `document.restore_version` carry `{ ack_policy, confirmations_reset }`.
+  the version note and the recorded reason, for a restore as for a merge
+  (`POST /api/documents/{id}/versions/{vid}/restore` accepts `note` for
+  the same purpose; absent, the note reads "Restored version N from
+  YYYY-MM-DD", as before). The decision is recorded on the History tab
+  from source *Merge* or *Restore* with the reason, and the audit rows
+  `document.branch_merge` and `document.restore_version` carry
+  `{ ack_policy, confirmations_reset }`, where `ack_policy` is `keep` or
+  `reset` (what was applied) or `null` when nothing was decided (a merge or
+  restore that changed nothing substantive), the vocabulary
+  `document.scheduled_publish` uses.
 - **The submitter recommends, the approver decides.** A change request now
   carries the submitter's recommendation for the readers (`ack_policy` `keep`
   | `reset`, or none, and `ack_reason`), taken from every way a request is
@@ -107,7 +113,10 @@ changed since they confirmed, and reading evidence lands on the record.
   before). The review list tells the queue whether each target requires
   read confirmation and which version people confirmed. The audit row
   `change_request.approve` gains `{ ack_policy, confirmations_reset,
-  submitted_policy }`, and the author's "approved" notice ends with what
+  submitted_policy }` (`ack_policy` is `keep` or `reset` as applied, or
+  `null` for an approval that decided nothing, such as a metadata-only
+  request, so a recommendation the approval did not act on is never
+  audited as applied), and the author's "approved" notice ends with what
   the decision did: "Confirmations kept." or "42 people asked to
   re-confirm."
 - **A merge refuses to overwrite a newer live document.** `POST
@@ -132,7 +141,8 @@ changed since they confirmed, and reading evidence lands on the record.
   what changed and why.") and `ack_reason`; `read_doc` says so up front on
   such a document ("> read confirmation: required · 42 of 50 people have
   confirmed v12 · a change to the body or title needs ack_policy (keep or
-  reset) and ack_reason in update_doc"). Decisions taken this way are rows
+  reset) and ack_reason in update_doc"; "1 of 1 person has confirmed v3"
+  when one person is eligible). Decisions taken this way are rows
   on the History tab with source *API* or *MCP*, the token's owner as the
   decider and the reason given, and are echoed to the audit log as
   `ack.confirmations_kept` / `ack.confirmations_reset`, as before, with
@@ -215,9 +225,12 @@ changed since they confirmed, and reading evidence lands on the record.
   compliance manager and re-asked with **Ask everyone to re-confirm…**
   rather than resetting everyone for a screenshot, and never passing
   silently. The image's alt text (or the file name standing in for it) is
-  kept to one line with no markdown in it, so what lands in the text is
-  exactly one image line and nothing else. The person who minted the
-  upload link is the row's decider.
+  kept to one line with no markdown in it (line breaks, brackets,
+  parentheses, angle brackets, backticks and backslashes become spaces;
+  300 characters at most), so what lands in the text is exactly one image
+  line and nothing else, never a second image or a line of policy text
+  recorded as an editorial fix. The person who minted the upload link is
+  the row's decider.
 - **What changed since you confirmed.** A re-confirmation no longer looks
   like a first request. When a reader's confirmation has lapsed, the notice
   strip says so in one sentence with the day, "This document changed since
@@ -413,7 +426,11 @@ changed since they confirmed, and reading evidence lands on the record.
   index `idx_views_doc_user` on `doc_views(document_id, user_id, viewed_at
   DESC)`, which the read-time sum and the later never-opened probe share.
   All of them are catalog-guarded `ADD COLUMN IF NOT EXISTS` / `CREATE
-  INDEX IF NOT EXISTS` lines. No backfill: the evidence starts at upgrade,
+  INDEX IF NOT EXISTS` lines; the two `change_requests` columns are added
+  after the `doc_views` index is built, so on a rolling upgrade the
+  exclusive lock they take on `change_requests` (which every app page
+  reads for the review badge) is held for the tail of the boot, not across
+  the index build. No backfill: the evidence starts at upgrade,
   and requests pending at upgrade carry no recommendation, so approving one
   that changes the text of a confirmed policy asks the approver (428
   through the API) until they decide.
