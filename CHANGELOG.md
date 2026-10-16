@@ -23,11 +23,10 @@ sits where reading ends. (Enterprise, `policy_ack`.)
   Ctrl+S, Save changes, Publish on a drifted draft and Submit for review
   all pass through it; Cancel leaves the editor dirty; a save that only
   touches tags, the summary, the category or the type never asks, even
-  after an editorial fix. Without publish rights the dialog asks for a
-  recommendation instead of a decision: the change note travels with the
-  change request, but the recommendation itself is not recorded in this
-  release (recording it, and the approver's choice, arrive in 1.11.0),
-  and approving a text change asks everyone again.
+  after an editorial fix. Without publish rights nothing is asked: the
+  save goes to the review queue as before, and approving a text change
+  asks everyone again (the submitter's recommendation and the approver's
+  choice arrive in 1.11.0).
 - **Confirm at the end.** A document that requires read confirmation ends
   with a confirmation card after the text: the statement ("I confirm that
   I have read and understood this document."), the version being

@@ -41,6 +41,7 @@ import {
   AckReasonRequiredError,
 } from "../src/lib/db";
 import { runDueDocSchedules, setDocSchedule } from "../src/lib/doc-schedule";
+import { fixtureQuery } from "./support/retry";
 
 const STAMP = `ackrev-${Date.now()}`;
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");
@@ -83,12 +84,12 @@ async function ackCount(docId: number, userId: number): Promise<number> {
 // the next describe starts, so the fixtures live at the top level).
 before(async () => {
   await getSetting("__schema_bootstrap__"); // run the schema and migrations first
-  const sp = await pool().query(
+  const sp = await fixtureQuery(
     `INSERT INTO spaces (name, slug, icon, description, visibility) VALUES ($1, $2, '📁', '', 'internal') RETURNING id`,
     [`Ack Revision ${STAMP}`, STAMP]
   );
   spaceId = sp.rows[0].id;
-  const users = await pool().query(
+  const users = await fixtureQuery(
     `INSERT INTO users (username, name, email, role, status) VALUES
        ($1, 'Rev Reader', $2, 'viewer', 'active'),
        ($3, 'Rev Other', $4, 'viewer', 'active'),

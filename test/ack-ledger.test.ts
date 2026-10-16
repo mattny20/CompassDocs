@@ -34,6 +34,7 @@ import {
   getAttestedVersion,
 } from "../src/lib/db";
 import { ACK_AUDIT_ACTIONS } from "../src/lib/audit";
+import { fixtureQuery } from "./support/retry";
 import { hasActionLabel, actionLabel } from "../src/lib/audit-labels";
 
 const STAMP = `ackled-${Date.now()}`;
@@ -78,12 +79,12 @@ const marker = (id: number) =>
 
 before(async () => {
   await getSetting("__schema_bootstrap__");
-  const sp = await pool().query(
+  const sp = await fixtureQuery(
     `INSERT INTO spaces (name, slug, icon, description, visibility) VALUES ($1, $2, '📁', '', 'internal') RETURNING id`,
     [`Ack Ledger ${STAMP}`, STAMP]
   );
   spaceId = sp.rows[0].id;
-  const users = await pool().query(
+  const users = await fixtureQuery(
     `INSERT INTO users (username, name, email, role, status) VALUES
        ($1, 'Led Reader', $2, 'viewer', 'active'),
        ($3, 'Led Editor', $4, 'editor', 'active'),

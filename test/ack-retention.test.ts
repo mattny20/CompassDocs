@@ -9,6 +9,7 @@
 import { test, before, after, describe } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { fixtureQuery } from "./support/retry";
 import {
   pool,
   getSetting,
@@ -38,7 +39,7 @@ const userIds: number[] = [];
 const docIds: number[] = [];
 
 async function newUser(tag: string, status: "active" | "disabled" = "active"): Promise<number> {
-  const r = await pool().query(
+  const r = await fixtureQuery(
     `INSERT INTO users (username, name, email, role, status) VALUES ($1, $2, $3, 'viewer', $4) RETURNING id`,
     [`${STAMP}-${tag}`, `Ret ${tag}`, `${STAMP}-${tag}@example.test`, status]
   );
@@ -65,7 +66,7 @@ async function newPolicy(title: string, content = "Policy body"): Promise<{ id: 
 describe("attestation retention", () => {
   before(async () => {
     await getSetting("__schema_bootstrap__"); // run the schema and migrations first
-    const sp = await pool().query(
+    const sp = await fixtureQuery(
       `INSERT INTO spaces (name, slug, icon, description, visibility) VALUES ($1, $2, '📁', '', 'internal') RETURNING id`,
       [`Ack Retention ${STAMP}`, STAMP]
     );

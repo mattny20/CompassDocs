@@ -740,14 +740,25 @@ const SCHEMA_SQL = `
   -- only THEN the default and NOT NULL. "ADD COLUMN ... DEFAULT now()" in one
   -- statement would stamp upgrade time on every row and mark every existing
   -- confirmation stale. SCHEMA_SQL runs as one implicit transaction, so no
-  -- request ever sees a half-migrated table; after the first boot the UPDATE
-  -- matches nothing and SET NOT NULL is a no-op on a column already NOT NULL.
-  ALTER TABLE documents ADD COLUMN IF NOT EXISTS ack_revision_at timestamptz;
-  UPDATE documents SET ack_revision_at = updated_at WHERE ack_revision_at IS NULL;
-  ALTER TABLE documents ALTER COLUMN ack_revision_at SET DEFAULT now();
-  ALTER TABLE documents ALTER COLUMN ack_revision_at SET NOT NULL;
-  -- The version everyone is asked to confirm (the marker's version).
-  ALTER TABLE documents ADD COLUMN IF NOT EXISTS ack_version_id integer REFERENCES doc_versions(id) ON DELETE SET NULL;
+  -- request ever sees a half-migrated table. The whole sequence is guarded on
+  -- the column being absent: SET DEFAULT and SET NOT NULL take an exclusive
+  -- lock on documents whether or not they change anything, and a boot that
+  -- takes it on every start can deadlock against an instance that is saving
+  -- a document at that moment (the ALTERs earlier in this transaction already
+  -- hold doc_versions). Once the column exists this block touches nothing.
+  DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_name = 'documents' AND column_name = 'ack_revision_at'
+    ) THEN
+      ALTER TABLE documents ADD COLUMN ack_revision_at timestamptz;
+      UPDATE documents SET ack_revision_at = updated_at WHERE ack_revision_at IS NULL;
+      ALTER TABLE documents ALTER COLUMN ack_revision_at SET DEFAULT now();
+      ALTER TABLE documents ALTER COLUMN ack_revision_at SET NOT NULL;
+      -- The version everyone is asked to confirm (the marker's version).
+      ALTER TABLE documents ADD COLUMN ack_version_id integer REFERENCES doc_versions(id) ON DELETE SET NULL;
+    END IF;
+  END $$;
   -- The FK's ON DELETE SET NULL fires once per version row a purge removes;
   -- without this index each firing is a sequential scan of documents.
   CREATE INDEX IF NOT EXISTS idx_documents_ack_version ON documents(ack_version_id);
@@ -767,8 +778,17 @@ const SCHEMA_SQL = `
   -- 1.9.x's INSERT (document_id, user_id, ip) stays valid against nullable
   -- columns and its queries JOIN users/documents, so a rollback simply stops
   -- showing rows whose person or policy is gone.
-  ALTER TABLE acknowledgements ALTER COLUMN user_id DROP NOT NULL;
-  ALTER TABLE acknowledgements ALTER COLUMN document_id DROP NOT NULL;
+  -- Guarded for the same reason as the marker block above: DROP NOT NULL
+  -- takes an exclusive lock on the ledger on every boot otherwise.
+  DO $$ BEGIN
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_name = 'acknowledgements' AND column_name = 'user_id' AND is_nullable = 'NO'
+    ) THEN
+      ALTER TABLE acknowledgements ALTER COLUMN user_id DROP NOT NULL;
+      ALTER TABLE acknowledgements ALTER COLUMN document_id DROP NOT NULL;
+    END IF;
+  END $$;
   ALTER TABLE acknowledgements ADD COLUMN IF NOT EXISTS user_name text NOT NULL DEFAULT '';
   ALTER TABLE acknowledgements ADD COLUMN IF NOT EXISTS user_email text NOT NULL DEFAULT '';
   ALTER TABLE acknowledgements ADD COLUMN IF NOT EXISTS document_title text NOT NULL DEFAULT '';
