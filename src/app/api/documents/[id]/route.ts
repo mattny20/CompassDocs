@@ -1,13 +1,16 @@
 import { NextResponse } from "next/server";
+import { createHash } from "node:crypto";
 import {
   getDocument,
   getSpaceById,
   updateDocument,
   deleteDocument,
   createChangeRequest,
-  } from "@/lib/db";
+  lastAckDecision,
+  AckReasonRequiredError,
+} from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
-import { audit, actorFrom, ipFrom } from "@/lib/audit";
+import { audit, auditAck, actorFrom, ipFrom } from "@/lib/audit";
 import { notifyWebhooks } from "@/lib/webhooks";
 import { notifyCrSubmitted } from "@/lib/notifications";
 import { notifySpaceSubscribers } from "@/lib/subscriptions";
@@ -204,17 +207,47 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     return NextResponse.json({ pending: true, changeRequestId: crId, docId: existing.id });
   }
 
+  // What to do with existing confirmations if this save changes the text of
+  // a confirmed document (A2): 'keep' or 'reset' with a change note of 10+
+  // characters, or nothing, which is 'auto' (a reset in this release). The
+  // policy is checked here and the reason inside updateDocument, before any
+  // write, so a refused save leaves the document untouched.
+  const ackPolicy: "keep" | "reset" | "auto" =
+    body?.ack_policy === undefined || body?.ack_policy === null ? "auto" : body.ack_policy;
+  if (ackPolicy !== "keep" && ackPolicy !== "reset" && ackPolicy !== "auto") {
+    return NextResponse.json({ error: "ack_policy must be 'keep' or 'reset'." }, { status: 400 });
+  }
+  const ackReason = typeof body?.ack_reason === "string" ? body.ack_reason.trim() : "";
+
   // Otherwise apply directly (draft edit, or a privileged/open-mode change).
-  const doc = await updateDocument(existing.id, {
-    ...proposed,
-    space_id: targetSpaceId,
-    category_id:
-      body?.category_id === null || Number.isInteger(body?.category_id)
-        ? body.category_id
-        : undefined,
-    author: user.name || user.username,
-    versionNote: String(body?.versionNote ?? "").trim() || "Edited",
-  });
+  let doc: Awaited<ReturnType<typeof updateDocument>>;
+  try {
+    doc = await updateDocument(existing.id, {
+      ...proposed,
+      space_id: targetSpaceId,
+      category_id:
+        body?.category_id === null || Number.isInteger(body?.category_id)
+          ? body.category_id
+          : undefined,
+      author: user.name || user.username,
+      versionNote: String(body?.versionNote ?? "").trim() || "Edited",
+      ackPolicy,
+      ackActor: { id: user.id, name: user.name || user.username },
+      ackReason,
+      ackSource: "edit",
+    });
+  } catch (e) {
+    if (e instanceof AckReasonRequiredError) {
+      return NextResponse.json({ error: e.message }, { status: 400 });
+    }
+    throw e;
+  }
+  const ackOutcome = doc?.ack_outcome;
+  // A save that changed nothing is answered with the unchanged document and
+  // nothing else happens: no subscriber notice, no webhook, no audit row
+  // claiming an edit that did not happen. Schedule and parent changes below
+  // are separate records and still apply.
+  const changed = ackOutcome ? ackOutcome.changed : true;
 
   // Apply the (pre-validated) schedule changes.
   if (Object.keys(schedulePatch).length > 0) {
@@ -231,6 +264,10 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       const { setParent } = await import("@/lib/doc-tree");
       parentWarning = await setParent(existing.id, body.parent_id === null ? null : Number(body.parent_id));
     }
+  }
+
+  if (!changed) {
+    return NextResponse.json({ doc, parentWarning, ack_outcome: ackOutcome });
   }
 
   const published = existing.status !== "published" && proposed.status === "published";
@@ -263,7 +300,36 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     targetLabel: proposed.title,
     ip: ipFrom(req),
   });
-  return NextResponse.json({ doc, parentWarning });
+  // The confirmation decision, when one was taken (the text of a confirmed,
+  // published document changed): the ledger row is the record, the audit
+  // entry is its echo with the same version, counts and reason (C1).
+  if (
+    doc &&
+    ackOutcome?.substantive &&
+    existing.ack_required === 1 &&
+    doc.status === "published"
+  ) {
+    const decision = await lastAckDecision(doc.id);
+    if (decision) {
+      await auditAck(ackOutcome.reset ? "ack.confirmations_reset" : "ack.confirmations_kept", doc, {
+        actor: actorFrom(user),
+        ip: ipFrom(req),
+        version_id: decision.version_id,
+        version: decision.rev,
+        content_sha256: createHash("sha256").update(doc.content).digest("hex"),
+        source: decision.source,
+        reason: decision.reason,
+        details: {
+          confirmations_affected: decision.confirmations_affected,
+          eligible: decision.eligible,
+          suggested: decision.suggested,
+          overrode_suggestion: decision.overrode_suggestion,
+          change_pct: decision.change_pct,
+        },
+      });
+    }
+  }
+  return NextResponse.json({ doc, parentWarning, ack_outcome: ackOutcome });
 }
 
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {

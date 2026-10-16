@@ -83,7 +83,7 @@ export const PERMISSIONS = [
   // --- compliance ---
   { key: "compliance.export", label: "Export compliance evidence", description: "Download attestation evidence", scope: "section" },
   { key: "compliance.program_manage", label: "Run compliance program", description: "Issue requests, send reminders", scope: "section" },
-  { key: "compliance.program_read", label: "Read compliance program", description: "Acknowledgement progress and outstanding requests", scope: "section" },
+  { key: "compliance.program_read", label: "Read compliance program", description: "Read-confirmation progress and outstanding requests", scope: "section" },
   // --- directory ---
   { key: "directory.field_manage", label: "Manage directory fields", description: "Define custom directory fields", scope: "global" },
   { key: "directory.person_manage", label: "Manage people", description: "Create/update/delete directory person records", scope: "global" },

@@ -94,6 +94,88 @@ export async function audit(entry: AuditEntry): Promise<void> {
   }
 }
 
+// --- Read confirmation audit family (C1) -------------------------------------
+
+/**
+ * Every audit key the read-confirmation feature emits, as literals so a grep
+ * for a key finds it here and at its call sites. New keys are namespaced
+ * under "ack." (auditCategories groups them); the three document.* keys stay
+ * for compatibility with logs written before 1.10.0. Each has a label in
+ * lib/audit-labels (test/ack-ledger.test.ts checks).
+ */
+export const ACK_AUDIT_ACTIONS = [
+  "document.acknowledge",
+  "document.ack_required",
+  "document.ack_removed",
+  "ack.requested",
+  "ack.reminder_sent",
+  "ack.reconfirmation_requested",
+  "ack.confirmations_kept",
+  "ack.confirmations_reset",
+  "ack.reset_notified",
+  "ack.notice_failed",
+  "ack.edit_default_set",
+  "ack.settings_changed",
+  "ack.export",
+  "ack.retired",
+  "ack.unretired",
+  "ack.exempted",
+  "ack.exemption_revoked",
+  "ack.due_extended",
+  "ack.snoozed",
+  "ack.escalated",
+  "ack.recert",
+  "ack.snapshot",
+  "ack.audit_export",
+  "ack.retention_purge",
+  "ack.anonymised",
+] as const;
+export type AckAuditAction = (typeof ACK_AUDIT_ACTIONS)[number];
+
+/**
+ * The details every ack-family entry carries: {doc_id, version_id, version,
+ * content_sha256, source, reason}, plus whatever counts the action has
+ * (`details`). Missing contract keys are written as null / "" so an export
+ * always has the same columns.
+ */
+export interface AckAuditExtra {
+  actor?: AuditActor | null;
+  ip?: string | null;
+  version_id?: number | null;
+  /** The Version-history number ("v12" is 12). */
+  version?: number | null;
+  content_sha256?: string | null;
+  source?: string | null;
+  reason?: string | null;
+  /** Counts and action-specific keys (acked, required, pending, user_agent, ...). */
+  details?: Record<string, unknown>;
+}
+
+/** Record an ack-family audit entry against a document. Never throws (see audit). */
+export async function auditAck(
+  action: AckAuditAction,
+  doc: { id: number; title: string },
+  extra: AckAuditExtra = {}
+): Promise<void> {
+  await audit({
+    actor: extra.actor,
+    action,
+    targetType: "document",
+    targetId: doc.id,
+    targetLabel: doc.title,
+    details: {
+      doc_id: doc.id,
+      version_id: extra.version_id ?? null,
+      version: extra.version ?? null,
+      content_sha256: extra.content_sha256 ?? null,
+      source: extra.source ?? null,
+      reason: extra.reason ?? "",
+      ...(extra.details ?? {}),
+    },
+    ip: extra.ip,
+  });
+}
+
 export interface AuditQuery {
   limit?: number;
   offset?: number;

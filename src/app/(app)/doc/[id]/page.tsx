@@ -170,7 +170,7 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
       }
     : null;
   const ackPublishedLabel = ackActive
-    ? formatDate(ackVersion?.created_at ?? doc.updated_at, settingsForUser(settings, user))
+    ? formatDate(ackVersion?.latest_created_at ?? ackVersion?.created_at ?? doc.updated_at, settingsForUser(settings, user))
     : null;
 
   return (
@@ -426,7 +426,7 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
               meta={{
                 rev: ackSeed?.rev ?? null,
                 publishedLabel: ackPublishedLabel,
-                author: ackVersion?.author || doc.author,
+                author: ackVersion?.latest_author || ackVersion?.author || doc.author,
               }}
             />
           )}

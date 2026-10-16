@@ -50,7 +50,7 @@ export const AUDIT_LABELS: Record<string, string> = {
   "document.share_revoked": "Revoked share link",
   "document.acknowledge": "Confirmed reading document",
   "document.ack_required": "Required read confirmation",
-  "document.ack_removed": "Removed read confirmation requirement",
+  "document.ack_removed": "Removed read-confirmation requirement",
   "document.scheduled_publish": "Published document on schedule",
   "document.scheduled_unpublish": "Unpublished document on schedule",
   "document.dms_link_add": "Linked document to DMS record",
@@ -72,6 +72,31 @@ export const AUDIT_LABELS: Record<string, string> = {
   "ack.requested": "Asked for read confirmations",
   "ack.reminder_sent": "Sent read confirmation reminder",
   "ack.anonymised": "Anonymised compliance record",
+
+  // Read confirmation decisions and settings (C1). Every key the ack family
+  // can emit lives under "ack." so the category filter groups them; the three
+  // document.* keys above stay for compatibility. lib/audit's auditAck()
+  // takes these as a literal union, and test/ack-ledger.test.ts checks each
+  // one has a label here.
+  "ack.edit_default_set": "Changed re-confirmation default",
+  "ack.settings_changed": "Changed read-confirmation settings",
+  "ack.reconfirmation_requested": "Asked everyone to re-confirm",
+  "ack.confirmations_kept": "Kept confirmations after an edit",
+  "ack.confirmations_reset": "Reset confirmations after an edit",
+  "ack.reset_notified": "Sent re-confirmation notices",
+  "ack.export": "Exported read confirmation record",
+  "ack.retired": "Retired policy",
+  "ack.unretired": "Resumed retired policy",
+  "ack.notice_failed": "Could not deliver read-confirmation notices",
+  "ack.exempted": "Exempted person from read confirmation",
+  "ack.exemption_revoked": "Revoked read confirmation exemption",
+  "ack.due_extended": "Extended read confirmation due date",
+  "ack.snoozed": "Snoozed read confirmation reminder",
+  "ack.escalated": "Escalated overdue read confirmation",
+  "ack.recert": "Asked for annual re-confirmation",
+  "ack.snapshot": "Took read confirmation snapshot",
+  "ack.audit_export": "Exported read confirmation evidence",
+  "ack.retention_purge": "Purged read confirmation records past retention",
 
   // Spaces and categories
   "space.create": "Created space",
@@ -168,6 +193,7 @@ export const AUDIT_LABELS: Record<string, string> = {
   "settings.sso": "Updated SSO settings",
   "settings.saml": "Updated SAML settings",
   "settings.section_access": "Changed section access",
+  "settings.compliance": "Updated compliance settings",
   "settings.ai_provider": "Changed AI provider",
   "settings.ai_model": "Changed AI model",
   "settings.ai_key_set": "Set AI API key",

@@ -1,5 +1,12 @@
 import { NextResponse } from "next/server";
-import { getDocument, ackStatusForDocument, ackFormerStaffRows, getAckVersionInfo } from "@/lib/db";
+import {
+  getDocument,
+  ackStatusForDocument,
+  ackFormerStaffRows,
+  getAckVersionInfo,
+  lastAckDecision,
+  keptSinceLastReset,
+} from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
 import { spaceScopeFor, scopeAllows } from "@/lib/access";
 import { featureEnabled } from "@/lib/ee";
@@ -14,7 +21,10 @@ export const dynamic = "force-dynamic";
 // rename): name,username,email,role,status,acknowledged_at,document,
 // revision_as_of (the marker date since 1.10.0; was updated_at),
 // version ("v12"), version_id, content_sha256, version_source
-// (recorded | inferred), former_staff (left | disabled | empty).
+// (recorded | inferred), former_staff (left | disabled | empty), and from
+// the decision ledger (C1) asked_at (the marker date), asked_by, reason (who
+// last asked everyone and why; empty when the marker predates the ledger)
+// and kept_since_asked (edits kept without re-asking since then).
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const gate = await apiGuard("approver", "document.ack_roster_read");
   if (gate instanceof NextResponse) return gate;
@@ -33,16 +43,25 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     return NextResponse.json({ error: "Not found." }, { status: 404 });
   }
 
-  const [rows, former, version] = await Promise.all([
+  const [rows, former, version, lastDecision, lastReset, kept] = await Promise.all([
     ackStatusForDocument(doc.id),
     ackFormerStaffRows(doc.id),
     getAckVersionInfo(doc.id),
+    lastAckDecision(doc.id),
+    lastAckDecision(doc.id, { outcome: "reset" }),
+    keptSinceLastReset(doc.id),
   ]);
   const url = new URL(req.url);
   if (url.searchParams.get("format") === "csv") {
     const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const asked = [
+      doc.ack_revision_at,
+      esc(lastReset?.decided_by_name ?? ""),
+      esc(lastReset?.reason ?? ""),
+      kept.count,
+    ];
     const csv = [
-      "name,username,email,role,status,acknowledged_at,document,revision_as_of,version,version_id,content_sha256,version_source,former_staff",
+      "name,username,email,role,status,acknowledged_at,document,revision_as_of,version,version_id,content_sha256,version_source,former_staff,asked_at,asked_by,reason,kept_since_asked",
       ...rows.map((r) =>
         [
           esc(r.name),
@@ -58,6 +77,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
           r.content_sha256 ?? "",
           r.version_source ?? "",
           "",
+          ...asked,
         ].join(",")
       ),
       ...former.map((r) =>
@@ -75,6 +95,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
           r.content_sha256 ?? "",
           r.version_source,
           r.reason,
+          ...asked,
         ].join(",")
       ),
     ].join("\n");
@@ -95,5 +116,13 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     },
     rows,
     former_staff: former,
+    // The decision ledger's headline (C1): who last asked everyone and why,
+    // the newest decision of either outcome, and the drift kept since.
+    decisions: {
+      last: lastDecision,
+      last_reset: lastReset,
+      kept_since_reset: kept.count,
+      drift_pct: kept.drift_pct,
+    },
   });
 }

@@ -222,6 +222,79 @@ export interface DocumentWithSpace extends Document {
   space_visibility: "public" | "internal" | "private";
 }
 
+// --- Read confirmation decisions (1.10.0, A2/C1) ----------------------------
+
+/** What a caller asks updateDocument to do with existing confirmations when the text changes. */
+export type AckPolicy = "keep" | "reset" | "auto";
+
+/** Where a decision came from (the C1 vocabulary). */
+export type AckSource =
+  | "edit"
+  | "merge"
+  | "restore"
+  | "approval"
+  | "manual"
+  | "api"
+  | "mcp"
+  | "import"
+  | "image"
+  | "ticket"
+  | "bulk"
+  | "schedule"
+  | "recurrence"
+  | "default";
+
+/** 'reset' asked everyone again; 'kept' left confirmations standing; 'retired' is a lifecycle row with frozen counts (G3, later). */
+export type AckOutcome = "reset" | "kept" | "retired";
+
+/** One row of the decision ledger (ack_decisions), newest first from listAckDecisions. */
+export interface AckDecision {
+  id: number;
+  /** Null once the policy has been purged; document_title keeps the name. */
+  document_id: number | null;
+  /** The version the decision was taken for (the new text). Plain id, no FK, like acknowledgements.version_id. */
+  version_id: number | null;
+  /** 1-based Version-history number of that version; null when it is gone. */
+  rev: number | null;
+  outcome: AckOutcome;
+  decided_at: string;
+  source: AckSource;
+  /** 'all' = the whole audience; 'users' = a named subset (D4, later). */
+  scope: "all" | "users";
+  decided_by: number | null;
+  decided_by_name: string;
+  /** The policy the submitter proposed on an approval ('' when nobody proposed one). */
+  submitted_policy: "keep" | "reset" | "";
+  submitted_by: number | null;
+  submitted_by_name: string;
+  reason: string;
+  /** What the change-size heuristic suggested ('' when it was not consulted). */
+  suggested: "keep" | "reset" | "";
+  overrode_suggestion: boolean;
+  /** Share of words changed against the confirmed text, one decimal place; null when not measured. */
+  change_pct: number | null;
+  /** Confirmations made stale by a reset, or left standing by a keep. */
+  confirmations_affected: number | null;
+  /** People in the audience when the decision was taken. */
+  eligible: number | null;
+  /** When notices went out for a reset (H1/H4, later; null in 1.10.0). */
+  notified_at: string | null;
+}
+
+/** What updateDocument did about confirmations, echoed by PUT /api/documents/[id]. */
+export interface AckOutcomeInfo {
+  /** False when the save changed nothing at all (no UPDATE, no version, no reset). */
+  changed: boolean;
+  /** The text or title differs from the version everyone was last asked to confirm. */
+  substantive: boolean;
+  /** The marker moved: everyone is asked again. */
+  reset: boolean;
+  /** Current confirmations that went stale (0 when kept or when nobody was asked). */
+  confirmations_reset: number;
+  policy: AckPolicy;
+  source: AckSource;
+}
+
 export interface Attachment {
   id: number;
   document_id: number;
