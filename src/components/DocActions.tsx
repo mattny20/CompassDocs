@@ -155,8 +155,13 @@ export function DocActions({
   const iconBtn =
     "inline-flex items-center rounded-lg border border-slate-200 bg-surface p-2 text-slate-500 hover:bg-slate-50 hover:text-slate-700";
 
+  // w-full under sm: the popovers hang from this row's right edge (align
+  // "end"), so the row spans the content width on a phone and a w-80 panel
+  // cannot be pushed past the left edge of the viewport when the row holds
+  // only a few icons. The sticky-bar copy is hidden sm:flex, so it is
+  // unaffected.
   return (
-    <div className="relative flex flex-wrap items-center gap-2 print:hidden">
+    <div className="relative flex w-full flex-wrap items-center gap-2 print:hidden sm:w-auto">
       {sharePanel && (
         <>
           <button

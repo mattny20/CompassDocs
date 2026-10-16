@@ -166,18 +166,28 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
   const [ackSum, lastReset] = showAckSettings
     ? await Promise.all([ackSummary(doc.id), ackActive ? lastAckDecision(doc.id, { outcome: "reset" }) : null])
     : [null, null];
+  // While nobody has been told, which is the state a quiet switch-on leaves
+  // (no reset decision, no reminder stamp), the line says so: askedClause
+  // would otherwise date the ask from ack_revision_at, the last text change,
+  // naming a day on which nobody was asked.
+  const nobodyAskedYet = !lastReset && !doc.ack_last_reminded_at;
   const ackStatusLine =
     ackSum && ackActive
-      ? `${ackSum.current} of ${ackSum.eligible} confirmed · ${ackSum.rev ? `v${ackSum.rev}` : "current version"} · ${askedClause({
-          asked: lastReset ? { ...lastReset, reason: "" } : null,
-          author: ackVersion?.author ?? "",
-          resetAt: doc.ack_revision_at,
-          formatDate: (iso) => formatDate(iso, fmtSettings),
-        })}`
+      ? `${ackSum.current} of ${ackSum.eligible} confirmed · ${ackSum.rev ? `v${ackSum.rev}` : "current version"} · ${
+          nobodyAskedYet
+            ? "no notice sent yet"
+            : askedClause({
+                asked: lastReset ? { ...lastReset, reason: "" } : null,
+                author: ackVersion?.author ?? "",
+                resetAt: doc.ack_revision_at,
+                formatDate: (iso) => formatDate(iso, fmtSettings),
+              })
+        }`
       : null;
   const ackSettings =
     ackSum && complianceSettings
       ? {
+          title: doc.title,
           required: doc.ack_required === 1,
           editDefault: ackSum.edit_default,
           workspaceDefault: complianceSettings.ack_defaults.edit_default,
@@ -445,10 +455,20 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
               // The workspace's confirmation statement (E4); a per-document
               // statement arrives with C2.
               statement={complianceSettings?.compliance_statement_default}
+              // The newest version's provenance (C6), the one the reader
+              // confirms: the stamped publisher over the byline, and the
+              // approver when a change request carried it. A document with
+              // no versions has every field blank, so the line still
+              // renders without the clause.
               meta={{
                 rev: ackSeed?.rev ?? null,
                 publishedLabel: ackPublishedLabel,
-                author: ackVersion?.latest_author || ackVersion?.author || doc.author,
+                author:
+                  ackVersion?.latest_published_by_name ||
+                  ackVersion?.latest_author ||
+                  ackVersion?.author ||
+                  doc.author,
+                approvedBy: ackVersion?.latest_approved_by_name || undefined,
               }}
             />
           )}

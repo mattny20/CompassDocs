@@ -47,8 +47,9 @@ shield, a deliberate re-ask, and a portal that asks before it sends.
 - **The shield is a popover.** The read-confirmation shield on a document
   opens **Read confirmation** instead of toggling: **Require readers to
   confirm**, the standing ("42 of 50 confirmed · v12 · asked 3 Mar 2026 by
-  Matt", or "Required 3 Oct by Matt (no notice sent)") with **View
-  record**, **Ask everyone to re-confirm…**, and **When the text
+  Matt", or after a quiet switch-on "Required 3 Oct by Matt (no notice
+  sent)" and, reopened, "0 of 42 confirmed · v12 · no notice sent yet"
+  until someone is asked) with **View record**, **Ask everyone to re-confirm…**, and **When the text
   changes**, the per-document edit default: *Ask the editor each time*,
   *Ask only when a change looks material* or *Always ask everyone to
   re-confirm* (the workspace default is marked). Switching the requirement
@@ -232,6 +233,23 @@ shield, a deliberate re-ask, and a portal that asks before it sends.
   that starts with `=`, `+`, `-` or `@` is prefixed with an apostrophe, so
   a name, a title or a reason is never run as a formula when the file is
   opened.
+- The popover's **When the text changes** select never shows two
+  parentheticals: the workspace's option reads "Ask the editor each time
+  (workspace default)". The disabled **Ask everyone to re-confirm…**
+  (shown until someone has confirmed the current version) can be reached
+  with the keyboard and announces its reason, "Nobody has confirmed this
+  version yet. Use Remind.", instead of explaining itself on hover only.
+  The Program settings licence gate offers **Open License** to the same
+  people as the portal's gate: anyone who can open Settings → License.
+
+### Fixed
+- On a phone the compliance portal's policy-row actions (Remind, Ask
+  everyone to re-confirm…, Stop requiring, the download) wrap onto a
+  second line instead of being clipped by the card, and printing the
+  portal leaves its controls off the paper, as the record page already
+  did. The document toolbar spans the content width on a phone, so the
+  share, review-schedule and read-confirmation popovers no longer hang off
+  the left edge of the screen when the toolbar holds only a few icons.
 
 ### Upgrading
 - **Boot takes fewer locks.** Every `ADD COLUMN IF NOT EXISTS` in the

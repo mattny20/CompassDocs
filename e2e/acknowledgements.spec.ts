@@ -54,6 +54,17 @@ test("read confirmation: the entitlement gate holds in the community build", asy
       expect(post.status).toBe(402);
       const roster = await api(page, `/api/documents/${docId}/acknowledgements`);
       expect(roster.status).toBe(402);
+      // The 1.10.1 routes answer the same 402: the summary, the deliberate
+      // re-ask (with a reason the licensed route would accept), the portal
+      // and the program settings.
+      expect((await api(page, `/api/documents/${docId}/ack`)).status, "GET /ack").toBe(402);
+      const reconfirm = await api(page, `/api/documents/${docId}/ack/reconfirm`, {
+        method: "POST",
+        body: { reason: "Section 4 now applies to contractors too" },
+      });
+      expect(reconfirm.status, "POST /ack/reconfirm").toBe(402);
+      expect((await api(page, "/api/admin/compliance")).status, "GET /api/admin/compliance").toBe(402);
+      expect((await api(page, "/api/admin/compliance/settings")).status, "GET /api/admin/compliance/settings").toBe(402);
       // The erasure endpoint is gated the same way, so the API and the Users
       // page (which hides the button unlicensed) agree.
       const throwaway = { username: `e2e_ackgate_${stamp()}`, password: "E2eGate!12345" };
@@ -760,6 +771,14 @@ test("the shield popover: switching on asks first and Cancel leaves it off; Requ
     await expect(panel).toHaveCount(0);
     await expect(shield).toHaveAttribute("aria-expanded", "false");
 
+    // Reopened, the server's sentence takes over, and because nobody has
+    // been told it says so instead of naming a day on which nobody was asked.
+    await shield.click();
+    await expect(panel).toBeVisible();
+    await expect(panel.getByText(/^0 of \d+ confirmed · (v\d+|current version) · no notice sent yet/)).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(panel).toHaveCount(0);
+
     // The API contract: a body with no known field, or a wrong type, is 400.
     expect((await api(page, `/api/documents/${docId}/ack`, { method: "PATCH", body: {} })).status).toBe(400);
     expect((await api(page, `/api/documents/${docId}/ack`, { method: "PATCH", body: { required: "yes" } })).status).toBe(400);
@@ -772,6 +791,10 @@ test("the shield popover: switching on asks first and Cancel leaves it off; Requ
     expect(both.body?.ack_required).toBe(true);
     expect(both.body?.edit_default).toBe("material");
     expect(both.body?.queued, "already on: nothing queued").toBe(0);
+    // The no-op is not on the record: the switch-on and the undo wrote the
+    // two document.ack_required rows, and re-requiring what is already
+    // required writes no third.
+    expect((await auditRows(page, "document.ack_required", docId)).length, "a no-op writes no audit row").toBe(2);
   } finally {
     if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
   }
@@ -782,6 +805,9 @@ test("the edit default changes the editor's behaviour: 'reset' never asks and ne
   await login(page, ADMIN);
   const title = `E2E ack edit default ${stamp()}`;
   let docId: number | undefined;
+  // The workspace's "Require a reason for editorial fixes too", restored in
+  // finally: the setting is shared by every test on the rig.
+  let keepReasonBefore: boolean | undefined;
   try {
     docId = await makePolicy(page, title);
     test.skip(
@@ -851,7 +877,53 @@ test("the edit default changes the editor's behaviour: 'reset' never asks and ne
     await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);
     expect((await rosterCount(page, docId)).confirmed, "Cancel changes nothing").toBe(confirmed);
+
+    // The keep side's reason rule follows the workspace setting (E4) through
+    // PUT /api/documents/{id}: with "Require a reason for editorial fixes
+    // too" off, a keep saves with a four-character note; a reset with the
+    // same note is still refused before any write.
+    const settingsBefore = await api(page, "/api/admin/compliance/settings");
+    expect(settingsBefore.status, "program settings readable").toBe(200);
+    keepReasonBefore = Boolean(settingsBefore.body?.settings?.ack_defaults?.keep_reason_required);
+    const relaxed = await api(page, "/api/admin/compliance/settings", {
+      method: "PUT",
+      body: { ack_defaults: { keep_reason_required: false } },
+    });
+    expect(relaxed.status).toBe(200);
+    expect(relaxed.body?.settings?.ack_defaults?.keep_reason_required).toBe(false);
+    const live = (await api(page, `/api/documents/${docId}`)).body?.doc;
+    const keptShort = await api(page, `/api/documents/${docId}`, {
+      method: "PUT",
+      body: {
+        content: `${live.content}\n\nOne more editorial line.`,
+        status: "published",
+        ack_policy: "keep",
+        ack_reason: "typo",
+        versionNote: "Keep with a short note",
+      },
+    });
+    expect(keptShort.status, "a keep needs no long note when the workspace excuses editorial fixes").toBe(200);
+    expect(keptShort.body?.ack_outcome?.policy).toBe("keep");
+    expect((await rosterCount(page, docId)).confirmed, "kept").toBe(confirmed);
+    const resetShort = await api(page, `/api/documents/${docId}`, {
+      method: "PUT",
+      body: {
+        content: `${live.content}\n\nAnother line, a reset this time.`,
+        status: "published",
+        ack_policy: "reset",
+        ack_reason: "typo",
+      },
+    });
+    expect(resetShort.status, "a reset always needs its note").toBe(400);
+    expect(resetShort.body?.error).toMatch(/at least 10 characters/);
+    expect((await rosterCount(page, docId)).confirmed, "a refused reset changes nothing").toBe(confirmed);
   } finally {
+    if (keepReasonBefore !== undefined) {
+      await api(page, "/api/admin/compliance/settings", {
+        method: "PUT",
+        body: { ack_defaults: { keep_reason_required: keepReasonBefore } },
+      });
+    }
     if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
   }
 });

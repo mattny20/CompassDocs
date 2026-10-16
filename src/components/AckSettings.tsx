@@ -182,13 +182,15 @@ export function AckSettings({
 
   // The status line: the server's sentence, or what this session just did
   // ("Required 3 Oct 2026 by Matt (no notice sent)") until the next open.
+  // The notified form keeps the server sentence's shape (count · version ·
+  // asked …) so the line does not change shape when the popover reopens.
   let status: string | null = null;
   if (required) {
     if (switchedOn) {
       status =
         switchedOn.notified === null
           ? `Required ${fmt.date(switchedOn.at)} by ${viewerName} (no notice sent)`
-          : `0 of ${summary.eligible} confirmed · asked ${fmt.date(switchedOn.at)} by ${viewerName}`;
+          : `0 of ${summary.eligible} confirmed · ${summary.rev ? `v${summary.rev}` : "current version"} · asked ${fmt.date(switchedOn.at)} by ${viewerName}`;
     } else {
       status = statusLine ?? `${summary.current} of ${summary.eligible} confirmed`;
     }
@@ -232,7 +234,8 @@ export function AckSettings({
         >
           {EDIT_DEFAULT_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>
-              {o.value === workspaceDefault ? `${o.label} (workspace default)` : o.label}
+              {/* One parenthetical per option: "(recommended)" gives way to "(workspace default)". */}
+              {o.value === workspaceDefault ? `${o.label.replace(/\s*\(recommended\)$/, "")} (workspace default)` : o.label}
             </option>
           ))}
         </Select>
@@ -241,9 +244,11 @@ export function AckSettings({
       {required && isPublished && (
         <div className="mt-4">
           {/* The deliberate re-ask (A7): disabled with its tooltip until
-              someone has confirmed the current version. */}
+              someone has confirmed the current version. The title makes the
+              question read the same here as on the other two surfaces. */}
           <ReconfirmButton
             docId={docId}
+            title={title}
             summary={{ current: summary.current, eligible: summary.eligible, rev: summary.rev }}
           />
         </div>

@@ -33,13 +33,19 @@ export default async function ComplianceSettingsPage() {
       <PageHeader
         icon={<Settings2 />}
         title="Program settings"
-        subtitle="Defaults every policy inherits. A policy can override them on its own settings page."
+        subtitle="Defaults every policy inherits. A policy can choose differently in its Read confirmation popover."
         back={{ href: "/compliance", label: "Compliance" }}
       />
       {licensed ? (
         <ProgramSettingsPanel initial={await getComplianceSettings()} />
       ) : (
-        <LicenseGate feature="Program settings" entitlement="policy_ack" canManage={user.role === "admin"} />
+        // The gate's "Open License" button appears when the viewer can open
+        // that page, resolved the same way as on the portal (STYLEGUIDE §Notices).
+        <LicenseGate
+          feature="Program settings"
+          entitlement="policy_ack"
+          canManage={await userHolds(user, "workspace.settings_read", { legacyMin: "admin" })}
+        />
       )}
     </PageContainer>
   );

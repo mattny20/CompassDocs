@@ -41,9 +41,9 @@ import { Pager } from "@/components/Pager";
 import { RelativeTime } from "@/components/RelativeTime";
 import { confirmDialog } from "@/components/Dialog";
 import { toast } from "@/components/Toasts";
-import { requireAckDialog, people } from "@/components/RequireAckDialog";
+import { requireAckDialog } from "@/components/RequireAckDialog";
 import { ReconfirmButton } from "@/components/ReconfirmButton";
-import { EDIT_DEFAULT_OPTIONS } from "@/components/compliance/ProgramSettingsPanel";
+import { EDIT_DEFAULT_CHIP, EDIT_DEFAULT_OPTIONS, people } from "@/components/compliance/copy";
 import type { EditDefault } from "@/lib/compliance-settings";
 import { useAction } from "@/lib/use-action";
 import { timeAgo } from "@/lib/ui";
@@ -161,12 +161,7 @@ function pageOf<T>(rows: T[], page: number, size: number): T[] {
   return rows.slice(page * size, (page + 1) * size);
 }
 
-/** The per-policy edit-default chip (A5): a short state, with the full option sentence as its tooltip. */
-const EDIT_DEFAULT_CHIP: Record<EditDefault, string> = {
-  ask: "Asks editor",
-  material: "Asks when material",
-  reset: "Always re-asks",
-};
+/** The per-policy edit-default chip's tooltip (A5): the full option sentence behind EDIT_DEFAULT_CHIP's short state. */
 function editDefaultTip(value: EditDefault): string {
   const label = EDIT_DEFAULT_OPTIONS.find((o) => o.value === value)?.label ?? "";
   // "When the text changes: ask the editor each time." (the Select's own words)
@@ -287,7 +282,7 @@ export function CompliancePanel({
     if (answer !== true) return;
     const r = await post(`remind-${d.id}`, { docId: d.id, action: "remind" }, "Couldn't send reminders.");
     if (!r) return;
-    toast("ok", `Reminders queued for ${people(r.queued ?? pending)}`);
+    toast("ok", `Reminders queued for ${people(r.queued ?? pending)}.`);
     dropRoster(d.id);
     await load();
   }
@@ -383,7 +378,9 @@ export function CompliancePanel({
     <div>
       <Header
         extra={
-          <>
+          // Printed for the record (STYLEGUIDE §Print): the controls stay
+          // off the paper, here and on the Request card and the row actions.
+          <div className="contents print:hidden">
             {can.manage && (
               <Button variant="secondary" href="/compliance/settings" icon={<Settings2 />}>
                 Settings
@@ -396,7 +393,7 @@ export function CompliancePanel({
                 <Download className="h-4 w-4" aria-hidden /> Export CSV
               </a>
             )}
-          </>
+          </div>
         }
       />
 
@@ -424,6 +421,7 @@ export function CompliancePanel({
           <Card
             title="Request read confirmation"
             icon={<Send />}
+            className="print:hidden"
             description="Pick a published document. Everyone who can see it is asked to read and confirm it, with a dashboard notice and an email. You see how many people that is before anything is sent, and you can require it quietly instead."
             padding="p-4"
           >
@@ -563,7 +561,10 @@ export function CompliancePanel({
                         </div>
                       </div>
                       {(can.manage || can.export) && (
-                        <div className="flex shrink-0 items-center gap-1.5">
+                        // Four controls do not fit beside the title on a
+                        // phone: under sm the group takes the row's width
+                        // and wraps; from sm it keeps the one-line layout.
+                        <div className="flex w-full flex-wrap items-center gap-1.5 print:hidden sm:w-auto sm:shrink-0">
                           {can.manage && !complete && (
                             <Button
                               variant="secondary"
