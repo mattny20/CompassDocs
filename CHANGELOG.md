@@ -23,11 +23,14 @@ changed since they confirmed, and reading evidence lands on the record.
   change), with ack_reason.', decision_required: true, confirmations: 42,
   eligible: 50, baseline: "v12", change: { pct, wordsChanged,
   blocksChanged, headingsChanged, numbersChanged }, suggested: "keep" }`,
-  and nothing is written; `ack_policy` with no usable `ack_reason` (10 to
-  500 characters, for keep as for reset) answers **400** "ack_reason is
-  required when the text of a confirmed policy changes.", and any other
-  value of `ack_policy` answers 400 'ack_policy must be "keep" or "reset".'.
-  The connector's `update_doc` returns `{ ok: false, decision_required:
+  and nothing is written; `ack_policy` with no usable `ack_reason` (a reset
+  needs a reason of at least 10 characters; a keep follows Program settings'
+  **Require a reason for editorial fixes too**; longer reasons are cut at
+  500) answers **400** "ack_reason is required when the text of a confirmed
+  policy changes.", and any other value of `ack_policy` answers 400
+  'ack_policy must be "keep" or "reset".'; the field is validated whenever
+  it is sent, on every path, so a bad value is refused even on a change
+  that is not substantive. The connector's `update_doc` returns `{ ok: false, decision_required:
   true, confirmations, eligible, baseline, change, suggested, hint: "Ask the
   person whether this is an editorial fix or a material change and why,
   then call update_doc again with ack_policy and ack_reason." }` (a result,
@@ -37,7 +40,8 @@ changed since they confirmed, and reading evidence lands on the record.
   drifted from the confirmed version: the publish is where the decision is
   taken. A metadata-only change (summary, tags, type, status to draft, a
   move), a draft that stays a draft, and a document that does not require
-  read confirmation are never refused, whatever the body says. A script
+  read confirmation are never refused for want of a decision (only a bad
+  `ack_policy` value is, as above). A script
   that edits policies through the API or the connector must send
   `ack_policy` and `ack_reason` on those calls; a script that only reads,
   creates, or edits ordinary documents is unaffected. The app's own `POST
@@ -63,35 +67,49 @@ changed since they confirmed, and reading evidence lands on the record.
   version over, a published document that people have confirmed, when the
   incoming text differs from the version they confirmed, is answered **428**
   with the body under **Breaking** until the call says `ack_policy` `keep`
-  (editorial fix) or `reset` (material change) with an `ack_reason` of 10
-  to 500 characters (400 for a bad policy or a short reason); nothing is
-  written on a refusal. Restoring the confirmed version itself, merging a
-  branch whose text matches it, or a merge that changes nothing substantive
-  asks nothing, whatever the body says. The decision is recorded on the
-  History tab from source *Merge* or *Restore* with the reason, and the
-  audit rows `document.branch_merge` and `document.restore_version` carry
-  `{ ack_policy, confirmations_reset }`.
+  (editorial fix) or `reset` (material change) with an `ack_reason` (a
+  reset needs a reason of at least 10 characters; a keep follows Program
+  settings' **Require a reason for editorial fixes too**; 400 for a bad
+  policy or an unusable reason); nothing is written on a refusal. Restoring
+  the confirmed version itself, merging a branch whose text matches it, or
+  a merge that changes nothing substantive asks nothing (a bad `ack_policy`
+  value is still refused). In the app the note typed in the question is
+  the version note and the recorded reason, for a restore as for a merge.
+  The decision is recorded on the History tab from source *Merge* or
+  *Restore* with the reason, and the audit rows `document.branch_merge`
+  and `document.restore_version` carry `{ ack_policy, confirmations_reset }`.
 - **The submitter recommends, the approver decides.** A change request now
   carries the submitter's recommendation for the readers (`ack_policy` `keep`
   | `reset`, or none, and `ack_reason`), taken from every way a request is
   made: a save without publish rights, a merge or a restore that queues for
-  review, the v1 API and the MCP connector. Approving a request that changes
-  the text of a confirmed, published document applies the approver's own
-  `ack_policy` when they send one (`PATCH /api/change-requests/{id}` takes
-  `{ action, note, ack_policy, ack_reason }`; a reset needs a reason of 10
-  characters, a keep follows Program settings' "Require a reason for
-  editorial fixes too"), otherwise the submitter's recommendation, and when
-  the request carries none the approval is answered **428** with the same
-  body so the review queue can ask. The decision row records both sides:
-  what was recommended and by whom, what was applied and by whom, and the
-  reason (the approver's when they gave one, else the submitter's, else the
-  change note), so version history can read "Editorial (recommended by
-  Alex, approved by Priya)". The review list tells the queue whether each
-  target requires read confirmation and which version people confirmed. The
-  audit row `change_request.approve` gains `{ ack_policy,
-  confirmations_reset, submitted_policy }`, and the author's "approved"
-  notice ends with what the decision did: "Confirmations kept." or "42
-  people asked to re-confirm."
+  review (the branch banner and version history ask the submit question
+  before queuing), the v1 API and the MCP connector. Approving a request
+  that changes the text of a confirmed, published document applies the
+  approver's own `ack_policy` when they send one (`PATCH
+  /api/change-requests/{id}` takes `{ action, note, ack_policy, ack_reason
+  }`; a reset needs a reason of at least 10 characters; a keep follows
+  Program settings' **Require a reason for editorial fixes too**), otherwise
+  the submitter's recommendation, and when the request carries none the
+  approval is answered **428** with the same body so the review queue can
+  ask. A stored recommendation is checked against the same reason rule at
+  approval; one whose reason fails it counts as none, so the approval
+  answers 428 and the queue asks, with the recommendation pre-selected,
+  rather than complaining about a reason the approver never sent.
+  `change_request.decide` is checked on the document's own space, and on
+  the target space when the request moves the document; a role holding it
+  on another space is answered 403 before anything is read, so the 428
+  numbers never reach someone who may not decide. The decision row records
+  both sides: what was recommended and by whom, what was applied and by
+  whom, and the reason (the approver's when they gave one, else the
+  submitter's, else the change note), so version history can read
+  "Editorial (recommended by Alex, approved by Priya)"; the approver's
+  reason, when given, is also the version note (else the request's note, as
+  before). The review list tells the queue whether each target requires
+  read confirmation and which version people confirmed. The audit row
+  `change_request.approve` gains `{ ack_policy, confirmations_reset,
+  submitted_policy }`, and the author's "approved" notice ends with what
+  the decision did: "Confirmations kept." or "42 people asked to
+  re-confirm."
 - **A merge refuses to overwrite a newer live document.** `POST
   /api/documents/{id}/merge` accepts `base_updated_at` (the source's
   `updated_at` the client last saw) and answers 409 in the same shape as a
@@ -117,23 +135,35 @@ changed since they confirmed, and reading evidence lands on the record.
   reset) and ack_reason in update_doc"). Decisions taken this way are rows
   on the History tab with source *API* or *MCP*, the token's owner as the
   decider and the reason given, and are echoed to the audit log as
-  `ack.confirmations_kept` / `ack.confirmations_reset`, as before.
+  `ack.confirmations_kept` / `ack.confirmations_reset`, as before, with
+  the caller's IP address (the connector's audit rows carried none until
+  now; see **Changed**).
 - **Imports no longer overwrite a policy by accident.** Settings → Import
   gains the checkbox **Also overwrite documents that require read
-  confirmation**, off by default. Off, a published document that requires
-  read confirmation is left unchanged when the zip carries a document with
-  the same space and title, counted as skipped and listed under the
-  warnings ("expense-policy.md: "Expense policy" requires read confirmation
-  and was left unchanged. Tick "Also overwrite documents that require read
-  confirmation" to replace it."); every other document is imported as
-  before. On, the policy is overwritten and its edit default decides what
-  readers see (source *Import*, the importer as the decider, "Imported" as
-  the reason), and the summary says what that did: "3 policies will ask
-  people to re-confirm." and "2 policies that require read confirmation
-  were left unchanged." when some were. For scripts, `POST /api/import`
-  reads the multipart field `overwrite_policies` (`"1"` to allow) and the
-  result gains `reconfirm_requested` (policies whose readers will be asked
-  again) and `policies_skipped`.
+  confirmation**, off by default. Off, a document that requires read
+  confirmation is left unchanged when the zip carries a document with the
+  same space and title and the document is published, or is paused
+  (unpublished with the requirement on) and the zip would publish it,
+  counted as skipped and listed under the warnings ("expense-policy.md:
+  "Expense policy" requires read confirmation and was left unchanged. Tick
+  "Also overwrite documents that require read confirmation" to replace
+  it."); a zip that keeps a paused policy a draft updates the draft, and
+  the decision waits for the publish as it does for every draft edit;
+  every other document is imported as before. On, the policy is
+  overwritten and its edit default decides what readers see (source
+  *Import*, the importer as the decider, "Imported" as the reason), and
+  the summary says what that did: "3 policies will ask people to
+  re-confirm." and "2 policies that require read confirmation were left
+  unchanged." when some were. The run is audited as one row,
+  `document.import` ("Imported documents": the file name, the counts
+  created, updated, skipped, policies skipped and re-asks queued, and
+  whether the box was ticked), and every overwritten policy is echoed as
+  `ack.confirmations_kept` / `ack.confirmations_reset` with the importer as
+  the actor and their IP address, as every other write path echoes its
+  decision. For scripts, `POST /api/import` reads the multipart field
+  `overwrite_policies` (`"1"` to allow) and the result gains
+  `reconfirm_requested` (policies whose readers will be asked again) and
+  `policies_skipped`.
 - **The editor says what a scheduled publish will do, and the scheduler
   says what it did.** Arming **Publish automatically at** on a draft that
   requires read confirmation, whose title or text differs from the version
@@ -154,8 +184,9 @@ changed since they confirmed, and reading evidence lands on the record.
   compliance portal, the per-person numbers and the dashboard, with the
   requirement still on and nobody told. From 1.11.0 the requirement stays
   on, every confirmation is kept, and the policy moves to a collapsed
-  **Paused (unpublished)** group at the foot of the portal's Policy
-  progress card, each row carrying an **Unpublished** chip (its tooltip:
+  group at the foot of the portal's Policy progress card, headed **Paused
+  (unpublished) · 3** with its count, each row carrying an **Unpublished**
+  chip (its tooltip:
   "Read confirmation is paused while the document is unpublished.
   Confirmations are kept.") and its standing ("3 of 5 people confirmed")
   and no action: Remind, **Ask everyone to re-confirm…**, **Stop
@@ -183,7 +214,10 @@ changed since they confirmed, and reading evidence lands on the record.
   1.4% drift"), so a diagram that *was* the policy is caught by the
   compliance manager and re-asked with **Ask everyone to re-confirm…**
   rather than resetting everyone for a screenshot, and never passing
-  silently. The person who minted the upload link is the row's decider.
+  silently. The image's alt text (or the file name standing in for it) is
+  kept to one line with no markdown in it, so what lands in the text is
+  exactly one image line and nothing else. The person who minted the
+  upload link is the row's decider.
 - **What changed since you confirmed.** A re-confirmation no longer looks
   like a first request. When a reader's confirmation has lapsed, the notice
   strip says so in one sentence with the day, "This document changed since
@@ -226,10 +260,11 @@ changed since they confirmed, and reading evidence lands on the record.
   things beside the version and its hash: how long the document was open
   on screen for that person since everyone was last asked, and whether
   their browser reported that the end of the text had been on screen.
-  The read time is summed on the server from the view tracking the
-  workspace already records (the 15-second heartbeats, each view capped
-  at 30 minutes) at the moment the confirmation is posted; nothing the
-  browser sends is trusted for time. The reached-end flag is the same
+  The read time is summed on the server from the browser's view
+  heartbeats (every 15 seconds while the tab is visible; each view capped
+  at 30 minutes and bounded by the time the page was actually open) at the
+  moment the confirmation is posted; the confirmation itself never sends a
+  time. The reached-end flag is the same
   latch that flips the sticky bar to "Confirm now" (scrolling to the end
   or moving focus into the card both set it), stored as the reader's own
   report and labelled as such. The **Record** tab gains a **Read time**
@@ -255,24 +290,31 @@ changed since they confirmed, and reading evidence lands on the record.
 - New tests: the integration suite gains the submitter's recommendation on
   a request, the approver's choice over it (keep over reset, reset over
   keep, the reason rules, nothing applied for a non-substantive request),
-  the pre-flight a review decision goes through and the notice sentence;
+  a keep without a reason on a merge while the program setting is off,
+  a decision key held on another space only (403, the request stays
+  pending), the pre-flight a review decision goes through and the notice
+  sentence;
   `test/ack-tokens.test.ts` (new) drives the route handlers directly and
   pins the token invariant (a cdk_ and a cdo_ bearer accepted by the v1
   API and the connector and answered 401 by both confirmation routes; no
   connector tool confirms), the v1 PATCH contract (the 428 body verbatim,
-  both 400s, a refused call writes nothing, metadata never refuses, keep
+  both 400s, a refused call writes nothing, metadata is never refused for
+  want of a decision, keep
   and reset with their ledger rows, a draft edit never refused and the
   publish of a drifted draft refused until decided), the connector's
   `decision_required` result and its publish-of-drift case, and the import
-  guard (skipped and named, overwritten when allowed with the reset
-  counted, an unchanged re-import counted as no re-ask); six lifecycle
+  guard (skipped and named, a paused policy the zip would publish skipped
+  the same way, overwritten when allowed with the reset counted and echoed
+  to the audit log, an unchanged re-import counted as no re-ask); six
+  lifecycle
   cases (every metadata path, bulk tag, type, move and status, nested
   pages, schedules, trash and restore, keeps the counts; a pause keeps the
   counts, leaves the per-person numbers and the dashboard, and resumes on
   republish; unpublish, edit, republish asks again and the shared
   pre-flight answers 428 for that publish; draft branches are out of every
   compliance query even when forced; the two side doors through their real
-  call shapes, the drop link through its route handler; the scheduler's
+  call shapes, the drop link through its route handler, an alt text or
+  file name carrying markdown landing as one image line; the scheduler's
   audit rows); `getLatestAck` (the newest confirmation, current or lapsed,
   the version it cites, the inference for a row without one, and that
   another person's row is never returned); the read time summed since the
@@ -295,8 +337,9 @@ changed since they confirmed, and reading evidence lands on the record.
 - The review queue's Approve now toasts its result ("Approved." and the
   decision sentence); before it only removed the card. Reject is
   unchanged. The editor's question takes three more modes (approve,
-  restore and merge) and an optional title; the save and submit modes and
-  their labels are unchanged.
+  restore and merge) and an optional title; in every mode the note typed
+  in it is the version note as well as the recorded reason; the save and
+  submit modes and their labels are unchanged.
 - An approval of a text change to a confirmed policy no longer resets by
   default when the submitter recommended keeping confirmations: the
   recommendation applies unless the approver overrides it. A request with
@@ -305,8 +348,14 @@ changed since they confirmed, and reading evidence lands on the record.
   `approveChangeRequest` itself; the API answers 428 first.
 - `PUT /api/documents/{id}` checks `ack_policy` before the review queue as
   well as before a direct save, so a request submitted with a bad value is
-  refused (400) instead of queued without a recommendation. The v1 API and
-  the MCP connector refuse the same value on their review-queue path.
+  refused (400) instead of queued without a recommendation. The v1 API,
+  the MCP connector, a merge, a restore and an approval refuse the same
+  value the same way: the field is validated whenever it is sent, before
+  the question whether the change is substantive, so `ack_policy: "auto"`
+  or garbage on a metadata-only change is 400 on every path.
+- The connector's audit rows (`document.update`, `document.publish`,
+  `attachment.upload` and the two decision echoes) now carry the caller's
+  IP address, as the v1 API's and the drop link's already did.
 - The 1.10.0 sentence "Integrations that edit policies through the v1 API
   or the MCP connector keep working; a text change resets confirmations as
   before" no longer holds for the text of a confirmed policy: see
@@ -330,7 +379,8 @@ changed since they confirmed, and reading evidence lands on the record.
   reached_end }`: `reached_end` is the page's own report that the end of the
   article has been on screen (the latch the sticky bar already used), stored
   with the record as evidence (see the reading-evidence entry). The card
-  never sends a reading time; the server measures that itself.
+  never sends a reading time; the server sums that from the view
+  heartbeats itself.
 
 ### Upgrading
 - **Schema additions.** `change_requests.ack_policy` (text, default
@@ -364,7 +414,9 @@ changed since they confirmed, and reading evidence lands on the record.
   and the recommendation stays on the request unused and unrecorded; rows
   written on 1.10.1 during a rollback carry no read time and no report;
   paused policies are hidden again, unchanged; images through the connector
-  and upload links reset as before; and the import checkbox is absent.
+  and upload links follow the document's edit default again (under the
+  recommended default everyone is asked); and the import checkbox is
+  absent.
 
 ## [1.10.1] - 2026-10-16
 
