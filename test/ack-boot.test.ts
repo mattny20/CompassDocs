@@ -72,6 +72,7 @@ const DOWNGRADE_SQL = `
     FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE;
   DROP INDEX IF EXISTS idx_ack_user;
   DROP TABLE IF EXISTS attested_texts;
+  DROP TABLE IF EXISTS ack_decisions;
   DELETE FROM settings WHERE key IN
     ('migrated_ack_revisions', 'ack_marker_schema', 'migrated_ack_retention', 'ack_retention_schema');
 `;

@@ -198,8 +198,12 @@ describe("attestation retention", () => {
     const reader = await newUser("auto");
     const { id, v1 } = await newPolicy(`${STAMP} auto`, "First text");
     await recordAcknowledgement(id, reader, "", v1);
-    const { updateDocument } = await import("../src/lib/db");
-    await updateDocument(id, { content: "Second text" });
+    // A version nobody confirmed, no marker and no decision cites: inserted
+    // directly, because updateDocument now records a decision (A2/C1).
+    await pool().query(
+      "INSERT INTO doc_versions (document_id, title, content, author, note) VALUES ($1, $2, 'Second text', 'test', 'Edited')",
+      [id, `${STAMP} auto`]
+    );
     const versions = await listVersions(id);
     const v2 = versions[0].id;
     assert.notEqual(v2, v1);
