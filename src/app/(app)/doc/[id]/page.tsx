@@ -18,7 +18,9 @@ import { requireUser } from "@/lib/auth";
 import { userHolds, canPublishDirectly, canSeeDrafts, spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
 import { resolveAuthorPerson } from "@/lib/directory";
 import { featureEnabled } from "@/lib/ee";
-import { getCurrentAck, ackStatusForDocument, getAckVersionInfo } from "@/lib/db";
+import { getCurrentAck, getAckVersionInfo, ackSummary, lastAckDecision } from "@/lib/db";
+import { getComplianceSettings } from "@/lib/compliance-settings";
+import { askedClause } from "./acknowledgements/ack-sentence";
 import { DocNotices } from "@/components/DocNotices";
 import { StickyDocBar } from "@/components/StickyDocBar";
 import { AckProvider } from "@/components/AckState";
@@ -92,13 +94,14 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
       featureEnabled("policy_ack"),
       canEditSpace(user, doc.space_id),
     ]);
+  const fmtSettings = settingsForUser(settings, user);
   // Content review state (staff-facing; readers never see review chrome).
   const reviewDueAt = doc.review_due_at ?? null;
   const reviewOverdue =
     reviewDueAt !== null && new Date(reviewDueAt).getTime() <= Date.now() && doc.status === "published";
-  const reviewDueLabel = reviewDueAt ? formatDate(reviewDueAt, settingsForUser(settings, user)) : "";
+  const reviewDueLabel = reviewDueAt ? formatDate(reviewDueAt, fmtSettings) : "";
   const lastReviewedLabel = doc.last_reviewed_at
-    ? `Last reviewed ${formatDate(doc.last_reviewed_at, settingsForUser(settings, user))}${doc.last_reviewed_by ? ` by ${doc.last_reviewed_by}` : ""}.`
+    ? `Last reviewed ${formatDate(doc.last_reviewed_at, fmtSettings)}${doc.last_reviewed_by ? ` by ${doc.last_reviewed_by}` : ""}.`
     : "";
 
   // Public share links (admin-gated; staff with edit rights manage them).
@@ -144,18 +147,46 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
   ]);
   // Read confirmation applies to a published, required, non-branch document
   // when the feature is licensed. The reader's own record and the version
-  // they are asked to confirm (A1) seed the shared AckState; the approver
-  // progress row needs the roster.
+  // they are asked to confirm (A1) seed the shared AckState.
   const ackActive =
     ackEnabled && doc.ack_required === 1 && doc.status === "published" && doc.branch_of === null;
   const [myAck, ackVersion] = ackActive
     ? await Promise.all([getCurrentAck(doc.id, user.id), getAckVersionInfo(doc.id)])
     : [undefined, null];
-  const ackRows =
-    ackEnabled && canReadAckRoster && doc.ack_required === 1
-      ? await ackStatusForDocument(doc.id)
-      : [];
   const showAckCard = ackActive && canSubmitAck;
+  // The workspace defaults (E4): the statement readers agree to on the card,
+  // and the edit default the shield popover marks "(workspace default)".
+  const complianceSettings = ackEnabled ? await getComplianceSettings() : null;
+  // The shield popover (A5) for holders of document.ack_require: the counts
+  // (never names) for its question and status line, the per-document edit
+  // default, and the one sentence "42 of 50 confirmed · v12 · asked 3 Mar
+  // 2026 by Matt" (the roster's own clause, minus the reason). The approver
+  // progress row left the notice strip for this popover (B1).
+  const showAckSettings = ackEnabled && canRequireAck && doc.branch_of === null;
+  const [ackSum, lastReset] = showAckSettings
+    ? await Promise.all([ackSummary(doc.id), ackActive ? lastAckDecision(doc.id, { outcome: "reset" }) : null])
+    : [null, null];
+  const ackStatusLine =
+    ackSum && ackActive
+      ? `${ackSum.current} of ${ackSum.eligible} confirmed · ${ackSum.rev ? `v${ackSum.rev}` : "current version"} · ${askedClause({
+          asked: lastReset ? { ...lastReset, reason: "" } : null,
+          author: ackVersion?.author ?? "",
+          resetAt: doc.ack_revision_at,
+          formatDate: (iso) => formatDate(iso, fmtSettings),
+        })}`
+      : null;
+  const ackSettings =
+    ackSum && complianceSettings
+      ? {
+          required: doc.ack_required === 1,
+          editDefault: ackSum.edit_default,
+          workspaceDefault: complianceSettings.ack_defaults.edit_default,
+          summary: { eligible: ackSum.eligible, current: ackSum.current, rev: ackSum.rev },
+          statusLine: ackStatusLine,
+          canViewRecord: canReadAckRoster,
+          viewerName: user.name || user.username,
+        }
+      : undefined;
   // The reader confirms the text on screen, which is the newest version:
   // POST /ack must cite it (409 otherwise). It is the marker's version too
   // except after a kept edit (A2), when the marker stays behind.
@@ -170,7 +201,7 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
       }
     : null;
   const ackPublishedLabel = ackActive
-    ? formatDate(ackVersion?.latest_created_at ?? ackVersion?.created_at ?? doc.updated_at, settingsForUser(settings, user))
+    ? formatDate(ackVersion?.latest_created_at ?? ackVersion?.created_at ?? doc.updated_at, fmtSettings)
     : null;
 
   return (
@@ -203,11 +234,7 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
           canSaveAsTemplate={canSaveAsTemplate}
           isPublished={doc.status === "published"}
           isBranch={doc.branch_of !== null}
-          ack={
-            ackEnabled && canRequireAck && doc.branch_of === null
-              ? { required: doc.ack_required === 1 }
-              : undefined
-          }
+          ack={ackSettings}
           sharePanel={
             sharesOn ? (
               <ShareCard
@@ -320,14 +347,6 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
         <DocNotices
           docId={doc.id}
           ack={ackActive ? { canSubmit: canSubmitAck } : undefined}
-          ackProgress={
-            ackEnabled && canReadAckRoster && doc.ack_required === 1 && doc.status === "published"
-              ? {
-                  ackedCount: ackRows.filter((r) => r.acknowledged_at).length,
-                  requiredCount: ackRows.length,
-                }
-              : undefined
-          }
           isDraft={doc.status === "draft" && isStaff}
           branchCount={branchCount}
           pendingCount={pending.length}
@@ -423,6 +442,9 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
             <AckCard
               docId={doc.id}
               readerName={user.name}
+              // The workspace's confirmation statement (E4); a per-document
+              // statement arrives with C2.
+              statement={complianceSettings?.compliance_statement_default}
               meta={{
                 rev: ackSeed?.rev ?? null,
                 publishedLabel: ackPublishedLabel,

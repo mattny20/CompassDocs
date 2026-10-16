@@ -32,6 +32,7 @@ import type {
 } from "./types";
 import { changeSummary, suggestReconfirm } from "./diff";
 import type { ChangeSummary } from "./diff";
+import type { EditDefault } from "./compliance-settings";
 
 export type { AckPolicy, AckSource, AckOutcome, AckDecision, AckOutcomeInfo } from "./types";
 export type { AckNotice, AckNoticeMode, AckNoticeKind, AckNoticeChannel, AckOutboxRow } from "./types";
@@ -733,6 +734,13 @@ const SCHEMA_SQL = `
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS ack_required integer NOT NULL DEFAULT 0;
   -- Spam guard + display for compliance reminders (central portal).
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS ack_last_reminded_at timestamptz;
+  -- 1.10.1 (A5): how a policy treats a change to its text. 'ask' opens the
+  -- editor's question on every text save, 'material' only when the change
+  -- looks material (smaller edits are kept and recorded), 'reset' always asks
+  -- everyone again. A document receives the workspace default the first time
+  -- it is set to required (setAckRequired). Metadata-only: a default on an
+  -- existing column takes no rewrite.
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS ack_edit_default text NOT NULL DEFAULT 'ask';
   CREATE TABLE IF NOT EXISTS acknowledgements (
     id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     document_id integer NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
@@ -3049,6 +3057,28 @@ export interface AckActor {
 }
 
 /**
+ * documents.ack_edit_default (A5, 1.10.1): what a policy does when its text
+ * changes. The same three values as the workspace setting
+ * (lib/compliance-settings EditDefault; a type-only import, so this module
+ * never loads that server-only one).
+ */
+export type AckEditDefault = EditDefault;
+export const ACK_EDIT_DEFAULTS: readonly AckEditDefault[] = ["ask", "material", "reset"];
+export function isAckEditDefault(v: unknown): v is AckEditDefault {
+  return typeof v === "string" && (ACK_EDIT_DEFAULTS as readonly string[]).includes(v);
+}
+/**
+ * The column as a row carries it (a documents row, a DocumentWithSpace,
+ * which selects d.*), with the column default for anything unreadable. The
+ * Document type does not declare the field (lib/types is not this
+ * release's to change); the handoff asks for it.
+ */
+export function editDefaultOf(row: object | null | undefined): AckEditDefault {
+  const v = (row as { ack_edit_default?: unknown } | null | undefined)?.ack_edit_default;
+  return isAckEditDefault(v) ? v : "ask";
+}
+
+/**
  * A save's outcome together with the ledger row it wrote (null when no
  * decision was taken). The audit echo (auditAckDecision) reads that row by
  * id, never "the newest row for the document", so two concurrent saves of
@@ -3080,13 +3110,17 @@ export type UpdateDocumentInput = Partial<DocInput> & {
   /**
    * What to do with existing confirmations when the text of a confirmed,
    * published document changes (A2). 'keep' and 'reset' are a person's
-   * decision and need ackReason (10+ characters). 'auto', the default when a
-   * caller says nothing, resolves to 'reset' in 1.10.0: the per-document
-   * default ('material', A5) does not exist yet, and a caller that could ask
-   * would have asked. For 'auto' the reason is ackReason, else the
-   * versionNote, else "Content changed", with no length rule, so merge,
-   * restore, bulk, MCP, v1 and the importers (which pass no policy until A6,
-   * 1.11.0) keep working exactly as before and simply record what they did.
+   * decision and need ackReason (10+ characters; the keep side is excused
+   * when ackKeepReasonRequired is false). 'auto', the default when a caller
+   * says nothing, resolves from the document's edit default (A5, 1.10.1):
+   * 'ask' and 'reset' reset (a caller that could ask would have asked, and
+   * system actors cannot); 'material' keeps only when the change-size
+   * heuristic says keep with high confidence, and the row then records
+   * source 'default' because the document's setting took the decision. For
+   * 'auto' the reason is ackReason, else the versionNote, else "Content
+   * changed", with no length rule, so merge, restore, bulk, MCP, v1 and the
+   * importers (which pass no policy until A6, 1.11.0) keep working exactly
+   * as before and simply record what they did.
    */
   ackPolicy?: AckPolicy;
   /** Who decided; the version's author when absent. */
@@ -3094,6 +3128,12 @@ export type UpdateDocumentInput = Partial<DocInput> & {
   ackReason?: string;
   /** Where the save came from (the C1 vocabulary); 'default' when absent. */
   ackSource?: AckSource;
+  /**
+   * The workspace setting "Require a reason for editorial fixes too" (E4,
+   * ack_defaults.keep_reason_required; the route reads it). True when
+   * absent. Only the keep side is excused: a reset always needs its note.
+   */
+  ackKeepReasonRequired?: boolean;
 };
 
 /**
@@ -3116,7 +3156,8 @@ export type UpdateDocumentInput = Partial<DocInput> & {
  *      publish, against the text people actually confirmed.
  *   4. Substantive, required and published: 'reset' calls
  *      resetAcknowledgements, 'keep' calls keepAcknowledgements, both with
- *      the reason; 'auto' resets (see UpdateDocumentInput.ackPolicy).
+ *      the reason; 'auto' follows documents.ack_edit_default (see
+ *      UpdateDocumentInput.ackPolicy).
  *   5. Metadata-only: UPDATE as before; the ack columns are untouched
  *      whatever the policy.
  *
@@ -3191,12 +3232,14 @@ export async function updateDocument(
   const silentAdvance = substantive && existing.ack_required !== 1;
 
   // The reason is checked before any write, so a refused save leaves the
-  // document exactly as it was.
+  // document exactly as it was. A keep without a usable note is allowed
+  // only when the workspace excuses editorial fixes (keep_reason_required
+  // off); the reset side is never excused.
   let reason = (input.ackReason ?? "").trim();
   if (decides) {
     if (policy === "auto") {
       reason = reason || (input.versionNote ?? "").trim() || "Content changed";
-    } else if (reason.length < ACK_REASON_MIN) {
+    } else if (reason.length < ACK_REASON_MIN && (policy === "reset" || input.ackKeepReasonRequired !== false)) {
       throw new AckReasonRequiredError();
     }
   }
@@ -3277,19 +3320,37 @@ export async function updateDocument(
       const actor: AckActor = input.ackActor ?? { id: null, name: next.author };
       const summary = changeSummary(base.content, next.content, { oldTitle: base.title, newTitle: next.title });
       const suggestion = suggestReconfirm(summary);
+      // 'auto' resolves from the document's edit default (A5): 'material'
+      // keeps a change the heuristic calls editorial with high confidence
+      // (only keep/high is safe to act on unasked) and the row then names
+      // source 'default', because the document's setting decided, not the
+      // caller; everything else resets with the caller's source.
+      const editDefault = editDefaultOf(existing);
+      const resolved: "keep" | "reset" =
+        policy === "auto"
+          ? editDefault === "material" && suggestion.policy === "keep" && suggestion.confidence === "high"
+            ? "keep"
+            : "reset"
+          : policy;
+      const decidedBySetting = policy === "auto" && resolved === "keep";
       const decision = {
         versionId,
         actor,
-        source,
+        source: decidedBySetting ? ("default" as const) : source,
         reason,
         summary,
         suggested: suggestion.policy,
         overrodeSuggestion: policy !== "auto" && policy !== suggestion.policy,
         submittedPolicy: policy === "auto" ? ("" as const) : policy,
       };
-      if (policy === "keep") {
+      if (resolved === "keep") {
         const k = await keepAcknowledgements(client, id, decision);
-        ack = outcomeOf({ changed: true, substantive: true, decision_id: k.decision_id });
+        ack = outcomeOf({
+          changed: true,
+          substantive: true,
+          decision_id: k.decision_id,
+          ...(decidedBySetting ? { source: "default" as const } : {}),
+        });
       } else {
         const r = await resetAcknowledgements(client, id, decision);
         ack = outcomeOf({
@@ -5026,8 +5087,78 @@ export async function listSubscriberRecipients(
 
 // --- Policy acknowledgements (enterprise) ---------------------------------------
 
-export async function setAckRequired(docId: number, required: boolean): Promise<void> {
-  await q("UPDATE documents SET ack_required = $1 WHERE id = $2", [required ? 1 : 0, docId]);
+/**
+ * The workspace's "When the text of a policy changes" (E4). A dynamic import:
+ * lib/compliance-settings imports this module, and a static import back
+ * would be a cycle. Unreadable settings fall back to the column default.
+ */
+async function workspaceEditDefault(): Promise<AckEditDefault> {
+  try {
+    const m = await import("./compliance-settings");
+    return (await m.getComplianceSettings()).ack_defaults.edit_default;
+  } catch {
+    return "ask";
+  }
+}
+
+/**
+ * Switch the requirement on or off. Switching ON applies the workspace edit
+ * default to a document that still carries the column default 'ask' (A5): a
+ * document receives the workspace value the first time it is set to
+ * required, and a per-document choice of 'material' or 'reset' survives a
+ * later off-and-on. (An explicit 'ask' cannot be told from the default, so
+ * it follows the workspace value again after a toggle; the popover shows
+ * the result.) Pass `editDefault: null` to leave the column alone, or a
+ * value to apply instead of the workspace's. Every caller of the old
+ * two-argument form keeps working: the portal's Request and the shield both
+ * reach this through requestAcknowledgement.
+ */
+export async function setAckRequired(
+  docId: number,
+  required: boolean,
+  opts: { editDefault?: AckEditDefault | null } = {}
+): Promise<{ switched_on: boolean; edit_default: AckEditDefault }> {
+  if (!required) {
+    const r = await q<{ ack_edit_default: string }>(
+      "UPDATE documents SET ack_required = 0 WHERE id = $1 RETURNING ack_edit_default",
+      [docId]
+    );
+    return { switched_on: false, edit_default: editDefaultOf(r[0]) };
+  }
+  const apply = opts.editDefault === undefined ? await workspaceEditDefault() : opts.editDefault;
+  const r = await q<{ ack_edit_default: string; was_off: boolean }>(
+    `UPDATE documents d
+     SET ack_required = 1,
+         ack_edit_default = CASE
+           WHEN d.ack_required = 0 AND d.ack_edit_default = 'ask' AND $2::text IS NOT NULL THEN $2::text
+           ELSE d.ack_edit_default
+         END
+     FROM (SELECT id, ack_required AS before FROM documents WHERE id = $1) o
+     WHERE d.id = o.id
+     RETURNING d.ack_edit_default, (o.before = 0) AS was_off`,
+    [docId, apply]
+  );
+  return { switched_on: Boolean(r[0]?.was_off), edit_default: editDefaultOf(r[0]) };
+}
+
+/**
+ * Set the per-document edit default (the popover's Select). Returns the
+ * values before and after for the audit row, or null when the document is
+ * gone. The value is validated by the caller (isAckEditDefault).
+ */
+export async function setAckEditDefault(
+  docId: number,
+  value: AckEditDefault
+): Promise<{ from: AckEditDefault; to: AckEditDefault } | null> {
+  const r = await q<{ before: string; after: string }>(
+    `UPDATE documents d SET ack_edit_default = $2
+     FROM (SELECT id, ack_edit_default AS before FROM documents WHERE id = $1) o
+     WHERE d.id = o.id
+     RETURNING o.before, d.ack_edit_default AS after`,
+    [docId, value]
+  );
+  if (!r[0]) return null;
+  return { from: editDefaultOf({ ack_edit_default: r[0].before }), to: editDefaultOf({ ack_edit_default: r[0].after }) };
 }
 
 // Users "eligible" for a doc's acknowledgement = active users who can see its
@@ -5084,6 +5215,8 @@ export interface ComplianceDocRow {
   /** The marker version's number ("v12"), null when the version row is gone. */
   ack_rev: number | null;
   ack_last_reminded_at: string | null;
+  /** How the policy treats a text edit (A5): the portal's "Asks editor" / "Asks when material" / "Always re-asks" chip. */
+  ack_edit_default: AckEditDefault;
   required: number;
   acked: number;
   /** The newest decision of either outcome (C1); null before the ledger started. */
@@ -5101,6 +5234,7 @@ export async function complianceDocs(): Promise<ComplianceDocRow[]> {
   const docs = await q<Omit<ComplianceDocRow, "last_decision" | "last_reset" | "kept_since_reset" | "drift_pct">>(
     `SELECT d.id, d.title, s.name AS space_name, s.icon AS space_icon,
             d.updated_at, d.ack_revision_at, d.ack_version_id, d.ack_last_reminded_at,
+            d.ack_edit_default,
             ${VERSION_REV("d.ack_version_id")} AS ack_rev,
             COUNT(u.id)::int AS required,
             COUNT(u.id) FILTER (WHERE a.acknowledged_at IS NOT NULL)::int AS acked
@@ -5114,7 +5248,7 @@ export async function complianceDocs(): Promise<ComplianceDocRow[]> {
      ) a ON true
      WHERE d.ack_required = 1 AND d.status = 'published' AND d.deleted_at IS NULL
      GROUP BY d.id, d.title, s.name, s.icon, d.updated_at, d.ack_revision_at, d.ack_version_id,
-              d.ack_last_reminded_at
+              d.ack_last_reminded_at, d.ack_edit_default
      ORDER BY (COUNT(u.id) - COUNT(u.id) FILTER (WHERE a.acknowledged_at IS NOT NULL)) DESC, d.title`
   );
   if (docs.length === 0) return [];
@@ -6249,8 +6383,17 @@ export interface AckSummary {
   /** The newest version (the text on screen). */
   latest_version_id: number | null;
   latest_rev: number | null;
-  /** The per-document default for text edits; the constant 'ask' until A5 adds the column. */
-  edit_default: "ask";
+  /** The per-document default for text edits (documents.ack_edit_default, A5). */
+  edit_default: AckEditDefault;
+  /**
+   * The workspace's value (E4), so the popover can mark the matching option
+   * "(workspace default)". Filled by GET /api/documents/[id]/ack and the
+   * document page from lib/compliance-settings, never here: that module is
+   * server-only and imports this one.
+   */
+  workspace_edit_default?: AckEditDefault;
+  /** The workspace's "Require a reason for editorial fixes too" (E4); filled by the route beside workspace_edit_default. */
+  keep_reason_required?: boolean;
   last_decision: AckDecision | null;
   /** The confirmed text, when asked for (the editor's what-changed view). */
   baseline?: { version_id: number; rev: number | null; title: string; content: string };
@@ -6266,8 +6409,8 @@ export interface AckSummary {
 export async function ackSummary(docId: number, opts: { baseline?: boolean } = {}): Promise<AckSummary> {
   await ready();
   const doc = (
-    await q<{ ack_required: number; ack_revision_at: string }>(
-      "SELECT ack_required, ack_revision_at FROM documents WHERE id = $1",
+    await q<{ ack_required: number; ack_revision_at: string; ack_edit_default: string }>(
+      "SELECT ack_required, ack_revision_at, ack_edit_default FROM documents WHERE id = $1",
       [docId]
     )
   )[0];
@@ -6287,7 +6430,7 @@ export async function ackSummary(docId: number, opts: { baseline?: boolean } = {
     rev: info.rev,
     latest_version_id: info.latest_version_id,
     latest_rev: info.latest_rev,
-    edit_default: "ask",
+    edit_default: editDefaultOf(doc),
     last_decision: last,
   };
   if (opts.baseline && info.version_id != null) {
@@ -6295,6 +6438,160 @@ export async function ackSummary(docId: number, opts: { baseline?: boolean } = {
     if (v) summary.baseline = { version_id: v.id, rev: info.rev, title: v.title, content: v.content };
   }
   return summary;
+}
+
+// --- Ask everyone to re-confirm without an edit (A7, 1.10.1) -------------------
+//
+// The third writer of the marker, beside resetAcknowledgements (a text
+// change) and the silent advance: a manager's deliberate re-ask, and later
+// the annual sweep (G1, source 'recurrence'). One statement, so two
+// managers, two tabs or two instances cannot double-reset.
+
+/** What a re-ask claim answers: the reset it made, or why it made none. */
+export type ReconfirmClaim =
+  | {
+      claimed: true;
+      decision_id: number;
+      outbox_id: number;
+      /** Confirmations that went stale (the decision row's confirmations_affected). */
+      confirmations_reset: number;
+      eligible: number;
+      /** The marker after the move: the newest version and its number. */
+      version_id: number | null;
+      rev: number | null;
+      title: string;
+      space_id: number;
+      /** The new marker (ack_revision_at), also the decision row's decided_at. */
+      marker: string;
+    }
+  | {
+      claimed: false;
+      /**
+       * The stamp that refused the claim (a request, a reminder or a re-ask
+       * inside the hour); null when the document no longer takes
+       * confirmations (unpublished, trashed, requirement off) or is gone.
+       */
+      last_asked_at: string | null;
+    };
+
+export interface ReconfirmInput {
+  source: "manual" | "recurrence";
+  reason: string;
+  actor: AckActor;
+  /** D4 (later): move only these people's cycle marker. Refused until audiences ship. */
+  userIds?: number[] | null;
+}
+
+/**
+ * Ask everyone to re-confirm without an edit (A7): one atomic claim moves
+ * the confirmation marker to the newest version and stamps the reminder
+ * cooldown, in a single UPDATE whose WHERE carries the one-hour guard on
+ * the column its SET changes (ack_last_reminded_at), so a second claim
+ * waits on the row lock, re-reads the stamp the first wrote and matches
+ * nothing. The 'reset' decision row (the reason, the confirmations counted
+ * before the marker moved) and the 'updated' outbox row (immediate: manual
+ * and recurrence never wait or coalesce) are written in the same
+ * transaction, so a rollback leaves no trace. No version row is written:
+ * the text did not change. Prior confirmations stay in the ledger.
+ *
+ * `client` is the caller's transaction client (the recurrence sweep, the
+ * tests); null opens one here. The marker is the wall clock when it moves
+ * (clock_timestamp(), the 1.10.0 rule resetAcknowledgements explains) and
+ * the decision row carries the same stamp; the guard compares against
+ * now(). The count runs before the claim under the statement's own
+ * snapshot, as resetAcknowledgements counts: a confirmation that commits
+ * between the two goes stale with the rest and is not in the number.
+ */
+export async function claimReconfirmation(
+  client: Queryable | null,
+  docId: number,
+  opts: ReconfirmInput
+): Promise<ReconfirmClaim> {
+  if (opts.userIds != null) {
+    // D4 brings the per-person statement (policy_assignments.cycle_started_at).
+    throw new Error("Per-person re-asks arrive with audiences.");
+  }
+  if (client) return claimReconfirmationOn(client, docId, opts);
+  await ready();
+  const own = await pool().connect();
+  try {
+    await own.query("BEGIN");
+    const claim = await claimReconfirmationOn(own, docId, opts);
+    await own.query("COMMIT");
+    return claim;
+  } catch (e) {
+    await own.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    own.release();
+  }
+}
+
+async function claimReconfirmationOn(client: Queryable, docId: number, opts: ReconfirmInput): Promise<ReconfirmClaim> {
+  // Counted before the marker moves: afterwards nothing is current.
+  const counts = await ackCounts(client, docId);
+  const moved = await client.query<{
+    id: number;
+    title: string;
+    space_id: number;
+    ack_version_id: number | null;
+    rev: number | null;
+    marker: string;
+  }>(
+    `UPDATE documents
+       SET ack_revision_at = clock_timestamp(),
+           ack_version_id = (SELECT MAX(v.id) FROM doc_versions v WHERE v.document_id = documents.id),
+           ack_last_reminded_at = clock_timestamp()
+     WHERE id = $1 AND ack_required = 1 AND status = 'published' AND deleted_at IS NULL
+       AND (ack_last_reminded_at IS NULL OR ack_last_reminded_at < now() - interval '1 hour')
+     RETURNING id, title, space_id, ack_version_id,
+               ${VERSION_REV("documents.ack_version_id")} AS rev,
+               ack_revision_at::text AS marker`,
+    [docId]
+  );
+  if (moved.rowCount === 0) {
+    // Refused: say when readers were last asked, or that the document no
+    // longer takes confirmations. A fresh snapshot, so the stamp a parallel
+    // claim just committed is the one reported.
+    const stamp = await client.query<{ last: string | null }>(
+      `SELECT ack_last_reminded_at::text AS last FROM documents
+       WHERE id = $1 AND ack_required = 1 AND status = 'published' AND deleted_at IS NULL`,
+      [docId]
+    );
+    return { claimed: false, last_asked_at: stamp.rows[0]?.last ?? null };
+  }
+  const row = moved.rows[0];
+  const decisionId = await recordAckDecision(client, {
+    ...decisionColumns(
+      docId,
+      row.title,
+      "reset",
+      { versionId: row.ack_version_id, actor: opts.actor, source: opts.source, reason: opts.reason },
+      counts
+    ),
+    decided_at: row.marker,
+  });
+  const outboxId = await insertAckOutbox(client, {
+    document_id: docId,
+    mode: "updated",
+    source: opts.source,
+    reason: opts.reason,
+    actor: opts.actor,
+    user_ids: null,
+    delay_minutes: ackNoticeDelayMinutes(opts.source),
+  });
+  return {
+    claimed: true,
+    decision_id: decisionId,
+    outbox_id: outboxId,
+    confirmations_reset: counts.current,
+    eligible: counts.eligible,
+    version_id: row.ack_version_id,
+    rev: row.rev,
+    title: row.title,
+    space_id: row.space_id,
+    marker: row.marker,
+  };
 }
 
 // --- Training decks (enterprise "training") ---------------------------------------

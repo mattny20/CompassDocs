@@ -1,16 +1,19 @@
 "use client";
 
 // One place for everything that used to be a stack of colored banners on the
-// doc page: read-confirmation (reader pointer + approver progress), draft,
-// branches in progress, and pending changes. A single neutral container with
-// one compact row per notice, so document workflow state stops competing with
-// the content.
+// doc page: read-confirmation (the reader's pointer), draft, branches in
+// progress, and pending changes. A single neutral container with one compact
+// row per notice, so document workflow state stops competing with the
+// content.
 //
 // The reader's read-confirmation row (1.10.0, B1) is a pointer, not the
 // control: one sentence and one action that jumps to the card after the
 // article, where the confirmation is recorded. Its state comes from
 // AckState, shared with that card and the sticky bar, so the three never
-// disagree.
+// disagree. The approver's progress ("14 of 20 people have confirmed") left
+// this strip in 1.10.1: the shield popover (AckSettings, A5) carries the
+// counts and the "View record" link, which also ends the two stacked rows an
+// approver who is also a reader used to see.
 
 import { useState } from "react";
 import { Spinner } from "@/components/Spinner";
@@ -23,7 +26,6 @@ import {
   FileCheck,
   GitBranch,
   Hourglass,
-  ShieldCheck,
   SquarePen,
 } from "lucide-react";
 import { useFormatDate } from "./SettingsProvider";
@@ -37,7 +39,6 @@ const ICON = "h-4 w-4 shrink-0";
 export function DocNotices({
   docId,
   ack,
-  ackProgress,
   isDraft = false,
   branchCount = 0,
   pendingCount = 0,
@@ -48,8 +49,6 @@ export function DocNotices({
    *  `canSubmit` is document.ack_submit in this space; the confirmed/pending
    *  state itself is read from AckState. */
   ack?: { canSubmit: boolean } | null;
-  /** Approver-side progress (enterprise), when confirmation is required. */
-  ackProgress?: { ackedCount: number; requiredCount: number } | null;
   isDraft?: boolean;
   branchCount?: number;
   pendingCount?: number;
@@ -68,7 +67,6 @@ export function DocNotices({
   const hasReviewRow = Boolean(reviewOverdue) && !reviewed;
   const rows =
     (hasAckRow ? 1 : 0) +
-    (ackProgress ? 1 : 0) +
     (isDraft ? 1 : 0) +
     (branchCount > 0 ? 1 : 0) +
     (pendingCount > 0 ? 1 : 0) +
@@ -118,23 +116,6 @@ export function DocNotices({
             </span>
           </p>
         ))}
-
-      {/* Approver progress: stays until A5 moves it into the shield popover. */}
-      {ackProgress && (
-        <div className={`${ROW} text-slate-600`}>
-          <ShieldCheck className={`${ICON} text-compass-600`} aria-hidden />
-          <span className="min-w-0 flex-1">
-            Read confirmation required. {ackProgress.ackedCount} of {ackProgress.requiredCount} people
-            have confirmed.
-          </span>
-          <Link
-            href={`/doc/${docId}/acknowledgements`}
-            className="shrink-0 font-medium text-compass-700 hover:underline"
-          >
-            View record
-          </Link>
-        </div>
-      )}
 
       {isDraft && (
         <p className={`${ROW} text-slate-600`}>

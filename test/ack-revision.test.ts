@@ -12,6 +12,12 @@
 // approval and the scheduler's publish), and the fourth the row lock that
 // keeps a confirmation from landing inside a reset.
 //
+// The fifth describe (1.10.1, A5) drives the per-document edit default:
+// 'ask' and 'reset' reset when a caller says nothing, 'material' keeps a
+// change that looks editorial and records it from source 'default', the
+// workspace default lands on the first switch-on only, and the keep side's
+// change note follows the workspace's keep_reason_required.
+//
 // Run: npm run test:integration  (needs DATABASE_URL)
 
 import { test, before, after, describe } from "node:test";
@@ -21,9 +27,12 @@ import { asScope } from "../src/lib/space-scope";
 import {
   pool,
   getSetting,
+  setSetting,
   createDocument,
   updateDocument,
   setAckRequired,
+  setAckEditDefault,
+  ackSummary,
   recordAcknowledgement,
   getCurrentAck,
   getAckVersionInfo,
@@ -743,6 +752,192 @@ describe("the other text writers take the same decisions (approval, schedule)", 
     assert.equal(up.ack_version_id, v1);
     assert.equal(await acked(id), 1);
     assert.equal((await listAckDecisions(id)).length, 0);
+  });
+});
+
+describe("the per-document edit default (A5): ask, material, reset", () => {
+  const actor = { id: 0, name: "Rev Other" };
+  // Long enough that one corrected word is well under KEEP_MAX_PCT (2%) and
+  // sits in one paragraph: keep with high confidence. A changed number is
+  // material on its own, whatever the share.
+  const BODY = Array.from(
+    { length: 12 },
+    (_, i) =>
+      `Clause ${i + 1}: staff must file every expense claim within 30 days of travel and attach a receipt for each item over 20 pounds, or the claim is returned.`
+  ).join("\n\n");
+  const TYPO = BODY.replace("attach a receipt for each item", "attach a reciept for each item");
+  const NUMBER = BODY.replace("over 20 pounds", "over 25 pounds");
+  const stamps = "SELECT ack_version_id FROM documents WHERE id = $1";
+  let savedDefaults: string | undefined;
+
+  before(async () => {
+    actor.id = otherId;
+    savedDefaults = await getSetting("ack_defaults");
+  });
+  after(async () => {
+    if (savedDefaults === undefined) await pool().query("DELETE FROM settings WHERE key = 'ack_defaults'");
+    else await setSetting("ack_defaults", savedDefaults);
+  });
+
+  async function workspaceDefault(value: "ask" | "material" | "reset" | null) {
+    if (value === null) await pool().query("DELETE FROM settings WHERE key = 'ack_defaults'");
+    else await setSetting("ack_defaults", JSON.stringify({ edit_default: value }));
+  }
+
+  /** A required, confirmed policy whose own edit default is `mode`. */
+  async function confirmedPolicy(title: string, mode: "ask" | "material" | "reset", content = TYPO) {
+    const id = await newPolicy(title, content);
+    await setAckEditDefault(id, mode);
+    const v1 = await latestVersionId(id);
+    await recordAcknowledgement(id, readerId, "", v1);
+    return { id, v1 };
+  }
+
+  async function acked(id: number): Promise<number> {
+    return (await complianceDocs()).find((d) => d.id === id)!.acked;
+  }
+
+  test("a new document carries 'ask'; the first switch-on applies the workspace default and a later toggle never overrides the document's own choice", async () => {
+    await workspaceDefault("material");
+    const doc = await createDocument({
+      space_id: spaceId,
+      title: `${STAMP} a5 default`,
+      type: "policy",
+      status: "published",
+      content: BODY,
+      summary: "",
+      tags: [],
+      author: "test",
+    });
+    docIds.push(doc.id);
+    assert.equal((await ackSummary(doc.id)).edit_default, "ask", "the column default before the first switch-on");
+
+    const on = await setAckRequired(doc.id, true);
+    assert.equal(on.switched_on, true);
+    assert.equal(on.edit_default, "material", "the workspace default on the first switch-on");
+    assert.equal((await ackSummary(doc.id)).edit_default, "material");
+    const row = (await complianceDocs()).find((d) => d.id === doc.id)!;
+    assert.equal(row.ack_edit_default, "material", "the portal row carries it");
+
+    assert.equal((await setAckRequired(doc.id, true)).switched_on, false, "already on: nothing switched");
+
+    // The document's own choice survives off-and-on, whatever the workspace says now.
+    assert.deepEqual(await setAckEditDefault(doc.id, "reset"), { from: "material", to: "reset" });
+    await workspaceDefault("ask");
+    await setAckRequired(doc.id, false);
+    const again = await setAckRequired(doc.id, true);
+    assert.equal(again.switched_on, true);
+    assert.equal(again.edit_default, "reset", "a later toggle leaves the document's choice alone");
+
+    // An explicit value, or null to leave the column alone, beats the workspace's.
+    const other = await newPolicy(`${STAMP} a5 explicit`, BODY);
+    await setAckRequired(other, false);
+    assert.equal((await setAckRequired(other, true, { editDefault: "material" })).edit_default, "material");
+    await setAckEditDefault(other, "ask");
+    await setAckRequired(other, false);
+    await workspaceDefault("reset");
+    assert.equal((await setAckRequired(other, true, { editDefault: null })).edit_default, "ask");
+    assert.equal(await setAckEditDefault(-1, "ask"), null, "no document, no change");
+    await workspaceDefault(null);
+  });
+
+  test("'ask' and 'reset': a caller that says nothing resets, with the caller's source", async () => {
+    for (const mode of ["ask", "reset"] as const) {
+      const { id, v1 } = await confirmedPolicy(`${STAMP} a5 auto ${mode}`, mode);
+      const doc = await updateDocument(id, { content: BODY, versionNote: "Fixed a typo", ackActor: actor, ackSource: "edit" });
+      assert.ok(doc);
+      assert.equal(doc.ack_outcome!.policy, "auto");
+      assert.equal(doc.ack_outcome!.reset, true, `${mode}: a typo fix still resets when nobody chose`);
+      assert.equal(doc.ack_outcome!.confirmations_reset, 1);
+      assert.equal(doc.ack_outcome!.source, "edit", "the caller's source");
+      assert.notEqual((await pool().query(stamps, [id])).rows[0].ack_version_id, v1);
+      assert.equal(await acked(id), 0);
+      const [decision] = await listAckDecisions(id);
+      assert.equal(decision.outcome, "reset");
+      assert.equal(decision.source, "edit");
+      assert.equal(decision.reason, "Fixed a typo");
+    }
+  });
+
+  test("'material': a typo fix is kept and recorded from source 'default'; a changed number resets", async () => {
+    const { id, v1 } = await confirmedPolicy(`${STAMP} a5 material`, "material");
+    const kept = await updateDocument(id, { content: BODY, versionNote: "Fixed a typo", ackActor: actor, ackSource: "edit" });
+    assert.ok(kept);
+    assert.equal(kept.ack_outcome!.substantive, true);
+    assert.equal(kept.ack_outcome!.reset, false, "looks editorial with high confidence: kept unasked");
+    assert.equal(kept.ack_outcome!.policy, "auto");
+    assert.equal(kept.ack_outcome!.source, "default", "the document's setting decided, not the caller");
+    assert.equal((await pool().query(stamps, [id])).rows[0].ack_version_id, v1, "the marker stays");
+    assert.equal(await acked(id), 1);
+    assert.ok(await getCurrentAck(id, readerId));
+    assert.equal((await listVersions(id)).length, 2, "the version is still written");
+    const [decision] = await listAckDecisions(id);
+    assert.equal(decision.id, kept.ack_outcome!.decision_id);
+    assert.equal(decision.outcome, "kept");
+    assert.equal(decision.source, "default");
+    assert.equal(decision.submitted_policy, "", "nobody chose");
+    assert.equal(decision.suggested, "keep");
+    assert.equal(decision.overrode_suggestion, false);
+    assert.equal(decision.reason, "Fixed a typo");
+    assert.equal(decision.decided_by, otherId);
+    assert.equal(decision.confirmations_affected, 1);
+
+    const reset = await updateDocument(id, { content: NUMBER, versionNote: "Threshold raised", ackActor: actor, ackSource: "edit" });
+    assert.ok(reset);
+    assert.equal(reset.ack_outcome!.reset, true, "a number changed: material, so it resets");
+    assert.equal(reset.ack_outcome!.source, "edit");
+    assert.equal(await acked(id), 0);
+    const [newest] = await listAckDecisions(id);
+    assert.equal(newest.outcome, "reset");
+    assert.equal(newest.source, "edit");
+    assert.equal(newest.suggested, "reset");
+    assert.equal((await pool().query(stamps, [id])).rows[0].ack_version_id, await latestVersionId(id));
+
+    // An explicit answer is always honoured under 'material' (the editor
+    // answered the question): a keep of a material change is recorded as
+    // the editor's own, with the override noted.
+    await recordAcknowledgement(id, readerId, "", await latestVersionId(id));
+    const chosen = await updateDocument(id, {
+      content: NUMBER.replace("over 25 pounds", "over 30 pounds"),
+      ackPolicy: "keep",
+      ackReason: "The threshold was already announced in March",
+      ackActor: actor,
+      ackSource: "edit",
+    });
+    assert.equal(chosen!.ack_outcome!.reset, false);
+    assert.equal(chosen!.ack_outcome!.source, "edit");
+    const [own] = await listAckDecisions(id);
+    assert.equal(own.outcome, "kept");
+    assert.equal(own.source, "edit");
+    assert.equal(own.overrode_suggestion, true);
+    assert.equal(await acked(id), 1);
+  });
+
+  test("the keep side's change note follows keep_reason_required; the reset side always needs one", async () => {
+    const { id } = await confirmedPolicy(`${STAMP} a5 reason`, "ask");
+    const short = { content: BODY, ackReason: "typo", ackActor: actor, ackSource: "edit" as const };
+    await assert.rejects(updateDocument(id, { ...short, ackPolicy: "keep" }), AckReasonRequiredError, "required by default");
+    await assert.rejects(
+      updateDocument(id, { ...short, ackPolicy: "keep", ackKeepReasonRequired: true }),
+      AckReasonRequiredError
+    );
+    await assert.rejects(
+      updateDocument(id, { ...short, ackPolicy: "reset", ackKeepReasonRequired: false }),
+      AckReasonRequiredError,
+      "the reset side is never excused"
+    );
+    assert.equal((await listVersions(id)).length, 1, "nothing was written");
+
+    const kept = await updateDocument(id, { ...short, ackPolicy: "keep", ackKeepReasonRequired: false });
+    assert.ok(kept);
+    assert.equal(kept.ack_outcome!.substantive, true);
+    assert.equal(kept.ack_outcome!.reset, false);
+    assert.equal(kept.ack_outcome!.policy, "keep");
+    assert.equal(await acked(id), 1);
+    const [decision] = await listAckDecisions(id);
+    assert.equal(decision.outcome, "kept");
+    assert.equal(decision.reason, "typo", "whatever was typed is still recorded");
+    assert.equal(decision.source, "edit");
   });
 });
 

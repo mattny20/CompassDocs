@@ -42,6 +42,9 @@ import { RelativeTime } from "@/components/RelativeTime";
 import { confirmDialog } from "@/components/Dialog";
 import { toast } from "@/components/Toasts";
 import { requireAckDialog, people } from "@/components/RequireAckDialog";
+import { ReconfirmButton } from "@/components/ReconfirmButton";
+import { EDIT_DEFAULT_OPTIONS } from "@/components/compliance/ProgramSettingsPanel";
+import type { EditDefault } from "@/lib/compliance-settings";
 import { useAction } from "@/lib/use-action";
 import { timeAgo } from "@/lib/ui";
 import { useFormatDate } from "./SettingsProvider";
@@ -65,6 +68,8 @@ export interface DocRow {
   /** Kept edits since everyone was last asked, and how far the text has drifted from the version they confirmed. */
   kept_since_reset?: number;
   drift_pct?: number | string | null;
+  /** How the policy treats a text edit (A5): the "Asks editor" / "Asks when material" / "Always re-asks" chip. */
+  ack_edit_default?: EditDefault;
 }
 
 export interface DecisionBrief {
@@ -154,6 +159,19 @@ function driftLabel(d: DocRow): string {
 
 function pageOf<T>(rows: T[], page: number, size: number): T[] {
   return rows.slice(page * size, (page + 1) * size);
+}
+
+/** The per-policy edit-default chip (A5): a short state, with the full option sentence as its tooltip. */
+const EDIT_DEFAULT_CHIP: Record<EditDefault, string> = {
+  ask: "Asks editor",
+  material: "Asks when material",
+  reset: "Always re-asks",
+};
+function editDefaultTip(value: EditDefault): string {
+  const label = EDIT_DEFAULT_OPTIONS.find((o) => o.value === value)?.label ?? "";
+  // "When the text changes: ask the editor each time." (the Select's own words)
+  const sentence = label.replace(/\s*\(recommended\)$/, "");
+  return `When the text changes: ${sentence.charAt(0).toLowerCase()}${sentence.slice(1)}.`;
 }
 
 export function CompliancePanel({
@@ -497,21 +515,36 @@ export function CompliancePanel({
                             )}
                           </span>
                         </button>
-                        {/* The drift chip sits beside the disclosure button, not
+                        {/* The chips sit beside the disclosure button, not
                             inside it: a tooltip must be reachable by keyboard
                             (STYLEGUIDE §Accessibility), and a focusable element
-                            inside a <button> is not valid HTML. pl-6 lines it up
-                            under the title (chevron 16px + gap 8px). */}
-                        {(d.kept_since_reset ?? 0) > 0 && (
-                          <span className="mt-1 block pl-6">
-                            <span
-                              className={chipClass("neutral", "sm")}
-                              tabIndex={0}
-                              data-tt="Edits the editor said did not need everyone to re-confirm; drift is how far the text now differs from the version people confirmed"
-                              data-tt-wrap=""
-                            >
-                              {driftLabel(d)}
-                            </span>
+                            inside a <button> is not valid HTML. pl-6 lines them
+                            up under the title (chevron 16px + gap 8px). The
+                            edit-default chip (A5) says how the policy treats a
+                            text edit; the drift chip appears once edits have
+                            been kept. */}
+                        {(d.ack_edit_default || (d.kept_since_reset ?? 0) > 0) && (
+                          <span className="mt-1 flex flex-wrap items-center gap-1.5 pl-6">
+                            {d.ack_edit_default && (
+                              <span
+                                className={chipClass("neutral", "sm")}
+                                tabIndex={0}
+                                data-tt={editDefaultTip(d.ack_edit_default)}
+                                data-tt-wrap=""
+                              >
+                                {EDIT_DEFAULT_CHIP[d.ack_edit_default]}
+                              </span>
+                            )}
+                            {(d.kept_since_reset ?? 0) > 0 && (
+                              <span
+                                className={chipClass("neutral", "sm")}
+                                tabIndex={0}
+                                data-tt="Edits the editor said did not need everyone to re-confirm; drift is how far the text now differs from the version people confirmed"
+                                data-tt-wrap=""
+                              >
+                                {driftLabel(d)}
+                              </span>
+                            )}
                           </span>
                         )}
                       </div>
@@ -543,6 +576,22 @@ export function CompliancePanel({
                             >
                               Remind
                             </Button>
+                          )}
+                          {can.manage && (
+                            // The deliberate re-ask (A7): disabled with its
+                            // tooltip until someone has confirmed the
+                            // current version; Remind is the live control
+                            // before that. The roster cache is dropped so
+                            // the next expand shows everyone Pending.
+                            <ReconfirmButton
+                              docId={d.id}
+                              title={d.title}
+                              summary={{ current: d.acked, eligible: d.required, rev: d.ack_rev ?? null }}
+                              onDone={() => {
+                                dropRoster(d.id);
+                                void load();
+                              }}
+                            />
                           )}
                           {can.manage && (
                             <Button

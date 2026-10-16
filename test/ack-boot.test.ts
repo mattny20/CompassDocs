@@ -60,6 +60,7 @@ async function withAdmin<T>(fn: (c: Client) => Promise<T>): Promise<T> {
 // Strip the 1.10.0 additions so the database looks the way 1.9.4 left it.
 const DOWNGRADE_SQL = `
   ALTER TABLE documents DROP COLUMN ack_revision_at, DROP COLUMN ack_version_id;
+  ALTER TABLE documents DROP COLUMN IF EXISTS ack_edit_default;
   ALTER TABLE acknowledgements
     DROP COLUMN version_id, DROP COLUMN content_sha256,
     DROP COLUMN user_name, DROP COLUMN user_email, DROP COLUMN document_title;

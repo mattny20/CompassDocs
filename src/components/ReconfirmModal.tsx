@@ -26,6 +26,7 @@ import { Field, Textarea } from "./form";
 import { Modal } from "./Modal";
 import { changeSummary, describeChange, suggestReconfirm } from "@/lib/diff";
 import type { ChangeSummary, ReconfirmSuggestion } from "@/lib/diff";
+import type { EditDefault } from "@/lib/compliance-settings";
 
 export type AckPolicy = "keep" | "reset";
 
@@ -53,6 +54,17 @@ export interface ReconfirmOptions {
   suggested: AckPolicy;
   /** Prefills the change note (the editor's own field). */
   initialNote: string;
+  /**
+   * The document's edit default (A5), for the help line: under 'material'
+   * the question opened because the change does not look editorial.
+   */
+  editDefault?: EditDefault;
+  /**
+   * The workspace's "Require a reason for editorial fixes too" (E4). True
+   * when absent. A material change always needs its note; with this off an
+   * editorial fix may be saved without one (anything typed is still kept).
+   */
+  keepReasonRequired?: boolean;
 }
 
 export interface ReconfirmResult {
@@ -78,6 +90,14 @@ export const RECONFIRM_TITLE: Record<ReconfirmOptions["mode"], string> = {
 const HELP: Record<AckPolicy, string> = {
   keep: "Say why readers need not re-confirm. This is recorded on the compliance record.",
   reset: "Tell readers what changed. This note is kept in version history and on the compliance record.",
+};
+/** The keep side when the workspace does not require a reason for editorial fixes (E4). */
+const HELP_KEEP_OPTIONAL =
+  "Optional: say why readers need not re-confirm. Anything you write is recorded on the compliance record.";
+
+/** The line under the hint that explains why the question opened under the document's setting (A5). */
+const SETTING_NOTE: Partial<Record<EditDefault, string>> = {
+  material: "This document asks only when a change looks material (its read confirmation setting).",
 };
 
 function people(n: number): string {
@@ -219,10 +239,14 @@ export function ReconfirmModal({
   }
   const cancel = useCallback(() => settle(null), []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // The keep side is excused only when the workspace says so; a reset
+  // always needs its note (the server refuses the same way, A2).
+  const noteRequired = policy === "reset" || opts.keepReasonRequired !== false;
+
   function submit(e?: React.FormEvent) {
     e?.preventDefault();
     const trimmed = note.trim();
-    if (trimmed.length < NOTE_MIN) {
+    if (noteRequired && trimmed.length < NOTE_MIN) {
       setError(NOTE_TOO_SHORT);
       noteRef.current?.focus();
       return;
@@ -318,6 +342,9 @@ export function ReconfirmModal({
         </div>
 
         <p className="mt-3 text-sm text-slate-600">{opts.hint}</p>
+        {opts.editDefault && SETTING_NOTE[opts.editDefault] && (
+          <p className="mt-1 text-xs text-slate-500">{SETTING_NOTE[opts.editDefault]}</p>
+        )}
         <Button
           variant="ghost"
           size="sm"
@@ -341,7 +368,11 @@ export function ReconfirmModal({
         )}
 
         <div className="mt-4">
-          <Field label="Change note" help={HELP[policy]} error={error}>
+          <Field
+            label={noteRequired ? "Change note" : "Change note (optional)"}
+            help={noteRequired ? HELP[policy] : HELP_KEEP_OPTIONAL}
+            error={error}
+          >
             <Textarea
               ref={noteRef}
               value={note}
