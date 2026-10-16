@@ -139,7 +139,7 @@ export function DocNotices({
         <p className={`${ROW} text-slate-600`}>
           <SquarePen className={`${ICON} text-slate-400`} />
           <span>
-            This is a <strong>draft</strong> — it isn&apos;t visible to viewers yet.
+            This is a <strong>draft</strong>. It isn&apos;t visible to viewers yet.
           </span>
         </p>
       )}
@@ -154,7 +154,7 @@ export function DocNotices({
             href={`/doc/${docId}/history`}
             className="shrink-0 font-medium text-compass-700 hover:underline"
           >
-            View in history →
+            View in history
           </Link>
         </div>
       )}
@@ -163,7 +163,7 @@ export function DocNotices({
         <div className={`${ROW} text-slate-600`}>
           <CalendarClock className={`${ICON} text-amber-600`} />
           <span className="min-w-0 flex-1">
-            Content review overdue — was due {reviewOverdue.dueDateLabel}. Still accurate?
+            Content review overdue: it was due {reviewOverdue.dueDateLabel}. Still accurate?
           </span>
           {reviewOverdue.canEdit && (
             <button
@@ -192,7 +192,7 @@ export function DocNotices({
             {pendingCount} pending change{pendingCount === 1 ? "" : "s"} awaiting review.
           </span>
           <Link href="/review" className="shrink-0 font-medium text-compass-700 hover:underline">
-            Open review queue →
+            Open review queue
           </Link>
         </div>
       )}
