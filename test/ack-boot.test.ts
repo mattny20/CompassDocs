@@ -66,6 +66,7 @@ async function withAdmin<T>(fn: (c: Client) => Promise<T>): Promise<T> {
 const DOWNGRADE_1110_SQL = `
   ALTER TABLE acknowledgements DROP COLUMN IF EXISTS read_seconds, DROP COLUMN IF EXISTS reached_end;
   DROP INDEX IF EXISTS idx_views_doc_user;
+  ALTER TABLE change_requests DROP COLUMN IF EXISTS ack_policy, DROP COLUMN IF EXISTS ack_reason;
 `;
 
 // Strip the 1.10.1 additions so the database looks the way 1.10.0 left it.
@@ -258,6 +259,21 @@ async function assertEvidenceSchema(db: Client, label: string) {
     index.rows[0].indexdef,
     /USING btree \(document_id, user_id, viewed_at DESC\)/,
     `${label}: idx_views_doc_user covers (document_id, user_id, viewed_at DESC)`
+  );
+  // A6: the submitter's recommendation travels on the change request.
+  const cr = await db.query<{ column_name: string; data_type: string; is_nullable: string; column_default: string | null }>(
+    `SELECT column_name, data_type, is_nullable, column_default FROM information_schema.columns
+     WHERE table_schema = current_schema() AND table_name = 'change_requests'
+       AND column_name IN ('ack_policy', 'ack_reason')
+     ORDER BY column_name`
+  );
+  assert.deepEqual(
+    cr.rows,
+    [
+      { column_name: "ack_policy", data_type: "text", is_nullable: "NO", column_default: "'auto'::text" },
+      { column_name: "ack_reason", data_type: "text", is_nullable: "NO", column_default: "''::text" },
+    ],
+    `${label}: the change-request decision columns`
   );
 }
 
