@@ -24,6 +24,7 @@ import { Button } from "./Button";
 import { DocDiff } from "./DocDiff";
 import { Field, Textarea } from "./form";
 import { Modal } from "./Modal";
+import { people } from "./compliance/copy";
 import { changeSummary, describeChange, suggestReconfirm } from "@/lib/diff";
 import type { ChangeSummary, ReconfirmSuggestion } from "@/lib/diff";
 import type { EditDefault } from "@/lib/compliance-settings";
@@ -99,10 +100,6 @@ const HELP_KEEP_OPTIONAL =
 const SETTING_NOTE: Partial<Record<EditDefault, string>> = {
   material: "This document asks only when a change looks material (its read confirmation setting).",
 };
-
-function people(n: number): string {
-  return `${n} ${n === 1 ? "person" : "people"}`;
-}
 
 /** The primary button always says what will happen. */
 export function primaryLabel(mode: ReconfirmOptions["mode"], policy: AckPolicy, current: number): string {

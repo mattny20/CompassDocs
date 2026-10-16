@@ -23,15 +23,17 @@ import { Field, Select, Toggle } from "@/components/form";
 import { EYEBROW_TEXT } from "@/components/Heading";
 import { Spinner } from "@/components/Spinner";
 import { toast } from "@/components/Toasts";
-import { requireAckDialog, people } from "@/components/RequireAckDialog";
+import { requireAckDialog } from "@/components/RequireAckDialog";
 import { ReconfirmButton } from "@/components/ReconfirmButton";
-import { EDIT_DEFAULT_OPTIONS } from "@/components/compliance/ProgramSettingsPanel";
+import { EDIT_DEFAULT_OPTIONS, people } from "@/components/compliance/copy";
 import { useFormatDate } from "@/components/SettingsProvider";
 import { useAction } from "@/lib/use-action";
 import type { EditDefault } from "@/lib/compliance-settings";
 
 export interface AckSettingsProps {
   docId: number;
+  /** The document's title: the re-ask question names it here exactly as on the record header and the portal row (A7). */
+  title: string;
   isPublished: boolean;
   required: boolean;
   /** documents.ack_edit_default. */
@@ -63,6 +65,7 @@ export const EDIT_DEFAULT_LABEL = "When the text changes";
 
 export function AckSettings({
   docId,
+  title,
   isPublished,
   required,
   editDefault: initialEditDefault,

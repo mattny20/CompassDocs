@@ -19,28 +19,14 @@ import { buttonClass } from "@/components/Button";
 import { toast } from "@/components/Toasts";
 import { useFormatDate } from "@/components/SettingsProvider";
 import { useLeaveGuard, useUnsavedChanges } from "@/lib/use-unsaved";
+import { EDIT_DEFAULT_OPTIONS } from "./copy";
 import type { ComplianceSettings, EditDefault } from "@/lib/compliance-settings";
 
-/** The three answers to "when the text of a policy changes", in the order
- *  the Select shows them. A5's popover shows the same labels and suffixes
- *  the one equal to the workspace value with "(workspace default)". */
-export const EDIT_DEFAULT_OPTIONS: { value: EditDefault; label: string; help: string }[] = [
-  {
-    value: "ask",
-    label: "Ask the editor each time (recommended)",
-    help: "Every text save opens the question: editorial fix, or material change. The editor decides and the record keeps the choice.",
-  },
-  {
-    value: "material",
-    label: "Ask only when a change looks material",
-    help: "Good for procedures that change often: typo-sized edits pass quietly and are recorded; anything that looks material still asks.",
-  },
-  {
-    value: "reset",
-    label: "Always ask everyone to re-confirm",
-    help: "Good for signed-off policies: every text change asks everyone to re-confirm, and the change note is required.",
-  },
-];
+// The three "when the text of a policy changes" options live in ./copy with
+// the rest of the shared compliance copy (A5's popover and the portal chip
+// read them there); re-exported so an existing import from here still
+// resolves.
+export { EDIT_DEFAULT_OPTIONS };
 
 /** The server enforces the same limit (STATEMENT_MAX in lib/compliance-settings,
  *  a server-only module, so the number is repeated here). */
@@ -113,7 +99,7 @@ export function ProgramSettingsPanel({ initial }: { initial: ComplianceSettings 
     <div className="space-y-6">
       <Card
         title="Editing"
-        description="How a policy treats a change to its text. A policy receives this when it is first set to require read confirmation and can change it on its own settings page."
+        description="How a policy treats a change to its text. A policy receives this when it is first set to require read confirmation and can change it in the Read confirmation popover on the document."
       >
         <Field label="When the text of a policy changes" help={option.help} size="lg">
           <Select value={s.edit_default} onChange={(e) => set("edit_default", e.target.value as EditDefault)}>

@@ -133,7 +133,7 @@ async function initialize(): Promise<void> {
   const client = await pool().connect();
   try {
     await client.query("SELECT pg_advisory_lock(id) FROM (SELECT 728341 AS id) t");
-    await client.query(guardAddColumns(SCHEMA_SQL));
+    await client.query(guardCreateIndexes(guardAddColumns(SCHEMA_SQL)));
     await syncPresetRoles(client);
     await migrateLadderToAssignments(client);
     await migrateDelegationToAssignments(client);
@@ -156,6 +156,19 @@ async function initialize(): Promise<void> {
 }
 
 /**
+ * The catalog predicate the boot guards share: does table `t` (resolved
+ * through search_path, exactly as the ALTER it guards resolves it) carry a
+ * live column `c`? to_regclass() is NULL for a table that does not exist
+ * yet, so the predicate is simply false until CREATE TABLE has run.
+ * information_schema.columns was the earlier form; it spans every schema the
+ * role can see, so a same-named table in another schema of a shared
+ * database made the guard skip the app's own ALTER.
+ */
+function columnExistsSql(table: string, column: string): string {
+  return `SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass('${table}') AND attname = '${column}' AND attnum > 0 AND NOT attisdropped`;
+}
+
+/**
  * Rewrites every `ALTER TABLE t ADD COLUMN IF NOT EXISTS c …;` in the schema
  * into a block that looks the column up first. Postgres takes the table's
  * ACCESS EXCLUSIVE lock before it checks IF NOT EXISTS, so each of those
@@ -164,13 +177,36 @@ async function initialize(): Promise<void> {
  * processes) could deadlock against it (1.10.0 integration logs, and a
  * rolling upgrade with traffic on the old instance). With the lookup first,
  * a later boot touches no table whose columns are already there, and the
- * first boot runs the identical ALTER. Exported for its unit test.
+ * first boot runs the identical ALTER. The table name and ADD may be
+ * separated by a line break (the directory_people pair is written that
+ * way). Exported for its unit test.
  */
 export function guardAddColumns(sql: string): string {
   return sql.replace(
-    /ALTER TABLE (\w+) ADD COLUMN IF NOT EXISTS\s+(\w+)\s+([^;]+);/g,
+    /ALTER TABLE (\w+)\s+ADD COLUMN IF NOT EXISTS\s+(\w+)\s+([^;]+);/g,
     (_m, table: string, column: string, definition: string) =>
-      `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = '${table}' AND column_name = '${column}') THEN ALTER TABLE ${table} ADD COLUMN ${column} ${definition.replace(/\s+/g, " ").trim()}; END IF; END $$;`
+      `DO $$ BEGIN IF NOT EXISTS (${columnExistsSql(table, column)}) THEN ALTER TABLE ${table} ADD COLUMN ${column} ${definition.replace(/\s+/g, " ").trim()}; END IF; END $$;`
+  );
+}
+
+/**
+ * The sibling for indexes (1.10.1): every `CREATE [UNIQUE] INDEX IF NOT
+ * EXISTS name ON …;` becomes the to_regclass block the ack_notices indexes
+ * were written with by hand. CREATE INDEX takes a SHARE lock on its table
+ * before it checks IF NOT EXISTS, and SHARE conflicts with every INSERT,
+ * UPDATE and DELETE for as long as the schema transaction runs, so until
+ * now a boot blocked every save on documents, doc_versions, sessions,
+ * notifications, audit_log and the rest. The definition may span lines and
+ * carry `USING gin(...)` or a `WHERE …` predicate; nothing inside it
+ * contains a semicolon. A CREATE INDEX without IF NOT EXISTS (the ones
+ * already inside a hand-written block) is left alone. Exported for its unit
+ * test; applied after guardAddColumns in initialize().
+ */
+export function guardCreateIndexes(sql: string): string {
+  return sql.replace(
+    /CREATE (UNIQUE )?INDEX IF NOT EXISTS (\w+)\s+ON\s+([^;]+);/g,
+    (_m, unique: string | undefined, name: string, definition: string) =>
+      `DO $$ BEGIN IF to_regclass('${name}') IS NULL THEN CREATE ${unique ?? ""}INDEX ${name} ON ${definition.replace(/\s+/g, " ").trim()}; END IF; END $$;`
   );
 }
 
@@ -191,7 +227,18 @@ const SCHEMA_SQL = `
   -- Which layout a space opens with ('cards' | 'table' | 'tree' | 'board' | 'timeline' | 'tags');
   -- visitors can switch views and their choice is remembered per browser.
   ALTER TABLE spaces ADD COLUMN IF NOT EXISTS default_view text NOT NULL DEFAULT 'cards';
-  ALTER TABLE spaces ALTER COLUMN visibility SET DEFAULT 'internal';
+  -- Installs from before the 0.14 tiers carry the old default; SET DEFAULT
+  -- takes an exclusive lock on spaces whether or not it changes anything,
+  -- so it runs only while the stored default is something else.
+  DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_attrdef d JOIN pg_attribute a ON a.attrelid = d.adrelid AND a.attnum = d.adnum
+      WHERE d.adrelid = to_regclass('spaces') AND a.attname = 'visibility'
+        AND pg_get_expr(d.adbin, d.adrelid) = '''internal''::text'
+    ) THEN
+      ALTER TABLE spaces ALTER COLUMN visibility SET DEFAULT 'internal';
+    END IF;
+  END $$;
 
   CREATE TABLE IF NOT EXISTS documents (
     id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -782,8 +829,8 @@ const SCHEMA_SQL = `
   -- hold doc_versions). Once the column exists this block touches nothing.
   DO $$ BEGIN
     IF NOT EXISTS (
-      SELECT 1 FROM information_schema.columns
-      WHERE table_name = 'documents' AND column_name = 'ack_revision_at'
+      SELECT 1 FROM pg_attribute
+      WHERE attrelid = to_regclass('documents') AND attname = 'ack_revision_at' AND attnum > 0 AND NOT attisdropped
     ) THEN
       ALTER TABLE documents ADD COLUMN ack_revision_at timestamptz;
       UPDATE documents SET ack_revision_at = updated_at WHERE ack_revision_at IS NULL;
@@ -816,8 +863,8 @@ const SCHEMA_SQL = `
   -- takes an exclusive lock on the ledger on every boot otherwise.
   DO $$ BEGIN
     IF EXISTS (
-      SELECT 1 FROM information_schema.columns
-      WHERE table_name = 'acknowledgements' AND column_name = 'user_id' AND is_nullable = 'NO'
+      SELECT 1 FROM pg_attribute
+      WHERE attrelid = to_regclass('acknowledgements') AND attname = 'user_id' AND attnum > 0 AND NOT attisdropped AND attnotnull
     ) THEN
       ALTER TABLE acknowledgements ALTER COLUMN user_id DROP NOT NULL;
       ALTER TABLE acknowledgements ALTER COLUMN document_id DROP NOT NULL;
@@ -888,14 +935,16 @@ const SCHEMA_SQL = `
   -- name snapshots, indexed so deleting an account is not a scan of
   -- doc_versions. Guarded like the marker block: ADD COLUMN IF NOT EXISTS
   -- takes an exclusive lock on doc_versions before it looks, and a boot
-  -- that takes it on every start deadlocks against an instance that is
-  -- saving or approving a version at that moment (that transaction holds
-  -- doc_versions and waits on documents, which the boot already holds).
+  -- that takes it on every start can deadlock against a request
+  -- transaction that already holds a lock the boot wants next (a save
+  -- writes documents then doc_versions, in the same order as this file,
+  -- so it waits rather than deadlocks; a transaction that writes users,
+  -- sessions or audit_log first and documents second is the real partner).
   -- Once the column exists this block touches nothing.
   DO $$ BEGIN
     IF NOT EXISTS (
-      SELECT 1 FROM information_schema.columns
-      WHERE table_name = 'doc_versions' AND column_name = 'published_by'
+      SELECT 1 FROM pg_attribute
+      WHERE attrelid = to_regclass('doc_versions') AND attname = 'published_by' AND attnum > 0 AND NOT attisdropped
     ) THEN
       ALTER TABLE doc_versions ADD COLUMN published_by integer REFERENCES users(id) ON DELETE SET NULL;
       ALTER TABLE doc_versions ADD COLUMN published_by_name text NOT NULL DEFAULT '';
@@ -1052,18 +1101,48 @@ const SCHEMA_SQL = `
   ALTER TABLE training_completion_history ADD COLUMN IF NOT EXISTS user_name text NOT NULL DEFAULT '';
   ALTER TABLE training_completion_history ADD COLUMN IF NOT EXISTS user_email text NOT NULL DEFAULT '';
   ALTER TABLE training_completion_history ADD COLUMN IF NOT EXISTS deck_title text NOT NULL DEFAULT '';
-  ALTER TABLE training_completion_history ALTER COLUMN user_id DROP NOT NULL;
-  ALTER TABLE training_completion_history ALTER COLUMN deck_id DROP NOT NULL;
-  ALTER TABLE training_completion_history
-    DROP CONSTRAINT IF EXISTS training_completion_history_user_id_fkey;
-  ALTER TABLE training_completion_history
-    ADD CONSTRAINT training_completion_history_user_id_fkey
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
-  ALTER TABLE training_completion_history
-    DROP CONSTRAINT IF EXISTS training_completion_history_deck_id_fkey;
-  ALTER TABLE training_completion_history
-    ADD CONSTRAINT training_completion_history_deck_id_fkey
-    FOREIGN KEY (deck_id) REFERENCES training_decks(id) ON DELETE SET NULL;
+  -- Each step is guarded on the catalog (1.10.1): DROP NOT NULL and the
+  -- constraint swap take an exclusive lock on the history table, and ADD
+  -- FOREIGN KEY a share-row-exclusive lock on users / training_decks plus a
+  -- validation scan, on every boot otherwise. A fresh table starts NOT NULL
+  -- with CASCADE FKs (the CREATE TABLE above), so the first boot still
+  -- runs every step; a later boot finds nothing to do.
+  DO $$ BEGIN
+    IF EXISTS (
+      SELECT 1 FROM pg_attribute
+      WHERE attrelid = to_regclass('training_completion_history') AND attname = 'user_id' AND attnum > 0 AND NOT attisdropped AND attnotnull
+    ) THEN
+      ALTER TABLE training_completion_history ALTER COLUMN user_id DROP NOT NULL;
+    END IF;
+    IF EXISTS (
+      SELECT 1 FROM pg_attribute
+      WHERE attrelid = to_regclass('training_completion_history') AND attname = 'deck_id' AND attnum > 0 AND NOT attisdropped AND attnotnull
+    ) THEN
+      ALTER TABLE training_completion_history ALTER COLUMN deck_id DROP NOT NULL;
+    END IF;
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint
+      WHERE conrelid = to_regclass('training_completion_history')
+        AND conname = 'training_completion_history_user_id_fkey' AND contype = 'f' AND confdeltype = 'n'
+    ) THEN
+      ALTER TABLE training_completion_history
+        DROP CONSTRAINT IF EXISTS training_completion_history_user_id_fkey;
+      ALTER TABLE training_completion_history
+        ADD CONSTRAINT training_completion_history_user_id_fkey
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
+    END IF;
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint
+      WHERE conrelid = to_regclass('training_completion_history')
+        AND conname = 'training_completion_history_deck_id_fkey' AND contype = 'f' AND confdeltype = 'n'
+    ) THEN
+      ALTER TABLE training_completion_history
+        DROP CONSTRAINT IF EXISTS training_completion_history_deck_id_fkey;
+      ALTER TABLE training_completion_history
+        ADD CONSTRAINT training_completion_history_deck_id_fkey
+        FOREIGN KEY (deck_id) REFERENCES training_decks(id) ON DELETE SET NULL;
+    END IF;
+  END $$;
   UPDATE training_completion_history h
     SET user_name = COALESCE(u.name, h.user_name),
         user_email = COALESCE(u.email, h.user_email)
@@ -1482,10 +1561,21 @@ const SCHEMA_SQL = `
     PRIMARY KEY (route, permission, legacy_allowed, rbac_allowed)
   );
 
-  DROP TRIGGER IF EXISTS compass_users_ladder_sync ON users;
-  CREATE TRIGGER compass_users_ladder_sync
-    AFTER INSERT OR UPDATE OF role ON users
-    FOR EACH ROW EXECUTE FUNCTION compass_sync_ladder_assignment();
+  -- The trigger is created once (1.10.1): DROP TRIGGER takes an exclusive
+  -- lock on users and CREATE TRIGGER a share-row-exclusive one, on every
+  -- boot otherwise. The function it calls is CREATE OR REPLACE'd above, so
+  -- a change to the function reaches the existing trigger without
+  -- recreating it; a change to the trigger's own definition (its events)
+  -- needs a new name or a one-shot migration.
+  DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_trigger WHERE tgrelid = to_regclass('users') AND tgname = 'compass_users_ladder_sync'
+    ) THEN
+      CREATE TRIGGER compass_users_ladder_sync
+        AFTER INSERT OR UPDATE OF role ON users
+        FOR EACH ROW EXECUTE FUNCTION compass_sync_ladder_assignment();
+    END IF;
+  END $$;
 `;
 
 /**
@@ -3098,6 +3188,25 @@ export function editDefaultOf(row: object | null | undefined): AckEditDefault {
 }
 
 /**
+ * How a caller that cannot ask resolves 'auto' (A5, rule 4): the document's
+ * edit default decides. 'material' keeps a change the heuristic calls
+ * editorial with high confidence (only keep/high is safe to act on
+ * unasked), and the row then names source 'default', because the setting
+ * decided, not the caller; 'ask' and 'reset', and every other change under
+ * 'material', reset with the caller's source. One helper, so updateDocument
+ * (edit, merge, restore, the API, MCP, imports), approveChangeRequest and
+ * the scheduled publish take the same decision for the same text.
+ */
+export function resolveAutoAckPolicy(
+  row: object | null | undefined,
+  suggestion: { policy: "keep" | "reset"; confidence: "high" | "low" }
+): { resolved: "keep" | "reset"; decidedBySetting: boolean } {
+  const keep =
+    editDefaultOf(row) === "material" && suggestion.policy === "keep" && suggestion.confidence === "high";
+  return { resolved: keep ? "keep" : "reset", decidedBySetting: keep };
+}
+
+/**
  * A save's outcome together with the ledger row it wrote (null when no
  * decision was taken). The audit echo (auditAckDecision) reads that row by
  * id, never "the newest row for the document", so two concurrent saves of
@@ -3153,6 +3262,13 @@ export type UpdateDocumentInput = Partial<DocInput> & {
    * absent. Only the keep side is excused: a reset always needs its note.
    */
   ackKeepReasonRequired?: boolean;
+  /**
+   * The sending request's origin (requestOrigin(req)), carried on the
+   * outbox row a reset queues so the notice's links are absolute on a
+   * workspace without custom_domain; empty when no request exists (an
+   * import).
+   */
+  ackOrigin?: string;
 };
 
 /**
@@ -3339,19 +3455,11 @@ export async function updateDocument(
       const actor: AckActor = input.ackActor ?? { id: null, name: next.author };
       const summary = changeSummary(base.content, next.content, { oldTitle: base.title, newTitle: next.title });
       const suggestion = suggestReconfirm(summary);
-      // 'auto' resolves from the document's edit default (A5): 'material'
-      // keeps a change the heuristic calls editorial with high confidence
-      // (only keep/high is safe to act on unasked) and the row then names
-      // source 'default', because the document's setting decided, not the
-      // caller; everything else resets with the caller's source.
-      const editDefault = editDefaultOf(existing);
-      const resolved: "keep" | "reset" =
-        policy === "auto"
-          ? editDefault === "material" && suggestion.policy === "keep" && suggestion.confidence === "high"
-            ? "keep"
-            : "reset"
-          : policy;
-      const decidedBySetting = policy === "auto" && resolved === "keep";
+      // 'auto' resolves from the document's edit default (A5), through the
+      // helper every caller that cannot ask shares (resolveAutoAckPolicy).
+      const auto = policy === "auto" ? resolveAutoAckPolicy(existing, suggestion) : null;
+      const resolved: "keep" | "reset" = auto ? auto.resolved : policy;
+      const decidedBySetting = auto?.decidedBySetting ?? false;
       const decision = {
         versionId,
         actor,
@@ -3361,6 +3469,7 @@ export async function updateDocument(
         suggested: suggestion.policy,
         overrodeSuggestion: policy !== "auto" && policy !== suggestion.policy,
         submittedPolicy: policy === "auto" ? ("" as const) : policy,
+        origin: input.ackOrigin,
       };
       if (resolved === "keep") {
         const k = await keepAcknowledgements(client, id, decision);
@@ -5873,6 +5982,8 @@ export interface AckDecisionInput {
   submittedPolicy?: "keep" | "reset" | "";
   submittedBy?: AckActor | null;
   scope?: "all" | "users";
+  /** The sending request's origin, stored on the outbox row a reset queues (1.10.1); '' when there is no request. */
+  origin?: string;
 }
 
 /** Eligible people and current confirmations for one document (the same joins as complianceDocs). */
@@ -5977,6 +6088,7 @@ export async function resetAcknowledgements(
     actor: opts.actor,
     user_ids: null,
     delay_minutes: ackNoticeDelayMinutes(opts.source),
+    origin: opts.origin ?? "",
   });
   return { decision_id: decisionId, confirmations_reset: counts.current, eligible: counts.eligible, outbox_id: outboxId };
 }
@@ -6499,6 +6611,8 @@ export interface ReconfirmInput {
   actor: AckActor;
   /** D4 (later): move only these people's cycle marker. Refused until audiences ship. */
   userIds?: number[] | null;
+  /** The sending request's origin, stored on the outbox row (1.10.1); '' for the recurrence sweep. */
+  origin?: string;
 }
 
 /**
@@ -6598,6 +6712,7 @@ async function claimReconfirmationOn(client: Queryable, docId: number, opts: Rec
     actor: opts.actor,
     user_ids: null,
     delay_minutes: ackNoticeDelayMinutes(opts.source),
+    origin: opts.origin ?? "",
   });
   return {
     claimed: true,
@@ -8981,7 +9096,8 @@ export async function approveChangeRequest(
   id: number,
   reviewerId: number,
   reviewerName: string,
-  note = ""
+  note = "",
+  opts: { origin?: string } = {}
 ): Promise<ApproveChangeRequestResult | false> {
   await ready();
   const client = await pool().connect();
@@ -9001,9 +9117,11 @@ export async function approveChangeRequest(
         status: string;
         ack_required: number;
         ack_version_id: number | null;
-      }>("SELECT title, content, status, ack_required, ack_version_id FROM documents WHERE id = $1 FOR UPDATE", [
-        cr.document_id,
-      ])
+        ack_edit_default: string;
+      }>(
+        "SELECT title, content, status, ack_required, ack_version_id, ack_edit_default FROM documents WHERE id = $1 FOR UPDATE",
+        [cr.document_id]
+      )
     ).rows[0];
     if (!live) {
       await client.query("ROLLBACK");
@@ -9089,18 +9207,31 @@ export async function approveChangeRequest(
       decision_id: null,
     };
     if (decides && versionId !== null) {
+      // Nobody is there to ask, so the document's edit default decides
+      // (A5): under 'material' an editorial-looking request is kept and
+      // recorded from source 'default', like a kept save; anything else
+      // resets with source 'approval'. The same helper updateDocument uses.
       const summary = changeSummary(base.content, cr.content, { oldTitle: base.title, newTitle: cr.title });
-      const r = await resetAcknowledgements(client, cr.document_id, {
+      const suggestion = suggestReconfirm(summary);
+      const auto = resolveAutoAckPolicy(live, suggestion);
+      const decision = {
         versionId,
         actor,
-        source: "approval",
+        source: auto.decidedBySetting ? ("default" as const) : ("approval" as const),
         reason: cr.note.trim() || versionNote,
         summary,
-        suggested: suggestReconfirm(summary).policy,
-        submittedPolicy: "",
+        suggested: suggestion.policy,
+        submittedPolicy: "" as const,
         submittedBy: { id: cr.created_by, name: cr.author_name },
-      });
-      ack = { ...ack, reset: true, confirmations_reset: r.confirmations_reset, decision_id: r.decision_id };
+        origin: opts.origin,
+      };
+      if (auto.resolved === "keep") {
+        const k = await keepAcknowledgements(client, cr.document_id, decision);
+        ack = { ...ack, source: "default", decision_id: k.decision_id };
+      } else {
+        const r = await resetAcknowledgements(client, cr.document_id, decision);
+        ack = { ...ack, reset: true, confirmations_reset: r.confirmations_reset, decision_id: r.decision_id };
+      }
     } else if (silentAdvance && versionId !== null) {
       await resetAcknowledgements(client, cr.document_id, {
         versionId,

@@ -101,6 +101,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     versionNote,
     ackSource: "merge",
     ackActor: { id: user.id, name: user.name || user.username },
+    ackOrigin: requestOrigin(req),
   });
   await deleteDocument(branch.id);
   // A branch whose text already matches its source has nothing to merge: the

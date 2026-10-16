@@ -15,13 +15,14 @@
 // without a notice.
 
 import { confirmDialog } from "./Dialog";
+import { people } from "./compliance/copy";
+
+// people() lives in components/compliance/copy with the rest of the shared
+// compliance copy; re-exported so an existing import of it from here still
+// resolves.
+export { people };
 
 export type RequireAckChoice = "notify" | "quiet";
-
-/** "42 people" / "1 person": counts are always of people (STYLEGUIDE §Vocabulary). */
-export function people(n: number): string {
-  return `${n} ${n === 1 ? "person" : "people"}`;
-}
 
 export async function requireAckDialog({
   title,

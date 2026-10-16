@@ -19,7 +19,7 @@ import { Button, type ButtonSize } from "@/components/Button";
 import { Tooltip } from "@/components/Tooltip";
 import { formDialog } from "@/components/Dialog";
 import { toast } from "@/components/Toasts";
-import { people } from "@/components/RequireAckDialog";
+import { people } from "@/components/compliance/copy";
 import { useAction } from "@/lib/use-action";
 
 /** The control's label, everywhere (STYLEGUIDE §Vocabulary): never "Re-request" or "Reset confirmations". */
