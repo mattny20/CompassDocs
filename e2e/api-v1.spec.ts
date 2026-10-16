@@ -114,7 +114,12 @@ test("v1 PATCH on a confirmed policy: 428 until the caller decides, never for me
     expect(badPolicy.status()).toBe(400);
     expect((await badPolicy.json()).error).toBe(POLICY_ERROR);
 
-    // Metadata only never refuses and resets nobody.
+    // Metadata only never refuses and resets nobody. The one exception is a
+    // bad ack_policy value, refused before the substantive gate as the app's
+    // PUT refuses it: 'auto' on a tag-only PATCH is still a 400.
+    const taggedBad = await docs.patch(docId, { tags: ["e2e"], ack_policy: "auto" });
+    expect(taggedBad.status()).toBe(400);
+    expect((await taggedBad.json()).error).toBe(POLICY_ERROR);
     const tagged = await docs.patch(docId, { tags: ["e2e", "read-confirmation"] });
     expect(tagged.status()).toBe(200);
     const taggedBody = await tagged.json();
@@ -218,6 +223,9 @@ test("mcp update_doc on a confirmed policy: decision_required with a hint until 
     expect(short.out.ok).toBe(false);
     expect(short.out.error).toBe(REASON_ERROR);
 
+    const taggedBad = await mcp(request, minted.token, "update_doc", { id: docId, tags: ["mcp"], ack_policy: "auto" });
+    expect(taggedBad.out.ok, "a bad ack_policy value is refused even on a metadata-only change").toBe(false);
+    expect(taggedBad.out.error).toBe(POLICY_ERROR);
     const tagged = await mcp(request, minted.token, "update_doc", { id: docId, tags: ["mcp"] });
     expect(tagged.out.ok, "metadata only never asks").toBe(true);
 

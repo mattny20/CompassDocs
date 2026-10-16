@@ -402,6 +402,98 @@ describe("approval applies the reviewer's choice, else the submitter's, else the
     assert.equal((await getDocument(id))!.summary, "New summary", "the metadata still applied");
     assert.equal((await marker(id)).ack_version_id, v1);
     assert.ok(await getCurrentAck(id, readerId));
+    assert.equal(auditedAckPolicy(result.ack_outcome), null, "the audit row says nothing was decided, not 'reset'");
+  });
+
+  test("a 'publish' request for a drifted draft is decided at approval against the confirmed version, with no new version row", async () => {
+    const title = `${STAMP} publish of drift`;
+    const { id, v1 } = await confirmedPolicy(title);
+    const alex = { id: editorId, name: "Alex Submitter" };
+    // Unpublish (a pause), edit the draft: the marker waits, nothing decided.
+    await updateDocument(id, { status: "draft", ackActor: alex, ackSource: "edit" });
+    const drafted = await updateDocument(id, { content: EDITORIAL, versionNote: "Reworded while down", ackActor: alex, ackSource: "edit" });
+    assert.equal(drafted!.ack_outcome!.reset, false);
+    const v2 = (await listVersions(id))[0].id;
+    assert.notEqual(v2, v1, "the draft edit wrote a version");
+    assert.equal((await marker(id)).ack_version_id, v1);
+    const doc = (await getDocument(id))!;
+    assert.equal(doc.status, "draft");
+
+    // The editor cannot publish: the publish becomes a 'publish' request
+    // whose text equals the draft. With no recommendation the route's
+    // pre-flight answers 428 against v1 (the confirmed text), as v1's
+    // publish-of-drift does.
+    const next = { title, content: EDITORIAL, status: "published" };
+    const undecided = await propose(id, title, EDITORIAL, { kind: "publish", note: "Publish the reworded draft" });
+    const asked = await ackDecisionRequired(doc, next, {});
+    assert.equal(asked.refusal?.status, 428);
+    assert.equal(asked.refusal?.body.baseline, "v1");
+    assert.equal(asked.refusal?.body.confirmations, 1);
+    assert.equal((await getChangeRequest(undecided))!.kind, "publish");
+
+    // With a recommendation the pre-flight lets it through, and the approval
+    // applies it: the text already equals the live row, so no version is
+    // written and the decision cites the newest version (the draft's).
+    const crId = await propose(id, title, EDITORIAL, {
+      kind: "publish",
+      note: "Publish the reworded draft",
+      ack_policy: "keep",
+      ack_reason: "Reworded clause one while the document was down",
+    });
+    const stored = (await getChangeRequest(crId))!;
+    const ok = await ackDecisionRequired(doc, next, { ack_policy: stored.ack_policy, ack_reason: stored.ack_reason });
+    assert.equal(ok.refusal, null);
+    const result = await approveChangeRequest(crId, approverId, "Priya Approver", "Go ahead");
+    assert.ok(result);
+    assert.equal(result.version_written, false, "the proposed text equals the live row");
+    assert.equal(result.ack_outcome.substantive, true, "but it differs from what people confirmed");
+    assert.equal(result.ack_outcome.reset, false, "kept as recommended");
+    assert.equal(result.ack_outcome.policy, "keep");
+    assert.equal(auditedAckPolicy(result.ack_outcome), "keep");
+    assert.equal((await getDocument(id))!.status, "published");
+    assert.equal((await listVersions(id)).length, 2, "no third version");
+    const [row] = await listAckDecisions(id);
+    assert.equal(row.id, result.ack_outcome.decision_id);
+    assert.equal(row.outcome, "kept");
+    assert.equal(row.version_id, v2, "the newest version: the text that went live");
+    assert.equal(row.submitted_policy, "keep");
+    assert.equal(row.reason, "Reworded clause one while the document was down");
+    assert.equal((await marker(id)).ack_version_id, v1, "a keep never moves the marker");
+    assert.ok(await getCurrentAck(id, readerId), "the reader's confirmation still counts");
+  });
+});
+
+describe("the keep side's reason rule follows Program settings; a reset always needs one (decision 1)", () => {
+  test("ackDecisionRequired lets a keep with an empty reason through when keepReasonRequired is false, and refuses it by default", async () => {
+    const title = `${STAMP} keep reason option`;
+    const { id } = await confirmedPolicy(title);
+    const doc = (await getDocument(id))!;
+    const next = { title, content: EDITORIAL, status: "published" };
+
+    const excused = await ackDecisionRequired(doc, next, { ack_policy: "keep", ack_reason: "" }, { keepReasonRequired: false });
+    assert.equal(excused.refusal, null, "the workspace does not ask for a reason on editorial fixes");
+    assert.deepEqual(excused.decision, { ackPolicy: "keep", ackReason: "" });
+
+    const strict = await ackDecisionRequired(doc, next, { ack_policy: "keep", ack_reason: "" }, { keepReasonRequired: true });
+    assert.equal(strict.refusal?.status, 400);
+    assert.equal(strict.refusal?.body.error, ACK_REASON_ERROR);
+    const byDefault = await ackDecisionRequired(doc, next, { ack_policy: "keep", ack_reason: "typo" });
+    assert.equal(byDefault.refusal?.status, 400, "absent, the option reads true");
+
+    for (const keepReasonRequired of [true, false]) {
+      const reset = await ackDecisionRequired(doc, next, { ack_policy: "reset", ack_reason: "" }, { keepReasonRequired });
+      assert.equal(reset.refusal?.status, 400, `a reset always needs its reason (setting ${keepReasonRequired})`);
+      assert.equal(reset.refusal?.body.error, ACK_REASON_ERROR);
+    }
+  });
+
+  test("ackReasonUsable is the same rule for a stored recommendation", () => {
+    assert.equal(ackReasonUsable("keep", "", { keepReasonRequired: false }), true);
+    assert.equal(ackReasonUsable("keep", "typo", { keepReasonRequired: true }), false);
+    assert.equal(ackReasonUsable("keep", "typo"), false, "absent, the option reads true");
+    assert.equal(ackReasonUsable("keep", "Fixed a typo in clause one"), true);
+    assert.equal(ackReasonUsable("reset", "short", { keepReasonRequired: false }), false, "a reset is never excused");
+    assert.equal(ackReasonUsable("reset", "Everyone must re-read this"), true);
   });
 });
 
@@ -454,18 +546,43 @@ describe("the pre-flight a review decision goes through (PATCH /api/change-reque
     assert.equal(bad.refusal?.body.error, ACK_POLICY_ERROR);
   });
 
-  test("a request that leaves the text and title alone never sees the question, whatever it carries", async () => {
+  test("a request that leaves the text and title alone never sees the question, whatever it carries; only a bad ack_policy value is refused", async () => {
     const title = `${STAMP} preflight metadata`;
     const { id } = await confirmedPolicy(title);
     const doc = (await getDocument(id))!;
     const cr = (await getChangeRequest(await propose(id, title, LONG_TEXT, { summary: "Only the summary" })))!;
-    const { refusal, decision } = await ackDecisionRequired(
-      doc,
-      { title: cr.title, content: cr.content, status: cr.target_status },
-      {}
-    );
+    const next = { title: cr.title, content: cr.content, status: cr.target_status };
+    const { refusal, decision } = await ackDecisionRequired(doc, next, {});
     assert.equal(refusal, null);
     assert.deepEqual(decision, { ackPolicy: "auto", ackReason: "" });
+    // A real policy with no reason: not substantive, so no length rule and
+    // no question; the decision stays 'auto'.
+    const shortKeep = await ackDecisionRequired(doc, next, { ack_policy: "keep", ack_reason: "" });
+    assert.equal(shortKeep.refusal, null);
+    assert.deepEqual(shortKeep.decision, { ackPolicy: "auto", ackReason: "" });
+    // A value that is neither keep nor reset is refused before the
+    // substantive gate (decision 2), so every path answers it as PUT does.
+    for (const bad of ["bogus", "auto", 7]) {
+      const refused = await ackDecisionRequired(doc, next, { ack_policy: bad, ack_reason: "ten characters or more" });
+      assert.equal(refused.refusal?.status, 400, `${String(bad)} on a metadata-only change`);
+      assert.equal(refused.refusal?.body.error, ACK_POLICY_ERROR);
+    }
+    // The same for a document that asks nobody.
+    const plain = await createDocument({
+      space_id: spaceId,
+      title: `${STAMP} preflight plain`,
+      type: "knowledge",
+      status: "published",
+      content: LONG_TEXT,
+      summary: "",
+      tags: [],
+      author: "test",
+    });
+    docIds.push(plain.id);
+    const plainBad = await ackDecisionRequired(plain, { title: plain.title, content: EDITORIAL, status: "published" }, { ack_policy: "auto" });
+    assert.equal(plainBad.refusal?.status, 400);
+    const plainOk = await ackDecisionRequired(plain, { title: plain.title, content: EDITORIAL, status: "published" }, { ack_policy: "keep" });
+    assert.equal(plainOk.refusal, null, "a document without the requirement is never asked");
   });
 });
 

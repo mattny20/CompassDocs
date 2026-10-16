@@ -119,6 +119,15 @@ async function ackCount(docId: number, userId: number): Promise<number> {
   return r.rows[0].n;
 }
 
+/** The details of the newest audit row with this action against this document. */
+const auditDetails = async (action: string, id: number) =>
+  (
+    await pool().query("SELECT details FROM audit_log WHERE action = $1 AND target_id = $2 ORDER BY id DESC LIMIT 1", [
+      action,
+      String(id),
+    ])
+  ).rows[0]?.details;
+
 // Shared by both describes below (node:test runs a describe's `after` before
 // the next describe starts, so the fixtures live at the top level).
 before(async () => {
@@ -1067,6 +1076,8 @@ describe("the per-document edit default (A5): ask, material, reset", () => {
     );
     assert.equal(echo.rows.length, 1, "the kept decision is echoed to the audit log");
     assert.equal(echo.rows[0].details.source, "default");
+    // The scheduler's own row says what it decided (G2), for the kept case too.
+    assert.deepEqual(await auditDetails("document.scheduled_publish", id), { ack_policy: "keep", confirmations_reset: 0 });
   });
 });
 
@@ -1185,13 +1196,6 @@ describe("lifecycle guards (G2, 1.11.0): metadata paths, pauses, branches, side 
   const row = async (id: number) => (await complianceDocs()).find((d) => d.id === id);
   const pendingFor = (userId: number) => listPendingAcksFor(userId, asScope([spaceId, otherSpaceId]));
   const standing = async (userId: number) => (await complianceUserSummary()).find((u) => u.id === userId)!;
-  const auditDetails = async (action: string, id: number) =>
-    (
-      await pool().query("SELECT details FROM audit_log WHERE action = $1 AND target_id = $2 ORDER BY id DESC LIMIT 1", [
-        action,
-        String(id),
-      ])
-    ).rows[0]?.details;
 
   test("bulk tag, type, move and status, setParent, a schedule, and trash and restore keep every confirmation", async () => {
     const { id, v1 } = await confirmedPolicy(`${STAMP} g2 metadata`);
@@ -1374,8 +1378,12 @@ describe("lifecycle guards (G2, 1.11.0): metadata paths, pauses, branches, side 
   test("the image and drop-link side doors keep confirmations, leave a 'kept' row with their source, and the portal's drift chip counts them", async () => {
     const { id, v1 } = await confirmedPolicy(`${STAMP} g2 side doors`, BODY);
 
-    // MCP add_image, exactly as src/app/api/mcp/route.ts calls updateDocument
-    // (the connector needs a token session; the call is the contract).
+    // MCP add_image, exactly as src/app/api/mcp/route.ts calls updateDocument:
+    // the contract as this file can state it without Next's request scope.
+    // The connector itself is driven through tools/call add_image in
+    // test/ack-tokens.test.ts ("the side doors place exactly one image
+    // line"), which asserts the kept row from source 'image', the unchanged
+    // standing and the one-image-line rule for a hostile alt.
     const fresh = (await getDocument(id))!;
     const image = await updateDocument(id, {
       content: withImagePlaced(fresh.content, "![Diagram](/api/attachments/1)", "append"),

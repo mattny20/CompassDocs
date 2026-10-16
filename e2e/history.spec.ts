@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { ADMIN, login, api } from "./helpers";
+import { ADMIN, EDITOR, login, ensureUser, api } from "./helpers";
 
 // 1.9.2 (item D6): version history — pick two versions and the compare
 // header follows; Restore posts and the document carries the older text.
@@ -121,11 +121,17 @@ test("restoring over a confirmed document asks first (428), then restores with t
     expect((await api(page, `/api/documents/${docId}`)).body?.doc?.content).toBe(V2);
 
     // With the decision the restore lands: v1's text is current again, the
-    // confirmation still counts, and the ledger row is a keep from source
-    // "restore" with the reason.
+    // confirmation still counts, the ledger row is a keep from source
+    // "restore" with the reason, and `note` is the version note (the
+    // dialog's change note, as a merge's is).
     const restored = await api(page, `/api/documents/${docId}/versions/${v1}/restore`, {
       method: "POST",
-      body: { label: "1", ack_policy: "keep", ack_reason: "Reverting the shortened deadline; the published rule stands" },
+      body: {
+        label: "1",
+        note: "Back to the 30-day rule",
+        ack_policy: "keep",
+        ack_reason: "Reverting the shortened deadline; the published rule stands",
+      },
     });
     expect(restored.status).toBe(200);
     expect(restored.body?.doc?.content).toBe(V1);
@@ -138,6 +144,8 @@ test("restoring over a confirmed document asks first (428), then restores with t
     expect(after.body?.last_decision?.outcome).toBe("kept");
     expect(after.body?.last_decision?.source).toBe("restore");
     expect(after.body?.last_decision?.reason).toBe("Reverting the shortened deadline; the published rule stands");
+    await page.goto(`/doc/${docId}/history`);
+    await expect(page.getByRole("listitem").filter({ hasText: "v3" }).first(), "the note is the version note").toContainText("Back to the 30-day rule");
 
     // Restoring the confirmed version itself is no question: the text equals
     // what people confirmed, so the call lands without ack_policy and takes
@@ -225,5 +233,107 @@ test("restoring an older version of a confirmed document asks the question from 
     expect(after.body?.last_decision?.reason).toBe("Reverting the shortened deadline; the published rule stands");
   } finally {
     if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
+  }
+});
+
+// 1.11.0 (A6), the queued restore: without publish rights, Restore on an
+// older version of a confirmed document asks the submit-mode question
+// ("Submit changes to a confirmed document?") instead of the plain "will be
+// submitted" confirm, so the request carries the submitter's recommendation
+// and reason; the review queue shows them on the card, and approving applies
+// the recommendation with both sides on the decision row. Licensed builds
+// only.
+test("a restore that queues for review asks the submit question, and the request carries the recommendation", async ({ browser }) => {
+  const adminCtx = await browser.newContext();
+  const adminPage = await adminCtx.newPage();
+  await login(adminPage, ADMIN);
+  await ensureUser(adminPage, EDITOR, "editor", "E2E Editor");
+  const editorCtx = await browser.newContext();
+  const editorPage = await editorCtx.newPage();
+  await login(editorPage, EDITOR);
+
+  const title = `E2E restore submit ${Date.now()}`;
+  const V1 = "Expense claims are paid within 30 days. Receipts are required over 20.";
+  const V2 = "Expense claims are paid within 14 days. Receipts are required over 20.";
+  const REASON = "Reverting the shortened deadline; the published rule stands";
+  let docId: number | undefined;
+  try {
+    const made = await api(adminPage, "/api/documents", {
+      method: "POST",
+      body: { space_id: 1, title, type: "policy", status: "published", content: V1, tags: [] },
+    });
+    expect(made.status).toBe(201);
+    docId = made.body?.doc?.id;
+    const required = await api(adminPage, `/api/documents/${docId}/ack`, { method: "PATCH", body: { required: true } });
+    test.skip(required.status === 402, "policy_ack is not licensed in this build; the EE rig runs the flow");
+    expect(required.status).toBe(200);
+    const edited = await api(adminPage, `/api/documents/${docId}`, {
+      method: "PUT",
+      body: { content: V2, status: "published", ack_policy: "reset", ack_reason: "The payment deadline changed; everyone must re-read", versionNote: "Deadline shortened" },
+    });
+    expect(edited.status).toBe(200);
+    const v2 = (await api(adminPage, `/api/documents/${docId}/ack`)).body?.version_id;
+    expect((await api(adminPage, `/api/documents/${docId}/ack`, { method: "POST", body: { version_id: v2 } })).status).toBe(200);
+    expect((await api(adminPage, `/api/documents/${docId}/ack`)).body?.current).toBe(1);
+
+    // The editor cannot publish: Restore submits, and on a confirmed document
+    // it asks the submit question with the version note prefilled and a
+    // primary that recommends rather than applies.
+    await editorPage.goto(`/doc/${docId}/history`);
+    await expect(editorPage.getByText(/Original v1 → modified v2/)).toBeVisible();
+    const row = editorPage.getByRole("listitem").filter({ hasText: "v1" }).first();
+    await row.getByRole("button", { name: "Restore" }).click();
+    const dialog = editorPage.getByRole("dialog", { name: "Submit changes to a confirmed document?" });
+    await expect(dialog).toBeVisible();
+    await expect(editorPage.getByRole("dialog", { name: /^Restore version 1\?$/ })).toHaveCount(0);
+    await expect(dialog.getByText(/^1 of \d+ (person has|people have) confirmed version 2 of/)).toBeVisible();
+    await expect(dialog.getByText(/^(Looks editorial|Looks material|Borderline)/)).toBeVisible();
+    await expect(dialog.getByLabel("Change note")).toHaveValue(/^Restored version 1 from \d{4}-\d{2}-\d{2}$/);
+    await dialog.getByRole("radio", { name: /^Material change/ }).check();
+    await expect(dialog.getByRole("button", { name: "Submit. Recommend re-confirmation" })).toBeVisible();
+    await dialog.getByRole("radio", { name: /^Editorial fix/ }).check();
+    await expect(dialog.getByRole("button", { name: "Submit. Recommend keeping confirmations" })).toBeVisible();
+    // Escape submits nothing.
+    await editorPage.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+    expect((await api(adminPage, `/api/documents/${docId}`)).body?.doc?.content, "Cancel submits nothing").toBe(V2);
+
+    // Answered: the request is queued with the recommendation; the live
+    // document and the confirmation are untouched while it waits.
+    await row.getByRole("button", { name: "Restore" }).click();
+    const again = editorPage.getByRole("dialog", { name: "Submit changes to a confirmed document?" });
+    await expect(again).toBeVisible();
+    await again.getByRole("radio", { name: /^Editorial fix/ }).check();
+    await again.getByLabel("Change note").fill(REASON);
+    await again.getByRole("button", { name: "Submit. Recommend keeping confirmations" }).click();
+    await expect(editorPage.getByText("Restore submitted for review — an approver or admin will apply it.")).toBeVisible();
+    expect((await api(adminPage, `/api/documents/${docId}`)).body?.doc?.content, "a queued restore changes nothing yet").toBe(V2);
+    expect((await api(adminPage, `/api/documents/${docId}/ack`)).body?.current).toBe(1);
+
+    // The review queue shows the recommendation; approving without an
+    // override applies it, and the decision row records both sides.
+    await adminPage.goto("/review");
+    const card = adminPage.getByRole("article", { name: title });
+    await expect(card.getByText("Keeps 1 confirmation (editorial)")).toBeVisible();
+    await expect(card.getByText(`E2E Editor recommends: editorial fix. "${REASON}"`)).toBeVisible();
+    await card.getByRole("button", { name: "Approve" }).click();
+    const approve = adminPage.getByRole("dialog", { name: "Approve changes to a confirmed document?" });
+    await expect(approve).toBeVisible();
+    await expect(approve.getByRole("radio", { name: /^Editorial fix/ })).toBeChecked();
+    await expect(approve.getByLabel("Change note")).toHaveValue(REASON);
+    await approve.getByRole("button", { name: "Approve. Keep confirmations" }).click();
+    await expect(adminPage.locator('[role="status"]').getByText("Approved. Confirmations kept.")).toBeVisible();
+    expect((await api(adminPage, `/api/documents/${docId}`)).body?.doc?.content, "the older text is current").toBe(V1);
+    const after = await api(adminPage, `/api/documents/${docId}/ack`);
+    expect(after.body?.current, "a keep leaves the confirmation standing").toBe(1);
+    expect(after.body?.last_decision?.outcome).toBe("kept");
+    expect(after.body?.last_decision?.source).toBe("approval");
+    expect(after.body?.last_decision?.submitted_policy).toBe("keep");
+    expect(after.body?.last_decision?.submitted_by_name).toBe("E2E Editor");
+    expect(after.body?.last_decision?.reason).toBe(REASON);
+  } finally {
+    if (docId) await api(adminPage, `/api/documents/${docId}`, { method: "DELETE" });
+    await adminCtx.close();
+    await editorCtx.close();
   }
 });
