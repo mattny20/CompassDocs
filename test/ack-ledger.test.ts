@@ -35,6 +35,9 @@ import {
   createChangeRequest,
   approveChangeRequest,
   backfillVersionProvenance,
+  claimReconfirmation,
+  setAckLastReminded,
+  pendingAckOutboxFor,
 } from "../src/lib/db";
 import { ACK_AUDIT_ACTIONS } from "../src/lib/audit";
 import { fixtureQuery } from "./support/retry";
@@ -600,6 +603,204 @@ describe("version provenance (C6)", () => {
     assert.equal(again.approved_by_name, "Someone Else");
     assert.equal(again.published_by_name, "Renamed");
     assert.equal(await getSetting("migrated_version_provenance"), "1", "the boot ran the one-shot and said so");
+  });
+});
+
+describe("ask everyone to re-confirm (A7)", () => {
+  const manager = () => ({ id: approverId, name: "Led Approver" });
+
+  /** One claim in its own transaction, the way the route runs it (client null) but visible to Promise.all. */
+  const claim = (id: number, reason: string) => async () => {
+    const client = await pool().connect();
+    try {
+      await client.query("BEGIN");
+      const r = await claimReconfirmation(client, id, { source: "manual", reason, actor: manager() });
+      await client.query("COMMIT");
+      return r;
+    } catch (e) {
+      await client.query("ROLLBACK");
+      throw e;
+    } finally {
+      client.release();
+    }
+  };
+
+  const ackRows = async (id: number) =>
+    (await pool().query<{ n: number }>("SELECT COUNT(*)::int AS n FROM acknowledgements WHERE document_id = $1", [id])).rows[0].n;
+
+  test("two parallel claims produce one decision row, one notice and one refusal; the marker and version move; prior confirmations stay", async () => {
+    const { id, v1 } = await confirmedPolicy(`${STAMP} reask`);
+    // A kept edit first, so the newest version is not the confirmed one: the
+    // claim must move the marker onto it without writing a version of its own.
+    await updateDocument(id, {
+      content: LONG_TEXT.replace("Clause 1: staff", "Clause 1: all staff"),
+      ackPolicy: "keep",
+      ackReason: "Clarified who the first clause covers",
+      ackActor: { id: editorId, name: "Led Editor" },
+      ackSource: "edit",
+    });
+    const v2 = (await listVersions(id))[0].id;
+    const before = await marker(id);
+    assert.equal(before.ack_version_id, v1, "the keep left the marker at v1");
+    assert.ok(await getCurrentAck(id, readerId), "the reader's v1 confirmation is current");
+
+    const [a, b] = await Promise.all([
+      claim(id, "Section 4 now applies to contractors too")(),
+      claim(id, "Please read the contractor clause again")(),
+    ]);
+    const won = [a, b].filter((r) => r.claimed);
+    const lost = [a, b].filter((r) => !r.claimed);
+    assert.equal(won.length, 1, "exactly one claim went through");
+    assert.equal(lost.length, 1, "the other was refused");
+    const winner = won[0];
+    const loser = lost[0];
+    if (!winner.claimed || loser.claimed) throw new Error("unreachable");
+    assert.equal(winner.confirmations_reset, 1, "one confirmation went stale");
+    assert.ok(winner.eligible >= 3, "the audience at the time");
+    assert.equal(winner.version_id, v2, "the marker is on the newest version");
+    assert.equal(winner.rev, 2);
+    assert.equal(winner.title, `${STAMP} reask`);
+    assert.equal(winner.space_id, spaceId);
+    assert.ok(winner.decision_id > 0 && winner.outbox_id > 0);
+    assert.ok(loser.last_asked_at, "the refusal says when readers were last asked");
+    assert.equal(
+      new Date(loser.last_asked_at!).toISOString().slice(0, 16),
+      new Date(winner.marker).toISOString().slice(0, 16),
+      "and that stamp is the winner's"
+    );
+
+    // The marker and the version moved once; the Remind cooldown is stamped.
+    const after = await marker(id);
+    assert.equal(after.ack_version_id, v2);
+    assert.notEqual(after.at, before.at);
+    const stamped = await pool().query<{ reminded: string | null; versions: number }>(
+      `SELECT ack_last_reminded_at::text AS reminded,
+              (SELECT COUNT(*)::int FROM doc_versions WHERE document_id = $1) AS versions
+       FROM documents WHERE id = $1`,
+      [id]
+    );
+    assert.ok(stamped.rows[0].reminded, "the cooldown is stamped");
+    assert.equal(stamped.rows[0].versions, 2, "no version row was written");
+
+    // One ledger row for the re-ask (beside the kept edit), from the claim that won.
+    const rows = await listAckDecisions(id);
+    assert.equal(rows.length, 2, "the kept edit and one reset: the refused claim wrote nothing");
+    const [reset, kept] = rows;
+    assert.equal(kept.outcome, "kept");
+    assert.equal(reset.id, winner.decision_id);
+    assert.equal(reset.outcome, "reset");
+    assert.equal(reset.source, "manual");
+    assert.equal(reset.scope, "all");
+    assert.ok(
+      ["Section 4 now applies to contractors too", "Please read the contractor clause again"].includes(reset.reason),
+      "the reason is the winner's"
+    );
+    assert.equal(reset.version_id, v2);
+    assert.equal(reset.rev, 2);
+    assert.equal(reset.decided_by, approverId);
+    assert.equal(reset.decided_by_name, "Led Approver");
+    assert.equal(reset.confirmations_affected, 1);
+    assert.equal(reset.change_pct, null, "nothing was measured: the text did not change");
+    assert.equal(reset.notified_at, null, "the drain stamps it later");
+    const same = await pool().query(
+      "SELECT (x.decided_at = d.ack_revision_at) AS same FROM ack_decisions x JOIN documents d ON d.id = x.document_id WHERE x.id = $1",
+      [reset.id]
+    );
+    assert.equal(same.rows[0].same, true, "the row and the marker carry one stamp");
+
+    // One notice, immediate, for everyone pending at delivery, with the reason as the body.
+    const queued = await pendingAckOutboxFor(id);
+    assert.equal(queued.length, 1, "one outbox row: the refused claim queued nothing");
+    assert.equal(queued[0].id, winner.outbox_id);
+    assert.equal(queued[0].mode, "updated");
+    assert.equal(queued[0].source, "manual");
+    assert.equal(queued[0].reason, reset.reason);
+    assert.equal(queued[0].user_ids, null);
+    assert.equal(queued[0].actor_id, approverId);
+    assert.ok(new Date(queued[0].not_before).getTime() <= Date.now() + 1000, "manual asks go out at once");
+
+    // Everyone is asked again; the old row stays in the ledger.
+    assert.equal(await getCurrentAck(id, readerId), undefined, "the reader is pending again");
+    assert.equal(await ackRows(id), 1, "the prior confirmation is kept, not deleted");
+    const s = await ackSummary(id);
+    assert.equal(s.current, 0);
+    assert.equal(s.version_id, v2);
+    assert.equal(s.last_decision!.id, reset.id);
+  });
+
+  test("the one-hour guard refuses a claim inside the hour after any ask, request or reminder, and lets one through after it", async () => {
+    const { id, v1 } = await confirmedPolicy(`${STAMP} guard`);
+    // A Request or Remind stamp blocks a re-ask too: the three share the hour.
+    await setAckLastReminded(id);
+    const blocked = await claimReconfirmation(null, id, { source: "manual", reason: "Blocked by the reminder stamp", actor: manager() });
+    assert.equal(blocked.claimed, false);
+    assert.ok(!blocked.claimed && blocked.last_asked_at, "the reminder's stamp is reported");
+    assert.equal((await listAckDecisions(id)).length, 0, "nothing was written");
+    assert.ok(await getCurrentAck(id, readerId), "the confirmation still counts");
+
+    // An hour later (the stamp moved back), the claim goes through on its own transaction.
+    await pool().query("UPDATE documents SET ack_last_reminded_at = now() - interval '61 minutes' WHERE id = $1", [id]);
+    const first = await claimReconfirmation(null, id, { source: "manual", reason: "Out-of-band event: re-read it", actor: manager() });
+    assert.equal(first.claimed, true);
+    if (!first.claimed) throw new Error("unreachable");
+    assert.equal(first.confirmations_reset, 1);
+    assert.equal(first.version_id, v1, "no newer version: the marker stays on v1 with a new stamp");
+    assert.equal(await getCurrentAck(id, readerId), undefined);
+
+    // Straight after, the hour guard refuses again and reports the re-ask's own stamp.
+    const second = await claimReconfirmation(null, id, { source: "manual", reason: "Asking twice in a minute", actor: manager() });
+    assert.equal(second.claimed, false);
+    if (second.claimed) throw new Error("unreachable");
+    assert.ok(second.last_asked_at);
+    assert.ok(new Date(second.last_asked_at!).getTime() >= Date.now() - 60_000, "the stamp is this minute's");
+    assert.equal((await listAckDecisions(id)).length, 1, "still one reset row");
+    assert.equal((await pendingAckOutboxFor(id)).length, 1, "still one notice");
+  });
+
+  test("a rollback leaves no marker, no row and no notice; a document that does not take confirmations is refused without a stamp; a per-person list is refused until D4", async () => {
+    const { id } = await confirmedPolicy(`${STAMP} rollback`);
+    const before = await marker(id);
+    const client = await pool().connect();
+    try {
+      await client.query("BEGIN");
+      const r = await claimReconfirmation(client, id, { source: "manual", reason: "Will be rolled back", actor: manager() });
+      assert.equal(r.claimed, true);
+      await client.query("ROLLBACK");
+    } finally {
+      client.release();
+    }
+    assert.deepEqual(await marker(id), before, "the marker is where it was");
+    assert.equal((await listAckDecisions(id)).length, 0);
+    assert.equal((await pendingAckOutboxFor(id)).length, 0);
+    assert.ok(await getCurrentAck(id, readerId), "the confirmation still counts");
+
+    await assert.rejects(
+      claimReconfirmation(null, id, { source: "manual", reason: "One person only", actor: manager(), userIds: [readerId] }),
+      /audiences/
+    );
+
+    await setAckRequired(id, false);
+    const off = await claimReconfirmation(null, id, { source: "manual", reason: "Requirement is off now", actor: manager() });
+    assert.deepEqual(off, { claimed: false, last_asked_at: null });
+    assert.deepEqual(await marker(id), before);
+    const gone = await claimReconfirmation(null, -1, { source: "manual", reason: "No such document", actor: manager() });
+    assert.deepEqual(gone, { claimed: false, last_asked_at: null });
+  });
+
+  test("the recurrence source is the same statement, immediate, with its sentence as the reason", async () => {
+    const { id } = await confirmedPolicy(`${STAMP} recurrence`);
+    const reason = "Annual re-confirmation: it has been 12 months since you confirmed this document.";
+    const r = await claimReconfirmation(null, id, { source: "recurrence", reason, actor: { id: null, name: "system" } });
+    assert.equal(r.claimed, true);
+    const [row] = await listAckDecisions(id);
+    assert.equal(row.source, "recurrence");
+    assert.equal(row.reason, reason);
+    assert.equal(row.decided_by, null);
+    assert.equal(row.decided_by_name, "system");
+    const [notice] = await pendingAckOutboxFor(id);
+    assert.equal(notice.source, "recurrence");
+    assert.equal(notice.actor_name, "system");
+    assert.ok(new Date(notice.not_before).getTime() <= Date.now() + 1000, "recurrence goes out at once too");
   });
 });
 

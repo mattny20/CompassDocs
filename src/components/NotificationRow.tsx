@@ -15,6 +15,7 @@ import {
   ClipboardCheck,
 } from "lucide-react";
 import { timeAgo } from "@/lib/ui";
+import { CONFIRM_SECTION_ID } from "@/lib/use-reached-end";
 
 export interface NotificationItem {
   id: number;
@@ -37,6 +38,22 @@ const KIND_ICON: Record<string, React.ReactNode> = {
   ack_requested: <ClipboardCheck className="h-4 w-4" aria-hidden />,
 };
 
+/** The inbox kinds that ask for a read confirmation (a request, a reminder, a re-confirmation notice all share one kind). */
+const ACK_KINDS = new Set(["ack_requested"]);
+
+/**
+ * Where a notification opens. A read-confirmation notice lands on the
+ * confirmation card at the end of the document (H1, 1.10.1): the outbox
+ * writes `/doc/{id}#confirm-reading`, and rows written before 1.10.1 carry
+ * the bare document link, so the hash is added here for the ack kinds when
+ * it is missing. Every other kind opens exactly what it stored.
+ */
+export function notificationHref(item: Pick<NotificationItem, "kind" | "link">): string {
+  const link = item.link || "";
+  if (!ACK_KINDS.has(item.kind) || !link || link.includes("#")) return link;
+  return /^\/doc\/\d+/.test(link) ? `${link}#${CONFIRM_SECTION_ID}` : link;
+}
+
 export function NotificationRow({
   item,
   onOpen,
@@ -47,9 +64,10 @@ export function NotificationRow({
   /** The dropdown's tighter row; the page uses the default. */
   dense?: boolean;
 }) {
+  const href = notificationHref(item);
   return (
     <button
-      onClick={() => onOpen(item)}
+      onClick={() => onOpen(href === item.link ? item : { ...item, link: href })}
       className={`flex w-full items-start gap-2.5 text-left transition hover:bg-slate-50 ${
         dense ? "px-3 py-2.5" : "px-4 py-3"
       } ${item.read_at ? "opacity-70" : ""}`}

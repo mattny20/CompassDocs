@@ -197,6 +197,120 @@ test("remind asks 'Remind N people?' and is refused inside the hour; stop requir
   }
 });
 
+test("the row's re-ask opens the question, refuses a short reason, resets the roster, and is refused inside the hour", async ({ page }) => {
+  test.setTimeout(90_000);
+  await login(page, ADMIN);
+  const title = `E2E portal reask ${stamp()}`;
+  const reason = "Section 4 now applies to contractors too";
+  let docId: number | undefined;
+  try {
+    docId = await makePolicy(page, title);
+    test.skip(!(await portalLicensed(page)), "policy_ack is not licensed in this build; the EE rig runs the flow");
+
+    // Required quietly: no notice, and no cooldown stamp to trip the guard.
+    const on = await api(page, "/api/admin/compliance", {
+      method: "POST",
+      body: { docId, action: "request", notify: false },
+    });
+    expect(on.status, "requested quietly").toBe(200);
+
+    // Nobody has confirmed: the control is off, with its tooltip, and
+    // nothing can be reset.
+    await page.goto("/compliance");
+    const row = page.locator("li", { hasText: title });
+    await expect(row).toBeVisible();
+    const reask = row.getByRole("button", { name: "Ask everyone to re-confirm…" });
+    await expect(reask, "nothing to reset yet").toBeDisabled();
+    await expect(row.locator('[data-tt="Nobody has confirmed this version yet. Use Remind."]')).toHaveCount(1);
+
+    // The admin confirms the current version through the API; the control comes alive.
+    const summary = await api(page, `/api/documents/${docId}/ack`);
+    expect(summary.status).toBe(200);
+    const confirmed = await api(page, `/api/documents/${docId}/ack`, {
+      method: "POST",
+      body: { version_id: summary.body?.latest_version_id },
+    });
+    expect(confirmed.status, "the admin confirmed").toBe(200);
+    await page.reload();
+    await expect(row).toBeVisible();
+    await expect(reask).toBeEnabled();
+
+    // The question: the policy's name, the standing, one reason field, and
+    // a button that says how many people it asks.
+    await reask.click();
+    const dialog = page.getByRole("dialog", { name: `Ask everyone to re-confirm "${title}"?` });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText(/^1 of \d+ people have confirmed version 1\. This resets those confirmations/)).toBeVisible();
+    const field = dialog.getByLabel("Why are readers being asked again?");
+    const submit = dialog.getByRole("button", { name: "Ask 1 person to re-confirm" });
+    await expect(submit).toBeVisible();
+
+    // A short reason is refused inline; nothing is sent or audited.
+    await field.fill("Too short");
+    await submit.click();
+    await expect(dialog.getByText("Give a reason of at least 10 characters.")).toBeVisible();
+    await expect(dialog).toBeVisible();
+    expect((await auditRows(page, "ack.reconfirmation_requested", docId)).length, "a refused reason writes nothing").toBe(0);
+    expect((await api(page, `/api/documents/${docId}/ack`)).body?.current, "and resets nothing").toBe(1);
+
+    // Cancel sends nothing either.
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+    await expect(dialog).toHaveCount(0);
+    expect((await api(page, `/api/documents/${docId}/ack`)).body?.current).toBe(1);
+
+    // A real reason: the toast counts, the roster resets, the record keeps the old row.
+    await reask.click();
+    await expect(dialog).toBeVisible();
+    await field.fill(reason);
+    await submit.click();
+    await expect(page.locator('[role="status"]').getByText("1 person will be asked to re-confirm.")).toBeVisible();
+    await expect(dialog).toHaveCount(0);
+    const after = await api(page, `/api/documents/${docId}/ack`);
+    expect(after.body?.current, "everyone is pending again").toBe(0);
+    expect(after.body?.pending).toBeGreaterThanOrEqual(1);
+    expect(after.body?.version_id, "the marker stays on the only version").toBe(summary.body?.latest_version_id);
+    expect(after.body?.last_decision?.outcome).toBe("reset");
+    expect(after.body?.last_decision?.source).toBe("manual");
+    expect(after.body?.last_decision?.reason).toBe(reason);
+    expect(after.body?.last_decision?.confirmations_affected).toBe(1);
+    const roster = await api(page, `/api/documents/${docId}/acknowledgements`);
+    expect(roster.status).toBe(200);
+    expect(
+      (roster.body?.rows ?? []).every((r: { acknowledged_at: string | null }) => !r.acknowledged_at),
+      "the roster shows everyone Pending"
+    ).toBe(true);
+    const audited = await auditRows(page, "ack.reconfirmation_requested", docId);
+    expect(audited.length).toBe(1);
+    expect(audited[0].details?.reset).toBe(1);
+    expect(audited[0].details?.reason).toBe(reason);
+    expect(audited[0].details?.version_id).toBe(summary.body?.latest_version_id);
+
+    // The row reloaded: 0 confirmed, so the control is off again.
+    await expect(row.getByRole("button", { name: "Ask everyone to re-confirm…" })).toBeDisabled();
+
+    // The API's own rules: the hour guard, the reason rule, and the
+    // per-person list that arrives with audiences (D4).
+    const again = await api(page, `/api/documents/${docId}/ack/reconfirm`, {
+      method: "POST",
+      body: { reason: "Asking again straight away, for the test" },
+    });
+    expect(again.status, "a second ask inside the hour is 429").toBe(429);
+    expect(again.body?.error).toMatch(/^Readers were asked again \d+ minutes? ago\.$/);
+    const short = await api(page, `/api/documents/${docId}/ack/reconfirm`, { method: "POST", body: { reason: "short" } });
+    expect(short.status).toBe(400);
+    expect(short.body?.error).toBe("A reason of at least 10 characters is required.");
+    const perPerson = await api(page, `/api/documents/${docId}/ack/reconfirm`, {
+      method: "POST",
+      body: { reason: "One person, which D4 brings later", user_ids: [1] },
+    });
+    expect(perPerson.status).toBe(400);
+    expect(perPerson.body?.error).toBe("Per-person re-asks arrive with audiences.");
+    expect((await auditRows(page, "ack.reconfirmation_requested", docId)).length, "none of the refusals is on the record").toBe(1);
+  } finally {
+    if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
+  }
+});
+
 test("the matrix and the per-policy record download as CSV", async ({ page }) => {
   await login(page, ADMIN);
   const title = `E2E portal csv ${stamp()}`;

@@ -3,9 +3,11 @@ import { ClipboardCheck, Download } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { PageContainer } from "@/components/PageWidth";
 import { buttonClass } from "@/components/Button";
+import { ReconfirmButton } from "@/components/ReconfirmButton";
 import { getAckVersionInfo, lastAckDecision } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings-store";
 import { formatDate, settingsForUser } from "@/lib/format";
+import { userHolds } from "@/lib/access";
 import { AckSubnav } from "./AckSubnav";
 import { confirmationSentence } from "./ack-sentence";
 import { ackPageContext, cachedAckRows } from "./data";
@@ -29,15 +31,22 @@ export default async function AcknowledgementsLayout({
   // The newest reset is the ask behind the current marker
   // (resetAcknowledgements is the only code that moves it); kept edits on
   // top of it change the History tab, not this sentence.
-  const [rows, version, asked, settings] = await Promise.all([
+  const [rows, version, asked, settings, mayRequire, mayManage] = await Promise.all([
     cachedAckRows(doc.id),
     getAckVersionInfo(doc.id),
     lastAckDecision(doc.id, { outcome: "reset" }),
     getAppSettings(),
+    // The re-ask's own gate (A7): the reconfirm route takes the same OR.
+    userHolds(user, "document.ack_require", { spaceId: doc.space_id, legacyMin: "approver" }),
+    userHolds(user, "compliance.program_manage", { legacyMin: "admin" }),
   ]);
   const fmt = settingsForUser(settings, user);
+  const current = rows.filter((r) => r.acknowledged_at).length;
+  // Only a published document that requires confirmation can be re-asked;
+  // the record page itself is readable either way.
+  const canReask = doc.status === "published" && doc.ack_required === 1 && (mayRequire || mayManage);
   const subtitle = confirmationSentence({
-    current: rows.filter((r) => r.acknowledged_at).length,
+    current,
     eligible: rows.length,
     rev: version.rev,
     author: version.author,
@@ -56,13 +65,24 @@ export default async function AcknowledgementsLayout({
         actions={
           // The record is printed as evidence: controls stay off paper
           // (STYLEGUIDE §Print), as does the Record · History row below.
-          <a
-            href={`/api/documents/${doc.id}/acknowledgements?format=csv`}
-            data-tt="Download the record as CSV"
-            className={buttonClass("secondary", "md", "print:hidden")}
-          >
-            <Download className="h-4 w-4" /> Export CSV
-          </a>
+          <>
+            {canReask && (
+              <ReconfirmButton
+                docId={doc.id}
+                title={doc.title}
+                summary={{ current, eligible: rows.length, rev: version.rev }}
+                size="md"
+                className="print:hidden"
+              />
+            )}
+            <a
+              href={`/api/documents/${doc.id}/acknowledgements?format=csv`}
+              data-tt="Download the record as CSV"
+              className={buttonClass("secondary", "md", "print:hidden")}
+            >
+              <Download className="h-4 w-4" /> Export CSV
+            </a>
+          </>
         }
         className="mb-4"
       />

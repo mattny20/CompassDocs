@@ -4,6 +4,230 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.10.1] - 2026-10-16
+
+Read confirmation, part two: tell people once, a settings popover on the
+shield, a deliberate re-ask, and a portal that asks before it sends.
+(Enterprise, `policy_ack`.)
+
+### Added
+- **Tell people once.** A material change now tells everyone whose
+  confirmation lapsed. Every read-confirmation notice (the portal's
+  Request and Remind, and the new re-confirmation notice after a reset)
+  is a row in a notification outbox, delivered within a minute by
+  whichever instance's timer gets there first, never on the request path:
+  a save of a 500-reader policy returns at once and no proxy timeout can
+  leave half the people emailed. A reset queues its notice inside its own
+  transaction (a rolled-back approval or merge tells nobody); notices from
+  a text save (edit, merge, restore, approval, schedule, the API and MCP)
+  wait two minutes and merge, and a person who already heard about a
+  document that day is not told again, so three saves in an afternoon are
+  one notice. A manual "ask everyone to re-confirm" always delivers.
+  In-app: "Changed. Please re-confirm "Expense policy"" with "{who}
+  changed "{title}": {change note}. Please read the changes and confirm
+  again."; every link lands on the confirmation card
+  (`/doc/{id}#confirm-reading`), including notices written before 1.10.1.
+  The audit entry `ack.reset_notified` (`ack.requested` /
+  `ack.reminder_sent` for the portal's actions) is written when the
+  delivery finishes, with the real counts
+  `{pending, emailed, noticed, skipped_recent}`.
+- **A per-person notice log.** Every notice is provable per recipient:
+  `ack_notices` keeps who was told, about which policy, in what way
+  (request, reminder, updated), when, by whom, and the channels that
+  actually went out (`inapp`, `email` only when the mail server accepted
+  it, `webhook`). A row whose channels lack `email` because the person
+  turned the read-confirmation email off reads "email opted out". The row
+  outlives the account (name and email snapshot) and the policy (title
+  snapshot), and anonymising a person rewrites it like every other record.
+  A delivery that fails (SMTP down, a template that will not render) keeps
+  its row for a retry after ten minutes, up to three attempts; the retry
+  resumes from the notice log, emailing only the people the first attempt
+  could not reach and never repeating an inbox row. The third failure is
+  audited `ack.notice_failed` with the error.
+- **The shield is a popover.** The read-confirmation shield on a document
+  opens **Read confirmation** instead of toggling: **Require readers to
+  confirm**, the standing ("42 of 50 confirmed · v12 · asked 3 Mar 2026 by
+  Matt", or "Required 3 Oct by Matt (no notice sent)") with **View
+  record**, **Ask everyone to re-confirm…**, and **When the text
+  changes**, the per-document edit default: *Ask the editor each time*,
+  *Ask only when a change looks material* or *Always ask everyone to
+  re-confirm* (the workspace default is marked). Switching the requirement
+  on asks "Require read confirmation?" with the audience ("Everyone who
+  can see this space (42 people) will be asked to read and confirm this
+  document.") and **Require and notify** / **Require quietly**; Cancel
+  leaves it off. Switching it off keeps the record and offers **Undo** in
+  the toast. Under *material* the editor's question opens only for a
+  change the heuristic calls material or borderline; an editorial-looking
+  save is kept without asking ("Saved as an editorial fix (document
+  setting). Confirmations kept."). Under *always* nothing is asked, the
+  note is required and the toast says how many people will be asked. The
+  approver's progress row left the notice strip: the popover carries it,
+  so an approver who is also a reader no longer sees two rows. The portal
+  shows the setting as a chip (**Asks editor** / **Asks when material** /
+  **Always re-asks**).
+- **Ask everyone to re-confirm, without editing.** Until now the only way
+  to ask readers again was to change the text. **Ask everyone to
+  re-confirm…** sits in three places that always read the same: the
+  popover, the Read confirmation page header beside **Export CSV**, and
+  the compliance portal's policy row beside **Remind**. It opens one
+  question, *Ask everyone to re-confirm "Expense policy"?*, with the
+  standing ("42 of 50 people have confirmed version 12. This resets those
+  confirmations, notifies everyone who can see the document, and shows
+  them your reason.") and one required field, **Why are readers being
+  asked again?** (10 characters or more). The button says what it does:
+  **Ask 42 people to re-confirm**. On success the toast reads "42 people
+  will be asked to re-confirm." and the roster shows everyone Pending; the
+  prior confirmations stay in the record, tied to the version they
+  covered. When nobody has confirmed the current version the control is
+  disabled with "Nobody has confirmed this version yet. Use Remind." No
+  version is written: the text did not change. The marker, the version it
+  points at and the Remind cooldown move in a single database statement
+  whose guard is the cooldown itself, so two managers, two tabs or two
+  instances asking at once produce exactly one reset, one ledger row and
+  one notice; the other is answered 429 "Readers were asked again 12
+  minutes ago." Request, Remind and the re-ask share that hour. Anyone who
+  may require read confirmation on the space (`document.ack_require`) or
+  run the compliance programme (`compliance.program_manage`) may ask.
+- **The portal asks before it sends anything.** **Request read
+  confirmation** opens the same question as the shield (*Require read
+  confirmation for "Expense policy"?*, the audience, **Require and
+  notify** / **Require quietly**); Cancel sends nothing and switches
+  nothing on. **Remind** asks too, because sending mail cannot be undone:
+  *Remind 88 people?* ends "This cannot be undone." and the button reads
+  **Send reminders**. Each policy row gains **Stop requiring** (the record
+  is kept; the toast carries **Undo**, which switches it back on quietly).
+  The toasts say what was queued: "Read confirmation required: 42 people
+  will be notified." / "Reminders queued for 88 people".
+- **The read / manage / export split is enforced.** The three compliance
+  permissions were defined in 1.9.x but never checked: anyone granted the
+  Compliance section could mail the workspace and export the matrix.
+  Every portal handler now carries its own key: `compliance.program_read`
+  opens the portal and its JSON, `compliance.program_manage` is needed to
+  request, remind, stop or change the program settings,
+  `compliance.export` to download any CSV. A role without a key is
+  answered 403, and the portal hides the controls a read-only holder
+  cannot use. Every export writes one audit row, `ack.export`, with the
+  format (`matrix` or `roster`), the document, the row count and whether
+  the IP column was filled. The per-policy record gains two trailing
+  columns, `ip` and `user_agent`, filled only for a caller who also holds
+  `compliance.export`; a roster reader without it still gets the version,
+  hash and name columns an auditor verifies against, with the IP left
+  blank (`user_agent` is reserved and blank: the record does not store it
+  yet).
+- **Program settings.** The portal gains **Settings**, which opens
+  `/compliance/settings` for anyone who holds `compliance.program_manage`:
+  the defaults every policy inherits, on one page with one Save row and an
+  unsaved-changes guard. **Editing**: **When the text of a policy
+  changes** (the edit default a policy receives when it is first set to
+  require read confirmation) and **Require a reason for editorial fixes
+  too** (on by default). **Confirmation statement**: the **Default
+  statement** on the card at the end of every policy, with a live preview
+  (one sentence of up to 300 characters; the house sentence until
+  changed). Until an administrator changes something, every default
+  reproduces the behaviour the product already had. Deadlines, reminders,
+  annual re-confirmation, evidence and the typed signature arrive with the
+  items that honour them, so the page never shows a control nothing
+  reads.
+- **Who published and approved the version.** Each version now records
+  who published it and, when it came through a change request, who
+  approved it and which request carried it. The read-confirmation summary
+  exposes `published_by_name` / `approved_by_name` for the version people
+  confirmed and for the newest version; the card and the version history
+  say "published 3 Mar 2026 by Matt · approved by Priya", and both CSVs
+  gain `version_published_by` and `version_approved_by`. Versions written
+  before 1.10.1 get the publisher's name from the byline and the
+  approver's name from the "approved by" note where one was written; the
+  rest stays blank.
+- **Email template.** The *Read confirmation request* template gains the
+  tags `change_note`, `reason`, `due_date` and `days_left` (blank when
+  they do not apply), `request_label` now reads *Action required*,
+  *Reminder*, *Updated* or *Annual re-confirmation*, the body says "read
+  and confirm" and ends with "Open the document and confirm at the end
+  that you have read and understood it." The subject is unchanged. A
+  workspace that edited the template keeps its own wording and adopts the
+  new tags and sentence when it next edits or resets it.
+- **API.** `PATCH /api/documents/{id}/ack` takes `{ required?,
+  edit_default?, notify? }` (400 with no known field) and answers
+  `{ ok, ack_required, edit_default, queued, eligible }`; the summary
+  carries `edit_default` and `workspace_edit_default`. `POST
+  /api/documents/{id}/ack/reconfirm { reason }` answers `{ ok, reset,
+  queued }` (400 when the document is not published or not required, or
+  the reason is under 10 characters; 402 unlicensed; 403 without either
+  permission; 404 outside the caller's space scope; 429 inside the hour;
+  `user_ids` is accepted and refused with "Per-person re-asks arrive with
+  audiences." until the per-person re-ask ships). `POST
+  /api/admin/compliance` validates `action` against `request` | `remind`
+  | `stop` and answers 400 `Unknown action.` otherwise (before 1.10.1
+  anything but `remind` meant `request`, so a malformed call switched a
+  policy on and mailed everyone); `request` accepts `notify: false` and
+  answers `{ ok, queued, eligible }`, `remind` answers `{ ok, queued }`,
+  `stop` answers `{ ok, acked, required }`; `GET
+  /api/admin/compliance?preview={docId}` returns `{ eligible, pending,
+  required }` and the GET payload gains `can: { manage, export }`. `GET`
+  and `PUT /api/admin/compliance/settings` read and write the program
+  settings (`PUT` takes any subset, validates every key and answers 400
+  with the key named; the response echoes the saved settings and
+  `changed`).
+- **Audit.** `document.ack_required { notify, eligible, queued }` and
+  `document.ack_removed { acked, required }` from the shield and the
+  portal; `ack.edit_default_set { from, to }`;
+  `ack.reconfirmation_requested` with the reason, the version, `reset`,
+  `eligible`, `queued` and the ledger and outbox row ids; `ack.export`;
+  `settings.compliance` ("Updated compliance settings"), one row per
+  changed key with `{ key, from, to }`; `ack.notice_failed`.
+- New tests: the integration suite grows with the outbox and the notice
+  log (coalescing, the daily rule, retries that never repeat a row,
+  rollback leaves no notice), the program settings, the re-ask (two
+  parallel claims produce one reset and one refusal, the shared hour, no
+  version written), version provenance and the per-document edit default;
+  e2e specs for the portal's questions, Stop requiring with Undo, both
+  CSV downloads, the re-ask flow, a read-only compliance role and the
+  popover.
+
+### Changed
+- The portal's **Request** and **Remind** queue instead of sending: the
+  response says how many people will be told, the one-hour Remind
+  cooldown is unchanged, and a request that requires without notifying
+  starts no cooldown. The 429 inside the hour reads "A reminder went out
+  less than an hour ago. Give people a moment."
+- **Compliance portal hygiene.** Every portal action runs through the
+  house `useAction()` with toasts (no more top-of-page notice banners),
+  the People table and the per-policy roster are the house `Table` with a
+  `Pager` (50 rows a page), the roster expand shows **Confirmed** /
+  **Pending** chips with the time and the version confirmed, a roster that
+  cannot be loaded says so in a toast and folds the row back, and a
+  policy's cached roster is dropped after Request, Remind, Stop requiring
+  and Undo. The licence gate offers **Open License** only to someone who
+  can open Settings → License.
+- `notify()` (the inbox fan-out) reports what it reached (`{inbox,
+  webhook}` counts and the ids behind them) instead of returning nothing,
+  and an inbox insert skips an account deleted a moment earlier instead of
+  failing the whole batch.
+- Read confirmation request emails say "read and confirm", never
+  "acknowledge".
+
+### Upgrading
+- The schema adds the tables `ack_notices` and `ack_outbox`,
+  `documents.ack_edit_default`, and five columns on `doc_versions`
+  (`published_by`, `published_by_name`, `approved_by`, `approved_by_name`,
+  `change_request_id`; created once in a guarded block, so a later boot
+  takes no lock on versions). A one-shot backfill fills the provenance
+  names for existing versions and records `migrated_version_provenance =
+  1` in settings. Existing policies start on *Ask the editor each time*;
+  the workspace default applies to policies first required after the
+  upgrade.
+- Nothing is sent for anything that happened before the upgrade: the
+  notice log starts now. Delivered outbox rows are dropped after 30 days
+  by the hourly maintenance; failed ones stay with their error.
+- A custom role that held only `compliance.program_read` could request,
+  remind and export before 1.10.1; it cannot now. Grant
+  `compliance.program_manage` and/or `compliance.export` to the roles that
+  should run or export the programme (the built-in Compliance manager
+  role holds all three).
+- **Rollback to 1.10.0 is supported.** 1.10.0 ignores the new tables and
+  columns; rows queued and not yet delivered are delivered when 1.10.1
+  boots again (the drain only runs there).
+
 ## [1.10.0] - 2026-10-16
 
 Read confirmation, part one: no more silent resets, and the confirmation
