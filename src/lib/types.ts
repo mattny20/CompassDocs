@@ -384,6 +384,8 @@ export interface AckOutboxRow {
   emailed: number | null;
   noticed: number | null;
   error: string | null;
+  /** The sending request's origin kept for the links; '' when no request queued the row (1.10.1). */
+  origin: string;
 }
 
 export interface SearchHit {

@@ -5262,19 +5262,24 @@ export async function setAckRequired(
     return { switched_on: false, edit_default: editDefaultOf(r[0]) };
   }
   const apply = opts.editDefault === undefined ? await workspaceEditDefault() : opts.editDefault;
-  const r = await q<{ ack_edit_default: string; was_off: boolean }>(
-    `UPDATE documents d
+  // The flip is the claim: `ack_required = 0` in the WHERE is re-checked
+  // against the row as updated by a concurrent call (READ COMMITTED), so of
+  // two simultaneous switch-ons exactly one gets a row back. A snapshot
+  // subquery here would let both report switched_on.
+  const r = await q<{ ack_edit_default: string }>(
+    `UPDATE documents
      SET ack_required = 1,
          ack_edit_default = CASE
-           WHEN d.ack_required = 0 AND d.ack_edit_default = 'ask' AND $2::text IS NOT NULL THEN $2::text
-           ELSE d.ack_edit_default
+           WHEN ack_edit_default = 'ask' AND $2::text IS NOT NULL THEN $2::text
+           ELSE ack_edit_default
          END
-     FROM (SELECT id, ack_required AS before FROM documents WHERE id = $1) o
-     WHERE d.id = o.id
-     RETURNING d.ack_edit_default, (o.before = 0) AS was_off`,
+     WHERE id = $1 AND ack_required = 0
+     RETURNING ack_edit_default`,
     [docId, apply]
   );
-  return { switched_on: Boolean(r[0]?.was_off), edit_default: editDefaultOf(r[0]) };
+  if (r[0]) return { switched_on: true, edit_default: editDefaultOf(r[0]) };
+  const cur = await q<{ ack_edit_default: string }>("SELECT ack_edit_default FROM documents WHERE id = $1", [docId]);
+  return { switched_on: false, edit_default: editDefaultOf(cur[0]) };
 }
 
 /**

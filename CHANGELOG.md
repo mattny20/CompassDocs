@@ -22,7 +22,12 @@ shield, a deliberate re-ask, and a portal that asks before it sends.
   a text save (edit, merge, restore, approval, schedule, the API and MCP)
   wait two minutes and merge, and a person who already heard about a
   document that day is not told again unless they confirmed it since, so
-  three saves in an afternoon are one notice. A manual "ask everyone to re-confirm" always delivers.
+  three saves in an afternoon are one notice. A manual "ask everyone to
+  re-confirm" always delivers. Links in a notice use the custom domain
+  when one is set; otherwise they use the address of the request that
+  queued it (the portal, the editor's save), carried on the queue row, so
+  a workspace without a custom domain still gets absolute links and
+  nothing is remembered from one request to the next.
   In-app: "Changed. Please re-confirm "Expense policy"" with "{who}
   changed "{title}": {change note}. Please read the changes and confirm
   again."; every link lands on the confirmation card
@@ -30,7 +35,11 @@ shield, a deliberate re-ask, and a portal that asks before it sends.
   The audit entry `ack.reset_notified` (`ack.requested` /
   `ack.reminder_sent` for the portal's actions) is written when the
   delivery finishes, with the real counts
-  `{pending, emailed, noticed, skipped_recent}`.
+  `{pending, emailed, noticed, skipped_recent}`. Two Requests at once (a
+  double submit, two managers, the portal and the popover) queue one
+  notice: only the call that switched the requirement on queues it, and
+  Remind's one-hour limit is one atomic claim, so two clicks in the same
+  second send one reminder and the other answers 429.
 - **A per-person notice log.** Every notice is provable per recipient:
   `ack_notices` keeps who was told, about which policy, in what way
   (request, reminder, updated), when, by whom, and the channels that
@@ -38,12 +47,20 @@ shield, a deliberate re-ask, and a portal that asks before it sends.
   it, `webhook`). A row whose channels lack `email` because the person
   turned the read-confirmation email off reads "email opted out". The row
   outlives the account (name and email snapshot) and the policy (title
-  snapshot), and anonymising a person rewrites it like every other record.
-  A delivery that fails (SMTP down, a template that will not render) keeps
-  its row for a retry after ten minutes, up to three attempts; the retry
-  resumes from the notice log, emailing only the people the first attempt
-  could not reach and never repeating an inbox row. The third failure is
-  audited `ack.notice_failed` with the error.
+  snapshot), and anonymising a person rewrites it like every other record
+  (and the queue row's requester name; the queue's error column names a
+  person by id, never by address). The record is written as soon as the
+  in-app notices are, before the mail goes out, and an instance keeps its
+  claim on the queue fresh while it delivers, so a long delivery (hundreds
+  of readers on a slow mail server) is never taken over by another
+  instance and sent twice. A delivery that fails (SMTP down, a template
+  that will not render, an inbox that took no rows) keeps its row for a
+  retry after ten minutes, up to three attempts; the retry resumes from
+  the notice log, emailing only the people the earlier attempt could not
+  reach and never repeating an inbox row. The third failure closes the row
+  with its error and is audited `ack.notice_failed`; a row an instance
+  died on during its last attempt is closed and audited the same way by
+  the next delivery run, so nothing is left half-done and unreported.
 - **The shield is a popover.** The read-confirmation shield on a document
   opens **Read confirmation** instead of toggling: **Require readers to
   confirm**, the standing ("42 of 50 confirmed · v12 · asked 3 Mar 2026 by
@@ -166,7 +183,11 @@ shield, a deliberate re-ask, and a portal that asks before it sends.
   and confirm" and ends with "Open the document and confirm at the end
   that you have read and understood it." The subject is unchanged. A
   workspace that edited the template keeps its own wording and adopts the
-  new tags and sentence when it next edits or resets it.
+  new tags and sentence when it next edits or resets it. The free-text
+  tags of this template (`requester_name`, `doc_title`, `change_note`,
+  `reason`) are rendered as written: markdown or HTML typed into a change
+  note or a re-ask reason appears as those characters in the mail, not as
+  a link or an image. Other templates are unchanged.
 - **API.** `PATCH /api/documents/{id}/ack` takes `{ required?,
   edit_default?, notify? }` (400 with no known field or a wrong type;
   `required: true` runs the portal's request sequence, with `notify`
@@ -291,8 +312,9 @@ shield, a deliberate re-ask, and a portal that asks before it sends.
   the workspace default applies to policies first required after the
   upgrade.
 - Nothing is sent for anything that happened before the upgrade: the
-  notice log starts now. Delivered outbox rows are dropped after 30 days
-  by the hourly maintenance; failed ones stay with their error.
+  notice log starts now. Closed outbox rows (delivered, or given up after
+  three attempts, with their error) are dropped after 30 days by the
+  hourly maintenance; the audit entry is what lasts.
 - A custom role that held only `compliance.program_read` could request,
   remind and export before 1.10.1; it cannot now. Grant
   `compliance.program_manage` and/or `compliance.export` to the roles that
