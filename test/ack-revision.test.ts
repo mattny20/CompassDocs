@@ -70,39 +70,41 @@ async function ackCount(docId: number, userId: number): Promise<number> {
   return r.rows[0].n;
 }
 
+// Shared by both describes below (node:test runs a describe's `after` before
+// the next describe starts, so the fixtures live at the top level).
+before(async () => {
+  await getSetting("__schema_bootstrap__"); // run the schema and migrations first
+  const sp = await pool().query(
+    `INSERT INTO spaces (name, slug, icon, description, visibility) VALUES ($1, $2, '📁', '', 'internal') RETURNING id`,
+    [`Ack Revision ${STAMP}`, STAMP]
+  );
+  spaceId = sp.rows[0].id;
+  const users = await pool().query(
+    `INSERT INTO users (username, name, email, role, status) VALUES
+       ($1, 'Rev Reader', $2, 'viewer', 'active'),
+       ($3, 'Rev Other', $4, 'viewer', 'active')
+     RETURNING id`,
+    [`${STAMP}-reader`, `${STAMP}-reader@example.test`, `${STAMP}-other`, `${STAMP}-other@example.test`]
+  );
+  readerId = users.rows[0].id;
+  otherId = users.rows[1].id;
+});
+
+after(async () => {
+  await pool().query("DELETE FROM acknowledgements WHERE document_id = ANY($1) OR user_id = ANY($2)", [
+    docIds,
+    [readerId, otherId],
+  ]);
+  await pool().query("DELETE FROM ack_decisions WHERE document_id = ANY($1) OR document_title LIKE $2", [
+    docIds,
+    `${STAMP}%`,
+  ]);
+  await pool().query("DELETE FROM documents WHERE id = ANY($1)", [docIds]);
+  await pool().query("DELETE FROM users WHERE id = ANY($1)", [[readerId, otherId]]);
+  await pool().query("DELETE FROM spaces WHERE id = $1", [spaceId]);
+});
+
 describe("read confirmation marker and version evidence", () => {
-  before(async () => {
-    await getSetting("__schema_bootstrap__"); // run the schema and migrations first
-    const sp = await pool().query(
-      `INSERT INTO spaces (name, slug, icon, description, visibility) VALUES ($1, $2, '📁', '', 'internal') RETURNING id`,
-      [`Ack Revision ${STAMP}`, STAMP]
-    );
-    spaceId = sp.rows[0].id;
-    const users = await pool().query(
-      `INSERT INTO users (username, name, email, role, status) VALUES
-         ($1, 'Rev Reader', $2, 'viewer', 'active'),
-         ($3, 'Rev Other', $4, 'viewer', 'active')
-       RETURNING id`,
-      [`${STAMP}-reader`, `${STAMP}-reader@example.test`, `${STAMP}-other`, `${STAMP}-other@example.test`]
-    );
-    readerId = users.rows[0].id;
-    otherId = users.rows[1].id;
-  });
-
-  after(async () => {
-    await pool().query("DELETE FROM acknowledgements WHERE document_id = ANY($1) OR user_id = ANY($2)", [
-      docIds,
-      [readerId, otherId],
-    ]);
-    await pool().query("DELETE FROM ack_decisions WHERE document_id = ANY($1) OR document_title LIKE $2", [
-      docIds,
-      `${STAMP}%`,
-    ]);
-    await pool().query("DELETE FROM documents WHERE id = ANY($1)", [docIds]);
-    await pool().query("DELETE FROM users WHERE id = ANY($1)", [[readerId, otherId]]);
-    await pool().query("DELETE FROM spaces WHERE id = $1", [spaceId]);
-  });
-
   test("a new document starts with its marker at the first version", async () => {
     const id = await newPolicy(`${STAMP} fresh`);
     const info = await getAckVersionInfo(id);
