@@ -859,14 +859,26 @@ const SCHEMA_SQL = `
   -- filled once by migrateVersionProvenance() (name from author, approver
   -- from the legacy note suffix). Person FKs are ON DELETE SET NULL with
   -- name snapshots, indexed so deleting an account is not a scan of
-  -- doc_versions.
-  ALTER TABLE doc_versions ADD COLUMN IF NOT EXISTS published_by integer REFERENCES users(id) ON DELETE SET NULL;
-  ALTER TABLE doc_versions ADD COLUMN IF NOT EXISTS published_by_name text NOT NULL DEFAULT '';
-  ALTER TABLE doc_versions ADD COLUMN IF NOT EXISTS approved_by integer REFERENCES users(id) ON DELETE SET NULL;
-  ALTER TABLE doc_versions ADD COLUMN IF NOT EXISTS approved_by_name text NOT NULL DEFAULT '';
-  ALTER TABLE doc_versions ADD COLUMN IF NOT EXISTS change_request_id integer;
-  CREATE INDEX IF NOT EXISTS idx_doc_versions_published_by ON doc_versions(published_by);
-  CREATE INDEX IF NOT EXISTS idx_doc_versions_approved_by ON doc_versions(approved_by);
+  -- doc_versions. Guarded like the marker block: ADD COLUMN IF NOT EXISTS
+  -- takes an exclusive lock on doc_versions before it looks, and a boot
+  -- that takes it on every start deadlocks against an instance that is
+  -- saving or approving a version at that moment (that transaction holds
+  -- doc_versions and waits on documents, which the boot already holds).
+  -- Once the column exists this block touches nothing.
+  DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_name = 'doc_versions' AND column_name = 'published_by'
+    ) THEN
+      ALTER TABLE doc_versions ADD COLUMN published_by integer REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE doc_versions ADD COLUMN published_by_name text NOT NULL DEFAULT '';
+      ALTER TABLE doc_versions ADD COLUMN approved_by integer REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE doc_versions ADD COLUMN approved_by_name text NOT NULL DEFAULT '';
+      ALTER TABLE doc_versions ADD COLUMN change_request_id integer;
+      CREATE INDEX idx_doc_versions_published_by ON doc_versions(published_by);
+      CREATE INDEX idx_doc_versions_approved_by ON doc_versions(approved_by);
+    END IF;
+  END $$;
 
   -- 1.10.1 per-person notice log (E3): one append-only row per recipient of
   -- every read-confirmation request, reminder, re-confirmation notice,
@@ -890,9 +902,19 @@ const SCHEMA_SQL = `
     by_name text NOT NULL DEFAULT 'system',
     outbox_id integer
   );
-  CREATE INDEX IF NOT EXISTS idx_ack_notices_user ON ack_notices(user_id, sent_at DESC);
-  CREATE INDEX IF NOT EXISTS idx_ack_notices_doc_user_kind ON ack_notices(document_id, user_id, kind, sent_at DESC);
-  CREATE INDEX IF NOT EXISTS idx_ack_notices_by_user ON ack_notices(by_user_id);
+  -- The indexes are created with the table, guarded: CREATE INDEX IF NOT
+  -- EXISTS takes a share lock on the table before it looks, and a boot that
+  -- holds one on ack_outbox while a save's transaction (documents,
+  -- doc_versions, ack_decisions, then ack_outbox) waits for it, and then
+  -- itself waits for documents, is a deadlock. A guarded block locks
+  -- nothing once the index exists.
+  DO $$ BEGIN
+    IF to_regclass('idx_ack_notices_user') IS NULL THEN
+      CREATE INDEX idx_ack_notices_user ON ack_notices(user_id, sent_at DESC);
+      CREATE INDEX idx_ack_notices_doc_user_kind ON ack_notices(document_id, user_id, kind, sent_at DESC);
+      CREATE INDEX idx_ack_notices_by_user ON ack_notices(by_user_id);
+    END IF;
+  END $$;
 
   -- 1.10.1 notification outbox (H4): every read-confirmation fan-out is a
   -- row here, claimed by the minute tick (FOR UPDATE SKIP LOCKED, so every
@@ -917,7 +939,11 @@ const SCHEMA_SQL = `
     noticed integer,
     error text
   );
-  CREATE INDEX IF NOT EXISTS idx_ack_outbox_due ON ack_outbox(done_at, not_before);
+  DO $$ BEGIN
+    IF to_regclass('idx_ack_outbox_due') IS NULL THEN
+      CREATE INDEX idx_ack_outbox_due ON ack_outbox(done_at, not_before);
+    END IF;
+  END $$;
 
   -- Training decks (enterprise "training" entitlement): a published document
   -- becomes a slide deck (split on ---) that can be assigned to users with a
@@ -4710,17 +4736,29 @@ export interface Notification {
   read_at: string | null;
 }
 
-/** Bulk-insert one notification row per recipient. */
+/**
+ * Bulk-insert one notification row per recipient. An id whose account is
+ * gone by now is skipped, not a failed batch: the join reads the statement's
+ * snapshot and the foreign-key check the latest commit, so a deletion that
+ * lands between the two fails once with 23503 and the second attempt sees it.
+ */
 export async function insertNotifications(
   userIds: number[],
   n: { kind: string; title: string; body?: string; link?: string; actor_name?: string }
 ): Promise<void> {
   if (userIds.length === 0) return;
-  await q(
-    `INSERT INTO notifications (user_id, kind, title, body, link, actor_name)
-     SELECT uid, $2, $3, $4, $5, $6 FROM unnest($1::int[]) AS uid`,
-    [userIds, n.kind, n.title.slice(0, 300), (n.body || "").slice(0, 1000), n.link || "", n.actor_name || ""]
-  );
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await q(
+        `INSERT INTO notifications (user_id, kind, title, body, link, actor_name)
+         SELECT u.id, $2, $3, $4, $5, $6 FROM unnest($1::int[]) AS uid JOIN users u ON u.id = uid`,
+        [userIds, n.kind, n.title.slice(0, 300), (n.body || "").slice(0, 1000), n.link || "", n.actor_name || ""]
+      );
+      return;
+    } catch (e) {
+      if ((e as { code?: string } | null)?.code !== "23503" || attempt >= 3) throw e;
+    }
+  }
 }
 
 /** Newest first. `beforeId` pages older than a row the caller already has
@@ -5851,7 +5889,7 @@ export async function insertAckOutbox(client: Queryable | null, row: AckOutboxIn
  * row claimed more than ten minutes ago by an instance that died is taken
  * again; a row that failed three times is never claimed again.
  */
-export async function claimAckOutbox(limit = 20): Promise<AckOutboxRow[]> {
+export async function claimAckOutbox(limit = 20, documentIds?: number[]): Promise<AckOutboxRow[]> {
   const rows = await q<AckOutboxRow>(
     `UPDATE ack_outbox SET claimed_at = now(), attempts = attempts + 1
      WHERE id IN (
@@ -5859,11 +5897,12 @@ export async function claimAckOutbox(limit = 20): Promise<AckOutboxRow[]> {
        WHERE done_at IS NULL AND not_before <= now()
          AND (claimed_at IS NULL OR claimed_at < now() - interval '10 minutes')
          AND attempts < 3
+         AND ($2::int[] IS NULL OR document_id = ANY($2::int[]))
        ORDER BY id LIMIT $1
        FOR UPDATE SKIP LOCKED
      )
      RETURNING *`,
-    [Math.max(1, Math.min(200, limit))]
+    [Math.max(1, Math.min(200, limit)), documentIds ?? null]
   );
   return rows.sort((a, b) => a.id - b.id);
 }
@@ -5975,15 +6014,37 @@ export interface AckNoticeInput {
   outbox_id?: number | null;
 }
 
-/** The single INSERT behind recordNotices (lib/compliance); returns the new ids in input order. */
+/**
+ * The single INSERT behind recordNotices (lib/compliance); returns the new
+ * ids in input order. A person or policy deleted between resolving the
+ * recipients and writing the record leaves the row with its snapshot and a
+ * NULL id (what ON DELETE SET NULL would have done a moment later), rather
+ * than failing the whole delivery on the foreign key.
+ */
 export async function insertAckNotices(rows: AckNoticeInput[]): Promise<number[]> {
   if (rows.length === 0) return [];
+  // The subselects read the statement's snapshot; the foreign-key check
+  // reads the latest commit. A deletion that lands between the two fails
+  // the statement with 23503 once, and the second attempt sees it.
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await insertAckNoticesOnce(rows);
+    } catch (e) {
+      if ((e as { code?: string } | null)?.code !== "23503" || attempt >= 3) throw e;
+    }
+  }
+}
+
+async function insertAckNoticesOnce(rows: AckNoticeInput[]): Promise<number[]> {
   const out = await q<{ id: number }>(
     `INSERT INTO ack_notices
        (user_id, user_name, user_email, document_id, document_title, kind, channels, by_user_id, by_name, outbox_id)
-     SELECT r.user_id, COALESCE(r.user_name, ''), COALESCE(r.user_email, ''), r.document_id,
+     SELECT (SELECT u.id FROM users u WHERE u.id = r.user_id),
+            COALESCE(r.user_name, ''), COALESCE(r.user_email, ''),
+            (SELECT d.id FROM documents d WHERE d.id = r.document_id),
             COALESCE(r.document_title, ''), r.kind, COALESCE(r.channels, '[]'::jsonb),
-            r.by_user_id, COALESCE(NULLIF(r.by_name, ''), 'system'), r.outbox_id
+            (SELECT b.id FROM users b WHERE b.id = r.by_user_id),
+            COALESCE(NULLIF(r.by_name, ''), 'system'), r.outbox_id
      FROM jsonb_to_recordset($1::jsonb) AS r(
        user_id int, user_name text, user_email text, document_id int, document_title text,
        kind text, channels jsonb, by_user_id int, by_name text, outbox_id int)

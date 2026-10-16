@@ -70,9 +70,13 @@ async function newPolicy(title: string, content = LONG_TEXT): Promise<{ id: numb
 }
 
 const quiet: Mailer = async () => {};
-const drain = (mailer: Mailer | null) => deliverAckNotices({ origin: ORIGIN, mailer, limit: 50 });
+// Test files run in parallel against one database and one queue: this
+// file's drains claim this file's rows only, so another file's failing
+// mailer cannot poison them (production passes no filter).
+const drain = (mailer: Mailer | null, limit = 50) =>
+  deliverAckNotices({ origin: ORIGIN, mailer, limit, documentIds: docIds });
 
-/** Other test files queue rows too; keep draining until this file's condition holds. */
+/** Drain until the condition holds (a row may be due a tick later). */
 async function drainUntil(mailer: Mailer | null, pred: () => Promise<boolean>, what: string): Promise<void> {
   for (let i = 0; i < 12; i++) {
     await drain(mailer);
@@ -143,10 +147,7 @@ describe("the notice outbox", () => {
     const allDone = async () => (await Promise.all(ids.map((id) => done(id)()))).every(Boolean);
     for (let i = 0; i < 12 && !(await allDone()); i++) {
       // Small claims, so both drains have to take part.
-      await Promise.all([
-        deliverAckNotices({ origin: ORIGIN, mailer: quiet, limit: 2 }),
-        deliverAckNotices({ origin: ORIGIN, mailer: quiet, limit: 2 }),
-      ]);
+      await Promise.all([drain(quiet, 2), drain(quiet, 2)]);
     }
     assert.ok(await allDone(), "every row was delivered");
     for (const id of ids) {
@@ -171,7 +172,8 @@ describe("the notice outbox", () => {
     const outboxId = await enqueueAckNotice(null, { document_id: id, mode: "request", source: "manual", actor: actor() });
     // A confirms between enqueue and delivery: not pending any more, not told.
     await recordAcknowledgement(id, readerA, "", v1);
-    await drainUntil(quiet, done(outboxId), `row ${outboxId} delivered`);
+    // No mailer at all (SMTP not configured): the record says inapp only.
+    await drainUntil(null, done(outboxId), `row ${outboxId} delivered`);
 
     const row = (await getAckOutboxRow(outboxId))!;
     assert.equal(row.user_ids, null);
@@ -182,8 +184,9 @@ describe("the notice outbox", () => {
     assert.equal(b.kind, "request");
     assert.equal(b.document_title, title);
     assert.equal(b.outbox_id, outboxId);
+    assert.deepEqual(b.channels, ["inapp"]);
     assert.equal(row.noticed, notices.filter((n) => n.outbox_id === outboxId).length, "noticed is the rows actually written");
-    assert.equal(row.emailed, 0, "no email went out: the mailer accepted nothing because nothing was configured... but it was injected");
+    assert.equal(row.emailed, 0, "without SMTP nothing is counted as emailed");
 
     const explicit = await enqueueAckNotice(null, {
       document_id: id,
@@ -240,12 +243,17 @@ describe("the notice outbox", () => {
     assert.equal(await noticesFor(id, readerA, "updated"), 1, "A hears once a day");
     assert.equal(await noticesFor(id, readerB, "updated"), 1);
     const row2 = (await getAckOutboxRow(second))!;
-    assert.equal(row2.noticed, 0);
+    // Other test files create accounts while this runs; a brand-new account
+    // has no notice today and is told, which is the rule, so the count is
+    // compared with the rows rather than with zero.
+    const second_rows = (await listAckNotices({ documentId: id })).filter((n) => n.outbox_id === second);
+    assert.equal(row2.noticed, second_rows.length);
+    assert.ok(!second_rows.some((n) => n.user_id === readerA || n.user_id === readerB), "neither A nor B again");
     assert.equal(row2.error, null);
     const audit2 = (await auditRows("ack.reset_notified", id)).find((r) => r.details.outbox_id === second)!;
     assert.ok(audit2, "the drain writes the audit row");
     assert.equal(audit2.actor_name, "Out Actor");
-    assert.equal(audit2.details.noticed, 0);
+    assert.equal(audit2.details.noticed, second_rows.length);
     assert.ok((audit2.details.skipped_recent as number) >= 2, `the people skipped are counted: ${audit2.details.skipped_recent}`);
     assert.equal(audit2.details.reason, "Clause 2 reworded");
 
@@ -380,16 +388,20 @@ describe("the notice outbox", () => {
 
     // Ten minutes later another instance takes the row; mail works now.
     await pool().query("UPDATE ack_outbox SET claimed_at = now() - interval '11 minutes' WHERE id = $1", [outboxId]);
-    const sent: string[] = [];
-    const working: Mailer = async (to) => {
-      sent.push(...to);
+    const sent: { to: string; subject: string }[] = [];
+    const working: Mailer = async (to, subject) => {
+      for (const t of to) sent.push({ to: t, subject });
     };
     await drainUntil(working, done(outboxId), `row ${outboxId} delivered on retry`);
     row = (await getAckOutboxRow(outboxId))!;
     assert.equal(row.attempts, 2);
     assert.equal(row.error, null, "a completed row carries no error");
     assert.ok(row.emailed! >= 2, `the retry emailed the people the first attempt could not: ${row.emailed}`);
-    assert.equal(sent.filter((e) => e === `${STAMP}-Reader A@example.test`).length, 1, "A was emailed once");
+    assert.equal(
+      sent.filter((m) => m.to === `${STAMP}-Reader A@example.test` && m.subject.includes(title)).length,
+      1,
+      "A was emailed once"
+    );
     const again = (await listAckNotices({ documentId: id, userId: readerA }))[0];
     assert.equal(again.id, a.id, "the same row");
     assert.deepEqual(again.channels, ["inapp", "email"], "now with the email");

@@ -421,6 +421,8 @@ export interface DeliverOptions {
   mailer?: Mailer | null;
   /** Rows to claim per call (default 20). */
   limit?: number;
+  /** Claim only rows for these documents (tests sharing one database; a targeted re-delivery). The tick passes nothing. */
+  documentIds?: number[];
 }
 
 export interface DeliverResult {
@@ -532,7 +534,7 @@ async function deliverGroup(
  * instance at once.
  */
 export async function deliverAckNotices(opts: DeliverOptions = {}): Promise<DeliverResult> {
-  const rows = await claimAckOutbox(opts.limit ?? 20);
+  const rows = await claimAckOutbox(opts.limit ?? 20, opts.documentIds);
   const out: DeliverResult = { claimed: rows.length, delivered: 0, failed: 0 };
   if (rows.length === 0) return out;
   rememberOrigin(opts.origin);

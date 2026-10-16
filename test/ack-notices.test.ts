@@ -83,9 +83,11 @@ function recorder(): { sent: Sent[]; mailer: Mailer } {
   };
 }
 
+// Test files run in parallel against one database and one queue: this
+// file's drains claim this file's rows only (production passes no filter).
 async function drainUntilDone(mailer: Mailer | null, id: number): Promise<void> {
   for (let i = 0; i < 12; i++) {
-    await deliverAckNotices({ origin: ORIGIN, mailer, limit: 50 });
+    await deliverAckNotices({ origin: ORIGIN, mailer, limit: 50, documentIds: docIds });
     if ((await getAckOutboxRow(id))?.done_at) return;
   }
   assert.fail(`outbox row ${id} was never delivered`);
@@ -166,9 +168,11 @@ describe("the per-person notice log", () => {
     assert.equal(a.user_email, emailOf("Reader A"));
     assert.equal(notices.filter((n) => n.user_id === readerA).length, 1);
 
-    assert.equal(sent.filter((m) => m.to === emailOf("Reader A")).length, 1, "A was emailed once");
-    assert.equal(sent.filter((m) => m.to === emailOf("Reader B")).length, 0, "B was not");
-    const mail = sent.find((m) => m.to === emailOf("Reader A"))!;
+    const mine = sent.filter((m) => m.subject.includes(doc.title));
+    assert.equal(mine.length, sent.length, "this file's drain delivers this file's rows only");
+    assert.equal(mine.filter((m) => m.to === emailOf("Reader A")).length, 1, "A was emailed once");
+    assert.equal(mine.filter((m) => m.to === emailOf("Reader B")).length, 0, "B was not");
+    const mail = mine.find((m) => m.to === emailOf("Reader A"))!;
     assert.match(mail.subject, new RegExp(`Action required: confirm "${doc.title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"$`));
     assert.match(mail.text, /Not Actor requested that you read and confirm:/);
     assert.ok(mail.text.includes(`${ORIGIN}/doc/${doc.id}#confirm-reading`), "the link lands on the card");
