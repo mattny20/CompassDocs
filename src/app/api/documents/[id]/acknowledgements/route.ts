@@ -13,6 +13,7 @@ import { spaceScopeFor, scopeAllows, userHolds } from "@/lib/access";
 import { featureEnabled } from "@/lib/ee";
 import { auditAck, actorFrom, ipFrom } from "@/lib/audit";
 import type { SessionUser } from "@/lib/types";
+import { versionProvenance, provenanceCells } from "@/lib/version-provenance";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +33,9 @@ export const dynamic = "force-dynamic";
 // version, hash and signed-name columns are the verification handles a
 // steward hands an auditor; the IP is personal data and belongs to exporters.
 // user_agent is reserved: the record does not store it yet (the audit row
-// for the confirmation does), so the column is blank for everyone.
+// for the confirmation does), so the column is blank for everyone. After
+// them, version_published_by and version_approved_by (C6): who published and
+// approved the version each row cites.
 
 /**
  * The IP recorded on each confirmation the roster cites, keyed so the match
@@ -89,6 +92,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const url = new URL(req.url);
   if (url.searchParams.get("format") === "csv") {
     const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const provenance = await versionProvenance(doc.id);
     const asked = [
       doc.ack_revision_at,
       esc(lastReset?.decided_by_name ?? ""),
@@ -96,7 +100,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       kept.count,
     ];
     const csv = [
-      "name,username,email,role,status,acknowledged_at,document,revision_as_of,version,version_id,content_sha256,version_source,former_staff,asked_at,asked_by,reason,kept_since_asked,ip,user_agent",
+      "name,username,email,role,status,acknowledged_at,document,revision_as_of,version,version_id,content_sha256,version_source,former_staff,asked_at,asked_by,reason,kept_since_asked,ip,user_agent,version_published_by,version_approved_by",
       ...rows.map((r) =>
         [
           esc(r.name),
@@ -115,6 +119,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
           ...asked,
           esc(ipOfRow(r)),
           esc(""),
+          ...provenanceCells(provenance, r.version_id).map(esc),
         ].join(",")
       ),
       ...former.map((r) =>
@@ -135,6 +140,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
           ...asked,
           esc(ipOfFormer(r)),
           esc(""),
+          ...provenanceCells(provenance, r.version_id).map(esc),
         ].join(",")
       ),
     ].join("\n");

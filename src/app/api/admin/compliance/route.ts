@@ -15,6 +15,7 @@ import { requestAcknowledgement, enqueueReminder } from "@/lib/compliance";
 import { audit, auditAck, actorFrom, ipFrom } from "@/lib/audit";
 import { userHolds } from "@/lib/access";
 import { requestOrigin } from "@/lib/oauth";
+import { versionProvenance, provenanceCells } from "@/lib/version-provenance";
 import type { SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -85,14 +86,19 @@ export async function GET(req: Request) {
     // updated_at); the version, hash, source and former_staff columns are
     // appended, then the ledger's asked_at, asked_by, reason and
     // kept_since_asked (C1; asked_by and reason are empty when the marker
-    // predates the ledger). No IP column here: with_ip is false.
+    // predates the ledger), then who published and approved the version each
+    // row cites (C6, 1.10.1). No IP column here: with_ip is false.
     const docs = await complianceDocs();
     const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
     const lines = [
-      "document,space,revision_as_of,name,username,email,role,acknowledged_at,version,version_id,content_sha256,version_source,former_staff,asked_at,asked_by,reason,kept_since_asked",
+      "document,space,revision_as_of,name,username,email,role,acknowledged_at,version,version_id,content_sha256,version_source,former_staff,asked_at,asked_by,reason,kept_since_asked,version_published_by,version_approved_by",
     ];
     for (const d of docs) {
-      const [rows, former] = await Promise.all([ackStatusForDocument(d.id), ackFormerStaffRows(d.id)]);
+      const [rows, former, provenance] = await Promise.all([
+        ackStatusForDocument(d.id),
+        ackFormerStaffRows(d.id),
+        versionProvenance(d.id),
+      ]);
       const asked = [
         esc(d.ack_revision_at),
         esc(d.last_reset?.decided_by_name ?? ""),
@@ -116,6 +122,7 @@ export async function GET(req: Request) {
             esc(r.version_source ?? ""),
             esc(""),
             ...asked,
+            ...provenanceCells(provenance, r.version_id).map(esc),
           ].join(",")
         );
       }
@@ -136,6 +143,7 @@ export async function GET(req: Request) {
             esc(r.version_source),
             esc(r.reason),
             ...asked,
+            ...provenanceCells(provenance, r.version_id).map(esc),
           ].join(",")
         );
       }

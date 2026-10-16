@@ -50,6 +50,7 @@ export default async function HistoryPage({ params }: { params: Promise<{ id: st
     author: v.author,
     note: v.note,
     restored_from: v.restored_from,
+    approved_by_name: v.approved_by_name ?? "",
     when: timeAgo(v.created_at),
     whenExact: formatDateTime(v.created_at, settingsForUser(settings, user)),
   }));
