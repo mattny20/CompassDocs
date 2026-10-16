@@ -67,6 +67,31 @@ export async function recordSearch(
   ]);
 }
 
+/**
+ * Reading evidence for a confirmation (C3): the seconds this person had the
+ * document open on screen since `since` (the confirmation marker, so the
+ * sum covers the text everyone was asked to read), or over the last 30 days
+ * when there is no marker to count from. Summed from the view heartbeats,
+ * each view capped at 30 minutes by touchView. null when no view was
+ * recorded, which the record shows as an unknown read time rather than
+ * zero. Nothing from the client is trusted for time: the route calls this
+ * and stores the answer.
+ */
+export async function readSecondsSince(
+  docId: number,
+  userId: number,
+  since: string | Date | null
+): Promise<number | null> {
+  const r = await q<{ seconds: number | null }>(
+    `SELECT SUM(duration_seconds)::int AS seconds
+     FROM doc_views
+     WHERE document_id = $1 AND user_id = $2
+       AND viewed_at >= COALESCE($3::timestamptz, now() - interval '30 days')`,
+    [docId, userId, since]
+  );
+  return r[0]?.seconds ?? null;
+}
+
 export async function recordDownload(
   attachmentId: number,
   documentId: number,
