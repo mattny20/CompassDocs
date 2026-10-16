@@ -32,6 +32,9 @@ import {
   deleteDocument,
   purgeDocument,
   getAttestedVersion,
+  createChangeRequest,
+  approveChangeRequest,
+  backfillVersionProvenance,
 } from "../src/lib/db";
 import { ACK_AUDIT_ACTIONS } from "../src/lib/audit";
 import { fixtureQuery } from "./support/retry";
@@ -119,6 +122,8 @@ after(async () => {
     docIds,
     `${STAMP}%`,
   ]);
+  await pool().query("DELETE FROM ack_outbox WHERE document_id = ANY($1)", [docIds]);
+  await pool().query("DELETE FROM change_requests WHERE document_id = ANY($1)", [docIds]);
   await pool().query("DELETE FROM documents WHERE id = ANY($1)", [docIds]);
   await pool().query("DELETE FROM users WHERE id = ANY($1)", [userIds]);
   await pool().query("DELETE FROM spaces WHERE id = $1", [spaceId]);
@@ -481,6 +486,120 @@ describe("the decision ledger", () => {
     assert.equal(row.eligible, 9);
     assert.equal(row.change_pct, null);
     assert.equal(row.overrode_suggestion, false);
+  });
+});
+
+describe("version provenance (C6)", () => {
+  test("a direct publish stamps published_by from the acting user, the author byline otherwise", async () => {
+    const { id } = await confirmedPolicy(`${STAMP} provenance`);
+    const [v1] = await listVersions(id);
+    assert.equal(v1.published_by, null, "createDocument has no account to stamp");
+    assert.equal(v1.published_by_name, "test", "but the byline is the name");
+    assert.equal(v1.approved_by, null);
+    assert.equal(v1.approved_by_name, "");
+    assert.equal(v1.change_request_id, null);
+
+    await updateDocument(id, {
+      content: LONG_TEXT + "\n\nClause 41: a new obligation.",
+      ackPolicy: "reset",
+      ackReason: "A new clause everyone must read",
+      ackActor: { id: editorId, name: "Led Editor" },
+      ackSource: "edit",
+    });
+    const [v2] = await listVersions(id);
+    assert.equal(v2.published_by, editorId);
+    assert.equal(v2.published_by_name, "Led Editor");
+    assert.equal(v2.approved_by, null);
+    assert.equal(v2.approved_by_name, "");
+    assert.equal(v2.change_request_id, null);
+    let info = await getAckVersionInfo(id);
+    assert.equal(info.version_id, v2.id, "the marker moved");
+    assert.equal(info.published_by_name, "Led Editor");
+    assert.equal(info.approved_by_name, "");
+    assert.equal(info.latest_published_by_name, "Led Editor");
+
+    // No actor (an import, the API without a session): the byline.
+    await updateDocument(id, { content: v2.content + "\n\nAppendix.", author: "Imported Author", versionNote: "Imported" });
+    const [v3] = await listVersions(id);
+    assert.equal(v3.published_by, null);
+    assert.equal(v3.published_by_name, "Imported Author");
+    info = await getAckVersionInfo(id);
+    assert.equal(info.latest_published_by_name, "Imported Author");
+  });
+
+  test("an approval stamps published_by = submitter, approved_by = reviewer and change_request_id", async () => {
+    const { id, v1 } = await confirmedPolicy(`${STAMP} approved`);
+    const crId = await createChangeRequest({
+      document_id: id,
+      kind: "edit",
+      title: `${STAMP} approved`,
+      content: LONG_TEXT.replace("Clause 2: staff", "Clause 2: staff and contractors"),
+      summary: "",
+      tags: [],
+      type: "policy",
+      target_status: "published",
+      note: "Contractors are now in scope",
+      created_by: editorId,
+    });
+    const result = await approveChangeRequest(crId, approverId, "Led Approver");
+    assert.ok(result && result.version_written);
+    const [v2] = await listVersions(id);
+    assert.notEqual(v2.id, v1);
+    assert.equal(v2.published_by, editorId, "the submitter published the words");
+    assert.equal(v2.published_by_name, "Led Editor");
+    assert.equal(v2.approved_by, approverId, "the reviewer approved them");
+    assert.equal(v2.approved_by_name, "Led Approver");
+    assert.equal(v2.change_request_id, crId);
+    assert.match(v2.note, /approved by Led Approver$/, "the note keeps saying so");
+    const info = await getAckVersionInfo(id);
+    assert.equal(info.version_id, v2.id);
+    assert.equal(info.published_by_name, "Led Editor");
+    assert.equal(info.approved_by_name, "Led Approver");
+    assert.equal(info.latest_approved_by_name, "Led Approver");
+    const [decision] = await listAckDecisions(id);
+    assert.equal(decision.decided_by, approverId, "the ledger and the version agree");
+    assert.equal(decision.submitted_by, editorId);
+  });
+
+  test("the backfill fills names once: the byline, and the approver from the legacy note", async () => {
+    const { id } = await newPolicy(`${STAMP} legacy`);
+    const legacy = await pool().query<{ id: number }>(
+      `INSERT INTO doc_versions (document_id, title, content, author, note) VALUES
+         ($1, $2, 'a', 'Led Editor', 'Fix typo — approved by Priya Patel'),
+         ($1, $2, 'b', 'Led Editor', 'Approved by Priya Patel'),
+         ($1, $2, 'c', 'Led Editor', 'Edited')
+       RETURNING id`,
+      [id, `${STAMP} legacy`]
+    );
+    const [withNote, bareNote, plain] = legacy.rows.map((r) => r.id);
+    const read = async () =>
+      (
+        await pool().query<{ id: number; published_by: number | null; published_by_name: string; approved_by: number | null; approved_by_name: string }>(
+          "SELECT id, published_by, published_by_name, approved_by, approved_by_name FROM doc_versions WHERE id = ANY($1) ORDER BY id",
+          [[withNote, bareNote, plain]]
+        )
+      ).rows;
+    assert.ok((await read()).every((r) => r.published_by_name === "" && r.approved_by_name === ""), "raw rows start blank");
+
+    const n = await backfillVersionProvenance(pool());
+    assert.ok(n.published >= 3 && n.approved >= 2, `rows filled: ${JSON.stringify(n)}`);
+    assert.deepEqual(
+      (await read()).map((r) => [r.published_by, r.published_by_name, r.approved_by, r.approved_by_name]),
+      [
+        [null, "Led Editor", null, "Priya Patel"],
+        [null, "Led Editor", null, "Priya Patel"],
+        [null, "Led Editor", null, ""],
+      ],
+      "names only: a name is not an account"
+    );
+
+    // Once: a later change to a filled row is not undone by a second run.
+    await pool().query("UPDATE doc_versions SET approved_by_name = 'Someone Else', published_by_name = 'Renamed' WHERE id = $1", [withNote]);
+    await backfillVersionProvenance(pool());
+    const again = (await read()).find((r) => r.id === withNote)!;
+    assert.equal(again.approved_by_name, "Someone Else");
+    assert.equal(again.published_by_name, "Renamed");
+    assert.equal(await getSetting("migrated_version_provenance"), "1", "the boot ran the one-shot and said so");
   });
 });
 

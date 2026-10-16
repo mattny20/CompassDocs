@@ -92,6 +92,21 @@ export async function register() {
     } catch (e) {
       console.error("[status] scheduler error:", e);
     }
+    // Read-confirmation notices (Enterprise, policy_ack): drain the outbox.
+    // The claim is one UPDATE with FOR UPDATE SKIP LOCKED, so every instance
+    // may run this; a row is delivered once and retried after a ten-minute
+    // reclaim if its instance died mid-send.
+    try {
+      const { featureEnabled } = await import("./lib/ee");
+      if (await featureEnabled("policy_ack")) {
+        const { deliverAckNotices } = await import("./lib/compliance");
+        const { getSetting } = await import("./lib/db");
+        const domain = (await getSetting("custom_domain"))?.trim();
+        await deliverAckNotices({ origin: domain ? `https://${domain}` : "" });
+      }
+    } catch (e) {
+      console.error("[ack] notice outbox error:", e);
+    }
   };
   setTimeout(newsletterTick, 30_000);
   setInterval(newsletterTick, 60_000);

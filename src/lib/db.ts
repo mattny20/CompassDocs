@@ -24,11 +24,17 @@ import type {
   AckOutcome,
   AckDecision,
   AckOutcomeInfo,
+  AckNotice,
+  AckNoticeMode,
+  AckNoticeKind,
+  AckNoticeChannel,
+  AckOutboxRow,
 } from "./types";
 import { changeSummary, suggestReconfirm } from "./diff";
 import type { ChangeSummary } from "./diff";
 
 export type { AckPolicy, AckSource, AckOutcome, AckDecision, AckOutcomeInfo } from "./types";
+export type { AckNotice, AckNoticeMode, AckNoticeKind, AckNoticeChannel, AckOutboxRow } from "./types";
 
 // Return timestamps as normalized ISO-8601 UTC strings (the app treats them as
 // strings, not Date objects). Covers timestamptz (1184) and timestamp (1114).
@@ -136,6 +142,7 @@ async function initialize(): Promise<void> {
     await migrateVisibilityTiers(client);
     await migrateAckRevisions(client);
     await migrateAckRetention(client);
+    await migrateVersionProvenance(client);
     await migrateSecuritySealing(client);
     await migrateWeightedSearch(client);
     await migrateDirectoryRegistry(client);
@@ -844,6 +851,73 @@ const SCHEMA_SQL = `
   -- is not a scan of the ledger.
   CREATE INDEX IF NOT EXISTS idx_ack_decisions_decided_by ON ack_decisions(decided_by);
   CREATE INDEX IF NOT EXISTS idx_ack_decisions_submitted_by ON ack_decisions(submitted_by);
+
+  -- 1.10.1 version provenance (C6): who published a version and, through a
+  -- change request, who approved it, as data next to the version a reader
+  -- confirmed rather than as note text. Stamped by createDocument,
+  -- updateDocument and approveChangeRequest; rows from before 1.10.1 are
+  -- filled once by migrateVersionProvenance() (name from author, approver
+  -- from the legacy note suffix). Person FKs are ON DELETE SET NULL with
+  -- name snapshots, indexed so deleting an account is not a scan of
+  -- doc_versions.
+  ALTER TABLE doc_versions ADD COLUMN IF NOT EXISTS published_by integer REFERENCES users(id) ON DELETE SET NULL;
+  ALTER TABLE doc_versions ADD COLUMN IF NOT EXISTS published_by_name text NOT NULL DEFAULT '';
+  ALTER TABLE doc_versions ADD COLUMN IF NOT EXISTS approved_by integer REFERENCES users(id) ON DELETE SET NULL;
+  ALTER TABLE doc_versions ADD COLUMN IF NOT EXISTS approved_by_name text NOT NULL DEFAULT '';
+  ALTER TABLE doc_versions ADD COLUMN IF NOT EXISTS change_request_id integer;
+  CREATE INDEX IF NOT EXISTS idx_doc_versions_published_by ON doc_versions(published_by);
+  CREATE INDEX IF NOT EXISTS idx_doc_versions_approved_by ON doc_versions(approved_by);
+
+  -- 1.10.1 per-person notice log (E3): one append-only row per recipient of
+  -- every read-confirmation request, reminder, re-confirmation notice,
+  -- escalation or digest, with the channels that actually went out
+  -- ('email' only when the server accepted the mail). Written by one helper
+  -- (recordNotices in lib/compliance) from the outbox drain, never by a
+  -- route. Relaxed FKs and name/title snapshots so the row outlives the
+  -- person and the policy; the second index is H1's coalescing key ("no
+  -- 'updated' notice for this person and document in the last 24 hours").
+  CREATE TABLE IF NOT EXISTS ack_notices (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id integer REFERENCES users(id) ON DELETE SET NULL,
+    user_name text NOT NULL DEFAULT '',
+    user_email text NOT NULL DEFAULT '',
+    document_id integer REFERENCES documents(id) ON DELETE SET NULL,
+    document_title text NOT NULL DEFAULT '',
+    kind text NOT NULL,
+    channels jsonb NOT NULL DEFAULT '[]'::jsonb,
+    sent_at timestamptz NOT NULL DEFAULT now(),
+    by_user_id integer REFERENCES users(id) ON DELETE SET NULL,
+    by_name text NOT NULL DEFAULT 'system',
+    outbox_id integer
+  );
+  CREATE INDEX IF NOT EXISTS idx_ack_notices_user ON ack_notices(user_id, sent_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_ack_notices_doc_user_kind ON ack_notices(document_id, user_id, kind, sent_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_ack_notices_by_user ON ack_notices(by_user_id);
+
+  -- 1.10.1 notification outbox (H4): every read-confirmation fan-out is a
+  -- row here, claimed by the minute tick (FOR UPDATE SKIP LOCKED, so every
+  -- instance may drain), delivered by notifyAckRequest, retried after a
+  -- 10-minute reclaim up to three attempts. Nothing on a request path sends
+  -- mail. user_ids NULL = everyone pending at delivery time. A row goes
+  -- with its document (CASCADE): the per-person record is ack_notices.
+  CREATE TABLE IF NOT EXISTS ack_outbox (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    document_id integer REFERENCES documents(id) ON DELETE CASCADE,
+    mode text NOT NULL,
+    source text NOT NULL DEFAULT '',
+    reason text NOT NULL DEFAULT '',
+    actor_id integer,
+    actor_name text NOT NULL DEFAULT '',
+    user_ids jsonb,
+    not_before timestamptz NOT NULL DEFAULT now(),
+    claimed_at timestamptz,
+    done_at timestamptz,
+    attempts integer NOT NULL DEFAULT 0,
+    emailed integer,
+    noticed integer,
+    error text
+  );
+  CREATE INDEX IF NOT EXISTS idx_ack_outbox_due ON ack_outbox(done_at, not_before);
 
   -- Training decks (enterprise "training" entitlement): a published document
   -- becomes a slide deck (split on ---) that can be assigned to users with a
@@ -1906,6 +1980,52 @@ async function migrateAckRetention(client: import("pg").PoolClient) {
 }
 
 /**
+ * The row-rewriting half of the C6 provenance backfill: published_by_name
+ * from the version's author for every row that lacks one, approved_by_name
+ * from the fixed note suffix approveChangeRequest wrote before 1.10.1
+ * ("{note} — approved by {name}" or "Approved by {name}") where present.
+ * Only blank names are touched, so running it twice changes nothing; the
+ * ids stay null (a name is not an account). Exported for the test; the boot
+ * calls it once through migrateVersionProvenance.
+ */
+export async function backfillVersionProvenance(
+  client: Queryable
+): Promise<{ published: number; approved: number }> {
+  const published = await client.query(
+    "UPDATE doc_versions SET published_by_name = author WHERE published_by_name = '' AND author <> ''"
+  );
+  const approved = await client.query(
+    `UPDATE doc_versions
+     SET approved_by_name = COALESCE(
+           substring(note from ' — approved by (.+)$'),
+           substring(note from '^Approved by (.+)$'))
+     WHERE approved_by_name = ''
+       AND (note ~ ' — approved by .+$' OR note ~ '^Approved by .+$')`
+  );
+  return { published: published.rowCount ?? 0, approved: approved.rowCount ?? 0 };
+}
+
+/**
+ * One-shot provenance backfill (1.10.1, C6), guarded like migrateAckRetention:
+ * the names a version can tell from what it already holds, so the AckCard
+ * and the record can say "published by Dana · approved by Priya" for
+ * versions written before the columns existed. Rows that carry no legacy
+ * approval note stay blank; the docs say provenance is recorded from the
+ * upgrade onward.
+ */
+async function migrateVersionProvenance(client: import("pg").PoolClient) {
+  const done = await client.query("SELECT 1 FROM settings WHERE key = 'migrated_version_provenance'");
+  if (done.rowCount) return;
+  const n = await backfillVersionProvenance(client);
+  await client.query(
+    "INSERT INTO settings (key, value) VALUES ('migrated_version_provenance','1') ON CONFLICT (key) DO NOTHING"
+  );
+  console.log(
+    `[ack] version provenance backfilled: ${n.published} publisher name(s) and ${n.approved} approver name(s)`
+  );
+}
+
+/**
  * One-time security migrations (0.41.0), inside the init advisory lock:
  * 1. Seal existing plaintext credential settings with the master key.
  * 2. Replace raw session tokens with their SHA-256 (cookies stay valid — the
@@ -2883,7 +3003,8 @@ export async function createDocument(input: DocInput): Promise<DocumentWithSpace
   );
   const id = r[0].id;
   const v = await q<{ id: number }>(
-    "INSERT INTO doc_versions (document_id, title, content, author, note) VALUES ($1,$2,$3,$4,$5) RETURNING id",
+    `INSERT INTO doc_versions (document_id, title, content, author, note, published_by_name)
+     VALUES ($1,$2,$3,$4,$5,$4) RETURNING id`,
     [id, input.title, input.content, input.author, input.branch_of ? "Branched" : "Created"]
   );
   // The confirmation marker starts at the first version (ack_revision_at took
@@ -2974,8 +3095,9 @@ export type UpdateDocumentInput = Partial<DocInput> & {
  *      whatever the policy.
  *
  * Everything from the UPDATE to the decision row runs in one transaction, so
- * a failure leaves no half-applied save. resetAcknowledgements writes no
- * notice in this release (H1/H4 ship in 1.10.1).
+ * a failure leaves no half-applied save. A reset also queues the 'updated'
+ * notice in that transaction (resetAcknowledgements, 1.10.1); nothing here
+ * sends mail.
  */
 export async function updateDocument(
   id: number,
@@ -3099,9 +3221,21 @@ export async function updateDocument(
     // transition without a text change) the newest row already there.
     let versionId: number | null = null;
     if (versionWorthy) {
+      // Provenance (C6): the signed-in person when the route passed one,
+      // otherwise the author byline (an import, the API with no actor).
       const v = await client.query<{ id: number }>(
-        "INSERT INTO doc_versions (document_id, title, content, author, note, restored_from) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id",
-        [id, next.title, next.content, next.author, input.versionNote || "Edited", input.restoredFrom ?? null]
+        `INSERT INTO doc_versions (document_id, title, content, author, note, restored_from, published_by, published_by_name)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+        [
+          id,
+          next.title,
+          next.content,
+          next.author,
+          input.versionNote || "Edited",
+          input.restoredFrom ?? null,
+          input.ackActor?.id ?? null,
+          input.ackActor?.name || next.author,
+        ]
       );
       versionId = v.rows[0].id;
     } else if (substantive) {
@@ -3355,6 +3489,12 @@ export async function runDbMaintenance(): Promise<{ sessions: number; oauthCodes
   // Editing-presence heartbeats go stale within seconds of a closed tab.
   await pool().query(
     "DELETE FROM doc_editing_presence WHERE last_seen < now() - interval '10 minutes'"
+  );
+  // The notice outbox is a queue, not a record (ack_notices is the record):
+  // delivered rows are kept a month for support and then dropped. Rows that
+  // gave up (three failed attempts) stay, with their error.
+  await pool().query(
+    "DELETE FROM ack_outbox WHERE done_at IS NOT NULL AND done_at < now() - interval '30 days'"
   );
   return { sessions: sessions.rowCount ?? 0, oauthCodes: codes.rowCount ?? 0 };
 }
@@ -5169,6 +5309,17 @@ export interface AckVersionInfo {
   /** When and by whom the newest version was written (the card's meta line follows the text on screen). */
   latest_created_at: string | null;
   latest_author: string;
+  /**
+   * Provenance of the marker's version (C6): who published it (the author
+   * byline when the version predates the stamp) and who approved it ('' when
+   * it did not come through a change request, or predates 1.10.1 without a
+   * legacy approval note).
+   */
+  published_by_name: string;
+  approved_by_name: string;
+  /** The same for the newest version. */
+  latest_published_by_name: string;
+  latest_approved_by_name: string;
 }
 
 /** The marker's version for a document, with its Version-history number, and the newest version beside it. */
@@ -5180,7 +5331,11 @@ export async function getAckVersionInfo(docId: number): Promise<AckVersionInfo> 
               v.created_at, COALESCE(v.author, '') AS author,
               l.latest AS latest_version_id,
               ${VERSION_REV("l.latest")} AS latest_rev,
-              lv.created_at AS latest_created_at, COALESCE(lv.author, '') AS latest_author
+              lv.created_at AS latest_created_at, COALESCE(lv.author, '') AS latest_author,
+              COALESCE(NULLIF(v.published_by_name, ''), v.author, '') AS published_by_name,
+              COALESCE(v.approved_by_name, '') AS approved_by_name,
+              COALESCE(NULLIF(lv.published_by_name, ''), lv.author, '') AS latest_published_by_name,
+              COALESCE(lv.approved_by_name, '') AS latest_approved_by_name
        FROM documents d
        LEFT JOIN LATERAL (
          SELECT MAX(x.id) AS latest FROM doc_versions x WHERE x.document_id = d.id
@@ -5201,6 +5356,10 @@ export async function getAckVersionInfo(docId: number): Promise<AckVersionInfo> 
       latest_rev: null,
       latest_created_at: null,
       latest_author: "",
+      published_by_name: "",
+      approved_by_name: "",
+      latest_published_by_name: "",
+      latest_approved_by_name: "",
     }
   );
 }
@@ -5394,8 +5553,21 @@ export async function anonymiseComplianceRecord(
        WHERE decided_by = $1 OR submitted_by = $1`,
       [userId, alias]
     );
+    // The notice log (E3) names the person twice: as the recipient and as
+    // the one who asked. Both snapshots follow the same rule.
+    const notices = await client.query(
+      `UPDATE ack_notices
+       SET user_name = CASE WHEN user_id = $1 THEN $2 ELSE user_name END,
+           user_email = CASE WHEN user_id = $1 THEN '' ELSE user_email END,
+           by_name = CASE WHEN by_user_id = $1 THEN $2 ELSE by_name END
+       WHERE user_id = $1 OR by_user_id = $1`,
+      [userId, alias]
+    );
     await client.query("COMMIT");
-    return { rows: (res.rowCount ?? 0) + (decisions.rowCount ?? 0), snapshots_rewritten: 0 };
+    return {
+      rows: (res.rowCount ?? 0) + (decisions.rowCount ?? 0) + (notices.rowCount ?? 0),
+      snapshots_rewritten: 0,
+    };
   } catch (e) {
     await client.query("ROLLBACK").catch(() => {});
     throw e;
@@ -5421,7 +5593,7 @@ export async function attestationCountsByUser(): Promise<Map<number, number>> {
 // save leaves no row and no moved marker.
 
 /** Anything with pg's query(text, values): a PoolClient inside a transaction, or the pool. */
-type Queryable = {
+export type Queryable = {
   query<T extends import("pg").QueryResultRow = any>(
     text: string,
     values?: any[]
@@ -5572,15 +5744,21 @@ function decisionColumns(docId: number, title: string, outcome: AckOutcome, opts
  * and would otherwise count as current for text it predates. The decision
  * row carries the same stamp as the marker.
  *
- * No notice goes out in this release: the re-confirmation notice (H1) and
- * the outbox it queues through (H4) ship in 1.10.1, and notified_at stays
- * null until then.
+ * The notice (H1/H4, 1.10.1): a reset that takes a decision also queues one
+ * outbox row of mode 'updated' in the same transaction, so a rolled-back
+ * approval or merge tells nobody and a committed one tells everyone within
+ * a minute or two. Sources that come from a text save (edit, merge,
+ * restore, approval, schedule, and the API-shaped ones) wait two minutes so
+ * three saves in an afternoon collapse into one notice; manual and
+ * recurrence go out at once. The drain (lib/compliance deliverAckNotices)
+ * resolves the recipients at delivery and stamps notified_at on this row
+ * when it has.
  */
 export async function resetAcknowledgements(
   client: Queryable,
   docId: number,
   opts: AckDecisionInput & { silent?: boolean }
-): Promise<{ decision_id: number | null; confirmations_reset: number; eligible: number }> {
+): Promise<{ decision_id: number | null; confirmations_reset: number; eligible: number; outbox_id: number | null }> {
   // Counted before the marker moves: afterwards nothing is current.
   const counts = opts.silent ? null : await ackCounts(client, docId);
   const moved = await client.query<{ title: string; marker: string }>(
@@ -5589,13 +5767,307 @@ export async function resetAcknowledgements(
     [docId, opts.versionId]
   );
   if (!counts || moved.rowCount === 0) {
-    return { decision_id: null, confirmations_reset: counts?.current ?? 0, eligible: counts?.eligible ?? 0 };
+    return {
+      decision_id: null,
+      confirmations_reset: counts?.current ?? 0,
+      eligible: counts?.eligible ?? 0,
+      outbox_id: null,
+    };
   }
   const decisionId = await recordAckDecision(client, {
     ...decisionColumns(docId, moved.rows[0].title, "reset", opts, counts),
     decided_at: moved.rows[0].marker,
   });
-  return { decision_id: decisionId, confirmations_reset: counts.current, eligible: counts.eligible };
+  const outboxId = await insertAckOutbox(client, {
+    document_id: docId,
+    mode: "updated",
+    source: opts.source,
+    reason: opts.reason,
+    actor: opts.actor,
+    user_ids: null,
+    delay_minutes: ackNoticeDelayMinutes(opts.source),
+  });
+  return { decision_id: decisionId, confirmations_reset: counts.current, eligible: counts.eligible, outbox_id: outboxId };
+}
+
+// --- Notice outbox and per-person notice log (ack_outbox / ack_notices, H4 + E3) --
+//
+// The SQL behind lib/compliance's enqueueAckNotice, deliverAckNotices and
+// recordNotices. Nothing here sends anything: the outbox is a queue, the
+// notice log is the record, and compliance.ts is the only module that turns
+// one into the other.
+
+/** Sources whose notices wait two minutes and coalesce per person per day; the rest (manual, recurrence) go out at once and always deliver. */
+export const ACK_NOTICE_DELAY_MINUTES = 2;
+export function ackNoticeDelayMinutes(source: AckSource | "" | null | undefined): number {
+  return source === "manual" || source === "recurrence" ? 0 : ACK_NOTICE_DELAY_MINUTES;
+}
+
+/** True for a source whose 'updated' notices coalesce (24h per person and document); manual and recurrence always deliver. */
+export function ackNoticeCoalesces(source: AckSource | "" | null | undefined): boolean {
+  return source !== "manual" && source !== "recurrence";
+}
+
+export interface AckOutboxInput {
+  document_id: number;
+  mode: AckNoticeMode;
+  source?: AckSource | "";
+  reason?: string;
+  actor?: AckActor | null;
+  /** Null (the default) = everyone pending at delivery time. */
+  user_ids?: number[] | null;
+  /** Deliver no earlier than this; `delay_minutes` from now when absent (0 = at once). */
+  not_before?: Date | string | null;
+  delay_minutes?: number;
+}
+
+/** Queue one fan-out on the given client (inside the caller's transaction) or the pool. Returns the row id. */
+export async function insertAckOutbox(client: Queryable | null, row: AckOutboxInput): Promise<number> {
+  if (!client) await ready();
+  const r = await (client ?? pool()).query<{ id: number }>(
+    `INSERT INTO ack_outbox (document_id, mode, source, reason, actor_id, actor_name, user_ids, not_before)
+     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb,
+             COALESCE($8::timestamptz, now() + make_interval(mins => $9::int)))
+     RETURNING id`,
+    [
+      row.document_id,
+      row.mode,
+      row.source ?? "",
+      (row.reason ?? "").slice(0, 1000),
+      row.actor?.id ?? null,
+      row.actor?.name || "system",
+      row.user_ids ? JSON.stringify([...new Set(row.user_ids)]) : null,
+      row.not_before instanceof Date ? row.not_before.toISOString() : (row.not_before ?? null),
+      Math.max(0, row.delay_minutes ?? 0),
+    ]
+  );
+  return r.rows[0].id;
+}
+
+/**
+ * Claim the next due rows for this instance: one UPDATE whose SET changes
+ * the column its WHERE tests (claimed_at), with FOR UPDATE SKIP LOCKED in
+ * the subquery, so two drains running at once never take the same row. A
+ * row claimed more than ten minutes ago by an instance that died is taken
+ * again; a row that failed three times is never claimed again.
+ */
+export async function claimAckOutbox(limit = 20): Promise<AckOutboxRow[]> {
+  const rows = await q<AckOutboxRow>(
+    `UPDATE ack_outbox SET claimed_at = now(), attempts = attempts + 1
+     WHERE id IN (
+       SELECT id FROM ack_outbox
+       WHERE done_at IS NULL AND not_before <= now()
+         AND (claimed_at IS NULL OR claimed_at < now() - interval '10 minutes')
+         AND attempts < 3
+       ORDER BY id LIMIT $1
+       FOR UPDATE SKIP LOCKED
+     )
+     RETURNING *`,
+    [Math.max(1, Math.min(200, limit))]
+  );
+  return rows.sort((a, b) => a.id - b.id);
+}
+
+/** Mark rows delivered; the counts come from the notice log so a resumed retry reports the whole delivery. */
+export async function completeAckOutbox(ids: number[]): Promise<{ emailed: number; noticed: number }> {
+  if (ids.length === 0) return { emailed: 0, noticed: 0 };
+  const rows = await q<{ emailed: number; noticed: number }>(
+    `UPDATE ack_outbox SET done_at = now(), error = NULL,
+       noticed = (SELECT COUNT(*)::int FROM ack_notices n WHERE n.outbox_id = ANY($1)),
+       emailed = (SELECT COUNT(*)::int FROM ack_notices n WHERE n.outbox_id = ANY($1) AND n.channels ? 'email')
+     WHERE id = ANY($1)
+     RETURNING emailed, noticed`,
+    [ids]
+  );
+  return rows[0] ?? { emailed: 0, noticed: 0 };
+}
+
+/** Record a failed attempt: the row keeps its claim (the 10-minute reclaim is the retry delay) and the error. */
+export async function failAckOutbox(ids: number[], error: string): Promise<void> {
+  if (ids.length === 0) return;
+  await q(
+    `UPDATE ack_outbox SET error = $2,
+       noticed = (SELECT COUNT(*)::int FROM ack_notices n WHERE n.outbox_id = ANY($1)),
+       emailed = (SELECT COUNT(*)::int FROM ack_notices n WHERE n.outbox_id = ANY($1) AND n.channels ? 'email')
+     WHERE id = ANY($1)`,
+    [ids, error.slice(0, 1000)]
+  );
+}
+
+export async function getAckOutboxRow(id: number): Promise<AckOutboxRow | undefined> {
+  return (await q<AckOutboxRow>("SELECT * FROM ack_outbox WHERE id = $1", [id]))[0];
+}
+
+/** Queued (not yet delivered) rows for a document, oldest first: the portal's "queued" state. */
+export async function pendingAckOutboxFor(docId: number): Promise<AckOutboxRow[]> {
+  return q<AckOutboxRow>(
+    "SELECT * FROM ack_outbox WHERE document_id = $1 AND done_at IS NULL AND attempts < 3 ORDER BY id",
+    [docId]
+  );
+}
+
+/** What the drain needs to know about the policy before it sends: gone, trashed, unpublished or no longer required means nobody is told. */
+export async function ackNoticeDocument(
+  docId: number
+): Promise<{ id: number; title: string; deliverable: boolean } | undefined> {
+  const r = await q<{ id: number; title: string; deliverable: boolean }>(
+    `SELECT id, title,
+            (ack_required = 1 AND status = 'published' AND deleted_at IS NULL) AS deliverable
+     FROM documents WHERE id = $1`,
+    [docId]
+  );
+  return r[0];
+}
+
+/**
+ * Who a fan-out reaches, resolved at delivery: the explicit list (active
+ * accounts only) when the row names one, else everyone pending for the
+ * document right now (compliancePendingUsers' joins, so a person who
+ * confirmed between enqueue and delivery is not told).
+ */
+export async function ackNoticeRecipients(
+  docId: number,
+  userIds: number[] | null
+): Promise<{ id: number; name: string; email: string }[]> {
+  if (userIds === null) return compliancePendingUsers(docId);
+  if (userIds.length === 0) return [];
+  return q(
+    "SELECT id, name, email FROM users WHERE id = ANY($1) AND status = 'active' ORDER BY name",
+    [userIds]
+  );
+}
+
+/** People who already have a notice of this kind for this document within the window (H1's coalescing key). */
+export async function recentAckNoticeUserIds(docId: number, kind: AckNoticeKind, hours: number): Promise<Set<number>> {
+  const rows = await q<{ user_id: number }>(
+    `SELECT DISTINCT user_id FROM ack_notices
+     WHERE document_id = $1 AND kind = $2 AND user_id IS NOT NULL
+       AND sent_at > now() - make_interval(hours => $3::int)`,
+    [docId, kind, hours]
+  );
+  return new Set(rows.map((r) => r.user_id));
+}
+
+/** Notices an earlier attempt of these outbox rows already wrote, by person: a retry resumes instead of repeating. */
+export async function ackNoticesForOutbox(
+  outboxIds: number[]
+): Promise<Map<number, { id: number; channels: AckNoticeChannel[] }>> {
+  const map = new Map<number, { id: number; channels: AckNoticeChannel[] }>();
+  if (outboxIds.length === 0) return map;
+  const rows = await q<{ id: number; user_id: number | null; channels: AckNoticeChannel[] }>(
+    "SELECT id, user_id, channels FROM ack_notices WHERE outbox_id = ANY($1) ORDER BY id",
+    [outboxIds]
+  );
+  for (const r of rows) if (r.user_id != null) map.set(r.user_id, { id: r.id, channels: r.channels ?? [] });
+  return map;
+}
+
+export interface AckNoticeInput {
+  user_id: number;
+  user_name: string;
+  user_email: string;
+  document_id: number;
+  document_title: string;
+  kind: AckNoticeKind;
+  channels: AckNoticeChannel[];
+  by_user_id?: number | null;
+  by_name?: string;
+  outbox_id?: number | null;
+}
+
+/** The single INSERT behind recordNotices (lib/compliance); returns the new ids in input order. */
+export async function insertAckNotices(rows: AckNoticeInput[]): Promise<number[]> {
+  if (rows.length === 0) return [];
+  const out = await q<{ id: number }>(
+    `INSERT INTO ack_notices
+       (user_id, user_name, user_email, document_id, document_title, kind, channels, by_user_id, by_name, outbox_id)
+     SELECT r.user_id, COALESCE(r.user_name, ''), COALESCE(r.user_email, ''), r.document_id,
+            COALESCE(r.document_title, ''), r.kind, COALESCE(r.channels, '[]'::jsonb),
+            r.by_user_id, COALESCE(NULLIF(r.by_name, ''), 'system'), r.outbox_id
+     FROM jsonb_to_recordset($1::jsonb) AS r(
+       user_id int, user_name text, user_email text, document_id int, document_title text,
+       kind text, channels jsonb, by_user_id int, by_name text, outbox_id int)
+     RETURNING id`,
+    [
+      JSON.stringify(
+        rows.map((r) => ({
+          user_id: r.user_id,
+          user_name: r.user_name,
+          user_email: r.user_email,
+          document_id: r.document_id,
+          document_title: r.document_title,
+          kind: r.kind,
+          channels: [...new Set(r.channels)],
+          by_user_id: r.by_user_id ?? null,
+          by_name: r.by_name || "system",
+          outbox_id: r.outbox_id ?? null,
+        }))
+      ),
+    ]
+  );
+  return out.map((r) => r.id);
+}
+
+/** A retry delivered a channel an earlier attempt could not (the email after an SMTP outage): add it to the row. */
+export async function addAckNoticeChannel(id: number, channel: AckNoticeChannel): Promise<void> {
+  await q(
+    `UPDATE ack_notices SET channels = channels || $2::jsonb
+     WHERE id = $1 AND NOT (channels ? $3)`,
+    [id, JSON.stringify([channel]), channel]
+  );
+}
+
+/** The notice log, newest first, for a person and/or a document (the person record, the roster expand, notices.csv). */
+export async function listAckNotices(opts: {
+  userId?: number;
+  documentId?: number;
+  limit?: number;
+}): Promise<AckNotice[]> {
+  const where: string[] = [];
+  const params: unknown[] = [];
+  if (opts.userId != null) {
+    params.push(opts.userId);
+    where.push(`user_id = $${params.length}`);
+  }
+  if (opts.documentId != null) {
+    params.push(opts.documentId);
+    where.push(`document_id = $${params.length}`);
+  }
+  params.push(Math.min(500, Math.max(1, opts.limit ?? 100)));
+  return q<AckNotice>(
+    `SELECT id, user_id, user_name, user_email, document_id, document_title, kind, channels,
+            sent_at, by_user_id, by_name, outbox_id
+     FROM ack_notices ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+     ORDER BY sent_at DESC, id DESC LIMIT $${params.length}`,
+    params
+  );
+}
+
+/** The newest notice per document for a set of documents (the roster expand's "Last notified 3 Oct (reminder)"). */
+export async function lastAckNoticeByDocument(
+  docIds: number[]
+): Promise<Map<number, { sent_at: string; kind: AckNoticeKind }>> {
+  const map = new Map<number, { sent_at: string; kind: AckNoticeKind }>();
+  if (docIds.length === 0) return map;
+  const rows = await q<{ document_id: number; sent_at: string; kind: AckNoticeKind }>(
+    `SELECT DISTINCT ON (document_id) document_id, sent_at, kind
+     FROM ack_notices WHERE document_id = ANY($1)
+     ORDER BY document_id, sent_at DESC, id DESC`,
+    [docIds]
+  );
+  for (const r of rows) map.set(r.document_id, { sent_at: r.sent_at, kind: r.kind });
+  return map;
+}
+
+/** Stamp notified_at on the reset decisions an 'updated' delivery covered (the rows queued since the group's earliest not_before, less the debounce). */
+export async function stampAckDecisionsNotified(docId: number, since: string): Promise<number> {
+  const r = await pool().query(
+    `UPDATE ack_decisions SET notified_at = now()
+     WHERE document_id = $1 AND outcome = 'reset' AND notified_at IS NULL
+       AND decided_at >= $2::timestamptz - make_interval(mins => $3::int)`,
+    [docId, since, ACK_NOTICE_DELAY_MINUTES]
+  );
+  return r.rowCount ?? 0;
 }
 
 /**
@@ -8200,9 +8672,25 @@ export async function approveChangeRequest(
     // transition without a text change) the newest row already there.
     let versionId: number | null = null;
     if (versionWorthy) {
+      // Provenance (C6): the submitter published the words, the reviewer
+      // approved them, and the request that carried them is on the row.
       const v = await client.query<{ id: number }>(
-        "INSERT INTO doc_versions (document_id, title, content, author, note) VALUES ($1,$2,$3,$4,$5) RETURNING id",
-        [cr.document_id, cr.title, cr.content, cr.author_name, versionNote]
+        `INSERT INTO doc_versions
+           (document_id, title, content, author, note,
+            published_by, published_by_name, approved_by, approved_by_name, change_request_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+        [
+          cr.document_id,
+          cr.title,
+          cr.content,
+          cr.author_name,
+          versionNote,
+          cr.created_by,
+          cr.author_name,
+          reviewerId,
+          reviewerName,
+          id,
+        ]
       );
       versionId = v.rows[0].id;
     } else if (substantive) {

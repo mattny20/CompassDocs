@@ -2,7 +2,10 @@
 // out to a set of users: a row each in the notifications table, plus a POST
 // to each recipient's personal incoming webhook (Slack/Teams) when they've
 // configured one. Fire-and-forget from write paths — call with `void`;
-// failures are logged and never block the triggering action. Server-only.
+// failures are logged and never block the triggering action. It reports
+// what it reached ({inbox, webhook} counts and the ids behind them) for the
+// one caller that keeps a per-person record, the read-confirmation outbox
+// drain (lib/compliance). Server-only.
 
 import "server-only";
 import { insertNotifications, getUserById, getNotifyPrefsFor } from "./db";
@@ -56,9 +59,18 @@ export function notifyPrefAllows(
   return prefs?.[kind]?.[channel] !== false;
 }
 
-export async function notify(userIds: number[], ev: NotificationEvent): Promise<void> {
+/** What one fan-out reached: inbox rows written and webhooks that answered 2xx, as counts and as the ids behind them. */
+export interface NotifyResult {
+  inbox: number;
+  webhook: number;
+  inboxIds: number[];
+  webhookIds: number[];
+}
+
+export async function notify(userIds: number[], ev: NotificationEvent): Promise<NotifyResult> {
   const all = [...new Set(userIds)];
-  if (all.length === 0) return;
+  const result: NotifyResult = { inbox: 0, webhook: 0, inboxIds: [], webhookIds: [] };
+  if (all.length === 0) return result;
 
   // Per-event routing (Account → Notifications): a missing pref means "on".
   let prefs: Awaited<ReturnType<typeof getNotifyPrefsFor>>;
@@ -80,6 +92,8 @@ export async function notify(userIds: number[], ev: NotificationEvent): Promise<
         link: ev.link,
         actor_name: ev.actorName,
       });
+      result.inboxIds = inboxIds;
+      result.inbox = inboxIds.length;
     } catch (e) {
       console.error("notify: insert failed:", e);
     }
@@ -100,8 +114,13 @@ export async function notify(userIds: number[], ev: NotificationEvent): Promise<
         signal: AbortSignal.timeout(5_000),
       });
       if (!res.ok) console.error(`notify: webhook for user ${id} returned ${res.status}`);
+      else {
+        result.webhookIds.push(id);
+        result.webhook++;
+      }
     } catch (e) {
       console.error(`notify: webhook for user ${id} failed:`, e);
     }
   }
+  return result;
 }

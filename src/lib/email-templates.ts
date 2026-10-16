@@ -82,21 +82,30 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     key: "ack_request",
     label: "Read confirmation request",
     description:
-      "Sent when an admin asks people to read and confirm a policy, or reminds them. Sent regardless of personal notification settings.",
+      "Sent when someone asks people to read and confirm a policy, reminds them, or changes a policy they had confirmed. Sent regardless of personal notification settings.",
+    // 1.10.1 (H1): one template for every read-confirmation notice. The
+    // mode-specific tags are blank when they do not apply, so a line that
+    // holds only {{change_note}} or {{reason}} disappears from the rendered
+    // mail. A workspace that overrode this template keeps its own body and
+    // adopts the new tags and the final sentence when it next edits it.
     tags: [
-      T("requester_name", "Requesting admin"),
+      T("requester_name", "Who asked (or who made the change)"),
       T("doc_title", "Policy title"),
-      T("doc_url", "Link to the policy"),
-      T("request_type", "requested / sent a reminder"),
-      T("request_label", "Action required / Reminder"),
+      T("doc_url", "Link to the policy (lands on the confirmation card)"),
+      T("request_type", "requested / sent a reminder / changed the document and asks again / asks again"),
+      T("request_label", "Action required / Reminder / Updated / Annual re-confirmation"),
+      T("change_note", "What changed (blank unless the document changed)"),
+      T("reason", "Why you are asked again (blank unless someone gave a reason)"),
+      T("due_date", "Confirm-by date (blank when there is none)"),
+      T("days_left", "Days until the due date (blank when there is none)"),
       T("org_name", "Workspace name"),
     ],
     subject: '[{{org_name}}] {{request_label}}: confirm "{{doc_title}}"',
     body:
-      "**{{requester_name}}** {{request_type}} that you read and acknowledge:\n\n" +
+      "**{{requester_name}}** {{request_type}} that you read and confirm:\n\n" +
       "> **{{doc_title}}**\n\n" +
-      '[Open the document]({{doc_url}}) and click *"I\'ve read and understood"*.\n\n' +
-      "This acknowledgement is recorded for compliance.",
+      "{{change_note}}{{reason}}\n\n" +
+      "[Open the document]({{doc_url}}) and confirm at the end that you have read and understood it.",
   },
   {
     key: "training_assigned",
@@ -250,9 +259,13 @@ export const SAMPLE_VARS: Record<string, Record<string, string>> = {
   ack_request: {
     requester_name: "Dana Whitfield",
     doc_title: "Code of Conduct",
-    doc_url: "/doc/42",
-    request_type: "requested",
-    request_label: "Action required",
+    doc_url: "/doc/42#confirm-reading",
+    request_type: "changed the document and asks again",
+    request_label: "Updated",
+    change_note: "Section 4 now covers contractors as well as employees.",
+    reason: "",
+    due_date: "",
+    days_left: "",
   },
   workflow_event: {
     event: "Change approved",
