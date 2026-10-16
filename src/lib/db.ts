@@ -125,6 +125,8 @@ async function initialize(): Promise<void> {
     await migrateSpaceGrantsToAssignments(client);
     await dropLegacySpaceGrantTables(client);
     await migrateVisibilityTiers(client);
+    await migrateAckRevisions(client);
+    await migrateAckRetention(client);
     await migrateSecuritySealing(client);
     await migrateWeightedSearch(client);
     await migrateDirectoryRegistry(client);
@@ -706,10 +708,12 @@ const SCHEMA_SQL = `
     PRIMARY KEY (space_id, group_id)
   );
 
-  -- Policy acknowledgements (enterprise): docs can require readers to confirm
-  -- they've read them. The ledger is append-only for compliance — an ack is
-  -- "current" only while acknowledged_at >= the doc's updated_at, so any edit
-  -- to the document asks everyone again.
+  -- Read confirmations (enterprise "policy_ack"): docs can require readers to
+  -- confirm they've read them. The ledger is append-only for compliance. A
+  -- confirmation is "current" while acknowledged_at >= the doc's
+  -- ack_revision_at (ACK_CURRENT below) — the marker only moves when an
+  -- editor asks everyone again (resetAcknowledgements, 1.10.0), never on a
+  -- metadata-only save, so updated_at stays the conflict token and nothing else.
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS ack_required integer NOT NULL DEFAULT 0;
   -- Spam guard + display for compliance reminders (central portal).
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS ack_last_reminded_at timestamptz;
@@ -721,6 +725,55 @@ const SCHEMA_SQL = `
     ip text NOT NULL DEFAULT ''
   );
   CREATE INDEX IF NOT EXISTS idx_ack_doc ON acknowledgements(document_id, user_id, acknowledged_at DESC);
+
+  -- 1.10.0: the currency marker. The order of these four statements is
+  -- load-bearing: a no-default ADD COLUMN, the backfill from updated_at, and
+  -- only THEN the default and NOT NULL. "ADD COLUMN ... DEFAULT now()" in one
+  -- statement would stamp upgrade time on every row and mark every existing
+  -- confirmation stale. SCHEMA_SQL runs as one implicit transaction, so no
+  -- request ever sees a half-migrated table; after the first boot the UPDATE
+  -- matches nothing and SET NOT NULL is a no-op on a column already NOT NULL.
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS ack_revision_at timestamptz;
+  UPDATE documents SET ack_revision_at = updated_at WHERE ack_revision_at IS NULL;
+  ALTER TABLE documents ALTER COLUMN ack_revision_at SET DEFAULT now();
+  ALTER TABLE documents ALTER COLUMN ack_revision_at SET NOT NULL;
+  -- The version everyone is asked to confirm (the marker's version).
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS ack_version_id integer REFERENCES doc_versions(id) ON DELETE SET NULL;
+  -- What each person confirmed: the version row and the SHA-256 of its text.
+  -- version_id is a plain integer on purpose (like training's
+  -- confirmed_version): a purged document takes its doc_versions rows with it,
+  -- and the id must survive so getAttestedVersion() can still resolve it
+  -- through attested_texts. Rows from before 1.10.0 get version_id inferred by
+  -- migrateAckRevisions() and keep content_sha256 NULL ("version inferred").
+  ALTER TABLE acknowledgements ADD COLUMN IF NOT EXISTS version_id integer;
+  ALTER TABLE acknowledgements ADD COLUMN IF NOT EXISTS content_sha256 text;
+  CREATE INDEX IF NOT EXISTS idx_ack_user ON acknowledgements(user_id, acknowledged_at DESC);
+
+  -- 1.10.0 retention: attestation records outlive the person and the policy.
+  -- Metadata-only here; the ON DELETE SET NULL swap and the snapshot backfill
+  -- run once in migrateAckRetention() (NOT VALID + VALIDATE, no write stall).
+  -- 1.9.x's INSERT (document_id, user_id, ip) stays valid against nullable
+  -- columns and its queries JOIN users/documents, so a rollback simply stops
+  -- showing rows whose person or policy is gone.
+  ALTER TABLE acknowledgements ALTER COLUMN user_id DROP NOT NULL;
+  ALTER TABLE acknowledgements ALTER COLUMN document_id DROP NOT NULL;
+  ALTER TABLE acknowledgements ADD COLUMN IF NOT EXISTS user_name text NOT NULL DEFAULT '';
+  ALTER TABLE acknowledgements ADD COLUMN IF NOT EXISTS user_email text NOT NULL DEFAULT '';
+  ALTER TABLE acknowledgements ADD COLUMN IF NOT EXISTS document_title text NOT NULL DEFAULT '';
+  -- The words a hash was taken over, kept when a policy is purged from the
+  -- Trash: every doc_versions row cited by a confirmation or a marker is copied
+  -- here first (archiveAttestedTexts). No FK to doc_versions on purpose.
+  CREATE TABLE IF NOT EXISTS attested_texts (
+    version_id integer PRIMARY KEY,
+    document_id integer,
+    document_title text NOT NULL DEFAULT '',
+    title text NOT NULL DEFAULT '',
+    content text NOT NULL DEFAULT '',
+    content_sha256 text NOT NULL DEFAULT '',
+    author text NOT NULL DEFAULT '',
+    version_created_at timestamptz,
+    archived_at timestamptz NOT NULL DEFAULT now()
+  );
 
   -- Training decks (enterprise "training" entitlement): a published document
   -- becomes a slide deck (split on ---) that can be assigned to users with a
@@ -1664,6 +1717,92 @@ async function migrateVisibilityTiers(client: import("pg").PoolClient) {
   await client.query("UPDATE spaces SET visibility = 'internal' WHERE visibility = 'public'");
   await client.query(
     "INSERT INTO settings (key, value) VALUES ('migrated_visibility_tiers','1') ON CONFLICT (key) DO NOTHING"
+  );
+}
+
+/**
+ * One-shot backfill for the 1.10.0 confirmation marker (A1). SCHEMA_SQL has
+ * already added the columns and copied updated_at into ack_revision_at (that
+ * part is atomic and must be); this stamps the row-level evidence that can be
+ * inferred for rows written before 1.10.0:
+ *
+ *   - documents.ack_version_id = the newest version (what everyone is asked
+ *     to confirm from now on);
+ *   - acknowledgements.version_id = the newest version that existed when the
+ *     person confirmed. content_sha256 stays NULL, which is how every surface
+ *     tells an inferred row ("version inferred") from a recorded one.
+ *
+ * Guarded by a settings flag so a tenant that later edits documents never has
+ * its ledger re-inferred underneath it; ack_marker_schema tells support the
+ * tenant has been through it.
+ */
+async function migrateAckRevisions(client: import("pg").PoolClient) {
+  const done = await client.query("SELECT 1 FROM settings WHERE key = 'migrated_ack_revisions'");
+  if (done.rowCount) return;
+  const docs = await client.query(
+    `UPDATE documents d SET ack_version_id = v.latest
+     FROM (SELECT document_id, MAX(id) AS latest FROM doc_versions GROUP BY document_id) v
+     WHERE v.document_id = d.id AND d.ack_version_id IS NULL`
+  );
+  const acks = await client.query(
+    `UPDATE acknowledgements a SET version_id = (
+       SELECT v.id FROM doc_versions v
+       WHERE v.document_id = a.document_id AND v.created_at <= a.acknowledged_at
+       ORDER BY v.created_at DESC, v.id DESC LIMIT 1
+     )
+     WHERE a.version_id IS NULL AND a.document_id IS NOT NULL`
+  );
+  await client.query(
+    "INSERT INTO settings (key, value) VALUES ('migrated_ack_revisions','1') ON CONFLICT (key) DO NOTHING"
+  );
+  await client.query(
+    "INSERT INTO settings (key, value) VALUES ('ack_marker_schema','1') ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value"
+  );
+  console.log(
+    `[ack] stamped the confirmation marker on ${docs.rowCount ?? 0} document(s) and inferred the version on ${acks.rowCount ?? 0} earlier confirmation(s)`
+  );
+}
+
+/**
+ * One-shot retention migration (C5): the attestation ledger stops cascading
+ * away with its person or policy. The FKs are swapped to ON DELETE SET NULL
+ * as NOT VALID and then VALIDATEd (SHARE UPDATE EXCLUSIVE, so a years-deep
+ * table is checked without blocking writes), and every row gets the
+ * name/email/title snapshots the live queries fall back to once the join
+ * target is gone. Guarded like migrateVisibilityTiers; ack_retention_schema
+ * tells support the tenant has been through it.
+ */
+async function migrateAckRetention(client: import("pg").PoolClient) {
+  const done = await client.query("SELECT 1 FROM settings WHERE key = 'migrated_ack_retention'");
+  if (done.rowCount) return;
+  for (const [column, target] of [
+    ["user_id", "users"],
+    ["document_id", "documents"],
+  ] as const) {
+    const name = `acknowledgements_${column}_fkey`;
+    await client.query(`ALTER TABLE acknowledgements DROP CONSTRAINT IF EXISTS ${name}`);
+    await client.query(
+      `ALTER TABLE acknowledgements ADD CONSTRAINT ${name}
+         FOREIGN KEY (${column}) REFERENCES ${target}(id) ON DELETE SET NULL NOT VALID`
+    );
+    await client.query(`ALTER TABLE acknowledgements VALIDATE CONSTRAINT ${name}`);
+  }
+  const people = await client.query(
+    `UPDATE acknowledgements a SET user_name = u.name, user_email = u.email
+     FROM users u WHERE u.id = a.user_id AND a.user_name = ''`
+  );
+  const titles = await client.query(
+    `UPDATE acknowledgements a SET document_title = d.title
+     FROM documents d WHERE d.id = a.document_id AND a.document_title = ''`
+  );
+  await client.query(
+    "INSERT INTO settings (key, value) VALUES ('migrated_ack_retention','1') ON CONFLICT (key) DO NOTHING"
+  );
+  await client.query(
+    "INSERT INTO settings (key, value) VALUES ('ack_retention_schema','1') ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value"
+  );
+  console.log(
+    `[ack] attestation records now outlive their person and policy; snapshotted ${people.rowCount ?? 0} name(s) and ${titles.rowCount ?? 0} title(s)`
   );
 }
 
@@ -2644,10 +2783,13 @@ export async function createDocument(input: DocInput): Promise<DocumentWithSpace
     ]
   );
   const id = r[0].id;
-  await q(
-    "INSERT INTO doc_versions (document_id, title, content, author, note) VALUES ($1,$2,$3,$4,$5)",
+  const v = await q<{ id: number }>(
+    "INSERT INTO doc_versions (document_id, title, content, author, note) VALUES ($1,$2,$3,$4,$5) RETURNING id",
     [id, input.title, input.content, input.author, input.branch_of ? "Branched" : "Created"]
   );
+  // The confirmation marker starts at the first version (ack_revision_at took
+  // its default of now() on insert); resetAcknowledgements moves it later.
+  await q("UPDATE documents SET ack_version_id = $2 WHERE id = $1", [id, v[0].id]);
   // Fire-and-forget semantic index (dynamic import avoids a module cycle).
   void import("./embeddings").then((m) => m.indexDocument(id)).catch(() => {});
   void import("./backlinks").then((m) => m.syncDocLinks(id)).catch(() => {});
@@ -2796,30 +2938,94 @@ export async function restoreDocument(id: number): Promise<boolean> {
   return (res.rowCount ?? 0) > 0;
 }
 
+/**
+ * Before a document's versions go (purge), copy every version a confirmation
+ * or a marker cites into attested_texts so the words behind each
+ * content_sha256 stay verifiable (C5). Insert-only with ON CONFLICT DO
+ * NOTHING, so running it twice is free. Also fills the document_title
+ * snapshot on any confirmation that still lacks one (rows written by 1.9.x
+ * after a rollback), since the join target is about to disappear. Runs inside
+ * the caller's transaction, before the DELETE.
+ *
+ * Wave 2 (C1) adds ack_decisions.version_id to the cited set.
+ */
+async function archiveAttestedTexts(client: import("pg").PoolClient, docIds: number[]): Promise<number> {
+  if (docIds.length === 0) return 0;
+  await client.query(
+    `UPDATE acknowledgements a SET document_title = d.title
+     FROM documents d WHERE d.id = a.document_id AND a.document_id = ANY($1) AND a.document_title = ''`,
+    [docIds]
+  );
+  const res = await client.query(
+    `INSERT INTO attested_texts
+       (version_id, document_id, document_title, title, content, content_sha256, author, version_created_at)
+     SELECT v.id, v.document_id, d.title, v.title, v.content,
+            encode(sha256(convert_to(v.content, 'UTF8')), 'hex'), v.author, v.created_at
+     FROM doc_versions v
+     JOIN documents d ON d.id = v.document_id
+     WHERE v.document_id = ANY($1)
+       AND (d.ack_version_id = v.id
+            OR EXISTS (SELECT 1 FROM acknowledgements a WHERE a.version_id = v.id))
+     ON CONFLICT (version_id) DO NOTHING`,
+    [docIds]
+  );
+  return res.rowCount ?? 0;
+}
+
 /** Permanently delete a trashed document (irreversible). Only affects Trash. */
 export async function purgeDocument(id: number): Promise<boolean> {
   await ready();
-  const res = await pool().query(
-    "DELETE FROM documents WHERE id = $1 AND deleted_at IS NOT NULL",
-    [id]
-  );
-  return (res.rowCount ?? 0) > 0;
+  const client = await pool().connect();
+  try {
+    await client.query("BEGIN");
+    await archiveAttestedTexts(client, [id]);
+    const res = await client.query(
+      "DELETE FROM documents WHERE id = $1 AND deleted_at IS NOT NULL",
+      [id]
+    );
+    await client.query("COMMIT");
+    return (res.rowCount ?? 0) > 0;
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
 /**
  * Permanently delete trashed documents older than `retentionDays`. A value of
  * 0 (or less) disables auto-purge (Trash is kept forever). Returns the count
- * removed.
+ * removed. The attested text behind every confirmation is archived first, in
+ * the same transaction.
  */
 export async function purgeExpiredTrash(retentionDays: number): Promise<number> {
   if (!Number.isFinite(retentionDays) || retentionDays <= 0) return 0;
   await ready();
-  const res = await pool().query(
-    `DELETE FROM documents
-     WHERE deleted_at IS NOT NULL AND deleted_at < now() - ($1 * interval '1 day')`,
-    [retentionDays]
-  );
-  return res.rowCount ?? 0;
+  const client = await pool().connect();
+  try {
+    await client.query("BEGIN");
+    const due = await client.query<{ id: number }>(
+      `SELECT id FROM documents
+       WHERE deleted_at IS NOT NULL AND deleted_at < now() - ($1 * interval '1 day')
+       FOR UPDATE SKIP LOCKED`,
+      [retentionDays]
+    );
+    const ids = due.rows.map((r) => r.id);
+    if (ids.length === 0) {
+      await client.query("COMMIT");
+      return 0;
+    }
+    await archiveAttestedTexts(client, ids);
+    const res = await client.query("DELETE FROM documents WHERE id = ANY($1)", [ids]);
+    await client.query("COMMIT");
+    return res.rowCount ?? 0;
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
 /**
@@ -3376,8 +3582,25 @@ export async function deleteUser(id: number): Promise<boolean> {
      WHERE a.user_id = $1 AND a.completed_at IS NOT NULL`,
     [id]
   ).catch(() => {});
+  // Read confirmations are kept (their FK is ON DELETE SET NULL since 1.10.0);
+  // make sure every row carries the name snapshot the record will show once
+  // the join target is gone (rows written by 1.9.x after a rollback lack it).
+  await q(
+    `UPDATE acknowledgements a SET user_name = u.name, user_email = u.email
+     FROM users u WHERE u.id = $1 AND a.user_id = $1 AND a.user_name = ''`,
+    [id]
+  ).catch(() => {});
   const res = await pool().query("DELETE FROM users WHERE id = $1", [id]);
   return (res.rowCount ?? 0) > 0;
+}
+
+/** How many attestation records a user has (kept after deleteUser; the audit detail). */
+export async function countUserAttestations(userId: number): Promise<number> {
+  const r = await q<{ n: number }>(
+    "SELECT COUNT(*)::int AS n FROM acknowledgements WHERE user_id = $1",
+    [userId]
+  );
+  return r[0]?.n ?? 0;
 }
 
 // countAdmins() lived here until 1.0. Its callers — the demote/disable/delete
@@ -4319,6 +4542,29 @@ const ACK_VISIBILITY = `(
   )`;
 const ACK_ELIGIBLE = `u.status = 'active' AND ${ACK_VISIBILITY}`;
 
+// A confirmation (alias a) counts for a document (alias d) while it was made
+// on or after the doc's confirmation marker. The marker — not updated_at — is
+// the single source of currency (1.10.0): metadata-only saves, moves,
+// scheduling and trash/restore never touch it. Every compliance query below
+// uses this fragment and nothing else, so they cannot disagree.
+const ACK_CURRENT = `a.acknowledged_at >= d.ack_revision_at`;
+
+// 1-based position of a version among its document's versions, ordered the
+// way Version history numbers them (oldest = v1). NULL when the column is
+// NULL or the version row is gone (a purged policy: the archive keeps the
+// text, but not the numbering).
+const VERSION_REV = (col: string) => `(
+    SELECT NULLIF(COUNT(*), 0)::int FROM doc_versions v2
+    JOIN doc_versions v ON v.id = ${col}
+    WHERE v2.document_id = v.document_id
+      AND (v2.created_at, v2.id) <= (v.created_at, v.id)
+  )`;
+
+/** 'recorded' when the row carries the hash of the text confirmed; 'inferred' for rows from before 1.10.0. */
+export type AckVersionSource = "recorded" | "inferred";
+const VERSION_SOURCE = (shaCol: string) =>
+  `CASE WHEN ${shaCol} IS NOT NULL THEN 'recorded' ELSE 'inferred' END`;
+
 /** Central compliance portal: every ack-required published doc with counts. */
 export async function complianceDocs(): Promise<
   {
@@ -4327,6 +4573,8 @@ export async function complianceDocs(): Promise<
     space_name: string;
     space_icon: string;
     updated_at: string;
+    ack_revision_at: string;
+    ack_version_id: number | null;
     ack_last_reminded_at: string | null;
     required: number;
     acked: number;
@@ -4334,24 +4582,25 @@ export async function complianceDocs(): Promise<
 > {
   return q(
     `SELECT d.id, d.title, s.name AS space_name, s.icon AS space_icon,
-            d.updated_at, d.ack_last_reminded_at,
+            d.updated_at, d.ack_revision_at, d.ack_version_id, d.ack_last_reminded_at,
             COUNT(u.id)::int AS required,
             COUNT(u.id) FILTER (WHERE a.acknowledged_at IS NOT NULL)::int AS acked
      FROM documents d
      JOIN spaces s ON s.id = d.space_id
      LEFT JOIN users u ON ${ACK_ELIGIBLE}
      LEFT JOIN LATERAL (
-       SELECT acknowledged_at FROM acknowledgements
-       WHERE document_id = d.id AND user_id = u.id AND acknowledged_at >= d.updated_at
-       ORDER BY acknowledged_at DESC LIMIT 1
+       SELECT a.acknowledged_at FROM acknowledgements a
+       WHERE a.document_id = d.id AND a.user_id = u.id AND ${ACK_CURRENT}
+       ORDER BY a.acknowledged_at DESC LIMIT 1
      ) a ON true
      WHERE d.ack_required = 1 AND d.status = 'published' AND d.deleted_at IS NULL
-     GROUP BY d.id, d.title, s.name, s.icon, d.updated_at, d.ack_last_reminded_at
+     GROUP BY d.id, d.title, s.name, s.icon, d.updated_at, d.ack_revision_at, d.ack_version_id,
+              d.ack_last_reminded_at
      ORDER BY (COUNT(u.id) - COUNT(u.id) FILTER (WHERE a.acknowledged_at IS NOT NULL)) DESC, d.title`
   );
 }
 
-/** Eligible users who have NOT acknowledged the doc's current revision. */
+/** Eligible users who have NOT confirmed the doc's current marker. */
 export async function compliancePendingUsers(
   docId: number
 ): Promise<{ id: number; name: string; username: string; email: string }[]> {
@@ -4363,7 +4612,7 @@ export async function compliancePendingUsers(
      WHERE ${ACK_ELIGIBLE}
        AND NOT EXISTS (
          SELECT 1 FROM acknowledgements a
-         WHERE a.document_id = d.id AND a.user_id = u.id AND a.acknowledged_at >= d.updated_at
+         WHERE a.document_id = d.id AND a.user_id = u.id AND ${ACK_CURRENT}
        )
      ORDER BY u.name`,
     [docId]
@@ -4383,9 +4632,9 @@ export async function complianceUserSummary(): Promise<
        ON d.ack_required = 1 AND d.status = 'published' AND d.deleted_at IS NULL
      LEFT JOIN spaces s ON s.id = d.space_id
      LEFT JOIN LATERAL (
-       SELECT acknowledged_at FROM acknowledgements
-       WHERE document_id = d.id AND user_id = u.id AND acknowledged_at >= d.updated_at
-       ORDER BY acknowledged_at DESC LIMIT 1
+       SELECT a.acknowledged_at FROM acknowledgements a
+       WHERE a.document_id = d.id AND a.user_id = u.id AND ${ACK_CURRENT}
+       ORDER BY a.acknowledged_at DESC LIMIT 1
      ) a ON true
      WHERE u.status = 'active'
        AND (d.id IS NULL OR ${ACK_VISIBILITY})
@@ -4411,61 +4660,202 @@ export async function setAckLastReminded(docId: number): Promise<void> {
   await q("UPDATE documents SET ack_last_reminded_at = now() WHERE id = $1", [docId]);
 }
 
-/** Record an acknowledgement (append-only; no-op if already current). */
+/**
+ * Record a read confirmation (append-only). The reader declares the version
+ * they read; the row is inserted only when that is still the document's
+ * latest version and the marker has not moved past it — otherwise `stale`
+ * and the caller answers 409 so the page reloads into what changed. The hash
+ * is taken from that doc_versions row's text, never from documents.content,
+ * so a row can never cite words the person did not see. The name, email and
+ * title snapshots are written on every insert (C5).
+ *
+ * A second row is accepted when the person's current confirmation cites an
+ * older version than the latest (a kept edit): the ledger keeps both, and
+ * the newer one is what the record shows.
+ */
 export async function recordAcknowledgement(
   docId: number,
   userId: number,
-  ip: string
-): Promise<{ recorded: boolean }> {
+  ip: string,
+  versionId: number
+): Promise<{ recorded: boolean; stale: boolean }> {
   const current = await getCurrentAck(docId, userId);
-  if (current) return { recorded: false };
-  await q(
-    "INSERT INTO acknowledgements (document_id, user_id, ip) VALUES ($1,$2,$3)",
-    [docId, userId, ip.slice(0, 100)]
+  if (current && current.version_id === versionId) return { recorded: false, stale: false };
+  const version = (
+    await q<{ id: number; content: string }>(
+      "SELECT id, content FROM doc_versions WHERE id = $1 AND document_id = $2",
+      [versionId, docId]
+    )
+  )[0];
+  if (!version) return { recorded: false, stale: true };
+  const sha = createHash("sha256").update(version.content).digest("hex");
+  const inserted = await q<{ id: number }>(
+    `INSERT INTO acknowledgements
+       (document_id, user_id, ip, version_id, content_sha256, user_name, user_email, document_title)
+     SELECT d.id, u.id, $3, $4, $5, u.name, u.email, d.title
+     FROM documents d
+     JOIN users u ON u.id = $2
+     WHERE d.id = $1
+       AND $4 = (SELECT MAX(v.id) FROM doc_versions v WHERE v.document_id = d.id)
+       AND (d.ack_version_id IS NULL OR d.ack_version_id <= $4)
+     RETURNING id`,
+    [docId, userId, ip.slice(0, 100), versionId, sha]
   );
-  return { recorded: true };
+  if (inserted.length === 0) return { recorded: false, stale: true };
+  return { recorded: true, stale: false };
 }
 
-/** The user's ack for the doc's *current* revision, if any. */
-export async function getCurrentAck(
-  docId: number,
-  userId: number
-): Promise<{ acknowledged_at: string } | undefined> {
+export interface CurrentAck {
+  acknowledged_at: string;
+  /** The version confirmed; null only on a pre-1.10 row no version could be inferred for. */
+  version_id: number | null;
+  /** 1-based position of that version in Version history ("v12"); null when version_id is null or the version is gone. */
+  rev: number | null;
+  /** SHA-256 of the version text at confirmation; null on inferred rows. */
+  content_sha256: string | null;
+}
+
+/** The user's confirmation that is current against the doc's marker, if any. */
+export async function getCurrentAck(docId: number, userId: number): Promise<CurrentAck | undefined> {
   return (
-    await q<{ acknowledged_at: string }>(
-      `SELECT a.acknowledged_at FROM acknowledgements a
+    await q<CurrentAck>(
+      `SELECT a.acknowledged_at, a.version_id, a.content_sha256,
+              ${VERSION_REV("a.version_id")} AS rev
+       FROM acknowledgements a
        JOIN documents d ON d.id = a.document_id
-       WHERE a.document_id = $1 AND a.user_id = $2 AND a.acknowledged_at >= d.updated_at
-       ORDER BY a.acknowledged_at DESC LIMIT 1`,
+       WHERE a.document_id = $1 AND a.user_id = $2 AND ${ACK_CURRENT}
+       ORDER BY a.acknowledged_at DESC, a.id DESC LIMIT 1`,
       [docId, userId]
     )
   )[0];
 }
 
+export interface AckVersionInfo {
+  /** The version everyone is asked to confirm (documents.ack_version_id; the latest version when unset). */
+  version_id: number | null;
+  rev: number | null;
+  created_at: string | null;
+  author: string;
+  /** The document's newest version: what POST /ack must cite. Equal to version_id except after a kept edit. */
+  latest_version_id: number | null;
+  latest_rev: number | null;
+}
+
+/** The marker's version for a document, with its Version-history number. */
+export async function getAckVersionInfo(docId: number): Promise<AckVersionInfo> {
+  const row = (
+    await q<AckVersionInfo>(
+      `SELECT COALESCE(d.ack_version_id, l.latest) AS version_id,
+              ${VERSION_REV("COALESCE(d.ack_version_id, l.latest)")} AS rev,
+              v.created_at, COALESCE(v.author, '') AS author,
+              l.latest AS latest_version_id,
+              ${VERSION_REV("l.latest")} AS latest_rev
+       FROM documents d
+       LEFT JOIN LATERAL (
+         SELECT MAX(x.id) AS latest FROM doc_versions x WHERE x.document_id = d.id
+       ) l ON true
+       LEFT JOIN doc_versions v ON v.id = COALESCE(d.ack_version_id, l.latest)
+       WHERE d.id = $1`,
+      [docId]
+    )
+  )[0];
+  return (
+    row ?? {
+      version_id: null,
+      rev: null,
+      created_at: null,
+      author: "",
+      latest_version_id: null,
+      latest_rev: null,
+    }
+  );
+}
+
+export interface AckStatusRow {
+  id: number;
+  name: string;
+  username: string;
+  email: string;
+  role: string;
+  acknowledged_at: string | null;
+  version_id: number | null;
+  rev: number | null;
+  content_sha256: string | null;
+  version_source: AckVersionSource | null;
+}
+
 /**
- * Compliance status: everyone who is expected to acknowledge the doc (active
- * accounts that can see its space) with their current-revision ack, if any.
+ * Compliance status: everyone who is expected to confirm the doc (active
+ * accounts that can see its space) with their current confirmation, if any.
  */
-export async function ackStatusForDocument(docId: number): Promise<
-  { id: number; name: string; username: string; email: string; role: string; acknowledged_at: string | null }[]
-> {
+export async function ackStatusForDocument(docId: number): Promise<AckStatusRow[]> {
   return q(
-    `SELECT u.id, u.name, u.username, u.email, u.role, a.acknowledged_at
+    `SELECT u.id, u.name, u.username, u.email, u.role,
+            a.acknowledged_at, a.version_id, a.content_sha256,
+            ${VERSION_REV("a.version_id")} AS rev,
+            CASE WHEN a.acknowledged_at IS NULL THEN NULL
+                 ELSE ${VERSION_SOURCE("a.content_sha256")} END AS version_source
      FROM users u
      JOIN documents d ON d.id = $1
      JOIN spaces s ON s.id = d.space_id
      LEFT JOIN LATERAL (
-       SELECT acknowledged_at FROM acknowledgements
-       WHERE document_id = $1 AND user_id = u.id AND acknowledged_at >= d.updated_at
-       ORDER BY acknowledged_at DESC LIMIT 1
+       SELECT a.acknowledged_at, a.version_id, a.content_sha256 FROM acknowledgements a
+       WHERE a.document_id = d.id AND a.user_id = u.id AND ${ACK_CURRENT}
+       ORDER BY a.acknowledged_at DESC, a.id DESC LIMIT 1
      ) a ON true
-     WHERE u.status = 'active'
-       AND (
-         s.visibility IN ('public', 'internal')
-         OR ${HOLDS_GLOBALLY("space.read_all", "u.id")}
-         OR ${HOLDS_ON_SPACE("space.member", "s.id", "u.id")}
-       )
+     WHERE ${ACK_ELIGIBLE}
      ORDER BY (a.acknowledged_at IS NULL) DESC, u.name`,
+    [docId]
+  );
+}
+
+export interface AckFormerStaffRow {
+  /** The newest confirmation row for this person. */
+  id: number;
+  user_id: number | null;
+  name: string;
+  email: string;
+  username: string;
+  role: string;
+  /** 'left' = the account is gone (user_id NULL); 'disabled' = the account exists but is disabled. */
+  reason: "left" | "disabled";
+  acknowledged_at: string;
+  /** Whether that confirmation is current against the marker (for the record; never counted). */
+  current: boolean;
+  version_id: number | null;
+  rev: number | null;
+  content_sha256: string | null;
+  version_source: AckVersionSource;
+}
+
+/**
+ * Confirmations by people who are no longer in the audience: deleted
+ * accounts (user_id NULL, shown from the name snapshot) and disabled ones.
+ * One row per person, their newest confirmation. Read separately so the
+ * eligible-user joins above stay simple; never part of the denominator.
+ */
+export async function ackFormerStaffRows(docId: number): Promise<AckFormerStaffRow[]> {
+  return q(
+    `SELECT DISTINCT ON (x.grp)
+            x.id, x.user_id,
+            COALESCE(NULLIF(x.user_name, ''), NULLIF(u.name, ''), u.username, '') AS name,
+            COALESCE(NULLIF(x.user_email, ''), u.email, '') AS email,
+            COALESCE(u.username, '') AS username,
+            COALESCE(u.role, '') AS role,
+            CASE WHEN x.user_id IS NULL THEN 'left' ELSE 'disabled' END AS reason,
+            x.acknowledged_at,
+            (x.acknowledged_at >= d.ack_revision_at) AS current,
+            x.version_id, x.content_sha256,
+            ${VERSION_REV("x.version_id")} AS rev,
+            ${VERSION_SOURCE("x.content_sha256")} AS version_source
+     FROM (
+       SELECT a.*, COALESCE(a.user_id::text, 'gone:' || a.user_name || '|' || a.user_email) AS grp
+       FROM acknowledgements a WHERE a.document_id = $1
+     ) x
+     JOIN documents d ON d.id = x.document_id
+     LEFT JOIN users u ON u.id = x.user_id
+     WHERE x.user_id IS NULL OR u.status <> 'active'
+     ORDER BY x.grp, x.acknowledged_at DESC, x.id DESC`,
     [docId]
   );
 }
@@ -4483,12 +4873,87 @@ export async function listPendingAcksFor(
      WHERE d.ack_required = 1 AND d.status = 'published' AND d.deleted_at IS NULL${scopeCond}
        AND NOT EXISTS (
          SELECT 1 FROM acknowledgements a
-         WHERE a.document_id = d.id AND a.user_id = $1 AND a.acknowledged_at >= d.updated_at
+         WHERE a.document_id = d.id AND a.user_id = $1 AND ${ACK_CURRENT}
        )
-     ORDER BY d.updated_at DESC
+     ORDER BY d.ack_revision_at DESC
      LIMIT 20`,
     Array.isArray(scope) ? [userId, scope] : [userId]
   );
+}
+
+export interface AttestedVersion {
+  version_id: number;
+  document_id: number | null;
+  document_title: string;
+  title: string;
+  content: string;
+  content_sha256: string;
+  author: string;
+  created_at: string | null;
+  /** 'live' from doc_versions; 'archived' from attested_texts after the policy was purged. */
+  source: "live" | "archived";
+}
+
+/**
+ * The text behind a version id: the doc_versions row while the policy
+ * exists, else the copy archived when it was purged. Every surface that
+ * shows or verifies attested text reads through here, so a hash stays
+ * checkable after the policy is gone.
+ */
+export async function getAttestedVersion(versionId: number): Promise<AttestedVersion | undefined> {
+  const live = (
+    await q<Omit<AttestedVersion, "content_sha256" | "source">>(
+      `SELECT v.id AS version_id, v.document_id, d.title AS document_title, v.title, v.content,
+              v.author, v.created_at
+       FROM doc_versions v JOIN documents d ON d.id = v.document_id
+       WHERE v.id = $1`,
+      [versionId]
+    )
+  )[0];
+  if (live) {
+    return {
+      ...live,
+      content_sha256: createHash("sha256").update(live.content).digest("hex"),
+      source: "live",
+    };
+  }
+  const archived = (
+    await q<Omit<AttestedVersion, "source">>(
+      `SELECT version_id, document_id, document_title, title, content, content_sha256, author,
+              version_created_at AS created_at
+       FROM attested_texts WHERE version_id = $1`,
+      [versionId]
+    )
+  )[0];
+  return archived ? { ...archived, source: "archived" } : undefined;
+}
+
+/**
+ * Erasure (C5): replace the person's name, email and IP on every attestation
+ * record with "Former staff #id". Counts, dates, versions and hashes stay,
+ * and the user_id link stays while the account exists so standing still
+ * computes; deleting the account afterwards leaves rows that name nobody.
+ * Wave 2 (C1) extends this to ack_decisions; F2 to stored snapshots.
+ */
+export async function anonymiseComplianceRecord(
+  userId: number
+): Promise<{ rows: number; snapshots_rewritten: number }> {
+  await ready();
+  const res = await pool().query(
+    `UPDATE acknowledgements
+     SET user_name = $2, user_email = '', ip = ''
+     WHERE user_id = $1`,
+    [userId, `Former staff #${userId}`]
+  );
+  return { rows: res.rowCount ?? 0, snapshots_rewritten: 0 };
+}
+
+/** Attestation counts by user id (the Users page shows the erasure action only where there is a record). */
+export async function attestationCountsByUser(): Promise<Map<number, number>> {
+  const rows = await q<{ user_id: number; n: number }>(
+    "SELECT user_id, COUNT(*)::int AS n FROM acknowledgements WHERE user_id IS NOT NULL GROUP BY user_id"
+  );
+  return new Map(rows.map((r) => [r.user_id, r.n]));
 }
 
 // --- Training decks (enterprise "training") ---------------------------------------

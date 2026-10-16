@@ -9,6 +9,14 @@ import type { SessionUser } from "@/lib/types";
 export const dynamic = "force-dynamic";
 
 // POST — the signed-in reader confirms they've read this document.
+//
+// Body: { version_id: number; reached_end?: boolean }. The reader declares the
+// version they read; the row is recorded only when that is still the
+// document's latest version and the marker has not moved past it (1.10.0).
+// Otherwise 409 { stale: true } — the same shape as the editor's conflict —
+// and the page reloads into what changed. The hash on the row comes from that
+// version's text, never from the live document. `reached_end` is accepted and
+// ignored for now (C3 is a later release).
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const gate = await apiGuard("viewer", "document.ack_submit");
   if (gate instanceof NextResponse) return gate;
@@ -16,7 +24,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   if (!(await featureEnabled("policy_ack"))) {
     return NextResponse.json(
-      { error: "Policy acknowledgements are not included in your license." },
+      { error: "Read confirmations are not included in your license." },
       { status: 402 }
     );
   }
@@ -27,10 +35,28 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     return NextResponse.json({ error: "Not found." }, { status: 404 });
   }
   if (doc.status !== "published" || doc.ack_required !== 1) {
-    return NextResponse.json({ error: "This document doesn't require acknowledgement." }, { status: 400 });
+    return NextResponse.json({ error: "This document doesn't ask for a read confirmation." }, { status: 400 });
   }
 
-  const { recorded } = await recordAcknowledgement(doc.id, user.id, ipFrom(req) ?? "");
+  let body: any = null;
+  try {
+    body = await req.json();
+  } catch {
+    body = null;
+  }
+  const versionId = Number(body?.version_id);
+  if (body?.version_id === undefined || body?.version_id === null || !Number.isInteger(versionId)) {
+    return NextResponse.json({ error: "version_id is required." }, { status: 400 });
+  }
+
+  const { recorded, stale } = await recordAcknowledgement(doc.id, user.id, ipFrom(req) ?? "", versionId);
+  if (stale) {
+    return NextResponse.json(
+      { stale: true, error: "This document changed while you were reading it. Reload and read the changes." },
+      { status: 409 }
+    );
+  }
+  const ack = await getCurrentAck(doc.id, user.id);
   if (recorded) {
     await audit({
       actor: actorFrom(user),
@@ -38,14 +64,19 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       targetType: "document",
       targetId: doc.id,
       targetLabel: doc.title,
+      details: { version_id: versionId, rev: ack?.rev ?? null, content_sha256: ack?.content_sha256 ?? null },
       ip: ipFrom(req),
     });
   }
-  const ack = await getCurrentAck(doc.id, user.id);
-  return NextResponse.json({ ok: true, acknowledged_at: ack?.acknowledged_at ?? null });
+  return NextResponse.json({
+    ok: true,
+    acknowledged_at: ack?.acknowledged_at ?? null,
+    version_id: ack?.version_id ?? versionId,
+    rev: ack?.rev ?? null,
+  });
 }
 
-// PATCH — approver+ toggles whether the doc requires acknowledgement.
+// PATCH — approver+ toggles whether the doc requires a read confirmation.
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const gate = await apiGuard("approver", "document.ack_require");
   if (gate instanceof NextResponse) return gate;
@@ -53,7 +84,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
   if (!(await featureEnabled("policy_ack"))) {
     return NextResponse.json(
-      { error: "Policy acknowledgements are not included in your license." },
+      { error: "Read confirmations are not included in your license." },
       { status: 402 }
     );
   }
@@ -75,7 +106,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   }
   if (body.required && doc.status !== "published") {
     return NextResponse.json(
-      { error: "Publish the document before requiring acknowledgement." },
+      { error: "Publish the document before requiring a read confirmation." },
       { status: 400 }
     );
   }

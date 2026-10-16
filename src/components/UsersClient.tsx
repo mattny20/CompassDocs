@@ -19,6 +19,8 @@ export function UsersClient({
   users,
   currentUserId,
   extraRoles,
+  attestations,
+  canAnonymise = false,
 }: {
   users: User[];
   currentUserId: number;
@@ -29,6 +31,10 @@ export function UsersClient({
    * that opens an admin section, and this page would have said "Viewer".
    */
   extraRoles?: Record<number, string[]>;
+  /** Attestation records per user id (1.10.0): the erasure action shows only where there is one. */
+  attestations?: Record<number, number>;
+  /** Whether the viewer may anonymise compliance records (licence + user.delete + compliance.program_manage). */
+  canAnonymise?: boolean;
 }) {
   // The filter state sits here so the ListFilter's count and the table rows
   // always agree.
@@ -69,6 +75,8 @@ export function UsersClient({
       />
       <UserTable
         extraRoles={extraRoles}
+        attestations={attestations}
+        canAnonymise={canAnonymise}
         users={visible}
         currentUserId={currentUserId}
         filtered={needle.length > 0}
@@ -79,11 +87,15 @@ export function UsersClient({
 
 function UserTable({
   extraRoles,
+  attestations,
+  canAnonymise,
   users,
   currentUserId,
   filtered,
 }: {
   extraRoles?: Record<number, string[]>;
+  attestations?: Record<number, number>;
+  canAnonymise: boolean;
   users: User[];
   currentUserId: number;
   filtered: boolean;
@@ -161,6 +173,24 @@ function UserTable({
     await run(u.id, () => fetch(`/api/admin/users/${u.id}`, { method: "DELETE" }), {
       fallback: "Couldn't delete the user.",
       ok: `User "${u.username}" deleted.`,
+    });
+  }
+
+  // The erasure path for attestation records (C5): irreversible, so it asks
+  // with the username typed. The records themselves stay (counts, dates,
+  // versions, hashes); only who they name is replaced.
+  async function anonymise(u: User) {
+    const ok = await confirmDialog({
+      title: `Anonymise ${u.name || u.username}'s compliance record?`,
+      body: `Replaces this person's name, email, IP address and browser details on every confirmation, decision and notice with "Former staff #${u.id}". Counts, dates, versions and hashes stay. This cannot be undone.`,
+      confirmLabel: "Anonymise record",
+      danger: true,
+      typeToConfirm: u.username,
+    });
+    if (ok !== true) return;
+    await run(u.id, () => fetch(`/api/admin/users/${u.id}/anonymise-compliance`, { method: "POST" }), {
+      fallback: "Couldn't anonymise the compliance record.",
+      ok: "Compliance record anonymised.",
     });
   }
 
@@ -267,6 +297,17 @@ function UserTable({
                   >
                     {u.status === "active" ? "Disable" : "Enable"}
                   </button>
+                  {canAnonymise && u.id !== currentUserId && (attestations?.[u.id] ?? 0) > 0 && (
+                    <button
+                      onClick={() => anonymise(u)}
+                      disabled={isBusy(u.id)}
+                      data-tt="Replace their name, email and IP on every attestation record; counts, dates, versions and hashes stay"
+                      data-tt-wrap=""
+                      className={buttonClass("danger", "sm")}
+                    >
+                      Anonymise compliance record…
+                    </button>
+                  )}
                   {u.id !== currentUserId && (
                     <button
                       onClick={() => remove(u)}

@@ -181,6 +181,15 @@ export interface Document {
   author: string;
   /** 1 = readers must confirm they've read this doc (enterprise). */
   ack_required: number;
+  /**
+   * The confirmation marker (1.10.0): a confirmation counts while its
+   * acknowledged_at >= this. Moves only when an editor asks everyone to
+   * re-confirm, never on a metadata-only save (updated_at is the conflict
+   * token, not the currency marker).
+   */
+  ack_revision_at: string;
+  /** The doc_versions id everyone is asked to confirm (null only before the first version). */
+  ack_version_id: number | null;
   /** Last time a compliance reminder went out for this doc (enterprise). */
   ack_last_reminded_at?: string | null;
   /** Non-null = this doc is a draft branch of that document. */

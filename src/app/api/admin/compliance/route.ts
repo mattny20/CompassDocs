@@ -7,6 +7,7 @@ import {
   compliancePendingUsers,
   ackCandidateDocs,
   ackStatusForDocument,
+  ackFormerStaffRows,
   getDocument,
   setAckRequired,
   setAckLastReminded,
@@ -49,22 +50,52 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url);
   if (url.searchParams.get("format") === "csv") {
-    // Full matrix: one row per (policy, eligible user).
+    // Full matrix: one row per (policy, eligible user), then one per former
+    // staff member with a record. Existing columns stay in place;
+    // revision_as_of is the confirmation marker date since 1.10.0 (it was
+    // updated_at); the version, hash, source and former_staff columns are
+    // appended.
     const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-    const lines = ["document,space,revision_as_of,name,username,email,role,acknowledged_at"];
+    const lines = [
+      "document,space,revision_as_of,name,username,email,role,acknowledged_at,version,version_id,content_sha256,version_source,former_staff",
+    ];
     for (const d of docs) {
-      const rows = await ackStatusForDocument(d.id);
+      const [rows, former] = await Promise.all([ackStatusForDocument(d.id), ackFormerStaffRows(d.id)]);
       for (const r of rows) {
         lines.push(
           [
             esc(d.title),
             esc(d.space_name),
-            esc(d.updated_at),
+            esc(d.ack_revision_at),
             esc(r.name),
             esc(r.username),
             esc(r.email),
             esc(r.role),
             esc(r.acknowledged_at ?? ""),
+            esc(r.rev ? `v${r.rev}` : ""),
+            esc(r.version_id ?? ""),
+            esc(r.content_sha256 ?? ""),
+            esc(r.version_source ?? ""),
+            esc(""),
+          ].join(",")
+        );
+      }
+      for (const r of former) {
+        lines.push(
+          [
+            esc(d.title),
+            esc(d.space_name),
+            esc(d.ack_revision_at),
+            esc(r.name),
+            esc(r.username),
+            esc(r.email),
+            esc(r.role),
+            esc(r.acknowledged_at),
+            esc(r.rev ? `v${r.rev}` : ""),
+            esc(r.version_id ?? ""),
+            esc(r.content_sha256 ?? ""),
+            esc(r.version_source),
+            esc(r.reason),
           ].join(",")
         );
       }

@@ -1,15 +1,17 @@
 import { notFound } from "next/navigation";
-import { chipClass } from "@/components/Chip";
+import { Chip, chipClass } from "@/components/Chip";
 import { buttonClass } from "@/components/Button";
 import { ClipboardCheck, Download } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { requirePermission } from "@/lib/auth";
-import { getDocument, ackStatusForDocument } from "@/lib/db";
+import { ackStatusForDocument, ackFormerStaffRows, getAckVersionInfo } from "@/lib/db";
+import type { AckStatusRow, AckFormerStaffRow } from "@/lib/db";
 import { spaceScopeFor, scopeAllows } from "@/lib/access";
 import { featureEnabled } from "@/lib/ee";
 import { getAppSettings } from "@/lib/settings-store";
 import { formatDateTime, settingsForUser } from "@/lib/format";
 import { PageContainer } from "@/components/PageWidth";
+import { Table, Th, Td, TABLE_HEAD_ROW, TR } from "@/components/Table";
 
 import type { Metadata } from "next";
 import { cachedDocument } from "@/lib/page-data";
@@ -19,6 +21,23 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   const { id } = await params;
   const doc = await cachedDocument(Number(id)).catch(() => undefined);
   return { title: doc?.title ? `Read confirmations · ${doc.title}` : "Read confirmations" };
+}
+
+const INFERRED_TT =
+  "Version inferred from the confirmation time; confirmations before 1.10.0 did not record it";
+
+/** "v12", with the inferred tooltip on rows from before 1.10.0. */
+function VersionCell({ row }: { row: Pick<AckStatusRow, "rev" | "version_source"> }) {
+  if (!row.rev) return <>—</>;
+  if (row.version_source === "inferred") {
+    return (
+      <span data-tt={INFERRED_TT} data-tt-wrap="" className="inline-flex items-center gap-1.5">
+        v{row.rev}
+        <span className="text-xs text-slate-500">(inferred)</span>
+      </span>
+    );
+  }
+  return <>v{row.rev}</>;
 }
 
 export default async function AcknowledgementsPage({
@@ -33,9 +52,16 @@ export default async function AcknowledgementsPage({
   const doc = await cachedDocument(Number(id));
   if (!doc || !scopeAllows(await spaceScopeFor(user), doc.space_id)) notFound();
 
-  const [rows, settings] = await Promise.all([ackStatusForDocument(doc.id), getAppSettings()]);
+  const [rows, former, version, settings] = await Promise.all([
+    ackStatusForDocument(doc.id),
+    ackFormerStaffRows(doc.id),
+    getAckVersionInfo(doc.id),
+    getAppSettings(),
+  ]);
+  const fmt = settingsForUser(settings, user);
   const acked = rows.filter((r) => r.acknowledged_at);
   const pending = rows.filter((r) => !r.acknowledged_at);
+  const people = rows.length === 1 ? "person has" : "people have";
 
   return (
     <PageContainer>
@@ -45,9 +71,9 @@ export default async function AcknowledgementsPage({
         title="Read confirmations"
         subtitle={
           <>
-            {acked.length} of {rows.length} people have confirmed the current revision
-            (as of {formatDateTime(doc.updated_at, settingsForUser(settings, user))}). Editing the document asks
-            everyone again.
+            {acked.length} of {rows.length} {people} confirmed{" "}
+            {version.rev ? `v${version.rev}` : "the current version"} (asked{" "}
+            {formatDateTime(doc.ack_revision_at, fmt)}).
           </>
         }
         actions={
@@ -68,42 +94,98 @@ export default async function AcknowledgementsPage({
       </div>
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-surface shadow-xs">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-slate-100 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
-              <th className="px-4 py-2.5">Person</th>
-              <th className="px-4 py-2.5">Role</th>
-              <th className="px-4 py-2.5">Status</th>
-              <th className="px-4 py-2.5">Confirmed</th>
+        <Table>
+          <thead className={TABLE_HEAD_ROW}>
+            <tr>
+              <Th>Person</Th>
+              <Th>Role</Th>
+              <Th fit>Status</Th>
+              <Th fit>Confirmed</Th>
+              <Th fit>Version</Th>
             </tr>
           </thead>
           <tbody>
             {[...pending, ...acked].map((r) => (
-              <tr key={r.id} className="border-b border-slate-50">
-                <td className="px-4 py-2.5">
+              <tr key={r.id} className={TR}>
+                <Td>
                   <span className="font-medium text-slate-800">{r.name || r.username}</span>
                   {r.email && <span className="ml-2 text-xs text-slate-500">{r.email}</span>}
-                </td>
-                <td className="px-4 py-2.5 text-slate-500">{r.role}</td>
-                <td className="px-4 py-2.5">
+                </Td>
+                <Td className="text-slate-500">{r.role}</Td>
+                <Td fit>
                   {r.acknowledged_at ? (
-                    <span className={chipClass("ok")}>
-                      Acknowledged
-                    </span>
+                    <span className={chipClass("ok")}>Confirmed</span>
                   ) : (
-                    <span className={chipClass("warn")}>
-                      Pending
-                    </span>
+                    <span className={chipClass("warn")}>Pending</span>
                   )}
-                </td>
-                <td className="px-4 py-2.5 text-slate-500">
-                  {r.acknowledged_at ? formatDateTime(r.acknowledged_at, settingsForUser(settings, user)) : "—"}
-                </td>
+                </Td>
+                <Td fit className="text-slate-500">
+                  {r.acknowledged_at ? formatDateTime(r.acknowledged_at, fmt) : "—"}
+                </Td>
+                <Td fit className="text-slate-500">
+                  <VersionCell row={r} />
+                </Td>
               </tr>
             ))}
           </tbody>
-        </table>
+        </Table>
       </div>
+
+      {former.length > 0 && <FormerStaff rows={former} fmt={fmt} />}
     </PageContainer>
+  );
+}
+
+/**
+ * Confirmations by people who are no longer asked: deleted accounts (shown
+ * from the name snapshot) and disabled ones. Kept for the record, collapsed
+ * by default, never part of the count above.
+ */
+function FormerStaff({
+  rows,
+  fmt,
+}: {
+  rows: AckFormerStaffRow[];
+  fmt: Parameters<typeof formatDateTime>[1];
+}) {
+  return (
+    <details className="mt-6 rounded-xl border border-slate-200 bg-surface shadow-xs [&[open]>summary]:border-b [&[open]>summary]:border-slate-100">
+      <summary className="cursor-pointer select-none px-4 py-3 text-sm font-semibold text-slate-700 hover:text-compass-700 marker:text-compass-500">
+        Former staff and disabled accounts ({rows.length})
+      </summary>
+      <p className="px-4 pt-3 text-sm text-slate-500">
+        People who confirmed this document but are no longer asked. Their records are kept and are not
+        counted above.
+      </p>
+      <Table className="mt-2">
+        <thead className={TABLE_HEAD_ROW}>
+          <tr>
+            <Th>Person</Th>
+            <Th fit>Account</Th>
+            <Th fit>Confirmed</Th>
+            <Th fit>Version</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.id} className={TR}>
+              <Td>
+                <span className="font-medium text-slate-800">{r.name || r.username || "Former staff"}</span>
+                {r.email && <span className="ml-2 text-xs text-slate-500">{r.email}</span>}
+              </Td>
+              <Td fit>
+                <Chip tone="neutral">{r.reason === "left" ? "Left" : "Disabled"}</Chip>
+              </Td>
+              <Td fit className="text-slate-500">
+                {formatDateTime(r.acknowledged_at, fmt)}
+              </Td>
+              <Td fit className="text-slate-500">
+                <VersionCell row={r} />
+              </Td>
+            </tr>
+          ))}
+        </tbody>
+      </Table>
+    </details>
   );
 }

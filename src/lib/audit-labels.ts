@@ -48,7 +48,9 @@ export const AUDIT_LABELS: Record<string, string> = {
   "document.reviewed": "Marked document reviewed",
   "document.share_created": "Created share link",
   "document.share_revoked": "Revoked share link",
-  "document.acknowledge": "Acknowledged document",
+  "document.acknowledge": "Confirmed reading document",
+  "document.ack_required": "Required read confirmation",
+  "document.ack_removed": "Removed read confirmation requirement",
   "document.scheduled_publish": "Published document on schedule",
   "document.scheduled_unpublish": "Unpublished document on schedule",
   "document.dms_link_add": "Linked document to DMS record",
@@ -67,8 +69,9 @@ export const AUDIT_LABELS: Record<string, string> = {
   "change_request.submit": "Submitted for review",
   "change_request.approve": "Approved change",
   "change_request.reject": "Rejected change",
-  "ack.requested": "Requested acknowledgement",
-  "ack.reminder_sent": "Sent acknowledgement reminder",
+  "ack.requested": "Asked for read confirmations",
+  "ack.reminder_sent": "Sent read confirmation reminder",
+  "ack.anonymised": "Anonymised compliance record",
 
   // Spaces and categories
   "space.create": "Created space",
