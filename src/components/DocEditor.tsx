@@ -12,7 +12,7 @@ import { ChevronDown, ClipboardCheck, House, ListChecks, ShieldCheck, Sparkles, 
 import { EmptyState, Field, Select, Textarea, TextInput } from "./form";
 import { StatusBadge } from "./Badges";
 import { confirmDialog } from "./Dialog";
-import { ReconfirmHost, assessChange, reconfirmDialog, NOTE_MIN, NOTE_MAX, NOTE_TOO_SHORT } from "./ReconfirmModal";
+import { ReconfirmHost, assessChange, reconfirmDialog, sameText, NOTE_MIN, NOTE_MAX, NOTE_TOO_SHORT } from "./ReconfirmModal";
 import type { ReconfirmResult, ReconfirmText } from "./ReconfirmModal";
 import { toast } from "./Toasts";
 import { Popover } from "./Popover";
@@ -150,10 +150,6 @@ interface AckOutcome {
  * reset everyone with no dialog. The title is trimmed on both sides already
  * (the editor sends title.trim(), the route trims again).
  */
-function sameText(a: ReconfirmText, b: ReconfirmText): boolean {
-  return a.title === b.title && a.content === b.content;
-}
-
 export function DocEditor({
   spaces,
   categories = [],
