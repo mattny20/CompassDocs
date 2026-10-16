@@ -5,6 +5,11 @@
 // writes the record and the audit row.
 //
 // Run: npm run test:integration  (needs DATABASE_URL)
+//
+// The suite must not share its database with a running licensed server:
+// the server's minute tick drains the queue with no document filter and
+// would deliver this file's rows before the assertions see them. This
+// file's own drains claim this file's rows only.
 
 import { test, before, after, describe } from "node:test";
 import assert from "node:assert/strict";
@@ -124,6 +129,9 @@ after(async () => {
   await pool().query("DELETE FROM acknowledgements WHERE document_id = ANY($1) OR user_id = ANY($2)", [docIds, userIds]);
   await pool().query("DELETE FROM ack_decisions WHERE document_id = ANY($1)", [docIds]);
   await pool().query("DELETE FROM notifications WHERE user_id = ANY($1)", [userIds]);
+  // The drain tells every account that can see the space (e2e_admin, other
+  // files' fixtures); every title it writes carries this file's stamp.
+  await pool().query("DELETE FROM notifications WHERE kind = 'ack_requested' AND title LIKE $1", [`%${STAMP}%`]);
   await pool().query("DELETE FROM documents WHERE id = ANY($1)", [docIds]);
   await pool().query("DELETE FROM users WHERE id = ANY($1)", [userIds]);
   await pool().query("DELETE FROM spaces WHERE id = $1", [spaceId]);
@@ -135,6 +143,7 @@ describe("the per-person notice log", () => {
     const r = await requestAcknowledgement(doc, actor(), ORIGIN, { notify: true });
     assert.ok(r.queued >= 2, `queued is the pending count now: ${r.queued}`);
     assert.ok(r.outbox_id);
+    assert.equal(r.switched_on, true, "this call switched the requirement on");
     const live = (await getDocument(doc.id))!;
     assert.equal(live.ack_required, 1, "the document now requires confirmation");
     assert.ok(live.ack_last_reminded_at, "the one-hour Remind cooldown is stamped");
@@ -144,6 +153,8 @@ describe("the per-person notice log", () => {
     assert.equal(queued.actor_id, actorId);
     assert.equal(queued.user_ids, null);
     assert.equal(queued.done_at, null, "nothing was sent on the request path");
+    const stored = await pool().query<{ origin: string }>("SELECT origin FROM ack_outbox WHERE id = $1", [r.outbox_id]);
+    assert.equal(stored.rows[0].origin, ORIGIN, "the sending request's origin travels with the row");
     assert.equal((await listAckNotices({ documentId: doc.id })).length, 0);
     assert.equal((await auditRow("ack.requested", doc.id)) ?? null, null, "and nothing audited yet");
 
@@ -199,7 +210,7 @@ describe("the per-person notice log", () => {
   test("Request with notify off requires without telling anyone; Remind queues a reminder and stamps the cooldown", async () => {
     const doc = await newDoc("quiet");
     const r = await requestAcknowledgement(doc, actor(), ORIGIN, { notify: false });
-    assert.deepEqual(r, { queued: 0, outbox_id: null });
+    assert.deepEqual(r, { queued: 0, outbox_id: null, switched_on: true });
     const quiet = (await getDocument(doc.id))!;
     assert.equal(quiet.ack_required, 1);
     assert.equal(quiet.ack_last_reminded_at ?? null, null, "a quiet switch-on does not start the Remind cooldown");
@@ -207,12 +218,14 @@ describe("the per-person notice log", () => {
     assert.equal((await auditRow("ack.requested", doc.id)) ?? null, null, "requestAcknowledgement writes no audit row");
 
     const rem = await enqueueReminder(doc, actor(), ORIGIN);
+    assert.equal(rem.claimed, true, "the hour was free");
     assert.ok(rem.queued >= 2);
+    assert.ok(rem.outbox_id);
     assert.ok((await getDocument(doc.id))!.ack_last_reminded_at, "stamped");
-    const queued = (await getAckOutboxRow(rem.outbox_id))!;
+    const queued = (await getAckOutboxRow(rem.outbox_id!))!;
     assert.equal(queued.mode, "reminder");
     const { sent, mailer } = recorder();
-    await drainUntilDone(mailer, rem.outbox_id);
+    await drainUntilDone(mailer, rem.outbox_id!);
     const a = (await listAckNotices({ documentId: doc.id, userId: readerA }))[0];
     assert.equal(a.kind, "reminder");
     assert.deepEqual(a.channels, ["inapp", "email"]);
@@ -226,6 +239,76 @@ describe("the per-person notice log", () => {
     assert.equal(inbox.rows[0].body, `You still need to read and confirm "${doc.title}".`);
     const audit = (await auditRow("ack.reminder_sent", doc.id))!;
     assert.equal(audit.details.noticed, (await listAckNotices({ documentId: doc.id })).filter((n) => n.outbox_id === rem.outbox_id).length);
+  });
+
+  test("two Requests at once queue one notice; two Reminds at once take the hour once", async () => {
+    const doc = await newDoc("race");
+    const [a, b] = await Promise.all([
+      requestAcknowledgement(doc, actor(), ORIGIN, { notify: true }),
+      requestAcknowledgement(doc, actor(), ORIGIN, { notify: true }),
+    ]);
+    const winners = [a, b].filter((r) => r.switched_on);
+    assert.equal(winners.length, 1, `exactly one call switched the requirement on: ${JSON.stringify([a, b])}`);
+    assert.ok(winners[0].outbox_id);
+    const loser = [a, b].find((r) => !r.switched_on)!;
+    assert.deepEqual(loser, { queued: 0, outbox_id: null, switched_on: false }, "the loser queues nothing");
+    let pending = await pendingAckOutboxFor(doc.id);
+    assert.equal(pending.length, 1, "one outbox row");
+    assert.equal(pending[0].mode, "request");
+    assert.equal((await getDocument(doc.id))!.ack_required, 1);
+    const again = await requestAcknowledgement(doc, actor(), ORIGIN, { notify: true });
+    assert.equal(again.switched_on, false, "already on: nothing more is queued");
+    assert.equal((await pendingAckOutboxFor(doc.id)).length, 1);
+
+    // Remind: the cooldown stamp is the claim.
+    await pool().query("UPDATE documents SET ack_last_reminded_at = NULL WHERE id = $1", [doc.id]);
+    const [x, y] = await Promise.all([enqueueReminder(doc, actor(), ORIGIN), enqueueReminder(doc, actor(), ORIGIN)]);
+    assert.equal([x, y].filter((r) => r.claimed).length, 1, `exactly one Remind took the hour: ${JSON.stringify([x, y])}`);
+    assert.deepEqual([x, y].find((r) => !r.claimed), { queued: 0, outbox_id: null, claimed: false });
+    pending = await pendingAckOutboxFor(doc.id);
+    assert.deepEqual(pending.map((r) => r.mode), ["request", "reminder"], "one reminder row");
+    assert.ok((await getDocument(doc.id))!.ack_last_reminded_at, "stamped by the winner");
+    const inHour = await enqueueReminder(doc, actor(), ORIGIN);
+    assert.equal(inHour.claimed, false, "inside the hour: refused (the route answers 429)");
+    assert.equal((await pendingAckOutboxFor(doc.id)).length, 2);
+    // A document that stopped taking confirmations is refused too.
+    await setAckRequired(doc.id, false);
+    await pool().query("UPDATE documents SET ack_last_reminded_at = NULL WHERE id = $1", [doc.id]);
+    assert.equal((await enqueueReminder(doc, actor(), ORIGIN)).claimed, false);
+  });
+
+  test("free text in a notice is rendered as written in the email: a change note cannot add a link or a tag", async () => {
+    const doc = await newDoc("escape & *stars*");
+    await setAckRequired(doc.id, true);
+    const reason = 'See [x](https://evil.example) and <img src=x onerror="alert(1)"> **now** & "soon"';
+    const outboxId = await enqueueAckNotice(null, {
+      document_id: doc.id,
+      mode: "updated",
+      source: "manual",
+      reason,
+      actor: actor(),
+      origin: ORIGIN,
+    });
+    const { sent, mailer } = recorder();
+    await drainUntilDone(mailer, outboxId);
+    const mail = sent.find((m) => m.to === emailOf("Reader A"))!;
+    assert.ok(mail, "A was emailed");
+    assert.doesNotMatch(mail.html, /href="https:\/\/evil\.example/, "no link from the reason");
+    assert.doesNotMatch(mail.html, /<img/, "no tag from the reason");
+    assert.ok(mail.html.includes("[x](https://evil.example)"), "the markdown is literal");
+    assert.ok(mail.html.includes("&lt;img src=x onerror=&quot;alert(1)&quot;&gt;"), "the tag is escaped");
+    assert.ok(mail.html.includes("**now**"), "and so is the emphasis");
+    assert.ok(mail.html.includes("escape &amp; *stars*"), "the title too");
+    assert.ok(mail.html.includes(`href="${ORIGIN}/doc/${doc.id}#confirm-reading"`), "the template's own link survives");
+    assert.ok(mail.text.includes(reason), "the text part carries the reason as written");
+    assert.ok(mail.subject.includes(`confirm "${doc.title}"`), "the subject is plain text, unescaped");
+    assert.doesNotMatch(mail.subject, /\\/, "no backslashes in the subject");
+    assert.doesNotMatch(mail.text, /\\\[/, "none in the text part");
+    const inbox = await pool().query("SELECT body FROM notifications WHERE user_id = $1 AND title = $2", [
+      readerA,
+      `Please re-confirm "${doc.title}"`,
+    ]);
+    assert.equal(inbox.rows[0]?.body, reason, "the in-app body is the reason verbatim (rendered as text by the row)");
   });
 
   test("deleteUser keeps the row with the name snapshot; anonymising rewrites it", async () => {
@@ -258,10 +341,12 @@ describe("the per-person notice log", () => {
     const anon = (await listAckNotices({ userId: readerA, documentId: doc.id }))[0];
     assert.equal(anon.user_name, `Former staff #${readerA}`);
     assert.equal(anon.user_email, "");
-    await anonymiseComplianceRecord(asker);
+    const asked = await anonymiseComplianceRecord(asker);
     rows = await listAckNotices({ documentId: doc.id });
     assert.ok(rows.every((n) => n.by_name === `Former staff #${asker}`), "the asker's name is rewritten too");
     assert.ok(rows.every((n) => n.kind === "request" && n.document_title === doc.title), "what the row says stays");
+    assert.equal((await getAckOutboxRow(outboxId))!.actor_name, `Former staff #${asker}`, "and the outbox row's actor");
+    assert.ok(asked.rows >= rows.length + 1, `the outbox row counts: ${asked.rows}`);
     // Undo for the later tests (they expect A's real name).
     await pool().query("UPDATE users SET name = $2 WHERE id = $1", [readerA, "Not Reader A"]);
   });

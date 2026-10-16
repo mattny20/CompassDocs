@@ -2,9 +2,15 @@
 // (H1): a fan-out is a row, claimed atomically by whichever instance's
 // minute tick gets there first, delivered to the people pending at that
 // moment, recorded per person (E3), retried after a failure without telling
-// anyone twice, and retired after three failures.
+// anyone twice, and closed after three failures.
 //
 // Run: npm run test:integration  (needs DATABASE_URL)
+//
+// The suite must not share its database with a running licensed server:
+// the server's minute tick drains the queue with no document filter and
+// would claim this file's rows (the "dead" row below, the debounced edit
+// row) before the assertions see them. This file's own drains claim this
+// file's rows only, so parallel test files cannot poison each other.
 
 import { test, before, after, describe } from "node:test";
 import assert from "node:assert/strict";
@@ -22,8 +28,9 @@ import {
   pendingAckOutboxFor,
   listAckNotices,
   lastAckNoticeByDocument,
+  runDbMaintenance,
 } from "../src/lib/db";
-import { enqueueAckNotice, deliverAckNotices, noticeCopy } from "../src/lib/compliance";
+import { enqueueAckNotice, deliverAckNotices, noticeCopy, recordNotices } from "../src/lib/compliance";
 import type { Mailer } from "../src/lib/compliance";
 import { notify } from "../src/lib/notifications";
 import { fixtureQuery } from "./support/retry";
@@ -132,6 +139,9 @@ after(async () => {
   await pool().query("DELETE FROM ack_decisions WHERE document_id = ANY($1)", [docIds]);
   await pool().query("DELETE FROM attested_texts WHERE document_id = ANY($1)", [docIds]);
   await pool().query("DELETE FROM notifications WHERE user_id = ANY($1)", [userIds]);
+  // The drain tells every account that can see the space (e2e_admin, other
+  // files' fixtures); every title it writes carries this file's stamp.
+  await pool().query("DELETE FROM notifications WHERE kind = 'ack_requested' AND title LIKE $1", [`%${STAMP}%`]);
   await pool().query("DELETE FROM documents WHERE id = ANY($1)", [docIds]);
   await pool().query("DELETE FROM users WHERE id = ANY($1)", [userIds]);
   await pool().query("DELETE FROM spaces WHERE id = $1", [spaceId]);
@@ -288,6 +298,34 @@ describe("the notice outbox", () => {
       ["Annual review: please re-read the whole policy"],
       "for a manual re-ask the body is the reason"
     );
+
+    // The window closes: a person whose last 'updated' notice is older than
+    // a day is told again, while the others, told today, are not.
+    await pool().query(
+      "UPDATE ack_notices SET sent_at = now() - interval '25 hours' WHERE document_id = $1 AND user_id = $2",
+      [id, readerA]
+    );
+    const fifth = await enqueueAckNotice(null, {
+      document_id: id,
+      mode: "updated",
+      source: "edit",
+      reason: "Appendix added",
+      actor: actor(),
+      delay_minutes: 0,
+    });
+    await drainUntil(quiet, done(fifth), `row ${fifth} delivered`);
+    assert.equal(await noticesFor(id, readerA, "updated"), 3, "A's day is over: told again");
+    assert.equal(await noticesFor(id, readerB, "updated"), 2, "B heard today");
+    assert.equal(await noticesFor(id, readerC, "updated"), 2, "so did C");
+    const rows5 = (await listAckNotices({ documentId: id })).filter((n) => n.outbox_id === fifth);
+    assert.ok(rows5.some((n) => n.user_id === readerA), "A is among the rows written");
+    const audit5 = (await auditRows("ack.reset_notified", id)).find((r) => r.details.outbox_id === fifth)!;
+    assert.ok((audit5.details.skipped_recent as number) >= 2, `B and C were skipped: ${audit5.details.skipped_recent}`);
+    assert.equal(
+      audit5.details.pending,
+      (audit5.details.noticed as number) + (audit5.details.skipped_recent as number),
+      "everyone pending was either told or counted as skipped, A among the told"
+    );
   });
 
   test("claimed 'updated' rows for one document merge into one delivery that keeps the latest reason", async () => {
@@ -304,6 +342,106 @@ describe("the notice outbox", () => {
     assert.equal(audit[0].details.merged, 2);
     assert.equal(audit[0].details.reason, "Second save");
     assert.equal((await getAckOutboxRow(older))!.noticed, (await getAckOutboxRow(newer))!.noticed, "both rows carry the delivery's counts");
+
+    // A manual row claimed in the same drain as an edit row turns the
+    // coalescing off for the whole group: everyone who heard today is told
+    // again, once, with the manual row's reason.
+    const edit2 = await enqueueAckNotice(null, { document_id: id, mode: "updated", source: "edit", reason: "Third save", actor: actor(), delay_minutes: 0 });
+    const manual2 = await enqueueAckNotice(null, { document_id: id, mode: "updated", source: "manual", reason: "Please re-read before Friday", actor: actor() });
+    await drainUntil(quiet, async () => (await done(edit2)()) && (await done(manual2)()), "both rows delivered");
+    assert.equal(await noticesFor(id, readerA), 2, "told again, once");
+    assert.equal(await noticesFor(id, readerB), 2);
+    const audit2 = (await auditRows("ack.reset_notified", id)).find((r) => r.details.outbox_id === manual2)!;
+    assert.ok(audit2, "one delivery, cited by its newest row");
+    assert.equal(audit2.details.merged, 2);
+    assert.equal(audit2.details.skipped_recent, 0, "nobody was skipped");
+    assert.equal(audit2.details.reason, "Please re-read before Friday");
+    assert.equal((await auditRows("ack.reset_notified", id)).length, 2, "two deliveries in all");
+    assert.ok(
+      (await listAckNotices({ documentId: id })).filter((n) => n.outbox_id === manual2).some((n) => n.user_id === readerA),
+      "A's second row cites the merged group's newest row"
+    );
+  });
+
+  test("a person who confirmed since their last notice is told again when they lapse; a debounced edit row delivers after its two minutes and stamps notified_at", async () => {
+    const { id, v1 } = await newPolicy("confirmed since");
+    const first = await enqueueAckNotice(null, { document_id: id, mode: "updated", source: "edit", reason: "First change", actor: actor(), delay_minutes: 0 });
+    await drainUntil(quiet, done(first), `row ${first} delivered`);
+    assert.equal(await noticesFor(id, readerA, "updated"), 1);
+    assert.equal(await noticesFor(id, readerB, "updated"), 1);
+
+    // A reads and confirms at noon; the afternoon's material edit lapses it again.
+    await recordAcknowledgement(id, readerA, "", v1);
+    await updateDocument(id, {
+      content: LONG_TEXT.replace("Clause 2: staff", "Clause 2 (revised): all staff"),
+      ackPolicy: "reset",
+      ackReason: "Clause 2 was revised",
+      ackActor: actor(),
+      ackSource: "edit",
+    });
+    const [queued] = await pendingAckOutboxFor(id);
+    assert.equal(queued.source, "edit");
+    assert.equal((await listAckDecisions(id))[0].notified_at, null, "the reset decision is not notified yet");
+    // Its two minutes are up.
+    await pool().query("UPDATE ack_outbox SET not_before = now() WHERE id = $1", [queued.id]);
+    await drainUntil(quiet, done(queued.id), `row ${queued.id} delivered`);
+    assert.equal(await noticesFor(id, readerA, "updated"), 2, "A answered the morning's notice, so the afternoon's change is news");
+    assert.equal(await noticesFor(id, readerB, "updated"), 1, "B heard this morning and did nothing since");
+    const audit = (await auditRows("ack.reset_notified", id)).find((r) => r.details.outbox_id === queued.id)!;
+    assert.ok(audit, "the drain audits the debounced delivery");
+    assert.ok((audit.details.skipped_recent as number) >= 1, `B is counted as skipped: ${audit.details.skipped_recent}`);
+    assert.ok((await listAckDecisions(id))[0].notified_at, "the edit-sourced decision records when the notice went out");
+  });
+
+  test("the record is written before the mail loop, so a reclaim resumes with the email only; the claim is kept fresh while mail goes out", async () => {
+    const { id, title } = await newPolicy("lease");
+    const outboxId = await enqueueAckNotice(null, { document_id: id, mode: "request", source: "manual", actor: actor() });
+    // What an instance leaves behind when it dies after the inbox and before
+    // the mail: A's row with the in-app channel. Whoever takes the row over
+    // must email A and not write a second inbox row.
+    const [preId] = await recordNotices([
+      {
+        user_id: readerA,
+        user_name: "Out Reader A",
+        user_email: `${STAMP}-Reader A@example.test`,
+        document_id: id,
+        document_title: title,
+        kind: "request",
+        channels: ["inapp"],
+        by_user_id: actorId,
+        by_name: "Out Actor",
+        outbox_id: outboxId,
+      },
+    ]);
+    const sent: string[] = [];
+    const seen: (string | null)[] = [];
+    const mailer: Mailer = async (to) => {
+      for (const t of to) sent.push(t);
+      // Each mail finds the claim fresh (the heartbeat after the previous
+      // one), then ages it, so the next call proves the heartbeat again.
+      seen.push((await getAckOutboxRow(outboxId))!.claimed_at);
+      await pool().query("UPDATE ack_outbox SET claimed_at = now() - interval '11 minutes' WHERE id = $1", [outboxId]);
+    };
+    for (let i = 0; i < 12 && !(await done(outboxId)()); i++) {
+      await deliverAckNotices({ origin: ORIGIN, mailer, limit: 50, documentIds: docIds, heartbeatEvery: 1 });
+    }
+    const row = (await getAckOutboxRow(outboxId))!;
+    assert.ok(row.done_at, "delivered");
+    assert.equal(row.attempts, 1, "claimed once: the lease never lapsed");
+    assert.equal(row.error, null);
+    assert.equal(sent.filter((t) => t === `${STAMP}-Reader A@example.test`).length, 1, "A was emailed once");
+    assert.equal((await inboxRows(readerA, `Action required: confirm "${title}"`)).length, 0, "no inbox row was repeated for A");
+    const a = await listAckNotices({ documentId: id, userId: readerA });
+    assert.equal(a.length, 1, "one row for A");
+    assert.equal(a[0].id, preId, "the pre-written row");
+    assert.deepEqual(a[0].channels, ["inapp", "email"], "with the email added");
+    assert.equal((await inboxRows(readerB, `Action required: confirm "${title}"`)).length, 1, "B, fresh, got the inbox row");
+    assert.deepEqual((await listAckNotices({ documentId: id, userId: readerB }))[0].channels, ["inapp", "email"]);
+    assert.ok(sent.length >= 2, `several mails went out: ${sent.length}`);
+    for (const s of seen) {
+      assert.ok(s && Date.now() - new Date(s).getTime() < 60_000, `the claim was fresh before each mail: ${s}`);
+    }
+    assert.ok(Date.now() - new Date(row.claimed_at!).getTime() < 60_000, "and after the last one");
   });
 
   test("a reset queues its 'updated' notice inside its transaction: debounced for an edit, immediate for a manual ask, nothing on rollback", async () => {
@@ -379,6 +517,8 @@ describe("the notice outbox", () => {
     assert.equal(row.done_at, null, "not done");
     assert.equal(row.attempts, 1);
     assert.match(row.error ?? "", /SMTP down/);
+    assert.match(row.error ?? "", /Email to user #\d+: SMTP down/, "the error names the person by id");
+    assert.doesNotMatch(row.error ?? "", /@example\.test/, "never by address");
     const a = (await listAckNotices({ documentId: id, userId: readerA }))[0];
     assert.ok(a, "the in-app notice that did go out is on record");
     assert.deepEqual(a.channels, ["inapp"], "without the email");
@@ -412,15 +552,16 @@ describe("the notice outbox", () => {
     assert.equal(audit.details.emailed, row.emailed);
     assert.equal(audit.details.noticed, row.noticed);
 
-    // A row that fails three times keeps its error, is audited and is never claimed again.
+    // A row that fails three times is closed with its error, audited and never claimed again.
     const dead = await newPolicy("dead");
     const deadId = await enqueueAckNotice(null, { document_id: dead.id, mode: "reminder", source: "manual", actor: actor() });
     await pool().query("UPDATE ack_outbox SET attempts = 2 WHERE id = $1", [deadId]);
     await drainUntil(failing, async () => ((await getAckOutboxRow(deadId))!.attempts ?? 0) >= 3, `row ${deadId} on its third attempt`);
     row = (await getAckOutboxRow(deadId))!;
     assert.equal(row.attempts, 3);
-    assert.equal(row.done_at, null);
+    assert.ok(row.done_at, "closed on its last failure (hidden from the queue, swept with the delivered rows)");
     assert.match(row.error ?? "", /SMTP down/);
+    assert.deepEqual(await pendingAckOutboxFor(dead.id), [], "not queued any more");
     const failed = await auditRows("ack.notice_failed", dead.id);
     assert.equal(failed.length, 1);
     assert.equal(failed[0].details.attempts, 3);
@@ -428,6 +569,33 @@ describe("the notice outbox", () => {
     await pool().query("UPDATE ack_outbox SET claimed_at = now() - interval '11 minutes' WHERE id = $1", [deadId]);
     await drain(working);
     assert.equal((await getAckOutboxRow(deadId))!.attempts, 3, "never claimed again");
+    assert.equal((await auditRows("ack.notice_failed", dead.id)).length, 1, "and not audited twice");
+
+    // A row whose last claim died with its instance (nothing failed or
+    // completed it; the claim went stale) is closed by the next drain,
+    // audited, and swept with the rest. The people it was for stay untold
+    // rather than told twice.
+    const gone = await newPolicy("abandoned");
+    const goneId = await enqueueAckNotice(null, { document_id: gone.id, mode: "reminder", source: "manual", actor: actor() });
+    await pool().query(
+      "UPDATE ack_outbox SET attempts = 3, claimed_at = now() - interval '11 minutes', error = 'SMTP down' WHERE id = $1",
+      [goneId]
+    );
+    const swept = await drain(working);
+    assert.ok(swept.retired >= 1, `the drain closed the abandoned row: ${JSON.stringify(swept)}`);
+    row = (await getAckOutboxRow(goneId))!;
+    assert.equal(row.attempts, 3, "not claimed again");
+    assert.ok(row.done_at, "closed");
+    assert.equal(row.error, "instance died on the last attempt; earlier: SMTP down");
+    assert.equal((await listAckNotices({ documentId: gone.id })).length, 0, "nobody was told");
+    const abandoned = await auditRows("ack.notice_failed", gone.id);
+    assert.equal(abandoned.length, 1, "audited once");
+    assert.equal(abandoned[0].details.attempts, 3);
+    assert.equal(abandoned[0].details.outbox_id, goneId);
+    assert.match(String(abandoned[0].details.error), /^instance died on the last attempt/);
+    await pool().query("UPDATE ack_outbox SET done_at = now() - interval '31 days' WHERE id = $1", [goneId]);
+    await runDbMaintenance();
+    assert.equal(await getAckOutboxRow(goneId), undefined, "swept like a delivered row");
   });
 
   test("a policy that stopped requiring confirmation tells nobody; notify() reports what it reached", async () => {

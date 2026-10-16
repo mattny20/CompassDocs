@@ -94,8 +94,10 @@ export async function register() {
     }
     // Read-confirmation notices (Enterprise, policy_ack): drain the outbox.
     // The claim is one UPDATE with FOR UPDATE SKIP LOCKED, so every instance
-    // may run this; a row is delivered once and retried after a ten-minute
-    // reclaim if its instance died mid-send.
+    // may run this; a row is delivered once, keeps its claim fresh while it
+    // is being delivered, and is taken again after a ten-minute reclaim only
+    // when its instance died mid-send. Links use the custom domain; without
+    // one, each row carries the origin of the request that queued it.
     try {
       const { featureEnabled } = await import("./lib/ee");
       if (await featureEnabled("policy_ack")) {

@@ -17,6 +17,14 @@ export interface EmailTemplateDef {
   tags: { tag: string; label: string }[];
   subject: string;
   body: string;
+  /**
+   * Tags whose values are free text a person typed (a title, a name, a
+   * change note, a reason): rendered as written in the body, never as
+   * markdown or HTML, so "[x](https://evil.example)" in a change note is
+   * those characters in the mail and not a link. Tags not listed here are
+   * substituted before the markdown pass, as they always were.
+   */
+  text?: string[];
 }
 
 const T = (tag: string, label: string) => ({ tag, label });
@@ -100,6 +108,7 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
       T("days_left", "Days until the due date (blank when there is none)"),
       T("org_name", "Workspace name"),
     ],
+    text: ["requester_name", "doc_title", "change_note", "reason"],
     subject: '[{{org_name}}] {{request_label}}: confirm "{{doc_title}}"',
     body:
       "**{{requester_name}}** {{request_type}} that you read and confirm:\n\n" +
@@ -328,11 +337,61 @@ function mdToText(md: string): string {
     .trim();
 }
 
+/** A value rendered as text inside the html part: escaped, with its line breaks kept. */
+function escapeHtmlText(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/\r?\n/g, "<br>");
+}
+
+/**
+ * Substitute and render one template. Tags the definition marks as `text`
+ * go through the markdown pass as inert placeholders (letters and digits
+ * only, which nothing in the pipeline touches) and are put back afterwards:
+ * HTML-escaped in the html part, verbatim in the subject and the text part.
+ * Every other tag is substituted before rendering; the result passes through
+ * the same sanitize pipeline as newsletters. The newsletter path itself is
+ * untouched.
+ */
+async function renderParts(
+  def: EmailTemplateDef | undefined,
+  subjectTpl: string,
+  bodyTpl: string,
+  vars: Record<string, string>,
+  accent: string,
+  origin: string
+): Promise<{ subject: string; text: string; html: string }> {
+  const bodyVars = { ...vars };
+  const tokens: [string, string][] = [];
+  for (const tag of def?.text ?? []) {
+    if (!(tag in vars)) continue;
+    const value = vars[tag];
+    // An empty value stays empty, so a line that held only this tag still
+    // disappears from the rendered mail (the ack_request change-note line).
+    if (value === "") continue;
+    const token = `CDTEXTTAG${tokens.length}X`;
+    bodyVars[tag] = token;
+    tokens.push([token, value]);
+  }
+  const bodyMd = substitute(bodyTpl, bodyVars);
+  let html = await renderBodyHtml(bodyMd, accent, origin);
+  let text = mdToText(bodyMd);
+  for (const [token, value] of tokens) {
+    html = html.split(token).join(escapeHtmlText(value));
+    text = text.split(token).join(value);
+  }
+  return { subject: substitute(subjectTpl, vars), text, html };
+}
+
 /**
  * Render an email through its (possibly customized) template.
- * Values are substituted before markdown rendering; the result passes through
- * the same sanitize pipeline as newsletters, so tag values can't inject HTML
- * that survives.
+ * Values are substituted before markdown rendering (the template's `text`
+ * tags as written, see renderParts); the result passes through the same
+ * sanitize pipeline as newsletters, so tag values can't inject HTML that
+ * survives.
  */
 export async function renderEmail(
   key: string,
@@ -349,10 +408,7 @@ export async function renderEmail(
   if (!("org_name" in vars)) {
     vars = { ...vars, org_name: settings.company_name || "CompassDocs" };
   }
-  const subject = substitute(subjectTpl, vars);
-  const bodyMd = substitute(bodyTpl, vars);
-  const html = await renderBodyHtml(bodyMd, settings.accent_color, origin);
-  return { subject, text: mdToText(bodyMd), html };
+  return renderParts(def, subjectTpl, bodyTpl, vars, settings.accent_color, origin);
 }
 
 /**
@@ -370,8 +426,6 @@ export async function previewEmail(
     org_name: settings.company_name || "CompassDocs",
     ...(SAMPLE_VARS[key] ?? {}),
   };
-  return {
-    subject: substitute(subject, vars),
-    html: await renderBodyHtml(substitute(body, vars), settings.accent_color, origin),
-  };
+  const parts = await renderParts(templateDef(key), subject, body, vars, settings.accent_color, origin);
+  return { subject: parts.subject, html: parts.html };
 }

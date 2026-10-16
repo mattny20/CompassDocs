@@ -65,9 +65,17 @@ export interface NotifyResult {
   webhook: number;
   inboxIds: number[];
   webhookIds: number[];
+  /** Set when the inbox insert failed (no rows written); the outbox drain treats it as a delivery failure to retry. */
+  inboxError?: string;
 }
 
-export async function notify(userIds: number[], ev: NotificationEvent): Promise<NotifyResult> {
+export interface NotifyOptions {
+  /** The outbox drain's lease heartbeat, run every `heartbeatEvery` webhook posts so a long loop of slow hooks cannot outlive the claim. */
+  heartbeat?: () => Promise<void>;
+  heartbeatEvery?: number;
+}
+
+export async function notify(userIds: number[], ev: NotificationEvent, opts: NotifyOptions = {}): Promise<NotifyResult> {
   const all = [...new Set(userIds)];
   const result: NotifyResult = { inbox: 0, webhook: 0, inboxIds: [], webhookIds: [] };
   if (all.length === 0) return result;
@@ -96,14 +104,19 @@ export async function notify(userIds: number[], ev: NotificationEvent): Promise<
       result.inbox = inboxIds.length;
     } catch (e) {
       console.error("notify: insert failed:", e);
+      result.inboxError = e instanceof Error ? e.message : String(e);
     }
   }
 
+  const every = Math.max(1, opts.heartbeatEvery ?? 10);
+  let posted = 0;
   for (const id of webhookIds) {
     try {
       const user = await getUserById(id);
       const hook = user?.notify_webhook_url?.trim();
       if (!user || !hook || user.status !== "active") continue;
+      if (opts.heartbeat && posted > 0 && posted % every === 0) await opts.heartbeat();
+      posted++;
       const line = ev.body ? `${ev.title}\n${ev.body}` : ev.title;
       const url = ev.link ? `${ev.origin || ""}${ev.link}` : "";
       // `text` is understood by both Slack and Teams incoming webhooks.
