@@ -21,8 +21,8 @@ shield, a deliberate re-ask, and a portal that asks before it sends.
   transaction (a rolled-back approval or merge tells nobody); notices from
   a text save (edit, merge, restore, approval, schedule, the API and MCP)
   wait two minutes and merge, and a person who already heard about a
-  document that day is not told again, so three saves in an afternoon are
-  one notice. A manual "ask everyone to re-confirm" always delivers.
+  document that day is not told again unless they confirmed it since, so
+  three saves in an afternoon are one notice. A manual "ask everyone to re-confirm" always delivers.
   In-app: "Changed. Please re-confirm "Expense policy"" with "{who}
   changed "{title}": {change note}. Please read the changes and confirm
   again."; every link lands on the confirmation card
@@ -105,7 +105,7 @@ shield, a deliberate re-ask, and a portal that asks before it sends.
   **Send reminders**. Each policy row gains **Stop requiring** (the record
   is kept; the toast carries **Undo**, which switches it back on quietly).
   The toasts say what was queued: "Read confirmation required: 42 people
-  will be notified." / "Reminders queued for 88 people".
+  will be notified." / "Reminders queued for 88 people."
 - **The read / manage / export split is enforced.** The three compliance
   permissions were defined in 1.9.x but never checked: anyone granted the
   Compliance section could mail the workspace and export the matrix.
@@ -208,22 +208,30 @@ shield, a deliberate re-ask, and a portal that asks before it sends.
   response says how many people will be told, the one-hour Remind
   cooldown is unchanged, and a request that requires without notifying
   starts no cooldown. The 429 inside the hour reads "A reminder went out
-  less than an hour ago. Give people a moment."
+  less than an hour ago. Give people a moment." Two Request or two Remind
+  calls at the same moment queue one notice, not two: only the call that
+  switches the requirement on queues the request, and the Remind cooldown
+  is stamped in the same statement that admits the reminder, so the hour
+  is enforced atomically.
 - **Compliance portal hygiene.** Every portal action runs through the
-  house `useAction()` with toasts (no more top-of-page notice banners),
-  the People table and the per-policy roster are the house `Table` with a
-  `Pager` (50 rows a page), the roster expand shows **Confirmed** /
+  house action helper with toasts (no more top-of-page notice banners),
+  the People table and the per-policy roster are the house table with a
+  pager (50 rows a page), the roster expand shows **Confirmed** /
   **Pending** chips with the time and the version confirmed, a roster that
   cannot be loaded says so in a toast and folds the row back, and a
   policy's cached roster is dropped after Request, Remind, Stop requiring
   and Undo. The licence gate offers **Open License** only to someone who
   can open Settings → License.
-- `notify()` (the inbox fan-out) reports what it reached (`{inbox,
-  webhook}` counts and the ids behind them) instead of returning nothing,
-  and an inbox insert skips an account deleted a moment earlier instead of
-  failing the whole batch.
+- The inbox fan-out reports what it reached (inbox and webhook counts and
+  the ids behind them) instead of returning nothing, and an inbox insert
+  skips an account deleted a moment earlier instead of failing the whole
+  batch.
 - Read confirmation request emails say "read and confirm", never
   "acknowledge".
+- Both compliance CSVs guard against spreadsheet formula injection: a cell
+  that starts with `=`, `+`, `-` or `@` is prefixed with an apostrophe, so
+  a name, a title or a reason is never run as a formula when the file is
+  opened.
 
 ### Upgrading
 - **Boot takes fewer locks.** Every `ADD COLUMN IF NOT EXISTS` in the
@@ -249,8 +257,15 @@ shield, a deliberate re-ask, and a portal that asks before it sends.
   should run or export the programme (the built-in Compliance manager
   role holds all three).
 - **Rollback to 1.10.0 is supported.** 1.10.0 ignores the new tables and
-  columns; rows queued and not yet delivered are delivered when 1.10.1
-  boots again (the drain only runs there).
+  columns: a reset sends no notice (the portal's Request and Remind send
+  at once, as before), the editor is asked on every text change whatever a
+  policy's edit default says, and the version columns are left as they
+  are. A notice queued and not yet delivered goes out when 1.10.1 boots
+  again, so a policy also reminded from the 1.10.0 portal may be noticed
+  twice. Versions published while on 1.10.0 show no publisher or approver
+  after re-upgrade (the backfill runs once), and an account anonymised on
+  1.10.0 keeps its name in the notice log until it is anonymised again on
+  1.10.1.
 
 ## [1.10.0] - 2026-10-16
 
