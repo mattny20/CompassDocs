@@ -27,7 +27,11 @@ import {
   assignTraining,
   expandTrainingAudience,
   listUsers,
+  ackSummary,
+  AckReasonRequiredError,
 } from "@/lib/db";
+import { ackDecisionRequired, ACK_POLICY_ERROR } from "@/lib/ack-decision";
+import { getComplianceSettings } from "@/lib/compliance-settings";
 import { currentVersion } from "@/lib/version";
 import { listTemplates, getTemplate, getTemplateByName, renderTemplate } from "@/lib/doc-templates";
 import { getAppSettings } from "@/lib/settings-store";
@@ -36,7 +40,7 @@ import { publicOrigin } from "@/lib/oauth";
 import { notifyWebhooks } from "@/lib/webhooks";
 import { notifyCrSubmitted } from "@/lib/notifications";
 import { notifySpaceSubscribers } from "@/lib/subscriptions";
-import { audit, auditAckDecision, actorFrom } from "@/lib/audit";
+import { audit, auditAckDecision, actorFrom, ipFrom } from "@/lib/audit";
 import {
   intakeFromBase64,
   intakeFromUrl,
@@ -44,6 +48,7 @@ import {
   storeImage,
   withImagePlaced,
   isInsertMode,
+  imageAltText,
   createUploadTicket,
   type InsertMode,
 } from "@/lib/image-intake";
@@ -278,7 +283,7 @@ const TOOLS = [
   {
     name: "update_doc",
     description:
-      "Update a document: markdown body, metadata (title, summary, tags, type), publish a draft, or move it to another space (requires editor or higher). Rich blocks are supported — call writing_guide for the syntax. Changes affecting published content follow the workspace's approval workflow: they may be queued as a change request for review instead of applying immediately — the response says which happened.",
+      "Update a document: markdown body, metadata (title, summary, tags, type), publish a draft, or move it to another space (requires editor or higher). Rich blocks are supported — call writing_guide for the syntax. Changes affecting published content follow the workspace's approval workflow: they may be queued as a change request for review instead of applying immediately — the response says which happened. A document that requires read confirmation (read_doc says so) needs ack_policy and ack_reason when its body or title changes, including when publish:true puts a changed draft live: without them the call saves nothing and returns decision_required with the numbers, so ask the person and call again.",
     inputSchema: {
       type: "object",
       properties: {
@@ -296,6 +301,17 @@ const TOOLS = [
             "Publish this document (drafts go live; may queue for approval instead, depending on workspace settings).",
         },
         note: { type: "string", description: "Short change note for the version history." },
+        ack_policy: {
+          type: "string",
+          enum: ["keep", "reset"],
+          description:
+            "Required when the document requires read confirmation and the body or title changes: keep = editorial fix (people are not asked again); reset = material change (everyone re-confirms). Always include ack_reason saying what changed and why.",
+        },
+        ack_reason: {
+          type: "string",
+          description:
+            "What changed and why, 10 to 500 characters. Recorded on the compliance record with the decision; with reset it is also what readers are told in the re-confirmation notice.",
+        },
       },
       required: ["id"],
       additionalProperties: false,
@@ -402,7 +418,10 @@ const TOOLS = [
 
 // --- Tool implementations ---------------------------------------------------------
 
-async function callTool(user: User, name: string, args: any, origin: string) {
+// `ip` is the caller's address as lib/audit reads it from the request, so a
+// decision taken through a token has the same audit echo (actor and address)
+// as the same decision taken through PUT, v1 or the drop link.
+async function callTool(user: User, name: string, args: any, origin: string, ip: string | null) {
   // Drafts across spaces. Per-document and per-space reads below narrow this
   // to the space in hand; the writes re-check with canEditSpace either way.
   const seeDrafts = await canSeeDrafts(user);
@@ -488,11 +507,22 @@ async function callTool(user: User, name: string, args: any, origin: string) {
           structure += `\n> linked from: ${links.map((b) => `${b.title} (id ${b.id})`).join("; ")}`;
         }
       }
+      // Read confirmation (H2, 1.11.0): the standing, so an assistant knows
+      // before it calls update_doc that a text change needs ack_policy.
+      let ackLine = "";
+      if (doc.ack_required === 1) {
+        const ack = await ackSummary(doc.id);
+        ackLine =
+          `\n> read confirmation: required · ${ack.current} of ${ack.eligible} ${ack.eligible === 1 ? "person has" : "people have"} confirmed` +
+          (ack.rev !== null ? ` v${ack.rev}` : "") +
+          ` · a change to the body or title needs ack_policy (keep or reset) and ack_reason in update_doc`;
+      }
       const header =
         `# ${doc.title}\n\n` +
         `> id: ${doc.id} · space: ${doc.space_slug} · type: ${doc.type} · status: ${doc.status}` +
         (doc.tags.length ? ` · tags: ${doc.tags.join(", ")}` : "") +
         (doc.summary ? `\n> summary: ${doc.summary}` : "") +
+        ackLine +
         structure +
         `\n\n---\n\n`;
       return toolText(header + doc.content);
@@ -602,6 +632,7 @@ async function callTool(user: User, name: string, args: any, origin: string) {
         targetId: doc.id,
         targetLabel: doc.title,
         details: { via: "mcp" },
+        ip,
       });
       // Nested pages: optional parent (admin-gated; bad values degrade to a note).
       let parentNote: string | undefined;
@@ -670,6 +701,13 @@ async function callTool(user: User, name: string, args: any, origin: string) {
       const affectsLive = existing.status === "published" || proposed.status === "published";
       const canPublish = await canPublishDirectly(user, existing.space_id);
       if (affectsLive && !canPublish) {
+        // The caller's ack_policy travels with the request as the submitter's
+        // recommendation (A6); the approver decides at approval. Only 'keep'
+        // or 'reset' is one: a bad value is refused here as the direct path
+        // refuses it, before anything is queued.
+        if (args?.ack_policy != null && args.ack_policy !== "keep" && args.ack_policy !== "reset") {
+          return toolJson({ ok: false, error: ACK_POLICY_ERROR });
+        }
         const kind = existing.status === "draft" ? "publish" : "edit";
         const crId = await createChangeRequest({
           document_id: existing.id,
@@ -683,6 +721,8 @@ async function callTool(user: User, name: string, args: any, origin: string) {
           note,
           created_by: user.id,
           space_id: moving ? targetSpaceId : null,
+          ack_policy: args?.ack_policy,
+          ack_reason: args?.ack_reason,
         });
         await audit({
           actor: actorFrom(user),
@@ -691,6 +731,7 @@ async function callTool(user: User, name: string, args: any, origin: string) {
           targetId: existing.id,
           targetLabel: proposed.title,
           details: { kind, via: "mcp" },
+          ip,
         });
         void notifyCrSubmitted({
           spaceId: existing.space_id,
@@ -718,15 +759,59 @@ async function callTool(user: User, name: string, args: any, origin: string) {
         });
       }
 
-      const doc = await updateDocument(existing.id, {
-        ...proposed,
-        space_id: targetSpaceId,
-        author: user.name || user.username,
-        versionNote: note || "Edited via Claude connector",
-        ackSource: "mcp",
-        ackActor: { id: user.id, name: user.name || user.username },
-        ackOrigin: origin,
-      });
+      // The decision a confirmed policy needs (H2, 1.11.0), through the
+      // pre-flight every write path that cannot ask shares (lib/ack-decision).
+      // A change to the body or title of a published document that requires
+      // read confirmation, or publish:true on such a draft whose text drifted
+      // from the confirmed version (proposed.status is what the helper looks
+      // at), saves nothing without ack_policy: the result carries the
+      // standing and the measured change so the assistant asks the person
+      // instead of guessing. A metadata-only change, a draft that stays a
+      // draft and a document that does not require confirmation pass with
+      // 'auto', exactly as before. The keep side's reason rule is the
+      // workspace's, read once for the pre-flight and for updateDocument's
+      // own check.
+      const keepReasonRequired = (await getComplianceSettings()).ack_defaults.keep_reason_required;
+      const { refusal, decision } = await ackDecisionRequired(
+        existing,
+        proposed,
+        { ack_policy: args?.ack_policy, ack_reason: args?.ack_reason },
+        { keepReasonRequired }
+      );
+      if (refusal) {
+        if (refusal.status === 428) {
+          const { error: _undecided, decision_required: _required, ...standing } = refusal.body;
+          return toolJson({
+            ok: false,
+            decision_required: true,
+            ...standing,
+            hint: "Ask the person whether this is an editorial fix or a material change and why, then call update_doc again with ack_policy and ack_reason.",
+          });
+        }
+        return toolJson({ ok: false, error: refusal.body.error });
+      }
+
+      let doc: Awaited<ReturnType<typeof updateDocument>>;
+      try {
+        doc = await updateDocument(existing.id, {
+          ...proposed,
+          space_id: targetSpaceId,
+          author: user.name || user.username,
+          // The reason is what readers see as the change note when no note came.
+          versionNote: note || decision.ackReason || "Edited via Claude connector",
+          ackPolicy: decision.ackPolicy,
+          ackReason: decision.ackReason,
+          ackKeepReasonRequired: keepReasonRequired,
+          ackSource: "mcp",
+          ackActor: { id: user.id, name: user.name || user.username },
+          ackOrigin: origin,
+        });
+      } catch (e) {
+        // The pre-flight already checked the reason; this is the race where
+        // the document changed between the two reads.
+        if (e instanceof AckReasonRequiredError) return toolJson({ ok: false, error: e.message });
+        throw e;
+      }
 
       // Nested pages: parent moves are organizational and apply directly.
       let parentNote: string | undefined;
@@ -757,6 +842,7 @@ async function callTool(user: User, name: string, args: any, origin: string) {
             targetId: existing.id,
             targetLabel: proposed.title,
             details: { via: "mcp", parent_id: nextParent },
+            ip,
           });
         }
         return toolJson({
@@ -806,10 +892,11 @@ async function callTool(user: User, name: string, args: any, origin: string) {
           ...(moving ? { moved_to: targetSpaceId } : {}),
           ...(parentMoved ? { parent_id: nextParent } : {}),
         },
+        ip,
       });
       // The confirmation decision an edit of a confirmed, published document
       // took is echoed to the audit log like a PUT's (C1).
-      await auditAckDecision(existing, doc, { actor: actorFrom(user) });
+      await auditAckDecision(existing, doc, { actor: actorFrom(user), ip });
       return toolJson({ ok: true, id: doc!.id, status: doc!.status, url: `/doc/${doc!.id}`, note: parentNote });
     }
 
@@ -863,7 +950,10 @@ async function callTool(user: User, name: string, args: any, origin: string) {
         kind: intake.kind,
         filename: args?.filename,
       });
-      const alt = String(args?.alt ?? "").trim() || att.filename;
+      // The alt is caller-controlled (the argument, else the file's own
+      // name): one line of plain words, so the kept change below is exactly
+      // one image line and never carries markdown of its own (imageAltText).
+      const alt = imageAltText(String(args?.alt ?? "").trim() || att.filename);
       const markdown = `![${alt}](/api/attachments/${att.id})`;
 
       // Place it, if asked. This is the step that used to be a separate
@@ -875,13 +965,23 @@ async function callTool(user: User, name: string, args: any, origin: string) {
         if (fresh) {
           const placedDoc = await updateDocument(doc.id, {
             content: withImagePlaced(fresh.content, markdown, insert),
+            versionNote: "Added image",
+            // A placed image is a text change the connector cannot ask
+            // about, so it keeps confirmations (G2, 1.11.0) and is recorded
+            // from source 'image': a 'kept' row on the History tab, counted
+            // by the portal's drift chip, so a diagram that was the policy
+            // is seen and re-asked by hand. The fixed reason stands in for
+            // the editor's note, whatever Program settings asks of a person.
+            ackPolicy: "keep",
+            ackReason: "Added image",
+            ackKeepReasonRequired: false,
             ackSource: "image",
             ackActor: { id: user.id, name: user.name || user.username },
             ackOrigin: origin,
           });
           // An image placed into a confirmed, published document is a text
           // change; its confirmation decision is echoed like a PUT's (C1).
-          await auditAckDecision(fresh, placedDoc, { actor: actorFrom(user) });
+          await auditAckDecision(fresh, placedDoc, { actor: actorFrom(user), ip });
           placed = true;
         }
       }
@@ -900,6 +1000,7 @@ async function callTool(user: User, name: string, args: any, origin: string) {
           source: args?.source_url ? "url" : args?.from_attachment_id !== undefined ? "attachment" : "base64",
           inserted: placed,
         },
+        ip,
       });
       return toolJson({
         ok: true,
@@ -980,6 +1081,7 @@ async function callTool(user: User, name: string, args: any, origin: string) {
           targetId: doc.id,
           targetLabel: doc.title,
           details: { via: "mcp" },
+          ip,
         });
         return toolJson({ ok: true, deck_id: created.id, title: doc.title });
       }
@@ -1022,6 +1124,7 @@ async function callTool(user: User, name: string, args: any, origin: string) {
           targetId: deck.document_id,
           targetLabel: deck.title,
           details: { via: "mcp", newly_assigned: assigned.length, audience: ids.length },
+          ip,
         });
         return toolJson({ ok: true, assigned: assigned.length, already: ids.length - assigned.length });
       }
@@ -1110,7 +1213,7 @@ async function authenticate(req: Request): Promise<User | Response> {
   return user;
 }
 
-async function handleRpc(user: User, msg: any, origin: string): Promise<unknown | undefined> {
+async function handleRpc(user: User, msg: any, origin: string, ip: string | null): Promise<unknown | undefined> {
   const { id, method, params } = msg ?? {};
 
   // Notifications (no id) get no response body.
@@ -1133,7 +1236,7 @@ async function handleRpc(user: User, msg: any, origin: string): Promise<unknown 
       return rpcResult(id, { tools: TOOLS });
     case "tools/call": {
       try {
-        const result = await callTool(user, String(params?.name ?? ""), params?.arguments ?? {}, origin);
+        const result = await callTool(user, String(params?.name ?? ""), params?.arguments ?? {}, origin, ip);
         return rpcResult(id, result);
       } catch (e) {
         return rpcResult(id, toolText(e instanceof Error ? e.message : "Tool failed.", true));
@@ -1156,13 +1259,14 @@ export async function POST(req: Request) {
   }
 
   const origin = await publicOrigin(req);
+  const ip = ipFrom(req);
   if (Array.isArray(body)) {
-    const replies = (await Promise.all(body.map((m) => handleRpc(user, m, origin)))).filter(
+    const replies = (await Promise.all(body.map((m) => handleRpc(user, m, origin, ip)))).filter(
       (r) => r !== undefined
     );
     return replies.length ? json(replies) : new Response(null, { status: 202 });
   }
-  const reply = await handleRpc(user, body, origin);
+  const reply = await handleRpc(user, body, origin, ip);
   return reply === undefined ? new Response(null, { status: 202 }) : json(reply);
 }
 

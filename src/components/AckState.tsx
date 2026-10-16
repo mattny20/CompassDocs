@@ -14,6 +14,40 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import { CONFIRM_SECTION_ID, useReachedEnd } from "@/lib/use-reached-end";
 
+/**
+ * Why the reader is asked again (B3, 1.11.0): the newest reset since they
+ * confirmed, read from the decision ledger. 'edit' covers every text change
+ * (an edit, a merge, a restore, an approval, the API and the rest), 'manual'
+ * is "Ask everyone to re-confirm…", 'person' the per-person re-ask (D4,
+ * later) and 'recurrence' the annual cycle (G1, later).
+ */
+export type AckReason =
+  | { kind: "edit" | "manual" | "person"; at: string; by: string; note: string }
+  | { kind: "recurrence"; months: number };
+
+/** "12 months" / "1 month" for the annual re-confirmation sentences. */
+export function monthsLabel(n: number): string {
+  return `${n} month${n === 1 ? "" : "s"}`;
+}
+
+/**
+ * The reader's newest lapsed confirmation (B3): what "since you confirmed
+ * it on 3 Mar" refers to. Present only while ackedAt is null; the strip,
+ * the sticky control and the card all read it from here, so a first
+ * request and a re-confirmation never look the same by accident.
+ */
+export interface PriorConfirmation {
+  ackedAt: string;
+  /** The version confirmed; null when it could not be worked out. */
+  versionId: number | null;
+  rev: number | null;
+  /** The version was inferred from the confirmation time (a row from before 1.10.0). */
+  inferred: boolean;
+  /** Versions have been written since the confirmed one: the text changed. */
+  changed: boolean;
+  reason: AckReason | null;
+}
+
 /** What the server knows when the page renders. */
 export interface AckSeed {
   /** The reader's current confirmation, if one counts for this document. */
@@ -27,6 +61,8 @@ export interface AckSeed {
   rev: number | null;
   /** Holds document.ack_submit in this space. */
   canSubmit: boolean;
+  /** The confirmation that lapsed, when the reader has one (B3); null on a first request. */
+  prior?: PriorConfirmation | null;
 }
 
 export interface AckState extends AckSeed {

@@ -4,7 +4,11 @@ import {
   getVersion,
   updateDocument,
   createChangeRequest,
-  } from "@/lib/db";
+  changeRequestAckReason,
+  AckReasonRequiredError,
+} from "@/lib/db";
+import { ackDecisionRequired, auditedAckPolicy, ACK_POLICY_ERROR } from "@/lib/ack-decision";
+import { getComplianceSettings } from "@/lib/compliance-settings";
 import { apiGuard } from "@/lib/api-auth";
 import { audit, auditAckDecision, actorFrom, ipFrom } from "@/lib/audit";
 import { notifyCrSubmitted } from "@/lib/notifications";
@@ -18,6 +22,16 @@ export const dynamic = "force-dynamic";
 // NEW version on top of the history (nothing is rewritten). Approval rules
 // mirror a normal edit — on a published doc, editors in strict mode submit a
 // change request instead of applying directly.
+//
+// Body: { label?, note?, ack_policy?, ack_reason? }. `note`, when given, is
+// the version note (the dialog's change note, as a merge's is); otherwise
+// the note reads "Restored version N from YYYY-MM-DD". Restoring older text
+// over a confirmed, published document whose confirmed version differs is a
+// decision like a save (A6): without ack_policy the call is answered 428
+// with the numbers the editor's question shows; a 'reset' needs an
+// ack_reason of 10+ characters and a 'keep' follows Program settings'
+// "Require a reason for editorial fixes too" (400 otherwise), as PUT does.
+// Restoring the confirmed version itself asks nothing.
 
 export async function POST(
   req: Request,
@@ -49,17 +63,29 @@ export async function POST(
     );
   }
 
-  let label = "";
+  let body: any = {};
   try {
-    const body = await req.json();
-    label = String(body?.label ?? "").trim();
+    body = (await req.json()) ?? {};
   } catch {
     // Body is optional.
   }
-  const note = `Restored version${label ? ` ${label}` : ""} from ${version.created_at.slice(0, 10)}`;
+  const label = String(body?.label ?? "").trim();
+  const note =
+    String(body?.note ?? "").trim() ||
+    `Restored version${label ? ` ${label}` : ""} from ${version.created_at.slice(0, 10)}`;
+
+  // The decision about the readers (A6): only 'keep' or 'reset' is one; the
+  // literal 'auto' is refused like any other unknown value, before any write.
+  const ackPolicyRaw = body?.ack_policy;
+  if (ackPolicyRaw != null && ackPolicyRaw !== "keep" && ackPolicyRaw !== "reset") {
+    return NextResponse.json({ error: ACK_POLICY_ERROR }, { status: 400 });
+  }
+  const ackReason = changeRequestAckReason(body?.ack_reason);
 
   const canPublish = await canPublishDirectly(user, doc.space_id);
   if (doc.status === "published" && !canPublish) {
+    // The submitter's recommendation travels with the request; the approver
+    // decides at approval.
     const crId = await createChangeRequest({
       document_id: doc.id,
       kind: "edit",
@@ -71,6 +97,8 @@ export async function POST(
       target_status: "published",
       note,
       created_by: user.id,
+      ack_policy: ackPolicyRaw,
+      ack_reason: ackReason,
     });
     await audit({
       actor: actorFrom(user),
@@ -91,23 +119,57 @@ export async function POST(
     return NextResponse.json({ pending: true, changeRequestId: crId, docId: doc.id });
   }
 
-  const updated = await updateDocument(doc.id, {
-    title: version.title,
-    content: version.content,
-    author: user.name || user.username,
-    versionNote: note,
-    restoredFrom: version.id,
-    ackSource: "restore",
-    ackActor: { id: user.id, name: user.name || user.username },
-    ackOrigin: requestOrigin(req),
-  });
+  // Pre-flight (A6): restoring text that differs from the confirmed version
+  // over a confirmed, published document without a decision is a question,
+  // not a silent reset. The helper answers 428 (undecided) or 400 (a bad
+  // policy, a short reason) before anything is written, and lets a restore
+  // of the confirmed version itself through as 'auto' whatever the body says.
+  // The keep side's reason rule is the workspace's, read once here for the
+  // pre-flight and for updateDocument's own check.
+  const keepReasonRequired = (await getComplianceSettings()).ack_defaults.keep_reason_required;
+  const pre = await ackDecisionRequired(
+    doc,
+    { title: version.title, content: version.content, status: doc.status },
+    { ack_policy: ackPolicyRaw ?? undefined, ack_reason: ackReason },
+    { keepReasonRequired }
+  );
+  if (pre.refusal) return NextResponse.json(pre.refusal.body, { status: pre.refusal.status });
+
+  let updated: Awaited<ReturnType<typeof updateDocument>>;
+  try {
+    updated = await updateDocument(doc.id, {
+      title: version.title,
+      content: version.content,
+      author: user.name || user.username,
+      versionNote: note,
+      restoredFrom: version.id,
+      ackPolicy: pre.decision.ackPolicy,
+      ackReason: pre.decision.ackReason,
+      ackSource: "restore",
+      ackActor: { id: user.id, name: user.name || user.username },
+      ackKeepReasonRequired: keepReasonRequired,
+      ackOrigin: requestOrigin(req),
+    });
+  } catch (e) {
+    if (e instanceof AckReasonRequiredError) {
+      return NextResponse.json({ error: e.message }, { status: 400 });
+    }
+    throw e;
+  }
+  // The decision taken, when one was, rides on the row as {ack_policy,
+  // confirmations_reset} (A6) beside the version restored, in the
+  // scheduler's vocabulary: ack_policy is null when nothing was decided.
   await audit({
     actor: actorFrom(user),
     action: "document.restore_version",
     targetType: "document",
     targetId: doc.id,
     targetLabel: updated?.title ?? version.title,
-    details: { versionId: version.id },
+    details: {
+      versionId: version.id,
+      ack_policy: auditedAckPolicy(updated?.ack_outcome),
+      confirmations_reset: updated?.ack_outcome?.confirmations_reset ?? 0,
+    },
     ip: ipFrom(req),
   });
   // Restoring an older text over a confirmed, published document takes a

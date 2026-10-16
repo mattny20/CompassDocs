@@ -1,3 +1,4 @@
+import { Check } from "lucide-react";
 import { Chip, chipClass } from "@/components/Chip";
 import { SectionEmpty } from "@/components/form";
 import { ackFormerStaffRows } from "@/lib/db";
@@ -5,6 +6,7 @@ import type { AckStatusRow, AckFormerStaffRow } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings-store";
 import { formatDateTime, settingsForUser } from "@/lib/format";
 import { Table, Th, Td, TABLE_HEAD_ROW, TR } from "@/components/Table";
+import { documentWordCount, isShortRead, readTimeLabel, SHORT_READ_TOOLTIP } from "@/lib/read-evidence";
 import { ackPageContext, cachedAckRows } from "./data";
 
 import type { Metadata } from "next";
@@ -39,6 +41,42 @@ function VersionCell({ row }: { row: Pick<AckStatusRow, "rev" | "version_source"
 const INFERRED_NOTE =
   "Confirmations before 1.10.0 did not record the version; where a version is marked (inferred) it is the one that was current at the time of the confirmation.";
 
+/** The footnote the two evidence columns need (the table scrolls sideways
+ *  inside its card, so the warn tone's tooltip may clip; the rule is
+ *  spelled out here too). */
+const EVIDENCE_NOTE =
+  "Read time is how long the document was open on screen for that person since everyone was last asked, summed from view tracking when they confirmed; it is not proof of comprehension. A time in amber is shorter than a quarter of a typical read of this document at 200 words per minute. Reached end is what the reader's own browser reported. Confirmations before 1.11.0 recorded neither.";
+
+/**
+ * "6 min", "under 1 min", blank when the record holds no read time. The
+ * warn tone (ink, not a chip: this is a measurement, not a status) applies
+ * only below a quarter of a typical read of the document, with the tooltip
+ * on a focusable span as the style guide asks of non-interactive elements.
+ */
+function ReadTimeCell({ seconds, words }: { seconds: number | null; words: number }) {
+  const label = readTimeLabel(seconds);
+  if (!label) return null;
+  if (isShortRead(seconds, words)) {
+    return (
+      <span className="ink-warn" data-tt={SHORT_READ_TOOLTIP} data-tt-wrap tabIndex={0}>
+        {label}
+      </span>
+    );
+  }
+  return <>{label}</>;
+}
+
+/** A check mark when the reader's browser reported the end on screen; nothing otherwise. */
+function ReachedEndCell({ reached }: { reached: boolean | null }) {
+  if (!reached) return null;
+  return (
+    <>
+      <Check className="h-4 w-4 ink-ok" aria-hidden="true" />
+      <span className="sr-only">Yes</span>
+    </>
+  );
+}
+
 export default async function AcknowledgementsPage({
   params,
 }: {
@@ -56,6 +94,10 @@ export default async function AcknowledgementsPage({
   const acked = rows.filter((r) => r.acknowledged_at);
   const pending = rows.filter((r) => !r.acknowledged_at);
   const anyInferred = [...rows, ...former].some((r) => r.rev && r.version_source === "inferred");
+  // The threshold rule measures each read time against the live text: the
+  // document people are asked to read today.
+  const words = documentWordCount(doc.content ?? "");
+  const anyConfirmed = acked.length > 0 || former.length > 0;
 
   return (
     <>
@@ -72,8 +114,10 @@ export default async function AcknowledgementsPage({
       )}
 
       {/* overflow-hidden keeps the rounded corners; the Table's own scroll
-          wrapper carries the sideways scroll on a phone (five columns, three
-          of them nowrap, outgrow 375px). */}
+          wrapper carries the sideways scroll on a phone (seven columns, five
+          of them nowrap, outgrow 375px). On paper the Table drops its minimum
+          width and the wrapper its scroll, so the two evidence columns are
+          not clipped by this card on a portrait page. */}
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-surface shadow-xs">
         {rows.length === 0 ? (
           <SectionEmpty className="px-4 py-6">
@@ -81,7 +125,7 @@ export default async function AcknowledgementsPage({
             is published.
           </SectionEmpty>
         ) : (
-          <Table scroll minWidth="40rem">
+          <Table scroll minWidth="54rem">
             <thead className={TABLE_HEAD_ROW}>
               <tr>
                 <Th>Person</Th>
@@ -89,6 +133,8 @@ export default async function AcknowledgementsPage({
                 <Th fit>Status</Th>
                 <Th fit>Confirmed</Th>
                 <Th fit>Version</Th>
+                <Th fit>Read time</Th>
+                <Th fit>Reached end (self-reported)</Th>
               </tr>
             </thead>
             <tbody>
@@ -112,6 +158,12 @@ export default async function AcknowledgementsPage({
                   <Td fit className="text-slate-500">
                     <VersionCell row={r} />
                   </Td>
+                  <Td fit className="text-slate-500">
+                    <ReadTimeCell seconds={r.read_seconds} words={words} />
+                  </Td>
+                  <Td fit>
+                    <ReachedEndCell reached={r.reached_end} />
+                  </Td>
                 </tr>
               ))}
             </tbody>
@@ -119,8 +171,9 @@ export default async function AcknowledgementsPage({
         )}
       </div>
 
-      {former.length > 0 && <FormerStaff rows={former} fmt={fmt} />}
+      {former.length > 0 && <FormerStaff rows={former} fmt={fmt} words={words} />}
 
+      {anyConfirmed && <p className="mt-3 text-xs text-slate-500">{EVIDENCE_NOTE}</p>}
       {anyInferred && <p className="mt-3 text-xs text-slate-500">{INFERRED_NOTE}</p>}
     </>
   );
@@ -134,9 +187,12 @@ export default async function AcknowledgementsPage({
 function FormerStaff({
   rows,
   fmt,
+  words,
 }: {
   rows: AckFormerStaffRow[];
   fmt: Parameters<typeof formatDateTime>[1];
+  /** The live document's word count, for the Read time threshold. */
+  words: number;
 }) {
   return (
     <details className="mt-6 rounded-xl border border-slate-200 bg-surface shadow-xs [&[open]>summary]:border-b [&[open]>summary]:border-slate-100">
@@ -147,13 +203,15 @@ function FormerStaff({
         People who confirmed this document but are no longer asked. Their records are kept and are not
         counted above.
       </p>
-      <Table scroll minWidth="36rem" className="mt-2">
+      <Table scroll minWidth="50rem" className="mt-2">
         <thead className={TABLE_HEAD_ROW}>
           <tr>
             <Th>Person</Th>
             <Th fit>Account</Th>
             <Th fit>Confirmed</Th>
             <Th fit>Version</Th>
+            <Th fit>Read time</Th>
+            <Th fit>Reached end (self-reported)</Th>
           </tr>
         </thead>
         <tbody>
@@ -171,6 +229,12 @@ function FormerStaff({
               </Td>
               <Td fit className="text-slate-500">
                 <VersionCell row={r} />
+              </Td>
+              <Td fit className="text-slate-500">
+                <ReadTimeCell seconds={r.read_seconds} words={words} />
+              </Td>
+              <Td fit>
+                <ReachedEndCell reached={r.reached_end} />
               </Td>
             </tr>
           ))}

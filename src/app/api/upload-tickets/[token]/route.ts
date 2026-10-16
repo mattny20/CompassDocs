@@ -6,6 +6,7 @@ import {
   validateImage,
   storeImage,
   withImagePlaced,
+  imageAltText,
 } from "@/lib/image-intake";
 import { getDocument, getUserById, updateDocument } from "@/lib/db";
 import { audit, auditAckDecision, ipFrom } from "@/lib/audit";
@@ -78,7 +79,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
   // the edit that places the image, its confirmation decision and the audit.
   const owner = await getUserById(ticket.created_by);
 
-  const alt = ticket.alt.trim() || att.filename;
+  // The alt is the ticket's, else the dropped file's own name (chosen by the
+  // unauthenticated dropper): one line of plain words, so the kept change
+  // below is exactly one image line and never carries markdown of its own
+  // (imageAltText).
+  const alt = imageAltText(ticket.alt.trim() || att.filename);
   const markdown = `![${alt}](/api/attachments/${att.id})`;
   let placed = false;
   if (ticket.insert_mode !== "none") {
@@ -86,6 +91,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
     if (fresh) {
       const placedDoc = await updateDocument(doc.id, {
         content: withImagePlaced(fresh.content, markdown, ticket.insert_mode),
+        versionNote: "Added file",
+        // A dropped file is a text change nobody can be asked about (the
+        // drop link has no editor behind it), so it keeps confirmations
+        // (G2, 1.11.0) and is recorded from source 'ticket': a 'kept' row
+        // on the History tab, counted by the portal's drift chip, so a
+        // picture that was the policy is seen and re-asked by hand. The
+        // fixed reason stands in for the editor's note, whatever Program
+        // settings asks of a person.
+        ackPolicy: "keep",
+        ackReason: "Added file",
+        ackKeepReasonRequired: false,
         ackSource: "ticket",
         ackActor: owner ? { id: owner.id, name: owner.name || owner.username } : undefined,
         ackOrigin: requestOrigin(req),

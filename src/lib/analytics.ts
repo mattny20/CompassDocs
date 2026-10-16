@@ -26,15 +26,21 @@ export async function recordView(
 }
 
 /** Heartbeat: extend a view's duration (capped at 30 minutes). The user check
- * stops one session from inflating another user's rows. */
+ * stops one session from inflating another user's rows, and the wall clock
+ * bounds the claim: a heartbeat can never record more time than has passed
+ * since the view began, so the read time a confirmation sums (C3) is the
+ * server's measure of how long the tab was open, not a number the browser
+ * asserted. */
 export async function touchView(
   viewId: number,
   userId: number | null,
   seconds: number
 ): Promise<void> {
   await q(
-    `UPDATE doc_views SET duration_seconds = LEAST(1800, GREATEST(duration_seconds, $1))
-     WHERE id = $2 AND user_id IS NOT DISTINCT FROM $3`,
+    `UPDATE doc_views
+        SET duration_seconds = LEAST(1800, GREATEST(duration_seconds,
+              LEAST($1, GREATEST(0, EXTRACT(EPOCH FROM now() - viewed_at))::int)))
+      WHERE id = $2 AND user_id IS NOT DISTINCT FROM $3`,
     [Math.max(0, Math.floor(seconds)), viewId, userId]
   );
 }
@@ -65,6 +71,31 @@ export async function recordSearch(
     results,
     source,
   ]);
+}
+
+/**
+ * Reading evidence for a confirmation (C3): the seconds this person had the
+ * document open on screen since `since` (the confirmation marker, so the
+ * sum covers the text everyone was asked to read), or over the last 30 days
+ * when there is no marker to count from. Summed from the view heartbeats,
+ * each view capped at 30 minutes by touchView. null when no view was
+ * recorded, which the record shows as an unknown read time rather than
+ * zero. Nothing from the client is trusted for time: the route calls this
+ * and stores the answer.
+ */
+export async function readSecondsSince(
+  docId: number,
+  userId: number,
+  since: string | Date | null
+): Promise<number | null> {
+  const r = await q<{ seconds: number | null }>(
+    `SELECT SUM(duration_seconds)::int AS seconds
+     FROM doc_views
+     WHERE document_id = $1 AND user_id = $2
+       AND viewed_at >= COALESCE($3::timestamptz, now() - interval '30 days')`,
+    [docId, userId, since]
+  );
+  return r[0]?.seconds ?? null;
 }
 
 export async function recordDownload(

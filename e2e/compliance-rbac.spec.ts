@@ -22,7 +22,7 @@ const stamp = () => `${Date.now()}${Math.floor(Math.random() * 1000)}`;
 const BODY = "## Policy\n\nShort policy text for the access-control check. Read it and confirm at the end.";
 
 const ROSTER_HEADER =
-  "name,username,email,role,status,acknowledged_at,document,revision_as_of,version,version_id,content_sha256,version_source,former_staff,asked_at,asked_by,reason,kept_since_asked,ip,user_agent,version_published_by,version_approved_by";
+  "name,username,email,role,status,acknowledged_at,document,revision_as_of,version,version_id,content_sha256,version_source,former_staff,asked_at,asked_by,reason,kept_since_asked,ip,user_agent,version_published_by,version_approved_by,read_seconds,reached_end_self_reported";
 
 /** The address the admin's confirmation arrives from, as a proxy would report it. */
 const ADMIN_IP = "203.0.113.9";
@@ -326,6 +326,22 @@ test("a program_read-only role reads the portal and nothing more; unknown action
       // The provenance columns are for everyone who may read the roster.
       expect(adminLine![header.indexOf("version_published_by")], "the version's publisher is named").not.toBe("");
       expect(adminLine![header.indexOf("version_approved_by")], "no change request, no approver").toBe("");
+      // The reading evidence (1.11.0, C3) closes the row: the admin confirmed
+      // through the API without opening the page, so the read time is
+      // unknown (blank, not 0) and the self-reported flag reads "no"; a
+      // pending row carries neither.
+      const readAt = header.indexOf("read_seconds");
+      const reachedAt = header.indexOf("reached_end_self_reported");
+      expect(readAt, "read_seconds follows the provenance pair").toBe(header.indexOf("version_approved_by") + 1);
+      expect(reachedAt, "reached_end_self_reported is the last column").toBe(header.length - 1);
+      expect(adminLine![readAt], "no view was recorded: unknown, not zero").toBe("");
+      expect(adminLine![reachedAt], "confirmed without the card's report").toBe("no");
+      for (const c of lines.slice(1).map(cells)) {
+        if (c[1] !== ADMIN.username) {
+          expect(c[readAt], "a pending row has no read time").toBe("");
+          expect(c[reachedAt], "and no report").toBe("");
+        }
+      }
       // The JSON roster carries no ip either.
       const roster = await api(spage, `/api/documents/${docId}/acknowledgements`);
       expect(roster.status).toBe(200);
@@ -372,6 +388,9 @@ test("a program_read-only role reads the portal and nothing more; unknown action
     expect(adminJson.body?.rows?.every((r: Record<string, unknown>) => "ip" in r), "an exporter's JSON rows carry ip").toBe(true);
     const adminJsonRow = (adminJson.body?.rows ?? []).find((r: { username: string }) => r.username === ADMIN.username);
     expect(adminJsonRow?.ip, "and the admin's JSON row carries the same address").toBe(ADMIN_IP);
+    // The JSON rows carry the evidence under the record's own names (C3).
+    expect(adminJsonRow?.read_seconds, "an API confirmation without a view: unknown read time").toBeNull();
+    expect(adminJsonRow?.reached_end, "and no self-reported flag").toBe(false);
 
     const matrix = await fetchText(page, "/api/admin/compliance?format=csv");
     expect(matrix.status).toBe(200);

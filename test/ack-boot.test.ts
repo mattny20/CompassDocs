@@ -61,8 +61,17 @@ async function withAdmin<T>(fn: (c: Client) => Promise<T>): Promise<T> {
   }
 }
 
+// Strip the 1.11.0 additions (C3's reading evidence and the doc_views index)
+// so the database looks the way 1.10.1 left it.
+const DOWNGRADE_1110_SQL = `
+  ALTER TABLE acknowledgements DROP COLUMN IF EXISTS read_seconds, DROP COLUMN IF EXISTS reached_end;
+  DROP INDEX IF EXISTS idx_views_doc_user;
+  ALTER TABLE change_requests DROP COLUMN IF EXISTS ack_policy, DROP COLUMN IF EXISTS ack_reason;
+`;
+
 // Strip the 1.10.1 additions so the database looks the way 1.10.0 left it.
 const DOWNGRADE_1101_SQL = `
+  ${DOWNGRADE_1110_SQL}
   ALTER TABLE documents DROP COLUMN IF EXISTS ack_edit_default;
   DROP TABLE IF EXISTS ack_notices;
   DROP TABLE IF EXISTS ack_outbox;
@@ -219,6 +228,53 @@ async function assertSchema1101(db: Client, label: string) {
     "SELECT column_default FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'spaces' AND column_name = 'visibility'"
   );
   assert.equal(spacesDefault.rows[0]?.column_default, "'internal'::text", `${label}: the spaces default`);
+  await assertEvidenceSchema(db, label);
+}
+
+/**
+ * The 1.11.0 reading evidence (C3): the two columns on acknowledgements with
+ * their types, nullability and default, and the doc_views index the read
+ * time sum relies on. Asserted after every boot, with the 1.10.1 checks.
+ */
+async function assertEvidenceSchema(db: Client, label: string) {
+  const columns = await db.query<{ column_name: string; data_type: string; is_nullable: string; column_default: string | null }>(
+    `SELECT column_name, data_type, is_nullable, column_default FROM information_schema.columns
+     WHERE table_schema = current_schema() AND table_name = 'acknowledgements'
+       AND column_name IN ('read_seconds', 'reached_end')
+     ORDER BY column_name`
+  );
+  assert.deepEqual(
+    columns.rows,
+    [
+      { column_name: "reached_end", data_type: "integer", is_nullable: "NO", column_default: "0" },
+      { column_name: "read_seconds", data_type: "integer", is_nullable: "YES", column_default: null },
+    ],
+    `${label}: the reading-evidence columns`
+  );
+  const index = await db.query<{ indexdef: string }>(
+    "SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'idx_views_doc_user'"
+  );
+  assert.equal(index.rows.length, 1, `${label}: idx_views_doc_user exists`);
+  assert.match(
+    index.rows[0].indexdef,
+    /USING btree \(document_id, user_id, viewed_at DESC\)/,
+    `${label}: idx_views_doc_user covers (document_id, user_id, viewed_at DESC)`
+  );
+  // A6: the submitter's recommendation travels on the change request.
+  const cr = await db.query<{ column_name: string; data_type: string; is_nullable: string; column_default: string | null }>(
+    `SELECT column_name, data_type, is_nullable, column_default FROM information_schema.columns
+     WHERE table_schema = current_schema() AND table_name = 'change_requests'
+       AND column_name IN ('ack_policy', 'ack_reason')
+     ORDER BY column_name`
+  );
+  assert.deepEqual(
+    cr.rows,
+    [
+      { column_name: "ack_policy", data_type: "text", is_nullable: "NO", column_default: "'auto'::text" },
+      { column_name: "ack_reason", data_type: "text", is_nullable: "NO", column_default: "''::text" },
+    ],
+    `${label}: the change-request decision columns`
+  );
 }
 
 describe("confirmation marker upgrade (1.9.4 → 1.10.1), booted twice", () => {

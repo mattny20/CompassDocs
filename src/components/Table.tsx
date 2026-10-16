@@ -39,9 +39,10 @@ export const TR = "border-b border-slate-100 last:border-b-0 transition-colors h
 export const FIT = "w-px whitespace-nowrap";
 
 /** A table inside a card: the wrapper scrolls sideways on narrow screens
- *  instead of breaking the page. */
+ *  instead of breaking the page. On paper nothing scrolls, so the wrapper
+ *  lets the table show whole (with `Table`'s minimum width dropped, below). */
 export function TableWrap({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return <div className={`overflow-x-auto ${className}`.trim()}>{children}</div>;
+  return <div className={`overflow-x-auto print:overflow-visible ${className}`.trim()}>{children}</div>;
 }
 
 export function Table({
@@ -57,14 +58,17 @@ export function Table({
   scroll?: boolean;
   /** Keep the header on screen while the page scrolls. Not with `scroll`. */
   sticky?: boolean;
-  /** CSS length applied as min-width (with `scroll`). */
+  /** CSS length applied as min-width (with `scroll`); dropped in print, where
+   *  the wrapper cannot scroll and the card would clip the far columns. */
   minWidth?: string;
   className?: string;
 } & Omit<React.ComponentProps<"table">, "children" | "className">) {
+  // The width travels as a custom property so a print: variant can override
+  // it; an inline min-width would win over any class.
   const table = (
     <table
-      className={`w-full text-sm ${sticky ? "[&>thead]:sticky [&>thead]:top-0 [&>thead]:z-10 [&>thead]:bg-surface" : ""} ${className}`.trim()}
-      style={minWidth ? { minWidth } : undefined}
+      className={`w-full text-sm ${minWidth ? "min-w-(--table-min) print:min-w-0" : ""} ${sticky ? "[&>thead]:sticky [&>thead]:top-0 [&>thead]:z-10 [&>thead]:bg-surface" : ""} ${className}`.trim()}
+      style={minWidth ? ({ "--table-min": minWidth } as React.CSSProperties) : undefined}
       {...rest}
     >
       {children}

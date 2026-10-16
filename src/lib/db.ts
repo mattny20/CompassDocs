@@ -33,6 +33,7 @@ import type {
 import { changeSummary, suggestReconfirm } from "./diff";
 import type { ChangeSummary } from "./diff";
 import type { EditDefault } from "./compliance-settings";
+import { storedReadSeconds } from "./read-evidence";
 
 export type { AckPolicy, AckSource, AckOutcome, AckDecision, AckOutcomeInfo } from "./types";
 export type { AckNotice, AckNoticeMode, AckNoticeKind, AckNoticeChannel, AckOutboxRow } from "./types";
@@ -585,6 +586,20 @@ const SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS idx_views_doc_at ON doc_views(document_id, viewed_at);
   CREATE INDEX IF NOT EXISTS idx_views_at ON doc_views(viewed_at);
   CREATE INDEX IF NOT EXISTS idx_views_user ON doc_views(user_id);
+  -- One person's views of one document, newest first: the read time a
+  -- confirmation records (readSecondsSince, C3) and the never-opened probe
+  -- (F1) both ask for exactly this.
+  CREATE INDEX IF NOT EXISTS idx_views_doc_user ON doc_views(document_id, user_id, viewed_at DESC);
+
+  -- 1.11.0 (A6): the submitter's recommendation for the readers of a confirmed
+  -- document ('keep' | 'reset'; 'auto' = none given) and their reason. The
+  -- approver decides at approval; both sides land on the decision row.
+  -- Placed after the doc_views index on purpose: SCHEMA_SQL is one
+  -- transaction, so the exclusive lock these two take on change_requests
+  -- (which every app page reads for the review badge) is held for the tail
+  -- of the first 1.11.0 boot rather than across the index build above.
+  ALTER TABLE change_requests ADD COLUMN IF NOT EXISTS ack_policy text NOT NULL DEFAULT 'auto';
+  ALTER TABLE change_requests ADD COLUMN IF NOT EXISTS ack_reason text NOT NULL DEFAULT '';
 
   -- "Was this helpful?" votes: one per user per document, revisable.
   CREATE TABLE IF NOT EXISTS doc_feedback (
@@ -852,6 +867,14 @@ const SCHEMA_SQL = `
   ALTER TABLE acknowledgements ADD COLUMN IF NOT EXISTS version_id integer;
   ALTER TABLE acknowledgements ADD COLUMN IF NOT EXISTS content_sha256 text;
   CREATE INDEX IF NOT EXISTS idx_ack_user ON acknowledgements(user_id, acknowledged_at DESC);
+  -- 1.11.0 reading evidence (C3). read_seconds: how long the document was
+  -- open on screen for this person since everyone was last asked, summed on
+  -- the server from doc_views at confirmation time and copied here because
+  -- doc_views is not retained with the document (NULL when no view was
+  -- recorded, and on every row from before 1.11.0). reached_end: the card's
+  -- self-reported latch (use-reached-end.ts), 1 or 0, never trusted for time.
+  ALTER TABLE acknowledgements ADD COLUMN IF NOT EXISTS read_seconds integer;
+  ALTER TABLE acknowledgements ADD COLUMN IF NOT EXISTS reached_end integer NOT NULL DEFAULT 0;
 
   -- 1.10.0 retention: attestation records outlive the person and the policy.
   -- Metadata-only here; the ON DELETE SET NULL swap and the snapshot backfill
@@ -5350,6 +5373,13 @@ export interface ComplianceDocRow {
   title: string;
   space_name: string;
   space_icon: string;
+  /**
+   * 'published', or 'draft' for a paused policy (G2, 1.11.0): unpublished
+   * with the requirement still on. The portal lists it under "Paused
+   * (unpublished)" with no actions, and the KPI sums skip it, so a policy
+   * taken down for a rewrite neither drops the percentage nor vanishes.
+   */
+  status: DocStatus;
   updated_at: string;
   ack_revision_at: string;
   ack_version_id: number | null;
@@ -5370,10 +5400,18 @@ export interface ComplianceDocRow {
   drift_pct: number;
 }
 
-/** Central compliance portal: every ack-required published doc with counts and its last decisions. */
+/**
+ * Central compliance portal: every ack-required doc with counts and its last
+ * decisions. Published policies and paused ones alike (G2, 1.11.0: an
+ * unpublished policy keeps its requirement and its confirmations; `status`
+ * says which it is, and the route's KPI sums and the CSV matrix take only
+ * the published rows). Draft branches never appear: they are working copies
+ * whose text reaches readers only by merging, and only setAckRequired ever
+ * writes ack_required, so a branch cannot carry it anyway.
+ */
 export async function complianceDocs(): Promise<ComplianceDocRow[]> {
   const docs = await q<Omit<ComplianceDocRow, "last_decision" | "last_reset" | "kept_since_reset" | "drift_pct">>(
-    `SELECT d.id, d.title, s.name AS space_name, s.icon AS space_icon,
+    `SELECT d.id, d.title, s.name AS space_name, s.icon AS space_icon, d.status,
             d.updated_at, d.ack_revision_at, d.ack_version_id, d.ack_last_reminded_at,
             d.ack_edit_default,
             ${VERSION_REV("d.ack_version_id")} AS ack_rev,
@@ -5387,10 +5425,11 @@ export async function complianceDocs(): Promise<ComplianceDocRow[]> {
        WHERE a.document_id = d.id AND a.user_id = u.id AND ${ACK_CURRENT}
        ORDER BY a.acknowledged_at DESC LIMIT 1
      ) a ON true
-     WHERE d.ack_required = 1 AND d.status = 'published' AND d.deleted_at IS NULL
-     GROUP BY d.id, d.title, s.name, s.icon, d.updated_at, d.ack_revision_at, d.ack_version_id,
+     WHERE d.ack_required = 1 AND d.deleted_at IS NULL AND d.branch_of IS NULL
+     GROUP BY d.id, d.title, s.name, s.icon, d.status, d.updated_at, d.ack_revision_at, d.ack_version_id,
               d.ack_last_reminded_at, d.ack_edit_default
-     ORDER BY (COUNT(u.id) - COUNT(u.id) FILTER (WHERE a.acknowledged_at IS NOT NULL)) DESC, d.title`
+     ORDER BY (d.status <> 'published'),
+              (COUNT(u.id) - COUNT(u.id) FILTER (WHERE a.acknowledged_at IS NOT NULL)) DESC, d.title`
   );
   if (docs.length === 0) return [];
   const ids = docs.map((d) => d.id);
@@ -5449,7 +5488,11 @@ export async function compliancePendingUsers(
   );
 }
 
-/** Per-user compliance: how many required policies each active user has left. */
+/**
+ * Per-user compliance: how many required policies each active user has
+ * left. Published policies only: a paused (unpublished) policy is not
+ * owed by anyone while it is down, and a draft branch is never a policy.
+ */
 export async function complianceUserSummary(): Promise<
   { id: number; name: string; username: string; role: string; required: number; acked: number }[]
 > {
@@ -5459,7 +5502,7 @@ export async function complianceUserSummary(): Promise<
             COUNT(d.id) FILTER (WHERE a.acknowledged_at IS NOT NULL)::int AS acked
      FROM users u
      LEFT JOIN documents d
-       ON d.ack_required = 1 AND d.status = 'published' AND d.deleted_at IS NULL
+       ON d.ack_required = 1 AND d.status = 'published' AND d.deleted_at IS NULL AND d.branch_of IS NULL
      LEFT JOIN spaces s ON s.id = d.space_id
      LEFT JOIN LATERAL (
        SELECT a.acknowledged_at FROM acknowledgements a
@@ -5512,12 +5555,26 @@ export async function setAckLastReminded(docId: number): Promise<void> {
  * A second row is accepted when the person's current confirmation cites an
  * older version than the latest (a kept edit): the ledger keeps both, and
  * the newer one is what the record shows.
+ *
+ * `evidence` (C3, 1.11.0) is what the row records beside the version: the
+ * read time the caller summed on the server (readSecondsSince; null when no
+ * view was recorded) and the reader's own reached-the-end report. The
+ * route derives the first and parses the second; this function stores
+ * them as given, whole seconds and a 1/0 flag.
  */
+export interface AckEvidence {
+  /** Seconds the document was open on screen for this person since everyone was last asked; null when unknown. */
+  readSeconds?: number | null;
+  /** The card's self-reported latch: the end of the text was on screen (or focus entered the card). */
+  reachedEnd?: boolean;
+}
+
 export async function recordAcknowledgement(
   docId: number,
   userId: number,
   ip: string,
-  versionId: number
+  versionId: number,
+  evidence: AckEvidence = {}
 ): Promise<{ recorded: boolean; stale: boolean }> {
   await ready();
   const client = await pool().connect();
@@ -5556,15 +5613,18 @@ export async function recordAcknowledgement(
       return { recorded: false, stale: true };
     }
     const sha = createHash("sha256").update(version.content).digest("hex");
+    const readSeconds = storedReadSeconds(evidence.readSeconds);
+    const reachedEnd = evidence.reachedEnd === true ? 1 : 0;
     const inserted = await client.query<{ id: number }>(
       `INSERT INTO acknowledgements
-         (document_id, user_id, ip, version_id, content_sha256, user_name, user_email, document_title, acknowledged_at)
-       SELECT d.id, u.id, $3, $4, $5, u.name, u.email, d.title, clock_timestamp()
+         (document_id, user_id, ip, version_id, content_sha256, user_name, user_email, document_title, acknowledged_at,
+          read_seconds, reached_end)
+       SELECT d.id, u.id, $3, $4, $5, u.name, u.email, d.title, clock_timestamp(), $6, $7
        FROM documents d
        JOIN users u ON u.id = $2
        WHERE d.id = $1
        RETURNING id`,
-      [docId, userId, ip.slice(0, 100), versionId, sha]
+      [docId, userId, ip.slice(0, 100), versionId, sha, readSeconds, reachedEnd]
     );
     if (inserted.rowCount === 0) {
       await client.query("ROLLBACK");
@@ -5604,6 +5664,48 @@ async function currentAckRow(client: Queryable, docId: number, userId: number): 
      FROM acknowledgements a
      JOIN documents d ON d.id = a.document_id
      WHERE a.document_id = $1 AND a.user_id = $2 AND ${ACK_CURRENT}
+     ORDER BY a.acknowledged_at DESC, a.id DESC LIMIT 1`,
+    [docId, userId]
+  );
+  return r.rows[0];
+}
+
+export interface LatestAck extends CurrentAck {
+  /**
+   * True when the row carries no version and the version was worked out
+   * from the confirmation time (a confirmation from before 1.10.0, or one
+   * made on 1.9.x during a rollback): the newest version that existed when
+   * the person confirmed. Surfaces say "(version inferred)".
+   */
+  version_inferred: boolean;
+  /** True while the row counts against the marker (the row getCurrentAck returns); false once everyone was asked again. */
+  current: boolean;
+}
+
+/**
+ * The person's newest confirmation of a document, current or lapsed (B3,
+ * 1.11.0): what "This document changed since you confirmed it on 3 Mar"
+ * compares against. getCurrentAck answers "does a confirmation count";
+ * this answers "what did they last confirm", so the page can diff the
+ * live text against that version. Served by idx_ack_doc (document_id,
+ * user_id, acknowledged_at DESC).
+ */
+export async function getLatestAck(docId: number, userId: number): Promise<LatestAck | undefined> {
+  await ready();
+  const r = await pool().query<LatestAck>(
+    `SELECT a.acknowledged_at,
+            COALESCE(a.version_id, inf.id) AS version_id,
+            (a.version_id IS NULL AND inf.id IS NOT NULL) AS version_inferred,
+            a.content_sha256,
+            ${VERSION_REV("COALESCE(a.version_id, inf.id)")} AS rev,
+            (${ACK_CURRENT}) AS current
+     FROM acknowledgements a
+     JOIN documents d ON d.id = a.document_id
+     LEFT JOIN LATERAL (
+       SELECT MAX(x.id) AS id FROM doc_versions x
+       WHERE x.document_id = a.document_id AND x.created_at <= a.acknowledged_at
+     ) inf ON true
+     WHERE a.document_id = $1 AND a.user_id = $2
      ORDER BY a.acknowledged_at DESC, a.id DESC LIMIT 1`,
     [docId, userId]
   );
@@ -5688,6 +5790,15 @@ export interface AckStatusRow {
   rev: number | null;
   content_sha256: string | null;
   version_source: AckVersionSource | null;
+  /**
+   * Reading evidence (C3): seconds the document was open on screen for this
+   * person since everyone was last asked, summed on the server when they
+   * confirmed. null while pending, when no view was recorded, and on rows
+   * from before 1.11.0.
+   */
+  read_seconds: number | null;
+  /** The reader's own report that the end of the text was on screen. null while pending. */
+  reached_end: boolean | null;
 }
 
 /**
@@ -5700,12 +5811,15 @@ export async function ackStatusForDocument(docId: number): Promise<AckStatusRow[
             a.acknowledged_at, a.version_id, a.content_sha256,
             ${VERSION_REV("a.version_id")} AS rev,
             CASE WHEN a.acknowledged_at IS NULL THEN NULL
-                 ELSE ${VERSION_SOURCE("a.content_sha256")} END AS version_source
+                 ELSE ${VERSION_SOURCE("a.content_sha256")} END AS version_source,
+            a.read_seconds,
+            CASE WHEN a.acknowledged_at IS NULL THEN NULL ELSE (a.reached_end = 1) END AS reached_end
      FROM users u
      JOIN documents d ON d.id = $1
      JOIN spaces s ON s.id = d.space_id
      LEFT JOIN LATERAL (
-       SELECT a.acknowledged_at, a.version_id, a.content_sha256 FROM acknowledgements a
+       SELECT a.acknowledged_at, a.version_id, a.content_sha256, a.read_seconds, a.reached_end
+       FROM acknowledgements a
        WHERE a.document_id = d.id AND a.user_id = u.id AND ${ACK_CURRENT}
        ORDER BY a.acknowledged_at DESC, a.id DESC LIMIT 1
      ) a ON true
@@ -5732,6 +5846,10 @@ export interface AckFormerStaffRow {
   rev: number | null;
   content_sha256: string | null;
   version_source: AckVersionSource;
+  /** Reading evidence (C3), as on AckStatusRow; null when no view was recorded or the row predates 1.11.0. */
+  read_seconds: number | null;
+  /** The reader's own report that the end of the text was on screen. */
+  reached_end: boolean;
 }
 
 /**
@@ -5753,7 +5871,8 @@ export async function ackFormerStaffRows(docId: number): Promise<AckFormerStaffR
             (x.acknowledged_at >= d.ack_revision_at) AS current,
             x.version_id, x.content_sha256,
             ${VERSION_REV("x.version_id")} AS rev,
-            ${VERSION_SOURCE("x.content_sha256")} AS version_source
+            ${VERSION_SOURCE("x.content_sha256")} AS version_source,
+            x.read_seconds, (x.reached_end = 1) AS reached_end
      FROM (
        SELECT a.*, COALESCE(a.user_id::text, 'gone:' || a.user_name || '|' || a.user_email) AS grp
        FROM acknowledgements a WHERE a.document_id = $1
@@ -5766,7 +5885,11 @@ export async function ackFormerStaffRows(docId: number): Promise<AckFormerStaffR
   );
 }
 
-/** Published ack-required docs in the user's scope they haven't confirmed yet. */
+/**
+ * Published ack-required docs in the user's scope they haven't confirmed
+ * yet (the dashboard row). A paused policy and a draft branch are never
+ * owed: the first is unpublished, the second is a working copy.
+ */
 export async function listPendingAcksFor(
   userId: number,
   scope: SpaceScope
@@ -5776,7 +5899,7 @@ export async function listPendingAcksFor(
     `SELECT d.id, d.title, s.name AS space_name, s.icon AS space_icon
      FROM documents d
      JOIN spaces s ON s.id = d.space_id
-     WHERE d.ack_required = 1 AND d.status = 'published' AND d.deleted_at IS NULL${scopeCond}
+     WHERE d.ack_required = 1 AND d.status = 'published' AND d.deleted_at IS NULL AND d.branch_of IS NULL${scopeCond}
        AND NOT EXISTS (
          SELECT 1 FROM acknowledgements a
          WHERE a.document_id = d.id AND a.user_id = $1 AND ${ACK_CURRENT}
@@ -9118,6 +9241,22 @@ export async function countOpenSuggestions(): Promise<number> {
 
 // --- Change requests ---------------------------------------------------------
 
+/** The submitter's recommendation as the request stores it (A6): 'keep' or 'reset' as given, 'auto' for anything else. */
+export type ChangeRequestAckPolicy = "keep" | "reset" | "auto";
+
+/** The longest reason a request or a decision keeps (the dialog's own limit, ReconfirmModal NOTE_MAX). */
+export const ACK_REASON_MAX = 500;
+
+/** Normalise a submitter's ack_policy: only the two real choices are kept; absent, 'auto' or anything else means "no recommendation". */
+export function changeRequestAckPolicy(raw: unknown): ChangeRequestAckPolicy {
+  return raw === "keep" || raw === "reset" ? raw : "auto";
+}
+
+/** Normalise a reason as every write path does: a string, trimmed, cut at ACK_REASON_MAX; anything else is ''. */
+export function changeRequestAckReason(raw: unknown): string {
+  return typeof raw === "string" ? raw.trim().slice(0, ACK_REASON_MAX) : "";
+}
+
 export async function createChangeRequest(input: {
   document_id: number;
   kind: "edit" | "publish";
@@ -9131,10 +9270,18 @@ export async function createChangeRequest(input: {
   created_by: number;
   /** Move the doc to this space on approval (null/undefined = stay put). */
   space_id?: number | null;
+  /**
+   * The submitter's recommendation for the readers of a confirmed document
+   * (A6, 1.11.0): 'keep' (editorial fix) or 'reset' (material change), with
+   * their reason. Anything else is stored as 'auto' (no recommendation);
+   * the reason is cut at ACK_REASON_MAX. The approver decides at approval.
+   */
+  ack_policy?: unknown;
+  ack_reason?: unknown;
 }): Promise<number> {
   const r = await q<{ id: number }>(
-    `INSERT INTO change_requests (document_id, kind, title, content, summary, tags, type, target_status, note, created_by, space_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
+    `INSERT INTO change_requests (document_id, kind, title, content, summary, tags, type, target_status, note, created_by, space_id, ack_policy, ack_reason)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
     [
       input.document_id,
       input.kind,
@@ -9147,13 +9294,19 @@ export async function createChangeRequest(input: {
       input.note,
       input.created_by,
       input.space_id ?? null,
+      changeRequestAckPolicy(input.ack_policy),
+      changeRequestAckReason(input.ack_reason),
     ]
   );
   return r[0].id;
 }
 
+// The review list carries only d.ack_required and d.ack_version_id of the
+// target (A6): enough for the queue's chips. The live text is read with
+// SELECT ... FOR UPDATE inside the approval transaction, never here.
 const CR_SELECT = `
   SELECT cr.*, u.name AS author_name, d.title AS document_title,
+         d.ack_required, d.ack_version_id,
          s.visibility AS space_visibility, ts.name AS target_space_name
   FROM change_requests cr
   JOIN users u ON u.id = cr.created_by
@@ -9204,26 +9357,49 @@ export interface ApproveChangeRequestResult {
   ack_outcome: AckOutcomeWithDecision;
 }
 
+/** What the reviewer sends with an approval (A6). */
+export interface ApproveChangeRequestOptions {
+  /** The sending request's origin, carried on the notice a reset queues (1.10.1). */
+  origin?: string;
+  /**
+   * The reviewer's own decision for a substantive change to a confirmed,
+   * published document; absent = the submitter's stored recommendation when
+   * it is 'keep' or 'reset', otherwise the document's edit default
+   * (resolveAutoAckPolicy). Checked before any write: a reset needs a
+   * reason of ACK_REASON_MIN characters; a keep follows
+   * ackKeepReasonRequired (true when absent), as updateDocument does. The
+   * reason, when given, is also the version note (the approve question's
+   * change note), in place of the request's note.
+   */
+  ackPolicy?: "keep" | "reset";
+  ackReason?: string;
+  ackKeepReasonRequired?: boolean;
+}
+
 /**
  * Approve a change request: apply its proposed state to the document. An
  * approval is a text write like any other, so it takes updateDocument's
  * decisions (A2): no version row when the proposed title and text equal the
  * live row; `substantive` is measured against the version everyone was last
- * asked to confirm; on a confirmed, published document that resets in this
- * release (the submitter's recommendation travels with the request from
- * A6, 1.11.0), with the reviewer as decider and the submitter beside them
- * (C1) and the request's change note as the reason; with the requirement
- * off the marker follows the text silently (rule 3); into a draft the marker
- * waits for the publish. Everything runs in one transaction on a locked
- * document row. Returns false when the request is no longer pending or its
- * document is gone.
+ * asked to confirm, on the live row locked inside this transaction; on a
+ * confirmed, published document the reviewer's ackPolicy applies when given,
+ * otherwise the submitter's recommendation stored on the request (A6,
+ * 1.11.0), otherwise the document's edit default (A5). The decision row
+ * records both sides (C1): submitted_policy and submitted_by are the
+ * request's, decided_by is the reviewer, the reason is the reviewer's when
+ * they gave one, else the submitter's, else the change note. With the
+ * requirement off the marker follows the text silently (rule 3); into a
+ * draft the marker waits for the publish. Everything runs in one transaction
+ * on a locked document row. Returns false when the request is no longer
+ * pending or its document is gone; throws AckReasonRequiredError, before any
+ * write, when the reviewer's policy comes without a usable reason.
  */
 export async function approveChangeRequest(
   id: number,
   reviewerId: number,
   reviewerName: string,
   note = "",
-  opts: { origin?: string } = {}
+  opts: ApproveChangeRequestOptions = {}
 ): Promise<ApproveChangeRequestResult | false> {
   await ready();
   const client = await pool().connect();
@@ -9270,8 +9446,33 @@ export async function approveChangeRequest(
     const substantive = driftsFromBaseline && (versionWorthy || publishing);
     const decides = substantive && live.ack_required === 1 && cr.target_status === "published";
     const silentAdvance = substantive && live.ack_required !== 1;
-    // Keep the submitter's change note; record who approved it.
-    const versionNote = cr.note ? `${cr.note} — approved by ${reviewerName}` : `Approved by ${reviewerName}`;
+
+    // Who decides (A6): the reviewer when they said, else the submitter's
+    // recommendation, else nobody ('auto', the edit default). The
+    // reviewer's reason is checked before any write, so a refused approval
+    // leaves the request pending and the document untouched; the
+    // submitter's stored choice is applied with the reason as they gave it
+    // (the route's pre-flight is where the API enforces its length).
+    const submitted = changeRequestAckPolicy(cr.ack_policy);
+    const reviewerReason = (opts.ackReason ?? "").trim().slice(0, ACK_REASON_MAX);
+    const chosen: AckPolicy = opts.ackPolicy ?? submitted;
+    // The version note: the reviewer's change note from the approve question
+    // when they gave one (the dialog's note is the version note in every
+    // mode, as a merge's and a restore's are), else the submitter's change
+    // note; either way it records who approved it.
+    const versionNote = reviewerReason
+      ? `${reviewerReason} — approved by ${reviewerName}`
+      : cr.note
+        ? `${cr.note} — approved by ${reviewerName}`
+        : `Approved by ${reviewerName}`;
+    if (decides && opts.ackPolicy) {
+      if (
+        reviewerReason.length < ACK_REASON_MIN &&
+        (opts.ackPolicy === "reset" || opts.ackKeepReasonRequired !== false)
+      ) {
+        throw new AckReasonRequiredError();
+      }
+    }
 
     await client.query(
       `UPDATE documents SET title=$1, slug=$2, type=$3, status=$4, content=$5, summary=$6, tags=$7,
@@ -9328,32 +9529,36 @@ export async function approveChangeRequest(
       substantive,
       reset: false,
       confirmations_reset: 0,
-      policy: "auto",
+      policy: chosen,
       source: "approval",
       decision_id: null,
     };
     if (decides && versionId !== null) {
-      // Nobody is there to ask, so the document's edit default decides
-      // (A5): under 'material' an editorial-looking request is kept and
-      // recorded from source 'default', like a kept save; anything else
-      // resets with source 'approval'. The same helper updateDocument uses.
+      // A person's choice (the reviewer's, else the submitter's) applies as
+      // given. With neither, nobody is there to ask, so the document's edit
+      // default decides (A5): under 'material' an editorial-looking request
+      // is kept and recorded from source 'default', like a kept save;
+      // anything else resets with source 'approval'. The same helper
+      // updateDocument uses.
       const summary = changeSummary(base.content, cr.content, { oldTitle: base.title, newTitle: cr.title });
       const suggestion = suggestReconfirm(summary);
-      const auto = resolveAutoAckPolicy(live, suggestion);
+      const { resolved, decidedBySetting } =
+        chosen === "auto" ? resolveAutoAckPolicy(live, suggestion) : { resolved: chosen, decidedBySetting: false };
       const decision = {
         versionId,
         actor,
-        source: auto.decidedBySetting ? ("default" as const) : ("approval" as const),
-        reason: cr.note.trim() || versionNote,
+        source: decidedBySetting ? ("default" as const) : ("approval" as const),
+        reason: reviewerReason || changeRequestAckReason(cr.ack_reason) || cr.note.trim() || versionNote,
         summary,
         suggested: suggestion.policy,
-        submittedPolicy: "" as const,
+        overrodeSuggestion: chosen !== "auto" && chosen !== suggestion.policy,
+        submittedPolicy: submitted === "auto" ? ("" as const) : submitted,
         submittedBy: { id: cr.created_by, name: cr.author_name },
         origin: opts.origin,
       };
-      if (auto.resolved === "keep") {
+      if (resolved === "keep") {
         const k = await keepAcknowledgements(client, cr.document_id, decision);
-        ack = { ...ack, source: "default", decision_id: k.decision_id };
+        ack = { ...ack, source: decidedBySetting ? "default" : "approval", decision_id: k.decision_id };
       } else {
         const r = await resetAcknowledgements(client, cr.document_id, decision);
         ack = { ...ack, reset: true, confirmations_reset: r.confirmations_reset, decision_id: r.decision_id };

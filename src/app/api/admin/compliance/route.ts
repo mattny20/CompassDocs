@@ -92,7 +92,10 @@ export async function GET(req: Request) {
     // cell goes through csvCell (quotes doubled, a formula-leading value
     // prefixed with a quote), so a name or a note that starts with = never
     // runs when the sheet opens; the header line is the literal below.
-    const docs = await complianceDocs();
+    // Published policies only: a paused (unpublished) policy is out of the
+    // numbers and off the row actions while it is down (G2), so it is out
+    // of the matrix too; its record stays on the document's own page.
+    const docs = (await complianceDocs()).filter((d) => d.status === "published");
     const esc = csvCell;
     const lines = [
       "document,space,revision_as_of,name,username,email,role,acknowledged_at,version,version_id,content_sha256,version_source,former_staff,asked_at,asked_by,reason,kept_since_asked,version_published_by,version_approved_by",
@@ -179,12 +182,18 @@ export async function GET(req: Request) {
     userHolds(user, "compliance.export", { legacyMin: "admin" }),
   ]);
 
-  const required = docs.reduce((n, d) => n + d.required, 0);
-  const acked = docs.reduce((n, d) => n + d.acked, 0);
+  // The tiles count published policies only (G2, 1.11.0): a paused policy
+  // (unpublished, requirement still on) is in `docs` with status 'draft' so
+  // the portal can show it, but nobody owes it while it is down, so it is
+  // out of every sum and the percentage does not drop on unpublish.
+  // complianceUserSummary applies the same rule per person.
+  const active = docs.filter((d) => d.status === "published");
+  const required = active.reduce((n, d) => n + d.required, 0);
+  const acked = active.reduce((n, d) => n + d.acked, 0);
   const usersWithRequirements = users.filter((u) => u.required > 0);
   return NextResponse.json({
     kpis: {
-      policies: docs.length,
+      policies: active.length,
       required,
       acked,
       outstanding: required - acked,

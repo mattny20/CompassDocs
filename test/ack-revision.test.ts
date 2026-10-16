@@ -22,11 +22,24 @@
 // test/compliance-settings.test.ts holds for the same row; every other
 // switch-on here passes editDefault explicitly and never reads the setting.
 //
+// The last describe (1.11.0, G2) locks the lifecycle guards in: every
+// metadata path (bulk tag, type, move and status, setParent, a schedule,
+// trash and restore) keeps the counts; an unpublished policy is paused (in
+// the portal with its status and counts, out of the per-person numbers and
+// the dashboard) and resumes on republish; unpublish, edit, republish asks
+// again and the shared pre-flight answers 428 for that publish; draft
+// branches are never policies; the image and drop-link side doors keep
+// confirmations and leave a visible 'kept' row the drift chip counts; and
+// the scheduler's audit rows say what happened to confirmations.
+//
 // Run: npm run test:integration  (needs DATABASE_URL)
 
 import { test, before, after, describe } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { PoolClient } from "pg";
 import { asScope } from "../src/lib/space-scope";
 import {
@@ -34,7 +47,10 @@ import {
   getSetting,
   setSetting,
   createDocument,
+  getDocument,
   updateDocument,
+  deleteDocument,
+  restoreDocument,
   setAckRequired,
   setAckEditDefault,
   ackSummary,
@@ -55,6 +71,10 @@ import {
   AckReasonRequiredError,
 } from "../src/lib/db";
 import { runDueDocSchedules, setDocSchedule } from "../src/lib/doc-schedule";
+import { setParent } from "../src/lib/doc-tree";
+import { createUploadTicket, withImagePlaced } from "../src/lib/image-intake";
+import { ackDecisionRequired } from "../src/lib/ack-decision";
+import { POST as dropFile } from "../src/app/api/upload-tickets/[token]/route";
 import { fixtureQuery } from "./support/retry";
 
 const STAMP = `ackrev-${Date.now()}`;
@@ -98,6 +118,15 @@ async function ackCount(docId: number, userId: number): Promise<number> {
   );
   return r.rows[0].n;
 }
+
+/** The details of the newest audit row with this action against this document. */
+const auditDetails = async (action: string, id: number) =>
+  (
+    await pool().query("SELECT details FROM audit_log WHERE action = $1 AND target_id = $2 ORDER BY id DESC LIMIT 1", [
+      action,
+      String(id),
+    ])
+  ).rows[0]?.details;
 
 // Shared by both describes below (node:test runs a describe's `after` before
 // the next describe starts, so the fixtures live at the top level).
@@ -1047,6 +1076,8 @@ describe("the per-document edit default (A5): ask, material, reset", () => {
     );
     assert.equal(echo.rows.length, 1, "the kept decision is echoed to the audit log");
     assert.equal(echo.rows[0].details.source, "default");
+    // The scheduler's own row says what it decided (G2), for the kept case too.
+    assert.deepEqual(await auditDetails("document.scheduled_publish", id), { ack_policy: "keep", confirmations_reset: 0 });
   });
 });
 
@@ -1124,5 +1155,350 @@ describe("a confirmation cannot land inside a reset", () => {
       client.release();
     }
     assert.equal(await getCurrentAck(id, readerId), undefined);
+  });
+});
+
+describe("lifecycle guards (G2, 1.11.0): metadata paths, pauses, branches, side doors, the scheduler's audit", () => {
+  const editor = { id: 0, name: "Rev Other" };
+  const stamps =
+    "SELECT status, ack_revision_at::text AS marker, ack_version_id FROM documents WHERE id = $1";
+  // Twelve clauses, so one appended image line is a measurable but small
+  // drift (the chip reads "Edited 2 times since v1 · n% drift").
+  const BODY = Array.from(
+    { length: 12 },
+    (_, i) => `Clause ${i + 1}: staff must file every expense claim within 30 days of travel and attach a receipt.`
+  ).join("\n\n");
+  /** Eight bytes that pass sniffImage as a PNG; the drop link validates the type by its magic, not its size. */
+  const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
+  let otherSpaceId = 0;
+
+  before(async () => {
+    editor.id = otherId;
+    const sp = await fixtureQuery(
+      `INSERT INTO spaces (name, slug, icon, description, visibility) VALUES ($1, $2, '📁', '', 'internal') RETURNING id`,
+      [`Ack Revision Away ${STAMP}`, `${STAMP}-away`]
+    );
+    otherSpaceId = sp.rows[0].id;
+    // The drop link stores the file before it edits the document.
+    process.env.COMPASSDOCS_UPLOAD_DIR = await mkdtemp(join(tmpdir(), "compass-ticket-"));
+  });
+  after(async () => {
+    await pool().query("DELETE FROM spaces WHERE id = $1", [otherSpaceId]);
+  });
+
+  async function confirmedPolicy(title: string, content = "Policy body") {
+    const id = await newPolicy(title, content);
+    const v1 = await latestVersionId(id);
+    await recordAcknowledgement(id, readerId, "", v1);
+    return { id, v1 };
+  }
+
+  const row = async (id: number) => (await complianceDocs()).find((d) => d.id === id);
+  const pendingFor = (userId: number) => listPendingAcksFor(userId, asScope([spaceId, otherSpaceId]));
+  const standing = async (userId: number) => (await complianceUserSummary()).find((u) => u.id === userId)!;
+
+  test("bulk tag, type, move and status, setParent, a schedule, and trash and restore keep every confirmation", async () => {
+    const { id, v1 } = await confirmedPolicy(`${STAMP} g2 metadata`);
+    const before = (await pool().query(stamps, [id])).rows[0];
+    // Exactly what src/app/api/documents/bulk/route.ts passes per action:
+    // one field, the bulk note and source, never a content snapshot.
+    const bulk = { author: "Rev Other", versionNote: "Bulk edit", ackSource: "bulk" as const, ackActor: editor };
+    const saves = [
+      await updateDocument(id, { ...bulk, tags: ["hr"] }),
+      await updateDocument(id, { ...bulk, type: "sop" }),
+      await updateDocument(id, { ...bulk, space_id: otherSpaceId }),
+      await updateDocument(id, { ...bulk, status: "draft" }),
+      await updateDocument(id, { ...bulk, status: "published" }),
+      await updateDocument(id, { ...bulk, space_id: spaceId }),
+    ];
+    for (const saved of saves) {
+      assert.ok(saved);
+      assert.equal(saved.ack_outcome!.changed, true);
+      assert.equal(saved.ack_outcome!.substantive, false, "metadata only");
+      assert.equal(saved.ack_outcome!.reset, false);
+    }
+    // Nested pages, a schedule, the Trash and back.
+    const parent = await createDocument({
+      space_id: spaceId,
+      title: `${STAMP} g2 parent page`,
+      type: "policy",
+      status: "published",
+      content: "Parent",
+      summary: "",
+      tags: [],
+      author: "test",
+    });
+    docIds.push(parent.id);
+    assert.equal(await setParent(id, parent.id), undefined);
+    await setDocSchedule(id, { archiveAt: new Date(Date.now() + 86_400_000).toISOString() });
+    await setDocSchedule(id, { archiveAt: null, publishAt: null });
+    const readerBefore = await standing(readerId);
+    assert.ok(await deleteDocument(id));
+    assert.equal(await row(id), undefined, "a trashed policy is out of the portal");
+    assert.ok(!(await pendingFor(otherId)).some((d) => d.id === id), "and nobody owes it");
+    assert.equal((await standing(readerId)).required, readerBefore.required - 1);
+    assert.ok(await restoreDocument(id));
+    assert.equal(await setParent(id, null), undefined);
+
+    const after = (await pool().query(stamps, [id])).rows[0];
+    assert.equal(after.status, "published");
+    assert.equal(after.marker, before.marker, "the marker never moved");
+    assert.equal(after.ack_version_id, v1);
+    const portal = await row(id);
+    assert.ok(portal);
+    assert.equal(portal.status, "published");
+    assert.equal(portal.acked, 1);
+    assert.ok(await getCurrentAck(id, readerId), "still current");
+    assert.deepEqual(await standing(readerId), readerBefore, "the person's numbers are back");
+    assert.equal((await listVersions(id)).length, 1, "no version for any of it");
+    assert.equal((await listAckDecisions(id)).length, 0, "no decision for any of it");
+    assert.ok((await pendingFor(otherId)).some((d) => d.id === id), "the other reader still owes it");
+  });
+
+  test("unpublishing pauses a policy: still in the portal with its status and counts, out of the per-person numbers and the dashboard; republishing unchanged text resumes it", async () => {
+    const { id, v1 } = await confirmedPolicy(`${STAMP} g2 pause`);
+    const before = (await pool().query(stamps, [id])).rows[0];
+    const readerBefore = await standing(readerId);
+    const otherBefore = await standing(otherId);
+    assert.ok((await pendingFor(otherId)).some((d) => d.id === id), "owed while published");
+
+    const down = await updateDocument(id, { status: "draft", ackActor: editor, ackSource: "edit" });
+    assert.equal(down!.ack_outcome!.substantive, false, "a status flip without text drift decides nothing");
+    const paused = await row(id);
+    assert.ok(paused, "the portal still lists it");
+    assert.equal(paused.status, "draft");
+    assert.equal(paused.acked, 1, "the confirmation is kept");
+    assert.ok(paused.required >= 2, "the audience is still counted on the row");
+    assert.ok(await getCurrentAck(id, readerId));
+    assert.equal((await standing(readerId)).required, readerBefore.required - 1, "nobody owes a paused policy");
+    assert.equal((await standing(readerId)).acked, readerBefore.acked - 1);
+    assert.equal((await standing(otherId)).required, otherBefore.required - 1);
+    assert.ok(!(await pendingFor(otherId)).some((d) => d.id === id), "and it leaves the dashboard row");
+    // Published policies come first, paused ones after, so the portal's
+    // split is also the query's order.
+    const docs = await complianceDocs();
+    const lastLive = docs.map((d) => d.status).lastIndexOf("published");
+    const firstPaused = docs.findIndex((d) => d.status !== "published");
+    assert.ok(firstPaused >= 0 && (lastLive < 0 || lastLive < firstPaused), "paused rows sort after the live ones");
+
+    const up = await updateDocument(id, { status: "published", ackActor: editor, ackSource: "edit" });
+    assert.equal(up!.ack_outcome!.substantive, false);
+    const resumed = await row(id);
+    assert.equal(resumed!.status, "published");
+    assert.equal(resumed!.acked, 1);
+    const after = (await pool().query(stamps, [id])).rows[0];
+    assert.equal(after.marker, before.marker);
+    assert.equal(after.ack_version_id, v1);
+    assert.equal((await listAckDecisions(id)).length, 0);
+    assert.deepEqual(await standing(readerId), readerBefore, "the person's numbers resume where they were");
+    assert.ok((await pendingFor(otherId)).some((d) => d.id === id));
+  });
+
+  test("unpublish, edit, republish asks everyone again; the publish of a drifted draft is the decision every caller must take", async () => {
+    const { id, v1 } = await confirmedPolicy(`${STAMP} g2 drift`, "Expense cap is 50.");
+    await updateDocument(id, { status: "draft", ackActor: editor, ackSource: "edit" });
+    const draft = await updateDocument(id, { content: "Expense cap is 500.", ackActor: editor, ackSource: "edit" });
+    assert.equal(draft!.ack_outcome!.reset, false, "a draft edit decides nothing");
+    assert.equal((await row(id))!.acked, 1, "paused: the confirmation stands while it is a draft");
+    assert.equal((await pool().query(stamps, [id])).rows[0].ack_version_id, v1);
+
+    // The shared pre-flight (v1, MCP, merge, restore, the review queue):
+    // publishing this draft with no decision is answered 428 with the
+    // editor's numbers; saving it as a draft, or deciding, is not.
+    const live = (await getDocument(id))!;
+    const asked = await ackDecisionRequired(live, { title: live.title, content: live.content, status: "published" }, {});
+    assert.equal(asked.refusal?.status, 428);
+    assert.equal(asked.refusal?.body.decision_required, true);
+    assert.equal(asked.refusal?.body.confirmations, 1);
+    assert.equal(asked.refusal?.body.baseline, "v1");
+    assert.equal(asked.refusal?.body.change?.numbersChanged, 1);
+    assert.equal(asked.refusal?.body.suggested, "reset");
+    const stillDraft = await ackDecisionRequired(live, { title: live.title, content: live.content, status: "draft" }, {});
+    assert.equal(stillDraft.refusal, null, "a draft save is never refused");
+    const decided = await ackDecisionRequired(
+      live,
+      { title: live.title, content: live.content, status: "published" },
+      { ack_policy: "reset", ack_reason: "The cap changed from 50 to 500" }
+    );
+    assert.equal(decided.refusal, null);
+    assert.deepEqual(decided.decision, { ackPolicy: "reset", ackReason: "The cap changed from 50 to 500" });
+    // The bulk route's rule: the draft's text differs from the confirmed
+    // version, so bulk skips it with "requires a re-confirmation decision;
+    // publish it individually" instead of publishing (the handler itself
+    // runs end to end in e2e/acknowledgements.spec.ts; it needs a session).
+    const summary = await ackSummary(id, { baseline: true });
+    assert.ok(summary.baseline);
+    assert.notEqual(summary.baseline.content, live.content, "drifted from v1: bulk must skip it");
+
+    // A caller that cannot ask and says nothing resets at the publish, with
+    // its own source; the marker lands on the published text.
+    const up = await updateDocument(id, { status: "published", ackActor: editor, ackSource: "edit" });
+    assert.equal(up!.ack_outcome!.substantive, true);
+    assert.equal(up!.ack_outcome!.reset, true);
+    assert.equal(up!.ack_outcome!.confirmations_reset, 1);
+    assert.equal((await row(id))!.acked, 0);
+    assert.equal(await getCurrentAck(id, readerId), undefined);
+    assert.equal((await pool().query(stamps, [id])).rows[0].ack_version_id, await latestVersionId(id));
+    const [decision] = await listAckDecisions(id);
+    assert.equal(decision.outcome, "reset");
+    assert.equal(decision.source, "edit");
+  });
+
+  test("draft branches are never policies: branching copies no requirement, and a branch stays out of every compliance query even when forced", async () => {
+    const { id } = await confirmedPolicy(`${STAMP} g2 branch`);
+    const source = (await getDocument(id))!;
+    // Exactly what src/app/api/documents/[id]/branch/route.ts passes.
+    const branch = await createDocument({
+      space_id: source.space_id,
+      title: source.title,
+      type: source.type,
+      status: "draft",
+      content: source.content,
+      summary: source.summary,
+      tags: source.tags,
+      author: "Rev Other",
+      category_id: source.category_id,
+      branch_of: source.id,
+    });
+    docIds.push(branch.id);
+    assert.equal(branch.branch_of, id);
+    assert.equal(branch.ack_required, 0, "branching never copies ack_required (only setAckRequired writes it)");
+    assert.equal(branch.status, "draft");
+
+    // Force what the product never writes, to prove the three filters
+    // rather than the writers.
+    const readerBefore = await standing(readerId);
+    await pool().query("UPDATE documents SET ack_required = 1, status = 'published' WHERE id = $1", [branch.id]);
+    assert.equal((await complianceDocs()).find((d) => d.id === branch.id), undefined, "not in the portal");
+    assert.deepEqual(await standing(readerId), readerBefore, "not in anyone's numbers");
+    assert.ok(!(await pendingFor(otherId)).some((d) => d.id === branch.id), "not on the dashboard");
+    assert.equal((await row(id))!.acked, 1, "the source policy is untouched");
+  });
+
+  test("the image and drop-link side doors keep confirmations, leave a 'kept' row with their source, and the portal's drift chip counts them", async () => {
+    const { id, v1 } = await confirmedPolicy(`${STAMP} g2 side doors`, BODY);
+
+    // MCP add_image, exactly as src/app/api/mcp/route.ts calls updateDocument:
+    // the contract as this file can state it without Next's request scope.
+    // The connector itself is driven through tools/call add_image in
+    // test/ack-tokens.test.ts ("the side doors place exactly one image
+    // line"), which asserts the kept row from source 'image', the unchanged
+    // standing and the one-image-line rule for a hostile alt.
+    const fresh = (await getDocument(id))!;
+    const image = await updateDocument(id, {
+      content: withImagePlaced(fresh.content, "![Diagram](/api/attachments/1)", "append"),
+      versionNote: "Added image",
+      ackPolicy: "keep",
+      ackReason: "Added image",
+      ackKeepReasonRequired: false,
+      ackSource: "image",
+      ackActor: editor,
+      ackOrigin: "http://localhost",
+    });
+    assert.ok(image);
+    assert.equal(image.ack_outcome!.substantive, true, "a placed image is a text change");
+    assert.equal(image.ack_outcome!.reset, false, "kept");
+    assert.equal(image.ack_outcome!.policy, "keep");
+    assert.equal(image.ack_outcome!.source, "image");
+
+    // The drop link, through the real route: the ticket is the authority,
+    // the person who minted it is the actor.
+    const ticket = await createUploadTicket({ documentId: id, userId: otherId, insert: "append", alt: "Screenshot" });
+    const form = new FormData();
+    form.append("file", new File([PNG], "shot.png", { type: "image/png" }));
+    const res = await dropFile(new Request(`http://localhost/api/upload-tickets/${ticket.token}`, { method: "POST", body: form }), {
+      params: Promise.resolve({ token: ticket.token }),
+    });
+    assert.equal(res.status, 200, JSON.stringify(await res.clone().json()));
+    const dropped = await res.json();
+    assert.equal(dropped.inserted, true);
+    const doc = (await getDocument(id))!;
+    assert.ok(doc.content.includes("![Screenshot](/api/attachments/"), "the picture is in the text");
+    assert.ok(doc.content.includes("![Diagram](/api/attachments/1)"));
+
+    // Nothing was reset, and both doors are on the record.
+    assert.equal((await row(id))!.acked, 1);
+    assert.ok(await getCurrentAck(id, readerId));
+    assert.equal((await pool().query(stamps, [id])).rows[0].ack_version_id, v1, "the marker stays on the confirmed text");
+    const versions = await listVersions(id);
+    assert.equal(versions.length, 3);
+    assert.equal(versions[0].note, "Added file");
+    assert.equal(versions[1].note, "Added image");
+    const decisions = await listAckDecisions(id);
+    assert.equal(decisions.length, 2);
+    const [byTicket, byImage] = decisions;
+    assert.equal(byTicket.outcome, "kept");
+    assert.equal(byTicket.source, "ticket");
+    assert.equal(byTicket.reason, "Added file");
+    assert.equal(byTicket.version_id, versions[0].id);
+    assert.equal(byTicket.decided_by, otherId, "the person who minted the link");
+    assert.equal(byTicket.submitted_policy, "keep");
+    assert.equal(byTicket.confirmations_affected, 1);
+    assert.equal(byImage.outcome, "kept");
+    assert.equal(byImage.source, "image");
+    assert.equal(byImage.reason, "Added image");
+    assert.equal(byImage.version_id, versions[1].id);
+    assert.equal(byImage.decided_by, otherId);
+    assert.equal(byImage.submitted_policy, "keep");
+    // The portal's drift chip: "Edited 2 times since v1 · n% drift".
+    const portal = (await row(id))!;
+    assert.equal(portal.kept_since_reset, 2);
+    assert.ok(portal.drift_pct > 0, `drift is measured (${portal.drift_pct})`);
+    assert.equal(portal.last_decision?.source, "ticket");
+    assert.equal(portal.last_reset, null, "nobody asked again");
+    // And the audit log: the kept decision is echoed, the upload says it was placed.
+    const kept = await auditDetails("ack.confirmations_kept", id);
+    assert.equal(kept?.source, "ticket");
+    assert.equal(kept?.version_id, versions[0].id);
+    const upload = await auditDetails("attachment.upload", id);
+    assert.equal(upload?.via, "upload-link");
+    assert.equal(upload?.inserted, true);
+  });
+
+  test("the scheduler's audit rows: a scheduled unpublish says the programme is paused, a scheduled publish says what it decided", async () => {
+    const { id, v1 } = await confirmedPolicy(`${STAMP} g2 schedule audit`, "Expense cap is 50.");
+    const past = () => new Date(Date.now() - 60_000).toISOString();
+
+    await setDocSchedule(id, { archiveAt: past() });
+    await runDueDocSchedules();
+    assert.equal((await pool().query(stamps, [id])).rows[0].status, "draft");
+    assert.deepEqual(await auditDetails("document.scheduled_unpublish", id), { ack_paused: true });
+    assert.equal((await row(id))!.status, "draft", "paused in the portal");
+    assert.equal((await row(id))!.acked, 1);
+
+    // Back on schedule with the confirmed text: nothing to decide.
+    await setDocSchedule(id, { publishAt: past() });
+    await runDueDocSchedules();
+    assert.equal((await pool().query(stamps, [id])).rows[0].status, "published");
+    assert.deepEqual(await auditDetails("document.scheduled_publish", id), { ack_policy: null, confirmations_reset: 0 });
+    assert.equal((await row(id))!.acked, 1);
+    assert.equal((await pool().query(stamps, [id])).rows[0].ack_version_id, v1);
+
+    // Down, drifted, published on schedule: the scheduler resets and says so.
+    await updateDocument(id, { status: "draft", ackActor: editor, ackSource: "edit" });
+    await updateDocument(id, { content: "Expense cap is 500.", ackActor: editor, ackSource: "edit" });
+    await setDocSchedule(id, { publishAt: past() });
+    await runDueDocSchedules();
+    assert.equal((await pool().query(stamps, [id])).rows[0].status, "published");
+    assert.deepEqual(await auditDetails("document.scheduled_publish", id), { ack_policy: "reset", confirmations_reset: 1 });
+    assert.equal((await row(id))!.acked, 0);
+    assert.equal((await listAckDecisions(id))[0].source, "schedule");
+
+    // A document that asks nobody is unpublished on schedule without the flag.
+    const plain = await createDocument({
+      space_id: spaceId,
+      title: `${STAMP} g2 plain schedule`,
+      type: "policy",
+      status: "published",
+      content: "Plain",
+      summary: "",
+      tags: [],
+      author: "test",
+    });
+    docIds.push(plain.id);
+    await setDocSchedule(plain.id, { archiveAt: past() });
+    await runDueDocSchedules();
+    assert.equal((await pool().query(stamps, [plain.id])).rows[0].status, "draft");
+    assert.equal(await auditDetails("document.scheduled_unpublish", plain.id), null, "no pause to report");
   });
 });

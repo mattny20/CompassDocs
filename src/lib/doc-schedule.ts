@@ -74,14 +74,20 @@ export async function runDueDocSchedules(): Promise<void> {
   );
   const origin = due.length > 0 ? await scheduleOrigin() : "";
   for (const doc of due) {
+    // The decision comes first so the publish's own audit row can say what
+    // it did to confirmations (G2, 1.11.0): ack_policy is the policy
+    // applied ('keep' or 'reset'), null when there was nothing to decide
+    // (the requirement is off, or the text is what people confirmed), and
+    // confirmations_reset the number that stopped counting.
+    const decided = await decideConfirmationsOnScheduledPublish(doc, origin);
     await audit({
       actor: { name: "system" },
       action: "document.scheduled_publish",
       targetType: "document",
       targetId: doc.id,
       targetLabel: doc.title,
+      details: { ack_policy: decided.ack_policy, confirmations_reset: decided.confirmations_reset },
     });
-    await decideConfirmationsOnScheduledPublish(doc, origin);
     try {
       const { notifySpaceSubscribers } = await import("./subscriptions");
       void notifySpaceSubscribers({
@@ -104,17 +110,19 @@ export async function runDueDocSchedules(): Promise<void> {
   // Auto-unpublish: published docs only; a stale schedule elsewhere clears.
   // The confirmation marker is untouched: a status flip without a text change
   // never asks anyone (A2), and the decision is taken when the draft is
-  // published again, by a person or by the claim above.
+  // published again, by a person or by the claim above. A policy's
+  // requirement stays on while it is down (G2, 1.11.0): the portal lists
+  // it as paused, and the audit row says so with ack_paused.
   await q(
     `UPDATE documents SET archive_at = NULL
      WHERE archive_at IS NOT NULL AND archive_at <= now()
        AND (status <> 'published' OR deleted_at IS NOT NULL OR branch_of IS NOT NULL)`
   );
-  const archived = await q<{ id: number; title: string }>(
+  const archived = await q<{ id: number; title: string; ack_required: number }>(
     `UPDATE documents SET status = 'draft', archive_at = NULL, updated_at = now()
      WHERE archive_at IS NOT NULL AND archive_at <= now()
        AND status = 'published' AND deleted_at IS NULL AND branch_of IS NULL
-     RETURNING id, title`
+     RETURNING id, title, ack_required`
   );
   for (const doc of archived) {
     await audit({
@@ -123,9 +131,19 @@ export async function runDueDocSchedules(): Promise<void> {
       targetType: "document",
       targetId: doc.id,
       targetLabel: doc.title,
+      details: doc.ack_required === 1 ? { ack_paused: true } : undefined,
     });
   }
 }
+
+/** What a scheduled publish did to confirmations, for its audit row. */
+interface ScheduledPublishAck {
+  /** The policy applied; null when nothing was decided. */
+  ack_policy: "keep" | "reset" | null;
+  confirmations_reset: number;
+}
+
+const NOTHING_DECIDED: ScheduledPublishAck = { ack_policy: null, confirmations_reset: 0 };
 
 /** The ledger's actor for a decision nobody took: no id, no name (the History page says "Automatic"). */
 const SCHEDULER = { id: null, name: "" } as const;
@@ -145,21 +163,22 @@ const SCHEDULER = { id: null, name: "" } as const;
  *
  * The claim is already committed when this runs, so the decision is its own
  * short transaction right after it; a failure is logged and the publish
- * stands (the next edit or a manual ask repairs the marker).
+ * stands (the next edit or a manual ask repairs the marker). Returns what
+ * was decided, for the publish's audit row.
  */
-async function decideConfirmationsOnScheduledPublish(doc: DuePublish, origin: string): Promise<void> {
-  if (doc.ack_version_id == null) return;
+async function decideConfirmationsOnScheduledPublish(doc: DuePublish, origin: string): Promise<ScheduledPublishAck> {
+  if (doc.ack_version_id == null) return NOTHING_DECIDED;
   const baseline = (
     await q<{ title: string; content: string }>(
       "SELECT title, content FROM doc_versions WHERE id = $1 AND document_id = $2",
       [doc.ack_version_id, doc.id]
     )
   )[0];
-  if (!baseline || (baseline.title === doc.title && baseline.content === doc.content)) return;
+  if (!baseline || (baseline.title === doc.title && baseline.content === doc.content)) return NOTHING_DECIDED;
   const latest =
     (await q<{ id: number | null }>("SELECT MAX(id) AS id FROM doc_versions WHERE document_id = $1", [doc.id]))[0]
       ?.id ?? null;
-  if (latest == null) return;
+  if (latest == null) return NOTHING_DECIDED;
 
   const client = await pool().connect();
   try {
@@ -173,7 +192,7 @@ async function decideConfirmationsOnScheduledPublish(doc: DuePublish, origin: st
         silent: true,
       });
       await client.query("COMMIT");
-      return;
+      return NOTHING_DECIDED;
     }
     const summary = changeSummary(baseline.content, doc.content, {
       oldTitle: baseline.title,
@@ -222,9 +241,11 @@ async function decideConfirmationsOnScheduledPublish(doc: DuePublish, origin: st
       },
       { actor: { name: "system" } }
     );
+    return { ack_policy: outcome.reset ? "reset" : "keep", confirmations_reset: outcome.confirmations_reset };
   } catch (e) {
     await client.query("ROLLBACK").catch(() => {});
     console.error("[doc-schedule] re-confirmation decision failed:", e);
+    return NOTHING_DECIDED;
   } finally {
     client.release();
   }

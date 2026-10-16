@@ -12,6 +12,7 @@ import {
 } from "./db";
 import type { DocType, DocStatus } from "./types";
 import { EVERY_SPACE_UNFILTERED } from "./space-scope";
+import { auditAckDecision, type AuditActor } from "./audit";
 
 // Content-level import/export: the knowledge base as a zip of Markdown files
 // with YAML front-matter, plus a manifest.json describing the spaces. This is a
@@ -83,7 +84,50 @@ export interface ImportResult {
   spacesCreated: number;
   skipped: number;
   errors: string[];
+  /**
+   * Published documents that require read confirmation and were left
+   * unchanged because overwriting them was not allowed (H2, 1.11.0). Each is
+   * also counted in `skipped` and named in `errors` with the reason.
+   */
+  policies_skipped: number;
+  /** Policies the import overwrote with a changed text, whose readers will be asked to re-confirm (H2, 1.11.0). */
+  reconfirm_requested: number;
 }
+
+/** Who ran the import: the ledger's actor on every decision it takes (H2). */
+export interface Importer {
+  id: number | null;
+  name: string;
+}
+
+export interface ImportOptions {
+  /**
+   * Overwrite documents that require read confirmation (the admin checkbox
+   * "Also overwrite documents that require read confirmation"; off by
+   * default): a published policy, and a paused one (unpublished with the
+   * requirement on, G2) that the zip would publish again. An import cannot
+   * ask whether a change is editorial, so every such document is skipped
+   * unless the importer said so; when allowed, the document's edit default
+   * decides (ackPolicy 'auto', source 'import') and readers are told as
+   * after any other text change. A zip that keeps a paused policy a draft
+   * still updates the draft: the decision waits for the publish, as it does
+   * for every draft edit.
+   */
+  overwritePolicies?: boolean;
+  /** The request's origin, carried on the notice a reset queues (absolute links without custom_domain). */
+  origin?: string;
+  /**
+   * Who ran the import and from where, for the audit echo of every decision
+   * an overwrite takes (ack.confirmations_kept / ack.confirmations_reset,
+   * C1), as every other write path records it. Absent from a caller with
+   * no request (the ledger row still names the importer).
+   */
+  audit?: { actor: AuditActor; ip: string | null };
+}
+
+/** The reason an untouched policy is listed under, so the admin knows which box to tick. */
+export const IMPORT_POLICY_SKIPPED =
+  'requires read confirmation and was left unchanged. Tick "Also overwrite documents that require read confirmation" to replace it.';
 
 /**
  * Import documents from an export zip (or any zip of front-matter Markdown).
@@ -91,9 +135,21 @@ export interface ImportResult {
  * place, or created. Missing spaces are created (using manifest metadata when
  * present). Returns a summary.
  */
-export async function importFromZip(buffer: Buffer, importerName: string): Promise<ImportResult> {
+export async function importFromZip(
+  buffer: Buffer,
+  importer: Importer,
+  opts: ImportOptions = {}
+): Promise<ImportResult> {
   const zip = await JSZip.loadAsync(buffer);
-  const res: ImportResult = { created: 0, updated: 0, spacesCreated: 0, skipped: 0, errors: [] };
+  const res: ImportResult = {
+    created: 0,
+    updated: 0,
+    spacesCreated: 0,
+    skipped: 0,
+    errors: [],
+    policies_skipped: 0,
+    reconfirm_requested: 0,
+  };
 
   // Optional manifest → nice space names/icons/colours.
   const manifestSpaces: Record<string, any> = {};
@@ -156,14 +212,31 @@ export async function importFromZip(buffer: Buffer, importerName: string): Promi
       const tags = normalizeTags(data.tags);
       const content = parsed.content ?? "";
       const summary = String(data.summary || "").trim();
-      const author = String(data.author || "").trim() || importerName;
+      const author = String(data.author || "").trim() || importer.name;
 
       // Match how createDocument slugs, so re-importing updates in place.
       const docSlug = slugify(title) || "untitled";
       const existing = await getDocumentBySpaceAndSlug(spaceId, docSlug);
 
       if (existing) {
-        await updateDocument(existing.id, {
+        // A policy is never overwritten by accident: nobody is there to say
+        // whether the zip's text is an editorial fix, and a reset tells
+        // everyone who confirmed it (H2, 1.11.0). The guard covers the
+        // policy that is live now and the paused one the zip would publish
+        // again (the publish of a drifted draft is decided everywhere, G2);
+        // a zip that keeps a paused policy a draft edits the draft as any
+        // draft edit does, and the decision waits for the publish.
+        if (
+          existing.ack_required === 1 &&
+          (existing.status === "published" || status === "published") &&
+          !opts.overwritePolicies
+        ) {
+          res.skipped++;
+          res.policies_skipped++;
+          res.errors.push(`${f.name}: "${existing.title}" ${IMPORT_POLICY_SKIPPED}`);
+          continue;
+        }
+        const updated = await updateDocument(existing.id, {
           title,
           type,
           status,
@@ -172,8 +245,18 @@ export async function importFromZip(buffer: Buffer, importerName: string): Promi
           tags,
           author,
           versionNote: "Imported",
+          // 'auto': the document's edit default decides, as for every writer
+          // that cannot ask; the ledger row names the importer and the source.
+          ackPolicy: "auto",
           ackSource: "import",
+          ackActor: importer,
+          ackOrigin: opts.origin ?? "",
         });
+        if (updated?.ack_outcome?.reset) res.reconfirm_requested++;
+        // The decision an overwrite took on a confirmed, published policy is
+        // echoed to the audit log like a PUT's (C1), with the importer and
+        // their address when the caller had a request.
+        await auditAckDecision(existing, updated, opts.audit ?? {});
         res.updated++;
       } else {
         await createDocument({

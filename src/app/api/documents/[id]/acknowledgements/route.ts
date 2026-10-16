@@ -15,6 +15,7 @@ import { auditAck, actorFrom, ipFrom } from "@/lib/audit";
 import type { SessionUser } from "@/lib/types";
 import { versionProvenance, provenanceCells } from "@/lib/version-provenance";
 import { csvCell } from "@/lib/csv";
+import { ROSTER_CSV_HEADER, evidenceCsvCells } from "@/lib/read-evidence";
 
 export const dynamic = "force-dynamic";
 
@@ -36,9 +37,15 @@ export const dynamic = "force-dynamic";
 // user_agent is reserved: the record does not store it yet (the audit row
 // for the confirmation does), so the column is blank for everyone. After
 // them, version_published_by and version_approved_by (C6): who published and
-// approved the version each row cites. Every cell goes through csvCell
-// (quotes doubled, a formula-leading value prefixed with a quote), so a
-// name or a note that starts with = never runs when the sheet opens.
+// approved the version each row cites. After those (1.11.0, C3) the reading
+// evidence: read_seconds (how long the document was open on screen for the
+// person since everyone was last asked, summed on the server when they
+// confirmed; blank when unknown) and reached_end_self_reported (yes / no on
+// a confirmed row, from the card's own report; blank while pending). The
+// header lives in src/lib/read-evidence.ts beside the cell rule. Every cell
+// goes through csvCell (quotes doubled, a formula-leading value prefixed with
+// a quote), so a name or a note that starts with = never runs when the sheet
+// opens.
 //
 // Guards: apiGuard admits a holder of the space-scoped key anywhere, so the
 // key is checked again on the document's own space (403); a draft the
@@ -114,7 +121,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       esc(kept.count),
     ];
     const csv = [
-      "name,username,email,role,status,acknowledged_at,document,revision_as_of,version,version_id,content_sha256,version_source,former_staff,asked_at,asked_by,reason,kept_since_asked,ip,user_agent,version_published_by,version_approved_by",
+      ROSTER_CSV_HEADER,
       ...rows.map((r) =>
         [
           esc(r.name),
@@ -134,6 +141,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
           esc(ipOfRow(r)),
           esc(""),
           ...provenanceCells(provenance, r.version_id).map(esc),
+          ...evidenceCsvCells(r).map(esc),
         ].join(",")
       ),
       ...former.map((r) =>
@@ -155,6 +163,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
           esc(ipOfFormer(r)),
           esc(""),
           ...provenanceCells(provenance, r.version_id).map(esc),
+          ...evidenceCsvCells(r).map(esc),
         ].join(",")
       ),
     ].join("\n");

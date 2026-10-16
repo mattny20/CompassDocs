@@ -127,6 +127,16 @@ export interface ChangeRequest {
   /** When set, approving also moves the doc to this space. */
   space_id: number | null;
   target_space_name: string | null;
+  /**
+   * The submitter's recommendation for the readers of a confirmed document
+   * (A6, 1.11.0): 'keep' (editorial fix), 'reset' (material change), or
+   * 'auto' when none was given. The approver decides at approval.
+   */
+  ack_policy: "keep" | "reset" | "auto";
+  ack_reason: string;
+  /** The target document's requirement and confirmation marker (from the review list's join; null when the document is gone). */
+  ack_required: number | null;
+  ack_version_id: number | null;
   created_at: string;
   reviewed_by: number | null;
   reviewed_at: string | null;

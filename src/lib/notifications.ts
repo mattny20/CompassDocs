@@ -32,6 +32,29 @@ export interface NotificationEvent {
   origin?: string;
 }
 
+/**
+ * The sentence a cr_resolved notice appends when approving a change request
+ * decided about a confirmed document's readers (A6): what the decision did,
+ * in the glossary's words. Null when no decision was taken (the request did
+ * not change the text of a confirmed, published document), so the body is
+ * the reviewer's note alone, as before.
+ */
+export function ackOutcomeSentence(
+  outcome: { substantive: boolean; reset: boolean; confirmations_reset: number; decision_id?: number | null } | null | undefined
+): string | null {
+  if (!outcome || !outcome.substantive || outcome.decision_id == null) return null;
+  if (!outcome.reset) return "Confirmations kept.";
+  const n = outcome.confirmations_reset;
+  if (n === 0) return "Everyone was asked to re-confirm.";
+  return `${n} ${n === 1 ? "person" : "people"} asked to re-confirm.`;
+}
+
+/** The cr_resolved body: the reviewer's note, the decision sentence, or both. */
+export function crResolvedBody(note: string, sentence: string | null): string | undefined {
+  const parts = [note.trim(), sentence ?? ""].filter(Boolean);
+  return parts.length > 0 ? parts.join(" · ") : undefined;
+}
+
 /** Tell every approver who can see the space that a change request is waiting. */
 export async function notifyCrSubmitted(input: {
   spaceId: number;

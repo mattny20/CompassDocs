@@ -14,9 +14,11 @@
 //
 //   const answer = await reconfirmDialog({ … });   // { policy, note } | null
 //
-// One <ReconfirmHost /> is mounted by the document editor. Without a host
-// the promise resolves null, which a caller treats as Cancel: a save of a
-// confirmed document can never proceed unasked.
+// One <ReconfirmHost /> is mounted by the document editor, and (A6) one
+// each by the review queue, version history and the branch banner, which
+// never share a page with the editor. Without a host the promise resolves
+// null, which a caller treats as Cancel: a save of a confirmed document can
+// never proceed unasked.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
@@ -37,8 +39,16 @@ export interface ReconfirmText {
 }
 
 export interface ReconfirmOptions {
-  /** "save" publishes directly; "submit" sends the change to the review queue. */
-  mode: "save" | "submit";
+  /**
+   * "save" publishes directly; "submit" sends the change to the review
+   * queue. "approve", "restore" and "merge" (A6, 1.11.0) are the same
+   * question asked by the review queue, version history and the branch
+   * banner: the cards, the hint and the note are identical; only the title
+   * and the primary's verb change.
+   */
+  mode: "save" | "submit" | "approve" | "restore" | "merge";
+  /** Overrides RECONFIRM_TITLE[mode] ("Restore version 9 of a confirmed document?"). */
+  title?: string;
   docId: number;
   docTitle: string;
   /** People whose confirmation counts today, and the audience they are part of. */
@@ -82,12 +92,25 @@ export const NOTE_TOO_SHORT = `Add a change note of at least ${NOTE_MIN} charact
 export const RECONFIRM_TITLE: Record<ReconfirmOptions["mode"], string> = {
   save: "How should readers see this change?",
   submit: "Submit changes to a confirmed document?",
+  approve: "Approve changes to a confirmed document?",
+  restore: "Restore a version of a confirmed document?",
+  merge: "Merge this branch into a confirmed document?",
 };
 
-// The approved copy says the note "is shown with the re-confirmation request"
-// and that readers "are notified and shown what changed"; the notice (H1/H4)
-// and the what-changed view (B3) ship in 1.10.1, so until then the dialog
-// promises only what this release does.
+/** The verb the primary opens with, per mode ("submit" has its own labels). */
+const VERB: Record<Exclude<ReconfirmOptions["mode"], "submit">, string> = {
+  save: "Save",
+  approve: "Approve",
+  restore: "Restore",
+  merge: "Merge",
+};
+
+// The same help in every mode, because the same thing happens in every mode
+// (1.11.0): the dialog's note is the version note (save, merge, restore; the
+// approver's note replaces the request's at approval; a submission's note is
+// the request's note, which the approval writes unless the approver gives
+// their own) and the reason on the compliance record, and a reset's note is
+// what readers see above the card when they are asked again (B3).
 const HELP: Record<AckPolicy, string> = {
   keep: "Say why readers need not re-confirm. This is recorded on the compliance record.",
   reset: "Tell readers what changed. This note is kept in version history and on the compliance record.",
@@ -106,8 +129,136 @@ export function primaryLabel(mode: ReconfirmOptions["mode"], policy: AckPolicy, 
   if (mode === "submit") {
     return policy === "keep" ? "Submit. Recommend keeping confirmations" : "Submit. Recommend re-confirmation";
   }
-  if (policy === "keep") return "Save. Keep confirmations";
-  return current > 0 ? `Save and ask ${people(current)} to re-confirm` : "Save and ask readers to re-confirm";
+  const verb = VERB[mode];
+  if (policy === "keep") return `${verb}. Keep confirmations`;
+  return current > 0 ? `${verb} and ask ${people(current)} to re-confirm` : `${verb} and ask readers to re-confirm`;
+}
+
+// ── The 428 answer and the baseline, for the callers that cannot ask first ──
+//
+// Merge, restore and approval (A6) send the write and treat a 428 as "open
+// the question": the body carries the numbers; the confirmed text for the
+// "Show changes" disclosure comes from one GET of the summary.
+
+/** The body of a 428 from the shared pre-flight (lib/ack-decision). */
+export interface AckDecisionRefusalBody {
+  decision_required?: true;
+  confirmations?: number;
+  eligible?: number;
+  /** "v12", or null when the confirmed version has no number. */
+  baseline?: string | null;
+  change?: { pct: number; wordsChanged: number; blocksChanged: number; headingsChanged: number; numbersChanged: number };
+  suggested?: AckPolicy;
+}
+
+/** "v12" → 12; null for anything else. */
+export function revFromLabel(label: string | null | undefined): number | null {
+  const m = typeof label === "string" ? /^v(\d+)$/.exec(label) : null;
+  return m ? Number(m[1]) : null;
+}
+
+/** The two texts readers would compare (the editor trims the title on both sides already). */
+export function sameText(a: ReconfirmText, b: ReconfirmText): boolean {
+  return a.title.trim() === b.title.trim() && tidy(a.content) === tidy(b.content);
+}
+
+/**
+ * Trailing whitespace is not a change: the editor serialises what it shows,
+ * and a stored text with spaces at the ends of lines (or a trailing newline)
+ * comes back without them. Comparing the tidied forms keeps the question,
+ * the schedule hint and the submit path from calling that an edit.
+ */
+function tidy(content: string): string {
+  return content.replace(/[ \t]+$/gm, "").replace(/\r\n/g, "\n").trimEnd();
+}
+
+/**
+ * Hand focus back to the control that started a question opened from a 428.
+ * Those callers send the write first and disable the trigger while it is in
+ * flight, so when the Modal opens the active element is <body>, not the
+ * trigger, and the Modal's own focus return (useModalOverlay) has nothing to
+ * give focus back to. The caller snapshots `document.activeElement` before
+ * it sets any busy state and calls this once the question has resolved (an
+ * answer or Cancel) and again when the trigger is enabled again at the end
+ * of the flow. Deferred one task, because the promise resolves before the
+ * dialog unmounts: only once the Modal's own return has run, and left focus
+ * on <body>, is the trigger focused, and never while it is disabled.
+ */
+export function returnFocus(opener: Element | null): void {
+  if (!(opener instanceof HTMLElement)) return;
+  setTimeout(() => {
+    if (document.activeElement !== document.body) return;
+    if (!opener.isConnected || opener.matches(":disabled")) return;
+    opener.focus({ preventScroll: true });
+  }, 0);
+}
+
+/** The summary slice the question needs, from GET /api/documents/[id]/ack?baseline=1; null when it cannot be read. */
+export interface ReconfirmContext {
+  current: number;
+  eligible: number;
+  /** The confirmed version's number, else the marker's. */
+  rev: number | null;
+  baseline: ReconfirmText | null;
+  keepReasonRequired: boolean;
+}
+
+export async function fetchReconfirmContext(docId: number): Promise<ReconfirmContext | null> {
+  try {
+    const res = await fetch(`/api/documents/${docId}/ack?baseline=1`, { cache: "no-store" });
+    if (!res.ok) return null;
+    const j = (await res.json()) as {
+      current?: number;
+      eligible?: number;
+      rev?: number | null;
+      baseline?: { rev?: number | null; title: string; content: string };
+      keep_reason_required?: boolean;
+    };
+    return {
+      current: Number(j.current ?? 0),
+      eligible: Number(j.eligible ?? 0),
+      rev: j.baseline?.rev ?? j.rev ?? null,
+      baseline: j.baseline ? { title: j.baseline.title, content: j.baseline.content } : null,
+      keepReasonRequired: j.keep_reason_required !== false,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The hint and the pre-selected card for a question opened from a 428.
+ * Measured locally against the confirmed text when it could be fetched (the
+ * same numbers the server computed); otherwise described from the body's
+ * own counts, with the server's suggestion.
+ */
+export function assessRefusal(
+  body: AckDecisionRefusalBody,
+  texts: { baseline: ReconfirmText | null; loaded: ReconfirmText; next: ReconfirmText }
+): { hint: string; suggested: AckPolicy } {
+  const label = body.baseline ?? undefined;
+  if (texts.baseline) {
+    const assessed = assessChange({ ...texts, baselineLabel: label });
+    return { hint: assessed.hint, suggested: body.suggested ?? assessed.suggested };
+  }
+  const c = body.change;
+  const summary: ChangeSummary = {
+    wordsOld: 0,
+    wordsNew: 0,
+    wordsChanged: c?.wordsChanged ?? 0,
+    pct: c?.pct ?? 0,
+    blocksChanged: c?.blocksChanged ?? 0,
+    linesAdded: 0,
+    linesRemoved: 0,
+    headingsChanged: c?.headingsChanged ?? 0,
+    listItemsChanged: 0,
+    numbersChanged: c?.numbersChanged ?? 0,
+    titleChanged: texts.next.title.trim() !== texts.loaded.title.trim(),
+    firstChangedHeading: null,
+    degraded: false,
+  };
+  const suggested = body.suggested ?? suggestReconfirm(summary).policy;
+  return { hint: describeChange(summary, label), suggested };
 }
 
 // ── The measurement (A4) ─────────────────────────────────────────────────────
@@ -281,7 +432,7 @@ export function ReconfirmModal({
     >
       <form onSubmit={submit}>
         <h2 id={titleId} className="text-base font-semibold text-slate-900">
-          {RECONFIRM_TITLE[opts.mode]}
+          {opts.title ?? RECONFIRM_TITLE[opts.mode]}
         </h2>
         <p id={ledeId} className="mt-1 text-sm text-slate-600">
           {opts.current} of {opts.eligible} {audience} confirmed {versionPhrase} of &ldquo;{opts.docTitle}&rdquo;.

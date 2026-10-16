@@ -15,6 +15,8 @@ import { auditAck, actorFrom, ipFrom } from "@/lib/audit";
 import { requestAcknowledgement } from "@/lib/compliance";
 import { getComplianceSettings } from "@/lib/compliance-settings";
 import { requestOrigin } from "@/lib/oauth";
+import { readSecondsSince } from "@/lib/analytics";
+import { reachedEndFromBody } from "@/lib/read-evidence";
 import type { SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -79,8 +81,13 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 // document's latest version and the marker has not moved past it (1.10.0).
 // Otherwise 409 { stale: true } — the same shape as the editor's conflict —
 // and the page reloads into what changed. The hash on the row comes from that
-// version's text, never from the live document. `reached_end` is accepted and
-// ignored for now (C3 is a later release).
+// version's text, never from the live document.
+//
+// Reading evidence (C3, 1.11.0): `reached_end` is the card's own report
+// (use-reached-end.ts) and is stored as the JSON boolean true only; anything
+// else, including a missing field, is false. The read time is never read
+// from the body: the route sums this person's view heartbeats for the
+// document since everyone was last asked (readSecondsSince) and stores that.
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const gate = await apiGuard("viewer", "document.ack_submit");
   if (gate instanceof NextResponse) return gate;
@@ -113,7 +120,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     return NextResponse.json({ error: "version_id is required." }, { status: 400 });
   }
 
-  const { recorded, stale } = await recordAcknowledgement(doc.id, user.id, ipFrom(req) ?? "", versionId);
+  // The evidence beside the version: the self-reported latch, parsed and
+  // labelled as such, and the server-derived read time since the marker
+  // (the last 30 days when a document somehow carries none).
+  const reachedEnd = reachedEndFromBody(body);
+  const readSeconds = await readSecondsSince(doc.id, user.id, doc.ack_revision_at ?? null);
+
+  const { recorded, stale } = await recordAcknowledgement(doc.id, user.id, ipFrom(req) ?? "", versionId, {
+    readSeconds,
+    reachedEnd,
+  });
   if (stale) {
     return NextResponse.json(
       { stale: true, error: "This document changed while you were reading it. Reload and read the changes." },
