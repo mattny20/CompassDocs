@@ -59,6 +59,9 @@ export function Popover({
       const t = e.target as Node;
       if (panel.current?.contains(t)) return;
       if (triggerRef?.current?.contains(t)) return;
+      // A toast's action (Undo after "Stop requiring" in the shield popover)
+      // answers something the panel just did: it is not a click away from it.
+      if (t instanceof Element && t.closest('[role="status"]')) return;
       onClose();
     }
     document.addEventListener("mousedown", onPointer);

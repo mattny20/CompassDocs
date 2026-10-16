@@ -291,7 +291,9 @@ async function openEditor(page: Page, docId: number) {
 
 async function openEditorAndType(page: Page, docId: number, text: string) {
   const editor = await openEditor(page, docId);
-  await editor.click();
+  // Into a paragraph, never a heading: a heading edit is material on its
+  // own, and the typo-fix cases need an edit the measurement calls editorial.
+  await editor.locator("p").last().click();
   await page.keyboard.press("End");
   await page.keyboard.type(text);
 }

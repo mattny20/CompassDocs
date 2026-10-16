@@ -240,7 +240,7 @@ test("a program_read-only role reads the portal and nothing more; unknown action
       await expect(row).toBeVisible();
       await expect(main.getByRole("button", { name: "Request read confirmation" })).toHaveCount(0);
       await expect(main.getByRole("combobox", { name: "Document" })).toHaveCount(0);
-      await expect(main.getByRole("button", { name: "Remind" })).toHaveCount(0);
+      await expect(main.getByRole("button", { name: "Remind", exact: true })).toHaveCount(0);
       await expect(main.getByRole("button", { name: "Stop requiring" })).toHaveCount(0);
       await expect(main.getByRole("link", { name: "Export CSV" })).toHaveCount(0);
       await expect(main.getByRole("link", { name: "Settings", exact: true })).toHaveCount(0);

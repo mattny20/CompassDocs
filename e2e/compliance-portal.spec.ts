@@ -182,7 +182,7 @@ test("remind asks 'Remind N people?' and is refused inside the hour; stop requir
 
     // Remind: the question names the pending count and the policy, ends
     // "This cannot be undone.", and the button says what it does.
-    await row.getByRole("button", { name: "Remind" }).click();
+    await row.getByRole("button", { name: "Remind", exact: true }).click();
     const remind = page.getByRole("dialog", { name: /^Remind \d+ (person|people)\?$/ });
     await expect(remind).toBeVisible();
     await expect(remind.getByText(`Everyone who has not confirmed "${title}" yet`, { exact: false })).toBeVisible();
@@ -192,7 +192,7 @@ test("remind asks 'Remind N people?' and is refused inside the hour; stop requir
     await expect(remind).toHaveCount(0);
     // Send: inside the hour after the request the server refuses, and the
     // refusal is the toast (never a silent failure).
-    await row.getByRole("button", { name: "Remind" }).click();
+    await row.getByRole("button", { name: "Remind", exact: true }).click();
     await expect(remind).toBeVisible();
     await remind.getByRole("button", { name: "Send reminders" }).click();
     await expect(page.locator('[role="alert"]').getByText(/less than an hour ago/)).toBeVisible();
