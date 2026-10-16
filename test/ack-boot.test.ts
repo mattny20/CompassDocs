@@ -73,8 +73,15 @@ const DOWNGRADE_SQL = `
   DROP INDEX IF EXISTS idx_ack_user;
   DROP TABLE IF EXISTS attested_texts;
   DROP TABLE IF EXISTS ack_decisions;
+  DROP TABLE IF EXISTS ack_notices;
+  DROP TABLE IF EXISTS ack_outbox;
+  ALTER TABLE doc_versions
+    DROP COLUMN IF EXISTS published_by, DROP COLUMN IF EXISTS published_by_name,
+    DROP COLUMN IF EXISTS approved_by, DROP COLUMN IF EXISTS approved_by_name,
+    DROP COLUMN IF EXISTS change_request_id;
   DELETE FROM settings WHERE key IN
-    ('migrated_ack_revisions', 'ack_marker_schema', 'migrated_ack_retention', 'ack_retention_schema');
+    ('migrated_ack_revisions', 'ack_marker_schema', 'migrated_ack_retention', 'ack_retention_schema',
+     'migrated_version_provenance');
 `;
 
 interface Snapshot {
