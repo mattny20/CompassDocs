@@ -292,6 +292,11 @@ changed since they confirmed, and reading evidence lands on the record.
   (the reason line, the honest strip sentence, no disclosure).
 
 ### Changed
+- The review queue's Approve now toasts its result ("Approved." and the
+  decision sentence); before it only removed the card. Reject is
+  unchanged. The editor's question takes three more modes (approve,
+  restore and merge) and an optional title; the save and submit modes and
+  their labels are unchanged.
 - An approval of a text change to a confirmed policy no longer resets by
   default when the submitter recommended keeping confirmations: the
   recommendation applies unless the approver overrides it. A request with

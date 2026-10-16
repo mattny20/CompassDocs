@@ -613,10 +613,9 @@ export function DocEditor({
    */
   async function askReconfirm(status: DocStatus): Promise<Asked> {
     if (!ack || !docId || status !== "published") return { kind: "none" };
-    // A non-publisher's save becomes a change request, and in this release
-    // the request carries no recommendation (that arrives with 1.11.0); the
-    // approval decides. Asking a question nobody records would be dishonest.
-    if (!canPublish) return { kind: "none" };
+    // A non-publisher's save becomes a change request; since 1.11.0 the
+    // request carries their recommendation (ack_policy / ack_reason, the
+    // "submit" mode below) and the approver decides with it in view.
     const next: ReconfirmText = { title: title.trim(), content };
     const loaded: ReconfirmText = { title: initial.title, content: initial.content };
     // Publishing a draft counts at the transition, however many saves the

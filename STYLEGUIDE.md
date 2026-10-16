@@ -893,7 +893,11 @@ per-route variants:
   `Textarea` in a `Field`, required for every choice, its help changing
   with the selection), and Cancel plus **one primary whose label follows
   the selection** ("Save. Keep confirmations" / "Save and ask 42 people to
-  re-confirm"), so the button always says what will happen. Enter submits,
+  re-confirm"), so the button always says what will happen. The same
+  dialog serves Submit, Approve, Restore and Merge (1.11.0) with the verb
+  in the primary ("Restore. Keep confirmations", "Merge and ask 42 people
+  to re-confirm") and the question in the title ("Restore version 9 of a
+  confirmed document?"); no second recipe. Enter submits,
   Escape cancels. It exposes a promise (`reconfirmDialog(opts) → result |
   null`) that the caller awaits **before** setting any busy state, so
   Cancel leaves the form dirty and the Save button idle; being on the
