@@ -725,6 +725,7 @@ async function callTool(user: User, name: string, args: any, origin: string) {
         versionNote: note || "Edited via Claude connector",
         ackSource: "mcp",
         ackActor: { id: user.id, name: user.name || user.username },
+        ackOrigin: origin,
       });
 
       // Nested pages: parent moves are organizational and apply directly.
@@ -876,6 +877,7 @@ async function callTool(user: User, name: string, args: any, origin: string) {
             content: withImagePlaced(fresh.content, markdown, insert),
             ackSource: "image",
             ackActor: { id: user.id, name: user.name || user.username },
+            ackOrigin: origin,
           });
           // An image placed into a confirmed, published document is a text
           // change; its confirmation decision is echoed like a PUT's (C1).

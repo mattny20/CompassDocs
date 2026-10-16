@@ -10,6 +10,7 @@ import {
 import { getDocument, getUserById, updateDocument } from "@/lib/db";
 import { audit, auditAckDecision, ipFrom } from "@/lib/audit";
 import { uploadTicketRateLimited } from "@/lib/rate-limit";
+import { requestOrigin } from "@/lib/oauth";
 
 export const dynamic = "force-dynamic";
 
@@ -87,6 +88,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
         content: withImagePlaced(fresh.content, markdown, ticket.insert_mode),
         ackSource: "ticket",
         ackActor: owner ? { id: owner.id, name: owner.name || owner.username } : undefined,
+        ackOrigin: requestOrigin(req),
       });
       // An image placed into a confirmed, published document is a text
       // change; its confirmation decision is echoed like a PUT's (C1).

@@ -14,9 +14,13 @@
 //
 // The fifth describe (1.10.1, A5) drives the per-document edit default:
 // 'ask' and 'reset' reset when a caller says nothing, 'material' keeps a
-// change that looks editorial and records it from source 'default', the
-// workspace default lands on the first switch-on only, and the keep side's
-// change note follows the workspace's keep_reason_required.
+// change that looks editorial and records it from source 'default' (for a
+// save, an approval and a scheduled publish alike), the workspace default
+// lands on the first switch-on only, and the keep side's change note
+// follows the workspace's keep_reason_required. That describe writes the
+// shared ack_defaults setting, so it holds the advisory lock
+// test/compliance-settings.test.ts holds for the same row; every other
+// switch-on here passes editDefault explicitly and never reads the setting.
 //
 // Run: npm run test:integration  (needs DATABASE_URL)
 
@@ -72,10 +76,15 @@ async function newPolicy(title: string, content = "Policy body"): Promise<number
     tags: [],
     author: "test",
   });
-  await setAckRequired(doc.id, true);
+  // editDefault null: leave the column at 'ask' rather than reading the
+  // workspace setting, which another test file may be writing.
+  await setAckRequired(doc.id, true, { editDefault: null });
   docIds.push(doc.id);
   return doc.id;
 }
+
+/** The advisory lock the settings-touching describes share with test/compliance-settings.test.ts. */
+const SETTINGS_LOCK = 728342;
 
 async function latestVersionId(docId: number): Promise<number> {
   return (await listVersions(docId))[0].id;
@@ -504,7 +513,7 @@ describe("updateDocument decides what happens to confirmations (A2)", () => {
     assert.equal(row.rows[0].ack_version_id, v2, "the marker followed the text silently");
     assert.notEqual(row.rows[0].ack_version_id, v1);
     assert.equal((await listAckDecisions(id)).length, 0, "no decision row while the requirement is off");
-    await setAckRequired(id, true);
+    await setAckRequired(id, true, { editDefault: null });
     assert.equal(await acked(id), 0, "never 100% for unread text");
     assert.equal(await getCurrentAck(id, readerId), undefined);
   });
@@ -678,7 +687,7 @@ describe("the other text writers take the same decisions (approval, schedule)", 
     assert.notEqual(v2, v1);
     assert.equal((await pool().query(stamps, [id])).rows[0].ack_version_id, v2, "the marker followed the text");
     assert.equal((await listAckDecisions(id)).length, 0, "no decision row while the requirement is off");
-    await setAckRequired(id, true);
+    await setAckRequired(id, true, { editDefault: null });
     assert.equal(await getCurrentAck(id, readerId), undefined, "never 100% for unread text");
 
     // Required again, confirmed at v2; a request that lands as a draft keeps the marker.
@@ -769,14 +778,24 @@ describe("the per-document edit default (A5): ask, material, reset", () => {
   const NUMBER = BODY.replace("over 20 pounds", "over 25 pounds");
   const stamps = "SELECT ack_version_id FROM documents WHERE id = $1";
   let savedDefaults: string | undefined;
+  // The settings row is shared with test/compliance-settings.test.ts and
+  // node:test runs files in parallel: the lock is held on one dedicated
+  // connection for the whole describe (an advisory lock is per session).
+  let lockClient: Awaited<ReturnType<ReturnType<typeof pool>["connect"]>> | null = null;
 
   before(async () => {
     actor.id = otherId;
+    lockClient = await pool().connect();
+    await lockClient.query("SELECT pg_advisory_lock($1)", [SETTINGS_LOCK]);
     savedDefaults = await getSetting("ack_defaults");
   });
   after(async () => {
     if (savedDefaults === undefined) await pool().query("DELETE FROM settings WHERE key = 'ack_defaults'");
     else await setSetting("ack_defaults", savedDefaults);
+    if (lockClient) {
+      await lockClient.query("SELECT pg_advisory_unlock($1)", [SETTINGS_LOCK]).catch(() => {});
+      lockClient.release();
+    }
   });
 
   async function workspaceDefault(value: "ask" | "material" | "reset" | null) {
@@ -938,6 +957,94 @@ describe("the per-document edit default (A5): ask, material, reset", () => {
     assert.equal(decision.outcome, "kept");
     assert.equal(decision.reason, "typo", "whatever was typed is still recorded");
     assert.equal(decision.source, "edit");
+  });
+
+  test("'material' decides for an approval too: an editorial request is kept from source 'default', a material one resets", async () => {
+    const title = `${STAMP} a5 approval`;
+    const { id, v1 } = await confirmedPolicy(title, "material");
+    const propose = (content: string, note: string) =>
+      createChangeRequest({
+        document_id: id,
+        kind: "edit",
+        title,
+        content,
+        summary: "",
+        tags: [],
+        type: "policy",
+        target_status: "published",
+        note,
+        created_by: otherId,
+      });
+
+    const kept = await approveChangeRequest(await propose(BODY, "Fixed a typo"), approverId, "Rev Approver");
+    assert.ok(kept);
+    assert.equal(kept.version_written, true);
+    assert.equal(kept.ack_outcome.substantive, true);
+    assert.equal(kept.ack_outcome.reset, false, "looks editorial with high confidence: kept without asking");
+    assert.equal(kept.ack_outcome.policy, "auto");
+    assert.equal(kept.ack_outcome.source, "default", "the document's setting decided, not the approval");
+    assert.equal((await pool().query(stamps, [id])).rows[0].ack_version_id, v1, "the marker stays");
+    assert.equal(await acked(id), 1);
+    assert.ok(await getCurrentAck(id, readerId));
+    assert.equal((await listVersions(id)).length, 2, "the approved version is still written");
+    const [decision] = await listAckDecisions(id);
+    assert.equal(decision.id, kept.ack_outcome.decision_id);
+    assert.equal(decision.outcome, "kept");
+    assert.equal(decision.source, "default");
+    assert.equal(decision.suggested, "keep");
+    assert.equal(decision.submitted_policy, "");
+    assert.equal(decision.reason, "Fixed a typo", "the request's change note");
+    assert.equal(decision.decided_by, approverId);
+    assert.equal(decision.submitted_by, otherId);
+    assert.equal(decision.version_id, await latestVersionId(id), "the decision cites the approved text");
+    assert.equal(decision.confirmations_affected, 1);
+
+    const reset = await approveChangeRequest(await propose(NUMBER, "Threshold raised"), approverId, "Rev Approver");
+    assert.ok(reset);
+    assert.equal(reset.ack_outcome.reset, true, "a number changed: material, so it resets");
+    assert.equal(reset.ack_outcome.source, "approval");
+    assert.equal(reset.ack_outcome.confirmations_reset, 1);
+    assert.equal(await acked(id), 0);
+    const [newest] = await listAckDecisions(id);
+    assert.equal(newest.outcome, "reset");
+    assert.equal(newest.source, "approval");
+    assert.equal(newest.suggested, "reset");
+    assert.equal((await pool().query(stamps, [id])).rows[0].ack_version_id, await latestVersionId(id));
+  });
+
+  test("'material' decides for a scheduled publish too: a draft whose only drift is a typo fix is kept from source 'default'", async () => {
+    const { id, v1 } = await confirmedPolicy(`${STAMP} a5 schedule`, "material");
+    await updateDocument(id, { status: "draft", ackActor: actor, ackSource: "edit" });
+    await updateDocument(id, { content: BODY, versionNote: "Fixed a typo", ackActor: actor, ackSource: "edit" });
+    const v2 = await latestVersionId(id);
+    assert.equal((await pool().query(stamps, [id])).rows[0].ack_version_id, v1, "the marker waits while it is a draft");
+    assert.equal((await listAckDecisions(id)).length, 0);
+    await setDocSchedule(id, { publishAt: new Date(Date.now() - 60_000).toISOString() });
+
+    await runDueDocSchedules();
+
+    const row = (await pool().query("SELECT status, publish_at, ack_version_id FROM documents WHERE id = $1", [id])).rows[0];
+    assert.equal(row.status, "published");
+    assert.equal(row.publish_at, null);
+    assert.equal(row.ack_version_id, v1, "the marker stays on the confirmed text");
+    assert.ok(await getCurrentAck(id, readerId));
+    assert.equal(await acked(id), 1);
+    const decisions = await listAckDecisions(id);
+    assert.equal(decisions.length, 1);
+    assert.equal(decisions[0].outcome, "kept");
+    assert.equal(decisions[0].source, "default");
+    assert.equal(decisions[0].version_id, v2, "the decision cites the published text");
+    assert.equal(decisions[0].suggested, "keep");
+    assert.equal(decisions[0].decided_by, null);
+    assert.equal(decisions[0].decided_by_name, "", "no person: the History page says Automatic");
+    assert.equal(decisions[0].reason, "Published on schedule");
+    assert.equal(decisions[0].confirmations_affected, 1);
+    const echo = await pool().query(
+      "SELECT details FROM audit_log WHERE action = 'ack.confirmations_kept' AND target_id = $1 ORDER BY id DESC LIMIT 1",
+      [String(id)]
+    );
+    assert.equal(echo.rows.length, 1, "the kept decision is echoed to the audit log");
+    assert.equal(echo.rows[0].details.source, "default");
   });
 });
 

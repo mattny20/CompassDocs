@@ -99,6 +99,7 @@ export async function POST(
     restoredFrom: version.id,
     ackSource: "restore",
     ackActor: { id: user.id, name: user.name || user.username },
+    ackOrigin: requestOrigin(req),
   });
   await audit({
     actor: actorFrom(user),

@@ -1015,6 +1015,11 @@ const SCHEMA_SQL = `
     noticed integer,
     error text
   );
+  -- The sending request's origin (1.10.1): the drain runs from a timer with
+  -- no request to take one from, so the origin travels with the row and a
+  -- workspace without custom_domain still mails absolute links. Nothing is
+  -- remembered across requests. guardAddColumns rewrites this statement.
+  ALTER TABLE ack_outbox ADD COLUMN IF NOT EXISTS origin text NOT NULL DEFAULT '';
   DO $$ BEGIN
     IF to_regclass('idx_ack_outbox_due') IS NULL THEN
       CREATE INDEX idx_ack_outbox_due ON ack_outbox(done_at, not_before);
@@ -3457,9 +3462,10 @@ export async function updateDocument(
       const suggestion = suggestReconfirm(summary);
       // 'auto' resolves from the document's edit default (A5), through the
       // helper every caller that cannot ask shares (resolveAutoAckPolicy).
-      const auto = policy === "auto" ? resolveAutoAckPolicy(existing, suggestion) : null;
-      const resolved: "keep" | "reset" = auto ? auto.resolved : policy;
-      const decidedBySetting = auto?.decidedBySetting ?? false;
+      const { resolved, decidedBySetting } =
+        policy === "auto"
+          ? resolveAutoAckPolicy(existing, suggestion)
+          : { resolved: policy, decidedBySetting: false };
       const decision = {
         versionId,
         actor,
@@ -3706,8 +3712,10 @@ export async function runDbMaintenance(): Promise<{ sessions: number; oauthCodes
     "DELETE FROM doc_editing_presence WHERE last_seen < now() - interval '10 minutes'"
   );
   // The notice outbox is a queue, not a record (ack_notices is the record):
-  // delivered rows are kept a month for support and then dropped. Rows that
-  // gave up (three failed attempts) stay, with their error.
+  // closed rows are kept a month for support and then dropped. A row that
+  // gave up (three failed attempts, or an instance that died on the last
+  // one) is closed with its error like a delivered one, so it is swept too;
+  // the audit row ack.notice_failed is what lasts.
   await pool().query(
     "DELETE FROM ack_outbox WHERE done_at IS NOT NULL AND done_at < now() - interval '30 days'"
   );
@@ -5863,9 +5871,16 @@ export async function anonymiseComplianceRecord(
        WHERE user_id = $1 OR by_user_id = $1`,
       [userId, alias]
     );
+    // The outbox names the person as the one who asked (actor_name, no FK
+    // on actor_id); its error column never carries an address (the drain
+    // writes "Email to user #id"), so the name is all there is to rewrite.
+    const outbox = await client.query(`UPDATE ack_outbox SET actor_name = $2 WHERE actor_id = $1`, [
+      userId,
+      alias,
+    ]);
     await client.query("COMMIT");
     return {
-      rows: (res.rowCount ?? 0) + (decisions.rowCount ?? 0) + (notices.rowCount ?? 0),
+      rows: (res.rowCount ?? 0) + (decisions.rowCount ?? 0) + (notices.rowCount ?? 0) + (outbox.rowCount ?? 0),
       snapshots_rewritten: 0,
     };
   } catch (e) {
@@ -6122,15 +6137,28 @@ export interface AckOutboxInput {
   /** Deliver no earlier than this; `delay_minutes` from now when absent (0 = at once). */
   not_before?: Date | string | null;
   delay_minutes?: number;
+  /**
+   * The sending request's origin (requestOrigin(req)), kept on the row for
+   * the links in the email and webhook when the workspace has no
+   * custom_domain; '' when nothing sent it (an import, a sweep). Only an
+   * http(s) origin is stored; the drain never remembers one across rows.
+   */
+  origin?: string | null;
+}
+
+/** An http(s) origin without its trailing slash, or '' for anything else (a path, a header that is not a URL). */
+export function ackOutboxOrigin(origin: string | null | undefined): string {
+  const o = (origin ?? "").trim();
+  return /^https?:\/\/[^\s/?#]+$/i.test(o.replace(/\/+$/, "")) ? o.replace(/\/+$/, "").slice(0, 300) : "";
 }
 
 /** Queue one fan-out on the given client (inside the caller's transaction) or the pool. Returns the row id. */
 export async function insertAckOutbox(client: Queryable | null, row: AckOutboxInput): Promise<number> {
   if (!client) await ready();
   const r = await (client ?? pool()).query<{ id: number }>(
-    `INSERT INTO ack_outbox (document_id, mode, source, reason, actor_id, actor_name, user_ids, not_before)
+    `INSERT INTO ack_outbox (document_id, mode, source, reason, actor_id, actor_name, user_ids, not_before, origin)
      VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb,
-             COALESCE($8::timestamptz, now() + make_interval(mins => $9::int)))
+             COALESCE($8::timestamptz, now() + make_interval(mins => $9::int)), $10)
      RETURNING id`,
     [
       row.document_id,
@@ -6142,20 +6170,44 @@ export async function insertAckOutbox(client: Queryable | null, row: AckOutboxIn
       row.user_ids ? JSON.stringify([...new Set(row.user_ids)]) : null,
       row.not_before instanceof Date ? row.not_before.toISOString() : (row.not_before ?? null),
       Math.max(0, row.delay_minutes ?? 0),
+      ackOutboxOrigin(row.origin),
     ]
   );
   return r.rows[0].id;
 }
 
 /**
+ * The portal's Remind, as one atomic claim: the one-hour stamp is set in
+ * the same UPDATE whose WHERE tests it, so two clicks in the same second
+ * (or two managers) take the cooldown once and the loser gets false. The
+ * document must still take confirmations. The route keeps its early check
+ * for the friendly 429 copy; this is the one that holds.
+ */
+export async function claimAckReminder(docId: number): Promise<boolean> {
+  const rows = await q<{ id: number }>(
+    `UPDATE documents SET ack_last_reminded_at = now()
+     WHERE id = $1 AND ack_required = 1 AND status = 'published' AND deleted_at IS NULL
+       AND (ack_last_reminded_at IS NULL OR ack_last_reminded_at < now() - interval '1 hour')
+     RETURNING id`,
+    [docId]
+  );
+  return rows.length > 0;
+}
+
+/** A claimed row: AckOutboxRow plus the origin column (RETURNING *). */
+export type ClaimedAckOutboxRow = AckOutboxRow & { origin: string };
+
+/**
  * Claim the next due rows for this instance: one UPDATE whose SET changes
  * the column its WHERE tests (claimed_at), with FOR UPDATE SKIP LOCKED in
  * the subquery, so two drains running at once never take the same row. A
  * row claimed more than ten minutes ago by an instance that died is taken
- * again; a row that failed three times is never claimed again.
+ * again (a live delivery keeps its claim fresh with touchAckOutbox, so an
+ * old claim means a dead instance); a row that failed three times is
+ * closed and never claimed again.
  */
-export async function claimAckOutbox(limit = 20, documentIds?: number[]): Promise<AckOutboxRow[]> {
-  const rows = await q<AckOutboxRow>(
+export async function claimAckOutbox(limit = 20, documentIds?: number[]): Promise<ClaimedAckOutboxRow[]> {
+  const rows = await q<ClaimedAckOutboxRow>(
     `UPDATE ack_outbox SET claimed_at = now(), attempts = attempts + 1
      WHERE id IN (
        SELECT id FROM ack_outbox
@@ -6168,6 +6220,42 @@ export async function claimAckOutbox(limit = 20, documentIds?: number[]): Promis
      )
      RETURNING *`,
     [Math.max(1, Math.min(200, limit)), documentIds ?? null]
+  );
+  return rows.sort((a, b) => a.id - b.id);
+}
+
+/**
+ * The lease heartbeat: a delivery that outlives the ten-minute reclaim
+ * window (hundreds of recipients on a slow relay) would otherwise be taken
+ * by the next tick and sent again. The drain calls this before each group
+ * and every few recipients inside the mail and webhook loops, for every
+ * row of its batch that is still open.
+ */
+export async function touchAckOutbox(ids: number[]): Promise<void> {
+  if (ids.length === 0) return;
+  await q("UPDATE ack_outbox SET claimed_at = now() WHERE id = ANY($1) AND done_at IS NULL", [ids]);
+}
+
+/**
+ * Close rows abandoned on their last attempt: claimed a third time by an
+ * instance that died before it could fail or complete them (attempts
+ * reached the limit, nothing closed the row, the claim is stale). Nobody
+ * would ever claim, audit or sweep them otherwise. Returns the rows closed
+ * so the drain can write ack.notice_failed for each. The error keeps what
+ * the earlier attempt said, after the fact that this one never reported.
+ */
+export async function retireAbandonedAckOutbox(documentIds?: number[]): Promise<ClaimedAckOutboxRow[]> {
+  const rows = await q<ClaimedAckOutboxRow>(
+    `UPDATE ack_outbox
+     SET done_at = now(),
+         error = 'instance died on the last attempt' || COALESCE('; earlier: ' || NULLIF(error, ''), ''),
+         noticed = (SELECT COUNT(*)::int FROM ack_notices n WHERE n.outbox_id = ack_outbox.id),
+         emailed = (SELECT COUNT(*)::int FROM ack_notices n WHERE n.outbox_id = ack_outbox.id AND n.channels ? 'email')
+     WHERE done_at IS NULL AND attempts >= 3
+       AND claimed_at < now() - interval '10 minutes'
+       AND ($1::int[] IS NULL OR document_id = ANY($1::int[]))
+     RETURNING *`,
+    [documentIds ?? null]
   );
   return rows.sort((a, b) => a.id - b.id);
 }
@@ -6186,15 +6274,22 @@ export async function completeAckOutbox(ids: number[]): Promise<{ emailed: numbe
   return rows[0] ?? { emailed: 0, noticed: 0 };
 }
 
-/** Record a failed attempt: the row keeps its claim (the 10-minute reclaim is the retry delay) and the error. */
-export async function failAckOutbox(ids: number[], error: string): Promise<void> {
+/**
+ * Record a failed attempt: the row keeps its claim (the 10-minute reclaim
+ * is the retry delay) and the error. With `retire` (the last attempt) the
+ * row is closed as well, with its error: never claimed again, hidden from
+ * the queue, swept with the delivered rows after a month, and told apart
+ * from a row abandoned mid-attempt by its done_at.
+ */
+export async function failAckOutbox(ids: number[], error: string, opts: { retire?: boolean } = {}): Promise<void> {
   if (ids.length === 0) return;
   await q(
     `UPDATE ack_outbox SET error = $2,
+       done_at = CASE WHEN $3::boolean THEN now() ELSE done_at END,
        noticed = (SELECT COUNT(*)::int FROM ack_notices n WHERE n.outbox_id = ANY($1)),
        emailed = (SELECT COUNT(*)::int FROM ack_notices n WHERE n.outbox_id = ANY($1) AND n.channels ? 'email')
      WHERE id = ANY($1)`,
-    [ids, error.slice(0, 1000)]
+    [ids, error.slice(0, 1000), Boolean(opts.retire)]
   );
 }
 
@@ -6241,12 +6336,21 @@ export async function ackNoticeRecipients(
   );
 }
 
-/** People who already have a notice of this kind for this document within the window (H1's coalescing key). */
+/**
+ * People who already have a notice of this kind for this document within
+ * the window and have not acted on it since (H1's coalescing key). A
+ * person told this morning who re-confirmed at noon and lapsed again on
+ * an afternoon change is told again: the notice they got was answered.
+ */
 export async function recentAckNoticeUserIds(docId: number, kind: AckNoticeKind, hours: number): Promise<Set<number>> {
   const rows = await q<{ user_id: number }>(
-    `SELECT DISTINCT user_id FROM ack_notices
-     WHERE document_id = $1 AND kind = $2 AND user_id IS NOT NULL
-       AND sent_at > now() - make_interval(hours => $3::int)`,
+    `SELECT DISTINCT n.user_id FROM ack_notices n
+     WHERE n.document_id = $1 AND n.kind = $2 AND n.user_id IS NOT NULL
+       AND n.sent_at > now() - make_interval(hours => $3::int)
+       AND NOT EXISTS (
+         SELECT 1 FROM acknowledgements a
+         WHERE a.document_id = n.document_id AND a.user_id = n.user_id AND a.acknowledged_at > n.sent_at
+       )`,
     [docId, kind, hours]
   );
   return new Set(rows.map((r) => r.user_id));
@@ -6264,6 +6368,23 @@ export async function ackNoticesForOutbox(
   );
   for (const r of rows) if (r.user_id != null) map.set(r.user_id, { id: r.id, channels: r.channels ?? [] });
   return map;
+}
+
+/**
+ * Make a merged group's record follow the row that outlives the rest. The
+ * rows of a group are claimed together but joined it at different times,
+ * so the oldest has the most attempts and retires first; notices written
+ * under its id would then be invisible to the younger row's next claim,
+ * and everyone would be told again. Re-keying every notice of the group to
+ * its newest row before each delivery keeps the record whole.
+ */
+export async function rekeyAckNotices(outboxIds: number[], toOutboxId: number): Promise<number> {
+  if (outboxIds.length < 2) return 0;
+  const r = await pool().query("UPDATE ack_notices SET outbox_id = $2 WHERE outbox_id = ANY($1) AND outbox_id <> $2", [
+    outboxIds,
+    toOutboxId,
+  ]);
+  return r.rowCount ?? 0;
 }
 
 export interface AckNoticeInput {
@@ -6369,7 +6490,7 @@ export async function listAckNotices(opts: {
   );
 }
 
-/** The newest notice per document for a set of documents (the roster expand's "Last notified 3 Oct (reminder)"). */
+/** The newest notice per document for a set of documents. Unused in 1.10.1: intended for a "Last notified 3 Oct (reminder)" line on the portal's policy row, which no surface renders yet (the row shows `last reminded` from ack_last_reminded_at). */
 export async function lastAckNoticeByDocument(
   docIds: number[]
 ): Promise<Map<number, { sent_at: string; kind: AckNoticeKind }>> {

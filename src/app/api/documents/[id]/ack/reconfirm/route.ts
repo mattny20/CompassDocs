@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { getDocument, claimReconfirmation, ACK_REASON_MIN } from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
-import { spaceScopeFor, scopeAllows, userHolds } from "@/lib/access";
+import { spaceScopeFor, scopeAllows, canSeeDrafts, userHolds } from "@/lib/access";
 import { featureEnabled } from "@/lib/ee";
 import { auditAck, actorFrom, ipFrom } from "@/lib/audit";
+import { requestOrigin } from "@/lib/oauth";
 import type { SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -22,11 +23,13 @@ const REASON_MAX = 500;
 // Prior confirmations stay in the ledger.
 //
 // Guards, in order: session and CSRF (apiGuard), the viewer's space scope
-// (404, so a hidden document stays hidden), document.ack_require on the
-// space OR compliance.program_manage (apiGuard takes one permission, so the
-// OR is written out), the licence (402), published and required (400), the
-// reason (400), then the claim (429 inside the hour: "Readers were asked
-// again 12 minutes ago.", the same hour the portal's Remind keeps).
+// (404, so a hidden document stays hidden), the draft rule (404 for a draft
+// the caller may not read, as GET /api/documents/[id] and the ack GET
+// answer), document.ack_require on the space OR compliance.program_manage
+// (apiGuard takes one permission, so the OR is written out), the licence
+// (402), published and required (400), the reason (400), then the claim
+// (429 inside the hour: "Readers were asked again 12 minutes ago.", the
+// same hour the portal's Remind keeps).
 //
 // `user_ids` is the per-person re-ask (D4): the route accepts the key now
 // and answers 400 until audiences ship, so a client built against D4 gets a
@@ -39,6 +42,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const { id } = await params;
   const doc = await getDocument(Number(id));
   if (!doc || !scopeAllows(await spaceScopeFor(user), doc.space_id)) {
+    return NextResponse.json({ error: "Not found." }, { status: 404 });
+  }
+  if (doc.status === "draft" && !(await canSeeDrafts(user, doc.space_id))) {
     return NextResponse.json({ error: "Not found." }, { status: 404 });
   }
   const allowed =
@@ -79,6 +85,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     reason,
     // The outbox row's actor: the same name the audit row carries.
     actor: { id: user.id, name: user.name || user.username },
+    // And the request's origin, so the notice's links are absolute on a
+    // workspace without custom_domain.
+    origin: requestOrigin(req),
   });
   if (!claim.claimed) {
     if (!claim.last_asked_at) {

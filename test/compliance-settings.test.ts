@@ -20,6 +20,15 @@ const KEYS = ["ack_defaults", "compliance_statement_default", "ack_report"];
 const STAMP = `compset-${Date.now()}`;
 const actor = { id: null, name: STAMP, role: "admin" };
 
+/**
+ * The settings row is shared with test/ack-revision.test.ts (its A5
+ * describe writes ack_defaults), and node:test runs files in parallel: one
+ * advisory lock, held on a dedicated connection for the length of each
+ * describe, keeps the two from restoring each other's values.
+ */
+const SETTINGS_LOCK = 728342;
+let lockClient: Awaited<ReturnType<ReturnType<typeof pool>["connect"]>> | null = null;
+
 /** What the shared database held before the suite, restored after it. */
 const saved = new Map<string, string>();
 
@@ -38,6 +47,8 @@ async function auditRows() {
 describe("program settings", () => {
   before(async () => {
     await getSetting("__schema_bootstrap__"); // run the schema and migrations first
+    lockClient = await pool().connect();
+    await lockClient.query("SELECT pg_advisory_lock($1)", [SETTINGS_LOCK]);
     for (const key of KEYS) {
       const v = await getSetting(key);
       if (v !== undefined) saved.set(key, v);
@@ -49,12 +60,19 @@ describe("program settings", () => {
     await clearKeys();
     for (const [key, value] of saved) await setSetting(key, value);
     await pool().query("DELETE FROM audit_log WHERE action = 'settings.compliance' AND actor_name = $1", [STAMP]);
+    if (lockClient) {
+      await lockClient.query("SELECT pg_advisory_unlock($1)", [SETTINGS_LOCK]).catch(() => {});
+      lockClient.release();
+    }
   });
 
   test("defaults apply when a key is absent, unreadable or holds a value the build does not know", async () => {
     await clearKeys();
     assert.deepEqual(await readComplianceSettings(), COMPLIANCE_DEFAULTS, "nothing stored: the defaults");
-    assert.deepEqual(await getComplianceSettings(), COMPLIANCE_DEFAULTS, "the cached reader agrees");
+    // getComplianceSettings is the per-request reader (React cache()); outside
+    // a request it memoises nothing, so this only proves it reads the same
+    // values, not that a stale cache is detected.
+    assert.deepEqual(await getComplianceSettings(), COMPLIANCE_DEFAULTS, "the per-request reader reads the same values");
 
     await setSetting("ack_defaults", "not json");
     await setSetting("compliance_statement_default", "   ");

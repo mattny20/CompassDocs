@@ -9,11 +9,12 @@ import {
   keptSinceLastReset,
 } from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
-import { spaceScopeFor, scopeAllows, userHolds } from "@/lib/access";
+import { spaceScopeFor, scopeAllows, canSeeDrafts, userHolds } from "@/lib/access";
 import { featureEnabled } from "@/lib/ee";
 import { auditAck, actorFrom, ipFrom } from "@/lib/audit";
 import type { SessionUser } from "@/lib/types";
 import { versionProvenance, provenanceCells } from "@/lib/version-provenance";
+import { csvCell } from "@/lib/csv";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +36,14 @@ export const dynamic = "force-dynamic";
 // user_agent is reserved: the record does not store it yet (the audit row
 // for the confirmation does), so the column is blank for everyone. After
 // them, version_published_by and version_approved_by (C6): who published and
-// approved the version each row cites.
+// approved the version each row cites. Every cell goes through csvCell
+// (quotes doubled, a formula-leading value prefixed with a quote), so a
+// name or a note that starts with = never runs when the sheet opens.
+//
+// Guards: apiGuard admits a holder of the space-scoped key anywhere, so the
+// key is checked again on the document's own space (403); a draft the
+// caller may not read is 404, as GET /api/documents/[id] and the ack GET
+// answer, because an unpublished policy keeps its title, rows and reasons.
 
 /**
  * The IP recorded on each confirmation the roster cites, keyed so the match
@@ -74,6 +82,12 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   if (!doc || !scopeAllows(await spaceScopeFor(user), doc.space_id)) {
     return NextResponse.json({ error: "Not found." }, { status: 404 });
   }
+  if (doc.status === "draft" && !(await canSeeDrafts(user, doc.space_id))) {
+    return NextResponse.json({ error: "Not found." }, { status: 404 });
+  }
+  if (!(await userHolds(user, "document.ack_roster_read", { spaceId: doc.space_id, legacyMin: "approver" }))) {
+    return NextResponse.json({ error: "You don't have permission for that." }, { status: 403 });
+  }
 
   const [rows, former, version, lastDecision, lastReset, kept, canExport] = await Promise.all([
     ackStatusForDocument(doc.id),
@@ -91,13 +105,13 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 
   const url = new URL(req.url);
   if (url.searchParams.get("format") === "csv") {
-    const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const esc = csvCell;
     const provenance = await versionProvenance(doc.id);
     const asked = [
-      doc.ack_revision_at,
+      esc(doc.ack_revision_at),
       esc(lastReset?.decided_by_name ?? ""),
       esc(lastReset?.reason ?? ""),
-      kept.count,
+      esc(kept.count),
     ];
     const csv = [
       "name,username,email,role,status,acknowledged_at,document,revision_as_of,version,version_id,content_sha256,version_source,former_staff,asked_at,asked_by,reason,kept_since_asked,ip,user_agent,version_published_by,version_approved_by",
@@ -106,16 +120,16 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
           esc(r.name),
           esc(r.username),
           esc(r.email),
-          r.role,
-          r.acknowledged_at ? "acknowledged" : "pending",
-          r.acknowledged_at ?? "",
+          esc(r.role),
+          esc(r.acknowledged_at ? "acknowledged" : "pending"),
+          esc(r.acknowledged_at ?? ""),
           esc(doc.title),
-          doc.ack_revision_at,
-          r.rev ? `v${r.rev}` : "",
-          r.version_id ?? "",
-          r.content_sha256 ?? "",
-          r.version_source ?? "",
-          "",
+          esc(doc.ack_revision_at),
+          esc(r.rev ? `v${r.rev}` : ""),
+          esc(r.version_id ?? ""),
+          esc(r.content_sha256 ?? ""),
+          esc(r.version_source ?? ""),
+          esc(""),
           ...asked,
           esc(ipOfRow(r)),
           esc(""),
@@ -127,16 +141,16 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
           esc(r.name),
           esc(r.username),
           esc(r.email),
-          r.role,
-          "acknowledged",
-          r.acknowledged_at,
+          esc(r.role),
+          esc("acknowledged"),
+          esc(r.acknowledged_at),
           esc(doc.title),
-          doc.ack_revision_at,
-          r.rev ? `v${r.rev}` : "",
-          r.version_id ?? "",
-          r.content_sha256 ?? "",
-          r.version_source,
-          r.reason,
+          esc(doc.ack_revision_at),
+          esc(r.rev ? `v${r.rev}` : ""),
+          esc(r.version_id ?? ""),
+          esc(r.content_sha256 ?? ""),
+          esc(r.version_source),
+          esc(r.reason),
           ...asked,
           esc(ipOfFormer(r)),
           esc(""),

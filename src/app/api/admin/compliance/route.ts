@@ -16,6 +16,7 @@ import { audit, auditAck, actorFrom, ipFrom } from "@/lib/audit";
 import { userHolds } from "@/lib/access";
 import { requestOrigin } from "@/lib/oauth";
 import { versionProvenance, provenanceCells } from "@/lib/version-provenance";
+import { csvCell } from "@/lib/csv";
 import type { SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -87,9 +88,12 @@ export async function GET(req: Request) {
     // appended, then the ledger's asked_at, asked_by, reason and
     // kept_since_asked (C1; asked_by and reason are empty when the marker
     // predates the ledger), then who published and approved the version each
-    // row cites (C6, 1.10.1). No IP column here: with_ip is false.
+    // row cites (C6, 1.10.1). No IP column here: with_ip is false. Every
+    // cell goes through csvCell (quotes doubled, a formula-leading value
+    // prefixed with a quote), so a name or a note that starts with = never
+    // runs when the sheet opens; the header line is the literal below.
     const docs = await complianceDocs();
-    const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const esc = csvCell;
     const lines = [
       "document,space,revision_as_of,name,username,email,role,acknowledged_at,version,version_id,content_sha256,version_source,former_staff,asked_at,asked_by,reason,kept_since_asked,version_published_by,version_approved_by",
     ];
@@ -242,13 +246,24 @@ export async function POST(req: Request) {
     if (doc.ack_required === 1) {
       return NextResponse.json({ error: "This document already asks for a read confirmation." }, { status: 400 });
     }
+    // `notify` is a boolean or absent: "false", 0 or null would otherwise
+    // read as "tell everyone", as the sibling PATCH /ack already refuses.
+    if (body.notify !== undefined && typeof body.notify !== "boolean") {
+      return NextResponse.json({ error: "'notify' must be true or false." }, { status: 400 });
+    }
     const notify = body.notify !== false;
     // The audience as it stands when the requirement is switched on: the
     // number the question showed, kept on the audit row.
     const summary = await ackSummary(doc.id);
     // Switches the requirement on, stamps the Remind cooldown and, with
     // notify, queues the 'request' notice for the outbox (src/lib/compliance).
-    const { queued } = await requestAcknowledgement(doc, sender, requestOrigin(req), { notify });
+    // The flip itself is the claim: when two requests race, only the one
+    // that switched the requirement on queues a notice and is on the record;
+    // the other is answered as a request for a policy that already asks.
+    const { queued, switched_on } = await requestAcknowledgement(doc, sender, requestOrigin(req), { notify });
+    if (!switched_on) {
+      return NextResponse.json({ error: "This document already asks for a read confirmation." }, { status: 400 });
+    }
     await auditAck("document.ack_required", doc, {
       actor,
       ip,
@@ -276,8 +291,17 @@ export async function POST(req: Request) {
     }
     // Queues the 'reminder' notice and stamps the cooldown in the request
     // path (not the drain), so a second click inside the hour is refused
-    // before anything is delivered.
-    const { queued } = await enqueueReminder(doc, sender, requestOrigin(req));
+    // before anything is delivered. The stamp is the claim (one UPDATE
+    // guarded on the hour): the check above gives the friendly refusal,
+    // and two clicks that pass it in the same second still queue one row,
+    // the loser answering the same 429.
+    const { queued, claimed } = await enqueueReminder(doc, sender, requestOrigin(req));
+    if (!claimed) {
+      return NextResponse.json(
+        { error: "A reminder went out less than an hour ago. Give people a moment." },
+        { status: 429 }
+      );
+    }
     return NextResponse.json({ ok: true, queued });
   }
 

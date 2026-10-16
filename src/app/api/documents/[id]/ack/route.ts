@@ -156,7 +156,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 // confirmation changes nothing and queues nothing. `required: false` keeps
 // the record and audits the standing at that moment. `edit_default` is the
 // per-document answer to "when the text changes"; its audit row carries
-// {from, to}. Answers { ok, ack_required, edit_default, queued, eligible }.
+// {from, to}. Every branch answers the same shape, { ok, ack_required,
+// edit_default, queued, eligible }, read from the row after the writes (so
+// a first switch-on that replaced an explicit 'ask' with the workspace
+// default echoes what the document now holds, not what was sent).
+//
+// apiGuard admits a holder of the space-scoped document.ack_require from
+// any space (it takes no space), so the key is checked again on the
+// document's own space: a role granted it on one space must not switch
+// the requirement on, queue a notice to or change the default of a
+// document it can merely read in another.
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const gate = await apiGuard("approver", "document.ack_require");
   if (gate instanceof NextResponse) return gate;
@@ -173,6 +182,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const doc = await getDocument(Number(id));
   if (!doc || !scopeAllows(await spaceScopeFor(user), doc.space_id)) {
     return NextResponse.json({ error: "Not found." }, { status: 404 });
+  }
+  if (!(await userHolds(user, "document.ack_require", { spaceId: doc.space_id, legacyMin: "approver" }))) {
+    return NextResponse.json({ error: "You don't have permission for that." }, { status: 403 });
   }
 
   let body: any;
@@ -204,13 +216,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
   const actor = actorFrom(user);
   const ip = ipFrom(req);
-  const answer: {
-    ok: true;
-    ack_required: boolean;
-    edit_default?: string;
-    queued?: number;
-    eligible?: number;
-  } = { ok: true, ack_required: doc.ack_required === 1 };
+  let queued = 0;
 
   if (hasEditDefault) {
     const change = await setAckEditDefault(doc.id, body.edit_default);
@@ -222,7 +228,6 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         details: { from: change.from, to: change.to },
       });
     }
-    answer.edit_default = change?.to ?? body.edit_default;
   }
 
   if (hasRequired) {
@@ -234,44 +239,48 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (body.required) {
       if (doc.ack_required !== 1) {
         const notify = body.notify === true;
-        const { queued } = await requestAcknowledgement(
+        // The flip is the claim: only the call that switched the
+        // requirement on queues a notice and is on the record; a request
+        // that lost that race changes nothing and answers queued 0.
+        const r = await requestAcknowledgement(
           doc,
           { id: user.id, name: user.name || user.username },
           requestOrigin(req),
           { notify }
         );
-        await auditAck("document.ack_required", doc, {
-          actor,
-          ip,
-          version_id: summary.latest_version_id,
-          version: summary.latest_rev,
-          source: "manual",
-          details: { notify, eligible: summary.eligible, queued },
-        });
-        answer.queued = queued;
-      } else {
-        answer.queued = 0;
+        queued = r.queued;
+        if (r.switched_on) {
+          await auditAck("document.ack_required", doc, {
+            actor,
+            ip,
+            version_id: summary.latest_version_id,
+            version: summary.latest_rev,
+            source: "manual",
+            details: { notify, eligible: summary.eligible, queued },
+          });
+        }
       }
-      answer.ack_required = true;
-      answer.eligible = summary.eligible;
-    } else {
-      if (doc.ack_required === 1) {
-        await setAckRequired(doc.id, false);
-        await auditAck("document.ack_removed", doc, {
-          actor,
-          ip,
-          version_id: summary.version_id,
-          version: summary.rev,
-          source: "manual",
-          details: { acked: summary.current, required: summary.eligible },
-        });
-      }
-      answer.ack_required = false;
+    } else if (doc.ack_required === 1) {
+      await setAckRequired(doc.id, false);
+      await auditAck("document.ack_removed", doc, {
+        actor,
+        ip,
+        version_id: summary.version_id,
+        version: summary.rev,
+        source: "manual",
+        details: { acked: summary.current, required: summary.eligible },
+      });
     }
   }
 
-  if (answer.edit_default === undefined) {
-    answer.edit_default = (await ackSummary(doc.id)).edit_default;
-  }
-  return NextResponse.json(answer);
+  // One read after the writes, so every branch answers the documented
+  // shape from what the document now holds.
+  const after = await ackSummary(doc.id);
+  return NextResponse.json({
+    ok: true,
+    ack_required: after.required,
+    edit_default: after.edit_default,
+    queued,
+    eligible: after.eligible,
+  });
 }
