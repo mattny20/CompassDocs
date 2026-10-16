@@ -122,8 +122,8 @@ export function ImportExport() {
             )}
             {(result.policies_skipped ?? 0) > 0 && (
               <span className="block">
-                {policies(result.policies_skipped)} that require read confirmation{" "}
-                {result.policies_skipped === 1 ? "was" : "were"} left unchanged.
+                {policies(result.policies_skipped)} that {result.policies_skipped === 1 ? "requires" : "require"}{" "}
+                read confirmation {result.policies_skipped === 1 ? "was" : "were"} left unchanged.
               </span>
             )}
             {result.errors.length > 0 && (
