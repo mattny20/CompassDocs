@@ -40,6 +40,45 @@ interface DocRow {
   ack_last_reminded_at: string | null;
   required: number;
   acked: number;
+  /** The marker version's number ("v12"); see handoff-ledgerui.md. */
+  ack_rev?: number | null;
+  /** The ledger (C1, 1.10.0): the newest decision of either outcome, and the newest reset (who last asked everyone, and why). */
+  last_decision?: DecisionBrief | null;
+  last_reset?: DecisionBrief | null;
+  /** Kept edits since everyone was last asked, and how far the text has drifted from the version they confirmed. */
+  kept_since_reset?: number;
+  drift_pct?: number | string | null;
+}
+
+interface DecisionBrief {
+  decided_at: string;
+  decided_by_name: string;
+  reason: string;
+  outcome: string;
+  source: string;
+}
+
+/** The row behind the marker: the newest reset, or the newest decision when it is one. */
+function lastAsk(d: DocRow): DecisionBrief | null {
+  if (d.last_reset) return d.last_reset;
+  return d.last_decision?.outcome === "reset" ? d.last_decision : null;
+}
+
+/** "Last asked Mar 3, 2026 by Matt: Section 4 now covers contractors". */
+function askedLine(x: DecisionBrief, date: (iso: string) => string): string {
+  let line = `Last asked ${date(x.decided_at)}`;
+  if (x.decided_by_name) line += ` by ${x.decided_by_name}`;
+  if (x.reason) line += `: ${x.reason}`;
+  return line;
+}
+
+/** "Edited 3 times since v12 without re-asking · 7.8% drift" (the number feeds the needs-attention queue later). */
+function driftLabel(d: DocRow): string {
+  const n = d.kept_since_reset ?? 0;
+  const drift = Number(d.drift_pct ?? 0);
+  const edited = n === 1 ? "Edited once" : `Edited ${n} times`;
+  const since = d.ack_rev ? `v${d.ack_rev}` : "the last ask";
+  return `${edited} since ${since} without re-asking` + (drift > 0 ? ` · ${drift.toFixed(1)}% drift` : "");
 }
 
 export function CompliancePanel({ licensed }: { licensed: boolean }) {
@@ -256,6 +295,22 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
                                 ? `last reminded ${timeAgo(d.ack_last_reminded_at)}`
                                 : "never reminded"}
                             </span>
+                            {lastAsk(d) && (
+                              <span className="block text-xs text-slate-500">
+                                {askedLine(lastAsk(d)!, fmt.date)}
+                              </span>
+                            )}
+                            {(d.kept_since_reset ?? 0) > 0 && (
+                              <span className="mt-1 block">
+                                <span
+                                  className={chipClass("neutral", "sm")}
+                                  data-tt="Edits the editor said did not need everyone to re-confirm; drift is how far the text now differs from the version people confirmed"
+                                  data-tt-wrap=""
+                                >
+                                  {driftLabel(d)}
+                                </span>
+                              </span>
+                            )}
                           </span>
                         </button>
                         <div className="w-40">

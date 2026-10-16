@@ -43,6 +43,17 @@ export type BranchItem = {
   when: string;
 };
 
+/** A row of the Read confirmation ledger (C1, 1.10.0): what was decided
+ *  about existing confirmations when this version was saved. */
+export type VersionDecision = {
+  version_id: number | null;
+  /** 'reset' (everyone was asked to re-confirm) or 'kept' (editorial). */
+  outcome: string;
+  decided_by_name: string;
+  /** For approvals: who submitted the change (differs from the approver). */
+  submitted_by_name: string;
+};
+
 function Segments({ segs, text }: { segs?: DiffSegment[]; text: string }) {
   if (!segs) return <>{text || " "}</>;
   return (
@@ -123,6 +134,7 @@ export function VersionHistory({
   canPublishDirect,
   versions,
   branches,
+  decisions = [],
 }: {
   docId: number;
   docStatus: string;
@@ -132,6 +144,9 @@ export function VersionHistory({
   canPublishDirect: boolean;
   versions: VersionItem[];
   branches: BranchItem[];
+  /** Read-confirmation decisions, newest first; only for documents that
+   *  require confirmation (the page passes nothing otherwise). */
+  decisions?: VersionDecision[];
 }) {
   const router = useRouter();
   // Default compare: previous vs current (when there are at least two).
@@ -148,6 +163,17 @@ export function VersionHistory({
 
   const oldV = versions.find((v) => v.id === oldId);
   const newV = versions.find((v) => v.id === newId);
+
+  // The newest keep/reset per version (the list arrives newest first): a
+  // version kept at save time and asked again later by hand shows the ask.
+  const decisionFor = useMemo(() => {
+    const m = new Map<number, VersionDecision>();
+    for (const d of decisions) {
+      if (d.version_id === null || m.has(d.version_id)) continue;
+      if (d.outcome === "reset" || d.outcome === "kept") m.set(d.version_id, d);
+    }
+    return m;
+  }, [decisions]);
 
   const rows = useMemo(() => {
     if (!oldV || !newV || oldV.id === newV.id) return null;
@@ -362,6 +388,12 @@ export function VersionHistory({
         <ol className="overflow-hidden rounded-xl border border-slate-200 bg-surface shadow-xs">
           {versions.map((v, i) => {
             const isCurrent = i === 0;
+            const decision = decisionFor.get(v.id);
+            const approved =
+              decision &&
+              decision.submitted_by_name &&
+              decision.decided_by_name &&
+              decision.submitted_by_name !== decision.decided_by_name;
             return (
               <li
                 key={v.id}
@@ -409,6 +441,16 @@ export function VersionHistory({
                   {v.restored_from !== null && (
                     <span className={chipClass("warn", "sm", "ml-1.5")}>
                       Restored
+                    </span>
+                  )}
+                  {decision && (
+                    <span className={chipClass(decision.outcome === "reset" ? "warn" : "info", "sm", "ml-1.5")}>
+                      {decision.outcome === "reset" ? "Asked everyone to re-confirm" : "Editorial (kept)"}
+                    </span>
+                  )}
+                  {approved && (
+                    <span className="ml-1.5 text-xs font-normal text-slate-500">
+                      recommended by {decision.submitted_by_name}, approved by {decision.decided_by_name}
                     </span>
                   )}
                 </span>
