@@ -57,6 +57,18 @@ keep their own titles.
   beside the article ("On this page", capped at half the viewport) and as a
   collapsible card above the body when it is not. `DocToc` reads the placement
   from context; both mark the heading being read with `aria-current="location"`.
+- **The sticky document bar has a phone budget** (1.10.0). `StickyDocBar`
+  takes arbitrary children; on the document page they are the
+  read-confirmation control (`AckStickyControl`, rendered **before the
+  title** so it survives truncation), the `StatusBadge`, the truncated title
+  and a copy of `DocActions` that receives the same `ack` prop as the
+  masthead copy, so the shield popover is reachable while scrolled. Under
+  `sm` the bar shows the **control and the title only**: the `DocActions`
+  wrapper is `hidden sm:flex`, the control collapses to its icon plus
+  "Pending" / "Confirmed" (`text-2xs`), and nothing scrolls sideways
+  (`e2e/acknowledgements.spec.ts` asserts it at 375px and 390px). Nine
+  36px icon buttons do not fit beside a title on a phone, and the bar is
+  exactly where a reader halfway down a policy looks.
 - The document editor follows the same rule (1.9.1): at Wide and Full its
   properties sit in a sticky 18rem column beside the editor card, placed by a
   CSS grid (`lg:grid-cols-[minmax(0,1fr)_18rem]`) so each field is rendered
@@ -128,6 +140,30 @@ a top-level page and uses `PageContainer`, however standalone it feels.
   the document outline; sizes follow the tier — never make a card title
   `text-lg` or an eyebrow `text-sm`. Icons sit before the text at 20px
   (section), 16px (card, sub-heading) or 14px (eyebrow), in `text-compass-600`.
+- **End-of-article action card** (1.10.0). When a document asks the reader
+  for one thing once they have read it — a read confirmation today — the
+  control lives in a card **after the article**, between `</article>` and
+  the feedback row, never only in the strip above it (a reader who finishes
+  a long policy should not have to scroll back up). The recipe is the
+  `TrainingPlayer` gate panel: a `<section id tabIndex={-1}
+  aria-labelledby>` with `scroll-mt-20` (5rem, the sticky-bar clearance
+  `DocToc` gives headings), a 48px `bg-compass-50` circle holding the lucide
+  icon, a `CardTitle` carrying the `aria-labelledby` id, **one statement
+  sentence** (the confirmation statement, see §Vocabulary) and nothing
+  else, an optional meta line (`text-xs text-slate-500`: "Version 12 ·
+  published {date} by {author}"), and **one `lg` primary `Button`**
+  (`busy`, wired through `useAction()`, full width under `sm`). The done
+  state is plain text inside the same card — the emerald `CircleCheckBig`,
+  "You confirmed version 12 on {date}" and a `Link` to the record — never a
+  second card or an inline flash; the toast is the announcement, and focus
+  moves to the section after success. The strip at the top keeps **one
+  sentence and one action**: a `secondary` `sm` `<Button
+  href="#confirm-reading">` (a real anchor so it works without JS;
+  `onClick` adds `scrollIntoView` unless reduced motion, then focuses the
+  section). Change notes, reasons and diffs belong in the card, not the
+  strip. A `hidden print:block text-xs` line after the article states the
+  reader's standing, so a printed policy carries it. `AckCard`
+  (`#confirm-reading`) is the first.
 
 ## Empty states
 
@@ -548,6 +584,17 @@ its saved status beside the title — and changing it is a named action
 destructive direction asks first (`confirmDialog`); the keyboard save keeps
 the state as it is.
 
+**Status chips are never links or pickers** (1.10.0). A chip shows where
+something stands; it does not take the reader anywhere and it does not open
+a menu. The document sticky bar is the worked example (B2): while a read
+confirmation is pending the control is a `secondary` `sm` `<Button href>`
+that jumps to the card at the end of the article, and once confirmed it
+becomes `chipClass("ok", "sm")` with `CircleCheckBig` and "Confirmed
+{date}" — a status, not a link; "View your record" is a `Link` in the card.
+The read-confirmation chips are a closed set — **Confirmed** (`ok`),
+**Pending** (`warn`), **Overdue** (`error`), **Exempt** (`neutral`) — and
+nothing else for a confirmation's state (never "Acknowledged").
+
 **Attribute chips** (a directory field shown as chips, a tag list) are not
 status: render them with `FieldChips`, which shows the option's **label**
 (never a raw code — "Phoenix", not `PHX1`) in **neutral slate by default**.
@@ -627,6 +674,15 @@ text-slate-500` before them ("Notary · Phoenix").
   (`toast("ok", "Moved to the Trash.", { action: { label: "Undo", onClick } })`)
   that reverses through the existing API. Only the genuinely irreversible
   gets a `confirmDialog`, and its body ends "This cannot be undone."
+- **An attestation whose statement is printed beside the button is the
+  question; it does not open a dialog** (1.10.0). "I confirm that I have
+  read and understood this document." next to **I've read and understood
+  this** is already the sentence a `confirmDialog` would repeat, so the
+  button records at once, toasts ("Confirmation recorded.") and moves
+  focus to the done state; a dialog here would ask the same thing twice.
+  The rule covers any signed statement, the training gate included. A
+  dialog *is* right for the other party's decision — an editor choosing
+  whether readers must re-confirm (the choice dialog in §Overlays).
 - **Row actions go through `useAction()`** (`lib/use-action`): `run(key,
   () => fetch(…), { fallback, ok })` ignores a second click while the
   first is in flight, toasts the server's `error` or the specific
@@ -675,6 +731,40 @@ identifiers (`docs`, `doc_count`) keep their names.
 - **Space, Category, Page.** A *space* groups documents; a *category* is a
   section within a space; a *page* is a nested document under another
   document. "Folder", "section" and "sub-doc" are not product words.
+- **Read confirmation** (1.10.0). The feature is *read confirmation*, and
+  the product once said it four ways (confirm, acknowledge, attest, sign
+  off). One glossary, every surface:
+  - The reader **confirms** and **re-confirms**; never "acknowledges",
+    "attests" or "signs off" in copy. The button is "I've read and
+    understood this"; the toast is "Confirmation recorded."
+  - The sentence a reader agrees to is the **confirmation statement**
+    (default: "I confirm that I have read and understood this document.").
+  - A manager **asks to re-confirm**: the controls are "Ask everyone to
+    re-confirm…" for the audience and "Ask to re-confirm…" for one person
+    (D4). Never "Re-request", "Re-attest" or "Reset confirmations" as a
+    label — the reset is what happens, not what the person asks for.
+  - The evidence row is the **attestation record**; the page that lists
+    them is "the record" ("View record", "View your record").
+  - Status chips read **Confirmed**, **Pending**, **Overdue** or
+    **Exempt**, and nothing else (§Status chips has the tones).
+  - The erasure action is "Anonymise compliance record…" (C5). The cycle
+    is **annual re-confirmation**.
+  - The number is **version 12**, shown as **v12** in chips, meta lines
+    and labels. Never "revision" in UI copy; the CSV column
+    `revision_as_of` keeps its name because exports never rename a column.
+  - A **policy** is a document that requires read confirmation, and the
+    word is used only on the compliance pages (the portal, the record). On
+    the document page it is always "this document".
+  - A group of policies is a **set** — never "pack" or "bundle", except
+    inside an example name an admin types.
+  - **People** wherever a count is shown ("42 of 50 people", "3 people
+    notified"); **readers** only in prose without a number ("readers are
+    notified").
+  - "Acknowledgement" survives only where a rename would break something:
+    API paths (`/api/documents/[id]/ack`, `…/acknowledgements`), audit keys
+    (`document.acknowledge`, `ack.requested`), permission keys
+    (`document.ack_submit`) and the licence label ("Policy
+    acknowledgements"). Nowhere a person reads.
 - **The audit log never prints a raw key.** Action labels come from
   `lib/audit-labels` (`actionLabel("user.create")` → "Created user"); every
   `audit({ action })` the codebase emits has a verb-first label there, and
@@ -746,6 +836,18 @@ per-route variants:
   overlay stack, focus back to the trigger. The trigger carries
   `aria-expanded` and `aria-haspopup`. Never hand-roll an `absolute …
   shadow-lg` panel (a guard test fails the build).
+- **A popover holds a handful of controls, never a settings page**
+  (1.10.0). The Read confirmation popover on the document shield
+  (`AckSettings`, A5) holds **four controls** under its heading — the
+  "Require readers to confirm" Toggle, the status line with its "View
+  record" link, the "When the text changes" Select, and the "Ask everyone
+  to re-confirm…" button — and nothing else is ever added to it. Further
+  per-policy settings (audience, deadline, reminders, the re-confirmation
+  interval, the statement, signature) go to the document's Read
+  confirmation **Settings** page (`/doc/[id]/acknowledgements/settings`,
+  with the house `SubNav`: Record · Settings · History), and the popover
+  gains one "All settings" link. A popover wanting a fifth control is the
+  signal to make the page.
 - **Questions are dialogs**: `confirmDialog({ title, body, confirmLabel,
   danger, typeToConfirm, secondary })` and `promptDialog({ title, label,
   type, initial, validate, min, max })` from `components/Dialog`, one
@@ -758,6 +860,25 @@ per-route variants:
   number) instead of letting the server refuse. Chained questions are one
   dialog. Never `window.confirm` / `window.prompt` (the leave guard
   excepted) and never a hand-rolled modal for a yes/no.
+- **Choice dialog** (1.10.0). A question with two or three named outcomes
+  that share one extra input is one bespoke dialog on `components/Modal`,
+  never a `confirmDialog` chained into a `promptDialog`. The recipe: a
+  title that is the question ("How should readers see this change?"), a
+  one-sentence lede with the numbers that matter ("42 of 50 people have
+  confirmed version 12 of …"), a `role="radiogroup"` of **stacked radio
+  cards** — a label plus one description sentence each, arrows moving the
+  choice — **one hint sentence** that pre-selects a card ("Looks
+  editorial: 14 words in one paragraph changed.") and may carry a
+  disclosure for the evidence ("Show changes"), **one inline field** (a
+  `Textarea` in a `Field`, required for every choice, its help changing
+  with the selection), and Cancel plus **one primary whose label follows
+  the selection** ("Save. Keep confirmations" / "Save and ask 42 people to
+  re-confirm"), so the button always says what will happen. Enter submits,
+  Escape cancels. It exposes a promise (`reconfirmDialog(opts) → result |
+  null`) that the caller awaits **before** setting any busy state, so
+  Cancel leaves the form dirty and the Save button idle; being on the
+  overlay stack, `overlayOpen()` keeps the keyboard shortcut from opening a
+  second one. `ReconfirmModal` (A3) is the first.
 - **Three elevation tiers**, as tokens: `shadow-card` (`shadow-xs`, a
   resting card), `shadow-float` (menus, popovers, dropdowns, toasts),
   `shadow-modal` (dialogs, the palette). Nothing else casts a shadow.

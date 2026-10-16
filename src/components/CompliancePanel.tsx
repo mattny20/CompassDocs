@@ -151,10 +151,10 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
           {/* KPIs */}
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             {[
-              { icon: <FileCheck className="h-4 w-4" />, label: "Policies requiring acknowledgement", value: k.policies },
+              { icon: <FileCheck className="h-4 w-4" />, label: "Policies requiring confirmation", value: k.policies },
               { icon: <Percent className="h-4 w-4" />, label: "Overall compliance", value: `${k.pct}%` },
               { icon: <Users className="h-4 w-4" />, label: "Fully compliant people", value: `${k.users_compliant}/${k.users_total}` },
-              { icon: <CircleAlert className="h-4 w-4" />, label: "Outstanding acknowledgements", value: k.outstanding },
+              { icon: <CircleAlert className="h-4 w-4" />, label: "Outstanding confirmations", value: k.outstanding },
             ].map((c) => (
               <div key={c.label} className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
                 <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-compass-50 text-compass-600">
@@ -166,15 +166,15 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
             ))}
           </div>
 
-          {/* Request acknowledgement */}
+          {/* Request read confirmation */}
           <section className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
             <h2 className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
-              <Send className="h-4 w-4 text-compass-600" /> Request acknowledgement
+              <Send className="h-4 w-4 text-compass-600" /> Request read confirmation
             </h2>
             <p className="mt-0.5 text-xs text-slate-500">
-              Pick a published document — everyone who can see it gets a dashboard notice and an
-              email asking them to read and acknowledge it. Compliance emails are sent regardless
-              of personal notification settings.
+              Pick a published document. Everyone who can see it gets a dashboard notice and an
+              email asking them to read and confirm it. Compliance emails are sent regardless of
+              personal notification settings.
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <div className="min-w-72 flex-1 sm:max-w-md">
@@ -204,7 +204,7 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
                 )}
               </div>
               <button
-                onClick={() => candidate && act(Number(candidate), "request", "Acknowledgement requested")}
+                onClick={() => candidate && act(Number(candidate), "request", "Read confirmation requested")}
                 disabled={!candidate || busy !== null}
                 className={buttonClass("primary")}
               >
@@ -213,7 +213,7 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
                 ) : (
                   <Send className="h-4 w-4" />
                 )}
-                Request acknowledgement
+                Request read confirmation
               </button>
             </div>
           </section>
@@ -227,7 +227,7 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
             </div>
             {data.docs.length === 0 ? (
               <SectionEmpty className="px-4 py-8 text-center">
-                No documents require acknowledgement yet — request one above.
+                No documents require read confirmation yet. Request one above.
               </SectionEmpty>
             ) : (
               <ul className="divide-y divide-slate-100">
@@ -251,7 +251,7 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
                               {d.space_icon} {d.title}
                             </span>
                             <span className="block text-xs text-slate-500">
-                              Revision of {fmt.date(d.updated_at)} ·{" "}
+                              Updated {fmt.date(d.updated_at)} ·{" "}
                               {d.ack_last_reminded_at
                                 ? `last reminded ${timeAgo(d.ack_last_reminded_at)}`
                                 : "never reminded"}
@@ -277,7 +277,7 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
                             <button
                               onClick={() => act(d.id, "remind", "Reminder sent")}
                               disabled={busy !== null}
-                              data-tt="Notify everyone who hasn't acknowledged yet"
+                              data-tt="Notify everyone who hasn't confirmed yet"
                               className={buttonClass("secondary", "sm")}
                             >
                               {busy === `remind-${d.id}` ? (
@@ -337,7 +337,7 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
                 <tr className="text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
                   <th className="pb-2 font-medium">Person</th>
                   <th className="pb-2 text-right font-medium">Required</th>
-                  <th className="pb-2 text-right font-medium">Acknowledged</th>
+                  <th className="pb-2 text-right font-medium">Confirmed</th>
                   <th className="pb-2 text-right font-medium">Standing</th>
                 </tr>
               </thead>
@@ -384,7 +384,7 @@ function Header({ extra }: { extra?: React.ReactNode }) {
           <EnterpriseBadge />
         </>
       }
-      subtitle="Acknowledgement progress across every policy — who has read what, and who still owes a confirmation."
+      subtitle="Read-confirmation progress across every policy: who has confirmed what, and who still owes a confirmation."
       actions={extra}
       className="mb-5"
     />
