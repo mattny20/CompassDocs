@@ -9,9 +9,12 @@ import { SectionEmpty } from "@/components/form";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ChevronDown, ClipboardCheck, House, ListChecks, ShieldCheck, Sparkles, SquareSplitVertical, Table as TableIcon, X } from "lucide-react";
-import { EmptyState, Field, Select, TextInput } from "./form";
+import { EmptyState, Field, Select, Textarea, TextInput } from "./form";
 import { StatusBadge } from "./Badges";
 import { confirmDialog } from "./Dialog";
+import { ReconfirmHost, assessChange, reconfirmDialog } from "./ReconfirmModal";
+import type { ReconfirmResult, ReconfirmText } from "./ReconfirmModal";
+import { toast } from "./Toasts";
 import { Popover } from "./Popover";
 import { EntityPicker } from "./EntityPicker";
 import { MarkdownView } from "./MarkdownView";
@@ -55,6 +58,26 @@ interface Category {
   name: string;
 }
 
+/**
+ * Read confirmation as the editor needs it (A3, 1.10.0): whether the document
+ * asks readers to confirm, the per-document edit default (only "ask" exists
+ * until A5 adds the column) and the counts from `ackSummary` for the header
+ * chip. The confirmed baseline text is fetched when a save needs it.
+ */
+export interface EditorAck {
+  required: boolean;
+  editDefault: "ask";
+  summary: {
+    eligible: number;
+    current: number;
+    pending: number;
+    version_id: number | null;
+    rev: number | null;
+    latest_version_id: number | null;
+    latest_rev: number | null;
+  };
+}
+
 interface Initial {
   id?: number;
   space_id?: number;
@@ -71,6 +94,36 @@ interface Initial {
   archive_at?: string | null;
   /** Concurrency token: the updated_at this editor session loaded. */
   updated_at?: string;
+  ack?: EditorAck;
+}
+
+/** What GET /api/documents/[id]/ack?baseline=1 answers (the parts the editor reads). */
+interface AckFetched {
+  eligible: number;
+  current: number;
+  rev: number | null;
+  baseline?: { version_id: number | null; rev: number | null; title: string; content: string } | null;
+}
+
+/** What PUT echoes once the save has been classified (A2). */
+interface AckOutcome {
+  changed?: boolean;
+  substantive?: boolean;
+  reset?: boolean;
+  confirmations_reset?: number;
+  policy?: string;
+  source?: string;
+}
+
+/**
+ * The server's own test, character for character (updateDocument, A2): the
+ * two sides must agree on what "the text changed" means, or a save the
+ * editor calls unchanged would reach the server as an unasked change and
+ * reset everyone with no dialog. The title is trimmed on both sides already
+ * (the editor sends title.trim(), the route trims again).
+ */
+function sameText(a: ReconfirmText, b: ReconfirmText): boolean {
+  return a.title === b.title && a.content === b.content;
 }
 
 export function DocEditor({
@@ -120,6 +173,17 @@ export function DocEditor({
   const [tags, setTags] = useState(initial.tags.join(", "));
   const [content, setContent] = useState(initial.content);
   const [changeNote, setChangeNote] = useState("");
+  // Read confirmation (A3): a document readers have confirmed asks, before a
+  // save that changes its text, how they should see the change. The counts
+  // seed the header chip and refresh from the server when the question opens.
+  const ack = mode === "edit" && initial.ack?.required ? initial.ack : null;
+  const [ackCounts, setAckCounts] = useState({
+    current: initial.ack?.summary.current ?? 0,
+    eligible: initial.ack?.summary.eligible ?? 0,
+  });
+  // True while the question (or the fetch before it) is up, so a second
+  // Ctrl+S cannot start a second save in the gap before the modal mounts.
+  const askingRef = useRef(false);
   const [tab, setTab] = useState<EditorTab>("rich");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -449,12 +513,95 @@ export function DocEditor({
     return null;
   }
 
+  /**
+   * The re-confirmation question (A3). Opens exactly when the server would
+   * take a decision (updateDocument rule 2): the document asks readers to
+   * confirm, the resulting status is published, THIS save changes the text
+   * or title against the loaded document (or publishes a draft), AND the
+   * result differs from the confirmed baseline (fetched with ?baseline=1 so
+   * the drift since the last re-confirmation is what the dialog measures).
+   * So a metadata-only save never asks, not even after a kept edit left the
+   * live text ahead of the baseline, and a save that reverts to the
+   * confirmed text never asks either. Returns `{ ask: false }` when there is
+   * nothing to ask; otherwise the answer, null for Cancel.
+   */
+  async function askReconfirm(
+    status: DocStatus
+  ): Promise<{ ask: false } | { ask: true; answer: ReconfirmResult | null }> {
+    if (!ack || !docId || status !== "published") return { ask: false };
+    // A non-publisher's save becomes a change request, and in this release
+    // the request carries no recommendation (that arrives with 1.11.0); the
+    // approval decides. Asking a question nobody records would be dishonest.
+    if (!canPublish) return { ask: false };
+    const next: ReconfirmText = { title: title.trim(), content };
+    const loaded: ReconfirmText = { title: initial.title, content: initial.content };
+    // Publishing a draft counts at the transition, however many saves the
+    // draft took (the marker waited for this moment); otherwise only a save
+    // that writes a version can be a change readers see.
+    const publishing = savedStatus !== "published";
+    if (!publishing && sameText(loaded, next)) return { ask: false };
+    let fetched: AckFetched | null = null;
+    try {
+      const res = await fetch(`/api/documents/${docId}/ack?baseline=1`, { cache: "no-store" });
+      if (res.ok) fetched = (await res.json()) as AckFetched;
+    } catch {
+      // Measured against the loaded text below; the server still decides.
+    }
+    const baseline: ReconfirmText | null = fetched?.baseline
+      ? { title: fetched.baseline.title, content: fetched.baseline.content }
+      : null;
+    if (sameText(baseline ?? loaded, next)) return { ask: false };
+    const counts = {
+      current: fetched?.current ?? ackCounts.current,
+      eligible: fetched?.eligible ?? ackCounts.eligible,
+    };
+    setAckCounts(counts);
+    const rev = fetched?.baseline?.rev ?? fetched?.rev ?? ack.summary.rev;
+    const assessed = assessChange({
+      baseline,
+      loaded,
+      next,
+      baselineLabel: rev !== null ? `v${rev}` : undefined,
+    });
+    const answer = await reconfirmDialog({
+      mode: canPublish ? "save" : "submit",
+      docId,
+      docTitle: next.title || initial.title,
+      current: counts.current,
+      eligible: counts.eligible,
+      rev,
+      baseline: baseline ?? loaded,
+      next,
+      hint: assessed.hint,
+      suggested: assessed.suggested,
+      initialNote: changeNote,
+    });
+    return { ask: true, answer };
+  }
+
   /** Save with the given status — the status is the action. */
   async function save(status: DocStatus) {
     if (!title.trim()) {
       setError("A title is required.");
       return;
     }
+    // The question comes BEFORE the busy state: Cancel leaves the editor
+    // dirty and the button idle, exactly as if nothing had been pressed.
+    if (askingRef.current) return;
+    let decision: ReconfirmResult | undefined;
+    askingRef.current = true;
+    try {
+      const asked = await askReconfirm(status);
+      if (asked.ask) {
+        if (asked.answer === null) return;
+        decision = asked.answer;
+      }
+    } finally {
+      askingRef.current = false;
+    }
+    // The note travels as the version note and the decision's reason; it
+    // lands in the field too, so a failed save keeps what was typed.
+    if (decision) setChangeNote(decision.note);
     setSaving(true);
     setError("");
     const payload = {
@@ -492,7 +639,12 @@ export function DocEditor({
               ...payload,
               base_updated_at: initial.updated_at,
               versionNote:
-                changeNote.trim() || (mode === "create" ? "Created" : "Edited via editor"),
+                decision?.note ||
+                changeNote.trim() ||
+                (mode === "create" ? "Created" : "Edited via editor"),
+              // The answer to the re-confirmation question (A2 contract).
+              // Absent, the server resolves the document's default.
+              ...(decision ? { ack_policy: decision.policy, ack_reason: decision.note } : {}),
             }),
           });
       const data = await res.json();
@@ -509,6 +661,20 @@ export function DocEditor({
         setSubmittedDocId(data.docId);
         setSaving(false);
         return;
+      }
+      // What the save did to readers' confirmations, as one line. The toast
+      // host lives in the app layout, so it outlives the navigation below.
+      const outcome = data?.ack_outcome as AckOutcome | undefined;
+      if (outcome?.reset) {
+        const n = outcome.confirmations_reset ?? 0;
+        toast(
+          "ok",
+          n > 0
+            ? `Saved. ${n} ${n === 1 ? "person" : "people"} will be asked to re-confirm.`
+            : "Saved. Readers will be asked to re-confirm."
+        );
+      } else if (outcome?.substantive && outcome.policy === "keep") {
+        toast("ok", "Saved as an editorial fix. Confirmations kept.");
       }
       // Refresh BEFORE navigating: it invalidates the client router cache, so
       // the doc page fetches the just-saved content instead of briefly (or,
@@ -533,7 +699,7 @@ export function DocEditor({
   const saveHotkeyRef = useRef<() => void>(() => {});
   useEffect(() => {
     saveHotkeyRef.current = () => {
-      if (saving) return;
+      if (saving || askingRef.current) return;
       void save(savedStatus ?? "draft");
     };
   });
@@ -587,6 +753,8 @@ export function DocEditor({
   return (
     <PageWidth>
       <div ref={rootRef}>
+      {/* The re-confirmation question's host; the modal itself portals to <body>. */}
+      <ReconfirmHost />
       {/* Sticky, the same way the formatting toolbar below is sticky: it rides
           along while you scroll a long document, so Save never leaves the
           screen. It pins at the very top and publishes its height so the
@@ -605,6 +773,14 @@ export function DocEditor({
             <StatusBadge status={savedStatus} />
           ) : (
             <span className={chipClass("neutral")}>Not saved yet</span>
+          )}
+          {/* Readers have confirmed this document: the person about to save
+              sees how many before the question asks them (A3). */}
+          {ack && (
+            <span className={chipClass("accent")}>
+              <ShieldCheck className="h-3 w-3" aria-hidden /> Read confirmation · {ackCounts.current} of{" "}
+              {ackCounts.eligible}
+            </span>
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -839,15 +1015,26 @@ export function DocEditor({
             />
           </Field>
           {mode === "edit" && (
-            <Field label="Change note (shown in version history)" className={beside ? "" : "sm:col-span-3"}>
-              <TextInput
+            <Field
+              label="Change note"
+              help={
+                <>
+                  Kept in version history and on the compliance record.
+                  {/* The per-document edit default (A5); only "ask" exists today. */}
+                  {ack && ack.editDefault === "ask" && " Saving will ask whether readers must re-confirm."}
+                </>
+              }
+              className={beside ? "" : "sm:col-span-3"}
+            >
+              <Textarea
                 value={changeNote}
                 onChange={(e) => {
                   markDirty();
                   setChangeNote(e.target.value);
                 }}
-                placeholder="What changed and why? e.g. Updated escalation contacts for Q3"
-                maxLength={200}
+                placeholder="What changed and why? e.g. Expense cap raised to £75; receipts required over £20"
+                rows={2}
+                maxLength={500}
               />
             </Field>
           )}

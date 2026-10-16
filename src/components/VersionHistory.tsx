@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { Spinner } from "@/components/Spinner";
 import { chipClass } from "@/components/Chip";
-import { buttonClass } from "@/components/Button";
+import { Button, buttonClass } from "@/components/Button";
 import { confirmDialog } from "@/components/Dialog";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -14,6 +14,7 @@ import {
   RotateCcw,
   Columns2,
   AlignJustify,
+  UnfoldVertical,
 } from "lucide-react";
 import { diffBlocks, diffLines, diffStats, withFolds } from "@/lib/diff";
 import type { BlockDiffRow, DiffRow, DiffSegment, DisplayRow } from "@/lib/diff";
@@ -41,6 +42,17 @@ export type BranchItem = {
   title: string;
   author: string;
   when: string;
+};
+
+/** A row of the Read confirmation ledger (C1, 1.10.0): what was decided
+ *  about existing confirmations when this version was saved. */
+export type VersionDecision = {
+  version_id: number | null;
+  /** 'reset' (everyone was asked to re-confirm) or 'kept' (editorial). */
+  outcome: string;
+  decided_by_name: string;
+  /** For approvals: who submitted the change (differs from the approver). */
+  submitted_by_name: string;
 };
 
 function Segments({ segs, text }: { segs?: DiffSegment[]; text: string }) {
@@ -75,16 +87,15 @@ function LineNo({ n }: { n?: number }) {
   );
 }
 
+/** The fold between changed hunks: a ghost Button (STYLEGUIDE §Buttons), not
+ *  a hand-styled text link. */
 function FoldRow({ hidden, cols, onExpand }: { hidden: number; cols: number; onExpand: () => void }) {
   return (
     <tr>
       <td colSpan={cols} className="bg-slate-50/80 px-2 py-0.5 text-center">
-        <button
-          onClick={onExpand}
-          className="text-2xs font-medium text-compass-600 hover:underline"
-        >
-          ⋯ {hidden} unchanged line{hidden === 1 ? "" : "s"} — show
-        </button>
+        <Button variant="ghost" size="sm" icon={<UnfoldVertical />} onClick={onExpand}>
+          Show {hidden} unchanged line{hidden === 1 ? "" : "s"}
+        </Button>
       </td>
     </tr>
   );
@@ -123,6 +134,7 @@ export function VersionHistory({
   canPublishDirect,
   versions,
   branches,
+  decisions = [],
 }: {
   docId: number;
   docStatus: string;
@@ -132,6 +144,9 @@ export function VersionHistory({
   canPublishDirect: boolean;
   versions: VersionItem[];
   branches: BranchItem[];
+  /** Read-confirmation decisions, newest first; only for documents that
+   *  require confirmation (the page passes nothing otherwise). */
+  decisions?: VersionDecision[];
 }) {
   const router = useRouter();
   // Default compare: previous vs current (when there are at least two).
@@ -148,6 +163,17 @@ export function VersionHistory({
 
   const oldV = versions.find((v) => v.id === oldId);
   const newV = versions.find((v) => v.id === newId);
+
+  // The newest keep/reset per version (the list arrives newest first): a
+  // version kept at save time and asked again later by hand shows the ask.
+  const decisionFor = useMemo(() => {
+    const m = new Map<number, VersionDecision>();
+    for (const d of decisions) {
+      if (d.version_id === null || m.has(d.version_id)) continue;
+      if (d.outcome === "reset" || d.outcome === "kept") m.set(d.version_id, d);
+    }
+    return m;
+  }, [decisions]);
 
   const rows = useMemo(() => {
     if (!oldV || !newV || oldV.id === newV.id) return null;
@@ -362,6 +388,12 @@ export function VersionHistory({
         <ol className="overflow-hidden rounded-xl border border-slate-200 bg-surface shadow-xs">
           {versions.map((v, i) => {
             const isCurrent = i === 0;
+            const decision = decisionFor.get(v.id);
+            const approved =
+              decision &&
+              decision.submitted_by_name &&
+              decision.decided_by_name &&
+              decision.submitted_by_name !== decision.decided_by_name;
             return (
               <li
                 key={v.id}
@@ -409,6 +441,16 @@ export function VersionHistory({
                   {v.restored_from !== null && (
                     <span className={chipClass("warn", "sm", "ml-1.5")}>
                       Restored
+                    </span>
+                  )}
+                  {decision && (
+                    <span className={chipClass(decision.outcome === "reset" ? "warn" : "info", "sm", "ml-1.5")}>
+                      {decision.outcome === "reset" ? "Asked everyone to re-confirm" : "Editorial (kept)"}
+                    </span>
+                  )}
+                  {approved && (
+                    <span className="ml-1.5 text-xs font-normal text-slate-500">
+                      recommended by {decision.submitted_by_name}, approved by {decision.decided_by_name}
                     </span>
                   )}
                 </span>
@@ -525,9 +567,9 @@ function RenderedDiff({
       {chunks.map((c, ci) =>
         c.fold !== undefined ? (
           <div key={`f${ci}`} className="rounded-md bg-slate-50/80 py-1 text-center">
-            <button onClick={onExpand} className="text-2xs font-medium text-compass-600 hover:underline">
-              ⋯ {c.fold} unchanged section{c.fold === 1 ? "" : "s"} — show
-            </button>
+            <Button variant="ghost" size="sm" icon={<UnfoldVertical />} onClick={onExpand}>
+              Show {c.fold} unchanged section{c.fold === 1 ? "" : "s"}
+            </Button>
           </div>
         ) : (
           (c.rows ?? []).map((b) => (

@@ -200,6 +200,8 @@ export async function migrate(
           tags: [],
           author: importer.name,
           versionNote: "Imported",
+          ackSource: "import",
+          ackActor: importer,
         });
       }
       void parentSet;

@@ -80,9 +80,9 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
   },
   {
     key: "ack_request",
-    label: "Acknowledgement request",
+    label: "Read confirmation request",
     description:
-      "Sent when an admin requests (or re-requests) acknowledgement of a policy. Sent regardless of personal notification settings.",
+      "Sent when an admin asks people to read and confirm a policy, or reminds them. Sent regardless of personal notification settings.",
     tags: [
       T("requester_name", "Requesting admin"),
       T("doc_title", "Policy title"),
@@ -91,7 +91,7 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
       T("request_label", "Action required / Reminder"),
       T("org_name", "Workspace name"),
     ],
-    subject: '[{{org_name}}] {{request_label}}: acknowledge "{{doc_title}}"',
+    subject: '[{{org_name}}] {{request_label}}: confirm "{{doc_title}}"',
     body:
       "**{{requester_name}}** {{request_type}} that you read and acknowledge:\n\n" +
       "> **{{doc_title}}**\n\n" +

@@ -4,13 +4,13 @@ import { getSmtpConfig, smtpConfigured } from "./smtp-config";
 import { sendMail } from "./mailer";
 import { renderEmail } from "./email-templates";
 
-// Notifications for the central compliance portal: when an admin requests
-// acknowledgement of a document (or sends a reminder), every affected user
+// Notifications for the central compliance portal: when an admin asks for a
+// read confirmation of a document (or sends a reminder), every affected user
 // gets an inbox notification (the sidebar bell) and an email with a direct
 // link.
 //
 // Compliance emails deliberately do NOT honor the personal notification-email
-// switch — an acknowledgement request is a workplace requirement, not a
+// switch — a read-confirmation request is a workplace requirement, not a
 // courtesy update. (Documented in the admin guide.)
 
 export async function notifyAckRequest(input: {
@@ -53,11 +53,11 @@ export async function notifyAckRequest(input: {
       input.users.map((u) => u.id),
       {
         kind: "ack_requested",
-        title: `${verb}: acknowledge "${input.docTitle}"`,
+        title: `${verb}: confirm "${input.docTitle}"`,
         body:
           input.mode === "reminder"
-            ? `You still need to read and acknowledge "${input.docTitle}".`
-            : `Please read and acknowledge "${input.docTitle}".`,
+            ? `You still need to read and confirm "${input.docTitle}".`
+            : `Please read and confirm "${input.docTitle}".`,
         link: `/doc/${input.docId}`,
         actorName: input.requesterName,
         origin: input.origin,

@@ -4,6 +4,161 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.10.0] - 2026-10-16
+
+Read confirmation, part one: no more silent resets, and the confirmation
+sits where reading ends. (Enterprise, `policy_ack`.)
+
+### Added
+- **The editor asks before it resets anyone.** Saving a text or title
+  change to a document people have confirmed opens one question, before
+  anything is busy: "How should readers see this change?" with the numbers
+  ("42 of 50 people have confirmed version 12"), two choices (**Editorial
+  fix. Keep confirmations** / **Material change. Ask everyone to
+  re-confirm**), one sentence saying which looks right and why ("Looks
+  editorial: 14 words in one paragraph changed (1.1% since v12)."), a
+  **Show changes** diff against the confirmed version, and a change note
+  that both choices require. The primary button says what will happen:
+  "Save. Keep confirmations" or "Save and ask 42 people to re-confirm".
+  Ctrl+S, Save changes, Publish on a drifted draft and Submit for review
+  all pass through it; Cancel leaves the editor dirty; a save that only
+  touches tags, the summary, the category or the type never asks, even
+  after an editorial fix. Without publish rights nothing is asked: the
+  save goes to the review queue as before, and approving a text change
+  asks everyone again (the submitter's recommendation and the approver's
+  choice arrive in 1.11.0).
+- **Confirm at the end.** A document that requires read confirmation ends
+  with a confirmation card after the text: the statement ("I confirm that
+  I have read and understood this document."), the version being
+  confirmed ("Version 12 · published 3 Mar 2026 by Matt") and one button.
+  The notice strip at the top is a one-sentence pointer with "Jump to
+  confirmation" instead of a live button. The sticky bar carries a
+  "Confirmation pending" jump link that reads "Confirm now" once the end
+  of the text has been on screen, and a "Confirmed {date}" chip afterwards;
+  on phones it shows the control and the title only. Nothing is ever
+  locked: the card's placement is the only gate. Once confirmed, the card
+  reads "You confirmed version 12 on {date}" (a link to your own record
+  arrives with My policies in 1.11.1), and after an editorial fix it
+  offers "Re-confirm the current text (v13)".
+  A printed policy carries the printer's standing.
+- **Every confirmation is tied to a numbered version and its SHA-256.**
+  The page declares the version it rendered; the record stores that
+  version and the hash of its text. Confirming a document that changed
+  while you were reading it records nothing: the page says so and
+  refreshes. Confirmations made before 1.10.0 show "version inferred".
+- **The decision ledger.** Every keep and every reset is a row: the
+  version, who decided (and who submitted, on an approval), the source
+  (edit, merge, restore, approval, schedule, bulk, API, MCP, import,
+  image, ticket, default),
+  the reason, what the heuristic suggested and whether it was overridden,
+  the share of words changed, and how many confirmations it touched.
+  The per-document record is now a **Read confirmation** section with a
+  **Record** tab (the roster, with the version each person confirmed) and
+  a **History** tab (the ledger). Version history rows carry "Asked
+  everyone to re-confirm" or "Editorial (kept)"; the compliance portal
+  shows "Last asked {date} by {name}: {reason}" per policy and, once edits
+  have been kept, "Edited 3 times since v12 without re-asking · 7.8%
+  drift".
+- **Attestation records outlive the person and the policy.** Deleting an
+  account keeps its confirmations with a name and email snapshot;
+  disabling one drops it from the count but not the record; a collapsed
+  "Former staff and disabled accounts" section lists them. Purging a
+  policy from the Trash first archives every version a record cites, so a
+  stored hash stays verifiable after the document is gone. Settings →
+  Users gains **Anonymise compliance record…** (typed confirmation) which
+  replaces a person's name, email and IP on every confirmation and
+  decision with "Former staff #id"; counts, dates, versions and hashes
+  stay. Audit log entries are kept as written: each
+  `document.acknowledge` row still carries the name, IP and browser
+  recorded at confirmation, and `ack.anonymised` names the account.
+- **One word for read confirmation.** The product now says "read
+  confirmation" everywhere a person reads it: readers confirm or
+  re-confirm, chips read Confirmed / Pending, a text is "version 12"
+  (v12). On the Compliance portal "Request acknowledgement" is "Request
+  read confirmation" and the tiles read "Policies requiring confirmation"
+  and "Outstanding confirmations"; the request email is the "Read
+  confirmation request" template with the subject
+  `[Workspace] Action required: confirm "Title"` (a workspace that edited
+  the template keeps its own wording). API paths, audit keys, permission
+  keys and the licence label keep "acknowledgement". The style guide
+  documents the glossary, the choice dialog and the end-of-article card.
+- **API.** `GET /api/documents/{id}/ack` returns the read-confirmation
+  summary for anyone who may edit the document or read its roster
+  (`?baseline=1` adds the confirmed text); a draft is hidden from anyone
+  who may not read drafts, as the document itself is. `PUT
+  /api/documents/{id}` accepts `ack_policy` (`keep` | `reset`; absent =
+  reset, anything else 400) and `ack_reason` (cut at 500 characters),
+  answers 400 when the text of a confirmed document changes without a
+  note of at least 10 characters, and echoes `ack_outcome`.
+  `POST /api/documents/{id}/ack` requires `{ version_id }` (400 when
+  absent, 409 `{ stale: true }` when it is not the latest version).
+- **Audit.** A full read-confirmation vocabulary under `ack.`
+  (`ack.confirmations_kept`, `ack.confirmations_reset`, `ack.anonymised`
+  and the rest of the family), labels for `document.ack_required` and
+  `document.ack_removed`, the version and hash on `document.acknowledge`.
+- New tests: the integration suite grows from 118 to 188 (version
+  anchoring, retention, the decision ledger, the change heuristic, the
+  roster sentence, and a double-boot upgrade check), plus an e2e spec for
+  the reader flow, the phone sticky bar, the editor question, the
+  bulk-publish guard and the API rules.
+
+### Changed
+- **Confirmations no longer reset on every save.** A confirmation counts
+  while it is newer than the document's confirmation marker, which moves
+  only when the text or title changes and the editor chooses to ask again
+  (or a caller that cannot ask saves a text change). Changing the summary,
+  tags, category or type, moving a document, scheduling, unpublishing and
+  republishing unchanged text, trash and restore, bulk edits and a save
+  with nothing changed never ask anyone again. A save that changes nothing
+  is not a save: no version, no "updated" time, no notice, no
+  `document.update` audit row (a save that only sets a schedule or moves a
+  page under another parent is still audited, with what changed, and a
+  branch merged with its text unchanged still records
+  `document.branch_merge`, marked unchanged, as it moves to the Trash).
+- Callers that cannot ask (branch merge, version restore, change-request
+  approval, a scheduled publish of a draft whose text drifted from the
+  confirmed version, the MCP connector, the v1 API, image placement,
+  importers) reset confirmations when they change the text, with the
+  version note (on an approval, the change request's note) as the reason;
+  the decision is recorded with its source, and an approval row names the
+  submitter beside the approver. A bulk publish of such a drifted draft is
+  skipped instead, with "requires a re-confirmation decision; publish it
+  individually". The choice for merge, restore and change-request approval
+  arrives in 1.11.0.
+- A reset sends no notice in this release; the re-confirmation notice and
+  the outbox it queues through arrive in 1.10.1.
+- Both compliance CSVs keep every existing column in place;
+  `revision_as_of` now holds the confirmation marker date (it was the last
+  save), and these columns are appended: `version`, `version_id`,
+  `content_sha256`, `version_source`, `former_staff`, `asked_at`,
+  `asked_by`, `reason`, `kept_since_asked`.
+
+### Upgrading
+- The schema adds `documents.ack_revision_at` (backfilled from
+  `updated_at` inside the schema transaction, so no existing confirmation
+  changes state) and `ack_version_id`; `acknowledgements.version_id`,
+  `content_sha256`, `user_name`, `user_email`, `document_title`; the
+  tables `attested_texts` and `ack_decisions`; the index `idx_ack_user`.
+  Two one-shot migrations run on the first boot and record
+  `ack_marker_schema = 1` and `ack_retention_schema = 1` in settings: the
+  version inference for existing rows, and the swap of the acknowledgement
+  foreign keys to ON DELETE SET NULL (added NOT VALID, then validated, so a
+  large ledger is checked without blocking writes). The ledger starts at
+  upgrade; nothing is backfilled into it.
+- **Rollback to 1.9.x is supported.** 1.9.x ignores the new columns and
+  tables. After a rollback, edits made on 1.9.x move only `updated_at`, so
+  on re-upgrade confirmations that 1.9.x showed as stale become current
+  again until the next text change; records whose person or policy was
+  deleted while on 1.10 are invisible to 1.9.x and reappear on re-upgrade.
+  Two more consequences of time spent on 1.9.x: the one-shot inference
+  does not run again, so documents and confirmations created there carry
+  no version id after the re-upgrade (they show "version inferred" with no
+  number; a document's marker catches up at its next text change), and
+  accounts deleted there leave their records without a name or email
+  snapshot.
+- Integrations that edit policies through the v1 API or the MCP connector
+  keep working; a text change resets confirmations as before.
+
 ## [1.9.4] - 2026-10-14
 
 ### Fixed

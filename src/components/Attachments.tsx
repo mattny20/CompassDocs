@@ -148,7 +148,7 @@ export function Attachments({
 
   return (
     <section className="mt-8 border-t border-slate-100 pt-6">
-      <div className="mb-3 flex items-center justify-between">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h2>
           <button
             onClick={toggleOpen}

@@ -81,9 +81,9 @@ export const PERMISSIONS = [
   { key: "comment.delete_own", label: "Delete own comment", description: "Remove a comment you authored", scope: "space" },
   { key: "comment.read", label: "Read comments", description: "Read a document's comment thread", scope: "space" },
   // --- compliance ---
-  { key: "compliance.export", label: "Export compliance evidence", description: "Download attestation evidence", scope: "section" },
-  { key: "compliance.program_manage", label: "Run compliance program", description: "Issue requests, send reminders", scope: "section" },
-  { key: "compliance.program_read", label: "Read compliance program", description: "Acknowledgement progress and outstanding requests", scope: "section" },
+  { key: "compliance.export", label: "Export compliance records", description: "Download the attestation records as CSV", scope: "section" },
+  { key: "compliance.program_manage", label: "Run compliance program", description: "Ask people to confirm, send reminders", scope: "section" },
+  { key: "compliance.program_read", label: "Read compliance program", description: "Read-confirmation progress and who is still pending", scope: "section" },
   // --- directory ---
   { key: "directory.field_manage", label: "Manage directory fields", description: "Define custom directory fields", scope: "global" },
   { key: "directory.person_manage", label: "Manage people", description: "Create/update/delete directory person records", scope: "global" },
@@ -93,9 +93,12 @@ export const PERMISSIONS = [
   { key: "directory.search", label: "Search directory", description: "Search people", scope: "global" },
   { key: "directory.sync_manage", label: "Manage directory sync", description: "Configure Graph/directory synchronisation", scope: "global" },
   // --- document ---
-  { key: "document.ack_require", label: "Require acknowledgement", description: "Toggle whether a document demands attestation", scope: "space" },
-  { key: "document.ack_roster_read", label: "Read acknowledgement roster", description: "See who has and hasn't attested", scope: "space" },
-  { key: "document.ack_submit", label: "Acknowledge policy", description: "Attest to having read a policy document", scope: "space" },
+  // Keys keep "ack" (renaming one would break stored grants); the words a
+  // role builder reads follow the read-confirmation glossary (STYLEGUIDE
+  // §Vocabulary): confirm, the record, never acknowledge or attest.
+  { key: "document.ack_require", label: "Require read confirmation", description: "Decide whether a document must be read and confirmed", scope: "space" },
+  { key: "document.ack_roster_read", label: "Read the confirmation record", description: "See who has and hasn't confirmed", scope: "space" },
+  { key: "document.ack_submit", label: "Submit read confirmation", description: "Record that you have read and understood a policy", scope: "space" },
   { key: "document.branch", label: "Branch document", description: "Create a working copy", scope: "space" },
   { key: "document.create", label: "Create document", description: "Create a document in a space", scope: "space" },
   { key: "document.delete_draft", label: "Delete draft", description: "Move a draft to trash", scope: "space" },
@@ -761,7 +764,7 @@ export const SECTION_ROLES = {
   },
   "compliance-manager": {
     label: "Compliance manager",
-    description: "Run the policy-acknowledgement program: progress, requests, reminders, exports.",
+    description: "Run the read-confirmation program: progress, requests, reminders, exports.",
     section: "compliance",
     permissions: [
       "compliance.export",

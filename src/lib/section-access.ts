@@ -20,7 +20,7 @@ export const SECTIONS: { key: Section; label: string; description: string }[] = 
     key: "compliance",
     label: "Compliance",
     description:
-      "Run the policy-acknowledgement program: progress, requests, reminders, exports.",
+      "Run the read-confirmation program: progress, requests, reminders, exports.",
   },
   {
     key: "training",

@@ -1,109 +1,181 @@
-import { notFound } from "next/navigation";
-import { chipClass } from "@/components/Chip";
-import { buttonClass } from "@/components/Button";
-import { ClipboardCheck, Download } from "lucide-react";
-import { PageHeader } from "@/components/PageHeader";
-import { requirePermission } from "@/lib/auth";
-import { getDocument, ackStatusForDocument } from "@/lib/db";
-import { spaceScopeFor, scopeAllows } from "@/lib/access";
-import { featureEnabled } from "@/lib/ee";
+import { Chip, chipClass } from "@/components/Chip";
+import { SectionEmpty } from "@/components/form";
+import { ackFormerStaffRows } from "@/lib/db";
+import type { AckStatusRow, AckFormerStaffRow } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings-store";
 import { formatDateTime, settingsForUser } from "@/lib/format";
-import { PageContainer } from "@/components/PageWidth";
+import { Table, Th, Td, TABLE_HEAD_ROW, TR } from "@/components/Table";
+import { ackPageContext, cachedAckRows } from "./data";
 
 import type { Metadata } from "next";
 import { cachedDocument } from "@/lib/page-data";
 export const dynamic = "force-dynamic";
 
+// The Record tab of the Read confirmation pages: the roster. The header,
+// the subtitle sentence and the Record · History row live in layout.tsx.
+
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
   const doc = await cachedDocument(Number(id)).catch(() => undefined);
-  return { title: doc?.title ? `Read confirmations · ${doc.title}` : "Read confirmations" };
+  return { title: doc?.title ? `Read confirmation · ${doc.title}` : "Read confirmation" };
 }
+
+/** "v12", marked "(inferred)" on rows from before 1.10.0. The explanation is
+ *  a footnote under the table, not a tooltip: the table scrolls sideways
+ *  inside its card, and a tooltip bubble is clipped by that container. */
+function VersionCell({ row }: { row: Pick<AckStatusRow, "rev" | "version_source"> }) {
+  if (!row.rev) return <>—</>;
+  if (row.version_source === "inferred") {
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        v{row.rev}
+        <span className="text-xs text-slate-500">(inferred)</span>
+      </span>
+    );
+  }
+  return <>v{row.rev}</>;
+}
+
+const INFERRED_NOTE =
+  "Confirmations before 1.10.0 did not record the version; where a version is marked (inferred) it is the one that was current at the time of the confirmation.";
 
 export default async function AcknowledgementsPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const user = await requirePermission("approver", "document.ack_roster_read");
-  if (!(await featureEnabled("policy_ack"))) notFound();
-
   const { id } = await params;
-  const doc = await cachedDocument(Number(id));
-  if (!doc || !scopeAllows(await spaceScopeFor(user), doc.space_id)) notFound();
+  const { user, doc } = await ackPageContext(Number(id));
 
-  const [rows, settings] = await Promise.all([ackStatusForDocument(doc.id), getAppSettings()]);
+  const [rows, former, settings] = await Promise.all([
+    cachedAckRows(doc.id),
+    ackFormerStaffRows(doc.id),
+    getAppSettings(),
+  ]);
+  const fmt = settingsForUser(settings, user);
   const acked = rows.filter((r) => r.acknowledged_at);
   const pending = rows.filter((r) => !r.acknowledged_at);
+  const anyInferred = [...rows, ...former].some((r) => r.rev && r.version_source === "inferred");
 
   return (
-    <PageContainer>
-      <PageHeader
-        back={{ href: `/doc/${doc.id}`, label: doc.title }}
-        icon={<ClipboardCheck />}
-        title="Read confirmations"
-        subtitle={
-          <>
-            {acked.length} of {rows.length} people have confirmed the current revision
-            (as of {formatDateTime(doc.updated_at, settingsForUser(settings, user))}). Editing the document asks
-            everyone again.
-          </>
-        }
-        actions={
-          <a
-            href={`/api/documents/${doc.id}/acknowledgements?format=csv`}
-            className={buttonClass("secondary")}
-          >
-            <Download className="h-4 w-4" /> Export CSV
-          </a>
-        }
-      />
+    <>
+      {/* The progress bar and the table need people to be asked; a freshly
+          required document in a space with no readers yet gets the
+          section-level empty state instead of a 0% bar over an empty body. */}
+      {rows.length > 0 && (
+        <div className="mb-4 h-2 overflow-hidden rounded-full bg-slate-100">
+          <div
+            className="h-full rounded-full bg-compass-500"
+            style={{ width: `${Math.round((acked.length / rows.length) * 100)}%` }}
+          />
+        </div>
+      )}
 
-      <div className="mb-4 h-2 overflow-hidden rounded-full bg-slate-100">
-        <div
-          className="h-full rounded-full bg-compass-500"
-          style={{ width: `${rows.length ? Math.round((acked.length / rows.length) * 100) : 0}%` }}
-        />
-      </div>
-
+      {/* overflow-hidden keeps the rounded corners; the Table's own scroll
+          wrapper carries the sideways scroll on a phone (five columns, three
+          of them nowrap, outgrow 375px). */}
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-surface shadow-xs">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-slate-100 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
-              <th className="px-4 py-2.5">Person</th>
-              <th className="px-4 py-2.5">Role</th>
-              <th className="px-4 py-2.5">Status</th>
-              <th className="px-4 py-2.5">Confirmed</th>
-            </tr>
-          </thead>
-          <tbody>
-            {[...pending, ...acked].map((r) => (
-              <tr key={r.id} className="border-b border-slate-50">
-                <td className="px-4 py-2.5">
-                  <span className="font-medium text-slate-800">{r.name || r.username}</span>
-                  {r.email && <span className="ml-2 text-xs text-slate-500">{r.email}</span>}
-                </td>
-                <td className="px-4 py-2.5 text-slate-500">{r.role}</td>
-                <td className="px-4 py-2.5">
-                  {r.acknowledged_at ? (
-                    <span className={chipClass("ok")}>
-                      Acknowledged
-                    </span>
-                  ) : (
-                    <span className={chipClass("warn")}>
-                      Pending
-                    </span>
-                  )}
-                </td>
-                <td className="px-4 py-2.5 text-slate-500">
-                  {r.acknowledged_at ? formatDateTime(r.acknowledged_at, settingsForUser(settings, user)) : "—"}
-                </td>
+        {rows.length === 0 ? (
+          <SectionEmpty className="px-4 py-6">
+            No one is asked to confirm this document yet. Everyone who can see it is listed here once it
+            is published.
+          </SectionEmpty>
+        ) : (
+          <Table scroll minWidth="40rem">
+            <thead className={TABLE_HEAD_ROW}>
+              <tr>
+                <Th>Person</Th>
+                <Th>Role</Th>
+                <Th fit>Status</Th>
+                <Th fit>Confirmed</Th>
+                <Th fit>Version</Th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {[...pending, ...acked].map((r) => (
+                <tr key={r.id} className={TR}>
+                  <Td>
+                    <span className="font-medium text-slate-800">{r.name || r.username}</span>
+                    {r.email && <span className="ml-2 text-xs text-slate-500">{r.email}</span>}
+                  </Td>
+                  <Td className="text-slate-500">{r.role}</Td>
+                  <Td fit>
+                    {r.acknowledged_at ? (
+                      <span className={chipClass("ok")}>Confirmed</span>
+                    ) : (
+                      <span className={chipClass("warn")}>Pending</span>
+                    )}
+                  </Td>
+                  <Td fit className="text-slate-500">
+                    {r.acknowledged_at ? formatDateTime(r.acknowledged_at, fmt) : "—"}
+                  </Td>
+                  <Td fit className="text-slate-500">
+                    <VersionCell row={r} />
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        )}
       </div>
-    </PageContainer>
+
+      {former.length > 0 && <FormerStaff rows={former} fmt={fmt} />}
+
+      {anyInferred && <p className="mt-3 text-xs text-slate-500">{INFERRED_NOTE}</p>}
+    </>
+  );
+}
+
+/**
+ * Confirmations by people who are no longer asked: deleted accounts (shown
+ * from the name snapshot) and disabled ones. Kept for the record, collapsed
+ * by default, never part of the count above.
+ */
+function FormerStaff({
+  rows,
+  fmt,
+}: {
+  rows: AckFormerStaffRow[];
+  fmt: Parameters<typeof formatDateTime>[1];
+}) {
+  return (
+    <details className="mt-6 rounded-xl border border-slate-200 bg-surface shadow-xs [&[open]>summary]:border-b [&[open]>summary]:border-slate-100">
+      <summary className="cursor-pointer select-none px-4 py-3 text-sm font-semibold text-slate-700 hover:text-compass-700 marker:text-compass-500">
+        Former staff and disabled accounts ({rows.length})
+      </summary>
+      <p className="px-4 pt-3 text-sm text-slate-500">
+        People who confirmed this document but are no longer asked. Their records are kept and are not
+        counted above.
+      </p>
+      <Table scroll minWidth="36rem" className="mt-2">
+        <thead className={TABLE_HEAD_ROW}>
+          <tr>
+            <Th>Person</Th>
+            <Th fit>Account</Th>
+            <Th fit>Confirmed</Th>
+            <Th fit>Version</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.id} className={TR}>
+              <Td>
+                <span className="font-medium text-slate-800">{r.name || r.username || "Former staff"}</span>
+                {r.email && <span className="ml-2 text-xs text-slate-500">{r.email}</span>}
+              </Td>
+              <Td fit>
+                <Chip tone="neutral">{r.reason === "left" ? "Left" : "Disabled"}</Chip>
+              </Td>
+              <Td fit className="text-slate-500">
+                {formatDateTime(r.acknowledged_at, fmt)}
+              </Td>
+              <Td fit className="text-slate-500">
+                <VersionCell row={r} />
+              </Td>
+            </tr>
+          ))}
+        </tbody>
+      </Table>
+    </details>
   );
 }

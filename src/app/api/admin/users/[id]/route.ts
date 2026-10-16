@@ -8,6 +8,7 @@ import {
   pool,
   deleteUserSessions,
   disableTotp,
+  countUserAttestations,
 } from "@/lib/db";
 import { countGlobalUserAdmins } from "@/lib/authz";
 import { hashPassword } from "@/lib/password";
@@ -136,6 +137,9 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
     );
   }
 
+  // Attestation records outlive the account (C5): count them before the row
+  // goes so the audit entry says what was kept.
+  const attestationsRetained = await countUserAttestations(target.id);
   await deleteUser(target.id);
   await audit({
     actor: actorFrom(admin),
@@ -143,7 +147,7 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
     targetType: "user",
     targetId: target.id,
     targetLabel: target.username,
-    details: { role: target.role },
+    details: { role: target.role, attestations_retained: attestationsRetained },
     ip: ipFrom(_req),
   });
   return NextResponse.json({ ok: true });

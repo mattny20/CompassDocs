@@ -172,6 +172,7 @@ export async function importFromZip(buffer: Buffer, importerName: string): Promi
           tags,
           author,
           versionNote: "Imported",
+          ackSource: "import",
         });
         res.updated++;
       } else {

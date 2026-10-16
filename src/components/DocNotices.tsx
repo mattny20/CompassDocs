@@ -1,16 +1,23 @@
 "use client";
 
 // One place for everything that used to be a stack of colored banners on the
-// doc page: read-confirmation (reader + approver progress), draft, branches in
-// progress, and pending changes. A single neutral container with one compact
-// row per notice, so document workflow state stops competing with the content.
+// doc page: read-confirmation (reader pointer + approver progress), draft,
+// branches in progress, and pending changes. A single neutral container with
+// one compact row per notice, so document workflow state stops competing with
+// the content.
+//
+// The reader's read-confirmation row (1.10.0, B1) is a pointer, not the
+// control: one sentence and one action that jumps to the card after the
+// article, where the confirmation is recorded. Its state comes from
+// AckState, shared with that card and the sticky bar, so the three never
+// disagree.
 
 import { useState } from "react";
 import { Spinner } from "@/components/Spinner";
-import { buttonClass } from "@/components/Button";
-import { useRouter } from "next/navigation";
+import { Button, buttonClass } from "@/components/Button";
 import Link from "next/link";
 import {
+  ArrowDown,
   CalendarClock,
   CircleCheckBig,
   FileCheck,
@@ -21,6 +28,8 @@ import {
 } from "lucide-react";
 import { useFormatDate } from "./SettingsProvider";
 import { useAction } from "@/lib/use-action";
+import { jumpToConfirmation, useAckState } from "@/components/AckState";
+import { CONFIRM_SECTION_ID } from "@/lib/use-reached-end";
 
 const ROW = "flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5 text-sm";
 const ICON = "h-4 w-4 shrink-0";
@@ -35,8 +44,10 @@ export function DocNotices({
   reviewOverdue,
 }: {
   docId: number;
-  /** Reader-side read confirmation (enterprise): null = not applicable. */
-  ack?: { ackedAt: string | null } | null;
+  /** Reader-side read confirmation (enterprise): null = not applicable.
+   *  `canSubmit` is document.ack_submit in this space; the confirmed/pending
+   *  state itself is read from AckState. */
+  ack?: { canSubmit: boolean } | null;
   /** Approver-side progress (enterprise), when confirmation is required. */
   ackProgress?: { ackedCount: number; requiredCount: number } | null;
   isDraft?: boolean;
@@ -45,11 +56,10 @@ export function DocNotices({
   /** Content review overdue (staff): server-formatted due date + edit rights. */
   reviewOverdue?: { dueDateLabel: string; canEdit: boolean } | null;
 }) {
-  const router = useRouter();
   const fmt = useFormatDate();
-  const [ackedAt, setAckedAt] = useState<string | null>(ack?.ackedAt ?? null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const ackState = useAckState();
+  const ackedAt = ackState?.ackedAt ?? null;
+  const ackedRev = ackState?.ackedRev ?? null;
 
   const [reviewed, setReviewed] = useState(false);
   const { run, isBusy } = useAction();
@@ -67,55 +77,62 @@ export function DocNotices({
 
   return (
     <div className="mb-8 divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-surface print:hidden">
+      {/* Reader row: tinted by the notice classes (both themes), ink
+          inherited so the icon follows. One sentence and one action while
+          pending (the action is w-full under sm: on a phone the row wraps
+          and the link takes the second line); one sentence once confirmed;
+          the permission explanation when the role cannot record one. */}
       {hasAckRow &&
+        ack &&
         (ackedAt ? (
-          <p className={`${ROW} text-emerald-700`}>
-            <CircleCheckBig className={`${ICON} text-emerald-600`} />
-            You confirmed reading this document on {fmt.dateTime(ackedAt)}.
+          <p className={`${ROW} notice-ok`}>
+            <CircleCheckBig className={ICON} aria-hidden />
+            <span className="min-w-0 flex-1">
+              You confirmed {ackedRev !== null ? `version ${ackedRev}` : "reading this document"} on{" "}
+              {fmt.dateTime(ackedAt)}.
+            </span>
           </p>
-        ) : (
-          <div className={`${ROW} bg-amber-50/60 dark:bg-amber-950/20`}>
-            <FileCheck className={`${ICON} text-amber-600`} />
-            <p className="min-w-0 flex-1 text-slate-700">
-              <strong>Please read this document carefully</strong> — your confirmation is
-              recorded for compliance.
+        ) : ack.canSubmit ? (
+          <div className={`${ROW} notice-warn`}>
+            <FileCheck className={ICON} aria-hidden />
+            <p className="min-w-0 flex-1">
+              Please read this document carefully. You&apos;ll be asked to confirm at the end.
             </p>
-            <button
-              onClick={async () => {
-                setBusy(true);
-                setError("");
-                const res = await fetch(`/api/documents/${docId}/ack`, { method: "POST" });
-                setBusy(false);
-                if (res.ok) {
-                  setAckedAt((await res.json()).acknowledged_at ?? new Date().toISOString());
-                  router.refresh();
-                } else {
-                  setError((await res.json().catch(() => ({}))).error || "Could not record it.");
-                }
-              }}
-              disabled={busy}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-amber-600 px-3.5 py-1.5 text-sm font-semibold text-white shadow-xs hover:bg-amber-700 disabled:opacity-60"
+            <Button
+              variant="secondary"
+              size="sm"
+              href={`#${CONFIRM_SECTION_ID}`}
+              icon={<ArrowDown />}
+              onClick={jumpToConfirmation}
+              className="w-full sm:w-auto"
             >
-              {busy && <Spinner size="sm" />}
-              I&apos;ve read and understood this
-            </button>
-            {error && <span className="w-full text-xs text-red-600">{error}</span>}
+              Jump to confirmation
+            </Button>
           </div>
+        ) : (
+          <p className={`${ROW} notice-warn`}>
+            <FileCheck className={ICON} aria-hidden />
+            <span className="min-w-0 flex-1">
+              Read confirmation is required for this document, but your role can&apos;t record one.
+              Ask your space approver.
+            </span>
+          </p>
         ))}
 
+      {/* Approver progress: stays until A5 moves it into the shield popover. */}
       {ackProgress && (
         <div className={`${ROW} text-slate-600`}>
-          <ShieldCheck className={`${ICON} text-compass-600`} />
+          <ShieldCheck className={`${ICON} text-compass-600`} aria-hidden />
           <span className="min-w-0 flex-1">
-            Read confirmation required — {ackProgress.ackedCount}/{ackProgress.requiredCount}{" "}
-            confirmed.
+            Read confirmation required. {ackProgress.ackedCount} of {ackProgress.requiredCount} people
+            have confirmed.
           </span>
-          <a
+          <Link
             href={`/doc/${docId}/acknowledgements`}
             className="shrink-0 font-medium text-compass-700 hover:underline"
           >
-            View record →
-          </a>
+            View record
+          </Link>
         </div>
       )}
 
@@ -123,7 +140,7 @@ export function DocNotices({
         <p className={`${ROW} text-slate-600`}>
           <SquarePen className={`${ICON} text-slate-400`} />
           <span>
-            This is a <strong>draft</strong> — it isn&apos;t visible to viewers yet.
+            This is a <strong>draft</strong>. It isn&apos;t visible to viewers yet.
           </span>
         </p>
       )}
@@ -138,7 +155,7 @@ export function DocNotices({
             href={`/doc/${docId}/history`}
             className="shrink-0 font-medium text-compass-700 hover:underline"
           >
-            View in history →
+            View in history
           </Link>
         </div>
       )}
@@ -147,7 +164,7 @@ export function DocNotices({
         <div className={`${ROW} text-slate-600`}>
           <CalendarClock className={`${ICON} text-amber-600`} />
           <span className="min-w-0 flex-1">
-            Content review overdue — was due {reviewOverdue.dueDateLabel}. Still accurate?
+            Content review overdue: it was due {reviewOverdue.dueDateLabel}. Still accurate?
           </span>
           {reviewOverdue.canEdit && (
             <button
@@ -176,7 +193,7 @@ export function DocNotices({
             {pendingCount} pending change{pendingCount === 1 ? "" : "s"} awaiting review.
           </span>
           <Link href="/review" className="shrink-0 font-medium text-compass-700 hover:underline">
-            Open review queue →
+            Open review queue
           </Link>
         </div>
       )}

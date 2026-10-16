@@ -7,6 +7,7 @@ import {
   compliancePendingUsers,
   ackCandidateDocs,
   ackStatusForDocument,
+  ackFormerStaffRows,
   getDocument,
   setAckRequired,
   setAckLastReminded,
@@ -18,8 +19,9 @@ import type { SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-// Central compliance portal (admins): org-wide acknowledgement progress,
-// request-acknowledgement for any published doc, and reminders to stragglers.
+// Central compliance portal (admins): org-wide read-confirmation progress,
+// asking for a read confirmation of any published doc, and reminders to
+// stragglers.
 
 const REMIND_COOLDOWN_MS = 60 * 60 * 1000; // one reminder per doc per hour
 
@@ -29,7 +31,7 @@ async function gated() {
   if (!(await featureEnabled("policy_ack"))) {
     return {
       denied: NextResponse.json(
-        { error: "Policy acknowledgements are not included in your license." },
+        { error: "Read confirmations are not included in your license." },
         { status: 402 }
       ),
     };
@@ -49,22 +51,62 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url);
   if (url.searchParams.get("format") === "csv") {
-    // Full matrix: one row per (policy, eligible user).
+    // Full matrix: one row per (policy, eligible user), then one per former
+    // staff member with a record. Existing columns stay in place;
+    // revision_as_of is the confirmation marker date since 1.10.0 (it was
+    // updated_at); the version, hash, source and former_staff columns are
+    // appended, then the ledger's asked_at, asked_by, reason and
+    // kept_since_asked (C1; asked_by and reason are empty when the marker
+    // predates the ledger).
     const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-    const lines = ["document,space,revision_as_of,name,username,email,role,acknowledged_at"];
+    const lines = [
+      "document,space,revision_as_of,name,username,email,role,acknowledged_at,version,version_id,content_sha256,version_source,former_staff,asked_at,asked_by,reason,kept_since_asked",
+    ];
     for (const d of docs) {
-      const rows = await ackStatusForDocument(d.id);
+      const [rows, former] = await Promise.all([ackStatusForDocument(d.id), ackFormerStaffRows(d.id)]);
+      const asked = [
+        esc(d.ack_revision_at),
+        esc(d.last_reset?.decided_by_name ?? ""),
+        esc(d.last_reset?.reason ?? ""),
+        esc(d.kept_since_reset),
+      ];
       for (const r of rows) {
         lines.push(
           [
             esc(d.title),
             esc(d.space_name),
-            esc(d.updated_at),
+            esc(d.ack_revision_at),
             esc(r.name),
             esc(r.username),
             esc(r.email),
             esc(r.role),
             esc(r.acknowledged_at ?? ""),
+            esc(r.rev ? `v${r.rev}` : ""),
+            esc(r.version_id ?? ""),
+            esc(r.content_sha256 ?? ""),
+            esc(r.version_source ?? ""),
+            esc(""),
+            ...asked,
+          ].join(",")
+        );
+      }
+      for (const r of former) {
+        lines.push(
+          [
+            esc(d.title),
+            esc(d.space_name),
+            esc(d.ack_revision_at),
+            esc(r.name),
+            esc(r.username),
+            esc(r.email),
+            esc(r.role),
+            esc(r.acknowledged_at),
+            esc(r.rev ? `v${r.rev}` : ""),
+            esc(r.version_id ?? ""),
+            esc(r.content_sha256 ?? ""),
+            esc(r.version_source),
+            esc(r.reason),
+            ...asked,
           ].join(",")
         );
       }
@@ -115,11 +157,11 @@ export async function POST(req: Request) {
 
   if (action === "request") {
     if (doc.ack_required === 1) {
-      return NextResponse.json({ error: "This document already requires acknowledgement." }, { status: 400 });
+      return NextResponse.json({ error: "This document already asks for a read confirmation." }, { status: 400 });
     }
     await setAckRequired(doc.id, true);
   } else if (doc.ack_required !== 1) {
-    return NextResponse.json({ error: "This document doesn't require acknowledgement." }, { status: 400 });
+    return NextResponse.json({ error: "This document doesn't ask for a read confirmation." }, { status: 400 });
   } else if (
     doc.ack_last_reminded_at &&
     Date.now() - new Date(doc.ack_last_reminded_at).getTime() < REMIND_COOLDOWN_MS

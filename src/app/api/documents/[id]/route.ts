@@ -5,9 +5,10 @@ import {
   updateDocument,
   deleteDocument,
   createChangeRequest,
-  } from "@/lib/db";
+  AckReasonRequiredError,
+} from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
-import { audit, actorFrom, ipFrom } from "@/lib/audit";
+import { audit, auditAckDecision, actorFrom, ipFrom } from "@/lib/audit";
 import { notifyWebhooks } from "@/lib/webhooks";
 import { notifyCrSubmitted } from "@/lib/notifications";
 import { notifySpaceSubscribers } from "@/lib/subscriptions";
@@ -19,6 +20,14 @@ export const dynamic = "force-dynamic";
 
 const TYPES: DocType[] = ["sop", "technical", "policy", "knowledge"];
 const STATUSES: DocStatus[] = ["draft", "published"];
+/** The change note's length limit, the same as the editor's field (ReconfirmModal NOTE_MAX). */
+const ACK_REASON_MAX = 500;
+
+/** Two timestamps (ISO strings, Dates or null) name the same instant, or are both unset. */
+function sameInstant(a: string | Date | null | undefined, b: string | Date | null | undefined): boolean {
+  if (a == null || b == null) return a == null && b == null;
+  return new Date(a).getTime() === new Date(b).getTime();
+}
 
 function normalizeTags(input: unknown): string[] | undefined {
   if (input === undefined) return undefined;
@@ -204,22 +213,69 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     return NextResponse.json({ pending: true, changeRequestId: crId, docId: existing.id });
   }
 
-  // Otherwise apply directly (draft edit, or a privileged/open-mode change).
-  const doc = await updateDocument(existing.id, {
-    ...proposed,
-    space_id: targetSpaceId,
-    category_id:
-      body?.category_id === null || Number.isInteger(body?.category_id)
-        ? body.category_id
-        : undefined,
-    author: user.name || user.username,
-    versionNote: String(body?.versionNote ?? "").trim() || "Edited",
-  });
+  // What to do with existing confirmations if this save changes the text of
+  // a confirmed document (A2): 'keep' or 'reset' with a change note of 10+
+  // characters, or nothing, which is 'auto' (a reset in this release). Only
+  // an absent field means 'auto': the literal string is not part of the
+  // public vocabulary and is refused like any other unknown value. The
+  // policy is checked here and the reason inside updateDocument, before any
+  // write, so a refused save leaves the document untouched. The reason is
+  // capped at the dialog's own limit so the ledger, the audit echo and the
+  // CSV cells stay bounded whatever client sent it.
+  const ackPolicyRaw = body?.ack_policy;
+  if (ackPolicyRaw != null && ackPolicyRaw !== "keep" && ackPolicyRaw !== "reset") {
+    return NextResponse.json({ error: "ack_policy must be 'keep' or 'reset'." }, { status: 400 });
+  }
+  const ackPolicy: "keep" | "reset" | "auto" = ackPolicyRaw ?? "auto";
+  const ackReason =
+    typeof body?.ack_reason === "string" ? body.ack_reason.trim().slice(0, ACK_REASON_MAX) : "";
 
-  // Apply the (pre-validated) schedule changes.
+  // Otherwise apply directly (draft edit, or a privileged/open-mode change).
+  let doc: Awaited<ReturnType<typeof updateDocument>>;
+  try {
+    doc = await updateDocument(existing.id, {
+      ...proposed,
+      space_id: targetSpaceId,
+      category_id:
+        body?.category_id === null || Number.isInteger(body?.category_id)
+          ? body.category_id
+          : undefined,
+      author: user.name || user.username,
+      versionNote: String(body?.versionNote ?? "").trim() || "Edited",
+      ackPolicy,
+      ackActor: { id: user.id, name: user.name || user.username },
+      ackReason,
+      ackSource: "edit",
+    });
+  } catch (e) {
+    if (e instanceof AckReasonRequiredError) {
+      return NextResponse.json({ error: e.message }, { status: 400 });
+    }
+    throw e;
+  }
+  const ackOutcome = doc?.ack_outcome;
+  // A save that changed nothing in the document is answered with the
+  // unchanged document: no subscriber notice, no webhook, no audit row
+  // claiming an edit that did not happen. The schedule and parent writes
+  // below are separate records: they still apply, and when one of them did
+  // change something that write is audited even though the text was not
+  // touched (a schedule set is the one PUT that bypasses the review queue).
+  const changed = ackOutcome ? ackOutcome.changed : true;
+  const sideChanges: Record<string, unknown> = {};
+
+  // Apply the (pre-validated) schedule changes. The editor sends both fields
+  // on every save, so only a value that differs from the stored one counts.
   if (Object.keys(schedulePatch).length > 0) {
     const { setDocSchedule } = await import("@/lib/doc-schedule");
     await setDocSchedule(existing.id, schedulePatch);
+    const schedule: Record<string, string | null> = {};
+    if (schedulePatch.publishAt !== undefined && !sameInstant(schedulePatch.publishAt, existing.publish_at)) {
+      schedule.publish_at = schedulePatch.publishAt;
+    }
+    if (schedulePatch.archiveAt !== undefined && !sameInstant(schedulePatch.archiveAt, existing.archive_at)) {
+      schedule.archive_at = schedulePatch.archiveAt;
+    }
+    if (Object.keys(schedule).length > 0) sideChanges.schedule = schedule;
   }
 
   // Nested pages: parent changes are organizational metadata and apply
@@ -229,8 +285,27 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     const { getAppSettings } = await import("@/lib/settings-store");
     if ((await getAppSettings()).nested_pages_enabled) {
       const { setParent } = await import("@/lib/doc-tree");
-      parentWarning = await setParent(existing.id, body.parent_id === null ? null : Number(body.parent_id));
+      const nextParent = body.parent_id === null ? null : Number(body.parent_id);
+      parentWarning = await setParent(existing.id, nextParent);
+      if (parentWarning === undefined && (existing.parent_id ?? null) !== nextParent) {
+        sideChanges.parent_id = nextParent;
+      }
     }
+  }
+
+  if (!changed) {
+    if (Object.keys(sideChanges).length > 0) {
+      await audit({
+        actor: actorFrom(user),
+        action: "document.update",
+        targetType: "document",
+        targetId: existing.id,
+        targetLabel: proposed.title,
+        details: sideChanges,
+        ip: ipFrom(req),
+      });
+    }
+    return NextResponse.json({ doc, parentWarning, ack_outcome: ackOutcome });
   }
 
   const published = existing.status !== "published" && proposed.status === "published";
@@ -261,9 +336,14 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     targetType: "document",
     targetId: existing.id,
     targetLabel: proposed.title,
+    details: Object.keys(sideChanges).length > 0 ? sideChanges : undefined,
     ip: ipFrom(req),
   });
-  return NextResponse.json({ doc, parentWarning });
+  // The confirmation decision, when one was taken (the text of a confirmed,
+  // published document changed): the ledger row is the record, the audit
+  // entry is its echo with the same version, counts and reason (C1).
+  await auditAckDecision(existing, doc, { actor: actorFrom(user), ip: ipFrom(req) });
+  return NextResponse.json({ doc, parentWarning, ack_outcome: ackOutcome });
 }
 
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {

@@ -157,7 +157,7 @@ export function DocActions({
     "inline-flex items-center rounded-lg border border-slate-200 bg-surface p-2 text-slate-500 hover:bg-slate-50 hover:text-slate-700";
 
   return (
-    <div className="relative flex items-center gap-2 print:hidden">
+    <div className="relative flex flex-wrap items-center gap-2 print:hidden">
       {sharePanel && (
         <>
           <button

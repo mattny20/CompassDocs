@@ -1,8 +1,8 @@
 "use client";
 
-// Central compliance portal: org-wide acknowledgement progress across every
-// policy, per-user standing, request-acknowledgement for any published doc,
-// and one-click reminders to stragglers. Enterprise (policy_ack).
+// Central compliance portal: org-wide read-confirmation progress across every
+// policy, per-user standing, asking for a read confirmation of any published
+// doc, and one-click reminders to stragglers. Enterprise (policy_ack).
 
 import { useCallback, useEffect, useState } from "react";
 import { LoadingRow, Spinner } from "@/components/Spinner";
@@ -40,6 +40,45 @@ interface DocRow {
   ack_last_reminded_at: string | null;
   required: number;
   acked: number;
+  /** The marker version's number ("v12"); see handoff-ledgerui.md. */
+  ack_rev?: number | null;
+  /** The ledger (C1, 1.10.0): the newest decision of either outcome, and the newest reset (who last asked everyone, and why). */
+  last_decision?: DecisionBrief | null;
+  last_reset?: DecisionBrief | null;
+  /** Kept edits since everyone was last asked, and how far the text has drifted from the version they confirmed. */
+  kept_since_reset?: number;
+  drift_pct?: number | string | null;
+}
+
+interface DecisionBrief {
+  decided_at: string;
+  decided_by_name: string;
+  reason: string;
+  outcome: string;
+  source: string;
+}
+
+/** The row behind the marker: the newest reset, or the newest decision when it is one. */
+function lastAsk(d: DocRow): DecisionBrief | null {
+  if (d.last_reset) return d.last_reset;
+  return d.last_decision?.outcome === "reset" ? d.last_decision : null;
+}
+
+/** "Last asked Mar 3, 2026 by Matt: Section 4 now covers contractors". */
+function askedLine(x: DecisionBrief, date: (iso: string) => string): string {
+  let line = `Last asked ${date(x.decided_at)}`;
+  if (x.decided_by_name) line += ` by ${x.decided_by_name}`;
+  if (x.reason) line += `: ${x.reason}`;
+  return line;
+}
+
+/** "Edited 3 times since v12 without re-asking · 7.8% drift" (the number feeds the needs-attention queue later). */
+function driftLabel(d: DocRow): string {
+  const n = d.kept_since_reset ?? 0;
+  const drift = Number(d.drift_pct ?? 0);
+  const edited = n === 1 ? "Edited once" : `Edited ${n} times`;
+  const since = d.ack_rev ? `v${d.ack_rev}` : "the last ask";
+  return `${edited} since ${since} without re-asking` + (drift > 0 ? ` · ${drift.toFixed(1)}% drift` : "");
 }
 
 export function CompliancePanel({ licensed }: { licensed: boolean }) {
@@ -151,10 +190,10 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
           {/* KPIs */}
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             {[
-              { icon: <FileCheck className="h-4 w-4" />, label: "Policies requiring acknowledgement", value: k.policies },
+              { icon: <FileCheck className="h-4 w-4" />, label: "Policies requiring confirmation", value: k.policies },
               { icon: <Percent className="h-4 w-4" />, label: "Overall compliance", value: `${k.pct}%` },
               { icon: <Users className="h-4 w-4" />, label: "Fully compliant people", value: `${k.users_compliant}/${k.users_total}` },
-              { icon: <CircleAlert className="h-4 w-4" />, label: "Outstanding acknowledgements", value: k.outstanding },
+              { icon: <CircleAlert className="h-4 w-4" />, label: "Outstanding confirmations", value: k.outstanding },
             ].map((c) => (
               <div key={c.label} className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
                 <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-compass-50 text-compass-600">
@@ -166,15 +205,15 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
             ))}
           </div>
 
-          {/* Request acknowledgement */}
+          {/* Request read confirmation */}
           <section className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
             <h2 className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
-              <Send className="h-4 w-4 text-compass-600" /> Request acknowledgement
+              <Send className="h-4 w-4 text-compass-600" /> Request read confirmation
             </h2>
             <p className="mt-0.5 text-xs text-slate-500">
-              Pick a published document — everyone who can see it gets a dashboard notice and an
-              email asking them to read and acknowledge it. Compliance emails are sent regardless
-              of personal notification settings.
+              Pick a published document. Everyone who can see it gets a dashboard notice and an
+              email asking them to read and confirm it. Compliance emails are sent regardless of
+              personal notification settings.
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <div className="min-w-72 flex-1 sm:max-w-md">
@@ -204,7 +243,7 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
                 )}
               </div>
               <button
-                onClick={() => candidate && act(Number(candidate), "request", "Acknowledgement requested")}
+                onClick={() => candidate && act(Number(candidate), "request", "Read confirmation requested")}
                 disabled={!candidate || busy !== null}
                 className={buttonClass("primary")}
               >
@@ -213,7 +252,7 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
                 ) : (
                   <Send className="h-4 w-4" />
                 )}
-                Request acknowledgement
+                Request read confirmation
               </button>
             </div>
           </section>
@@ -227,7 +266,7 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
             </div>
             {data.docs.length === 0 ? (
               <SectionEmpty className="px-4 py-8 text-center">
-                No documents require acknowledgement yet — request one above.
+                No documents require read confirmation yet. Request one above.
               </SectionEmpty>
             ) : (
               <ul className="divide-y divide-slate-100">
@@ -237,27 +276,51 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
                   return (
                     <li key={d.id}>
                       <div className="flex flex-wrap items-center gap-3 px-4 py-3">
-                        <button
-                          onClick={() => toggleDetail(d.id)}
-                          className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                        >
-                          {open === d.id ? (
-                            <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
-                          ) : (
-                            <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
+                        <div className="min-w-0 flex-1">
+                          <button
+                            onClick={() => toggleDetail(d.id)}
+                            className="flex w-full min-w-0 items-center gap-2 text-left"
+                          >
+                            {open === d.id ? (
+                              <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+                            ) : (
+                              <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
+                            )}
+                            <span className="min-w-0">
+                              <span className="block truncate text-sm font-medium text-slate-800">
+                                {d.space_icon} {d.title}
+                              </span>
+                              <span className="block text-xs text-slate-500">
+                                Updated {fmt.date(d.updated_at)} ·{" "}
+                                {d.ack_last_reminded_at
+                                  ? `last reminded ${timeAgo(d.ack_last_reminded_at)}`
+                                  : "never reminded"}
+                              </span>
+                              {lastAsk(d) && (
+                                <span className="block text-xs text-slate-500">
+                                  {askedLine(lastAsk(d)!, fmt.date)}
+                                </span>
+                              )}
+                            </span>
+                          </button>
+                          {/* The drift chip sits beside the disclosure button, not
+                              inside it: a tooltip must be reachable by keyboard
+                              (STYLEGUIDE §Accessibility), and a focusable element
+                              inside a <button> is not valid HTML. pl-6 lines it up
+                              under the title (chevron 16px + gap 8px). */}
+                          {(d.kept_since_reset ?? 0) > 0 && (
+                            <span className="mt-1 block pl-6">
+                              <span
+                                className={chipClass("neutral", "sm")}
+                                tabIndex={0}
+                                data-tt="Edits the editor said did not need everyone to re-confirm; drift is how far the text now differs from the version people confirmed"
+                                data-tt-wrap=""
+                              >
+                                {driftLabel(d)}
+                              </span>
+                            </span>
                           )}
-                          <span className="min-w-0">
-                            <span className="block truncate text-sm font-medium text-slate-800">
-                              {d.space_icon} {d.title}
-                            </span>
-                            <span className="block text-xs text-slate-500">
-                              Revision of {fmt.date(d.updated_at)} ·{" "}
-                              {d.ack_last_reminded_at
-                                ? `last reminded ${timeAgo(d.ack_last_reminded_at)}`
-                                : "never reminded"}
-                            </span>
-                          </span>
-                        </button>
+                        </div>
                         <div className="w-40">
                           <div className="mb-0.5 flex justify-between text-xs">
                             <span className={complete ? "font-medium text-emerald-600" : "text-slate-500"}>
@@ -277,7 +340,7 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
                             <button
                               onClick={() => act(d.id, "remind", "Reminder sent")}
                               disabled={busy !== null}
-                              data-tt="Notify everyone who hasn't acknowledged yet"
+                              data-tt="Notify everyone who hasn't confirmed yet"
                               className={buttonClass("secondary", "sm")}
                             >
                               {busy === `remind-${d.id}` ? (
@@ -337,7 +400,7 @@ export function CompliancePanel({ licensed }: { licensed: boolean }) {
                 <tr className="text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
                   <th className="pb-2 font-medium">Person</th>
                   <th className="pb-2 text-right font-medium">Required</th>
-                  <th className="pb-2 text-right font-medium">Acknowledged</th>
+                  <th className="pb-2 text-right font-medium">Confirmed</th>
                   <th className="pb-2 text-right font-medium">Standing</th>
                 </tr>
               </thead>
@@ -384,7 +447,7 @@ function Header({ extra }: { extra?: React.ReactNode }) {
           <EnterpriseBadge />
         </>
       }
-      subtitle="Acknowledgement progress across every policy — who has read what, and who still owes a confirmation."
+      subtitle="Read-confirmation progress across every policy: who has confirmed what, and who still owes a confirmation."
       actions={extra}
       className="mb-5"
     />

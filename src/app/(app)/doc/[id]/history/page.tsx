@@ -2,7 +2,8 @@ import { History } from "lucide-react";
 import { chipClass } from "@/components/Chip";
 import { PageHeader } from "@/components/PageHeader";
 import { notFound } from "next/navigation";
-import { getDocument, listVersions, listBranches, getApprovalMode } from "@/lib/db";
+import { getDocument, listVersions, listBranches, getApprovalMode, listAckDecisions } from "@/lib/db";
+import type { AckDecision } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { canPublishDirectly, canSeeDrafts, spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
 import { getAppSettings } from "@/lib/settings-store";
@@ -29,12 +30,15 @@ export default async function HistoryPage({ params }: { params: Promise<{ id: st
   if (!scopeAllows(await spaceScopeFor(user), doc.space_id)) notFound();
   if (doc.status === "draft" && !(await canSeeDrafts(user, doc.space_id))) notFound();
 
-  const [versions, branches, settings, canEdit, canPublishDirect] = await Promise.all([
+  const [versions, branches, settings, canEdit, canPublishDirect, decisions] = await Promise.all([
     listVersions(doc.id),
     listBranches(doc.id),
     getAppSettings(),
     canEditSpace(user, doc.space_id),
     canPublishDirectly(user, doc.space_id),
+    // The read-confirmation ledger (C1): which versions asked everyone again
+    // and which were kept. Only a document that requires confirmation has one.
+    doc.ack_required === 1 ? listAckDecisions(doc.id) : Promise.resolve([] as AckDecision[]),
   ]);
 
   // Oldest = v1; the list arrives newest-first.
@@ -80,6 +84,12 @@ export default async function HistoryPage({ params }: { params: Promise<{ id: st
           title: b.title,
           author: b.author,
           when: timeAgo(b.updated_at),
+        }))}
+        decisions={decisions.map((d) => ({
+          version_id: d.version_id,
+          outcome: d.outcome,
+          decided_by_name: d.decided_by_name,
+          submitted_by_name: d.submitted_by_name,
         }))}
       />
     </PageContainer>

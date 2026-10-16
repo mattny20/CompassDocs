@@ -83,9 +83,10 @@ test("the toolbar keeps its height as the caret moves, and the Markdown pane gro
     await expect(context).toContainText(/appear here/);
     expect((await text.boundingBox())!.y, "the text does not shift").toBe(before);
 
-    // Markdown: the pane is as tall as its content.
+    // Markdown: the pane is as tall as its content. The pane is found by its
+    // placeholder: the Change note (1.10.0) is a textarea too.
     await page.getByRole("button", { name: "Markdown" }).click();
-    const ta = page.locator("textarea");
+    const ta = page.getByPlaceholder(/^# Start writing/);
     await ta.waitFor();
     const short = (await ta.boundingBox())!.height;
     await ta.click();

@@ -92,9 +92,9 @@ Today there are **six** distinct principal types. Only the first carries a role 
 | `document.presence` | Editing presence | Publish/read the "who else is editing" heartbeat | space | E,A,Ad · S | |
 | `document.track_view` | Record a view | Send a view-tracking ping | space | V,E,A,Ad · S | Draft tracking needs `document.read_draft` |
 | `document.feedback_vote` | Vote helpfulness | Cast/read your own "was this helpful?" vote | space | V,E,A,Ad · S | self |
-| `document.ack_submit` | Acknowledge policy | Attest to having read a policy document | space | V,E,A,Ad · S | **EE:policy_ack** · self |
-| `document.ack_require` | Require acknowledgement | Toggle whether a document demands attestation | space | A,Ad · S | **EE:policy_ack** |
-| `document.ack_roster_read` | Read acknowledgement roster | See who has and hasn't attested | space | A,Ad · S | **EE:policy_ack** |
+| `document.ack_submit` | Submit read confirmation | Record that you have read and understood a policy | space | V,E,A,Ad · S | **EE:policy_ack** · self |
+| `document.ack_require` | Require read confirmation | Decide whether a document must be read and confirmed | space | A,Ad · S | **EE:policy_ack** |
+| `document.ack_roster_read` | Read the confirmation record | See who has and hasn't confirmed | space | A,Ad · S | **EE:policy_ack** |
 
 ### 3.2 `attachment` — 3
 
@@ -229,9 +229,9 @@ Today there are **six** distinct principal types. Only the first carries a role 
 
 | Key | Label | Description | Scope | Legacy roles |
 |---|---|---|---|---|
-| `compliance.program_read` | Read compliance program | Acknowledgement progress and outstanding requests | section | Sec(compliance) · Ad |
-| `compliance.program_manage` | Run compliance program | Issue requests, send reminders | section | Sec(compliance) · Ad |
-| `compliance.export` | Export compliance evidence | Download attestation evidence | section | Sec(compliance) · Ad |
+| `compliance.program_read` | Read compliance program | Read-confirmation progress and who is still pending | section | Sec(compliance) · Ad |
+| `compliance.program_manage` | Run compliance program | Ask people to confirm, send reminders | section | Sec(compliance) · Ad |
+| `compliance.export` | Export compliance records | Download the attestation records as CSV | section | Sec(compliance) · Ad |
 
 ### 3.14 `status` — 3
 

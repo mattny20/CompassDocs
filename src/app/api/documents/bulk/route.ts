@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getDocument, getSpaceById, updateDocument } from "@/lib/db";
+import { getDocument, getSpaceById, updateDocument, ackSummary } from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
 import { notifyWebhooks } from "@/lib/webhooks";
@@ -140,6 +140,31 @@ export async function POST(req: Request) {
       continue;
     }
 
+    // Publishing a draft that asks for read confirmations, whose text has
+    // drifted from the version people confirmed, is a decision (keep or
+    // re-ask, with a change note) that bulk cannot take for them. Skip it
+    // and say why; the single-document publish asks the question (A2).
+    if (
+      action === "status" &&
+      newStatus === "published" &&
+      doc.ack_required === 1 &&
+      doc.status !== "published"
+    ) {
+      const summary = await ackSummary(doc.id, { baseline: true });
+      const drifted =
+        !summary.baseline ||
+        summary.baseline.content !== doc.content ||
+        summary.baseline.title !== doc.title;
+      if (drifted) {
+        skipped.push({
+          id: doc.id,
+          title: doc.title,
+          reason: "requires a re-confirmation decision; publish it individually",
+        });
+        continue;
+      }
+    }
+
     // Pass ONLY the fields this action changes — never a content snapshot,
     // so a concurrent editor save can't be clobbered by our stale read.
     const updatedDoc = await updateDocument(doc.id, {
@@ -149,6 +174,8 @@ export async function POST(req: Request) {
       space_id: action === "move" ? targetSpaceId : undefined,
       author: actorName,
       versionNote: "Bulk edit",
+      ackSource: "bulk",
+      ackActor: { id: user.id, name: actorName },
     });
     updated++;
 
