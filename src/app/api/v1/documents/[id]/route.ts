@@ -130,6 +130,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     versionNote: String(body.note ?? "").trim() || "Updated via API",
     ackSource: "api",
     ackActor: { id: user.id, name: user.name || user.username },
+    ackOrigin: requestOrigin(req),
   });
   if (!updated) return v1Error(404, "Document not found.");
 

@@ -17,6 +17,14 @@ export interface EmailTemplateDef {
   tags: { tag: string; label: string }[];
   subject: string;
   body: string;
+  /**
+   * Tags whose values are free text a person typed (a title, a name, a
+   * change note, a reason): rendered as written in the body, never as
+   * markdown or HTML, so "[x](https://evil.example)" in a change note is
+   * those characters in the mail and not a link. Tags not listed here are
+   * substituted before the markdown pass, as they always were.
+   */
+  text?: string[];
 }
 
 const T = (tag: string, label: string) => ({ tag, label });
@@ -82,21 +90,31 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     key: "ack_request",
     label: "Read confirmation request",
     description:
-      "Sent when an admin asks people to read and confirm a policy, or reminds them. Sent regardless of personal notification settings.",
+      "Sent when someone asks people to read and confirm a policy, reminds them, or changes a policy they had confirmed. Sent regardless of personal notification settings.",
+    // 1.10.1 (H1): one template for every read-confirmation notice. The
+    // mode-specific tags are blank when they do not apply, so a line that
+    // holds only {{change_note}} or {{reason}} disappears from the rendered
+    // mail. A workspace that overrode this template keeps its own body and
+    // adopts the new tags and the final sentence when it next edits it.
     tags: [
-      T("requester_name", "Requesting admin"),
+      T("requester_name", "Who asked (or who made the change)"),
       T("doc_title", "Policy title"),
-      T("doc_url", "Link to the policy"),
-      T("request_type", "requested / sent a reminder"),
-      T("request_label", "Action required / Reminder"),
+      T("doc_url", "Link to the policy (lands on the confirmation card)"),
+      T("request_type", "requested / sent a reminder / changed the document and asks again / asks again"),
+      T("request_label", "Action required / Reminder / Updated / Annual re-confirmation"),
+      T("change_note", "What changed (blank unless the document changed)"),
+      T("reason", "Why you are asked again (blank unless someone gave a reason)"),
+      T("due_date", "Confirm-by date (blank when there is none)"),
+      T("days_left", "Days until the due date (blank when there is none)"),
       T("org_name", "Workspace name"),
     ],
+    text: ["requester_name", "doc_title", "change_note", "reason"],
     subject: '[{{org_name}}] {{request_label}}: confirm "{{doc_title}}"',
     body:
-      "**{{requester_name}}** {{request_type}} that you read and acknowledge:\n\n" +
+      "**{{requester_name}}** {{request_type}} that you read and confirm:\n\n" +
       "> **{{doc_title}}**\n\n" +
-      '[Open the document]({{doc_url}}) and click *"I\'ve read and understood"*.\n\n' +
-      "This acknowledgement is recorded for compliance.",
+      "{{change_note}}{{reason}}\n\n" +
+      "[Open the document]({{doc_url}}) and confirm at the end that you have read and understood it.",
   },
   {
     key: "training_assigned",
@@ -250,9 +268,13 @@ export const SAMPLE_VARS: Record<string, Record<string, string>> = {
   ack_request: {
     requester_name: "Dana Whitfield",
     doc_title: "Code of Conduct",
-    doc_url: "/doc/42",
-    request_type: "requested",
-    request_label: "Action required",
+    doc_url: "/doc/42#confirm-reading",
+    request_type: "changed the document and asks again",
+    request_label: "Updated",
+    change_note: "Section 4 now covers contractors as well as employees.",
+    reason: "",
+    due_date: "",
+    days_left: "",
   },
   workflow_event: {
     event: "Change approved",
@@ -315,11 +337,61 @@ function mdToText(md: string): string {
     .trim();
 }
 
+/** A value rendered as text inside the html part: escaped, with its line breaks kept. */
+function escapeHtmlText(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/\r?\n/g, "<br>");
+}
+
+/**
+ * Substitute and render one template. Tags the definition marks as `text`
+ * go through the markdown pass as inert placeholders (letters and digits
+ * only, which nothing in the pipeline touches) and are put back afterwards:
+ * HTML-escaped in the html part, verbatim in the subject and the text part.
+ * Every other tag is substituted before rendering; the result passes through
+ * the same sanitize pipeline as newsletters. The newsletter path itself is
+ * untouched.
+ */
+async function renderParts(
+  def: EmailTemplateDef | undefined,
+  subjectTpl: string,
+  bodyTpl: string,
+  vars: Record<string, string>,
+  accent: string,
+  origin: string
+): Promise<{ subject: string; text: string; html: string }> {
+  const bodyVars = { ...vars };
+  const tokens: [string, string][] = [];
+  for (const tag of def?.text ?? []) {
+    if (!(tag in vars)) continue;
+    const value = vars[tag];
+    // An empty value stays empty, so a line that held only this tag still
+    // disappears from the rendered mail (the ack_request change-note line).
+    if (value === "") continue;
+    const token = `CDTEXTTAG${tokens.length}X`;
+    bodyVars[tag] = token;
+    tokens.push([token, value]);
+  }
+  const bodyMd = substitute(bodyTpl, bodyVars);
+  let html = await renderBodyHtml(bodyMd, accent, origin);
+  let text = mdToText(bodyMd);
+  for (const [token, value] of tokens) {
+    html = html.split(token).join(escapeHtmlText(value));
+    text = text.split(token).join(value);
+  }
+  return { subject: substitute(subjectTpl, vars), text, html };
+}
+
 /**
  * Render an email through its (possibly customized) template.
- * Values are substituted before markdown rendering; the result passes through
- * the same sanitize pipeline as newsletters, so tag values can't inject HTML
- * that survives.
+ * Values are substituted before markdown rendering (the template's `text`
+ * tags as written, see renderParts); the result passes through the same
+ * sanitize pipeline as newsletters, so tag values can't inject HTML that
+ * survives.
  */
 export async function renderEmail(
   key: string,
@@ -336,10 +408,7 @@ export async function renderEmail(
   if (!("org_name" in vars)) {
     vars = { ...vars, org_name: settings.company_name || "CompassDocs" };
   }
-  const subject = substitute(subjectTpl, vars);
-  const bodyMd = substitute(bodyTpl, vars);
-  const html = await renderBodyHtml(bodyMd, settings.accent_color, origin);
-  return { subject, text: mdToText(bodyMd), html };
+  return renderParts(def, subjectTpl, bodyTpl, vars, settings.accent_color, origin);
 }
 
 /**
@@ -357,8 +426,6 @@ export async function previewEmail(
     org_name: settings.company_name || "CompassDocs",
     ...(SAMPLE_VARS[key] ?? {}),
   };
-  return {
-    subject: substitute(subject, vars),
-    html: await renderBodyHtml(substitute(body, vars), settings.accent_color, origin),
-  };
+  const parts = await renderParts(templateDef(key), subject, body, vars, settings.accent_color, origin);
+  return { subject: parts.subject, html: parts.html };
 }

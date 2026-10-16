@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth";
 import { canAccessSection } from "@/lib/section-access";
 import { featureEnabled } from "@/lib/ee";
+import { userHolds } from "@/lib/access";
 import { CompliancePanel } from "@/components/CompliancePanel";
 import { PageContainer } from "@/components/PageWidth";
 
@@ -16,7 +17,10 @@ export default async function CompliancePage() {
   if (!(await canAccessSection(user, "compliance"))) redirect("/");
   return (
     <PageContainer>
-      <CompliancePanel licensed={await featureEnabled("policy_ack")} />
+      <CompliancePanel
+        licensed={await featureEnabled("policy_ack")}
+        canManageLicense={await userHolds(user, "workspace.settings_read", { legacyMin: "admin" })}
+      />
     </PageContainer>
   );
 }

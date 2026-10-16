@@ -678,6 +678,12 @@ text-slate-500` before them ("Notary · Phoenix").
   (`toast("ok", "Moved to the Trash.", { action: { label: "Undo", onClick } })`)
   that reverses through the existing API. Only the genuinely irreversible
   gets a `confirmDialog`, and its body ends "This cannot be undone."
+  Sending mail is that case (1.10.1): the compliance portal's **Remind**
+  asks "Remind 88 people?" with **Send reminders**; switching a
+  requirement on asks through the shared `requireAckDialog`
+  (`components/RequireAckDialog`), a `confirmDialog` with a `secondary`
+  "Require quietly" button, so the document shield and the portal cannot
+  drift. **Stop requiring** is reversible, so it tells and offers Undo.
 - **An attestation whose statement is printed beside the button is the
   question; it does not open a dialog** (1.10.0). "I confirm that I have
   read and understood this document." next to **I've read and understood

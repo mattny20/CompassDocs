@@ -5,7 +5,7 @@
 // the same notifications a manual publish would. Server-only.
 
 import "server-only";
-import { pool, resetAcknowledgements } from "./db";
+import { pool, getSetting, resetAcknowledgements, keepAcknowledgements, resolveAutoAckPolicy } from "./db";
 import { audit, auditAckDecision } from "./audit";
 import { changeSummary, suggestReconfirm } from "./diff";
 
@@ -35,6 +35,21 @@ interface DuePublish {
   space_name: string;
   ack_required: number;
   ack_version_id: number | null;
+  ack_edit_default: string;
+}
+
+/**
+ * The origin a scheduled reset's notice carries (1.10.1): there is no
+ * request to take one from, so it is the custom_domain setting or '' (the
+ * drain then falls back the same way the subscriber notice does).
+ */
+async function scheduleOrigin(): Promise<string> {
+  try {
+    const domain = (await getSetting("custom_domain"))?.trim();
+    return domain ? `https://${domain}` : "";
+  } catch {
+    return "";
+  }
 }
 
 // Known benign race: a PUT in flight while the tick publishes the same doc
@@ -54,9 +69,10 @@ export async function runDueDocSchedules(): Promise<void> {
     `UPDATE documents d SET status = 'published', publish_at = NULL, updated_at = now()
      WHERE d.publish_at IS NOT NULL AND d.publish_at <= now()
        AND d.status = 'draft' AND d.deleted_at IS NULL AND d.branch_of IS NULL
-     RETURNING d.id, d.title, d.content, d.space_id, d.ack_required, d.ack_version_id,
+     RETURNING d.id, d.title, d.content, d.space_id, d.ack_required, d.ack_version_id, d.ack_edit_default,
        (SELECT name FROM spaces s WHERE s.id = d.space_id) AS space_name`
   );
+  const origin = due.length > 0 ? await scheduleOrigin() : "";
   for (const doc of due) {
     await audit({
       actor: { name: "system" },
@@ -65,7 +81,7 @@ export async function runDueDocSchedules(): Promise<void> {
       targetId: doc.id,
       targetLabel: doc.title,
     });
-    await decideConfirmationsOnScheduledPublish(doc);
+    await decideConfirmationsOnScheduledPublish(doc, origin);
     try {
       const { notifySpaceSubscribers } = await import("./subscriptions");
       void notifySpaceSubscribers({
@@ -119,16 +135,19 @@ const SCHEDULER = { id: null, name: "" } as const;
  * (A2, rule 2): while a required document was a draft its marker stayed on
  * the version people confirmed, so when the draft's title or text drifted
  * from that version the old confirmations must not count for the new text.
- * Nobody is there to ask, so, like merge, restore and bulk in 1.10.0, the
- * scheduler resets (source 'schedule'); with the requirement off the marker
- * follows the text silently (rule 3). Unchanged text asks nobody, and a
- * document without a marker version has nothing to compare against.
+ * Nobody is there to ask, so the document's edit default decides (A5,
+ * 1.10.1, the same helper updateDocument and approveChangeRequest use):
+ * under 'material' an editorial-looking drift is kept and recorded from
+ * source 'default'; otherwise the scheduler resets (source 'schedule').
+ * With the requirement off the marker follows the text silently (rule 3).
+ * Unchanged text asks nobody, and a document without a marker version has
+ * nothing to compare against.
  *
  * The claim is already committed when this runs, so the decision is its own
  * short transaction right after it; a failure is logged and the publish
  * stands (the next edit or a manual ask repairs the marker).
  */
-async function decideConfirmationsOnScheduledPublish(doc: DuePublish): Promise<void> {
+async function decideConfirmationsOnScheduledPublish(doc: DuePublish, origin: string): Promise<void> {
   if (doc.ack_version_id == null) return;
   const baseline = (
     await q<{ title: string; content: string }>(
@@ -160,14 +179,29 @@ async function decideConfirmationsOnScheduledPublish(doc: DuePublish): Promise<v
       oldTitle: baseline.title,
       newTitle: doc.title,
     });
-    const r = await resetAcknowledgements(client, doc.id, {
+    const suggestion = suggestReconfirm(summary);
+    const auto = resolveAutoAckPolicy(doc, suggestion);
+    const decision = {
       versionId: latest,
       actor: SCHEDULER,
-      source: "schedule",
+      source: auto.decidedBySetting ? ("default" as const) : ("schedule" as const),
       reason: "Published on schedule",
       summary,
-      suggested: suggestReconfirm(summary).policy,
-    });
+      suggested: suggestion.policy,
+      origin,
+    };
+    const outcome =
+      auto.resolved === "keep"
+        ? await keepAcknowledgements(client, doc.id, decision).then((k) => ({
+            reset: false,
+            confirmations_reset: 0,
+            decision_id: k.decision_id,
+          }))
+        : await resetAcknowledgements(client, doc.id, decision).then((r) => ({
+            reset: true,
+            confirmations_reset: r.confirmations_reset,
+            decision_id: r.decision_id,
+          }));
     await client.query("COMMIT");
     await auditAckDecision(
       { ack_required: 1 },
@@ -179,11 +213,11 @@ async function decideConfirmationsOnScheduledPublish(doc: DuePublish): Promise<v
         ack_outcome: {
           changed: true,
           substantive: true,
-          reset: true,
-          confirmations_reset: r.confirmations_reset,
+          reset: outcome.reset,
+          confirmations_reset: outcome.confirmations_reset,
           policy: "auto",
-          source: "schedule",
-          decision_id: r.decision_id,
+          source: decision.source,
+          decision_id: outcome.decision_id,
         },
       },
       { actor: { name: "system" } }

@@ -1,10 +1,20 @@
 import { NextResponse } from "next/server";
-import { getDocument, recordAcknowledgement, getCurrentAck, setAckRequired } from "@/lib/db";
+import {
+  getDocument,
+  recordAcknowledgement,
+  getCurrentAck,
+  setAckRequired,
+  setAckEditDefault,
+  isAckEditDefault,
+} from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
 import { spaceScopeFor, scopeAllows, canSeeDrafts, userHolds } from "@/lib/access";
 import { featureEnabled } from "@/lib/ee";
 import { ackSummary } from "@/lib/db";
 import { auditAck, actorFrom, ipFrom } from "@/lib/audit";
+import { requestAcknowledgement } from "@/lib/compliance";
+import { getComplianceSettings } from "@/lib/compliance-settings";
+import { requestOrigin } from "@/lib/oauth";
 import type { SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -47,8 +57,19 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   }
 
   const baseline = new URL(req.url).searchParams.get("baseline") === "1";
-  const summary = await ackSummary(doc.id, { baseline });
-  return NextResponse.json(summary, { headers: { "Cache-Control": "no-store" } });
+  // The workspace defaults ride along (A5/E4): the popover marks the option
+  // equal to workspace_edit_default, and the editor's keep side follows
+  // keep_reason_required. ackSummary cannot read them itself (the settings
+  // module is server-only and imports lib/db).
+  const [summary, settings] = await Promise.all([ackSummary(doc.id, { baseline }), getComplianceSettings()]);
+  return NextResponse.json(
+    {
+      ...summary,
+      workspace_edit_default: settings.ack_defaults.edit_default,
+      keep_reason_required: settings.ack_defaults.keep_reason_required,
+    },
+    { headers: { "Cache-Control": "no-store" } }
+  );
 }
 
 // POST — the signed-in reader confirms they've read this document.
@@ -120,7 +141,31 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   });
 }
 
-// PATCH — approver+ toggles whether the doc requires a read confirmation.
+// PATCH — the shield popover's settings (A5, 1.10.1), for holders of
+// document.ack_require on the space.
+//
+// Body: { required?: boolean; notify?: boolean; edit_default?: 'ask' | 'material' | 'reset' }.
+// At least one of `required` / `edit_default` must be present, each with its
+// type, else 400. `required: true` runs the same request sequence as the
+// portal (requestAcknowledgement: the requirement switches on, the document
+// receives the workspace edit default the first time, and with `notify` a
+// 'request' notice is queued for everyone who can see it); `notify` is
+// false when absent, so an API caller that says nothing tells nobody, as
+// the 1.10.0 toggle did. The popover always sends it ("Require and notify"
+// / "Require quietly"). Switching on a document that already requires
+// confirmation changes nothing and queues nothing. `required: false` keeps
+// the record and audits the standing at that moment. `edit_default` is the
+// per-document answer to "when the text changes"; its audit row carries
+// {from, to}. Every branch answers the same shape, { ok, ack_required,
+// edit_default, queued, eligible }, read from the row after the writes (so
+// a first switch-on that replaced an explicit 'ask' with the workspace
+// default echoes what the document now holds, not what was sent).
+//
+// apiGuard admits a holder of the space-scoped document.ack_require from
+// any space (it takes no space), so the key is checked again on the
+// document's own space: a role granted it on one space must not switch
+// the requirement on, queue a notice to or change the default of a
+// document it can merely read in another.
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const gate = await apiGuard("approver", "document.ack_require");
   if (gate instanceof NextResponse) return gate;
@@ -138,6 +183,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (!doc || !scopeAllows(await spaceScopeFor(user), doc.space_id)) {
     return NextResponse.json({ error: "Not found." }, { status: 404 });
   }
+  if (!(await userHolds(user, "document.ack_require", { spaceId: doc.space_id, legacyMin: "approver" }))) {
+    return NextResponse.json({ error: "You don't have permission for that." }, { status: 403 });
+  }
 
   let body: any;
   try {
@@ -145,38 +193,94 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   } catch {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
-  if (typeof body?.required !== "boolean") {
-    return NextResponse.json({ error: "'required' must be a boolean." }, { status: 400 });
+  const hasRequired = body?.required !== undefined;
+  const hasEditDefault = body?.edit_default !== undefined;
+  if (hasRequired && typeof body.required !== "boolean") {
+    return NextResponse.json({ error: "'required' must be true or false." }, { status: 400 });
   }
-  if (body.required && doc.status !== "published") {
+  if (hasEditDefault && !isAckEditDefault(body.edit_default)) {
+    return NextResponse.json({ error: "'edit_default' must be ask, material or reset." }, { status: 400 });
+  }
+  if (body?.notify !== undefined && typeof body.notify !== "boolean") {
+    return NextResponse.json({ error: "'notify' must be true or false." }, { status: 400 });
+  }
+  if (!hasRequired && !hasEditDefault) {
+    return NextResponse.json({ error: "Send 'required' and/or 'edit_default'." }, { status: 400 });
+  }
+  if (hasRequired && body.required && doc.status !== "published") {
     return NextResponse.json(
       { error: "Publish the document before requiring a read confirmation." },
       { status: 400 }
     );
   }
-  // Counted before the flip, so "removed" says what standing the record had
-  // at that moment (acked of required). Two literal calls, not a ternary, so
-  // each key is greppable (C1).
-  const summary = await ackSummary(doc.id);
-  await setAckRequired(doc.id, body.required);
-  if (body.required) {
-    await auditAck("document.ack_required", doc, {
-      actor: actorFrom(user),
-      ip: ipFrom(req),
-      version_id: summary.latest_version_id,
-      version: summary.latest_rev,
-      source: "manual",
-      details: { required: summary.eligible },
-    });
-  } else {
-    await auditAck("document.ack_removed", doc, {
-      actor: actorFrom(user),
-      ip: ipFrom(req),
-      version_id: summary.version_id,
-      version: summary.rev,
-      source: "manual",
-      details: { acked: summary.current, required: summary.eligible },
-    });
+
+  const actor = actorFrom(user);
+  const ip = ipFrom(req);
+  let queued = 0;
+
+  if (hasEditDefault) {
+    const change = await setAckEditDefault(doc.id, body.edit_default);
+    if (change && change.from !== change.to) {
+      await auditAck("ack.edit_default_set", doc, {
+        actor,
+        ip,
+        source: "manual",
+        details: { from: change.from, to: change.to },
+      });
+    }
   }
-  return NextResponse.json({ ok: true, ack_required: body.required });
+
+  if (hasRequired) {
+    // Counted before the flip, so "removed" says what standing the record
+    // had at that moment (acked of required) and "required" names the
+    // audience that was asked. Two literal calls, not a ternary, so each
+    // key is greppable (C1).
+    const summary = await ackSummary(doc.id);
+    if (body.required) {
+      if (doc.ack_required !== 1) {
+        const notify = body.notify === true;
+        // The flip is the claim: only the call that switched the
+        // requirement on queues a notice and is on the record; a request
+        // that lost that race changes nothing and answers queued 0.
+        const r = await requestAcknowledgement(
+          doc,
+          { id: user.id, name: user.name || user.username },
+          requestOrigin(req),
+          { notify }
+        );
+        queued = r.queued;
+        if (r.switched_on) {
+          await auditAck("document.ack_required", doc, {
+            actor,
+            ip,
+            version_id: summary.latest_version_id,
+            version: summary.latest_rev,
+            source: "manual",
+            details: { notify, eligible: summary.eligible, queued },
+          });
+        }
+      }
+    } else if (doc.ack_required === 1) {
+      await setAckRequired(doc.id, false);
+      await auditAck("document.ack_removed", doc, {
+        actor,
+        ip,
+        version_id: summary.version_id,
+        version: summary.rev,
+        source: "manual",
+        details: { acked: summary.current, required: summary.eligible },
+      });
+    }
+  }
+
+  // One read after the writes, so every branch answers the documented
+  // shape from what the document now holds.
+  const after = await ackSummary(doc.id);
+  return NextResponse.json({
+    ok: true,
+    ack_required: after.required,
+    edit_default: after.edit_default,
+    queued,
+    eligible: after.eligible,
+  });
 }

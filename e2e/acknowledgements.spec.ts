@@ -54,6 +54,17 @@ test("read confirmation: the entitlement gate holds in the community build", asy
       expect(post.status).toBe(402);
       const roster = await api(page, `/api/documents/${docId}/acknowledgements`);
       expect(roster.status).toBe(402);
+      // The 1.10.1 routes answer the same 402: the summary, the deliberate
+      // re-ask (with a reason the licensed route would accept), the portal
+      // and the program settings.
+      expect((await api(page, `/api/documents/${docId}/ack`)).status, "GET /ack").toBe(402);
+      const reconfirm = await api(page, `/api/documents/${docId}/ack/reconfirm`, {
+        method: "POST",
+        body: { reason: "Section 4 now applies to contractors too" },
+      });
+      expect(reconfirm.status, "POST /ack/reconfirm").toBe(402);
+      expect((await api(page, "/api/admin/compliance")).status, "GET /api/admin/compliance").toBe(402);
+      expect((await api(page, "/api/admin/compliance/settings")).status, "GET /api/admin/compliance/settings").toBe(402);
       // The erasure endpoint is gated the same way, so the API and the Users
       // page (which hides the button unlicensed) agree.
       const throwaway = { username: `e2e_ackgate_${stamp()}`, password: "E2eGate!12345" };
@@ -280,7 +291,9 @@ async function openEditor(page: Page, docId: number) {
 
 async function openEditorAndType(page: Page, docId: number, text: string) {
   const editor = await openEditor(page, docId);
-  await editor.click();
+  // Into a paragraph, never a heading: a heading edit is material on its
+  // own, and the typo-fix cases need an edit the measurement calls editorial.
+  await editor.locator("p").last().click();
   await page.keyboard.press("End");
   await page.keyboard.type(text);
 }
@@ -615,6 +628,304 @@ test("bulk publish skips a drifted draft that requires confirmation, and publish
     expect(after.confirmed, "republishing the confirmed text asks nobody again").toBe(before.confirmed);
     expect(after.total).toBe(before.total);
   } finally {
+    if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
+  }
+});
+
+// ── The shield popover (A5, 1.10.1) ─────────────────────────────────────────
+//
+// The shield in the document's action row opens the Read confirmation
+// popover: the "Require readers to confirm" switch, the status line with
+// "View record", the "When the text changes" select and the re-ask button.
+// Switching on asks first (the shared question) and Cancel leaves the switch
+// off; "Require quietly" switches on and tells nobody; switching off tells
+// with Undo; the select changes what the editor does on the next text save.
+// Licensed builds only (see above).
+
+const SHIELD = "Read confirmation settings";
+const SWITCH = "Require readers to confirm";
+const EDIT_DEFAULT = "When the text changes";
+
+/** GET /ack answers 402 on the community build; the admin reads it otherwise. */
+async function ackLicensed(page: Page, docId: number): Promise<boolean> {
+  const res = await api(page, `/api/documents/${docId}/ack`);
+  if (res.status === 402) return false;
+  expect(res.status, "the admin reads the summary").toBe(200);
+  return true;
+}
+
+async function ackRequiredFlag(page: Page, docId: number): Promise<number> {
+  const res = await api(page, `/api/documents/${docId}`);
+  expect(res.status).toBe(200);
+  return Number(res.body?.doc?.ack_required);
+}
+
+test("the shield popover: switching on asks first and Cancel leaves it off; Require quietly tells nobody; the edit default saves; switching off tells, with Undo", async ({ page }) => {
+  test.setTimeout(120_000);
+  await login(page, ADMIN);
+  const title = `E2E ack popover ${stamp()}`;
+  let docId: number | undefined;
+  try {
+    docId = await makePolicy(page, title);
+    test.skip(!(await ackLicensed(page, docId)), "policy_ack is not licensed in this build; the EE rig runs the flow");
+
+    await page.goto(`/doc/${docId}`);
+    await expect(page.locator("h1")).toContainText(title);
+
+    // The shield is a popup trigger with the house tooltip and name; the
+    // panel holds the four controls under its heading.
+    const shield = page.getByRole("button", { name: SHIELD }).first();
+    await expect(shield).toHaveAttribute("aria-haspopup", "dialog");
+    await expect(shield).toHaveAttribute("aria-expanded", "false");
+    await shield.click();
+    const panel = page.getByRole("dialog", { name: "Read confirmation" });
+    await expect(panel).toBeVisible();
+    await expect(shield).toHaveAttribute("aria-expanded", "true");
+    await expect(panel.getByRole("heading", { name: "Read confirmation" })).toBeVisible();
+    const toggle = panel.getByRole("switch", { name: SWITCH });
+    await expect(toggle).toBeVisible();
+    await expect(toggle).toHaveAttribute("aria-checked", "false");
+    const select = panel.getByLabel(EDIT_DEFAULT);
+    await expect(select).toBeVisible();
+    await expect(select).toHaveValue("ask");
+    await expect(select.locator("option", { hasText: "(workspace default)" })).toHaveCount(1);
+    await expect(panel.getByRole("link", { name: "View record" })).toHaveCount(0);
+
+    // Switching on asks first: the shared question with the audience count
+    // and three answers. Cancel sends nothing and leaves the switch off and
+    // idle; the popover stays open.
+    await toggle.click();
+    const question = page.getByRole("dialog", { name: "Require read confirmation?" });
+    await expect(question).toBeVisible();
+    await expect(
+      question.getByText(/^Everyone who can see this space \(\d+ (person|people)\) will be asked to read and confirm this document\.$/)
+    ).toBeVisible();
+    await expect(question.getByRole("button", { name: "Require and notify" })).toBeVisible();
+    await expect(question.getByRole("button", { name: "Require quietly" })).toBeVisible();
+    await question.getByRole("button", { name: "Cancel" }).click();
+    await expect(question).toHaveCount(0);
+    await expect(panel).toBeVisible();
+    await expect(toggle).toHaveAttribute("aria-checked", "false");
+    await expect(toggle).toBeEnabled();
+    expect(await ackRequiredFlag(page, docId), "Cancel leaves the requirement off").toBe(0);
+    expect((await auditRows(page, "document.ack_required", docId)).length, "Cancel writes no audit row").toBe(0);
+
+    // Require quietly: the switch flips only on the answer, the status line
+    // says nobody was told, the record link appears, the audit row says
+    // notify: false.
+    await toggle.click();
+    await expect(question).toBeVisible();
+    await question.getByRole("button", { name: "Require quietly" }).click();
+    await expect(page.locator('[role="status"]').getByText("Read confirmation required. No notice sent.")).toBeVisible();
+    await expect(toggle).toHaveAttribute("aria-checked", "true");
+    await expect(panel.getByText(/^Required .+ by .+ \(no notice sent\)/)).toBeVisible();
+    await expect(panel.getByRole("link", { name: "View record" })).toHaveAttribute(
+      "href",
+      `/doc/${docId}/acknowledgements`
+    );
+    expect(await ackRequiredFlag(page, docId)).toBe(1);
+    const quiet = await auditRows(page, "document.ack_required", docId);
+    expect(quiet.length).toBe(1);
+    expect(quiet[0].details?.notify).toBe(false);
+    expect(typeof quiet[0].details?.eligible).toBe("number");
+    expect(quiet[0].details?.queued).toBe(0);
+    // Nobody was told, so Remind is not blocked (the quiet path stamps no cooldown).
+    const summary = await api(page, `/api/documents/${docId}/ack`);
+    expect(summary.body?.required).toBe(true);
+    expect(summary.body?.workspace_edit_default, "the workspace value travels").toBeTruthy();
+    expect(typeof summary.body?.keep_reason_required).toBe("boolean");
+
+    // The edit default: the select saves on change and the audit row
+    // carries the move.
+    await select.selectOption("reset");
+    await expect(page.locator('[role="status"]').getByText("Setting saved.")).toBeVisible();
+    expect((await api(page, `/api/documents/${docId}/ack`)).body?.edit_default).toBe("reset");
+    const changed = await auditRows(page, "ack.edit_default_set", docId);
+    expect(changed.length).toBe(1);
+    expect(changed[0].details?.from).toBe("ask");
+    expect(changed[0].details?.to).toBe("reset");
+
+    // Switching off is reversible: no question, a toast with Undo, the
+    // record kept, the audit row carrying the standing; Undo re-requires
+    // quietly.
+    await toggle.click();
+    const stopped = page.locator('[role="status"]').getByText("Read confirmation no longer required for this document");
+    await expect(stopped).toBeVisible();
+    await expect(toggle).toHaveAttribute("aria-checked", "false");
+    expect(await ackRequiredFlag(page, docId)).toBe(0);
+    const removed = await auditRows(page, "document.ack_removed", docId);
+    expect(removed.length).toBe(1);
+    expect(typeof removed[0].details?.acked).toBe("number");
+    expect(removed[0].details?.required).toBeGreaterThanOrEqual(1);
+    await page.locator('[role="status"]').getByRole("button", { name: "Undo" }).click();
+    await expect(
+      page.locator('[role="status"]').getByText("Read confirmation required again. No notice sent.")
+    ).toBeVisible();
+    await expect(toggle).toHaveAttribute("aria-checked", "true");
+    expect(await ackRequiredFlag(page, docId)).toBe(1);
+    const undone = await auditRows(page, "document.ack_required", docId);
+    expect(undone.length, "the undo is on the record").toBe(2);
+    expect(undone[0].details?.notify, "and it sent nothing").toBe(false);
+    expect((await api(page, `/api/documents/${docId}/ack`)).body?.edit_default, "the document's own choice survives the toggle").toBe("reset");
+
+    // Escape closes the popover and hands focus back to the shield.
+    await page.keyboard.press("Escape");
+    await expect(panel).toHaveCount(0);
+    await expect(shield).toHaveAttribute("aria-expanded", "false");
+
+    // Reopened, the server's sentence takes over, and because nobody has
+    // been told it says so instead of naming a day on which nobody was asked.
+    await shield.click();
+    await expect(panel).toBeVisible();
+    await expect(panel.getByText(/^0 of \d+ confirmed · (v\d+|current version) · no notice sent yet/)).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(panel).toHaveCount(0);
+
+    // The API contract: a body with no known field, or a wrong type, is 400.
+    expect((await api(page, `/api/documents/${docId}/ack`, { method: "PATCH", body: {} })).status).toBe(400);
+    expect((await api(page, `/api/documents/${docId}/ack`, { method: "PATCH", body: { required: "yes" } })).status).toBe(400);
+    expect((await api(page, `/api/documents/${docId}/ack`, { method: "PATCH", body: { edit_default: "never" } })).status).toBe(400);
+    const both = await api(page, `/api/documents/${docId}/ack`, {
+      method: "PATCH",
+      body: { required: true, edit_default: "material" },
+    });
+    expect(both.status).toBe(200);
+    expect(both.body?.ack_required).toBe(true);
+    expect(both.body?.edit_default).toBe("material");
+    expect(both.body?.queued, "already on: nothing queued").toBe(0);
+    // The no-op is not on the record: the switch-on and the undo wrote the
+    // two document.ack_required rows, and re-requiring what is already
+    // required writes no third.
+    expect((await auditRows(page, "document.ack_required", docId)).length, "a no-op writes no audit row").toBe(2);
+  } finally {
+    if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
+  }
+});
+
+test("the edit default changes the editor's behaviour: 'reset' never asks and needs the note; 'material' keeps a typo fix quietly and asks for a number change", async ({ page }) => {
+  test.setTimeout(150_000);
+  await login(page, ADMIN);
+  const title = `E2E ack edit default ${stamp()}`;
+  let docId: number | undefined;
+  // The workspace's "Require a reason for editorial fixes too", restored in
+  // finally: the setting is shared by every test on the rig.
+  let keepReasonBefore: boolean | undefined;
+  try {
+    docId = await makePolicy(page, title);
+    test.skip(
+      (await requireConfirmation(page, docId)) === "unlicensed",
+      "policy_ack is not licensed in this build; the EE rig runs the flow"
+    );
+    const confirmLatest = async () => {
+      const s = await api(page, `/api/documents/${docId}/ack`);
+      expect(s.status).toBe(200);
+      const r = await api(page, `/api/documents/${docId}/ack`, { method: "POST", body: { version_id: s.body.latest_version_id } });
+      expect(r.status).toBe(200);
+    };
+    await confirmLatest();
+    const before = await rosterCount(page, docId);
+    expect(before.confirmed).toBeGreaterThanOrEqual(1);
+
+    // 'reset': the change-note help says so; a save with no note stops at
+    // the field; with a note it saves without a question and asks everyone.
+    expect((await api(page, `/api/documents/${docId}/ack`, { method: "PATCH", body: { edit_default: "reset" } })).status).toBe(200);
+    await openEditorAndType(page, docId, " Edited under reset.");
+    await expect(page.getByText("Every change to the text asks everyone to re-confirm, so a change note is required.")).toBeVisible();
+    const dialog = page.getByRole("dialog", { name: QUESTION });
+    await page.getByRole("button", { name: "Save changes" }).click();
+    await expect(page.getByRole("alert").filter({ hasText: /at least 10 characters/ })).toBeVisible();
+    await expect(dialog).toHaveCount(0);
+    expect(page.url()).toContain(`/doc/${docId}/edit`);
+    await expect(page.getByLabel("Change note")).toBeFocused();
+    await page.getByLabel("Change note").fill("Cap raised; everyone must read the new figure");
+    await saveNeverAsks(page, docId);
+    await expect(
+      page
+        .locator('[role="status"]')
+        .getByText(new RegExp(`^Saved\\. ${before.confirmed} (person|people) will be asked to re-confirm\\.$`))
+    ).toBeVisible();
+    const afterReset = await rosterCount(page, docId);
+    expect(afterReset.confirmed, "everyone was asked again").toBe(0);
+    const resetSummary = await api(page, `/api/documents/${docId}/ack`);
+    expect(resetSummary.body?.last_decision?.outcome).toBe("reset");
+    expect(resetSummary.body?.last_decision?.source).toBe("edit");
+    expect(resetSummary.body?.last_decision?.reason).toBe("Cap raised; everyone must read the new figure");
+
+    // 'material': a one-word fix in a long text looks editorial, so it is
+    // saved unasked as an editorial fix and recorded from the document's
+    // setting; a changed number opens the question with the setting's note.
+    await confirmLatest();
+    const confirmed = (await rosterCount(page, docId)).confirmed;
+    expect(confirmed).toBeGreaterThanOrEqual(1);
+    expect((await api(page, `/api/documents/${docId}/ack`, { method: "PATCH", body: { edit_default: "material" } })).status).toBe(200);
+    await openEditorAndType(page, docId, " Done.");
+    await expect(page.getByText(/only when the change looks material/)).toBeVisible();
+    await saveNeverAsks(page, docId);
+    await expect(
+      page.locator('[role="status"]').getByText("Saved as an editorial fix (document setting). Confirmations kept.")
+    ).toBeVisible();
+    expect((await rosterCount(page, docId)).confirmed, "kept").toBe(confirmed);
+    const keptSummary = await api(page, `/api/documents/${docId}/ack`);
+    expect(keptSummary.body?.last_decision?.outcome).toBe("kept");
+    expect(keptSummary.body?.last_decision?.source, "the setting decided").toBe("default");
+
+    await openEditorAndType(page, docId, " The cap is now 75.");
+    await page.keyboard.press("Control+s");
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole("radio", { name: MATERIAL })).toBeChecked();
+    await expect(
+      dialog.getByText("This document asks only when a change looks material (its read confirmation setting).")
+    ).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+    expect((await rosterCount(page, docId)).confirmed, "Cancel changes nothing").toBe(confirmed);
+
+    // The keep side's reason rule follows the workspace setting (E4) through
+    // PUT /api/documents/{id}: with "Require a reason for editorial fixes
+    // too" off, a keep saves with a four-character note; a reset with the
+    // same note is still refused before any write.
+    const settingsBefore = await api(page, "/api/admin/compliance/settings");
+    expect(settingsBefore.status, "program settings readable").toBe(200);
+    keepReasonBefore = Boolean(settingsBefore.body?.settings?.ack_defaults?.keep_reason_required);
+    const relaxed = await api(page, "/api/admin/compliance/settings", {
+      method: "PUT",
+      body: { ack_defaults: { keep_reason_required: false } },
+    });
+    expect(relaxed.status).toBe(200);
+    expect(relaxed.body?.settings?.ack_defaults?.keep_reason_required).toBe(false);
+    const live = (await api(page, `/api/documents/${docId}`)).body?.doc;
+    const keptShort = await api(page, `/api/documents/${docId}`, {
+      method: "PUT",
+      body: {
+        content: `${live.content}\n\nOne more editorial line.`,
+        status: "published",
+        ack_policy: "keep",
+        ack_reason: "typo",
+        versionNote: "Keep with a short note",
+      },
+    });
+    expect(keptShort.status, "a keep needs no long note when the workspace excuses editorial fixes").toBe(200);
+    expect(keptShort.body?.ack_outcome?.policy).toBe("keep");
+    expect((await rosterCount(page, docId)).confirmed, "kept").toBe(confirmed);
+    const resetShort = await api(page, `/api/documents/${docId}`, {
+      method: "PUT",
+      body: {
+        content: `${live.content}\n\nAnother line, a reset this time.`,
+        status: "published",
+        ack_policy: "reset",
+        ack_reason: "typo",
+      },
+    });
+    expect(resetShort.status, "a reset always needs its note").toBe(400);
+    expect(resetShort.body?.error).toMatch(/at least 10 characters/);
+    expect((await rosterCount(page, docId)).confirmed, "a refused reset changes nothing").toBe(confirmed);
+  } finally {
+    if (keepReasonBefore !== undefined) {
+      await api(page, "/api/admin/compliance/settings", {
+        method: "PUT",
+        body: { ack_defaults: { keep_reason_required: keepReasonBefore } },
+      });
+    }
     if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
   }
 });

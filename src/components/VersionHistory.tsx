@@ -32,6 +32,8 @@ export type VersionItem = {
   author: string;
   note: string;
   restored_from: number | null;
+  /** Who approved the version when it came through a change request (C6); '' otherwise. */
+  approved_by_name?: string;
   /** Pre-formatted timestamp (server-rendered with workspace settings). */
   when: string;
   whenExact: string;
@@ -448,11 +450,18 @@ export function VersionHistory({
                       {decision.outcome === "reset" ? "Asked everyone to re-confirm" : "Editorial (kept)"}
                     </span>
                   )}
-                  {approved && (
+                  {approved ? (
                     <span className="ml-1.5 text-xs font-normal text-slate-500">
                       recommended by {decision.submitted_by_name}, approved by {decision.decided_by_name}
                     </span>
-                  )}
+                  ) : v.approved_by_name ? (
+                    // The approver stamped on the version itself (C6): shown
+                    // when the ledger has no row for it (a document that does
+                    // not require confirmation, or a version before 1.10.0).
+                    <span className="ml-1.5 text-xs font-normal text-slate-500">
+                      approved by {v.approved_by_name}
+                    </span>
+                  ) : null}
                 </span>
                 <span className="min-w-0 flex-1 truncate text-sm text-slate-500" data-tt={v.note || undefined}>
                   {v.note}

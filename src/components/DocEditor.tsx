@@ -12,7 +12,7 @@ import { ChevronDown, ClipboardCheck, House, ListChecks, ShieldCheck, Sparkles, 
 import { EmptyState, Field, Select, Textarea, TextInput } from "./form";
 import { StatusBadge } from "./Badges";
 import { confirmDialog } from "./Dialog";
-import { ReconfirmHost, assessChange, reconfirmDialog } from "./ReconfirmModal";
+import { ReconfirmHost, assessChange, reconfirmDialog, NOTE_MIN, NOTE_MAX, NOTE_TOO_SHORT } from "./ReconfirmModal";
 import type { ReconfirmResult, ReconfirmText } from "./ReconfirmModal";
 import { toast } from "./Toasts";
 import { Popover } from "./Popover";
@@ -24,6 +24,7 @@ import { blockModKey } from "@/lib/hotkeys";
 import { overlayOpen } from "@/lib/overlay-stack";
 import { DOC_TYPES } from "@/lib/types";
 import type { DocType, DocStatus, Space } from "@/lib/types";
+import type { EditDefault } from "@/lib/compliance-settings";
 
 type EditorTab = "rich" | "markdown" | "preview";
 
@@ -60,13 +61,15 @@ interface Category {
 
 /**
  * Read confirmation as the editor needs it (A3, 1.10.0): whether the document
- * asks readers to confirm, the per-document edit default (only "ask" exists
- * until A5 adds the column) and the counts from `ackSummary` for the header
- * chip. The confirmed baseline text is fetched when a save needs it.
+ * asks readers to confirm, the per-document edit default (A5, 1.10.1: 'ask'
+ * opens the question on every text save, 'material' only when the change
+ * looks material, 'reset' never asks and always re-asks everyone) and the
+ * counts from `ackSummary` for the header chip. The confirmed baseline text
+ * is fetched when a save needs it.
  */
 export interface EditorAck {
   required: boolean;
-  editDefault: "ask";
+  editDefault: EditDefault;
   summary: {
     eligible: number;
     current: number;
@@ -102,8 +105,31 @@ interface AckFetched {
   eligible: number;
   current: number;
   rev: number | null;
+  /** The document's edit default as it stands now (it may have changed since the editor loaded). */
+  edit_default?: EditDefault;
+  /** The workspace's "Require a reason for editorial fixes too" (E4). */
+  keep_reason_required?: boolean;
   baseline?: { version_id: number | null; rev: number | null; title: string; content: string } | null;
 }
+
+/** How a save that changes the text of a confirmed document was decided (A3/A5). */
+type Asked =
+  /** Nothing to decide, or the document's 'material' setting keeps a change that looks editorial (the server records it). */
+  | { kind: "none" }
+  /** The question was put; null is Cancel. */
+  | { kind: "asked"; answer: ReconfirmResult | null }
+  /** The document's 'reset' setting decided: no question, the change note is the reason. */
+  | { kind: "setting"; decision: ReconfirmResult }
+  /** 'reset' without a usable change note: the field says so and the save stops. */
+  | { kind: "blocked" };
+
+/** The help line under the change note, by the document's edit default (A5). */
+const EDIT_DEFAULT_HELP: Record<EditDefault, string> = {
+  ask: "Saving will ask whether readers must re-confirm.",
+  material:
+    "Saving asks whether readers must re-confirm only when the change looks material; a smaller edit is saved as an editorial fix and recorded.",
+  reset: "Every change to the text asks everyone to re-confirm, so a change note is required.",
+};
 
 /** What PUT echoes once the save has been classified (A2). */
 interface AckOutcome {
@@ -173,6 +199,10 @@ export function DocEditor({
   const [tags, setTags] = useState(initial.tags.join(", "));
   const [content, setContent] = useState(initial.content);
   const [changeNote, setChangeNote] = useState("");
+  // Field-level validation for the change note: under the 'reset' edit
+  // default a text save needs one, and the field says so inline.
+  const [noteError, setNoteError] = useState<string | undefined>();
+  const noteRef = useRef<HTMLTextAreaElement>(null);
   // Read confirmation (A3): a document readers have confirmed asks, before a
   // save that changes its text, how they should see the change. The counts
   // seed the header chip and refresh from the server when the question opens.
@@ -522,24 +552,28 @@ export function DocEditor({
    * the drift since the last re-confirmation is what the dialog measures).
    * So a metadata-only save never asks, not even after a kept edit left the
    * live text ahead of the baseline, and a save that reverts to the
-   * confirmed text never asks either. Returns `{ ask: false }` when there is
-   * nothing to ask; otherwise the answer, null for Cancel.
+   * confirmed text never asks either.
+   *
+   * The document's edit default (A5) decides whether the question opens at
+   * all: under 'ask' always; under 'material' only when the measurement says
+   * reset or borderline (a change that looks editorial with high confidence
+   * is saved unasked and the server records it as kept, source 'default');
+   * under 'reset' never, the change note becomes the reason and the save
+   * stops with an inline error when it is too short.
    */
-  async function askReconfirm(
-    status: DocStatus
-  ): Promise<{ ask: false } | { ask: true; answer: ReconfirmResult | null }> {
-    if (!ack || !docId || status !== "published") return { ask: false };
+  async function askReconfirm(status: DocStatus): Promise<Asked> {
+    if (!ack || !docId || status !== "published") return { kind: "none" };
     // A non-publisher's save becomes a change request, and in this release
     // the request carries no recommendation (that arrives with 1.11.0); the
     // approval decides. Asking a question nobody records would be dishonest.
-    if (!canPublish) return { ask: false };
+    if (!canPublish) return { kind: "none" };
     const next: ReconfirmText = { title: title.trim(), content };
     const loaded: ReconfirmText = { title: initial.title, content: initial.content };
     // Publishing a draft counts at the transition, however many saves the
     // draft took (the marker waited for this moment); otherwise only a save
     // that writes a version can be a change readers see.
     const publishing = savedStatus !== "published";
-    if (!publishing && sameText(loaded, next)) return { ask: false };
+    if (!publishing && sameText(loaded, next)) return { kind: "none" };
     let fetched: AckFetched | null = null;
     try {
       const res = await fetch(`/api/documents/${docId}/ack?baseline=1`, { cache: "no-store" });
@@ -550,7 +584,7 @@ export function DocEditor({
     const baseline: ReconfirmText | null = fetched?.baseline
       ? { title: fetched.baseline.title, content: fetched.baseline.content }
       : null;
-    if (sameText(baseline ?? loaded, next)) return { ask: false };
+    if (sameText(baseline ?? loaded, next)) return { kind: "none" };
     const counts = {
       current: fetched?.current ?? ackCounts.current,
       eligible: fetched?.eligible ?? ackCounts.eligible,
@@ -563,6 +597,27 @@ export function DocEditor({
       next,
       baselineLabel: rev !== null ? `v${rev}` : undefined,
     });
+    // The document's setting as it stands now (the popover may have changed
+    // it since this editor loaded).
+    const editDefault = fetched?.edit_default ?? ack.editDefault;
+    if (editDefault === "reset") {
+      const note = changeNote.trim();
+      if (note.length < NOTE_MIN) {
+        setNoteError(`${NOTE_TOO_SHORT} This document asks everyone to re-confirm on every change to its text.`);
+        noteRef.current?.focus();
+        return { kind: "blocked" };
+      }
+      return { kind: "setting", decision: { policy: "reset", note: note.slice(0, NOTE_MAX) } };
+    }
+    if (
+      editDefault === "material" &&
+      assessed.suggestion.policy === "keep" &&
+      assessed.suggestion.confidence === "high"
+    ) {
+      // Looks editorial: the save goes through unasked and the server's own
+      // measurement keeps it under the document's setting (A2 rule 4).
+      return { kind: "none" };
+    }
     const answer = await reconfirmDialog({
       mode: canPublish ? "save" : "submit",
       docId,
@@ -575,8 +630,10 @@ export function DocEditor({
       hint: assessed.hint,
       suggested: assessed.suggested,
       initialNote: changeNote,
+      editDefault,
+      keepReasonRequired: fetched?.keep_reason_required ?? true,
     });
-    return { ask: true, answer };
+    return { kind: "asked", answer };
   }
 
   /** Save with the given status — the status is the action. */
@@ -592,10 +649,12 @@ export function DocEditor({
     askingRef.current = true;
     try {
       const asked = await askReconfirm(status);
-      if (asked.ask) {
+      if (asked.kind === "blocked") return;
+      if (asked.kind === "asked") {
         if (asked.answer === null) return;
         decision = asked.answer;
       }
+      if (asked.kind === "setting") decision = asked.decision;
     } finally {
       askingRef.current = false;
     }
@@ -675,6 +734,10 @@ export function DocEditor({
         );
       } else if (outcome?.substantive && outcome.policy === "keep") {
         toast("ok", "Saved as an editorial fix. Confirmations kept.");
+      } else if (outcome?.substantive && outcome.policy === "auto" && outcome.source === "default") {
+        // The document's 'material' setting kept a change that looks
+        // editorial (A5); the ledger row says so.
+        toast("ok", "Saved as an editorial fix (document setting). Confirmations kept.");
       }
       // Refresh BEFORE navigating: it invalidates the client router cache, so
       // the doc page fetches the just-saved content instead of briefly (or,
@@ -1020,21 +1083,24 @@ export function DocEditor({
               help={
                 <>
                   Kept in version history and on the compliance record.
-                  {/* The per-document edit default (A5); only "ask" exists today. */}
-                  {ack && ack.editDefault === "ask" && " Saving will ask whether readers must re-confirm."}
+                  {/* The per-document edit default (A5) says what a save will do. */}
+                  {ack && ` ${EDIT_DEFAULT_HELP[ack.editDefault]}`}
                 </>
               }
+              error={noteError}
               className={beside ? "" : "sm:col-span-3"}
             >
               <Textarea
+                ref={noteRef}
                 value={changeNote}
                 onChange={(e) => {
                   markDirty();
                   setChangeNote(e.target.value);
+                  if (noteError) setNoteError(undefined);
                 }}
                 placeholder="What changed and why? e.g. Expense cap raised to £75; receipts required over £20"
                 rows={2}
-                maxLength={500}
+                maxLength={NOTE_MAX}
               />
             </Field>
           )}

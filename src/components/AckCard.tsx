@@ -47,8 +47,8 @@ export function AckCard({
   docId: number;
   /** The confirmation statement (the only sentence on the card). */
   statement?: string;
-  /** The version being confirmed: "Version 12 · published {date} by {author}". */
-  meta: { rev: number | null; publishedLabel: string | null; author: string };
+  /** The version being confirmed: "Version 12 · published {date} by {author} · approved by {approvedBy}" (C6). */
+  meta: { rev: number | null; publishedLabel: string | null; author: string; approvedBy?: string };
   /** The signed-in reader, for the printed standing line. */
   readerName: string;
 }) {
@@ -119,6 +119,7 @@ export function AckCard({
   const metaLine = [
     versionLabel(meta.rev) ? `Version ${meta.rev}` : null,
     meta.publishedLabel ? `published ${meta.publishedLabel}${meta.author ? ` by ${meta.author}` : ""}` : null,
+    meta.approvedBy ? `approved by ${meta.approvedBy}` : null,
   ]
     .filter(Boolean)
     .join(" · ");

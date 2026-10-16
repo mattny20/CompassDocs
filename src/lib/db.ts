@@ -24,11 +24,18 @@ import type {
   AckOutcome,
   AckDecision,
   AckOutcomeInfo,
+  AckNotice,
+  AckNoticeMode,
+  AckNoticeKind,
+  AckNoticeChannel,
+  AckOutboxRow,
 } from "./types";
 import { changeSummary, suggestReconfirm } from "./diff";
 import type { ChangeSummary } from "./diff";
+import type { EditDefault } from "./compliance-settings";
 
 export type { AckPolicy, AckSource, AckOutcome, AckDecision, AckOutcomeInfo } from "./types";
+export type { AckNotice, AckNoticeMode, AckNoticeKind, AckNoticeChannel, AckOutboxRow } from "./types";
 
 // Return timestamps as normalized ISO-8601 UTC strings (the app treats them as
 // strings, not Date objects). Covers timestamptz (1184) and timestamp (1114).
@@ -126,7 +133,7 @@ async function initialize(): Promise<void> {
   const client = await pool().connect();
   try {
     await client.query("SELECT pg_advisory_lock(id) FROM (SELECT 728341 AS id) t");
-    await client.query(SCHEMA_SQL);
+    await client.query(guardCreateIndexes(guardAddColumns(SCHEMA_SQL)));
     await syncPresetRoles(client);
     await migrateLadderToAssignments(client);
     await migrateDelegationToAssignments(client);
@@ -136,6 +143,7 @@ async function initialize(): Promise<void> {
     await migrateVisibilityTiers(client);
     await migrateAckRevisions(client);
     await migrateAckRetention(client);
+    await migrateVersionProvenance(client);
     await migrateSecuritySealing(client);
     await migrateWeightedSearch(client);
     await migrateDirectoryRegistry(client);
@@ -145,6 +153,61 @@ async function initialize(): Promise<void> {
     await client.query("SELECT pg_advisory_unlock(728341)").catch(() => {});
     client.release();
   }
+}
+
+/**
+ * The catalog predicate the boot guards share: does table `t` (resolved
+ * through search_path, exactly as the ALTER it guards resolves it) carry a
+ * live column `c`? to_regclass() is NULL for a table that does not exist
+ * yet, so the predicate is simply false until CREATE TABLE has run.
+ * information_schema.columns was the earlier form; it spans every schema the
+ * role can see, so a same-named table in another schema of a shared
+ * database made the guard skip the app's own ALTER.
+ */
+function columnExistsSql(table: string, column: string): string {
+  return `SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass('${table}') AND attname = '${column}' AND attnum > 0 AND NOT attisdropped`;
+}
+
+/**
+ * Rewrites every `ALTER TABLE t ADD COLUMN IF NOT EXISTS c …;` in the schema
+ * into a block that looks the column up first. Postgres takes the table's
+ * ACCESS EXCLUSIVE lock before it checks IF NOT EXISTS, so each of those
+ * statements locked users, documents and the rest on every boot; a boot that
+ * raced a save (two instances, or the integration suite's parallel
+ * processes) could deadlock against it (1.10.0 integration logs, and a
+ * rolling upgrade with traffic on the old instance). With the lookup first,
+ * a later boot touches no table whose columns are already there, and the
+ * first boot runs the identical ALTER. The table name and ADD may be
+ * separated by a line break (the directory_people pair is written that
+ * way). Exported for its unit test.
+ */
+export function guardAddColumns(sql: string): string {
+  return sql.replace(
+    /ALTER TABLE (\w+)\s+ADD COLUMN IF NOT EXISTS\s+(\w+)\s+([^;]+);/g,
+    (_m, table: string, column: string, definition: string) =>
+      `DO $$ BEGIN IF NOT EXISTS (${columnExistsSql(table, column)}) THEN ALTER TABLE ${table} ADD COLUMN ${column} ${definition.replace(/\s+/g, " ").trim()}; END IF; END $$;`
+  );
+}
+
+/**
+ * The sibling for indexes (1.10.1): every `CREATE [UNIQUE] INDEX IF NOT
+ * EXISTS name ON …;` becomes the to_regclass block the ack_notices indexes
+ * were written with by hand. CREATE INDEX takes a SHARE lock on its table
+ * before it checks IF NOT EXISTS, and SHARE conflicts with every INSERT,
+ * UPDATE and DELETE for as long as the schema transaction runs, so until
+ * now a boot blocked every save on documents, doc_versions, sessions,
+ * notifications, audit_log and the rest. The definition may span lines and
+ * carry `USING gin(...)` or a `WHERE …` predicate; nothing inside it
+ * contains a semicolon. A CREATE INDEX without IF NOT EXISTS (the ones
+ * already inside a hand-written block) is left alone. Exported for its unit
+ * test; applied after guardAddColumns in initialize().
+ */
+export function guardCreateIndexes(sql: string): string {
+  return sql.replace(
+    /CREATE (UNIQUE )?INDEX IF NOT EXISTS (\w+)\s+ON\s+([^;]+);/g,
+    (_m, unique: string | undefined, name: string, definition: string) =>
+      `DO $$ BEGIN IF to_regclass('${name}') IS NULL THEN CREATE ${unique ?? ""}INDEX ${name} ON ${definition.replace(/\s+/g, " ").trim()}; END IF; END $$;`
+  );
 }
 
 const SCHEMA_SQL = `
@@ -164,7 +227,18 @@ const SCHEMA_SQL = `
   -- Which layout a space opens with ('cards' | 'table' | 'tree' | 'board' | 'timeline' | 'tags');
   -- visitors can switch views and their choice is remembered per browser.
   ALTER TABLE spaces ADD COLUMN IF NOT EXISTS default_view text NOT NULL DEFAULT 'cards';
-  ALTER TABLE spaces ALTER COLUMN visibility SET DEFAULT 'internal';
+  -- Installs from before the 0.14 tiers carry the old default; SET DEFAULT
+  -- takes an exclusive lock on spaces whether or not it changes anything,
+  -- so it runs only while the stored default is something else.
+  DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_attrdef d JOIN pg_attribute a ON a.attrelid = d.adrelid AND a.attnum = d.adnum
+      WHERE d.adrelid = to_regclass('spaces') AND a.attname = 'visibility'
+        AND pg_get_expr(d.adbin, d.adrelid) = '''internal''::text'
+    ) THEN
+      ALTER TABLE spaces ALTER COLUMN visibility SET DEFAULT 'internal';
+    END IF;
+  END $$;
 
   CREATE TABLE IF NOT EXISTS documents (
     id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -726,6 +800,13 @@ const SCHEMA_SQL = `
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS ack_required integer NOT NULL DEFAULT 0;
   -- Spam guard + display for compliance reminders (central portal).
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS ack_last_reminded_at timestamptz;
+  -- 1.10.1 (A5): how a policy treats a change to its text. 'ask' opens the
+  -- editor's question on every text save, 'material' only when the change
+  -- looks material (smaller edits are kept and recorded), 'reset' always asks
+  -- everyone again. A document receives the workspace default the first time
+  -- it is set to required (setAckRequired). Metadata-only: a default on an
+  -- existing column takes no rewrite.
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS ack_edit_default text NOT NULL DEFAULT 'ask';
   CREATE TABLE IF NOT EXISTS acknowledgements (
     id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     document_id integer NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
@@ -748,8 +829,8 @@ const SCHEMA_SQL = `
   -- hold doc_versions). Once the column exists this block touches nothing.
   DO $$ BEGIN
     IF NOT EXISTS (
-      SELECT 1 FROM information_schema.columns
-      WHERE table_name = 'documents' AND column_name = 'ack_revision_at'
+      SELECT 1 FROM pg_attribute
+      WHERE attrelid = to_regclass('documents') AND attname = 'ack_revision_at' AND attnum > 0 AND NOT attisdropped
     ) THEN
       ALTER TABLE documents ADD COLUMN ack_revision_at timestamptz;
       UPDATE documents SET ack_revision_at = updated_at WHERE ack_revision_at IS NULL;
@@ -782,8 +863,8 @@ const SCHEMA_SQL = `
   -- takes an exclusive lock on the ledger on every boot otherwise.
   DO $$ BEGIN
     IF EXISTS (
-      SELECT 1 FROM information_schema.columns
-      WHERE table_name = 'acknowledgements' AND column_name = 'user_id' AND is_nullable = 'NO'
+      SELECT 1 FROM pg_attribute
+      WHERE attrelid = to_regclass('acknowledgements') AND attname = 'user_id' AND attnum > 0 AND NOT attisdropped AND attnotnull
     ) THEN
       ALTER TABLE acknowledgements ALTER COLUMN user_id DROP NOT NULL;
       ALTER TABLE acknowledgements ALTER COLUMN document_id DROP NOT NULL;
@@ -844,6 +925,106 @@ const SCHEMA_SQL = `
   -- is not a scan of the ledger.
   CREATE INDEX IF NOT EXISTS idx_ack_decisions_decided_by ON ack_decisions(decided_by);
   CREATE INDEX IF NOT EXISTS idx_ack_decisions_submitted_by ON ack_decisions(submitted_by);
+
+  -- 1.10.1 version provenance (C6): who published a version and, through a
+  -- change request, who approved it, as data next to the version a reader
+  -- confirmed rather than as note text. Stamped by createDocument,
+  -- updateDocument and approveChangeRequest; rows from before 1.10.1 are
+  -- filled once by migrateVersionProvenance() (name from author, approver
+  -- from the legacy note suffix). Person FKs are ON DELETE SET NULL with
+  -- name snapshots, indexed so deleting an account is not a scan of
+  -- doc_versions. Guarded like the marker block: ADD COLUMN IF NOT EXISTS
+  -- takes an exclusive lock on doc_versions before it looks, and a boot
+  -- that takes it on every start can deadlock against a request
+  -- transaction that already holds a lock the boot wants next (a save
+  -- writes documents then doc_versions, in the same order as this file,
+  -- so it waits rather than deadlocks; a transaction that writes users,
+  -- sessions or audit_log first and documents second is the real partner).
+  -- Once the column exists this block touches nothing.
+  DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_attribute
+      WHERE attrelid = to_regclass('doc_versions') AND attname = 'published_by' AND attnum > 0 AND NOT attisdropped
+    ) THEN
+      ALTER TABLE doc_versions ADD COLUMN published_by integer REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE doc_versions ADD COLUMN published_by_name text NOT NULL DEFAULT '';
+      ALTER TABLE doc_versions ADD COLUMN approved_by integer REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE doc_versions ADD COLUMN approved_by_name text NOT NULL DEFAULT '';
+      ALTER TABLE doc_versions ADD COLUMN change_request_id integer;
+      CREATE INDEX idx_doc_versions_published_by ON doc_versions(published_by);
+      CREATE INDEX idx_doc_versions_approved_by ON doc_versions(approved_by);
+    END IF;
+  END $$;
+
+  -- 1.10.1 per-person notice log (E3): one append-only row per recipient of
+  -- every read-confirmation request, reminder, re-confirmation notice,
+  -- escalation or digest, with the channels that actually went out
+  -- ('email' only when the server accepted the mail). Written by one helper
+  -- (recordNotices in lib/compliance) from the outbox drain, never by a
+  -- route. Relaxed FKs and name/title snapshots so the row outlives the
+  -- person and the policy; the second index is H1's coalescing key ("no
+  -- 'updated' notice for this person and document in the last 24 hours").
+  CREATE TABLE IF NOT EXISTS ack_notices (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id integer REFERENCES users(id) ON DELETE SET NULL,
+    user_name text NOT NULL DEFAULT '',
+    user_email text NOT NULL DEFAULT '',
+    document_id integer REFERENCES documents(id) ON DELETE SET NULL,
+    document_title text NOT NULL DEFAULT '',
+    kind text NOT NULL,
+    channels jsonb NOT NULL DEFAULT '[]'::jsonb,
+    sent_at timestamptz NOT NULL DEFAULT now(),
+    by_user_id integer REFERENCES users(id) ON DELETE SET NULL,
+    by_name text NOT NULL DEFAULT 'system',
+    outbox_id integer
+  );
+  -- The indexes are created with the table, guarded: CREATE INDEX IF NOT
+  -- EXISTS takes a share lock on the table before it looks, and a boot that
+  -- holds one on ack_outbox while a save's transaction (documents,
+  -- doc_versions, ack_decisions, then ack_outbox) waits for it, and then
+  -- itself waits for documents, is a deadlock. A guarded block locks
+  -- nothing once the index exists.
+  DO $$ BEGIN
+    IF to_regclass('idx_ack_notices_user') IS NULL THEN
+      CREATE INDEX idx_ack_notices_user ON ack_notices(user_id, sent_at DESC);
+      CREATE INDEX idx_ack_notices_doc_user_kind ON ack_notices(document_id, user_id, kind, sent_at DESC);
+      CREATE INDEX idx_ack_notices_by_user ON ack_notices(by_user_id);
+    END IF;
+  END $$;
+
+  -- 1.10.1 notification outbox (H4): every read-confirmation fan-out is a
+  -- row here, claimed by the minute tick (FOR UPDATE SKIP LOCKED, so every
+  -- instance may drain), delivered by notifyAckRequest, retried after a
+  -- 10-minute reclaim up to three attempts. Nothing on a request path sends
+  -- mail. user_ids NULL = everyone pending at delivery time. A row goes
+  -- with its document (CASCADE): the per-person record is ack_notices.
+  CREATE TABLE IF NOT EXISTS ack_outbox (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    document_id integer REFERENCES documents(id) ON DELETE CASCADE,
+    mode text NOT NULL,
+    source text NOT NULL DEFAULT '',
+    reason text NOT NULL DEFAULT '',
+    actor_id integer,
+    actor_name text NOT NULL DEFAULT '',
+    user_ids jsonb,
+    not_before timestamptz NOT NULL DEFAULT now(),
+    claimed_at timestamptz,
+    done_at timestamptz,
+    attempts integer NOT NULL DEFAULT 0,
+    emailed integer,
+    noticed integer,
+    error text
+  );
+  -- The sending request's origin (1.10.1): the drain runs from a timer with
+  -- no request to take one from, so the origin travels with the row and a
+  -- workspace without custom_domain still mails absolute links. Nothing is
+  -- remembered across requests. guardAddColumns rewrites this statement.
+  ALTER TABLE ack_outbox ADD COLUMN IF NOT EXISTS origin text NOT NULL DEFAULT '';
+  DO $$ BEGIN
+    IF to_regclass('idx_ack_outbox_due') IS NULL THEN
+      CREATE INDEX idx_ack_outbox_due ON ack_outbox(done_at, not_before);
+    END IF;
+  END $$;
 
   -- Training decks (enterprise "training" entitlement): a published document
   -- becomes a slide deck (split on ---) that can be assigned to users with a
@@ -925,18 +1106,48 @@ const SCHEMA_SQL = `
   ALTER TABLE training_completion_history ADD COLUMN IF NOT EXISTS user_name text NOT NULL DEFAULT '';
   ALTER TABLE training_completion_history ADD COLUMN IF NOT EXISTS user_email text NOT NULL DEFAULT '';
   ALTER TABLE training_completion_history ADD COLUMN IF NOT EXISTS deck_title text NOT NULL DEFAULT '';
-  ALTER TABLE training_completion_history ALTER COLUMN user_id DROP NOT NULL;
-  ALTER TABLE training_completion_history ALTER COLUMN deck_id DROP NOT NULL;
-  ALTER TABLE training_completion_history
-    DROP CONSTRAINT IF EXISTS training_completion_history_user_id_fkey;
-  ALTER TABLE training_completion_history
-    ADD CONSTRAINT training_completion_history_user_id_fkey
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
-  ALTER TABLE training_completion_history
-    DROP CONSTRAINT IF EXISTS training_completion_history_deck_id_fkey;
-  ALTER TABLE training_completion_history
-    ADD CONSTRAINT training_completion_history_deck_id_fkey
-    FOREIGN KEY (deck_id) REFERENCES training_decks(id) ON DELETE SET NULL;
+  -- Each step is guarded on the catalog (1.10.1): DROP NOT NULL and the
+  -- constraint swap take an exclusive lock on the history table, and ADD
+  -- FOREIGN KEY a share-row-exclusive lock on users / training_decks plus a
+  -- validation scan, on every boot otherwise. A fresh table starts NOT NULL
+  -- with CASCADE FKs (the CREATE TABLE above), so the first boot still
+  -- runs every step; a later boot finds nothing to do.
+  DO $$ BEGIN
+    IF EXISTS (
+      SELECT 1 FROM pg_attribute
+      WHERE attrelid = to_regclass('training_completion_history') AND attname = 'user_id' AND attnum > 0 AND NOT attisdropped AND attnotnull
+    ) THEN
+      ALTER TABLE training_completion_history ALTER COLUMN user_id DROP NOT NULL;
+    END IF;
+    IF EXISTS (
+      SELECT 1 FROM pg_attribute
+      WHERE attrelid = to_regclass('training_completion_history') AND attname = 'deck_id' AND attnum > 0 AND NOT attisdropped AND attnotnull
+    ) THEN
+      ALTER TABLE training_completion_history ALTER COLUMN deck_id DROP NOT NULL;
+    END IF;
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint
+      WHERE conrelid = to_regclass('training_completion_history')
+        AND conname = 'training_completion_history_user_id_fkey' AND contype = 'f' AND confdeltype = 'n'
+    ) THEN
+      ALTER TABLE training_completion_history
+        DROP CONSTRAINT IF EXISTS training_completion_history_user_id_fkey;
+      ALTER TABLE training_completion_history
+        ADD CONSTRAINT training_completion_history_user_id_fkey
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL;
+    END IF;
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint
+      WHERE conrelid = to_regclass('training_completion_history')
+        AND conname = 'training_completion_history_deck_id_fkey' AND contype = 'f' AND confdeltype = 'n'
+    ) THEN
+      ALTER TABLE training_completion_history
+        DROP CONSTRAINT IF EXISTS training_completion_history_deck_id_fkey;
+      ALTER TABLE training_completion_history
+        ADD CONSTRAINT training_completion_history_deck_id_fkey
+        FOREIGN KEY (deck_id) REFERENCES training_decks(id) ON DELETE SET NULL;
+    END IF;
+  END $$;
   UPDATE training_completion_history h
     SET user_name = COALESCE(u.name, h.user_name),
         user_email = COALESCE(u.email, h.user_email)
@@ -1355,10 +1566,21 @@ const SCHEMA_SQL = `
     PRIMARY KEY (route, permission, legacy_allowed, rbac_allowed)
   );
 
-  DROP TRIGGER IF EXISTS compass_users_ladder_sync ON users;
-  CREATE TRIGGER compass_users_ladder_sync
-    AFTER INSERT OR UPDATE OF role ON users
-    FOR EACH ROW EXECUTE FUNCTION compass_sync_ladder_assignment();
+  -- The trigger is created once (1.10.1): DROP TRIGGER takes an exclusive
+  -- lock on users and CREATE TRIGGER a share-row-exclusive one, on every
+  -- boot otherwise. The function it calls is CREATE OR REPLACE'd above, so
+  -- a change to the function reaches the existing trigger without
+  -- recreating it; a change to the trigger's own definition (its events)
+  -- needs a new name or a one-shot migration.
+  DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_trigger WHERE tgrelid = to_regclass('users') AND tgname = 'compass_users_ladder_sync'
+    ) THEN
+      CREATE TRIGGER compass_users_ladder_sync
+        AFTER INSERT OR UPDATE OF role ON users
+        FOR EACH ROW EXECUTE FUNCTION compass_sync_ladder_assignment();
+    END IF;
+  END $$;
 `;
 
 /**
@@ -1902,6 +2124,52 @@ async function migrateAckRetention(client: import("pg").PoolClient) {
   );
   console.log(
     `[ack] attestation records now outlive their person and policy; snapshotted ${people.rowCount ?? 0} name(s) and ${titles.rowCount ?? 0} title(s)`
+  );
+}
+
+/**
+ * The row-rewriting half of the C6 provenance backfill: published_by_name
+ * from the version's author for every row that lacks one, approved_by_name
+ * from the fixed note suffix approveChangeRequest wrote before 1.10.1
+ * ("{note} — approved by {name}" or "Approved by {name}") where present.
+ * Only blank names are touched, so running it twice changes nothing; the
+ * ids stay null (a name is not an account). Exported for the test; the boot
+ * calls it once through migrateVersionProvenance.
+ */
+export async function backfillVersionProvenance(
+  client: Queryable
+): Promise<{ published: number; approved: number }> {
+  const published = await client.query(
+    "UPDATE doc_versions SET published_by_name = author WHERE published_by_name = '' AND author <> ''"
+  );
+  const approved = await client.query(
+    `UPDATE doc_versions
+     SET approved_by_name = COALESCE(
+           substring(note from ' — approved by (.+)$'),
+           substring(note from '^Approved by (.+)$'))
+     WHERE approved_by_name = ''
+       AND (note ~ ' — approved by .+$' OR note ~ '^Approved by .+$')`
+  );
+  return { published: published.rowCount ?? 0, approved: approved.rowCount ?? 0 };
+}
+
+/**
+ * One-shot provenance backfill (1.10.1, C6), guarded like migrateAckRetention:
+ * the names a version can tell from what it already holds, so the AckCard
+ * and the record can say "published by Dana · approved by Priya" for
+ * versions written before the columns existed. Rows that carry no legacy
+ * approval note stay blank; the docs say provenance is recorded from the
+ * upgrade onward.
+ */
+async function migrateVersionProvenance(client: import("pg").PoolClient) {
+  const done = await client.query("SELECT 1 FROM settings WHERE key = 'migrated_version_provenance'");
+  if (done.rowCount) return;
+  const n = await backfillVersionProvenance(client);
+  await client.query(
+    "INSERT INTO settings (key, value) VALUES ('migrated_version_provenance','1') ON CONFLICT (key) DO NOTHING"
+  );
+  console.log(
+    `[ack] version provenance backfilled: ${n.published} publisher name(s) and ${n.approved} approver name(s)`
   );
 }
 
@@ -2883,7 +3151,8 @@ export async function createDocument(input: DocInput): Promise<DocumentWithSpace
   );
   const id = r[0].id;
   const v = await q<{ id: number }>(
-    "INSERT INTO doc_versions (document_id, title, content, author, note) VALUES ($1,$2,$3,$4,$5) RETURNING id",
+    `INSERT INTO doc_versions (document_id, title, content, author, note, published_by_name)
+     VALUES ($1,$2,$3,$4,$5,$4) RETURNING id`,
     [id, input.title, input.content, input.author, input.branch_of ? "Branched" : "Created"]
   );
   // The confirmation marker starts at the first version (ack_revision_at took
@@ -2899,6 +3168,47 @@ export async function createDocument(input: DocInput): Promise<DocumentWithSpace
 export interface AckActor {
   id: number | null;
   name: string;
+}
+
+/**
+ * documents.ack_edit_default (A5, 1.10.1): what a policy does when its text
+ * changes. The same three values as the workspace setting
+ * (lib/compliance-settings EditDefault; a type-only import, so this module
+ * never loads that server-only one).
+ */
+export type AckEditDefault = EditDefault;
+export const ACK_EDIT_DEFAULTS: readonly AckEditDefault[] = ["ask", "material", "reset"];
+export function isAckEditDefault(v: unknown): v is AckEditDefault {
+  return typeof v === "string" && (ACK_EDIT_DEFAULTS as readonly string[]).includes(v);
+}
+/**
+ * The column as a row carries it (a documents row, a DocumentWithSpace,
+ * which selects d.*), with the column default for anything unreadable. The
+ * Document type does not declare the field (lib/types is not this
+ * release's to change); the handoff asks for it.
+ */
+export function editDefaultOf(row: object | null | undefined): AckEditDefault {
+  const v = (row as { ack_edit_default?: unknown } | null | undefined)?.ack_edit_default;
+  return isAckEditDefault(v) ? v : "ask";
+}
+
+/**
+ * How a caller that cannot ask resolves 'auto' (A5, rule 4): the document's
+ * edit default decides. 'material' keeps a change the heuristic calls
+ * editorial with high confidence (only keep/high is safe to act on
+ * unasked), and the row then names source 'default', because the setting
+ * decided, not the caller; 'ask' and 'reset', and every other change under
+ * 'material', reset with the caller's source. One helper, so updateDocument
+ * (edit, merge, restore, the API, MCP, imports), approveChangeRequest and
+ * the scheduled publish take the same decision for the same text.
+ */
+export function resolveAutoAckPolicy(
+  row: object | null | undefined,
+  suggestion: { policy: "keep" | "reset"; confidence: "high" | "low" }
+): { resolved: "keep" | "reset"; decidedBySetting: boolean } {
+  const keep =
+    editDefaultOf(row) === "material" && suggestion.policy === "keep" && suggestion.confidence === "high";
+  return { resolved: keep ? "keep" : "reset", decidedBySetting: keep };
 }
 
 /**
@@ -2933,13 +3243,17 @@ export type UpdateDocumentInput = Partial<DocInput> & {
   /**
    * What to do with existing confirmations when the text of a confirmed,
    * published document changes (A2). 'keep' and 'reset' are a person's
-   * decision and need ackReason (10+ characters). 'auto', the default when a
-   * caller says nothing, resolves to 'reset' in 1.10.0: the per-document
-   * default ('material', A5) does not exist yet, and a caller that could ask
-   * would have asked. For 'auto' the reason is ackReason, else the
-   * versionNote, else "Content changed", with no length rule, so merge,
-   * restore, bulk, MCP, v1 and the importers (which pass no policy until A6,
-   * 1.11.0) keep working exactly as before and simply record what they did.
+   * decision and need ackReason (10+ characters; the keep side is excused
+   * when ackKeepReasonRequired is false). 'auto', the default when a caller
+   * says nothing, resolves from the document's edit default (A5, 1.10.1):
+   * 'ask' and 'reset' reset (a caller that could ask would have asked, and
+   * system actors cannot); 'material' keeps only when the change-size
+   * heuristic says keep with high confidence, and the row then records
+   * source 'default' because the document's setting took the decision. For
+   * 'auto' the reason is ackReason, else the versionNote, else "Content
+   * changed", with no length rule, so merge, restore, bulk, MCP, v1 and the
+   * importers (which pass no policy until A6, 1.11.0) keep working exactly
+   * as before and simply record what they did.
    */
   ackPolicy?: AckPolicy;
   /** Who decided; the version's author when absent. */
@@ -2947,6 +3261,19 @@ export type UpdateDocumentInput = Partial<DocInput> & {
   ackReason?: string;
   /** Where the save came from (the C1 vocabulary); 'default' when absent. */
   ackSource?: AckSource;
+  /**
+   * The workspace setting "Require a reason for editorial fixes too" (E4,
+   * ack_defaults.keep_reason_required; the route reads it). True when
+   * absent. Only the keep side is excused: a reset always needs its note.
+   */
+  ackKeepReasonRequired?: boolean;
+  /**
+   * The sending request's origin (requestOrigin(req)), carried on the
+   * outbox row a reset queues so the notice's links are absolute on a
+   * workspace without custom_domain; empty when no request exists (an
+   * import).
+   */
+  ackOrigin?: string;
 };
 
 /**
@@ -2969,13 +3296,15 @@ export type UpdateDocumentInput = Partial<DocInput> & {
  *      publish, against the text people actually confirmed.
  *   4. Substantive, required and published: 'reset' calls
  *      resetAcknowledgements, 'keep' calls keepAcknowledgements, both with
- *      the reason; 'auto' resets (see UpdateDocumentInput.ackPolicy).
+ *      the reason; 'auto' follows documents.ack_edit_default (see
+ *      UpdateDocumentInput.ackPolicy).
  *   5. Metadata-only: UPDATE as before; the ack columns are untouched
  *      whatever the policy.
  *
  * Everything from the UPDATE to the decision row runs in one transaction, so
- * a failure leaves no half-applied save. resetAcknowledgements writes no
- * notice in this release (H1/H4 ship in 1.10.1).
+ * a failure leaves no half-applied save. A reset also queues the 'updated'
+ * notice in that transaction (resetAcknowledgements, 1.10.1); nothing here
+ * sends mail.
  */
 export async function updateDocument(
   id: number,
@@ -3043,12 +3372,14 @@ export async function updateDocument(
   const silentAdvance = substantive && existing.ack_required !== 1;
 
   // The reason is checked before any write, so a refused save leaves the
-  // document exactly as it was.
+  // document exactly as it was. A keep without a usable note is allowed
+  // only when the workspace excuses editorial fixes (keep_reason_required
+  // off); the reset side is never excused.
   let reason = (input.ackReason ?? "").trim();
   if (decides) {
     if (policy === "auto") {
       reason = reason || (input.versionNote ?? "").trim() || "Content changed";
-    } else if (reason.length < ACK_REASON_MIN) {
+    } else if (reason.length < ACK_REASON_MIN && (policy === "reset" || input.ackKeepReasonRequired !== false)) {
       throw new AckReasonRequiredError();
     }
   }
@@ -3099,9 +3430,21 @@ export async function updateDocument(
     // transition without a text change) the newest row already there.
     let versionId: number | null = null;
     if (versionWorthy) {
+      // Provenance (C6): the signed-in person when the route passed one,
+      // otherwise the author byline (an import, the API with no actor).
       const v = await client.query<{ id: number }>(
-        "INSERT INTO doc_versions (document_id, title, content, author, note, restored_from) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id",
-        [id, next.title, next.content, next.author, input.versionNote || "Edited", input.restoredFrom ?? null]
+        `INSERT INTO doc_versions (document_id, title, content, author, note, restored_from, published_by, published_by_name)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+        [
+          id,
+          next.title,
+          next.content,
+          next.author,
+          input.versionNote || "Edited",
+          input.restoredFrom ?? null,
+          input.ackActor?.id ?? null,
+          input.ackActor?.name || next.author,
+        ]
       );
       versionId = v.rows[0].id;
     } else if (substantive) {
@@ -3117,19 +3460,31 @@ export async function updateDocument(
       const actor: AckActor = input.ackActor ?? { id: null, name: next.author };
       const summary = changeSummary(base.content, next.content, { oldTitle: base.title, newTitle: next.title });
       const suggestion = suggestReconfirm(summary);
+      // 'auto' resolves from the document's edit default (A5), through the
+      // helper every caller that cannot ask shares (resolveAutoAckPolicy).
+      const { resolved, decidedBySetting } =
+        policy === "auto"
+          ? resolveAutoAckPolicy(existing, suggestion)
+          : { resolved: policy, decidedBySetting: false };
       const decision = {
         versionId,
         actor,
-        source,
+        source: decidedBySetting ? ("default" as const) : source,
         reason,
         summary,
         suggested: suggestion.policy,
         overrodeSuggestion: policy !== "auto" && policy !== suggestion.policy,
         submittedPolicy: policy === "auto" ? ("" as const) : policy,
+        origin: input.ackOrigin,
       };
-      if (policy === "keep") {
+      if (resolved === "keep") {
         const k = await keepAcknowledgements(client, id, decision);
-        ack = outcomeOf({ changed: true, substantive: true, decision_id: k.decision_id });
+        ack = outcomeOf({
+          changed: true,
+          substantive: true,
+          decision_id: k.decision_id,
+          ...(decidedBySetting ? { source: "default" as const } : {}),
+        });
       } else {
         const r = await resetAcknowledgements(client, id, decision);
         ack = outcomeOf({
@@ -3355,6 +3710,14 @@ export async function runDbMaintenance(): Promise<{ sessions: number; oauthCodes
   // Editing-presence heartbeats go stale within seconds of a closed tab.
   await pool().query(
     "DELETE FROM doc_editing_presence WHERE last_seen < now() - interval '10 minutes'"
+  );
+  // The notice outbox is a queue, not a record (ack_notices is the record):
+  // closed rows are kept a month for support and then dropped. A row that
+  // gave up (three failed attempts, or an instance that died on the last
+  // one) is closed with its error like a delivered one, so it is swept too;
+  // the audit row ack.notice_failed is what lasts.
+  await pool().query(
+    "DELETE FROM ack_outbox WHERE done_at IS NOT NULL AND done_at < now() - interval '30 days'"
   );
   return { sessions: sessions.rowCount ?? 0, oauthCodes: codes.rowCount ?? 0 };
 }
@@ -4570,17 +4933,29 @@ export interface Notification {
   read_at: string | null;
 }
 
-/** Bulk-insert one notification row per recipient. */
+/**
+ * Bulk-insert one notification row per recipient. An id whose account is
+ * gone by now is skipped, not a failed batch: the join reads the statement's
+ * snapshot and the foreign-key check the latest commit, so a deletion that
+ * lands between the two fails once with 23503 and the second attempt sees it.
+ */
 export async function insertNotifications(
   userIds: number[],
   n: { kind: string; title: string; body?: string; link?: string; actor_name?: string }
 ): Promise<void> {
   if (userIds.length === 0) return;
-  await q(
-    `INSERT INTO notifications (user_id, kind, title, body, link, actor_name)
-     SELECT uid, $2, $3, $4, $5, $6 FROM unnest($1::int[]) AS uid`,
-    [userIds, n.kind, n.title.slice(0, 300), (n.body || "").slice(0, 1000), n.link || "", n.actor_name || ""]
-  );
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await q(
+        `INSERT INTO notifications (user_id, kind, title, body, link, actor_name)
+         SELECT u.id, $2, $3, $4, $5, $6 FROM unnest($1::int[]) AS uid JOIN users u ON u.id = uid`,
+        [userIds, n.kind, n.title.slice(0, 300), (n.body || "").slice(0, 1000), n.link || "", n.actor_name || ""]
+      );
+      return;
+    } catch (e) {
+      if ((e as { code?: string } | null)?.code !== "23503" || attempt >= 3) throw e;
+    }
+  }
 }
 
 /** Newest first. `beforeId` pages older than a row the caller already has
@@ -4848,8 +5223,83 @@ export async function listSubscriberRecipients(
 
 // --- Policy acknowledgements (enterprise) ---------------------------------------
 
-export async function setAckRequired(docId: number, required: boolean): Promise<void> {
-  await q("UPDATE documents SET ack_required = $1 WHERE id = $2", [required ? 1 : 0, docId]);
+/**
+ * The workspace's "When the text of a policy changes" (E4). A dynamic import:
+ * lib/compliance-settings imports this module, and a static import back
+ * would be a cycle. Unreadable settings fall back to the column default.
+ */
+async function workspaceEditDefault(): Promise<AckEditDefault> {
+  try {
+    const m = await import("./compliance-settings");
+    return (await m.getComplianceSettings()).ack_defaults.edit_default;
+  } catch {
+    return "ask";
+  }
+}
+
+/**
+ * Switch the requirement on or off. Switching ON applies the workspace edit
+ * default to a document that still carries the column default 'ask' (A5): a
+ * document receives the workspace value the first time it is set to
+ * required, and a per-document choice of 'material' or 'reset' survives a
+ * later off-and-on. (An explicit 'ask' cannot be told from the default, so
+ * it follows the workspace value again after a toggle; the popover shows
+ * the result.) Pass `editDefault: null` to leave the column alone, or a
+ * value to apply instead of the workspace's. Every caller of the old
+ * two-argument form keeps working: the portal's Request and the shield both
+ * reach this through requestAcknowledgement.
+ */
+export async function setAckRequired(
+  docId: number,
+  required: boolean,
+  opts: { editDefault?: AckEditDefault | null } = {}
+): Promise<{ switched_on: boolean; edit_default: AckEditDefault }> {
+  if (!required) {
+    const r = await q<{ ack_edit_default: string }>(
+      "UPDATE documents SET ack_required = 0 WHERE id = $1 RETURNING ack_edit_default",
+      [docId]
+    );
+    return { switched_on: false, edit_default: editDefaultOf(r[0]) };
+  }
+  const apply = opts.editDefault === undefined ? await workspaceEditDefault() : opts.editDefault;
+  // The flip is the claim: `ack_required = 0` in the WHERE is re-checked
+  // against the row as updated by a concurrent call (READ COMMITTED), so of
+  // two simultaneous switch-ons exactly one gets a row back. A snapshot
+  // subquery here would let both report switched_on.
+  const r = await q<{ ack_edit_default: string }>(
+    `UPDATE documents
+     SET ack_required = 1,
+         ack_edit_default = CASE
+           WHEN ack_edit_default = 'ask' AND $2::text IS NOT NULL THEN $2::text
+           ELSE ack_edit_default
+         END
+     WHERE id = $1 AND ack_required = 0
+     RETURNING ack_edit_default`,
+    [docId, apply]
+  );
+  if (r[0]) return { switched_on: true, edit_default: editDefaultOf(r[0]) };
+  const cur = await q<{ ack_edit_default: string }>("SELECT ack_edit_default FROM documents WHERE id = $1", [docId]);
+  return { switched_on: false, edit_default: editDefaultOf(cur[0]) };
+}
+
+/**
+ * Set the per-document edit default (the popover's Select). Returns the
+ * values before and after for the audit row, or null when the document is
+ * gone. The value is validated by the caller (isAckEditDefault).
+ */
+export async function setAckEditDefault(
+  docId: number,
+  value: AckEditDefault
+): Promise<{ from: AckEditDefault; to: AckEditDefault } | null> {
+  const r = await q<{ before: string; after: string }>(
+    `UPDATE documents d SET ack_edit_default = $2
+     FROM (SELECT id, ack_edit_default AS before FROM documents WHERE id = $1) o
+     WHERE d.id = o.id
+     RETURNING o.before, d.ack_edit_default AS after`,
+    [docId, value]
+  );
+  if (!r[0]) return null;
+  return { from: editDefaultOf({ ack_edit_default: r[0].before }), to: editDefaultOf({ ack_edit_default: r[0].after }) };
 }
 
 // Users "eligible" for a doc's acknowledgement = active users who can see its
@@ -4906,6 +5356,8 @@ export interface ComplianceDocRow {
   /** The marker version's number ("v12"), null when the version row is gone. */
   ack_rev: number | null;
   ack_last_reminded_at: string | null;
+  /** How the policy treats a text edit (A5): the portal's "Asks editor" / "Asks when material" / "Always re-asks" chip. */
+  ack_edit_default: AckEditDefault;
   required: number;
   acked: number;
   /** The newest decision of either outcome (C1); null before the ledger started. */
@@ -4923,6 +5375,7 @@ export async function complianceDocs(): Promise<ComplianceDocRow[]> {
   const docs = await q<Omit<ComplianceDocRow, "last_decision" | "last_reset" | "kept_since_reset" | "drift_pct">>(
     `SELECT d.id, d.title, s.name AS space_name, s.icon AS space_icon,
             d.updated_at, d.ack_revision_at, d.ack_version_id, d.ack_last_reminded_at,
+            d.ack_edit_default,
             ${VERSION_REV("d.ack_version_id")} AS ack_rev,
             COUNT(u.id)::int AS required,
             COUNT(u.id) FILTER (WHERE a.acknowledged_at IS NOT NULL)::int AS acked
@@ -4936,7 +5389,7 @@ export async function complianceDocs(): Promise<ComplianceDocRow[]> {
      ) a ON true
      WHERE d.ack_required = 1 AND d.status = 'published' AND d.deleted_at IS NULL
      GROUP BY d.id, d.title, s.name, s.icon, d.updated_at, d.ack_revision_at, d.ack_version_id,
-              d.ack_last_reminded_at
+              d.ack_last_reminded_at, d.ack_edit_default
      ORDER BY (COUNT(u.id) - COUNT(u.id) FILTER (WHERE a.acknowledged_at IS NOT NULL)) DESC, d.title`
   );
   if (docs.length === 0) return [];
@@ -5169,6 +5622,17 @@ export interface AckVersionInfo {
   /** When and by whom the newest version was written (the card's meta line follows the text on screen). */
   latest_created_at: string | null;
   latest_author: string;
+  /**
+   * Provenance of the marker's version (C6): who published it (the author
+   * byline when the version predates the stamp) and who approved it ('' when
+   * it did not come through a change request, or predates 1.10.1 without a
+   * legacy approval note).
+   */
+  published_by_name: string;
+  approved_by_name: string;
+  /** The same for the newest version. */
+  latest_published_by_name: string;
+  latest_approved_by_name: string;
 }
 
 /** The marker's version for a document, with its Version-history number, and the newest version beside it. */
@@ -5180,7 +5644,11 @@ export async function getAckVersionInfo(docId: number): Promise<AckVersionInfo> 
               v.created_at, COALESCE(v.author, '') AS author,
               l.latest AS latest_version_id,
               ${VERSION_REV("l.latest")} AS latest_rev,
-              lv.created_at AS latest_created_at, COALESCE(lv.author, '') AS latest_author
+              lv.created_at AS latest_created_at, COALESCE(lv.author, '') AS latest_author,
+              COALESCE(NULLIF(v.published_by_name, ''), v.author, '') AS published_by_name,
+              COALESCE(v.approved_by_name, '') AS approved_by_name,
+              COALESCE(NULLIF(lv.published_by_name, ''), lv.author, '') AS latest_published_by_name,
+              COALESCE(lv.approved_by_name, '') AS latest_approved_by_name
        FROM documents d
        LEFT JOIN LATERAL (
          SELECT MAX(x.id) AS latest FROM doc_versions x WHERE x.document_id = d.id
@@ -5201,6 +5669,10 @@ export async function getAckVersionInfo(docId: number): Promise<AckVersionInfo> 
       latest_rev: null,
       latest_created_at: null,
       latest_author: "",
+      published_by_name: "",
+      approved_by_name: "",
+      latest_published_by_name: "",
+      latest_approved_by_name: "",
     }
   );
 }
@@ -5394,8 +5866,28 @@ export async function anonymiseComplianceRecord(
        WHERE decided_by = $1 OR submitted_by = $1`,
       [userId, alias]
     );
+    // The notice log (E3) names the person twice: as the recipient and as
+    // the one who asked. Both snapshots follow the same rule.
+    const notices = await client.query(
+      `UPDATE ack_notices
+       SET user_name = CASE WHEN user_id = $1 THEN $2 ELSE user_name END,
+           user_email = CASE WHEN user_id = $1 THEN '' ELSE user_email END,
+           by_name = CASE WHEN by_user_id = $1 THEN $2 ELSE by_name END
+       WHERE user_id = $1 OR by_user_id = $1`,
+      [userId, alias]
+    );
+    // The outbox names the person as the one who asked (actor_name, no FK
+    // on actor_id); its error column never carries an address (the drain
+    // writes "Email to user #id"), so the name is all there is to rewrite.
+    const outbox = await client.query(`UPDATE ack_outbox SET actor_name = $2 WHERE actor_id = $1`, [
+      userId,
+      alias,
+    ]);
     await client.query("COMMIT");
-    return { rows: (res.rowCount ?? 0) + (decisions.rowCount ?? 0), snapshots_rewritten: 0 };
+    return {
+      rows: (res.rowCount ?? 0) + (decisions.rowCount ?? 0) + (notices.rowCount ?? 0) + (outbox.rowCount ?? 0),
+      snapshots_rewritten: 0,
+    };
   } catch (e) {
     await client.query("ROLLBACK").catch(() => {});
     throw e;
@@ -5421,7 +5913,7 @@ export async function attestationCountsByUser(): Promise<Map<number, number>> {
 // save leaves no row and no moved marker.
 
 /** Anything with pg's query(text, values): a PoolClient inside a transaction, or the pool. */
-type Queryable = {
+export type Queryable = {
   query<T extends import("pg").QueryResultRow = any>(
     text: string,
     values?: any[]
@@ -5510,6 +6002,8 @@ export interface AckDecisionInput {
   submittedPolicy?: "keep" | "reset" | "";
   submittedBy?: AckActor | null;
   scope?: "all" | "users";
+  /** The sending request's origin, stored on the outbox row a reset queues (1.10.1); '' when there is no request. */
+  origin?: string;
 }
 
 /** Eligible people and current confirmations for one document (the same joins as complianceDocs). */
@@ -5572,15 +6066,21 @@ function decisionColumns(docId: number, title: string, outcome: AckOutcome, opts
  * and would otherwise count as current for text it predates. The decision
  * row carries the same stamp as the marker.
  *
- * No notice goes out in this release: the re-confirmation notice (H1) and
- * the outbox it queues through (H4) ship in 1.10.1, and notified_at stays
- * null until then.
+ * The notice (H1/H4, 1.10.1): a reset that takes a decision also queues one
+ * outbox row of mode 'updated' in the same transaction, so a rolled-back
+ * approval or merge tells nobody and a committed one tells everyone within
+ * a minute or two. Sources that come from a text save (edit, merge,
+ * restore, approval, schedule, and the API-shaped ones) wait two minutes so
+ * three saves in an afternoon collapse into one notice; manual and
+ * recurrence go out at once. The drain (lib/compliance deliverAckNotices)
+ * resolves the recipients at delivery and stamps notified_at on this row
+ * when it has.
  */
 export async function resetAcknowledgements(
   client: Queryable,
   docId: number,
   opts: AckDecisionInput & { silent?: boolean }
-): Promise<{ decision_id: number | null; confirmations_reset: number; eligible: number }> {
+): Promise<{ decision_id: number | null; confirmations_reset: number; eligible: number; outbox_id: number | null }> {
   // Counted before the marker moves: afterwards nothing is current.
   const counts = opts.silent ? null : await ackCounts(client, docId);
   const moved = await client.query<{ title: string; marker: string }>(
@@ -5589,13 +6089,437 @@ export async function resetAcknowledgements(
     [docId, opts.versionId]
   );
   if (!counts || moved.rowCount === 0) {
-    return { decision_id: null, confirmations_reset: counts?.current ?? 0, eligible: counts?.eligible ?? 0 };
+    return {
+      decision_id: null,
+      confirmations_reset: counts?.current ?? 0,
+      eligible: counts?.eligible ?? 0,
+      outbox_id: null,
+    };
   }
   const decisionId = await recordAckDecision(client, {
     ...decisionColumns(docId, moved.rows[0].title, "reset", opts, counts),
     decided_at: moved.rows[0].marker,
   });
-  return { decision_id: decisionId, confirmations_reset: counts.current, eligible: counts.eligible };
+  const outboxId = await insertAckOutbox(client, {
+    document_id: docId,
+    mode: "updated",
+    source: opts.source,
+    reason: opts.reason,
+    actor: opts.actor,
+    user_ids: null,
+    delay_minutes: ackNoticeDelayMinutes(opts.source),
+    origin: opts.origin ?? "",
+  });
+  return { decision_id: decisionId, confirmations_reset: counts.current, eligible: counts.eligible, outbox_id: outboxId };
+}
+
+// --- Notice outbox and per-person notice log (ack_outbox / ack_notices, H4 + E3) --
+//
+// The SQL behind lib/compliance's enqueueAckNotice, deliverAckNotices and
+// recordNotices. Nothing here sends anything: the outbox is a queue, the
+// notice log is the record, and compliance.ts is the only module that turns
+// one into the other.
+
+/** Sources whose notices wait two minutes and coalesce per person per day; the rest (manual, recurrence) go out at once and always deliver. */
+export const ACK_NOTICE_DELAY_MINUTES = 2;
+export function ackNoticeDelayMinutes(source: AckSource | "" | null | undefined): number {
+  return source === "manual" || source === "recurrence" ? 0 : ACK_NOTICE_DELAY_MINUTES;
+}
+
+/** True for a source whose 'updated' notices coalesce (24h per person and document); manual and recurrence always deliver. */
+export function ackNoticeCoalesces(source: AckSource | "" | null | undefined): boolean {
+  return source !== "manual" && source !== "recurrence";
+}
+
+export interface AckOutboxInput {
+  document_id: number;
+  mode: AckNoticeMode;
+  source?: AckSource | "";
+  reason?: string;
+  actor?: AckActor | null;
+  /** Null (the default) = everyone pending at delivery time. */
+  user_ids?: number[] | null;
+  /** Deliver no earlier than this; `delay_minutes` from now when absent (0 = at once). */
+  not_before?: Date | string | null;
+  delay_minutes?: number;
+  /**
+   * The sending request's origin (requestOrigin(req)), kept on the row for
+   * the links in the email and webhook when the workspace has no
+   * custom_domain; '' when nothing sent it (an import, a sweep). Only an
+   * http(s) origin is stored; the drain never remembers one across rows.
+   */
+  origin?: string | null;
+}
+
+/** An http(s) origin without its trailing slash, or '' for anything else (a path, a header that is not a URL). */
+export function ackOutboxOrigin(origin: string | null | undefined): string {
+  const o = (origin ?? "").trim();
+  return /^https?:\/\/[^\s/?#]+$/i.test(o.replace(/\/+$/, "")) ? o.replace(/\/+$/, "").slice(0, 300) : "";
+}
+
+/** Queue one fan-out on the given client (inside the caller's transaction) or the pool. Returns the row id. */
+export async function insertAckOutbox(client: Queryable | null, row: AckOutboxInput): Promise<number> {
+  if (!client) await ready();
+  const r = await (client ?? pool()).query<{ id: number }>(
+    `INSERT INTO ack_outbox (document_id, mode, source, reason, actor_id, actor_name, user_ids, not_before, origin)
+     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb,
+             COALESCE($8::timestamptz, now() + make_interval(mins => $9::int)), $10)
+     RETURNING id`,
+    [
+      row.document_id,
+      row.mode,
+      row.source ?? "",
+      (row.reason ?? "").slice(0, 1000),
+      row.actor?.id ?? null,
+      row.actor?.name || "system",
+      row.user_ids ? JSON.stringify([...new Set(row.user_ids)]) : null,
+      row.not_before instanceof Date ? row.not_before.toISOString() : (row.not_before ?? null),
+      Math.max(0, row.delay_minutes ?? 0),
+      ackOutboxOrigin(row.origin),
+    ]
+  );
+  return r.rows[0].id;
+}
+
+/**
+ * The portal's Remind, as one atomic claim: the one-hour stamp is set in
+ * the same UPDATE whose WHERE tests it, so two clicks in the same second
+ * (or two managers) take the cooldown once and the loser gets false. The
+ * document must still take confirmations. The route keeps its early check
+ * for the friendly 429 copy; this is the one that holds.
+ */
+export async function claimAckReminder(docId: number): Promise<boolean> {
+  const rows = await q<{ id: number }>(
+    `UPDATE documents SET ack_last_reminded_at = now()
+     WHERE id = $1 AND ack_required = 1 AND status = 'published' AND deleted_at IS NULL
+       AND (ack_last_reminded_at IS NULL OR ack_last_reminded_at < now() - interval '1 hour')
+     RETURNING id`,
+    [docId]
+  );
+  return rows.length > 0;
+}
+
+/** A claimed row: AckOutboxRow plus the origin column (RETURNING *). */
+export type ClaimedAckOutboxRow = AckOutboxRow & { origin: string };
+
+/**
+ * Claim the next due rows for this instance: one UPDATE whose SET changes
+ * the column its WHERE tests (claimed_at), with FOR UPDATE SKIP LOCKED in
+ * the subquery, so two drains running at once never take the same row. A
+ * row claimed more than ten minutes ago by an instance that died is taken
+ * again (a live delivery keeps its claim fresh with touchAckOutbox, so an
+ * old claim means a dead instance); a row that failed three times is
+ * closed and never claimed again.
+ */
+export async function claimAckOutbox(limit = 20, documentIds?: number[]): Promise<ClaimedAckOutboxRow[]> {
+  const rows = await q<ClaimedAckOutboxRow>(
+    `UPDATE ack_outbox SET claimed_at = now(), attempts = attempts + 1
+     WHERE id IN (
+       SELECT id FROM ack_outbox
+       WHERE done_at IS NULL AND not_before <= now()
+         AND (claimed_at IS NULL OR claimed_at < now() - interval '10 minutes')
+         AND attempts < 3
+         AND ($2::int[] IS NULL OR document_id = ANY($2::int[]))
+       ORDER BY id LIMIT $1
+       FOR UPDATE SKIP LOCKED
+     )
+     RETURNING *`,
+    [Math.max(1, Math.min(200, limit)), documentIds ?? null]
+  );
+  return rows.sort((a, b) => a.id - b.id);
+}
+
+/**
+ * The lease heartbeat: a delivery that outlives the ten-minute reclaim
+ * window (hundreds of recipients on a slow relay) would otherwise be taken
+ * by the next tick and sent again. The drain calls this before each group
+ * and every few recipients inside the mail and webhook loops, for every
+ * row of its batch that is still open.
+ */
+export async function touchAckOutbox(ids: number[]): Promise<void> {
+  if (ids.length === 0) return;
+  await q("UPDATE ack_outbox SET claimed_at = now() WHERE id = ANY($1) AND done_at IS NULL", [ids]);
+}
+
+/**
+ * Close rows abandoned on their last attempt: claimed a third time by an
+ * instance that died before it could fail or complete them (attempts
+ * reached the limit, nothing closed the row, the claim is stale). Nobody
+ * would ever claim, audit or sweep them otherwise. Returns the rows closed
+ * so the drain can write ack.notice_failed for each. The error keeps what
+ * the earlier attempt said, after the fact that this one never reported.
+ */
+export async function retireAbandonedAckOutbox(documentIds?: number[]): Promise<ClaimedAckOutboxRow[]> {
+  const rows = await q<ClaimedAckOutboxRow>(
+    `UPDATE ack_outbox
+     SET done_at = now(),
+         error = 'instance died on the last attempt' || COALESCE('; earlier: ' || NULLIF(error, ''), ''),
+         noticed = (SELECT COUNT(*)::int FROM ack_notices n WHERE n.outbox_id = ack_outbox.id),
+         emailed = (SELECT COUNT(*)::int FROM ack_notices n WHERE n.outbox_id = ack_outbox.id AND n.channels ? 'email')
+     WHERE done_at IS NULL AND attempts >= 3
+       AND claimed_at < now() - interval '10 minutes'
+       AND ($1::int[] IS NULL OR document_id = ANY($1::int[]))
+     RETURNING *`,
+    [documentIds ?? null]
+  );
+  return rows.sort((a, b) => a.id - b.id);
+}
+
+/** Mark rows delivered; the counts come from the notice log so a resumed retry reports the whole delivery. */
+export async function completeAckOutbox(ids: number[]): Promise<{ emailed: number; noticed: number }> {
+  if (ids.length === 0) return { emailed: 0, noticed: 0 };
+  const rows = await q<{ emailed: number; noticed: number }>(
+    `UPDATE ack_outbox SET done_at = now(), error = NULL,
+       noticed = (SELECT COUNT(*)::int FROM ack_notices n WHERE n.outbox_id = ANY($1)),
+       emailed = (SELECT COUNT(*)::int FROM ack_notices n WHERE n.outbox_id = ANY($1) AND n.channels ? 'email')
+     WHERE id = ANY($1)
+     RETURNING emailed, noticed`,
+    [ids]
+  );
+  return rows[0] ?? { emailed: 0, noticed: 0 };
+}
+
+/**
+ * Record a failed attempt: the row keeps its claim (the 10-minute reclaim
+ * is the retry delay) and the error. With `retire` (the last attempt) the
+ * row is closed as well, with its error: never claimed again, hidden from
+ * the queue, swept with the delivered rows after a month, and told apart
+ * from a row abandoned mid-attempt by its done_at.
+ */
+export async function failAckOutbox(ids: number[], error: string, opts: { retire?: boolean } = {}): Promise<void> {
+  if (ids.length === 0) return;
+  await q(
+    `UPDATE ack_outbox SET error = $2,
+       done_at = CASE WHEN $3::boolean THEN now() ELSE done_at END,
+       noticed = (SELECT COUNT(*)::int FROM ack_notices n WHERE n.outbox_id = ANY($1)),
+       emailed = (SELECT COUNT(*)::int FROM ack_notices n WHERE n.outbox_id = ANY($1) AND n.channels ? 'email')
+     WHERE id = ANY($1)`,
+    [ids, error.slice(0, 1000), Boolean(opts.retire)]
+  );
+}
+
+export async function getAckOutboxRow(id: number): Promise<AckOutboxRow | undefined> {
+  return (await q<AckOutboxRow>("SELECT * FROM ack_outbox WHERE id = $1", [id]))[0];
+}
+
+/** Queued (not yet delivered) rows for a document, oldest first: the portal's "queued" state. */
+export async function pendingAckOutboxFor(docId: number): Promise<AckOutboxRow[]> {
+  return q<AckOutboxRow>(
+    "SELECT * FROM ack_outbox WHERE document_id = $1 AND done_at IS NULL AND attempts < 3 ORDER BY id",
+    [docId]
+  );
+}
+
+/** What the drain needs to know about the policy before it sends: gone, trashed, unpublished or no longer required means nobody is told. */
+export async function ackNoticeDocument(
+  docId: number
+): Promise<{ id: number; title: string; deliverable: boolean } | undefined> {
+  const r = await q<{ id: number; title: string; deliverable: boolean }>(
+    `SELECT id, title,
+            (ack_required = 1 AND status = 'published' AND deleted_at IS NULL) AS deliverable
+     FROM documents WHERE id = $1`,
+    [docId]
+  );
+  return r[0];
+}
+
+/**
+ * Who a fan-out reaches, resolved at delivery: the explicit list (active
+ * accounts only) when the row names one, else everyone pending for the
+ * document right now (compliancePendingUsers' joins, so a person who
+ * confirmed between enqueue and delivery is not told).
+ */
+export async function ackNoticeRecipients(
+  docId: number,
+  userIds: number[] | null
+): Promise<{ id: number; name: string; email: string }[]> {
+  if (userIds === null) return compliancePendingUsers(docId);
+  if (userIds.length === 0) return [];
+  return q(
+    "SELECT id, name, email FROM users WHERE id = ANY($1) AND status = 'active' ORDER BY name",
+    [userIds]
+  );
+}
+
+/**
+ * People who already have a notice of this kind for this document within
+ * the window and have not acted on it since (H1's coalescing key). A
+ * person told this morning who re-confirmed at noon and lapsed again on
+ * an afternoon change is told again: the notice they got was answered.
+ */
+export async function recentAckNoticeUserIds(docId: number, kind: AckNoticeKind, hours: number): Promise<Set<number>> {
+  const rows = await q<{ user_id: number }>(
+    `SELECT DISTINCT n.user_id FROM ack_notices n
+     WHERE n.document_id = $1 AND n.kind = $2 AND n.user_id IS NOT NULL
+       AND n.sent_at > now() - make_interval(hours => $3::int)
+       AND NOT EXISTS (
+         SELECT 1 FROM acknowledgements a
+         WHERE a.document_id = n.document_id AND a.user_id = n.user_id AND a.acknowledged_at > n.sent_at
+       )`,
+    [docId, kind, hours]
+  );
+  return new Set(rows.map((r) => r.user_id));
+}
+
+/** Notices an earlier attempt of these outbox rows already wrote, by person: a retry resumes instead of repeating. */
+export async function ackNoticesForOutbox(
+  outboxIds: number[]
+): Promise<Map<number, { id: number; channels: AckNoticeChannel[] }>> {
+  const map = new Map<number, { id: number; channels: AckNoticeChannel[] }>();
+  if (outboxIds.length === 0) return map;
+  const rows = await q<{ id: number; user_id: number | null; channels: AckNoticeChannel[] }>(
+    "SELECT id, user_id, channels FROM ack_notices WHERE outbox_id = ANY($1) ORDER BY id",
+    [outboxIds]
+  );
+  for (const r of rows) if (r.user_id != null) map.set(r.user_id, { id: r.id, channels: r.channels ?? [] });
+  return map;
+}
+
+/**
+ * Make a merged group's record follow the row that outlives the rest. The
+ * rows of a group are claimed together but joined it at different times,
+ * so the oldest has the most attempts and retires first; notices written
+ * under its id would then be invisible to the younger row's next claim,
+ * and everyone would be told again. Re-keying every notice of the group to
+ * its newest row before each delivery keeps the record whole.
+ */
+export async function rekeyAckNotices(outboxIds: number[], toOutboxId: number): Promise<number> {
+  if (outboxIds.length < 2) return 0;
+  const r = await pool().query("UPDATE ack_notices SET outbox_id = $2 WHERE outbox_id = ANY($1) AND outbox_id <> $2", [
+    outboxIds,
+    toOutboxId,
+  ]);
+  return r.rowCount ?? 0;
+}
+
+export interface AckNoticeInput {
+  user_id: number;
+  user_name: string;
+  user_email: string;
+  document_id: number;
+  document_title: string;
+  kind: AckNoticeKind;
+  channels: AckNoticeChannel[];
+  by_user_id?: number | null;
+  by_name?: string;
+  outbox_id?: number | null;
+}
+
+/**
+ * The single INSERT behind recordNotices (lib/compliance); returns the new
+ * ids in input order. A person or policy deleted between resolving the
+ * recipients and writing the record leaves the row with its snapshot and a
+ * NULL id (what ON DELETE SET NULL would have done a moment later), rather
+ * than failing the whole delivery on the foreign key.
+ */
+export async function insertAckNotices(rows: AckNoticeInput[]): Promise<number[]> {
+  if (rows.length === 0) return [];
+  // The subselects read the statement's snapshot; the foreign-key check
+  // reads the latest commit. A deletion that lands between the two fails
+  // the statement with 23503 once, and the second attempt sees it.
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await insertAckNoticesOnce(rows);
+    } catch (e) {
+      if ((e as { code?: string } | null)?.code !== "23503" || attempt >= 3) throw e;
+    }
+  }
+}
+
+async function insertAckNoticesOnce(rows: AckNoticeInput[]): Promise<number[]> {
+  const out = await q<{ id: number }>(
+    `INSERT INTO ack_notices
+       (user_id, user_name, user_email, document_id, document_title, kind, channels, by_user_id, by_name, outbox_id)
+     SELECT (SELECT u.id FROM users u WHERE u.id = r.user_id),
+            COALESCE(r.user_name, ''), COALESCE(r.user_email, ''),
+            (SELECT d.id FROM documents d WHERE d.id = r.document_id),
+            COALESCE(r.document_title, ''), r.kind, COALESCE(r.channels, '[]'::jsonb),
+            (SELECT b.id FROM users b WHERE b.id = r.by_user_id),
+            COALESCE(NULLIF(r.by_name, ''), 'system'), r.outbox_id
+     FROM jsonb_to_recordset($1::jsonb) AS r(
+       user_id int, user_name text, user_email text, document_id int, document_title text,
+       kind text, channels jsonb, by_user_id int, by_name text, outbox_id int)
+     RETURNING id`,
+    [
+      JSON.stringify(
+        rows.map((r) => ({
+          user_id: r.user_id,
+          user_name: r.user_name,
+          user_email: r.user_email,
+          document_id: r.document_id,
+          document_title: r.document_title,
+          kind: r.kind,
+          channels: [...new Set(r.channels)],
+          by_user_id: r.by_user_id ?? null,
+          by_name: r.by_name || "system",
+          outbox_id: r.outbox_id ?? null,
+        }))
+      ),
+    ]
+  );
+  return out.map((r) => r.id);
+}
+
+/** A retry delivered a channel an earlier attempt could not (the email after an SMTP outage): add it to the row. */
+export async function addAckNoticeChannel(id: number, channel: AckNoticeChannel): Promise<void> {
+  await q(
+    `UPDATE ack_notices SET channels = channels || $2::jsonb
+     WHERE id = $1 AND NOT (channels ? $3)`,
+    [id, JSON.stringify([channel]), channel]
+  );
+}
+
+/** The notice log, newest first, for a person and/or a document (the person record, the roster expand, notices.csv). */
+export async function listAckNotices(opts: {
+  userId?: number;
+  documentId?: number;
+  limit?: number;
+}): Promise<AckNotice[]> {
+  const where: string[] = [];
+  const params: unknown[] = [];
+  if (opts.userId != null) {
+    params.push(opts.userId);
+    where.push(`user_id = $${params.length}`);
+  }
+  if (opts.documentId != null) {
+    params.push(opts.documentId);
+    where.push(`document_id = $${params.length}`);
+  }
+  params.push(Math.min(500, Math.max(1, opts.limit ?? 100)));
+  return q<AckNotice>(
+    `SELECT id, user_id, user_name, user_email, document_id, document_title, kind, channels,
+            sent_at, by_user_id, by_name, outbox_id
+     FROM ack_notices ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+     ORDER BY sent_at DESC, id DESC LIMIT $${params.length}`,
+    params
+  );
+}
+
+/** The newest notice per document for a set of documents. Unused in 1.10.1: intended for a "Last notified 3 Oct (reminder)" line on the portal's policy row, which no surface renders yet (the row shows `last reminded` from ack_last_reminded_at). */
+export async function lastAckNoticeByDocument(
+  docIds: number[]
+): Promise<Map<number, { sent_at: string; kind: AckNoticeKind }>> {
+  const map = new Map<number, { sent_at: string; kind: AckNoticeKind }>();
+  if (docIds.length === 0) return map;
+  const rows = await q<{ document_id: number; sent_at: string; kind: AckNoticeKind }>(
+    `SELECT DISTINCT ON (document_id) document_id, sent_at, kind
+     FROM ack_notices WHERE document_id = ANY($1)
+     ORDER BY document_id, sent_at DESC, id DESC`,
+    [docIds]
+  );
+  for (const r of rows) map.set(r.document_id, { sent_at: r.sent_at, kind: r.kind });
+  return map;
+}
+
+/** Stamp notified_at on the reset decisions an 'updated' delivery covered (the rows queued since the group's earliest not_before, less the debounce). */
+export async function stampAckDecisionsNotified(docId: number, since: string): Promise<number> {
+  const r = await pool().query(
+    `UPDATE ack_decisions SET notified_at = now()
+     WHERE document_id = $1 AND outcome = 'reset' AND notified_at IS NULL
+       AND decided_at >= $2::timestamptz - make_interval(mins => $3::int)`,
+    [docId, since, ACK_NOTICE_DELAY_MINUTES]
+  );
+  return r.rowCount ?? 0;
 }
 
 /**
@@ -5716,8 +6640,17 @@ export interface AckSummary {
   /** The newest version (the text on screen). */
   latest_version_id: number | null;
   latest_rev: number | null;
-  /** The per-document default for text edits; the constant 'ask' until A5 adds the column. */
-  edit_default: "ask";
+  /** The per-document default for text edits (documents.ack_edit_default, A5). */
+  edit_default: AckEditDefault;
+  /**
+   * The workspace's value (E4), so the popover can mark the matching option
+   * "(workspace default)". Filled by GET /api/documents/[id]/ack and the
+   * document page from lib/compliance-settings, never here: that module is
+   * server-only and imports this one.
+   */
+  workspace_edit_default?: AckEditDefault;
+  /** The workspace's "Require a reason for editorial fixes too" (E4); filled by the route beside workspace_edit_default. */
+  keep_reason_required?: boolean;
   last_decision: AckDecision | null;
   /** The confirmed text, when asked for (the editor's what-changed view). */
   baseline?: { version_id: number; rev: number | null; title: string; content: string };
@@ -5733,8 +6666,8 @@ export interface AckSummary {
 export async function ackSummary(docId: number, opts: { baseline?: boolean } = {}): Promise<AckSummary> {
   await ready();
   const doc = (
-    await q<{ ack_required: number; ack_revision_at: string }>(
-      "SELECT ack_required, ack_revision_at FROM documents WHERE id = $1",
+    await q<{ ack_required: number; ack_revision_at: string; ack_edit_default: string }>(
+      "SELECT ack_required, ack_revision_at, ack_edit_default FROM documents WHERE id = $1",
       [docId]
     )
   )[0];
@@ -5754,7 +6687,7 @@ export async function ackSummary(docId: number, opts: { baseline?: boolean } = {
     rev: info.rev,
     latest_version_id: info.latest_version_id,
     latest_rev: info.latest_rev,
-    edit_default: "ask",
+    edit_default: editDefaultOf(doc),
     last_decision: last,
   };
   if (opts.baseline && info.version_id != null) {
@@ -5762,6 +6695,163 @@ export async function ackSummary(docId: number, opts: { baseline?: boolean } = {
     if (v) summary.baseline = { version_id: v.id, rev: info.rev, title: v.title, content: v.content };
   }
   return summary;
+}
+
+// --- Ask everyone to re-confirm without an edit (A7, 1.10.1) -------------------
+//
+// The third writer of the marker, beside resetAcknowledgements (a text
+// change) and the silent advance: a manager's deliberate re-ask, and later
+// the annual sweep (G1, source 'recurrence'). One statement, so two
+// managers, two tabs or two instances cannot double-reset.
+
+/** What a re-ask claim answers: the reset it made, or why it made none. */
+export type ReconfirmClaim =
+  | {
+      claimed: true;
+      decision_id: number;
+      outbox_id: number;
+      /** Confirmations that went stale (the decision row's confirmations_affected). */
+      confirmations_reset: number;
+      eligible: number;
+      /** The marker after the move: the newest version and its number. */
+      version_id: number | null;
+      rev: number | null;
+      title: string;
+      space_id: number;
+      /** The new marker (ack_revision_at), also the decision row's decided_at. */
+      marker: string;
+    }
+  | {
+      claimed: false;
+      /**
+       * The stamp that refused the claim (a request, a reminder or a re-ask
+       * inside the hour); null when the document no longer takes
+       * confirmations (unpublished, trashed, requirement off) or is gone.
+       */
+      last_asked_at: string | null;
+    };
+
+export interface ReconfirmInput {
+  source: "manual" | "recurrence";
+  reason: string;
+  actor: AckActor;
+  /** D4 (later): move only these people's cycle marker. Refused until audiences ship. */
+  userIds?: number[] | null;
+  /** The sending request's origin, stored on the outbox row (1.10.1); '' for the recurrence sweep. */
+  origin?: string;
+}
+
+/**
+ * Ask everyone to re-confirm without an edit (A7): one atomic claim moves
+ * the confirmation marker to the newest version and stamps the reminder
+ * cooldown, in a single UPDATE whose WHERE carries the one-hour guard on
+ * the column its SET changes (ack_last_reminded_at), so a second claim
+ * waits on the row lock, re-reads the stamp the first wrote and matches
+ * nothing. The 'reset' decision row (the reason, the confirmations counted
+ * before the marker moved) and the 'updated' outbox row (immediate: manual
+ * and recurrence never wait or coalesce) are written in the same
+ * transaction, so a rollback leaves no trace. No version row is written:
+ * the text did not change. Prior confirmations stay in the ledger.
+ *
+ * `client` is the caller's transaction client (the recurrence sweep, the
+ * tests); null opens one here. The marker is the wall clock when it moves
+ * (clock_timestamp(), the 1.10.0 rule resetAcknowledgements explains) and
+ * the decision row carries the same stamp; the guard compares against
+ * now(). The count runs before the claim under the statement's own
+ * snapshot, as resetAcknowledgements counts: a confirmation that commits
+ * between the two goes stale with the rest and is not in the number.
+ */
+export async function claimReconfirmation(
+  client: Queryable | null,
+  docId: number,
+  opts: ReconfirmInput
+): Promise<ReconfirmClaim> {
+  if (opts.userIds != null) {
+    // D4 brings the per-person statement (policy_assignments.cycle_started_at).
+    throw new Error("Per-person re-asks arrive with audiences.");
+  }
+  if (client) return claimReconfirmationOn(client, docId, opts);
+  await ready();
+  const own = await pool().connect();
+  try {
+    await own.query("BEGIN");
+    const claim = await claimReconfirmationOn(own, docId, opts);
+    await own.query("COMMIT");
+    return claim;
+  } catch (e) {
+    await own.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    own.release();
+  }
+}
+
+async function claimReconfirmationOn(client: Queryable, docId: number, opts: ReconfirmInput): Promise<ReconfirmClaim> {
+  // Counted before the marker moves: afterwards nothing is current.
+  const counts = await ackCounts(client, docId);
+  const moved = await client.query<{
+    id: number;
+    title: string;
+    space_id: number;
+    ack_version_id: number | null;
+    rev: number | null;
+    marker: string;
+  }>(
+    `UPDATE documents
+       SET ack_revision_at = clock_timestamp(),
+           ack_version_id = (SELECT MAX(v.id) FROM doc_versions v WHERE v.document_id = documents.id),
+           ack_last_reminded_at = clock_timestamp()
+     WHERE id = $1 AND ack_required = 1 AND status = 'published' AND deleted_at IS NULL
+       AND (ack_last_reminded_at IS NULL OR ack_last_reminded_at < now() - interval '1 hour')
+     RETURNING id, title, space_id, ack_version_id,
+               ${VERSION_REV("documents.ack_version_id")} AS rev,
+               ack_revision_at::text AS marker`,
+    [docId]
+  );
+  if (moved.rowCount === 0) {
+    // Refused: say when readers were last asked, or that the document no
+    // longer takes confirmations. A fresh snapshot, so the stamp a parallel
+    // claim just committed is the one reported.
+    const stamp = await client.query<{ last: string | null }>(
+      `SELECT ack_last_reminded_at::text AS last FROM documents
+       WHERE id = $1 AND ack_required = 1 AND status = 'published' AND deleted_at IS NULL`,
+      [docId]
+    );
+    return { claimed: false, last_asked_at: stamp.rows[0]?.last ?? null };
+  }
+  const row = moved.rows[0];
+  const decisionId = await recordAckDecision(client, {
+    ...decisionColumns(
+      docId,
+      row.title,
+      "reset",
+      { versionId: row.ack_version_id, actor: opts.actor, source: opts.source, reason: opts.reason },
+      counts
+    ),
+    decided_at: row.marker,
+  });
+  const outboxId = await insertAckOutbox(client, {
+    document_id: docId,
+    mode: "updated",
+    source: opts.source,
+    reason: opts.reason,
+    actor: opts.actor,
+    user_ids: null,
+    delay_minutes: ackNoticeDelayMinutes(opts.source),
+    origin: opts.origin ?? "",
+  });
+  return {
+    claimed: true,
+    decision_id: decisionId,
+    outbox_id: outboxId,
+    confirmations_reset: counts.current,
+    eligible: counts.eligible,
+    version_id: row.ack_version_id,
+    rev: row.rev,
+    title: row.title,
+    space_id: row.space_id,
+    marker: row.marker,
+  };
 }
 
 // --- Training decks (enterprise "training") ---------------------------------------
@@ -8132,7 +9222,8 @@ export async function approveChangeRequest(
   id: number,
   reviewerId: number,
   reviewerName: string,
-  note = ""
+  note = "",
+  opts: { origin?: string } = {}
 ): Promise<ApproveChangeRequestResult | false> {
   await ready();
   const client = await pool().connect();
@@ -8152,9 +9243,11 @@ export async function approveChangeRequest(
         status: string;
         ack_required: number;
         ack_version_id: number | null;
-      }>("SELECT title, content, status, ack_required, ack_version_id FROM documents WHERE id = $1 FOR UPDATE", [
-        cr.document_id,
-      ])
+        ack_edit_default: string;
+      }>(
+        "SELECT title, content, status, ack_required, ack_version_id, ack_edit_default FROM documents WHERE id = $1 FOR UPDATE",
+        [cr.document_id]
+      )
     ).rows[0];
     if (!live) {
       await client.query("ROLLBACK");
@@ -8200,9 +9293,25 @@ export async function approveChangeRequest(
     // transition without a text change) the newest row already there.
     let versionId: number | null = null;
     if (versionWorthy) {
+      // Provenance (C6): the submitter published the words, the reviewer
+      // approved them, and the request that carried them is on the row.
       const v = await client.query<{ id: number }>(
-        "INSERT INTO doc_versions (document_id, title, content, author, note) VALUES ($1,$2,$3,$4,$5) RETURNING id",
-        [cr.document_id, cr.title, cr.content, cr.author_name, versionNote]
+        `INSERT INTO doc_versions
+           (document_id, title, content, author, note,
+            published_by, published_by_name, approved_by, approved_by_name, change_request_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+        [
+          cr.document_id,
+          cr.title,
+          cr.content,
+          cr.author_name,
+          versionNote,
+          cr.created_by,
+          cr.author_name,
+          reviewerId,
+          reviewerName,
+          id,
+        ]
       );
       versionId = v.rows[0].id;
     } else if (substantive) {
@@ -8224,18 +9333,31 @@ export async function approveChangeRequest(
       decision_id: null,
     };
     if (decides && versionId !== null) {
+      // Nobody is there to ask, so the document's edit default decides
+      // (A5): under 'material' an editorial-looking request is kept and
+      // recorded from source 'default', like a kept save; anything else
+      // resets with source 'approval'. The same helper updateDocument uses.
       const summary = changeSummary(base.content, cr.content, { oldTitle: base.title, newTitle: cr.title });
-      const r = await resetAcknowledgements(client, cr.document_id, {
+      const suggestion = suggestReconfirm(summary);
+      const auto = resolveAutoAckPolicy(live, suggestion);
+      const decision = {
         versionId,
         actor,
-        source: "approval",
+        source: auto.decidedBySetting ? ("default" as const) : ("approval" as const),
         reason: cr.note.trim() || versionNote,
         summary,
-        suggested: suggestReconfirm(summary).policy,
-        submittedPolicy: "",
+        suggested: suggestion.policy,
+        submittedPolicy: "" as const,
         submittedBy: { id: cr.created_by, name: cr.author_name },
-      });
-      ack = { ...ack, reset: true, confirmations_reset: r.confirmations_reset, decision_id: r.decision_id };
+        origin: opts.origin,
+      };
+      if (auto.resolved === "keep") {
+        const k = await keepAcknowledgements(client, cr.document_id, decision);
+        ack = { ...ack, source: "default", decision_id: k.decision_id };
+      } else {
+        const r = await resetAcknowledgements(client, cr.document_id, decision);
+        ack = { ...ack, reset: true, confirmations_reset: r.confirmations_reset, decision_id: r.decision_id };
+      }
     } else if (silentAdvance && versionId !== null) {
       await resetAcknowledgements(client, cr.document_id, {
         versionId,

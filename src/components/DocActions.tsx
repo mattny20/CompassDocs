@@ -18,6 +18,11 @@ import { PrintButton } from "./PrintButton";
 import { Popover } from "./Popover";
 import { toast } from "./Toasts";
 import { confirmDialog, promptDialog } from "./Dialog";
+import { AckSettings, ACK_SETTINGS_TITLE } from "./AckSettings";
+import type { AckSettingsProps } from "./AckSettings";
+
+/** The shield's tooltip and accessible name (A5). */
+export const ACK_SHIELD_LABEL = "Read confirmation settings";
 
 export function DocActions({
   id,
@@ -47,8 +52,13 @@ export function DocActions({
   isPublished: boolean;
   /** Branches can't be branched again. */
   isBranch?: boolean;
-  /** Approver-side read-confirmation toggle (enterprise); omit to hide. */
-  ack?: { required: boolean };
+  /**
+   * The Read confirmation popover's props (enterprise, A5), for holders of
+   * document.ack_require; omit to hide the shield. The sticky-bar copy omits
+   * it on purpose: the requirement's state lives here, and two copies would
+   * disagree after a click.
+   */
+  ack?: Omit<AckSettingsProps, "docId" | "isPublished">;
   /** Share-link controls, shown in a toolbar popover; omit to hide. */
   sharePanel?: React.ReactNode;
   /** Review-schedule controls, shown in a toolbar popover; omit to hide. */
@@ -60,13 +70,23 @@ export function DocActions({
   const [deleting, setDeleting] = useState(false);
   const [branching, setBranching] = useState(false);
   const [templating, setTemplating] = useState(false);
+  // The requirement as this toolbar last saw it: the popover reports every
+  // switch so the shield's tint follows at once, before the refresh lands.
   const [ackRequired, setAckRequired] = useState(ack?.required ?? false);
-  const [ackBusy, setAckBusy] = useState(false);
-  const [popover, setPopover] = useState<null | "share" | "review">(null);
+  const [popover, setPopover] = useState<null | "share" | "review" | "ack">(null);
   const shareBtn = useRef<HTMLButtonElement>(null);
   const reviewBtn = useRef<HTMLButtonElement>(null);
+  const ackBtn = useRef<HTMLButtonElement>(null);
   // Outside click and Escape are handled by Popover (via the overlay stack).
-  const closePopover = useCallback(() => setPopover(null), []);
+  // A question opened from inside a panel (the shield's "Require read
+  // confirmation?", the share card's revoke) is a Modal above it: a click
+  // inside that modal is "outside" the panel but must not close it, or the
+  // switch the person is answering about vanishes under them. Escape never
+  // reaches here while the modal is up (the overlay stack is LIFO).
+  const closePopover = useCallback(() => {
+    if (typeof document !== "undefined" && document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+    setPopover(null);
+  }, []);
 
   async function onBranch() {
     setBranching(true);
@@ -78,27 +98,6 @@ export function DocActions({
     } else {
       setBranching(false);
       toast("error", data?.error || "Couldn't create the branch.");
-    }
-  }
-
-  async function onToggleAck() {
-    const next = !ackRequired;
-    setAckBusy(true);
-    const res = await fetch(`/api/documents/${id}/ack`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ required: next }),
-    });
-    setAckBusy(false);
-    if (res.ok) {
-      setAckRequired(next);
-      router.refresh();
-    } else {
-      toast(
-        "error",
-        (await res.json().catch(() => ({}))).error ||
-          "Couldn't change the read-confirmation setting."
-      );
     }
   }
 
@@ -156,8 +155,13 @@ export function DocActions({
   const iconBtn =
     "inline-flex items-center rounded-lg border border-slate-200 bg-surface p-2 text-slate-500 hover:bg-slate-50 hover:text-slate-700";
 
+  // w-full under sm: the popovers hang from this row's right edge (align
+  // "end"), so the row spans the content width on a phone and a w-80 panel
+  // cannot be pushed past the left edge of the viewport when the row holds
+  // only a few icons. The sticky-bar copy is hidden sm:flex, so it is
+  // unaffected.
   return (
-    <div className="relative flex flex-wrap items-center gap-2 print:hidden">
+    <div className="relative flex w-full flex-wrap items-center gap-2 print:hidden sm:w-auto">
       {sharePanel && (
         <>
           <button
@@ -225,30 +229,48 @@ export function DocActions({
         </>
       )}
       {ack && (
-        <button
-          onClick={onToggleAck}
-          disabled={ackBusy || !isPublished}
-          data-tt={
-            !isPublished
-              ? "Publish first to require read confirmation"
-              : ackRequired
-                ? "Read confirmation required — click to turn off"
-                : "Require read confirmation"
-          }
-          aria-label="Toggle required read confirmation"
-          aria-pressed={ackRequired}
-          className={`inline-flex items-center rounded-lg border p-2 disabled:opacity-50 ${
-            ackRequired
-              ? "border-compass-300 bg-compass-50 text-compass-600 hover:bg-compass-100"
-              : "border-slate-200 bg-surface text-slate-500 hover:bg-slate-50 hover:text-slate-700"
-          }`}
-        >
-          {ackBusy ? (
-            <Spinner />
-          ) : (
+        <>
+          {/* The shield opens the Read confirmation popover (A5): compass
+              tint while the document requires confirmation, the open state
+              like the share and review triggers. The popup trigger keeps
+              data-tt and sets aria-expanded (STYLEGUIDE §Tooltips). */}
+          <button
+            ref={ackBtn}
+            onClick={() => setPopover((p) => (p === "ack" ? null : "ack"))}
+            data-tt={ACK_SHIELD_LABEL}
+            aria-label={ACK_SHIELD_LABEL}
+            aria-expanded={popover === "ack"}
+            aria-haspopup="dialog"
+            className={
+              popover === "ack"
+                ? "inline-flex items-center rounded-lg border border-compass-300 bg-compass-50 p-2 text-compass-600"
+                : ackRequired
+                  ? "inline-flex items-center rounded-lg border border-compass-300 bg-compass-50 p-2 text-compass-600 hover:bg-compass-100"
+                  : iconBtn
+            }
+          >
             <ShieldCheck className="h-4 w-4" />
-          )}
-        </button>
+          </button>
+          <Popover
+            open={popover === "ack"}
+            onClose={closePopover}
+            triggerRef={ackBtn}
+            role="dialog"
+            label={ACK_SETTINGS_TITLE}
+            align="end"
+            width="w-80"
+            padding="p-4"
+            className="mt-2 rounded-xl text-left"
+          >
+            <AckSettings
+              {...ack}
+              docId={id}
+              isPublished={isPublished}
+              required={ackRequired}
+              onRequiredChange={setAckRequired}
+            />
+          </Popover>
+        </>
       )}
       <PrintButton iconOnly />
       <Link

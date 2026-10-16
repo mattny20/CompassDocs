@@ -176,6 +176,7 @@ export async function POST(req: Request) {
       versionNote: "Bulk edit",
       ackSource: "bulk",
       ackActor: { id: user.id, name: actorName },
+      ackOrigin: requestOrigin(req),
     });
     updated++;
 

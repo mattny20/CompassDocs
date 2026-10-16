@@ -192,6 +192,8 @@ export interface Document {
   ack_version_id: number | null;
   /** Last time a compliance reminder went out for this doc (enterprise). */
   ack_last_reminded_at?: string | null;
+  /** How the document treats a text edit (A5, 1.10.1): 'ask' the editor each time, 'material' only when the change looks material, 'reset' always re-ask everyone. */
+  ack_edit_default: AckEditDefault;
   /** Non-null = this doc is a draft branch of that document. */
   branch_of: number | null;
   /** Nested pages: the parent document (null = top level). */
@@ -226,6 +228,9 @@ export interface DocumentWithSpace extends Document {
 
 /** What a caller asks updateDocument to do with existing confirmations when the text changes. */
 export type AckPolicy = "keep" | "reset" | "auto";
+
+/** A document's answer to "when the text changes" (A5, 1.10.1); the workspace default lives in Program settings. */
+export type AckEditDefault = "ask" | "material" | "reset";
 
 /** Where a decision came from (the C1 vocabulary). */
 export type AckSource =
@@ -318,6 +323,69 @@ export interface DocVersion {
   /** If this version was created by restoring an older one, that version's id. */
   restored_from: number | null;
   created_at: string;
+  /**
+   * Provenance (1.10.1, C6): who published this version and, when it came
+   * through a change request, who approved it. The ids are ON DELETE SET
+   * NULL; the names are snapshots. Rows from before 1.10.1 have
+   * published_by_name backfilled from `author` and approved_by_name from the
+   * legacy "approved by" note suffix where one was written; everything else
+   * is blank.
+   */
+  published_by: number | null;
+  published_by_name: string;
+  approved_by: number | null;
+  approved_by_name: string;
+  change_request_id: number | null;
+}
+
+// --- Read confirmation notices (1.10.1, E3/H4) ------------------------------
+
+/** What an outbox row asks the drain to send (H4). 'digest' is a notice kind only (F4/E2, later). */
+export type AckNoticeMode = "request" | "reminder" | "updated" | "due" | "overdue" | "escalation" | "welcome";
+export type AckNoticeKind = AckNoticeMode | "digest";
+
+/** A channel a notice actually went out on: 'email' only when the mail was accepted by the server. */
+export type AckNoticeChannel = "inapp" | "email" | "webhook";
+
+/** One row of the per-person notice log (ack_notices), newest first from listAckNotices. */
+export interface AckNotice {
+  id: number;
+  /** Null once the account is deleted; user_name and user_email keep the snapshot. */
+  user_id: number | null;
+  user_name: string;
+  user_email: string;
+  /** Null once the policy is purged; document_title keeps the name. */
+  document_id: number | null;
+  document_title: string;
+  kind: AckNoticeKind;
+  channels: AckNoticeChannel[];
+  sent_at: string;
+  by_user_id: number | null;
+  /** 'system' when no person asked (a sweep, a schedule). */
+  by_name: string;
+  outbox_id: number | null;
+}
+
+/** One queued fan-out (ack_outbox), as the drain claims it. */
+export interface AckOutboxRow {
+  id: number;
+  document_id: number | null;
+  mode: AckNoticeMode;
+  source: AckSource | "";
+  reason: string;
+  actor_id: number | null;
+  actor_name: string;
+  /** Null = everyone pending at delivery time. */
+  user_ids: number[] | null;
+  not_before: string;
+  claimed_at: string | null;
+  done_at: string | null;
+  attempts: number;
+  emailed: number | null;
+  noticed: number | null;
+  error: string | null;
+  /** The sending request's origin kept for the links; '' when no request queued the row (1.10.1). */
+  origin: string;
 }
 
 export interface SearchHit {

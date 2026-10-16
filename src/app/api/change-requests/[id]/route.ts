@@ -46,7 +46,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   }
 
   if (action === "approve") {
-    const ok = await approveChangeRequest(Number(id), user.id, user.name || user.username, note);
+    // The origin rides on the notice a reset queues (1.10.1), so its links
+    // are absolute on a workspace without custom_domain.
+    const ok = await approveChangeRequest(Number(id), user.id, user.name || user.username, note, {
+      origin: requestOrigin(req),
+    });
     if (!ok) return NextResponse.json({ error: "Already reviewed or not found." }, { status: 409 });
     await audit({
       actor: actorFrom(user),
