@@ -7,7 +7,10 @@
 // the way resetAcknowledgements does); the second drives the marker through
 // updateDocument's ackPolicy (A2): a no-op save writes nothing, a kept text
 // edit leaves the marker, a reset moves it, 'auto' resets, and the
-// requirement being off advances the marker silently.
+// requirement being off advances the marker silently. The third covers the
+// two text writers that do not go through updateDocument (change-request
+// approval and the scheduler's publish), and the fourth the row lock that
+// keeps a confirmation from landing inside a reset.
 //
 // Run: npm run test:integration  (needs DATABASE_URL)
 
@@ -31,8 +34,13 @@ import {
   listPendingAcksFor,
   listVersions,
   listAckDecisions,
+  getAckDecision,
+  resetAcknowledgements,
+  createChangeRequest,
+  approveChangeRequest,
   AckReasonRequiredError,
 } from "../src/lib/db";
+import { runDueDocSchedules, setDocSchedule } from "../src/lib/doc-schedule";
 
 const STAMP = `ackrev-${Date.now()}`;
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");
@@ -40,6 +48,7 @@ const sha = (s: string) => createHash("sha256").update(s).digest("hex");
 let spaceId = 0;
 let readerId = 0;
 let otherId = 0;
+let approverId = 0;
 const docIds: number[] = [];
 
 async function newPolicy(title: string, content = "Policy body"): Promise<number> {
@@ -82,25 +91,40 @@ before(async () => {
   const users = await pool().query(
     `INSERT INTO users (username, name, email, role, status) VALUES
        ($1, 'Rev Reader', $2, 'viewer', 'active'),
-       ($3, 'Rev Other', $4, 'viewer', 'active')
+       ($3, 'Rev Other', $4, 'viewer', 'active'),
+       ($5, 'Rev Approver', $6, 'approver', 'active')
      RETURNING id`,
-    [`${STAMP}-reader`, `${STAMP}-reader@example.test`, `${STAMP}-other`, `${STAMP}-other@example.test`]
+    [
+      `${STAMP}-reader`,
+      `${STAMP}-reader@example.test`,
+      `${STAMP}-other`,
+      `${STAMP}-other@example.test`,
+      `${STAMP}-approver`,
+      `${STAMP}-approver@example.test`,
+    ]
   );
   readerId = users.rows[0].id;
   otherId = users.rows[1].id;
+  approverId = users.rows[2].id;
 });
 
 after(async () => {
+  const userIds = [readerId, otherId, approverId];
   await pool().query("DELETE FROM acknowledgements WHERE document_id = ANY($1) OR user_id = ANY($2)", [
     docIds,
-    [readerId, otherId],
+    userIds,
   ]);
   await pool().query("DELETE FROM ack_decisions WHERE document_id = ANY($1) OR document_title LIKE $2", [
     docIds,
     `${STAMP}%`,
   ]);
+  // Before the users: reviewed_by has no ON DELETE.
+  await pool().query("DELETE FROM change_requests WHERE document_id = ANY($1)", [docIds]);
+  await pool().query("DELETE FROM audit_log WHERE target_type = 'document' AND target_id = ANY($1::text[])", [
+    docIds.map(String),
+  ]);
   await pool().query("DELETE FROM documents WHERE id = ANY($1)", [docIds]);
-  await pool().query("DELETE FROM users WHERE id = ANY($1)", [[readerId, otherId]]);
+  await pool().query("DELETE FROM users WHERE id = ANY($1)", [userIds]);
   await pool().query("DELETE FROM spaces WHERE id = $1", [spaceId]);
 });
 
@@ -296,6 +320,7 @@ describe("updateDocument decides what happens to confirmations (A2)", () => {
       confirmations_reset: 0,
       policy: "auto",
       source: "edit",
+      decision_id: null,
     });
     const after = await pool().query(stamps, [id]);
     assert.notEqual(after.rows[0].updated_at, before.rows[0].updated_at, "updated_at moved (conflict token)");
@@ -377,6 +402,10 @@ describe("updateDocument decides what happens to confirmations (A2)", () => {
     assert.ok(doc);
     assert.equal(doc.ack_outcome!.reset, true);
     assert.equal(doc.ack_outcome!.confirmations_reset, 1);
+    // The outcome names the row it wrote, so the audit echo reads that row and not "the newest".
+    const written = await getAckDecision(doc.ack_outcome!.decision_id!);
+    assert.equal(written?.document_id, id);
+    assert.equal(written?.outcome, "reset");
     const v2 = await latestVersionId(id);
     assert.notEqual(v2, v1);
     const after = await pool().query(stamps, [id]);

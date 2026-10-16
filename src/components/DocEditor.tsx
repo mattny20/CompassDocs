@@ -529,6 +529,10 @@ export function DocEditor({
     status: DocStatus
   ): Promise<{ ask: false } | { ask: true; answer: ReconfirmResult | null }> {
     if (!ack || !docId || status !== "published") return { ask: false };
+    // A non-publisher's save becomes a change request, and in this release
+    // the request carries no recommendation (that arrives with 1.11.0); the
+    // approval decides. Asking a question nobody records would be dishonest.
+    if (!canPublish) return { ask: false };
     const next: ReconfirmText = { title: title.trim(), content };
     const loaded: ReconfirmText = { title: initial.title, content: initial.content };
     // Publishing a draft counts at the transition, however many saves the
@@ -1015,7 +1019,7 @@ export function DocEditor({
               label="Change note"
               help={
                 <>
-                  Kept in version history, and shown to readers when you ask them to re-confirm.
+                  Kept in version history and on the compliance record.
                   {/* The per-document edit default (A5); only "ask" exists today. */}
                   {ack && ack.editDefault === "ask" && " Saving will ask whether readers must re-confirm."}
                 </>

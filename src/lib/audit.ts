@@ -183,20 +183,31 @@ export async function auditAck(
  * version, counts and reason. A decision is taken only when the text of a
  * confirmed, published document changed (updateDocument's `decides`), so
  * anything else, including a silent marker advance with the requirement off,
- * writes nothing. Every route that calls updateDocument (PUT, merge, restore,
- * the v1 API, the MCP connector) uses this one helper so the echo cannot
- * drift between them.
+ * writes nothing. Every caller that takes a decision (PUT, merge, restore,
+ * the v1 API, the MCP connector, change-request approval, the scheduler)
+ * uses this one helper so the echo cannot drift between them.
+ *
+ * The row is read by the id the writer returned (`ack_outcome.decision_id`),
+ * never as "the newest row for the document": a concurrent save of the same
+ * document could otherwise have its decision echoed under this actor.
  */
 export async function auditAckDecision(
   before: { ack_required: number },
   doc:
-    | { id: number; title: string; content: string; status: string; ack_outcome?: AckOutcomeInfo }
+    | {
+        id: number;
+        title: string;
+        content: string;
+        status: string;
+        ack_outcome?: AckOutcomeInfo & { decision_id?: number | null };
+      }
     | undefined,
   extra: Pick<AckAuditExtra, "actor" | "ip"> = {}
 ): Promise<void> {
   const outcome = doc?.ack_outcome;
   if (!doc || !outcome?.substantive || before.ack_required !== 1 || doc.status !== "published") return;
-  const decision = await lastAckDecision(doc.id);
+  if (outcome.decision_id == null) return;
+  const decision = await getAckDecision(outcome.decision_id);
   if (!decision) return;
   await auditAck(outcome.reset ? "ack.confirmations_reset" : "ack.confirmations_kept", doc, {
     actor: extra.actor,
