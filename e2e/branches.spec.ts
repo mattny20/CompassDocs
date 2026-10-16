@@ -88,7 +88,7 @@ test("merging a branch: a stale base is refused, a confirmed target asks, and th
     // The merge landed: the source carries the branch's text, the branch is
     // gone, the confirmation was reset and the ledger row is from "merge".
     await page.waitForURL(`**/doc/${docId}`);
-    await expect(page.locator("article")).toContainText("within 14 days");
+    await expect(page.locator("article.doc-read")).toContainText("within 14 days");
     expect((await api(page, `/api/documents/${docId}`)).body?.doc?.content).toBe(BRANCH);
     expect((await api(page, `/api/documents/${branchId}`)).status, "the branch left the live set").toBe(404);
     const after = await api(page, `/api/documents/${docId}/ack`);

@@ -159,7 +159,17 @@ export function revFromLabel(label: string | null | undefined): number | null {
 
 /** The two texts readers would compare (the editor trims the title on both sides already). */
 export function sameText(a: ReconfirmText, b: ReconfirmText): boolean {
-  return a.title === b.title && a.content === b.content;
+  return a.title.trim() === b.title.trim() && tidy(a.content) === tidy(b.content);
+}
+
+/**
+ * Trailing whitespace is not a change: the editor serialises what it shows,
+ * and a stored text with spaces at the ends of lines (or a trailing newline)
+ * comes back without them. Comparing the tidied forms keeps the question,
+ * the schedule hint and the submit path from calling that an edit.
+ */
+function tidy(content: string): string {
+  return content.replace(/[ \t]+$/gm, "").replace(/\r\n/g, "\n").trimEnd();
 }
 
 /**

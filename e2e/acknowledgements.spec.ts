@@ -985,6 +985,8 @@ test("API: a no-op merge still records the branch, and GET /ack on a draft follo
     expect(mergeRows[0]?.details, "the merge is on the record, marked as a no-op").toEqual({
       branchId,
       changed: false,
+      ack_policy: null,
+      confirmations_reset: 0,
     });
     // Purging it proves it went to the Trash (and cleans it up).
     const purged = await api(page, `/api/trash/${branchId}`, { method: "DELETE" });
@@ -1249,7 +1251,12 @@ test("the schedule hint says what publishing on schedule will do to confirmation
     expect(down.body?.doc?.status).toBe("draft");
 
     // A change plus a time: the ask variant, naming the people and the version.
-    await openEditorAndType(page, docId, " Done.");
+    // Typed at the very end of the document (Control+End), so the same keys
+    // can take it out again: End alone stops at the end of a wrapped line.
+    const editor = await openEditor(page, docId);
+    await editor.click();
+    await page.keyboard.press("Control+End");
+    await page.keyboard.type(" Done.");
     await page.getByLabel(SCHEDULE_FIELD).fill(PUBLISH_AT);
     await expect(
       page.getByText(/^Publishing on schedule will ask 1 person to re-confirm: the text changed since version 1\.$/)
@@ -1257,9 +1264,8 @@ test("the schedule hint says what publishing on schedule will do to confirmation
 
     // The change undone: the text equals the confirmed version again, and
     // the hint goes (the time is still set).
-    const editor = page.locator(".tiptap").first();
-    await editor.locator("p").last().click();
-    await page.keyboard.press("End");
+    await editor.click();
+    await page.keyboard.press("Control+End");
     for (let i = 0; i < " Done.".length; i++) await page.keyboard.press("Backspace");
     await expect(page.getByText(/^Publishing on schedule/)).toHaveCount(0);
     await expect(page.getByLabel(SCHEDULE_FIELD)).toHaveValue(PUBLISH_AT);
@@ -1347,7 +1353,7 @@ test("importing a zip leaves a confirmed policy unchanged unless the box is tick
     await box.check();
     await page.getByRole("button", { name: "Import", exact: true }).click();
     await expect(page.getByText("1 policy will ask people to re-confirm.")).toBeVisible();
-    await expect(page.getByText(/left unchanged/)).toHaveCount(0);
+    await expect(page.getByText(/(was|were) left unchanged\./)).toHaveCount(0);
     expect((await api(page, `/api/documents/${docId}`)).body?.doc?.content?.trim()).toBe(IMPORTED_POLICY);
     expect((await rosterCount(page, docId)).confirmed, "the confirmation lapsed").toBe(0);
     const summary = await api(page, `/api/documents/${docId}/ack`);
