@@ -19,6 +19,8 @@ import {
 import { diffBlocks, diffLines, diffStats, withFolds } from "@/lib/diff";
 import type { BlockDiffRow, DiffRow, DiffSegment, DisplayRow } from "@/lib/diff";
 import { MarkdownView } from "./MarkdownView";
+import { ReconfirmHost, assessRefusal, fetchReconfirmContext, reconfirmDialog, revFromLabel } from "./ReconfirmModal";
+import type { AckDecisionRefusalBody, ReconfirmText } from "./ReconfirmModal";
 
 // Version-history explorer: pick any two versions to compare (side-by-side or
 // inline), restore an older version, and manage draft branches. The diff is
@@ -37,6 +39,8 @@ export type VersionItem = {
   /** Pre-formatted timestamp (server-rendered with workspace settings). */
   when: string;
   whenExact: string;
+  /** ISO created_at, for the restore note "Restored version 9 from 2026-02-01" (A6). */
+  createdAt?: string;
 };
 
 export type BranchItem = {
@@ -139,6 +143,7 @@ export function VersionHistory({
   decisions = [],
   initialOld = null,
   initialNew = null,
+  ackRequired = false,
 }: {
   docId: number;
   docStatus: string;
@@ -148,6 +153,12 @@ export function VersionHistory({
   canPublishDirect: boolean;
   versions: VersionItem[];
   branches: BranchItem[];
+  /**
+   * The document requires read confirmation (A6): a direct restore is sent
+   * first and the route's 428 opens the question; the route decides
+   * regardless, this only picks which dialog the restore starts with.
+   */
+  ackRequired?: boolean;
   /** Read-confirmation decisions, newest first; only for documents that
    *  require confirmation (the page passes nothing otherwise). */
   decisions?: VersionDecision[];
@@ -198,21 +209,78 @@ export function VersionHistory({
     return diffBlocks(oldV.content, newV.content);
   }, [oldV, newV, mode]);
 
+  /** One POST of the restore; the decision rides along once the question is answered. */
+  function postRestore(v: VersionItem, decision?: { policy: "keep" | "reset"; note: string }) {
+    return fetch(`/api/documents/${docId}/versions/${v.id}/restore`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        label: String(v.rev),
+        ...(decision ? { ack_policy: decision.policy, ack_reason: decision.note } : {}),
+      }),
+    });
+  }
+
+  /**
+   * The restore question for a confirmed document (A6), opened from the
+   * route's 428: the same cards as the editor's, the hint measured against
+   * the confirmed text (fetched once for the "Show changes" evidence), the
+   * note prefilled with what the route will write as the version note, and
+   * a primary that says what will happen. Null is Cancel.
+   */
+  async function askRestore(v: VersionItem, body: AckDecisionRefusalBody) {
+    const ctx = await fetchReconfirmContext(docId);
+    const current = versions[0];
+    const loaded: ReconfirmText = { title: current?.title ?? v.title, content: current?.content ?? "" };
+    const next: ReconfirmText = { title: v.title, content: v.content };
+    const assessed = assessRefusal(body, { baseline: ctx?.baseline ?? null, loaded, next });
+    const day = v.createdAt ? v.createdAt.slice(0, 10) : "";
+    return reconfirmDialog({
+      mode: "restore",
+      title: `Restore version ${v.rev} of a confirmed document?`,
+      docId,
+      docTitle: loaded.title,
+      current: body.confirmations ?? ctx?.current ?? 0,
+      eligible: body.eligible ?? ctx?.eligible ?? 0,
+      rev: revFromLabel(body.baseline) ?? ctx?.rev ?? null,
+      baseline: ctx?.baseline ?? loaded,
+      next,
+      hint: assessed.hint,
+      suggested: assessed.suggested,
+      initialNote: `Restored version ${v.rev}${day ? ` from ${day}` : ""}`,
+      keepReasonRequired: ctx?.keepReasonRequired ?? true,
+    });
+  }
+
   async function restore(v: VersionItem) {
     const applies = docStatus !== "published" || canPublishDirect;
-    const body = applies
-      ? "The current content stays in the history — this adds a new version with the older text."
-      : "Your restore will be submitted to the review queue.";
-    if (!(await confirmDialog({ title: `Restore version ${v.rev}?`, body, confirmLabel: "Restore" }))) return;
+    // A direct restore over a confirmed, published document may be a
+    // decision (the route answers 428 when the older text differs from
+    // what people confirmed), and restoring is reversible either way (the
+    // current text stays in the history), so it is sent first and the 428
+    // opens the one question. Every other restore asks the plain question
+    // it always did.
+    const mayAsk = ackRequired && docStatus === "published" && canPublishDirect;
+    if (!mayAsk) {
+      const body = applies
+        ? "The current content stays in the history — this adds a new version with the older text."
+        : "Your restore will be submitted to the review queue.";
+      if (!(await confirmDialog({ title: `Restore version ${v.rev}?`, body, confirmLabel: "Restore" }))) return;
+    }
     setRestoring(v.id);
     setError("");
     setNotice("");
     try {
-      const res = await fetch(`/api/documents/${docId}/versions/${v.id}/restore`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ label: String(v.rev) }),
-      });
+      let res = await postRestore(v);
+      if (res.status === 428) {
+        // The question is awaited with the row idle, as the editor's is.
+        const body = (await res.json().catch(() => ({}))) as AckDecisionRefusalBody;
+        setRestoring(null);
+        const answer = await askRestore(v, body);
+        if (!answer) return;
+        setRestoring(v.id);
+        res = await postRestore(v, answer);
+      }
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Restore failed.");
       if (data.pending) {
@@ -253,6 +321,7 @@ export function VersionHistory({
 
   return (
     <div className="space-y-6">
+      <ReconfirmHost />
       {(notice || error) && (
         <div
           className={`rounded-lg border px-4 py-2 text-sm ${

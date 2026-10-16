@@ -213,3 +213,136 @@ test("a change request on a confirmed document carries the recommendation; the a
     await editorCtx.close();
   }
 });
+
+// 1.11.0 (A6), the review queue itself: the card says what approving does to
+// the readers' confirmations (the chip beside "Edit"), shows the submitter's
+// recommendation and reason, and replaces the preview with "Changes vs live"
+// (the rendered diff with the one-sentence measurement). Approve on a request
+// that changes the text of a confirmed document opens the editor's question
+// with the recommendation pre-selected and the note prefilled; the approver's
+// override lands on the decision row beside the recommendation. A request
+// with no recommendation asks too (the guess pre-selects a card), and a
+// metadata-only request says so and never asks. Licensed builds only.
+test("the review card shows the chip, the recommendation and the diff; Approve asks, and the override is recorded", async ({ browser }) => {
+  const adminCtx = await browser.newContext();
+  const adminPage = await adminCtx.newPage();
+  await login(adminPage, ADMIN);
+  await ensureUser(adminPage, EDITOR, "editor", "E2E Editor");
+  const editorCtx = await browser.newContext();
+  const editorPage = await editorCtx.newPage();
+  await login(editorPage, EDITOR);
+
+  const title = `E2E review card ${Date.now()}`;
+  const BASE = "Expense claims are paid within 30 days. Receipts are required over 20. Claims go to finance.";
+  const EDITORIAL = "Expense claims are paid within 30 days. Receipts are required over 20. Claims go to the finance team.";
+  const THIRD = "Expense claims are paid within 30 days. Receipts are required over 20. Claims go to the finance team by email.";
+  const OVERRIDE = "Claims now go to a new mailbox; everyone must read the new address";
+  const KEEP_REASON = "Only the delivery channel was named; the rule is unchanged";
+
+  const spaces = await api(adminPage, "/api/admin/spaces");
+  const spaceId = spaces.body?.spaces?.[0]?.id ?? spaces.body?.[0]?.id;
+  const created = await api(adminPage, "/api/documents", {
+    method: "POST",
+    body: { space_id: spaceId, title, type: "policy", status: "published", content: BASE, summary: "", tags: [] },
+  });
+  const docId = created.body?.doc?.id ?? created.body?.document?.id;
+  expect(docId).toBeTruthy();
+  const card = () => adminPage.locator("div.rounded-xl.shadow-xs").filter({ hasText: title }).first();
+  try {
+    const required = await api(adminPage, `/api/documents/${docId}/ack`, { method: "PATCH", body: { required: true } });
+    test.skip(required.status === 402, "policy_ack is not licensed in this build; the EE rig runs the flow");
+    expect(required.status).toBe(200);
+    const v1 = (await api(adminPage, `/api/documents/${docId}/ack`)).body?.version_id;
+    expect((await api(adminPage, `/api/documents/${docId}/ack`, { method: "POST", body: { version_id: v1 } })).status).toBe(200);
+
+    // 1. An editorial recommendation: the chip, the line and the diff.
+    const edit1 = await api(editorPage, `/api/documents/${docId}`, {
+      method: "PUT",
+      body: { content: EDITORIAL, status: "published", ack_policy: "keep", ack_reason: "fixed the name of the finance team", versionNote: "Team name" },
+    });
+    expect(edit1.body?.pending).toBe(true);
+
+    await adminPage.goto("/review");
+    await expect(adminPage.locator("h1")).toContainText("Review queue");
+    await expect(card().getByText("Keeps 1 confirmation (editorial)")).toBeVisible();
+    await expect(card().getByText('E2E Editor recommends: editorial fix. "fixed the name of the finance team"')).toBeVisible();
+    await expect(card().getByText("Preview proposed content")).toHaveCount(0);
+    const disclosure = card().getByText("Changes vs live");
+    await expect(disclosure).toBeVisible();
+    await disclosure.click();
+    await expect(card().getByText(/^(Looks editorial|Looks material|Borderline)/)).toBeVisible();
+    await expect(card().locator("article")).toContainText("the finance team");
+
+    // Approve opens the question with the recommendation pre-selected and
+    // the note prefilled; the approver overrides it.
+    await card().getByRole("button", { name: "Approve" }).click();
+    const dialog = adminPage.getByRole("dialog", { name: "Approve changes to a confirmed document?" });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText(new RegExp(`^1 of \\d+ (person has|people have) confirmed version \\d+ of`))).toBeVisible();
+    await expect(dialog.getByRole("radio", { name: /^Editorial fix/ })).toBeChecked();
+    await expect(dialog.getByLabel("Change note")).toHaveValue("fixed the name of the finance team");
+    await expect(dialog.getByRole("button", { name: "Approve. Keep confirmations" })).toBeVisible();
+    await dialog.getByRole("radio", { name: /^Material change/ }).check();
+    const reset = dialog.getByRole("button", { name: "Approve and ask 1 person to re-confirm" });
+    await expect(reset).toBeVisible();
+    await dialog.getByLabel("Change note").fill(OVERRIDE);
+    await reset.click();
+    await expect(dialog).toHaveCount(0);
+    await expect(adminPage.locator('[role="status"]').getByText("Approved. 1 person will be asked to re-confirm.")).toBeVisible();
+    await expect(card()).toHaveCount(0);
+
+    let summary = (await api(adminPage, `/api/documents/${docId}/ack`)).body;
+    expect(summary?.current, "the override reset the confirmation").toBe(0);
+    expect(summary?.last_decision?.outcome).toBe("reset");
+    expect(summary?.last_decision?.submitted_policy, "the recommendation stays on the row").toBe("keep");
+    expect(summary?.last_decision?.reason, "the approver's reason wins").toBe(OVERRIDE);
+    expect(summary?.last_decision?.source).toBe("approval");
+    expect((await api(adminPage, `/api/documents/${docId}`)).body?.doc?.content).toBe(EDITORIAL);
+
+    // 2. No recommendation: the chip says a decision is needed, Approve
+    //    asks with the guess pre-selected, and a keep is kept.
+    const v2 = summary?.version_id;
+    expect((await api(adminPage, `/api/documents/${docId}/ack`, { method: "POST", body: { version_id: v2 } })).status).toBe(200);
+    const edit2 = await api(editorPage, `/api/documents/${docId}`, {
+      method: "PUT",
+      body: { content: THIRD, status: "published", versionNote: "By email" },
+    });
+    expect(edit2.body?.pending).toBe(true);
+    await adminPage.goto("/review");
+    await expect(card().getByText("Decision needed. 1 confirmation")).toBeVisible();
+    await expect(card().getByText(/recommends:/)).toHaveCount(0);
+    await card().getByRole("button", { name: "Approve" }).click();
+    const ask = adminPage.getByRole("dialog", { name: "Approve changes to a confirmed document?" });
+    await expect(ask).toBeVisible();
+    await expect(ask.getByRole("radio", { checked: true })).toHaveCount(1);
+    await ask.getByRole("radio", { name: /^Editorial fix/ }).check();
+    await ask.getByLabel("Change note").fill(KEEP_REASON);
+    await ask.getByRole("button", { name: "Approve. Keep confirmations" }).click();
+    await expect(adminPage.locator('[role="status"]').getByText("Approved. Confirmations kept.")).toBeVisible();
+    summary = (await api(adminPage, `/api/documents/${docId}/ack`)).body;
+    expect(summary?.current, "a keep leaves the confirmation standing").toBe(1);
+    expect(summary?.last_decision?.outcome).toBe("kept");
+    expect(summary?.last_decision?.submitted_policy).toBe("");
+    expect(summary?.last_decision?.reason).toBe(KEEP_REASON);
+
+    // 3. Metadata only: the chip says confirmations are unaffected, and
+    //    Approve applies without a question.
+    const edit3 = await api(editorPage, `/api/documents/${docId}`, {
+      method: "PUT",
+      body: { content: THIRD, status: "published", summary: "Who pays, and when" },
+    });
+    expect(edit3.body?.pending).toBe(true);
+    await adminPage.goto("/review");
+    await expect(card().getByText("Metadata only. Confirmations unaffected")).toBeVisible();
+    await card().getByRole("button", { name: "Approve" }).click();
+    await expect(adminPage.locator('[role="status"]').getByText("Approved.", { exact: true })).toBeVisible();
+    await expect(adminPage.getByRole("dialog")).toHaveCount(0);
+    summary = (await api(adminPage, `/api/documents/${docId}/ack`)).body;
+    expect(summary?.current, "nothing happened to the confirmation").toBe(1);
+    expect((await api(adminPage, `/api/documents/${docId}`)).body?.doc?.summary).toBe("Who pays, and when");
+  } finally {
+    await api(adminPage, `/api/documents/${docId}`, { method: "DELETE" });
+    await adminCtx.close();
+    await editorCtx.close();
+  }
+});

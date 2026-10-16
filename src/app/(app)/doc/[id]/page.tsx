@@ -421,6 +421,10 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
           branchId={doc.id}
           sourceId={branchSource.id}
           sourceTitle={branchSource.title}
+          sourceUpdatedAt={branchSource.updated_at}
+          sourceAckRequired={ackEnabled && branchSource.ack_required === 1}
+          branchTitle={doc.title}
+          branchContent={doc.content}
           canEdit={isStaff && hasEditRights}
           needsReview={Boolean(mergeNeedsReview)}
         />

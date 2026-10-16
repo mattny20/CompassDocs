@@ -79,6 +79,7 @@ export default async function HistoryPage({
     approved_by_name: v.approved_by_name ?? "",
     when: timeAgo(v.created_at),
     whenExact: formatDateTime(v.created_at, settingsForUser(settings, user)),
+    createdAt: v.created_at,
   }));
 
   return (
@@ -120,6 +121,7 @@ export default async function HistoryPage({
         }))}
         initialOld={initialOld}
         initialNew={initialNew}
+        ackRequired={doc.ack_required === 1}
       />
     </PageContainer>
   );
