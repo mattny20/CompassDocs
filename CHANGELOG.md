@@ -68,7 +68,10 @@ shield, a deliberate re-ask, and a portal that asks before it sends.
   re-confirm." Callers that cannot ask (merge, restore, the API, MCP,
   imports, an approval, a scheduled publish) follow the same default, so a
   procedure set to *material* no longer re-asks everyone for a corrected
-  typo that came in through the API. The help under the change note says
+  typo that came in through the API, and a change request approved on
+  such a policy, or a scheduled publish of one, keeps an editorial-looking
+  change from source *Default* and asks everyone again for anything else
+  from source *Approval* or *Schedule*. The help under the change note says
   which applies. The approver's progress row left the notice strip: the
   popover carries it, so an approver who is also a reader no longer sees
   two rows. The portal shows the setting as a chip (**Asks editor** /
@@ -122,7 +125,12 @@ shield, a deliberate re-ask, and a portal that asks before it sends.
   `compliance.export`; a roster reader without it still gets the version,
   hash and name columns an auditor verifies against, with the IP left
   blank (`user_agent` is reserved and blank: the record does not store it
-  yet).
+  yet). `document.ack_roster_read` and `document.ack_require` are checked
+  on the document's own space: a role granted either key on one space
+  cannot read the record of, or switch the requirement on, a document it
+  can merely read in another (403). The per-policy record, the re-ask and
+  the shield's settings answer 404 for a draft the caller may not read,
+  as the document itself does.
 - **Program settings.** The portal gains **Settings**, which opens
   `/compliance/settings` for anyone who holds `compliance.program_manage`:
   the defaults every policy inherits, on one page with one Save row and an
@@ -187,7 +195,12 @@ shield, a deliberate re-ask, and a portal that asks before it sends.
   and `PUT /api/admin/compliance/settings` read and write the program
   settings (`PUT` takes any subset, validates every key and answers 400
   with the key named; the response echoes the saved settings and
-  `changed`).
+  `changed`). Every `PATCH /api/documents/{id}/ack` answer carries the
+  five fields, read after the writes, whichever fields were sent; `POST
+  /api/admin/compliance` refuses a `notify` that is not `true` or `false`
+  (400); a second `request` for the same policy that lands in the same
+  instant is answered 400 "already asks" rather than queuing a second
+  notice, and a second `remind` in the same second answers the 429.
 - **Audit.** `document.ack_required { notify, eligible, queued }` and
   `document.ack_removed { acked, required }` from the shield and the
   portal; `ack.edit_default_set { from, to }`;
@@ -252,16 +265,27 @@ shield, a deliberate re-ask, and a portal that asks before it sends.
   the left edge of the screen when the toolbar holds only a few icons.
 
 ### Upgrading
-- **Boot takes fewer locks.** Every `ADD COLUMN IF NOT EXISTS` in the
-  schema now looks the column up before it runs, so a boot against an
-  up-to-date database takes no exclusive lock on `users`, `documents` or
-  any other table (Postgres locked each of them for a moment on every
-  start, and a start that raced a save could deadlock against it).
+- **Boot takes no lock on an up-to-date table.** Every `ADD COLUMN IF
+  NOT EXISTS` and every `CREATE INDEX IF NOT EXISTS` in the schema now
+  looks the catalog up before it runs (Postgres locked the table first and
+  looked second, so each of them locked `users`, `documents`,
+  `doc_versions` and the rest for a moment on every start, and a start
+  that raced a save could deadlock against it), and the remaining
+  every-boot statements (the `users` ladder trigger, the training
+  history's NOT NULL and foreign-key swap, the `spaces` visibility
+  default) are guarded the same way. A boot against an up-to-date
+  database runs, at the top level, only `CREATE TABLE IF NOT EXISTS`,
+  catalog lookups, one `CREATE OR REPLACE FUNCTION` and three row-level
+  updates: no exclusive and no share lock on any table, so a rolling
+  restart no longer blocks or deadlocks against a save on another
+  instance. The first boot after an upgrade runs the identical DDL. A
+  unit test reads the schema out of the source and fails on any
+  unguarded statement; the double-boot test checks the catalog after
+  every boot, from a 1.9.4-shaped and from a 1.10.0-shaped database.
 - The schema adds the tables `ack_notices` and `ack_outbox`,
   `documents.ack_edit_default`, and five columns on `doc_versions`
   (`published_by`, `published_by_name`, `approved_by`, `approved_by_name`,
-  `change_request_id`; created once in a guarded block, so a later boot
-  takes no lock on versions). A one-shot backfill fills the provenance
+  `change_request_id`; created once in a guarded block). A one-shot backfill fills the provenance
   names for existing versions and records `migrated_version_provenance =
   1` in settings. Existing policies start on *Ask the editor each time*;
   the workspace default applies to policies first required after the

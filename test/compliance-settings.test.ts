@@ -7,6 +7,7 @@
 
 import { test, before, after, describe } from "node:test";
 import assert from "node:assert/strict";
+import type { PoolClient } from "pg";
 import { pool, getSetting, setSetting } from "../src/lib/db";
 import {
   COMPLIANCE_DEFAULTS,
@@ -27,7 +28,7 @@ const actor = { id: null, name: STAMP, role: "admin" };
  * describe, keeps the two from restoring each other's values.
  */
 const SETTINGS_LOCK = 728342;
-let lockClient: Awaited<ReturnType<ReturnType<typeof pool>["connect"]>> | null = null;
+let lockClient: PoolClient | null = null;
 
 /** What the shared database held before the suite, restored after it. */
 const saved = new Map<string, string>();
@@ -47,8 +48,9 @@ async function auditRows() {
 describe("program settings", () => {
   before(async () => {
     await getSetting("__schema_bootstrap__"); // run the schema and migrations first
-    lockClient = await pool().connect();
-    await lockClient.query("SELECT pg_advisory_lock($1)", [SETTINGS_LOCK]);
+    const client = await pool().connect();
+    await client.query("SELECT pg_advisory_lock($1)", [SETTINGS_LOCK]);
+    lockClient = client;
     for (const key of KEYS) {
       const v = await getSetting(key);
       if (v !== undefined) saved.set(key, v);

@@ -31,6 +31,31 @@ function codeLines(sql: string): string[] {
   return sql.split("\n").filter((l) => !l.trim().startsWith("--"));
 }
 
+/** The schema's top-level statements: split on `;` outside dollar quotes ($$ and $fn$ alike). */
+function topLevelStatements(sql: string): string[] {
+  const out: string[] = [];
+  let cur = "";
+  let tag: string | null = null;
+  for (let i = 0; i < sql.length; i++) {
+    const m = /^\$\w*\$/.exec(sql.slice(i, i + 40));
+    if (m && (tag === null || m[0] === tag)) {
+      tag = tag === null ? m[0] : null;
+      cur += m[0];
+      i += m[0].length - 1;
+      continue;
+    }
+    const c = sql[i];
+    if (c === ";" && tag === null) {
+      if (cur.trim()) out.push(cur.trim());
+      cur = "";
+      continue;
+    }
+    cur += c;
+  }
+  if (cur.trim()) out.push(cur.trim());
+  return out;
+}
+
 test("rewrites a one-line add into a guarded block with the same definition", () => {
   const out = guardAddColumns(`  ALTER TABLE users ADD COLUMN IF NOT EXISTS theme text NOT NULL DEFAULT 'system';\n`);
   assert.equal(
@@ -112,15 +137,48 @@ test("the real schema: no ADD COLUMN IF NOT EXISTS or CREATE INDEX IF NOT EXISTS
     assert.ok(!line.includes("--"), `no comment inside a generated block: ${line.slice(0, 120)}`);
     assert.equal((line.match(/DO \$\$ BEGIN/g) ?? []).length, 1, `one block per line: ${line.slice(0, 120)}`);
   }
-  // The statements the old guard missed (a line break before ADD) and the
-  // every-boot statements closed in 1.10.1 are not in the output as bare DDL.
+  // The statements the old guard missed (a line break before ADD) are gone.
   assert.doesNotMatch(after, /ALTER TABLE directory_people\s+ADD COLUMN IF NOT EXISTS/);
-  assert.doesNotMatch(after, /^\s*DROP TRIGGER IF EXISTS compass_users_ladder_sync/m, "the users trigger is guarded");
-  assert.doesNotMatch(after, /^\s*ALTER TABLE spaces ALTER COLUMN visibility SET DEFAULT/m, "the spaces default is guarded");
-  assert.doesNotMatch(
-    after,
-    /^\s*ALTER TABLE training_completion_history ALTER COLUMN \w+ DROP NOT NULL/m,
-    "the history DROP NOT NULL pair is guarded"
+});
+
+test("the real schema: every top-level statement is one that takes no lock on an up-to-date table", () => {
+  // What a boot against an up-to-date database may run at the top level:
+  // CREATE TABLE IF NOT EXISTS (a notice, no lock, when the table exists),
+  // a DO block whose DDL is behind a catalog lookup (ADD COLUMN, CREATE
+  // INDEX, the trigger, the FK swap, SET DEFAULT), CREATE OR REPLACE
+  // FUNCTION (locks the function, not a table), DROP INDEX IF EXISTS on an
+  // index that was dropped long ago (a notice, no lock), and DML (a row
+  // lock, never a table lock). An ALTER TABLE, DROP TRIGGER, CREATE TRIGGER
+  // or CREATE INDEX at the top level is a lock on every boot, and fails here.
+  const statements = topLevelStatements(codeLines(guardCreateIndexes(guardAddColumns(realSchemaSql()))).join("\n"));
+  assert.ok(statements.length > 200, `the schema has its statements (${statements.length})`);
+  const ALLOWED = [
+    /^CREATE TABLE IF NOT EXISTS \w+ \(/,
+    /^DO \$\$ BEGIN[\s\S]*END \$\$$/,
+    /^CREATE OR REPLACE FUNCTION \w+\(\)/,
+    /^DROP INDEX IF EXISTS \w+$/,
+    /^UPDATE \w+/,
+  ];
+  const offending = statements.filter((s) => !ALLOWED.some((re) => re.test(s)));
+  assert.deepEqual(
+    offending.map((s) => s.slice(0, 100)),
+    [],
+    "no top-level ALTER TABLE, CREATE INDEX, DROP TRIGGER or CREATE TRIGGER survives"
   );
-  assert.doesNotMatch(after, /^\s*ALTER TABLE training_completion_history\s+DROP CONSTRAINT/m, "the history FK swap is guarded");
+  // And the every-boot statements closed in 1.10.1 are inside guarded blocks.
+  const blocks = statements.filter((s) => /^DO \$\$/.test(s));
+  const guarded = (needle: RegExp) => blocks.some((b) => needle.test(b));
+  assert.ok(guarded(/pg_trigger[\s\S]*CREATE TRIGGER compass_users_ladder_sync/), "the users trigger is guarded on pg_trigger");
+  assert.ok(guarded(/pg_attrdef[\s\S]*ALTER TABLE spaces ALTER COLUMN visibility SET DEFAULT/), "the spaces default is guarded on column_default");
+  assert.ok(
+    guarded(/attnotnull[\s\S]*ALTER TABLE training_completion_history ALTER COLUMN user_id DROP NOT NULL/),
+    "the history DROP NOT NULL is guarded on the column"
+  );
+  assert.ok(
+    guarded(/confdeltype = 'n'[\s\S]*ADD CONSTRAINT training_completion_history_user_id_fkey/),
+    "the history FK swap is guarded on the constraint's ON DELETE"
+  );
+  assert.ok(guarded(/attname = 'ack_revision_at'[\s\S]*ADD COLUMN ack_revision_at/), "the marker block looks the column up in pg_attribute");
+  assert.ok(guarded(/attname = 'published_by'[\s\S]*ADD COLUMN published_by/), "the provenance block does too");
+  assert.ok(!blocks.some((b) => /information_schema\.columns/.test(b)), "no block looks a column up without a schema");
 });

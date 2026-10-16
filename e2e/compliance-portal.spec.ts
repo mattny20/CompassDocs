@@ -137,6 +137,21 @@ test("request asks with the audience count and Cancel sends nothing; Require and
     expect(required[0].details?.notify).toBe(true);
     expect(typeof required[0].details?.eligible).toBe("number");
 
+    // The row shows the policy's edit default as a chip (A5), with the full
+    // option sentence as its tooltip: 'ask' until anyone changes it, then
+    // what the shield's popover (here the API) set.
+    await expect(row.getByText("Asks editor")).toBeVisible();
+    await expect(row.locator('[data-tt="When the text changes: ask the editor each time."]')).toHaveCount(1);
+    const material = await api(page, `/api/documents/${docId}/ack`, { method: "PATCH", body: { edit_default: "material" } });
+    expect(material.status).toBe(200);
+    expect(material.body).toMatchObject({ ok: true, ack_required: true, edit_default: "material", queued: 0 });
+    expect(typeof material.body?.eligible, "every PATCH answers the full shape").toBe("number");
+    await page.reload();
+    await expect(row).toBeVisible();
+    await expect(row.getByText("Asks when material")).toBeVisible();
+    await expect(row.locator('[data-tt="When the text changes: ask only when a change looks material."]')).toHaveCount(1);
+    await expect(row.getByText("Asks editor")).toHaveCount(0);
+
     // A second request for the same policy is refused by the API.
     const again = await api(page, "/api/admin/compliance", { method: "POST", body: { docId, action: "request" } });
     expect(again.status).toBe(400);
@@ -346,6 +361,15 @@ test("the matrix and the per-policy record download as CSV", async ({ page }) =>
       body: { docId, action: "request", notify: false },
     });
     expect(on.status).toBe(200);
+    // The admin confirms the version, so one row of the matrix cites a
+    // version and carries its provenance (C6).
+    const summary = await api(page, `/api/documents/${docId}/ack`);
+    expect(summary.status).toBe(200);
+    const confirmed = await api(page, `/api/documents/${docId}/ack`, {
+      method: "POST",
+      body: { version_id: summary.body?.latest_version_id },
+    });
+    expect(confirmed.status, "the admin confirmed").toBe(200);
 
     await page.goto("/compliance");
     const row = page.locator("li", { hasText: title });
@@ -358,12 +382,25 @@ test("the matrix and the per-policy record download as CSV", async ({ page }) =>
     ]);
     expect(matrix.suggestedFilename()).toBe("compliance-report.csv");
 
-    // Its content: the documented header, and a row for the new policy.
+    // Its content: the documented header, a row for the new policy, and on
+    // the admin's confirmed row the name of whoever published the version
+    // (the byline of the API-created version) with no approver.
     const text = await fetchText(page, "/api/admin/compliance?format=csv");
     expect(text.status).toBe(200);
     const lines = text.text.trim().split("\n");
     expect(lines[0]).toBe(MATRIX_HEADER);
     expect(lines.some((l) => l.startsWith(`"${title}"`)), "the policy is in the matrix").toBe(true);
+    const header = cells(lines[0]);
+    const publishedAt = header.indexOf("version_published_by");
+    const approvedAt = header.indexOf("version_approved_by");
+    const adminLine = lines
+      .slice(1)
+      .map(cells)
+      .find((c) => c[0] === title && c[header.indexOf("username")] === ADMIN.username);
+    expect(adminLine, "the admin's row for the policy").toBeTruthy();
+    expect(adminLine![header.indexOf("acknowledged_at")], "it is confirmed").not.toBe("");
+    expect(adminLine![publishedAt], "the version's publisher is named").not.toBe("");
+    expect(adminLine![approvedAt], "no change request, no approver").toBe("");
 
     // The per-policy record from the row.
     const [record] = await Promise.all([

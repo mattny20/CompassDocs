@@ -27,6 +27,7 @@
 import { test, before, after, describe } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import type { PoolClient } from "pg";
 import { asScope } from "../src/lib/space-scope";
 import {
   pool,
@@ -781,12 +782,13 @@ describe("the per-document edit default (A5): ask, material, reset", () => {
   // The settings row is shared with test/compliance-settings.test.ts and
   // node:test runs files in parallel: the lock is held on one dedicated
   // connection for the whole describe (an advisory lock is per session).
-  let lockClient: Awaited<ReturnType<ReturnType<typeof pool>["connect"]>> | null = null;
+  let lockClient: PoolClient | null = null;
 
   before(async () => {
     actor.id = otherId;
-    lockClient = await pool().connect();
-    await lockClient.query("SELECT pg_advisory_lock($1)", [SETTINGS_LOCK]);
+    const client = await pool().connect();
+    await client.query("SELECT pg_advisory_lock($1)", [SETTINGS_LOCK]);
+    lockClient = client;
     savedDefaults = await getSetting("ack_defaults");
   });
   after(async () => {

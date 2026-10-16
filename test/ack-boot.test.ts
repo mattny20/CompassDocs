@@ -298,11 +298,14 @@ describe("confirmation marker upgrade (1.9.4 → 1.10.1), booted twice", () => {
     assert.ok(upgrade.ok, `the upgrade boot succeeds:\n${upgrade.out}`);
     assert.match(upgrade.out, /\[ack\] stamped the confirmation marker/, "the version backfill ran and logged its counts");
     assert.match(upgrade.out, /\[ack\] attestation records now outlive/, "the retention migration ran");
-    assert.match(
-      upgrade.out,
-      /\[ack\] version provenance backfilled: 3 publisher name\(s\) and 0 approver name\(s\)/,
-      "the provenance backfill ran once, over the three versions"
-    );
+    // The counts include the sample documents seedIfEmpty wrote on the
+    // fresh boot (their versions lost the columns in the downgrade too), so
+    // they are a floor; the three fixture versions are checked row by row
+    // below.
+    const backfill = /\[ack\] version provenance backfilled: (\d+) publisher name\(s\) and (\d+) approver name\(s\)/.exec(upgrade.out);
+    assert.ok(backfill, `the provenance backfill ran and logged its counts:\n${upgrade.out}`);
+    assert.ok(Number(backfill![1]) >= 3, "at least the three fixture versions got a publisher name");
+    assert.equal(Number(backfill![2]), 0, "no version carries an approval note");
     await assertSchema1101(db, "upgrade boot");
 
     const once = await snapshot(db, [policy, quiet]);
@@ -463,12 +466,17 @@ describe("the 1.10.1 additions against a 1.10.0 database, booted twice", () => {
 
     const upgrade = boot(DB);
     assert.ok(upgrade.ok, `the upgrade boot succeeds:\n${upgrade.out}`);
-    assert.match(
-      upgrade.out,
-      /\[ack\] version provenance backfilled: 2 publisher name\(s\) and 1 approver name\(s\)/,
-      "the backfill ran once over both versions"
-    );
-    assert.doesNotMatch(upgrade.out, /stamped the confirmation marker on [1-9]/, "the 1.10.0 marker needs no repair");
+    // The publisher count includes the sample documents seedIfEmpty wrote on
+    // the fresh boot, so it is a floor; the one approver is the fixture's.
+    const backfill = /\[ack\] version provenance backfilled: (\d+) publisher name\(s\) and (\d+) approver name\(s\)/.exec(upgrade.out);
+    assert.ok(backfill, `the provenance backfill ran and logged its counts:\n${upgrade.out}`);
+    assert.ok(Number(backfill![1]) >= 2, "at least the two fixture versions got a publisher name");
+    assert.equal(Number(backfill![2]), 1, "the one legacy approval note became an approver name");
+    // The 1.10.0 one-shots are already recorded in this database: the
+    // version inference and the retention migration do not run again (the
+    // sample documents' markers are stamped by the flag-guarded repair,
+    // which is a different line).
+    assert.doesNotMatch(upgrade.out, /inferred the version/, "the 1.10.0 version inference did not run again");
     assert.doesNotMatch(upgrade.out, /attestation records now outlive/, "the 1.10.0 retention migration is already done");
     await assertSchema1101(db, "upgrade boot");
 
