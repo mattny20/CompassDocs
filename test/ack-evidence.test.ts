@@ -58,7 +58,7 @@ async function newPolicy(title: string, content = TEXT): Promise<{ id: number; v
     tags: [],
     author: "test",
   });
-  await setAckRequired(doc.id, true);
+  await setAckRequired(doc.id, true, { editDefault: null });
   docIds.push(doc.id);
   return { id: doc.id, v1: (await listVersions(doc.id))[0].id };
 }
