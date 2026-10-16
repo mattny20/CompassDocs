@@ -7,7 +7,7 @@ import {
   changeRequestAckReason,
   AckReasonRequiredError,
 } from "@/lib/db";
-import { ackDecisionRequired, ACK_POLICY_ERROR } from "@/lib/ack-decision";
+import { ackDecisionRequired, auditedAckPolicy, ACK_POLICY_ERROR } from "@/lib/ack-decision";
 import { getComplianceSettings } from "@/lib/compliance-settings";
 import { apiGuard } from "@/lib/api-auth";
 import { audit, auditAckDecision, actorFrom, ipFrom } from "@/lib/audit";
@@ -28,10 +28,12 @@ export const dynamic = "force-dynamic";
 // Body: { note?, ack_policy?, ack_reason?, base_updated_at? }. A merge into
 // a confirmed, published document whose text differs from the confirmed
 // version is a decision like a save (A6): without ack_policy it is answered
-// 428 with the numbers the editor's question shows; 'keep' or 'reset' needs
-// an ack_reason of 10+ characters (400 otherwise). base_updated_at is the
-// source's updated_at the branch was created or last compared against; a
-// source that changed since is answered 409 in the same shape as PUT.
+// 428 with the numbers the editor's question shows; a 'reset' needs an
+// ack_reason of 10+ characters and a 'keep' follows Program settings'
+// "Require a reason for editorial fixes too" (400 otherwise), as PUT does.
+// base_updated_at is the source's updated_at the branch was created or last
+// compared against; a source that changed since is answered 409 in the same
+// shape as PUT.
 
 const MERGE_CONFLICT_ERROR =
   "The live document changed since this branch was created. Review it before merging.";
@@ -143,11 +145,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   // document without a decision is a question, not a silent reset. The
   // helper answers 428 (undecided) or 400 (a bad policy, a short reason)
   // before anything is written, and lets a merge that changes nothing
-  // substantive through as 'auto' whatever the body says.
+  // substantive through as 'auto' whatever the body says. The keep side's
+  // reason rule is the workspace's, read once here for the pre-flight and
+  // for updateDocument's own check.
+  const keepReasonRequired = (await getComplianceSettings()).ack_defaults.keep_reason_required;
   const pre = await ackDecisionRequired(
     source,
     { title: branch.title, content: branch.content, status: source.status },
-    { ack_policy: ackPolicyRaw ?? undefined, ack_reason: ackReason }
+    { ack_policy: ackPolicyRaw ?? undefined, ack_reason: ackReason },
+    { keepReasonRequired }
   );
   if (pre.refusal) return NextResponse.json(pre.refusal.body, { status: pre.refusal.status });
 
@@ -165,7 +171,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       ackReason: pre.decision.ackReason,
       ackSource: "merge",
       ackActor: { id: user.id, name: user.name || user.username },
-      ackKeepReasonRequired: (await getComplianceSettings()).ack_defaults.keep_reason_required,
+      ackKeepReasonRequired: keepReasonRequired,
       ackOrigin: requestOrigin(req),
     });
   } catch (e) {
@@ -181,7 +187,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   // recorded either way, with `changed: false` saying the source was not
   // touched; nobody is notified and no decision is echoed (A2, as PUT does
   // for a no-op save). The decision taken, when one was, rides on the row as
-  // {ack_policy, confirmations_reset} (A6).
+  // {ack_policy, confirmations_reset} (A6) in the scheduler's vocabulary:
+  // ack_policy is null when nothing was decided.
   const unchanged = updated?.ack_outcome?.changed === false;
   await audit({
     actor: actorFrom(user),
@@ -192,7 +199,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     details: {
       branchId: branch.id,
       changed: !unchanged,
-      ack_policy: updated?.ack_outcome?.policy ?? pre.decision.ackPolicy,
+      ack_policy: auditedAckPolicy(updated?.ack_outcome),
       confirmations_reset: updated?.ack_outcome?.confirmations_reset ?? 0,
     },
     ip: ipFrom(req),

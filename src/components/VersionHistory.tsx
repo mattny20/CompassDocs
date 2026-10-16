@@ -19,8 +19,17 @@ import {
 import { diffBlocks, diffLines, diffStats, withFolds } from "@/lib/diff";
 import type { BlockDiffRow, DiffRow, DiffSegment, DisplayRow } from "@/lib/diff";
 import { MarkdownView } from "./MarkdownView";
-import { ReconfirmHost, assessRefusal, fetchReconfirmContext, reconfirmDialog, revFromLabel } from "./ReconfirmModal";
-import type { AckDecisionRefusalBody, ReconfirmText } from "./ReconfirmModal";
+import {
+  ReconfirmHost,
+  assessChange,
+  assessRefusal,
+  fetchReconfirmContext,
+  reconfirmDialog,
+  returnFocus,
+  revFromLabel,
+  sameText,
+} from "./ReconfirmModal";
+import type { AckDecisionRefusalBody, ReconfirmResult, ReconfirmText } from "./ReconfirmModal";
 
 // Version-history explorer: pick any two versions to compare (side-by-side or
 // inline), restore an older version, and manage draft branches. The diff is
@@ -59,7 +68,25 @@ export type VersionDecision = {
   decided_by_name: string;
   /** For approvals: who submitted the change (differs from the approver). */
   submitted_by_name: string;
+  /** For approvals (A6, 1.11.0): what the submitter recommended; '' when they gave no recommendation. */
+  submitted_policy?: "keep" | "reset" | "";
 };
+
+/** The recommendation in the words of the review queue ("recommends: editorial fix"). */
+const POLICY_WORDS: Record<"keep" | "reset", string> = { keep: "editorial fix", reset: "material change" };
+
+/**
+ * "recommended by Alex" when the submitter's recommendation and the applied
+ * outcome agree (or no recommendation was stored); "recommended material
+ * change by Alex" when the approver overrode it, so an overridden
+ * recommendation is never misattributed to the submitter.
+ */
+function recommendedLine(d: Pick<VersionDecision, "outcome" | "submitted_by_name" | "submitted_policy">): string {
+  const policy = d.submitted_policy === "keep" || d.submitted_policy === "reset" ? d.submitted_policy : null;
+  const applied = d.outcome === "reset" ? "reset" : d.outcome === "kept" ? "keep" : null;
+  if (policy && applied && policy !== applied) return `recommended ${POLICY_WORDS[policy]} by ${d.submitted_by_name}`;
+  return `recommended by ${d.submitted_by_name}`;
+}
 
 function Segments({ segs, text }: { segs?: DiffSegment[]; text: string }) {
   if (!segs) return <>{text || " "}</>;
@@ -210,14 +237,59 @@ export function VersionHistory({
   }, [oldV, newV, mode]);
 
   /** One POST of the restore; the decision rides along once the question is answered. */
-  function postRestore(v: VersionItem, decision?: { policy: "keep" | "reset"; note: string }) {
+  function postRestore(v: VersionItem, decision?: ReconfirmResult) {
     return fetch(`/api/documents/${docId}/versions/${v.id}/restore`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         label: String(v.rev),
-        ...(decision ? { ack_policy: decision.policy, ack_reason: decision.note } : {}),
+        // The dialog's note is the version note too, as the editor's and the
+        // merge's are (the route falls back to "Restored version N from …").
+        ...(decision ? { note: decision.note, ack_policy: decision.policy, ack_reason: decision.note } : {}),
       }),
+    });
+  }
+
+  /** The texts of the question: the older version against the confirmed text (or the live one). */
+  function restoreTexts(v: VersionItem) {
+    const current = versions[0];
+    const loaded: ReconfirmText = { title: current?.title ?? v.title, content: current?.content ?? "" };
+    const next: ReconfirmText = { title: v.title, content: v.content };
+    return { loaded, next };
+  }
+
+  /**
+   * The question a restore that will queue for review asks (A6): the same
+   * cards in "submit" mode, so the request carries the submitter's
+   * recommendation (ack_policy / ack_reason) and the approver decides with it
+   * in view, as the editor's own submission does. Undefined when the older
+   * text equals what people confirmed (nothing for readers to decide, the
+   * plain question stands); null is Cancel.
+   */
+  async function askSubmit(v: VersionItem): Promise<ReconfirmResult | null | undefined> {
+    const ctx = await fetchReconfirmContext(docId);
+    const { loaded, next } = restoreTexts(v);
+    if (sameText(ctx?.baseline ?? loaded, next)) return undefined;
+    const assessed = assessChange({
+      baseline: ctx?.baseline ?? null,
+      loaded,
+      next,
+      baselineLabel: ctx?.rev != null ? `v${ctx.rev}` : undefined,
+    });
+    const day = v.createdAt ? v.createdAt.slice(0, 10) : "";
+    return reconfirmDialog({
+      mode: "submit",
+      docId,
+      docTitle: loaded.title,
+      current: ctx?.current ?? 0,
+      eligible: ctx?.eligible ?? 0,
+      rev: ctx?.rev ?? null,
+      baseline: ctx?.baseline ?? loaded,
+      next,
+      hint: assessed.hint,
+      suggested: assessed.suggested,
+      initialNote: `Restored version ${v.rev}${day ? ` from ${day}` : ""}`,
+      keepReasonRequired: ctx?.keepReasonRequired ?? true,
     });
   }
 
@@ -230,9 +302,7 @@ export function VersionHistory({
    */
   async function askRestore(v: VersionItem, body: AckDecisionRefusalBody) {
     const ctx = await fetchReconfirmContext(docId);
-    const current = versions[0];
-    const loaded: ReconfirmText = { title: current?.title ?? v.title, content: current?.content ?? "" };
-    const next: ReconfirmText = { title: v.title, content: v.content };
+    const { loaded, next } = restoreTexts(v);
     const assessed = assessRefusal(body, { baseline: ctx?.baseline ?? null, loaded, next });
     const day = v.createdAt ? v.createdAt.slice(0, 10) : "";
     return reconfirmDialog({
@@ -253,30 +323,46 @@ export function VersionHistory({
   }
 
   async function restore(v: VersionItem) {
-    const applies = docStatus !== "published" || canPublishDirect;
+    // The Restore button that was clicked: the 428 question below opens
+    // while it is disabled, so focus is handed back to it by hand.
+    const opener = document.activeElement;
+    const queues = docStatus === "published" && !canPublishDirect;
     // A direct restore over a confirmed, published document may be a
     // decision (the route answers 428 when the older text differs from
     // what people confirmed), and restoring is reversible either way (the
     // current text stays in the history), so it is sent first and the 428
-    // opens the one question. Every other restore asks the plain question
-    // it always did.
+    // opens the one question. A restore that queues for review asks the
+    // submit-mode question instead, so the request carries the
+    // recommendation. Every other restore asks the plain question it
+    // always did.
     const mayAsk = ackRequired && docStatus === "published" && canPublishDirect;
-    if (!mayAsk) {
-      const body = applies
-        ? "The current content stays in the history — this adds a new version with the older text."
-        : "Your restore will be submitted to the review queue.";
+    let decision: ReconfirmResult | undefined;
+    let plain = !mayAsk;
+    if (queues && ackRequired) {
+      const asked = await askSubmit(v);
+      if (asked === null) return;
+      if (asked) {
+        decision = asked;
+        plain = false;
+      }
+    }
+    if (plain) {
+      const body = queues
+        ? "Your restore will be submitted to the review queue."
+        : "The current content stays in the history — this adds a new version with the older text.";
       if (!(await confirmDialog({ title: `Restore version ${v.rev}?`, body, confirmLabel: "Restore" }))) return;
     }
     setRestoring(v.id);
     setError("");
     setNotice("");
     try {
-      let res = await postRestore(v);
+      let res = await postRestore(v, decision);
       if (res.status === 428) {
         // The question is awaited with the row idle, as the editor's is.
         const body = (await res.json().catch(() => ({}))) as AckDecisionRefusalBody;
         setRestoring(null);
         const answer = await askRestore(v, body);
+        returnFocus(opener);
         if (!answer) return;
         setRestoring(v.id);
         res = await postRestore(v, answer);
@@ -294,6 +380,9 @@ export function VersionHistory({
       setError(e.message || "Restore failed.");
     } finally {
       setRestoring(null);
+      // The row is idle again (a queued restore, or a failure): the button
+      // that started it takes focus back when the question left it on <body>.
+      returnFocus(opener);
     }
   }
 
@@ -528,7 +617,7 @@ export function VersionHistory({
                   )}
                   {approved ? (
                     <span className="ml-1.5 text-xs font-normal text-slate-500">
-                      recommended by {decision.submitted_by_name}, approved by {decision.decided_by_name}
+                      {recommendedLine(decision)}, approved by {decision.decided_by_name}
                     </span>
                   ) : v.approved_by_name ? (
                     // The approver stamped on the version itself (C6): shown

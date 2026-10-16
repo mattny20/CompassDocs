@@ -26,15 +26,21 @@ export async function recordView(
 }
 
 /** Heartbeat: extend a view's duration (capped at 30 minutes). The user check
- * stops one session from inflating another user's rows. */
+ * stops one session from inflating another user's rows, and the wall clock
+ * bounds the claim: a heartbeat can never record more time than has passed
+ * since the view began, so the read time a confirmation sums (C3) is the
+ * server's measure of how long the tab was open, not a number the browser
+ * asserted. */
 export async function touchView(
   viewId: number,
   userId: number | null,
   seconds: number
 ): Promise<void> {
   await q(
-    `UPDATE doc_views SET duration_seconds = LEAST(1800, GREATEST(duration_seconds, $1))
-     WHERE id = $2 AND user_id IS NOT DISTINCT FROM $3`,
+    `UPDATE doc_views
+        SET duration_seconds = LEAST(1800, GREATEST(duration_seconds,
+              LEAST($1, GREATEST(0, EXTRACT(EPOCH FROM now() - viewed_at))::int)))
+      WHERE id = $2 AND user_id IS NOT DISTINCT FROM $3`,
     [Math.max(0, Math.floor(seconds)), viewId, userId]
   );
 }

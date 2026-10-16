@@ -8,10 +8,10 @@ import {
   changeRequestAckReason,
   AckReasonRequiredError,
 } from "@/lib/db";
-import { ackDecisionRequired, ACK_POLICY_ERROR, ACK_REASON_ERROR } from "@/lib/ack-decision";
+import { ackDecisionRequired, ackReasonUsable, auditedAckPolicy, ACK_POLICY_ERROR } from "@/lib/ack-decision";
 import { getComplianceSettings } from "@/lib/compliance-settings";
 import { apiGuard } from "@/lib/api-auth";
-import { spaceScopeFor, scopeAllows } from "@/lib/access";
+import { spaceScopeFor, scopeAllows, userHolds } from "@/lib/access";
 import { audit, actorFrom, ipFrom, auditAckDecision } from "@/lib/audit";
 import { notifyWebhooks } from "@/lib/webhooks";
 import { notify, ackOutcomeSentence, crResolvedBody } from "@/lib/notifications";
@@ -62,6 +62,23 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (targetSpace != null && targetSpace !== crDoc.space_id && !scopeAllows(scope, targetSpace)) {
     return NextResponse.json({ error: "Not found." }, { status: 404 });
   }
+  // Seeing the space is not reviewing for it: apiGuard admitted a holder of
+  // change_request.decide from any space, so the key is checked again on the
+  // document's own space (and on the space the approval would move it to),
+  // as the ack routes check theirs. Without it an approver for space A could
+  // approve or reject, and read the 428 numbers of, any request in a space
+  // they can merely read.
+  const decideOpts = { legacyMin: "approver" as const };
+  if (!(await userHolds(user, "change_request.decide", { spaceId: crDoc.space_id, ...decideOpts }))) {
+    return NextResponse.json({ error: "You don't have permission for that." }, { status: 403 });
+  }
+  if (
+    targetSpace != null &&
+    targetSpace !== crDoc.space_id &&
+    !(await userHolds(user, "change_request.decide", { spaceId: targetSpace, ...decideOpts }))
+  ) {
+    return NextResponse.json({ error: "You don't have permission for that." }, { status: 403 });
+  }
 
   if (action === "approve") {
     // The reviewer's decision about the readers (A6). Only 'keep' or
@@ -72,11 +89,16 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     // reviewer and no recommendation on the request is answered 428 with
     // the numbers the question shows; the submitter's stored 'keep' or
     // 'reset' stands in for the body when the reviewer sent none, with the
-    // reviewer's reason over the submitter's. A short reason is refused the
-    // way the helper refuses it, except that a keep follows the workspace's
-    // "Require a reason for editorial fixes too" (E4), which the helper
-    // does not read. approveChangeRequest re-derives "substantive" on the
-    // locked row and checks the reviewer's reason again before any write.
+    // reviewer's reason over the submitter's. A reset needs a reason of 10
+    // characters; a keep follows Program settings' "Require a reason for
+    // editorial fixes too" (E4), which the helper applies through
+    // keepReasonRequired. A stored recommendation whose reason fails that
+    // rule (the v1 and MCP branches store it unchecked) counts as no
+    // recommendation: the call is answered 428 with the numbers, so the
+    // review UI opens the question with the recommendation pre-selected,
+    // never a 400 about a field the reviewer did not send.
+    // approveChangeRequest re-derives "substantive" on the locked row and
+    // checks the reviewer's reason again before any write.
     const raw = body?.ack_policy;
     if (raw != null && raw !== "keep" && raw !== "reset") {
       return NextResponse.json({ error: ACK_POLICY_ERROR }, { status: 400 });
@@ -85,25 +107,20 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     const reviewerReason = changeRequestAckReason(body?.ack_reason);
     const keepReasonRequired = (await getComplianceSettings()).ack_defaults.keep_reason_required;
     const stored = changeRequestAckPolicy(cr.ack_policy);
+    const storedReason = reviewerReason || changeRequestAckReason(cr.ack_reason);
     const decisionBody: { ack_policy?: "keep" | "reset"; ack_reason?: string } =
       reviewerPolicy !== undefined
         ? { ack_policy: reviewerPolicy, ack_reason: reviewerReason }
-        : stored !== "auto"
-          ? { ack_policy: stored, ack_reason: reviewerReason || changeRequestAckReason(cr.ack_reason) }
+        : stored !== "auto" && ackReasonUsable(stored, storedReason, { keepReasonRequired })
+          ? { ack_policy: stored, ack_reason: storedReason }
           : {};
     const pre = await ackDecisionRequired(
       crDoc,
       { title: cr.title, content: cr.content, status: cr.target_status },
-      decisionBody
+      decisionBody,
+      { keepReasonRequired }
     );
-    if (pre.refusal) {
-      const keepExcused =
-        pre.refusal.status === 400 &&
-        pre.refusal.body.error === ACK_REASON_ERROR &&
-        decisionBody.ack_policy === "keep" &&
-        !keepReasonRequired;
-      if (!keepExcused) return NextResponse.json(pre.refusal.body, { status: pre.refusal.status });
-    }
+    if (pre.refusal) return NextResponse.json(pre.refusal.body, { status: pre.refusal.status });
 
     // The origin rides on the notice a reset queues (1.10.1), so its links
     // are absolute on a workspace without custom_domain.
@@ -122,13 +139,17 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       throw e;
     }
     if (!ok) return NextResponse.json({ error: "Already reviewed or not found." }, { status: 409 });
+    // The decision taken, when one was, rides on the row as {ack_policy,
+    // confirmations_reset} in the scheduler's vocabulary: null when nothing
+    // was decided (a metadata-only approval, a draft, no requirement), so a
+    // recommendation the approval did not act on is not audited as applied.
     await audit({
       actor: actorFrom(user),
       action: "change_request.approve",
       targetType: "change_request",
       targetId: id,
       details: {
-        ack_policy: ok.ack_outcome.policy,
+        ack_policy: auditedAckPolicy(ok.ack_outcome),
         confirmations_reset: ok.ack_outcome.confirmations_reset,
         submitted_policy: stored,
       },

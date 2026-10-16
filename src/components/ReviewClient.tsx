@@ -17,6 +17,7 @@ import {
   assessRefusal,
   fetchReconfirmContext,
   reconfirmDialog,
+  returnFocus,
   revFromLabel,
 } from "./ReconfirmModal";
 import type { AckDecisionRefusalBody, ChangeAssessment, ReconfirmResult, ReconfirmText } from "./ReconfirmModal";
@@ -161,6 +162,9 @@ export function ReviewClient({
   }
 
   async function sendApprove(cr: ChangeRequest, decision: ReconfirmResult | undefined, retried: boolean) {
+    // The Approve button that was clicked: the 428 question below opens
+    // while it is disabled, so focus is handed back to it by hand.
+    const opener = document.activeElement;
     setBusy(`cr-${cr.id}`);
     const res = await fetch(`/api/change-requests/${cr.id}`, {
       method: "PATCH",
@@ -194,6 +198,7 @@ export function ReviewClient({
         assessed.hint,
         cr.ack_policy === "keep" || cr.ack_policy === "reset" ? cr.ack_policy : assessed.suggested
       );
+      returnFocus(opener);
       if (!answer) return;
       await sendApprove(cr, answer, true);
       return;
@@ -209,6 +214,9 @@ export function ReviewClient({
       // failure.
       const msg = (await res.json().catch(() => ({})))?.error;
       toast("error", msg || "Couldn't approve this change request.");
+      // The card is live again: the button takes focus back when a question
+      // along the way left it on <body>.
+      returnFocus(opener);
     }
   }
 
@@ -286,7 +294,9 @@ export function ReviewClient({
                       )
                     : null;
               return (
-                <div key={cr.id} className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
+                // One article per request, named by its title, so a test or
+                // a screen reader finds the card without reading its classes.
+                <article key={cr.id} aria-label={cr.title} className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
                   <div className="flex items-start justify-between gap-4">
                     <div className="min-w-0">
                       <div className="mb-1 flex flex-wrap items-center gap-2">
@@ -402,7 +412,7 @@ export function ReviewClient({
                       </div>
                     </details>
                   )}
-                </div>
+                </article>
               );
             })}
           </div>

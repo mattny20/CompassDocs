@@ -7,8 +7,17 @@ import { toast } from "@/components/Toasts";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { GitBranch, GitMerge, Trash2 } from "lucide-react";
-import { ReconfirmHost, assessRefusal, fetchReconfirmContext, reconfirmDialog, revFromLabel } from "./ReconfirmModal";
-import type { AckDecisionRefusalBody, ReconfirmResult, ReconfirmText } from "./ReconfirmModal";
+import {
+  ReconfirmHost,
+  assessChange,
+  assessRefusal,
+  fetchReconfirmContext,
+  reconfirmDialog,
+  returnFocus,
+  revFromLabel,
+  sameText,
+} from "./ReconfirmModal";
+import type { AckDecisionRefusalBody, ReconfirmContext, ReconfirmResult, ReconfirmText } from "./ReconfirmModal";
 
 // Banner shown on a draft-branch document: link to the original, merge back
 // (with an optional change note), or discard the branch.
@@ -18,7 +27,9 @@ import type { AckDecisionRefusalBody, ReconfirmResult, ReconfirmText } from "./R
 // with (a source saved since is answered 409 and shown, never overwritten),
 // and a 428 opens the editor's question with the confirmed text as the
 // evidence; the answer rides on the second POST as ack_policy / ack_reason
-// and as the version note.
+// and as the version note. A merge that queues for review asks the same
+// question in "submit" mode before the POST, so the request carries the
+// submitter's recommendation and the approver decides with it in view.
 
 export function BranchBanner({
   branchId,
@@ -64,11 +75,14 @@ export function BranchBanner({
     });
   }
 
-  /** The merge question, from the route's 428: the confirmed text is fetched once for the evidence. */
-  async function askMerge(body: AckDecisionRefusalBody): Promise<ReconfirmResult | null> {
+  /**
+   * The texts of the question: the source's confirmed text (fetched once)
+   * against the branch's; without a confirmed text the live source stands in
+   * for the "before" side.
+   */
+  async function mergeTexts(): Promise<{ ctx: ReconfirmContext | null; loaded: ReconfirmText; next: ReconfirmText }> {
     const ctx = await fetchReconfirmContext(sourceId);
     const next: ReconfirmText = { title: branchTitle || sourceTitle, content: branchContent };
-    // Without a confirmed text the live source stands in for the "before" side.
     let loaded: ReconfirmText = ctx?.baseline ?? next;
     if (!ctx?.baseline) {
       try {
@@ -83,6 +97,12 @@ export function BranchBanner({
         // The hint then comes from the body's own numbers.
       }
     }
+    return { ctx, loaded, next };
+  }
+
+  /** The merge question, from the route's 428: the confirmed text is fetched once for the evidence. */
+  async function askMerge(body: AckDecisionRefusalBody): Promise<ReconfirmResult | null> {
+    const { ctx, loaded, next } = await mergeTexts();
     const assessed = assessRefusal(body, { baseline: ctx?.baseline ?? null, loaded, next });
     return reconfirmDialog({
       mode: "merge",
@@ -100,13 +120,59 @@ export function BranchBanner({
     });
   }
 
+  /**
+   * The question a merge that will queue for review asks (A6): the same
+   * cards in "submit" mode, measured locally as the editor's submission is,
+   * so the request carries the recommendation. Undefined when the branch's
+   * text equals what people confirmed (nothing for readers to decide, the
+   * plain question stands); null is Cancel.
+   */
+  async function askSubmit(): Promise<ReconfirmResult | null | undefined> {
+    const { ctx, loaded, next } = await mergeTexts();
+    if (sameText(ctx?.baseline ?? loaded, next)) return undefined;
+    const assessed = assessChange({
+      baseline: ctx?.baseline ?? null,
+      loaded,
+      next,
+      baselineLabel: ctx?.rev != null ? `v${ctx.rev}` : undefined,
+    });
+    return reconfirmDialog({
+      mode: "submit",
+      docId: sourceId,
+      docTitle: sourceTitle,
+      current: ctx?.current ?? 0,
+      eligible: ctx?.eligible ?? 0,
+      rev: ctx?.rev ?? null,
+      baseline: ctx?.baseline ?? loaded,
+      next,
+      hint: assessed.hint,
+      suggested: assessed.suggested,
+      initialNote: note.trim() || `Merged branch "${branchTitle || sourceTitle}"`,
+      keepReasonRequired: ctx?.keepReasonRequired ?? true,
+    });
+  }
+
   async function merge() {
+    // The Merge button that was clicked: the 428 question below opens while
+    // it is disabled, so focus is handed back to it by hand.
+    const opener = document.activeElement;
     // A direct merge into a confirmed document may be a decision (the route
     // answers 428 when the branch's text differs from what people
-    // confirmed), so it is sent first and the 428 opens the one question;
-    // every other merge asks the plain question it always did.
-    const mayAsk = sourceAckRequired && !needsReview;
-    if (!mayAsk) {
+    // confirmed), so it is sent first and the 428 opens the one question. A
+    // merge that queues for review asks the submit-mode question first, so
+    // the request carries the recommendation; every other merge asks the
+    // plain question it always did.
+    let decision: ReconfirmResult | undefined;
+    let plain = !sourceAckRequired || needsReview;
+    if (needsReview && sourceAckRequired) {
+      const asked = await askSubmit();
+      if (asked === null) return;
+      if (asked) {
+        decision = asked;
+        plain = false;
+      }
+    }
+    if (plain) {
       const ok = needsReview
         ? await confirmDialog({
             title: "Submit this branch to the review queue?",
@@ -120,14 +186,16 @@ export function BranchBanner({
           });
       if (!ok) return;
     }
+    if (decision) setNote(decision.note);
     setBusy("merge");
     setError("");
     try {
-      let res = await postMerge();
+      let res = await postMerge(decision);
       if (res.status === 428) {
         const body = (await res.json().catch(() => ({}))) as AckDecisionRefusalBody;
         setBusy(null);
         const answer = await askMerge(body);
+        returnFocus(opener);
         if (!answer) return;
         setNote(answer.note);
         setBusy("merge");
@@ -139,6 +207,7 @@ export function BranchBanner({
         // updated_at, so the next attempt compares against what is there now.
         setError(data.error || "The live document changed since this branch was created. Review it before merging.");
         setBusy(null);
+        returnFocus(opener);
         router.refresh();
         return;
       }
@@ -146,6 +215,7 @@ export function BranchBanner({
       if (data.pending) {
         setNotice("Merge submitted for review — an approver or admin will apply it.");
         setBusy(null);
+        returnFocus(opener);
         return;
       }
       router.push(`/doc/${sourceId}`);
@@ -153,6 +223,7 @@ export function BranchBanner({
     } catch (e: any) {
       setError(e.message || "Merge failed.");
       setBusy(null);
+      returnFocus(opener);
     }
   }
 

@@ -115,7 +115,9 @@ export default async function AcknowledgementsPage({
 
       {/* overflow-hidden keeps the rounded corners; the Table's own scroll
           wrapper carries the sideways scroll on a phone (seven columns, five
-          of them nowrap, outgrow 375px). */}
+          of them nowrap, outgrow 375px). On paper the Table drops its minimum
+          width and the wrapper its scroll, so the two evidence columns are
+          not clipped by this card on a portrait page. */}
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-surface shadow-xs">
         {rows.length === 0 ? (
           <SectionEmpty className="px-4 py-6">

@@ -35,7 +35,7 @@ const OUTCOME: Record<string, { tone: ChipTone; label: string }> = {
 /** The C1 source vocabulary in plain words. */
 const SOURCE: Record<string, string> = {
   edit: "Edit",
-  merge: "Branch merge",
+  merge: "Merge",
   restore: "Restore",
   approval: "Approval",
   manual: "Manual",
@@ -86,12 +86,27 @@ export default async function AckHistoryPage({ params }: { params: Promise<{ id:
   );
 }
 
+/** The recommendation in the words of the review queue ("recommends: editorial fix"). */
+const POLICY_WORDS: Record<"keep" | "reset", string> = { keep: "editorial fix", reset: "material change" };
+
 function DecisionRow({ d, when }: { d: AckDecision; when: string }) {
   const outcome = OUTCOME[d.outcome] ?? { tone: "neutral" as ChipTone, label: labelCase(d.outcome) };
   const chose = d.outcome === "kept" ? "keep" : d.outcome;
-  // Approvals carry the submitter next to the approver; the ledger names both.
-  const recommended =
+  // Approvals carry the submitter next to the approver; the ledger names
+  // both, and what the submitter recommended when the approver overrode it
+  // ("recommended material change by Alex"), so an overridden recommendation
+  // is never read as the submitter's.
+  const submitter =
     d.submitted_by_name && d.submitted_by_name !== d.decided_by_name ? d.submitted_by_name : "";
+  const overridden =
+    (d.submitted_policy === "keep" || d.submitted_policy === "reset") && d.submitted_policy !== chose
+      ? d.submitted_policy
+      : null;
+  const recommended = submitter
+    ? overridden
+      ? `recommended ${POLICY_WORDS[overridden]} by ${submitter}`
+      : `recommended by ${submitter}`
+    : "";
   const affected = d.confirmations_affected;
   return (
     <tr className={TR}>
@@ -111,9 +126,7 @@ function DecisionRow({ d, when }: { d: AckDecision; when: string }) {
       </Td>
       <Td className="align-top">
         <span className="font-medium text-slate-800">{d.decided_by_name || "Automatic"}</span>
-        {recommended && (
-          <span className="block text-xs text-slate-500">recommended by {recommended}</span>
-        )}
+        {recommended && <span className="block text-xs text-slate-500">{recommended}</span>}
       </Td>
       <Td fit className="align-top text-slate-500">
         {SOURCE[d.source] ?? labelCase(d.source)}

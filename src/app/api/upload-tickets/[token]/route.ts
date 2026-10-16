@@ -6,6 +6,7 @@ import {
   validateImage,
   storeImage,
   withImagePlaced,
+  imageAltText,
 } from "@/lib/image-intake";
 import { getDocument, getUserById, updateDocument } from "@/lib/db";
 import { audit, auditAckDecision, ipFrom } from "@/lib/audit";
@@ -78,7 +79,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
   // the edit that places the image, its confirmation decision and the audit.
   const owner = await getUserById(ticket.created_by);
 
-  const alt = ticket.alt.trim() || att.filename;
+  // The alt is the ticket's, else the dropped file's own name (chosen by the
+  // unauthenticated dropper): one line of plain words, so the kept change
+  // below is exactly one image line and never carries markdown of its own
+  // (imageAltText).
+  const alt = imageAltText(ticket.alt.trim() || att.filename);
   const markdown = `![${alt}](/api/attachments/${att.id})`;
   let placed = false;
   if (ticket.insert_mode !== "none") {

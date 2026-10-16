@@ -9,7 +9,9 @@
 // PATCH /api/change-requests/[id] answers 428 or 400 from, with the request's
 // stored choice standing in for the body; the cr_resolved notice appends what
 // the decision did. The merge and restore routes use the same pre-flight and
-// are exercised end to end (e2e/history.spec.ts).
+// are exercised end to end (e2e/branches.spec.ts for the merge,
+// e2e/history.spec.ts for the restore) and through their handlers with a
+// session cookie in test/ack-tokens.test.ts.
 //
 // Run: DATABASE_URL=… npx tsx --tsconfig ./tsconfig.test.json --test test/ack-decisions.test.ts
 
@@ -21,6 +23,7 @@ import {
   getSetting,
   createDocument,
   getDocument,
+  updateDocument,
   setAckRequired,
   recordAcknowledgement,
   getCurrentAck,
@@ -36,7 +39,14 @@ import {
   AckReasonRequiredError,
   ACK_REASON_MAX,
 } from "../src/lib/db";
-import { ackDecisionRequired, ACK_DECISION_ERROR, ACK_POLICY_ERROR, ACK_REASON_ERROR } from "../src/lib/ack-decision";
+import {
+  ackDecisionRequired,
+  ackReasonUsable,
+  auditedAckPolicy,
+  ACK_DECISION_ERROR,
+  ACK_POLICY_ERROR,
+  ACK_REASON_ERROR,
+} from "../src/lib/ack-decision";
 import { ackOutcomeSentence, crResolvedBody } from "../src/lib/notifications";
 import { fixtureQuery } from "./support/retry";
 
@@ -85,11 +95,18 @@ function propose(
   id: number,
   title: string,
   content: string,
-  extra: { ack_policy?: unknown; ack_reason?: unknown; note?: string; target?: "published" | "draft"; summary?: string } = {}
+  extra: {
+    ack_policy?: unknown;
+    ack_reason?: unknown;
+    note?: string;
+    target?: "published" | "draft";
+    summary?: string;
+    kind?: "edit" | "publish";
+  } = {}
 ) {
   return createChangeRequest({
     document_id: id,
-    kind: "edit",
+    kind: extra.kind ?? "edit",
     title,
     content,
     summary: extra.summary ?? "",
@@ -241,6 +258,11 @@ describe("approval applies the reviewer's choice, else the submitter's, else the
     assert.equal(row.overrode_suggestion, false);
     assert.equal(row.confirmations_affected, 1);
     assert.equal((await pendingAckOutboxFor(id)).length, 0, "a keep queues no notice");
+    assert.equal(
+      (await listVersions(id))[0].note,
+      "Reworded the first clause — approved by Priya Approver",
+      "no reviewer reason: the request's note is the version note, as before"
+    );
   });
 
   test("the reviewer's reset overrides the submitter's keep; the row keeps the recommendation beside the outcome", async () => {
@@ -273,6 +295,12 @@ describe("approval applies the reviewer's choice, else the submitter's, else the
     const outbox = await pendingAckOutboxFor(id);
     assert.equal(outbox.length, 1, "a reset queues the 'updated' notice in the same transaction");
     assert.equal(outbox[0].source, "approval");
+    // The dialog's note is the version note in every mode (A6): the
+    // reviewer's reason replaces the request's note on the version row.
+    assert.equal(
+      (await listVersions(id))[0].note,
+      "The first clause now covers contractors, everyone must re-read — approved by Priya Approver"
+    );
   });
 
   test("the reviewer's keep overrides the submitter's reset", async () => {
@@ -311,6 +339,7 @@ describe("approval applies the reviewer's choice, else the submitter's, else the
     assert.deepEqual(await marker(id), before);
     assert.equal((await getDocument(id))!.content, LONG_TEXT, "the document is untouched");
     assert.equal(v1, (await listVersions(id))[0].id);
+    assert.equal((await pendingAckOutboxFor(id)).length, 0, "a refused approval queues no notice");
   });
 
   test("the reviewer's keep follows the workspace's keep_reason_required: refused by default, excused when the setting is off", async () => {
@@ -322,6 +351,7 @@ describe("approval applies the reviewer's choice, else the submitter's, else the
       (e: unknown) => e instanceof AckReasonRequiredError
     );
     assert.equal((await getChangeRequest(crId))!.status, "pending");
+    assert.equal((await pendingAckOutboxFor(id)).length, 0, "a refused approval queues no notice");
     const result = await approveChangeRequest(crId, approverId, "Priya Approver", "", {
       ackPolicy: "keep",
       ackReason: "typo",

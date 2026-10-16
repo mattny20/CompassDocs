@@ -31,6 +31,7 @@ import {
   AckReasonRequiredError,
 } from "@/lib/db";
 import { ackDecisionRequired, ACK_POLICY_ERROR } from "@/lib/ack-decision";
+import { getComplianceSettings } from "@/lib/compliance-settings";
 import { currentVersion } from "@/lib/version";
 import { listTemplates, getTemplate, getTemplateByName, renderTemplate } from "@/lib/doc-templates";
 import { getAppSettings } from "@/lib/settings-store";
@@ -39,7 +40,7 @@ import { publicOrigin } from "@/lib/oauth";
 import { notifyWebhooks } from "@/lib/webhooks";
 import { notifyCrSubmitted } from "@/lib/notifications";
 import { notifySpaceSubscribers } from "@/lib/subscriptions";
-import { audit, auditAckDecision, actorFrom } from "@/lib/audit";
+import { audit, auditAckDecision, actorFrom, ipFrom } from "@/lib/audit";
 import {
   intakeFromBase64,
   intakeFromUrl,
@@ -47,6 +48,7 @@ import {
   storeImage,
   withImagePlaced,
   isInsertMode,
+  imageAltText,
   createUploadTicket,
   type InsertMode,
 } from "@/lib/image-intake";
@@ -416,7 +418,10 @@ const TOOLS = [
 
 // --- Tool implementations ---------------------------------------------------------
 
-async function callTool(user: User, name: string, args: any, origin: string) {
+// `ip` is the caller's address as lib/audit reads it from the request, so a
+// decision taken through a token has the same audit echo (actor and address)
+// as the same decision taken through PUT, v1 or the drop link.
+async function callTool(user: User, name: string, args: any, origin: string, ip: string | null) {
   // Drafts across spaces. Per-document and per-space reads below narrow this
   // to the space in hand; the writes re-check with canEditSpace either way.
   const seeDrafts = await canSeeDrafts(user);
@@ -508,7 +513,7 @@ async function callTool(user: User, name: string, args: any, origin: string) {
       if (doc.ack_required === 1) {
         const ack = await ackSummary(doc.id);
         ackLine =
-          `\n> read confirmation: required · ${ack.current} of ${ack.eligible} people have confirmed` +
+          `\n> read confirmation: required · ${ack.current} of ${ack.eligible} ${ack.eligible === 1 ? "person has" : "people have"} confirmed` +
           (ack.rev !== null ? ` v${ack.rev}` : "") +
           ` · a change to the body or title needs ack_policy (keep or reset) and ack_reason in update_doc`;
       }
@@ -627,6 +632,7 @@ async function callTool(user: User, name: string, args: any, origin: string) {
         targetId: doc.id,
         targetLabel: doc.title,
         details: { via: "mcp" },
+        ip,
       });
       // Nested pages: optional parent (admin-gated; bad values degrade to a note).
       let parentNote: string | undefined;
@@ -725,6 +731,7 @@ async function callTool(user: User, name: string, args: any, origin: string) {
           targetId: existing.id,
           targetLabel: proposed.title,
           details: { kind, via: "mcp" },
+          ip,
         });
         void notifyCrSubmitted({
           spaceId: existing.space_id,
@@ -761,11 +768,16 @@ async function callTool(user: User, name: string, args: any, origin: string) {
       // standing and the measured change so the assistant asks the person
       // instead of guessing. A metadata-only change, a draft that stays a
       // draft and a document that does not require confirmation pass with
-      // 'auto', exactly as before.
-      const { refusal, decision } = await ackDecisionRequired(existing, proposed, {
-        ack_policy: args?.ack_policy,
-        ack_reason: args?.ack_reason,
-      });
+      // 'auto', exactly as before. The keep side's reason rule is the
+      // workspace's, read once for the pre-flight and for updateDocument's
+      // own check.
+      const keepReasonRequired = (await getComplianceSettings()).ack_defaults.keep_reason_required;
+      const { refusal, decision } = await ackDecisionRequired(
+        existing,
+        proposed,
+        { ack_policy: args?.ack_policy, ack_reason: args?.ack_reason },
+        { keepReasonRequired }
+      );
       if (refusal) {
         if (refusal.status === 428) {
           const { error: _undecided, decision_required: _required, ...standing } = refusal.body;
@@ -789,6 +801,7 @@ async function callTool(user: User, name: string, args: any, origin: string) {
           versionNote: note || decision.ackReason || "Edited via Claude connector",
           ackPolicy: decision.ackPolicy,
           ackReason: decision.ackReason,
+          ackKeepReasonRequired: keepReasonRequired,
           ackSource: "mcp",
           ackActor: { id: user.id, name: user.name || user.username },
           ackOrigin: origin,
@@ -829,6 +842,7 @@ async function callTool(user: User, name: string, args: any, origin: string) {
             targetId: existing.id,
             targetLabel: proposed.title,
             details: { via: "mcp", parent_id: nextParent },
+            ip,
           });
         }
         return toolJson({
@@ -878,10 +892,11 @@ async function callTool(user: User, name: string, args: any, origin: string) {
           ...(moving ? { moved_to: targetSpaceId } : {}),
           ...(parentMoved ? { parent_id: nextParent } : {}),
         },
+        ip,
       });
       // The confirmation decision an edit of a confirmed, published document
       // took is echoed to the audit log like a PUT's (C1).
-      await auditAckDecision(existing, doc, { actor: actorFrom(user) });
+      await auditAckDecision(existing, doc, { actor: actorFrom(user), ip });
       return toolJson({ ok: true, id: doc!.id, status: doc!.status, url: `/doc/${doc!.id}`, note: parentNote });
     }
 
@@ -935,7 +950,10 @@ async function callTool(user: User, name: string, args: any, origin: string) {
         kind: intake.kind,
         filename: args?.filename,
       });
-      const alt = String(args?.alt ?? "").trim() || att.filename;
+      // The alt is caller-controlled (the argument, else the file's own
+      // name): one line of plain words, so the kept change below is exactly
+      // one image line and never carries markdown of its own (imageAltText).
+      const alt = imageAltText(String(args?.alt ?? "").trim() || att.filename);
       const markdown = `![${alt}](/api/attachments/${att.id})`;
 
       // Place it, if asked. This is the step that used to be a separate
@@ -963,7 +981,7 @@ async function callTool(user: User, name: string, args: any, origin: string) {
           });
           // An image placed into a confirmed, published document is a text
           // change; its confirmation decision is echoed like a PUT's (C1).
-          await auditAckDecision(fresh, placedDoc, { actor: actorFrom(user) });
+          await auditAckDecision(fresh, placedDoc, { actor: actorFrom(user), ip });
           placed = true;
         }
       }
@@ -982,6 +1000,7 @@ async function callTool(user: User, name: string, args: any, origin: string) {
           source: args?.source_url ? "url" : args?.from_attachment_id !== undefined ? "attachment" : "base64",
           inserted: placed,
         },
+        ip,
       });
       return toolJson({
         ok: true,
@@ -1062,6 +1081,7 @@ async function callTool(user: User, name: string, args: any, origin: string) {
           targetId: doc.id,
           targetLabel: doc.title,
           details: { via: "mcp" },
+          ip,
         });
         return toolJson({ ok: true, deck_id: created.id, title: doc.title });
       }
@@ -1104,6 +1124,7 @@ async function callTool(user: User, name: string, args: any, origin: string) {
           targetId: deck.document_id,
           targetLabel: deck.title,
           details: { via: "mcp", newly_assigned: assigned.length, audience: ids.length },
+          ip,
         });
         return toolJson({ ok: true, assigned: assigned.length, already: ids.length - assigned.length });
       }
@@ -1192,7 +1213,7 @@ async function authenticate(req: Request): Promise<User | Response> {
   return user;
 }
 
-async function handleRpc(user: User, msg: any, origin: string): Promise<unknown | undefined> {
+async function handleRpc(user: User, msg: any, origin: string, ip: string | null): Promise<unknown | undefined> {
   const { id, method, params } = msg ?? {};
 
   // Notifications (no id) get no response body.
@@ -1215,7 +1236,7 @@ async function handleRpc(user: User, msg: any, origin: string): Promise<unknown 
       return rpcResult(id, { tools: TOOLS });
     case "tools/call": {
       try {
-        const result = await callTool(user, String(params?.name ?? ""), params?.arguments ?? {}, origin);
+        const result = await callTool(user, String(params?.name ?? ""), params?.arguments ?? {}, origin, ip);
         return rpcResult(id, result);
       } catch (e) {
         return rpcResult(id, toolText(e instanceof Error ? e.message : "Tool failed.", true));
@@ -1238,13 +1259,14 @@ export async function POST(req: Request) {
   }
 
   const origin = await publicOrigin(req);
+  const ip = ipFrom(req);
   if (Array.isArray(body)) {
-    const replies = (await Promise.all(body.map((m) => handleRpc(user, m, origin)))).filter(
+    const replies = (await Promise.all(body.map((m) => handleRpc(user, m, origin, ip)))).filter(
       (r) => r !== undefined
     );
     return replies.length ? json(replies) : new Response(null, { status: 202 });
   }
-  const reply = await handleRpc(user, body, origin);
+  const reply = await handleRpc(user, body, origin, ip);
   return reply === undefined ? new Response(null, { status: 202 }) : json(reply);
 }
 

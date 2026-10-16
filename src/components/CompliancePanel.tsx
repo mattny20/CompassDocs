@@ -6,7 +6,7 @@
 // (policy_ack). 1.10.1 (F7): every action runs through useAction() with
 // toasts, the tables are the house Table/Pager, the payload is typed, and the
 // controls follow the server's `can` flags (F6) so a read-only holder sees
-// the programme without a button that would answer 403. Request and Remind
+// the program without a button that would answer 403. Request and Remind
 // ask first (A8): the shared requireAckDialog with the audience count, and a
 // "Remind N people?" confirmDialog, because sending mail cannot be undone.
 
@@ -406,23 +406,29 @@ export function CompliancePanel({
       />
 
       <div className="space-y-5">
-        {/* KPIs */}
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {/* KPIs: a description list, so each number is the definition of its
+            label and a reader (or a test) finds "Policies requiring
+            confirmation" and its value without a class name. The label is
+            the term and comes first in the markup; the column reverses it
+            visually so the tile still reads icon, number, label. */}
+        <dl className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           {[
             { icon: <FileCheck className="h-4 w-4" />, label: "Policies requiring confirmation", value: k.policies },
             { icon: <Percent className="h-4 w-4" />, label: "Overall compliance", value: `${k.pct}%` },
             { icon: <Users className="h-4 w-4" />, label: "Fully compliant people", value: `${k.users_compliant}/${k.users_total}` },
             { icon: <CircleAlert className="h-4 w-4" />, label: "Outstanding confirmations", value: k.outstanding },
           ].map((c) => (
-            <div key={c.label} className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-compass-50 text-compass-600">
-                {c.icon}
-              </span>
-              <div className="mt-2 text-2xl font-bold tracking-tight text-slate-900">{c.value}</div>
-              <div className="text-xs text-slate-500">{c.label}</div>
+            <div key={c.label} className="flex flex-col rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
+              <dt className="order-last text-xs text-slate-500">{c.label}</dt>
+              <dd>
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-compass-50 text-compass-600">
+                  {c.icon}
+                </span>
+                <span className="mt-2 block text-2xl font-bold tracking-tight text-slate-900">{c.value}</span>
+              </dd>
             </div>
           ))}
-        </div>
+        </dl>
 
         {/* Request read confirmation (managers only) */}
         {can.manage && (
@@ -770,11 +776,11 @@ function PausedPolicies({ rows, date }: { rows: DocRow[]; date: (iso: string) =>
   return (
     <details className="border-t border-slate-100 [&[open]>summary]:border-b [&[open]>summary]:border-slate-100">
       <summary className="cursor-pointer select-none px-4 py-3 text-sm font-semibold text-slate-700 hover:text-compass-700 marker:text-compass-500">
-        Paused (unpublished) ({rows.length})
+        Paused (unpublished) · {rows.length}
       </summary>
       <p className="px-4 pt-3 text-sm text-slate-500">
         Unpublished documents that still require read confirmation. Confirmations are kept, and nobody is
-        asked or counted while a document is unpublished. Publishing it again resumes the programme where
+        asked or counted while a document is unpublished. Publishing it again resumes the program where
         it left off.
       </p>
       <ul className="divide-y divide-slate-100">

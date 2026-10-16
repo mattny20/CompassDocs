@@ -609,6 +609,26 @@ The read-confirmation chips are a closed set — **Confirmed** (`ok`),
 **Pending** (`warn`), **Overdue** (`error`), **Exempt** (`neutral`) — and
 nothing else for a confirmation's state (never "Acknowledged").
 
+- **The review queue's chip says what approving does** (1.11.0,
+  `ReviewClient` is the worked example). Beside the kind chip ("Edit" /
+  "Publish request") a request on a document that requires read
+  confirmation carries exactly one of a closed set: **Resets 42
+  confirmations** (`warn`), **Keeps 42 confirmations (editorial)** (`info`),
+  **Decision needed. 42 confirmations** (`warn`), **Metadata only.
+  Confirmations unaffected** (`info`) or **Confirmations unaffected**
+  (`info`). The two that need a sentence of explanation ("Decision needed",
+  "Confirmations unaffected") carry it as `data-tt` with `tabIndex={0}`
+  (§Accessibility); the others carry none. The number is the live count of
+  confirmations the approval touches, never the audience.
+- **A paused policy is an "Unpublished" chip, never an alert** (1.11.0,
+  `CompliancePanel`): `neutral` `sm` with the `CirclePause` icon and the
+  `data-tt` "Read confirmation is paused while the document is unpublished.
+  Confirmations are kept." (`tabIndex={0}`), on a row inside the collapsed
+  **Paused (unpublished) · 3** `<details>` group at the foot of the Policy
+  progress card. The row offers no action (every row action needs a
+  published document) and the tiles above leave the group out. The group's
+  count follows the summary with a middle dot, not a second bracket.
+
 **Attribute chips** (a directory field shown as chips, a tag list) are not
 status: render them with `FieldChips`, which shows the option's **label**
 (never a raw code — "Phoenix", not `PHX1`) in **neutral slate by default**.
@@ -639,15 +659,26 @@ text-slate-500` before them ("Notary · Phoenix").
   up without opting in. Wrap a table that can outgrow its card in
   `<TableWrap>` so it scrolls sideways instead of breaking the page.
 - `<Table scroll minWidth>` wraps a wide table in a sideways scroll
-  container; `<Table sticky>` keeps the header on screen while the page
-  scrolls (never both: a sticky header inside a scroll wrapper sticks to
-  the wrapper, not the page). `<Th sort={{ key, by, dir, onSort }}>` is a
+  container (the width rides on `--table-min` and is dropped under
+  `print:`, with the wrapper's scroll released, so a wide record prints
+  whole instead of clipping at its card); `<Table sticky>` keeps the header
+  on screen while the page scrolls (never both: a sticky header inside a
+  scroll wrapper sticks to the wrapper, not the page). `<Th sort={{ key,
+  by, dir, onSort }}>` is a
   real button with `aria-sort` and a lucide icon (never a typed arrow);
   `<Th fit>` / `<Td fit>` shrink a column to its content (dates, counts,
   actions) so the primary column takes the slack; `TR` carries the hover
   band. Row actions: rare destructive actions keep text buttons (Users,
   Trash); dense admin lists use icon buttons with a separator before
   Delete (People admin).
+- **A measurement in a cell is ink, never a chip** (1.11.0, the Record
+  tab's Read time in `doc/[id]/acknowledgements/page.tsx` is the worked
+  example). A value that fails a threshold renders in `ink-warn` on a
+  focusable span (`tabIndex={0}`) carrying its `data-tt`; a chip would make
+  a number read as a status. Because the table scrolls sideways inside its
+  card the bubble can clip (§Tooltips), so the rule is also spelled out in
+  a footnote under the table (`text-xs text-slate-500`, the Record tab's
+  `EVIDENCE_NOTE`), shown whenever a row carries such a value.
 
 ## Loading
 

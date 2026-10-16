@@ -7,10 +7,13 @@
 // (or one the call publishes) without ack_policy is answered 428 with what
 // the editor's question would have shown; a policy without a usable reason
 // is answered 400; a change that is not substantive, or a document that
-// does not require confirmation, is never refused whatever the body says.
-// updateDocument re-derives "substantive" inside its own transaction and
-// stays the source of truth; this helper is the pre-flight that turns an
-// undecided call into a question instead of a silent reset.
+// does not require confirmation, is never asked the question whatever the
+// body says. The one thing refused before any of that is a value of
+// ack_policy that is neither 'keep' nor 'reset' (the literal 'auto'
+// included): 400 on every path, metadata-only or not, exactly as PUT
+// refuses it. updateDocument re-derives "substantive" inside its own
+// transaction and stays the source of truth; this helper is the pre-flight
+// that turns an undecided call into a question instead of a silent reset.
 
 import { ackSummary, getVersion, ACK_REASON_MIN } from "@/lib/db";
 import { changeSummary, suggestReconfirm } from "@/lib/diff";
@@ -49,6 +52,18 @@ export interface AckDecisionDoc {
   content: string;
 }
 
+/** What the keep side's reason rule follows: Program settings' "Require a reason for editorial fixes too". */
+export interface AckDecisionOptions {
+  /**
+   * False excuses a 'keep' from the length rule (the workspace does not ask
+   * for a reason on editorial fixes); a 'reset' always needs ACK_REASON_MIN
+   * characters. Default true, the stricter reading. Every caller passes
+   * getComplianceSettings().ack_defaults.keep_reason_required, so the five
+   * write paths and the three dialogs agree with PUT.
+   */
+  keepReasonRequired?: boolean;
+}
+
 /**
  * Pre-flight for a write that cannot ask. Returns the refusal to send, or
  * null when the call may proceed; `decision` then carries what to pass to
@@ -58,9 +73,16 @@ export interface AckDecisionDoc {
 export async function ackDecisionRequired(
   doc: AckDecisionDoc,
   next: { title: string; content: string; status: string },
-  body: AckDecisionBody
+  body: AckDecisionBody,
+  opts: AckDecisionOptions = {}
 ): Promise<{ refusal: AckDecisionRefusal | null; decision: AckDecision }> {
   const auto: AckDecision = { ackPolicy: "auto", ackReason: "" };
+  // A bad value is refused before the substantive gate, so every path
+  // answers 'auto' or garbage the same way PUT does, metadata-only or not.
+  const policy = body.ack_policy;
+  if (policy !== undefined && policy !== null && policy !== "keep" && policy !== "reset") {
+    return { decision: auto, refusal: { status: 400, body: { error: ACK_POLICY_ERROR } } };
+  }
   if (doc.ack_required !== 1 || next.status !== "published") return { refusal: null, decision: auto };
 
   const publishing = doc.status !== "published";
@@ -72,7 +94,6 @@ export async function ackDecisionRequired(
   const drifts = next.content !== base.content || next.title !== base.title;
   if (!drifts) return { refusal: null, decision: auto };
 
-  const policy = body.ack_policy;
   const reason = typeof body.ack_reason === "string" ? body.ack_reason.trim().slice(0, 500) : "";
   if (policy === undefined || policy === null) {
     const summary = await ackSummary(doc.id);
@@ -99,11 +120,41 @@ export async function ackDecisionRequired(
       },
     };
   }
-  if (policy !== "keep" && policy !== "reset") {
-    return { decision: auto, refusal: { status: 400, body: { error: ACK_POLICY_ERROR } } };
-  }
-  if (reason.length < ACK_REASON_MIN) {
+  // A reset always needs its reason; a keep follows Program settings'
+  // "Require a reason for editorial fixes too" (true unless told otherwise).
+  const needsReason = policy === "reset" || opts.keepReasonRequired !== false;
+  if (needsReason && reason.length < ACK_REASON_MIN) {
     return { decision: auto, refusal: { status: 400, body: { error: ACK_REASON_ERROR } } };
   }
   return { refusal: null, decision: { ackPolicy: policy, ackReason: reason } };
+}
+
+/**
+ * The same rule, for a recommendation a change request stored (A6): true
+ * when the stored policy and reason could be applied as they stand, so the
+ * review route can treat an unusable recommendation as none (428 with the
+ * numbers) rather than answer 400 to an approver who sent no reason.
+ */
+export function ackReasonUsable(
+  policy: "keep" | "reset",
+  reason: string,
+  opts: AckDecisionOptions = {}
+): boolean {
+  const needsReason = policy === "reset" || opts.keepReasonRequired !== false;
+  return !needsReason || reason.trim().length >= ACK_REASON_MIN;
+}
+
+/**
+ * The `ack_policy` an audit row carries beside `confirmations_reset`, in
+ * the scheduler's vocabulary (doc-schedule): 'keep' or 'reset' for what was
+ * applied when a decision was taken, null when nothing was decided (a
+ * metadata-only change, a draft, a document that asks nobody). Merge,
+ * restore and the review route write their rows through this so the three
+ * details read the same as `document.scheduled_publish`.
+ */
+export function auditedAckPolicy(
+  outcome: { reset: boolean; decision_id?: number | null } | undefined
+): "keep" | "reset" | null {
+  if (!outcome || outcome.decision_id == null) return null;
+  return outcome.reset ? "reset" : "keep";
 }

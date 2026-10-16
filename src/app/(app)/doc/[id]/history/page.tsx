@@ -118,6 +118,7 @@ export default async function HistoryPage({
           outcome: d.outcome,
           decided_by_name: d.decided_by_name,
           submitted_by_name: d.submitted_by_name,
+          submitted_policy: d.submitted_policy,
         }))}
         initialOld={initialOld}
         initialNew={initialNew}

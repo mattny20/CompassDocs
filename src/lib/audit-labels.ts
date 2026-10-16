@@ -61,6 +61,7 @@ export const AUDIT_LABELS: Record<string, string> = {
   "document.bulk_add_tag": "Tagged documents",
   "document.bulk_remove_tag": "Untagged documents",
   "attachment.upload": "Uploaded attachment",
+  "document.import": "Imported documents",
   "comment.create": "Added comment",
   "comment.delete": "Deleted comment",
   "content.migrate": "Migrated content",

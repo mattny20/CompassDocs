@@ -62,7 +62,9 @@ export function reconfirmSentence(prior: PriorConfirmation, date: (iso: string) 
     return `Everyone was asked to confirm this document again on ${date(r.at)}. Please read it and confirm again.`;
   }
   if (r?.kind === "person") {
-    return `${r.by} asked you to confirm this document again on ${date(r.at)}. Please read it and confirm again.`;
+    // The same fallback as the card's reason line: a row with no name never
+    // opens with a bare "asked you".
+    return `${r.by || "A manager"} asked you to confirm this document again on ${date(r.at)}. Please read it and confirm again.`;
   }
   return "You were asked to confirm this document again. Please read it and confirm again.";
 }

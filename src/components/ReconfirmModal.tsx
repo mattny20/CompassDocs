@@ -105,10 +105,12 @@ const VERB: Record<Exclude<ReconfirmOptions["mode"], "submit">, string> = {
   merge: "Merge",
 };
 
-// The approved copy says the note "is shown with the re-confirmation request"
-// and that readers "are notified and shown what changed"; the notice (H1/H4)
-// and the what-changed view (B3) ship in 1.10.1, so until then the dialog
-// promises only what this release does.
+// The same help in every mode, because the same thing happens in every mode
+// (1.11.0): the dialog's note is the version note (save, merge, restore; the
+// approver's note replaces the request's at approval; a submission's note is
+// the request's note, which the approval writes unless the approver gives
+// their own) and the reason on the compliance record, and a reset's note is
+// what readers see above the card when they are asked again (B3).
 const HELP: Record<AckPolicy, string> = {
   keep: "Say why readers need not re-confirm. This is recorded on the compliance record.",
   reset: "Tell readers what changed. This note is kept in version history and on the compliance record.",
@@ -153,6 +155,32 @@ export interface AckDecisionRefusalBody {
 export function revFromLabel(label: string | null | undefined): number | null {
   const m = typeof label === "string" ? /^v(\d+)$/.exec(label) : null;
   return m ? Number(m[1]) : null;
+}
+
+/** The two texts readers would compare (the editor trims the title on both sides already). */
+export function sameText(a: ReconfirmText, b: ReconfirmText): boolean {
+  return a.title === b.title && a.content === b.content;
+}
+
+/**
+ * Hand focus back to the control that started a question opened from a 428.
+ * Those callers send the write first and disable the trigger while it is in
+ * flight, so when the Modal opens the active element is <body>, not the
+ * trigger, and the Modal's own focus return (useModalOverlay) has nothing to
+ * give focus back to. The caller snapshots `document.activeElement` before
+ * it sets any busy state and calls this once the question has resolved (an
+ * answer or Cancel) and again when the trigger is enabled again at the end
+ * of the flow. Deferred one task, because the promise resolves before the
+ * dialog unmounts: only once the Modal's own return has run, and left focus
+ * on <body>, is the trigger focused, and never while it is disabled.
+ */
+export function returnFocus(opener: Element | null): void {
+  if (!(opener instanceof HTMLElement)) return;
+  setTimeout(() => {
+    if (document.activeElement !== document.body) return;
+    if (!opener.isConnected || opener.matches(":disabled")) return;
+    opener.focus({ preventScroll: true });
+  }, 0);
 }
 
 /** The summary slice the question needs, from GET /api/documents/[id]/ack?baseline=1; null when it cannot be read. */

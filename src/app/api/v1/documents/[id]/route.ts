@@ -11,6 +11,7 @@ import {
   AckReasonRequiredError,
 } from "@/lib/db";
 import { ackDecisionRequired, ACK_POLICY_ERROR } from "@/lib/ack-decision";
+import { getComplianceSettings } from "@/lib/compliance-settings";
 import { spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
 import { type DocType, type DocumentWithSpace, type AckOutcomeInfo } from "@/lib/types";
 import { audit, auditAckDecision, actorFrom, ipFrom } from "@/lib/audit";
@@ -88,11 +89,14 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
  * confirmation (or a PATCH that publishes such a draft whose text drifted
  * from the confirmed version) must say what readers should see (H2,
  * 1.11.0): `ack_policy` "keep" (editorial fix) or "reset" (material change)
- * with `ack_reason` (10 to 500 characters). Without the policy the call is
- * answered 428 with the standing and the measured change, so the integration
- * can ask a person instead of guessing; a bad policy or a short reason is
- * 400. A metadata-only PATCH, a draft that stays a draft and a document that
- * does not require confirmation never see the 428, whatever the body says.
+ * with `ack_reason` (up to 500 characters; a reset needs at least 10, a keep
+ * follows Program settings' "Require a reason for editorial fixes too").
+ * Without the policy the call is answered 428 with the standing and the
+ * measured change, so the integration can ask a person instead of guessing;
+ * a short reason is 400. A metadata-only PATCH, a draft that stays a draft
+ * and a document that does not require confirmation never see the 428; the
+ * one thing refused whatever the change is a bad `ack_policy` value (400),
+ * as the app's PUT refuses it.
  */
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const user = await v1Auth(req, "write");
@@ -179,8 +183,11 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   // The pre-flight every write path that cannot ask shares (lib/ack-decision):
   // 428 or 400 in the same words and with the same numbers as merge, restore
   // and the connector; 'auto' when nothing substantive changes, so the
-  // document's own edit default applies exactly as before.
-  const { refusal, decision } = await ackDecisionRequired(doc, next, body);
+  // document's own edit default applies exactly as before. The keep side's
+  // reason rule is the workspace's, read once for the pre-flight and for
+  // updateDocument's own check.
+  const keepReasonRequired = (await getComplianceSettings()).ack_defaults.keep_reason_required;
+  const { refusal, decision } = await ackDecisionRequired(doc, next, body, { keepReasonRequired });
   if (refusal) return NextResponse.json(refusal.body, { status: refusal.status });
 
   let updated: Awaited<ReturnType<typeof updateDocument>>;
@@ -192,6 +199,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       versionNote: String(body.note ?? "").trim() || decision.ackReason || "Updated via API",
       ackPolicy: decision.ackPolicy,
       ackReason: decision.ackReason,
+      ackKeepReasonRequired: keepReasonRequired,
       ackSource: "api",
       ackActor: { id: user.id, name: user.name || user.username },
       ackOrigin: requestOrigin(req),

@@ -180,6 +180,29 @@ export async function storeImage(opts: {
   });
 }
 
+/**
+ * The alt text an intake writes into `![alt](/api/attachments/N)`: one line
+ * of plain words, never markup.
+ *
+ * The two side doors that place an image (the connector's add_image and the
+ * drop link) write with ackPolicy 'keep' on the promise that the change is
+ * exactly one image line (G2). The alt is caller-controlled (the tool
+ * argument, the ticket's alt, or the dropped file's own name), so anything
+ * that could close the image and continue as markdown is taken out: line
+ * breaks, brackets, parentheses, angle brackets, backticks and backslashes
+ * become spaces, runs of whitespace collapse, and the result is cut at the
+ * ticket's 300-character limit. An alt with nothing left reads "image".
+ */
+export function imageAltText(raw: unknown): string {
+  return (
+    String(raw ?? "")
+      .replace(/[\r\n\t[\]()<>`\\]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 300) || "image"
+  );
+}
+
 /** How a freshly-attached image should be placed in the document body. */
 export type InsertMode = "none" | "append" | "top";
 

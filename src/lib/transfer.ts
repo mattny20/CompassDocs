@@ -12,6 +12,7 @@ import {
 } from "./db";
 import type { DocType, DocStatus } from "./types";
 import { EVERY_SPACE_UNFILTERED } from "./space-scope";
+import { auditAckDecision, type AuditActor } from "./audit";
 
 // Content-level import/export: the knowledge base as a zip of Markdown files
 // with YAML front-matter, plus a manifest.json describing the spaces. This is a
@@ -101,16 +102,27 @@ export interface Importer {
 
 export interface ImportOptions {
   /**
-   * Overwrite published documents that require read confirmation (the admin
-   * checkbox "Also overwrite documents that require read confirmation"; off
-   * by default). An import cannot ask whether a change is editorial, so
-   * every such document is skipped unless the importer said so; when
-   * allowed, the document's edit default decides (ackPolicy 'auto', source
-   * 'import') and readers are told as after any other text change.
+   * Overwrite documents that require read confirmation (the admin checkbox
+   * "Also overwrite documents that require read confirmation"; off by
+   * default): a published policy, and a paused one (unpublished with the
+   * requirement on, G2) that the zip would publish again. An import cannot
+   * ask whether a change is editorial, so every such document is skipped
+   * unless the importer said so; when allowed, the document's edit default
+   * decides (ackPolicy 'auto', source 'import') and readers are told as
+   * after any other text change. A zip that keeps a paused policy a draft
+   * still updates the draft: the decision waits for the publish, as it does
+   * for every draft edit.
    */
   overwritePolicies?: boolean;
   /** The request's origin, carried on the notice a reset queues (absolute links without custom_domain). */
   origin?: string;
+  /**
+   * Who ran the import and from where, for the audit echo of every decision
+   * an overwrite takes (ack.confirmations_kept / ack.confirmations_reset,
+   * C1), as every other write path records it. Absent from a caller with
+   * no request (the ledger row still names the importer).
+   */
+  audit?: { actor: AuditActor; ip: string | null };
 }
 
 /** The reason an untouched policy is listed under, so the admin knows which box to tick. */
@@ -207,10 +219,18 @@ export async function importFromZip(
       const existing = await getDocumentBySpaceAndSlug(spaceId, docSlug);
 
       if (existing) {
-        // A published policy is never overwritten by accident: nobody is
-        // there to say whether the zip's text is an editorial fix, and a
-        // reset tells everyone who confirmed it (H2, 1.11.0).
-        if (existing.status === "published" && existing.ack_required === 1 && !opts.overwritePolicies) {
+        // A policy is never overwritten by accident: nobody is there to say
+        // whether the zip's text is an editorial fix, and a reset tells
+        // everyone who confirmed it (H2, 1.11.0). The guard covers the
+        // policy that is live now and the paused one the zip would publish
+        // again (the publish of a drifted draft is decided everywhere, G2);
+        // a zip that keeps a paused policy a draft edits the draft as any
+        // draft edit does, and the decision waits for the publish.
+        if (
+          existing.ack_required === 1 &&
+          (existing.status === "published" || status === "published") &&
+          !opts.overwritePolicies
+        ) {
           res.skipped++;
           res.policies_skipped++;
           res.errors.push(`${f.name}: "${existing.title}" ${IMPORT_POLICY_SKIPPED}`);
@@ -233,6 +253,10 @@ export async function importFromZip(
           ackOrigin: opts.origin ?? "",
         });
         if (updated?.ack_outcome?.reset) res.reconfirm_requested++;
+        // The decision an overwrite took on a confirmed, published policy is
+        // echoed to the audit log like a PUT's (C1), with the importer and
+        // their address when the caller had a request.
+        await auditAckDecision(existing, updated, opts.audit ?? {});
         res.updated++;
       } else {
         await createDocument({

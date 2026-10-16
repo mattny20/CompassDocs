@@ -569,11 +569,6 @@ const SCHEMA_SQL = `
 
   -- A change request may also move the document to another space (null = stay).
   ALTER TABLE change_requests ADD COLUMN IF NOT EXISTS space_id integer;
-  -- 1.11.0 (A6): the submitter's recommendation for the readers of a confirmed
-  -- document ('keep' | 'reset'; 'auto' = none given) and their reason. The
-  -- approver decides at approval; both sides land on the decision row.
-  ALTER TABLE change_requests ADD COLUMN IF NOT EXISTS ack_policy text NOT NULL DEFAULT 'auto';
-  ALTER TABLE change_requests ADD COLUMN IF NOT EXISTS ack_reason text NOT NULL DEFAULT '';
   CREATE INDEX IF NOT EXISTS idx_cr_status ON change_requests(status);
 
   -- Knowledge-base analytics: raw view/search/download events, aggregated by
@@ -595,6 +590,16 @@ const SCHEMA_SQL = `
   -- confirmation records (readSecondsSince, C3) and the never-opened probe
   -- (F1) both ask for exactly this.
   CREATE INDEX IF NOT EXISTS idx_views_doc_user ON doc_views(document_id, user_id, viewed_at DESC);
+
+  -- 1.11.0 (A6): the submitter's recommendation for the readers of a confirmed
+  -- document ('keep' | 'reset'; 'auto' = none given) and their reason. The
+  -- approver decides at approval; both sides land on the decision row.
+  -- Placed after the doc_views index on purpose: SCHEMA_SQL is one
+  -- transaction, so the exclusive lock these two take on change_requests
+  -- (which every app page reads for the review badge) is held for the tail
+  -- of the first 1.11.0 boot rather than across the index build above.
+  ALTER TABLE change_requests ADD COLUMN IF NOT EXISTS ack_policy text NOT NULL DEFAULT 'auto';
+  ALTER TABLE change_requests ADD COLUMN IF NOT EXISTS ack_reason text NOT NULL DEFAULT '';
 
   -- "Was this helpful?" votes: one per user per document, revisable.
   CREATE TABLE IF NOT EXISTS doc_feedback (
@@ -9362,7 +9367,9 @@ export interface ApproveChangeRequestOptions {
    * it is 'keep' or 'reset', otherwise the document's edit default
    * (resolveAutoAckPolicy). Checked before any write: a reset needs a
    * reason of ACK_REASON_MIN characters; a keep follows
-   * ackKeepReasonRequired (true when absent), as updateDocument does.
+   * ackKeepReasonRequired (true when absent), as updateDocument does. The
+   * reason, when given, is also the version note (the approve question's
+   * change note), in place of the request's note.
    */
   ackPolicy?: "keep" | "reset";
   ackReason?: string;
@@ -9439,8 +9446,6 @@ export async function approveChangeRequest(
     const substantive = driftsFromBaseline && (versionWorthy || publishing);
     const decides = substantive && live.ack_required === 1 && cr.target_status === "published";
     const silentAdvance = substantive && live.ack_required !== 1;
-    // Keep the submitter's change note; record who approved it.
-    const versionNote = cr.note ? `${cr.note} — approved by ${reviewerName}` : `Approved by ${reviewerName}`;
 
     // Who decides (A6): the reviewer when they said, else the submitter's
     // recommendation, else nobody ('auto', the edit default). The
@@ -9451,6 +9456,15 @@ export async function approveChangeRequest(
     const submitted = changeRequestAckPolicy(cr.ack_policy);
     const reviewerReason = (opts.ackReason ?? "").trim().slice(0, ACK_REASON_MAX);
     const chosen: AckPolicy = opts.ackPolicy ?? submitted;
+    // The version note: the reviewer's change note from the approve question
+    // when they gave one (the dialog's note is the version note in every
+    // mode, as a merge's and a restore's are), else the submitter's change
+    // note; either way it records who approved it.
+    const versionNote = reviewerReason
+      ? `${reviewerReason} — approved by ${reviewerName}`
+      : cr.note
+        ? `${cr.note} — approved by ${reviewerName}`
+        : `Approved by ${reviewerName}`;
     if (decides && opts.ackPolicy) {
       if (
         reviewerReason.length < ACK_REASON_MIN &&

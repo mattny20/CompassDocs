@@ -30,7 +30,7 @@
 //
 // The confirmed state is a sentence, not a link: "View your record" arrives
 // with My policies (1.11.1), the one page every reader can open. /compliance
-// is the programme view, gated on compliance.program_read, so a link there
+// is the program view, gated on compliance.program_read, so a link there
 // would bounce most readers to the dashboard.
 
 import { useMemo, useRef } from "react";

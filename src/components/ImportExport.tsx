@@ -100,7 +100,8 @@ export function ImportExport() {
             Also overwrite documents that require read confirmation
             <span className="mt-0.5 block text-xs text-slate-500">
               Off, published documents that require read confirmation are left unchanged and listed
-              below. On, a changed text asks their readers to re-confirm, as any other edit would.
+              below. On, such documents are overwritten and each one&apos;s edit default decides what
+              readers see (under the recommended default everyone is asked to re-confirm).
             </span>
           </span>
         </label>
