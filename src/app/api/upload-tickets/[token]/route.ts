@@ -8,7 +8,7 @@ import {
   withImagePlaced,
 } from "@/lib/image-intake";
 import { getDocument, getUserById, updateDocument } from "@/lib/db";
-import { audit, ipFrom } from "@/lib/audit";
+import { audit, auditAckDecision, ipFrom } from "@/lib/audit";
 import { uploadTicketRateLimited } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
@@ -83,10 +83,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
   if (ticket.insert_mode !== "none") {
     const fresh = await getDocument(doc.id);
     if (fresh) {
-      await updateDocument(doc.id, {
+      const placedDoc = await updateDocument(doc.id, {
         content: withImagePlaced(fresh.content, markdown, ticket.insert_mode),
         ackSource: "ticket",
         ackActor: owner ? { id: owner.id, name: owner.name || owner.username } : undefined,
+      });
+      // An image placed into a confirmed, published document is a text
+      // change; its confirmation decision is echoed like a PUT's (C1).
+      await auditAckDecision(fresh, placedDoc, {
+        actor: owner ? { id: owner.id, name: owner.name || owner.username, role: owner.role } : { name: "system" },
+        ip: ipFrom(req),
       });
       placed = true;
     }

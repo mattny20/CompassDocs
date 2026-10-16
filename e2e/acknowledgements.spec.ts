@@ -44,6 +44,7 @@ async function requireConfirmation(page: Page, docId: number): Promise<"on" | "u
 test("read confirmation: the entitlement gate holds in the community build", async ({ page }) => {
   await login(page, ADMIN);
   let docId: number | undefined;
+  let gateUserId: number | undefined;
   try {
     docId = await makePolicy(page, `E2E ack gate ${stamp()}`);
     const res = await api(page, `/api/documents/${docId}/ack`, { method: "PATCH", body: { required: true } });
@@ -53,6 +54,22 @@ test("read confirmation: the entitlement gate holds in the community build", asy
       expect(post.status).toBe(402);
       const roster = await api(page, `/api/documents/${docId}/acknowledgements`);
       expect(roster.status).toBe(402);
+      // The erasure endpoint is gated the same way, so the API and the Users
+      // page (which hides the button unlicensed) agree.
+      const throwaway = { username: `e2e_ackgate_${stamp()}`, password: "E2eGate!12345" };
+      const created = await api(page, "/api/admin/users", {
+        method: "POST",
+        body: { ...throwaway, role: "viewer", name: "E2E Ack Gate" },
+      });
+      expect(created.status, "throwaway user created").toBe(201);
+      gateUserId = created.body?.user?.id;
+      expect(gateUserId).toBeTruthy();
+      const erase = await api(page, `/api/admin/users/${gateUserId}/anonymise-compliance`, {
+        method: "POST",
+        body: {},
+      });
+      expect(erase.status).toBe(402);
+      expect(String(erase.body?.error || "")).toContain("license");
       // The page shows none of the reader chrome.
       await page.goto(`/doc/${docId}`);
       await expect(page.locator("h1")).toContainText("E2E ack gate");
@@ -65,6 +82,7 @@ test("read confirmation: the entitlement gate holds in the community build", asy
     }
   } finally {
     if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
+    if (gateUserId) await api(page, `/api/admin/users/${gateUserId}`, { method: "DELETE" });
   }
 });
 
@@ -139,7 +157,9 @@ test("admin requires confirmation; the reader is pointed to the card, confirms t
     await expect(page.locator('[role="status"]').getByText("Confirmation recorded.")).toBeVisible();
     await expect(card.getByRole("heading", { name: "Confirmation recorded" })).toBeVisible();
     await expect(card.getByText(CONFIRMED)).toBeVisible();
-    await expect(card.getByRole("link", { name: "View your record" })).toHaveAttribute("href", "/compliance");
+    // No "View your record" link this release: /compliance bounces readers
+    // without the Compliance section; the link returns with My policies.
+    await expect(card.getByRole("link", { name: "View your record" })).toHaveCount(0);
     await expect(card).toBeFocused();
     await expect(page.getByRole("button", { name: CONFIRM })).toHaveCount(0);
     await expect(page.locator("div.sticky.top-0").getByText(/^Confirmed /)).toBeVisible();
@@ -157,7 +177,7 @@ test("admin requires confirmation; the reader is pointed to the card, confirms t
     await expect(page.getByText(CONFIRMED).first()).toBeVisible();
     await expect(page.getByRole("link", { name: "Jump to confirmation" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: CONFIRM })).toHaveCount(0);
-    await expect(page.locator("#confirm-reading").getByRole("link", { name: "View your record" })).toBeVisible();
+    await expect(page.locator("#confirm-reading").getByRole("link", { name: "View your record" })).toHaveCount(0);
   } finally {
     if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
   }
@@ -181,10 +201,19 @@ for (const width of [375, 390]) {
       await page.goto(`/doc/${docId}`);
       await expect(page.locator("h1")).toContainText(title);
 
-      // The pointer's action is full width under sm.
+      // The pointer's action is full width under sm: it spans the row's
+      // content box. (An absolute width cannot say this: at 375px the app
+      // shell keeps the 64px rail and the page gutters, so the row itself is
+      // only about 205px wide.)
       const jump = page.getByRole("link", { name: "Jump to confirmation" });
       await expect(jump).toBeVisible();
-      expect((await jump.boundingBox())!.width, "the jump link fills the row").toBeGreaterThan(250);
+      const jumpFill = await jump.evaluate((el) => {
+        const row = el.parentElement!;
+        const cs = getComputedStyle(row);
+        const content = row.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+        return el.getBoundingClientRect().width / content;
+      });
+      expect(jumpFill, "the jump link fills the row").toBeGreaterThan(0.98);
 
       // Scroll the masthead away: the bar carries the collapsed control and
       // the title; the toolbar and the status chip are hidden, and nothing
@@ -198,8 +227,12 @@ for (const width of [375, 390]) {
       await expect(bar.getByText(title)).toBeVisible();
       await expect(bar.getByRole("button", { name: "Edit document" })).toBeHidden();
       await expect(bar.getByText("Published", { exact: true })).toBeHidden();
-      const overflow = await page.locator("#main").evaluate((el) => el.scrollWidth - el.clientWidth);
-      expect(overflow, "no horizontal scroll").toBeLessThanOrEqual(0);
+      // The bar never scrolls sideways. (This belongs on #main too, but at
+      // 375px the masthead's DocActions row and the Attachments header
+      // overflow the page on their own, before any read-confirmation work:
+      // widen the check to #main once those two rows wrap.)
+      const overflow = await bar.evaluate((el) => el.scrollWidth - el.clientWidth);
+      expect(overflow, "the bar does not scroll sideways").toBeLessThanOrEqual(0);
 
       // At the end: the card's button fills the width, and the collapsed
       // label stays one word even once the end has been on screen.
@@ -207,7 +240,11 @@ for (const width of [375, 390]) {
       await page.waitForTimeout(400);
       const confirm = page.getByRole("button", { name: CONFIRM });
       await expect(confirm).toBeVisible();
-      expect((await confirm.boundingBox())!.width, "the confirm button fills the card").toBeGreaterThan(250);
+      const confirmFill = await confirm.evaluate((el) => {
+        const column = el.parentElement!; // the card's centred column
+        return el.getBoundingClientRect().width / column.clientWidth;
+      });
+      expect(confirmFill, "the confirm button fills the card").toBeGreaterThan(0.98);
       await expect(bar.getByRole("link", { name: "Pending" })).toBeVisible();
       await expect(bar.getByRole("link", { name: "Confirm now" })).toHaveCount(0);
     } finally {
@@ -275,6 +312,16 @@ async function rosterCount(page: Page, docId: number): Promise<{ confirmed: numb
   expect(roster.status, "roster readable").toBe(200);
   const rows: { acknowledged_at: string | null }[] = roster.body?.rows ?? [];
   return { confirmed: rows.filter((r) => r.acknowledged_at).length, total: rows.length };
+}
+
+/** The newest audit rows (newest first) for one action on one document. */
+async function auditRows(page: Page, action: string, docId: number): Promise<{ details: any }[]> {
+  const log = await api(page, "/api/admin/audit?limit=100");
+  expect(log.status, "audit log readable").toBe(200);
+  return (log.body?.rows ?? []).filter(
+    (r: { action: string; target_id: string | number | null }) =>
+      r.action === action && Number(r.target_id) === docId
+  );
 }
 
 test("editing a confirmed document: Ctrl+S asks, Escape keeps the editor dirty, keep and reset do what they say, a tag-only save never asks", async ({ page }) => {
@@ -417,6 +464,86 @@ test("editing a confirmed document: Ctrl+S asks, Escape keeps the editor dirty, 
     const afterTags = await rosterCount(page, docId);
     expect(afterTags.confirmed).toBe(0);
     expect(afterTags.total).toBe(before.total);
+
+    // The API contract around the question (A2). ack_policy is 'keep' or
+    // 'reset' only: the literal 'auto' is refused before any write.
+    const live = (await api(page, `/api/documents/${docId}`)).body?.doc;
+    expect(live?.status).toBe("published");
+    const refused = await api(page, `/api/documents/${docId}`, {
+      method: "PUT",
+      body: {
+        content: `${live.content}\n\nAuto is not a policy.`,
+        status: "published",
+        ack_policy: "auto",
+        ack_reason: "ten characters or more",
+      },
+    });
+    expect(refused.status).toBe(400);
+    expect(refused.body?.error).toBe("ack_policy must be 'keep' or 'reset'.");
+    const untouched = (await api(page, `/api/documents/${docId}`)).body?.doc;
+    expect(untouched?.content, "a refused save leaves the document untouched").toBe(live.content);
+    expect(untouched?.updated_at).toBe(live.updated_at);
+
+    // The reason is capped at the dialog's own 500 characters, whatever the
+    // client sent, so the ledger and the CSV cells stay bounded.
+    const capped = await api(page, `/api/documents/${docId}`, {
+      method: "PUT",
+      body: {
+        content: `${live.content}\n\nOne more editorial line.`,
+        status: "published",
+        ack_policy: "keep",
+        ack_reason: "r".repeat(600),
+        versionNote: "Capped reason check",
+      },
+    });
+    expect(capped.status).toBe(200);
+    expect(capped.body?.ack_outcome?.policy).toBe("keep");
+    const cappedSummary = await api(page, `/api/documents/${docId}/ack`);
+    expect(cappedSummary.body?.last_decision?.outcome).toBe("kept");
+    expect(cappedSummary.body?.last_decision?.reason?.length, "the reason is capped at 500").toBe(500);
+
+    // A no-op PUT (same title, text and tags, with the conflict token) is
+    // answered with the unchanged document: "updated" does not move and no
+    // document.update row claims an edit that did not happen.
+    const current = (await api(page, `/api/documents/${docId}`)).body?.doc;
+    const updateRowsBefore = (await auditRows(page, "document.update", docId)).length;
+    const noop = await api(page, `/api/documents/${docId}`, {
+      method: "PUT",
+      body: {
+        title: current.title,
+        content: current.content,
+        tags: current.tags,
+        base_updated_at: current.updated_at,
+      },
+    });
+    expect(noop.status).toBe(200);
+    expect(noop.body?.ack_outcome?.changed).toBe(false);
+    expect(noop.body?.doc?.updated_at, "a no-op does not move 'updated'").toBe(current.updated_at);
+    expect((await auditRows(page, "document.update", docId)).length, "a no-op writes no audit row").toBe(
+      updateRowsBefore
+    );
+
+    // A schedule-only PUT changes nothing in the document either, but it IS
+    // a write (the one PUT that bypasses the review queue), so it leaves one
+    // document.update row naming the schedule.
+    const archiveAt = new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
+    const scheduled = await api(page, `/api/documents/${docId}`, {
+      method: "PUT",
+      body: {
+        title: current.title,
+        content: current.content,
+        tags: current.tags,
+        base_updated_at: current.updated_at,
+        archive_at: archiveAt,
+      },
+    });
+    expect(scheduled.status).toBe(200);
+    expect(scheduled.body?.ack_outcome?.changed).toBe(false);
+    const scheduleRows = await auditRows(page, "document.update", docId);
+    expect(scheduleRows.length, "a schedule set is audited").toBe(updateRowsBefore + 1);
+    expect(scheduleRows[0]?.details?.schedule?.archive_at).toBe(archiveAt);
+    const cleared = await api(page, `/api/documents/${docId}`, { method: "PUT", body: { archive_at: null } });
+    expect(cleared.status).toBe(200);
   } finally {
     if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
   }
@@ -488,6 +615,97 @@ test("bulk publish skips a drifted draft that requires confirmation, and publish
     expect(after.confirmed, "republishing the confirmed text asks nobody again").toBe(before.confirmed);
     expect(after.total).toBe(before.total);
   } finally {
+    if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
+  }
+});
+
+test("API: a no-op merge still records the branch, and GET /ack on a draft follows the draft rule", async ({
+  page,
+  browser,
+}) => {
+  await login(page, ADMIN);
+  const suffix = stamp();
+  const title = `E2E ack api ${suffix}`;
+  const reader = { username: `e2e_ackdraft_${suffix}`, password: "E2eDraft!12345" };
+  let docId: number | undefined;
+  let branchId: number | undefined;
+  let userId: number | undefined;
+  let roleId: number | undefined;
+  try {
+    docId = await makePolicy(page, title);
+    test.skip(
+      (await requireConfirmation(page, docId)) === "unlicensed",
+      "policy_ack is not licensed in this build; the EE rig runs the flow"
+    );
+
+    // A branch merged with its text unchanged has nothing to merge: the
+    // source comes back unchanged (no version, no decision), but the branch
+    // still moves to the Trash and that lifecycle is on the audit record.
+    const branched = await api(page, `/api/documents/${docId}/branch`, { method: "POST" });
+    expect(branched.status, "branch created").toBe(200);
+    branchId = branched.body?.branch?.id;
+    expect(branchId).toBeTruthy();
+    const merged = await api(page, `/api/documents/${branchId}/merge`, { method: "POST", body: {} });
+    expect(merged.status).toBe(200);
+    expect(merged.body?.ack_outcome?.changed, "nothing to merge").toBe(false);
+    expect((await api(page, `/api/documents/${branchId}`)).status, "the branch left the live set").toBe(404);
+    const mergeRows = await auditRows(page, "document.branch_merge", docId);
+    expect(mergeRows[0]?.details, "the merge is on the record, marked as a no-op").toEqual({
+      branchId,
+      changed: false,
+    });
+    // Purging it proves it went to the Trash (and cleans it up).
+    const purged = await api(page, `/api/trash/${branchId}`, { method: "DELETE" });
+    expect(purged.status, "the branch was in the Trash").toBe(200);
+    branchId = undefined;
+
+    // GET /ack hides a draft from anyone who may not read drafts, exactly as
+    // GET /api/documents/{id} does: a custom role holding document.update
+    // but not document.read_draft is answered 404; the admin reads it.
+    const unpublished = await api(page, `/api/documents/${docId}`, { method: "PUT", body: { status: "draft" } });
+    expect(unpublished.status).toBe(200);
+    const created = await api(page, "/api/admin/users", {
+      method: "POST",
+      body: { ...reader, role: "viewer", name: "E2E Draft Reader" },
+    });
+    expect(created.status, "reader created").toBe(201);
+    userId = created.body?.user?.id;
+    expect(userId).toBeTruthy();
+    const role = await api(page, "/api/admin/rbac/roles", {
+      method: "POST",
+      body: {
+        name: `E2E Ack Editor ${suffix}`,
+        description: "Edits documents but may not see drafts",
+        permissions: ["document.update"],
+      },
+    });
+    expect(role.status, "custom role created").toBe(201);
+    roleId = role.body?.id;
+    expect(roleId).toBeTruthy();
+    const assigned = await api(page, "/api/admin/rbac/assignments", {
+      method: "POST",
+      body: { role_id: roleId, user_id: userId },
+    });
+    expect(assigned.status, "role assigned").toBe(201);
+    const rctx = await browser.newContext();
+    try {
+      const rpage = await rctx.newPage();
+      await login(rpage, reader);
+      const hidden = await api(rpage, `/api/documents/${docId}/ack`);
+      expect(hidden.status, "a draft is hidden from someone who may not read drafts").toBe(404);
+    } finally {
+      await rctx.close();
+    }
+    expect((await api(page, `/api/documents/${docId}/ack`)).status, "the admin still reads the draft's summary").toBe(200);
+
+    // Republishing the unchanged text decides nothing.
+    const republished = await api(page, `/api/documents/${docId}`, { method: "PUT", body: { status: "published" } });
+    expect(republished.status).toBe(200);
+    expect(republished.body?.ack_outcome?.reset, "republishing unchanged text asks nobody").toBe(false);
+  } finally {
+    if (roleId) await api(page, `/api/admin/rbac/roles/${roleId}`, { method: "DELETE" });
+    if (userId) await api(page, `/api/admin/users/${userId}`, { method: "DELETE" });
+    if (branchId) await api(page, `/api/trash/${branchId}`, { method: "DELETE" });
     if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
   }
 });

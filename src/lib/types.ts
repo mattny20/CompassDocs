@@ -293,6 +293,8 @@ export interface AckOutcomeInfo {
   confirmations_reset: number;
   policy: AckPolicy;
   source: AckSource;
+  /** The ledger row this save wrote; null when no decision was taken. */
+  decision_id?: number | null;
 }
 
 export interface Attachment {

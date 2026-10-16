@@ -555,3 +555,269 @@ describe("updateDocument decides what happens to confirmations (A2)", () => {
     assert.equal((await listAckDecisions(id)).length, 0);
   });
 });
+
+describe("the other text writers take the same decisions (approval, schedule)", () => {
+  const stamps = "SELECT status, publish_at, ack_revision_at::text AS marker, ack_version_id FROM documents WHERE id = $1";
+
+  async function confirmedPolicy(title: string, content = "Expense cap is 50.") {
+    const id = await newPolicy(title, content);
+    const v1 = await latestVersionId(id);
+    await recordAcknowledgement(id, readerId, "", v1);
+    return { id, v1 };
+  }
+
+  async function acked(id: number): Promise<number> {
+    return (await complianceDocs()).find((d) => d.id === id)!.acked;
+  }
+
+  function propose(id: number, title: string, content: string, target: "published" | "draft" = "published") {
+    return createChangeRequest({
+      document_id: id,
+      kind: "edit",
+      title,
+      content,
+      summary: "",
+      tags: [],
+      type: "policy",
+      target_status: target,
+      note: "Cap raised to 500",
+      created_by: otherId,
+    });
+  }
+
+  test("an approved change request on a confirmed policy asks everyone again and names the submitter beside the approver", async () => {
+    const title = `${STAMP} approve`;
+    const { id, v1 } = await confirmedPolicy(title);
+    const before = await pool().query(stamps, [id]);
+    const crId = await propose(id, title, "Expense cap is 500.");
+    const result = await approveChangeRequest(crId, approverId, "Rev Approver", "Agreed with finance");
+    assert.ok(result);
+    assert.equal(result.version_written, true);
+    assert.equal(result.ack_outcome.substantive, true);
+    assert.equal(result.ack_outcome.reset, true);
+    assert.equal(result.ack_outcome.confirmations_reset, 1);
+    assert.equal(result.ack_outcome.source, "approval");
+    assert.equal(result.ack_outcome.policy, "auto");
+
+    const versions = await listVersions(id);
+    assert.equal(versions.length, 2);
+    assert.equal(versions[0].note, "Cap raised to 500 — approved by Rev Approver");
+    const after = await pool().query(stamps, [id]);
+    assert.equal(after.rows[0].ack_version_id, versions[0].id, "the marker moved to the approved text");
+    assert.notEqual(after.rows[0].ack_version_id, v1);
+    assert.notEqual(after.rows[0].marker, before.rows[0].marker);
+    assert.equal(await getCurrentAck(id, readerId), undefined, "the reader's confirmation is stale");
+    assert.equal(await acked(id), 0);
+    assert.ok((await compliancePendingUsers(id)).some((p) => p.id === readerId));
+
+    const decisions = await listAckDecisions(id);
+    assert.equal(decisions.length, 1);
+    const [row] = decisions;
+    assert.equal(row.id, result.ack_outcome.decision_id);
+    assert.equal(row.outcome, "reset");
+    assert.equal(row.source, "approval");
+    assert.equal(row.version_id, versions[0].id);
+    assert.equal(row.rev, 2);
+    assert.equal(row.decided_by, approverId);
+    assert.equal(row.decided_by_name, "Rev Approver");
+    assert.equal(row.submitted_by, otherId);
+    assert.equal(row.submitted_by_name, "Rev Other");
+    assert.equal(row.submitted_policy, "", "the recommendation travels with the request from 1.11.0");
+    assert.equal(row.reason, "Cap raised to 500", "the request's change note");
+    assert.equal(typeof row.change_pct, "number");
+    assert.ok(row.suggested === "keep" || row.suggested === "reset", "the heuristic was consulted");
+    assert.equal(row.confirmations_affected, 1);
+    // The reader may confirm the approved text.
+    assert.deepEqual(await recordAcknowledgement(id, readerId, "", versions[0].id), { recorded: true, stale: false });
+    assert.equal(await acked(id), 1);
+  });
+
+  test("approving a request whose text equals the live row writes no version and no decision", async () => {
+    const title = `${STAMP} approve same`;
+    const { id, v1 } = await confirmedPolicy(title);
+    const before = await pool().query(stamps, [id]);
+    const crId = await propose(id, title, "Expense cap is 50.");
+    const result = await approveChangeRequest(crId, approverId, "Rev Approver");
+    assert.ok(result);
+    assert.equal(result.version_written, false);
+    assert.equal(result.ack_outcome.substantive, false);
+    assert.equal(result.ack_outcome.reset, false);
+    assert.equal(result.ack_outcome.decision_id, null);
+    assert.equal((await listVersions(id)).length, 1);
+    assert.equal((await listAckDecisions(id)).length, 0);
+    const after = await pool().query(stamps, [id]);
+    assert.equal(after.rows[0].ack_version_id, v1);
+    assert.equal(after.rows[0].marker, before.rows[0].marker);
+    assert.ok(await getCurrentAck(id, readerId), "still current");
+    assert.equal(await acked(id), 1);
+    const cr = await pool().query("SELECT status, reviewed_by FROM change_requests WHERE id = $1", [crId]);
+    assert.equal(cr.rows[0].status, "approved", "the request itself is still decided");
+    assert.equal(cr.rows[0].reviewed_by, approverId);
+    assert.equal(await approveChangeRequest(crId, approverId, "Rev Approver"), false, "a second approval is refused");
+  });
+
+  test("an approval with the requirement off advances the marker silently; into a draft it waits for the publish", async () => {
+    const title = `${STAMP} approve off`;
+    const { id, v1 } = await confirmedPolicy(title);
+    await setAckRequired(id, false);
+    const off = await approveChangeRequest(await propose(id, title, "Edited while nobody was asked"), approverId, "Rev Approver");
+    assert.ok(off);
+    assert.equal(off.ack_outcome.substantive, true);
+    assert.equal(off.ack_outcome.reset, false, "nobody is being asked");
+    const v2 = await latestVersionId(id);
+    assert.notEqual(v2, v1);
+    assert.equal((await pool().query(stamps, [id])).rows[0].ack_version_id, v2, "the marker followed the text");
+    assert.equal((await listAckDecisions(id)).length, 0, "no decision row while the requirement is off");
+    await setAckRequired(id, true);
+    assert.equal(await getCurrentAck(id, readerId), undefined, "never 100% for unread text");
+
+    // Required again, confirmed at v2; a request that lands as a draft keeps the marker.
+    await recordAcknowledgement(id, readerId, "", v2);
+    const draft = await approveChangeRequest(await propose(id, title, "Draft wording", "draft"), approverId, "Rev Approver");
+    assert.ok(draft);
+    assert.equal(draft.ack_outcome.substantive, true);
+    assert.equal(draft.ack_outcome.reset, false);
+    const row = (await pool().query(stamps, [id])).rows[0];
+    assert.equal(row.status, "draft");
+    assert.equal(row.ack_version_id, v2, "the decision is taken at publish");
+    assert.equal((await listAckDecisions(id)).length, 0);
+    assert.ok(await getCurrentAck(id, readerId));
+  });
+
+  test("a scheduled publish of a draft whose text drifted asks everyone again with source 'schedule'", async () => {
+    const { id, v1 } = await confirmedPolicy(`${STAMP} schedule drift`);
+    const editor = { id: otherId, name: "Rev Other" };
+    await updateDocument(id, { status: "draft", ackActor: editor, ackSource: "edit" });
+    await updateDocument(id, { content: "Expense cap is 500 from the first of next month.", ackActor: editor, ackSource: "edit" });
+    const v2 = await latestVersionId(id);
+    assert.equal((await pool().query(stamps, [id])).rows[0].ack_version_id, v1, "the marker waits while it is a draft");
+    await setDocSchedule(id, { publishAt: new Date(Date.now() - 60_000).toISOString() });
+
+    await runDueDocSchedules();
+
+    const row = (await pool().query(stamps, [id])).rows[0];
+    assert.equal(row.status, "published");
+    assert.equal(row.publish_at, null);
+    assert.equal(row.ack_version_id, v2, "the marker moved to the published text");
+    assert.equal(await getCurrentAck(id, readerId), undefined);
+    assert.equal(await acked(id), 0);
+    const decisions = await listAckDecisions(id);
+    assert.equal(decisions.length, 1);
+    assert.equal(decisions[0].outcome, "reset");
+    assert.equal(decisions[0].source, "schedule");
+    assert.equal(decisions[0].version_id, v2);
+    assert.equal(decisions[0].decided_by, null);
+    assert.equal(decisions[0].decided_by_name, "", "no person: the History page says Automatic");
+    assert.equal(decisions[0].reason, "Published on schedule");
+    assert.equal(decisions[0].confirmations_affected, 1);
+    assert.equal(typeof decisions[0].change_pct, "number");
+    const echo = await pool().query(
+      "SELECT details FROM audit_log WHERE action = 'ack.confirmations_reset' AND target_id = $1 ORDER BY id DESC LIMIT 1",
+      [String(id)]
+    );
+    assert.equal(echo.rows.length, 1, "the decision is echoed to the audit log");
+    assert.equal(echo.rows[0].details.source, "schedule");
+    assert.equal(echo.rows[0].details.version_id, v2);
+    assert.equal(echo.rows[0].details.content_sha256, sha("Expense cap is 500 from the first of next month."));
+  });
+
+  test("a scheduled publish of unchanged text and a scheduled unpublish ask nobody", async () => {
+    const { id, v1 } = await confirmedPolicy(`${STAMP} schedule same`);
+    const editor = { id: otherId, name: "Rev Other" };
+    const before = (await pool().query(stamps, [id])).rows[0];
+    await setDocSchedule(id, { archiveAt: new Date(Date.now() - 60_000).toISOString() });
+    await runDueDocSchedules();
+    const down = (await pool().query(stamps, [id])).rows[0];
+    assert.equal(down.status, "draft");
+    assert.equal(down.marker, before.marker, "unpublishing never moves the marker");
+    assert.equal(down.ack_version_id, v1);
+    assert.ok(await getCurrentAck(id, readerId));
+
+    await updateDocument(id, { tags: ["finance"], ackActor: editor, ackSource: "edit" }); // metadata only
+    await setDocSchedule(id, { publishAt: new Date(Date.now() - 60_000).toISOString() });
+    await runDueDocSchedules();
+    const up = (await pool().query(stamps, [id])).rows[0];
+    assert.equal(up.status, "published");
+    assert.equal(up.marker, before.marker, "the text is what people confirmed");
+    assert.equal(up.ack_version_id, v1);
+    assert.equal(await acked(id), 1);
+    assert.equal((await listAckDecisions(id)).length, 0);
+  });
+});
+
+describe("a confirmation cannot land inside a reset", () => {
+  test("a confirmation that waits on an open reset is refused once the reset commits", async () => {
+    const id = await newPolicy(`${STAMP} race`, "Old words");
+    const v1 = await latestVersionId(id);
+
+    // The editor's transaction: the new version is inserted and the marker
+    // moved, but nothing is committed yet. The documents row is locked.
+    const editor = await pool().connect();
+    await editor.query("BEGIN");
+    const v2 = (
+      await editor.query<{ id: number }>(
+        "INSERT INTO doc_versions (document_id, title, content, author, note) VALUES ($1, $2, 'New words', 'test', 'Edited') RETURNING id",
+        [id, `${STAMP} race`]
+      )
+    ).rows[0].id;
+    await editor.query("UPDATE documents SET content = 'New words', updated_at = now() WHERE id = $1", [id]);
+    await resetAcknowledgements(editor, id, {
+      versionId: v2,
+      actor: { id: otherId, name: "Rev Other" },
+      source: "edit",
+      reason: "Everything changed, read it again",
+    });
+
+    // The reader confirms the version they are looking at, v1, while the
+    // reset is open: the call must block on the row lock, not insert.
+    let settled = false;
+    const confirming = recordAcknowledgement(id, readerId, "", v1).then((r) => {
+      settled = true;
+      return r;
+    });
+    await new Promise((r) => setTimeout(r, 150));
+    assert.equal(settled, false, "the confirmation waits for the reset to commit");
+
+    await editor.query("COMMIT");
+    editor.release();
+    assert.deepEqual(await confirming, { recorded: false, stale: true }, "refused: v1 is no longer the version to confirm");
+    const rows = await pool().query("SELECT COUNT(*)::int AS n FROM acknowledgements WHERE document_id = $1", [id]);
+    assert.equal(rows.rows[0].n, 0, "no row cites the old words");
+    assert.equal(await getCurrentAck(id, readerId), undefined);
+    // After the reset the reader confirms the new words as usual.
+    assert.deepEqual(await recordAcknowledgement(id, readerId, "", v2), { recorded: true, stale: false });
+    assert.equal((await getCurrentAck(id, readerId))!.content_sha256, sha("New words"));
+  });
+
+  test("the marker is the wall clock when it moves, not the transaction start, and the decision row carries the same stamp", async () => {
+    const id = await newPolicy(`${STAMP} clock`, "Words");
+    await recordAcknowledgement(id, readerId, "", await latestVersionId(id));
+    const client = await pool().connect();
+    try {
+      await client.query("BEGIN");
+      const started = (await client.query<{ t: string }>("SELECT now()::text AS t")).rows[0].t;
+      await client.query("SELECT pg_sleep(0.05)");
+      // A reader whose transaction took the lock first would have committed
+      // a row stamped after `started`; the marker must land after that row.
+      const r = await resetAcknowledgements(client, id, {
+        versionId: await latestVersionId(id),
+        actor: { id: approverId, name: "Rev Approver" },
+        source: "manual",
+        reason: "Annual re-confirmation",
+      });
+      const row = (
+        await client.query<{ later: boolean; same: boolean }>(
+          `SELECT (d.ack_revision_at > $2::timestamptz) AS later, (x.decided_at = d.ack_revision_at) AS same
+           FROM documents d JOIN ack_decisions x ON x.id = $3 WHERE d.id = $1`,
+          [id, started, r.decision_id]
+        )
+      ).rows[0];
+      assert.equal(row.later, true, "the marker is later than the transaction's start");
+      assert.equal(row.same, true, "the decision row and the marker share the stamp");
+      await client.query("COMMIT");
+    } finally {
+      client.release();
+    }
+    assert.equal(await getCurrentAck(id, readerId), undefined);
+  });
+});

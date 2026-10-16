@@ -38,8 +38,9 @@ sits where reading ends. (Enterprise, `policy_ack`.)
   of the text has been on screen, and a "Confirmed {date}" chip afterwards;
   on phones it shows the control and the title only. Nothing is ever
   locked: the card's placement is the only gate. Once confirmed, the card
-  reads "You confirmed version 12 on {date}" with a link to your record,
-  and after an editorial fix it offers "Re-confirm the current text (v13)".
+  reads "You confirmed version 12 on {date}" (a link to your own record
+  arrives with My policies in 1.11.1), and after an editorial fix it
+  offers "Re-confirm the current text (v13)".
   A printed policy carries the printer's standing.
 - **Every confirmation is tied to a numbered version and its SHA-256.**
   The page declares the version it rendered; the record stores that
@@ -84,10 +85,12 @@ sits where reading ends. (Enterprise, `policy_ack`.)
   documents the glossary, the choice dialog and the end-of-article card.
 - **API.** `GET /api/documents/{id}/ack` returns the read-confirmation
   summary for anyone who may edit the document or read its roster
-  (`?baseline=1` adds the confirmed text). `PUT /api/documents/{id}`
-  accepts `ack_policy` (`keep` | `reset`; absent = reset) and
-  `ack_reason`, answers 400 when the text of a confirmed document changes
-  without a note of at least 10 characters, and echoes `ack_outcome`.
+  (`?baseline=1` adds the confirmed text); a draft is hidden from anyone
+  who may not read drafts, as the document itself is. `PUT
+  /api/documents/{id}` accepts `ack_policy` (`keep` | `reset`; absent =
+  reset, anything else 400) and `ack_reason` (cut at 500 characters),
+  answers 400 when the text of a confirmed document changes without a
+  note of at least 10 characters, and echoes `ack_outcome`.
   `POST /api/documents/{id}/ack` requires `{ version_id }` (400 when
   absent, 409 `{ stale: true }` when it is not the latest version).
 - **Audit.** A full read-confirmation vocabulary under `ack.`
@@ -97,7 +100,8 @@ sits where reading ends. (Enterprise, `policy_ack`.)
 - New tests: the integration suite grows from 118 to 188 (version
   anchoring, retention, the decision ledger, the change heuristic, the
   roster sentence, and a double-boot upgrade check), plus an e2e spec for
-  the reader flow, the phone sticky bar and the editor question.
+  the reader flow, the phone sticky bar, the editor question, the
+  bulk-publish guard and the API rules.
 
 ### Changed
 - **Confirmations no longer reset on every save.** A confirmation counts
@@ -107,7 +111,11 @@ sits where reading ends. (Enterprise, `policy_ack`.)
   tags, category or type, moving a document, scheduling, unpublishing and
   republishing unchanged text, trash and restore, bulk edits and a save
   with nothing changed never ask anyone again. A save that changes nothing
-  is not a save: no version, no "updated" time, no notice.
+  is not a save: no version, no "updated" time, no notice, no
+  `document.update` audit row (a save that only sets a schedule or moves a
+  page under another parent is still audited, with what changed, and a
+  branch merged with its text unchanged still records
+  `document.branch_merge`, marked unchanged, as it moves to the Trash).
 - Callers that cannot ask (branch merge, version restore, change-request
   approval, a scheduled publish of a draft whose text drifted from the
   confirmed version, the MCP connector, the v1 API, image placement,

@@ -190,8 +190,21 @@ describe("attestation retention", () => {
     assert.equal(archived.title, `${STAMP} purged`);
     assert.equal(sha(archived.content), archived.content_sha256, "the text verifies against its hash");
 
-    // A version nobody confirmed and no marker cites is not archived.
+    // Purging again is a no-op.
     assert.equal(await purgeDocument(id), false, "already gone");
+  });
+
+  test("purging a document that is not in the Trash does nothing, not even the archive", async () => {
+    const reader = await newUser("live");
+    const { id, v1 } = await newPolicy(`${STAMP} live`, "Live policy text");
+    await recordAcknowledgement(id, reader, "", v1);
+    assert.equal(await purgeDocument(id), false, "a live document cannot be purged");
+    const archived = await pool().query("SELECT 1 FROM attested_texts WHERE version_id = $1", [v1]);
+    assert.equal(archived.rows.length, 0, "its versions were not copied into the archive");
+    const still = await pool().query("SELECT deleted_at FROM documents WHERE id = $1", [id]);
+    assert.equal(still.rows.length, 1);
+    assert.equal(still.rows[0].deleted_at, null);
+    assert.equal((await getAttestedVersion(v1))!.source, "live");
   });
 
   test("the automatic purge archives too, and only the versions a record cites", async () => {

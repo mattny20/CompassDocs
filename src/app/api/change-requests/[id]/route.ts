@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { approveChangeRequest, rejectChangeRequest, getChangeRequest, getDocument } from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
 import { spaceScopeFor, scopeAllows } from "@/lib/access";
-import { audit, actorFrom, ipFrom } from "@/lib/audit";
+import { audit, actorFrom, ipFrom, auditAckDecision } from "@/lib/audit";
 import { notifyWebhooks } from "@/lib/webhooks";
 import { notify } from "@/lib/notifications";
 import { notifySpaceSubscribers } from "@/lib/subscriptions";
@@ -75,6 +75,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     // Subscribers hear about the change landing (the doc may have moved
     // spaces as part of the approval — notify its current space).
     const after = cr ? await getDocument(cr.document_id) : undefined;
+    // The confirmation decision the approval took on a confirmed, published
+    // document is echoed to the audit log like a PUT's (C1): crDoc is the row
+    // before the approval, ok.ack_outcome names the ledger row.
+    await auditAckDecision(crDoc, after && { ...after, ack_outcome: ok.ack_outcome }, {
+      actor: actorFrom(user),
+      ip: ipFrom(req),
+    });
     if (after && after.status === "published") {
       void notifySpaceSubscribers({
         spaceId: after.space_id,
@@ -87,7 +94,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         origin: requestOrigin(req),
       });
     }
-    return NextResponse.json({ ok: true, result: "approved" });
+    return NextResponse.json({ ok: true, result: "approved", ack_outcome: ok.ack_outcome });
   }
   if (action === "reject") {
     const ok = await rejectChangeRequest(Number(id), user.id, note);

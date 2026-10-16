@@ -872,11 +872,14 @@ async function callTool(user: User, name: string, args: any, origin: string) {
       if (insert !== "none") {
         const fresh = await getDocument(doc.id);
         if (fresh) {
-          await updateDocument(doc.id, {
+          const placedDoc = await updateDocument(doc.id, {
             content: withImagePlaced(fresh.content, markdown, insert),
             ackSource: "image",
             ackActor: { id: user.id, name: user.name || user.username },
           });
+          // An image placed into a confirmed, published document is a text
+          // change; its confirmation decision is echoed like a PUT's (C1).
+          await auditAckDecision(fresh, placedDoc, { actor: actorFrom(user) });
           placed = true;
         }
       }

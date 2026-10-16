@@ -223,16 +223,40 @@ describe("confirmation marker upgrade (1.9.4 → 1.10.0), booted twice", () => {
     assert.equal(marker.rows[0].column_default, "now()");
 
     // Something a tenant does between boots that a re-run would undo: a
-    // confirmation whose inferred version was cleared, and a marker moved
-    // by hand. A second boot must leave both alone.
+    // confirmation whose inferred version was cleared. A second boot must
+    // leave it alone (the inference is one-shot). And something a re-run
+    // must catch: a document created while the workspace was rolled back to
+    // 1.9.x arrives without a marker version (1.9.x's createDocument writes
+    // none) and gets one on the next boot.
     await db.query("UPDATE acknowledgements SET version_id = NULL WHERE user_id = $1", [early]);
-    await db.query("UPDATE documents SET ack_version_id = NULL WHERE id = $1", [quiet]);
     const between = await snapshot(db, [policy, quiet]);
+    const latePolicy = (
+      await db.query<{ id: number }>(
+        `INSERT INTO documents (space_id, title, slug, type, status, content, author, ack_required)
+         VALUES ($1, 'Late policy', 'late-policy', 'policy', 'published', 'late text', 'boot', 1) RETURNING id`,
+        [spaceId]
+      )
+    ).rows[0].id;
+    const latePolicyV1 = (
+      await db.query<{ id: number }>(
+        "INSERT INTO doc_versions (document_id, title, content, author, note) VALUES ($1, 'Late policy', 'late text', 'boot', 'Created') RETURNING id",
+        [latePolicy]
+      )
+    ).rows[0].id;
 
     const second = boot();
     assert.ok(second.ok, `the second boot succeeds:\n${second.out}`);
-    assert.doesNotMatch(second.out, /\[ack\]/, "no ack migration ran again");
+    assert.doesNotMatch(second.out, /inferred the version/, "the confirmation inference did not run again");
+    assert.doesNotMatch(second.out, /attestation records now outlive/, "the retention migration did not run again");
+    assert.match(second.out, /\[ack\] stamped the confirmation marker on 1 document\(s\) created without one/);
     const twice = await snapshot(db, [policy, quiet]);
     assert.deepEqual(twice, between, "nothing moved on the second boot");
+    const stamped = await db.query("SELECT ack_version_id FROM documents WHERE id = $1", [latePolicy]);
+    assert.equal(stamped.rows[0].ack_version_id, latePolicyV1, "the late document's marker is its newest version");
+    assert.deepEqual(
+      (await snapshot(db, [policy, quiet])).flags,
+      between.flags,
+      "the one-shot flags are as they were"
+    );
   });
 });
