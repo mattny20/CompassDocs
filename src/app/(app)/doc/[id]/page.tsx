@@ -18,11 +18,15 @@ import { requireUser } from "@/lib/auth";
 import { userHolds, canPublishDirectly, canSeeDrafts, spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
 import { resolveAuthorPerson } from "@/lib/directory";
 import { featureEnabled } from "@/lib/ee";
-import { getCurrentAck, ackStatusForDocument } from "@/lib/db";
+import { getCurrentAck, ackStatusForDocument, getAckVersionInfo } from "@/lib/db";
 import { DocNotices } from "@/components/DocNotices";
 import { StickyDocBar } from "@/components/StickyDocBar";
+import { AckProvider } from "@/components/AckState";
+import { AckCard } from "@/components/AckCard";
+import { AckStickyControl } from "@/components/AckStickyControl";
+import { RelativeTime } from "@/components/RelativeTime";
 import { getAppSettings } from "@/lib/settings-store";
-import { formatDate, formatDateTime, settingsForUser } from "@/lib/format";
+import { formatDate, settingsForUser } from "@/lib/format";
 import { MarkdownView } from "@/components/MarkdownView";
 import { DocToc } from "@/components/DocToc";
 import { DocLayout } from "@/components/DocLayout";
@@ -42,7 +46,6 @@ import { REVIEW_INTERVALS } from "@/lib/reviews";
 import { ShareCard } from "@/components/ShareCard";
 import { shareLinksEnabled, getActiveShare } from "@/lib/shares";
 import { Link2 } from "lucide-react";
-import { timeAgo } from "@/lib/ui";
 
 import type { Metadata } from "next";
 import { cachedDocument } from "@/lib/page-data";
@@ -129,22 +132,46 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
       doc.status === "published" ? "document.delete_published" : "document.delete_draft",
       { spaceId: doc.space_id, legacyMin: doc.status === "published" ? "approver" : "editor" }
     ));
-  // Three separate rights that were one rung before 1.0: seeing who has read a
-  // policy, deciding that one must be read, and minting a template.
-  const [canReadAckRoster, canRequireAck, canSaveAsTemplate] = await Promise.all([
+  // Four separate rights that were one rung before 1.0: seeing who has read a
+  // policy, deciding that one must be read, recording that you have read it,
+  // and minting a template. The reader check mirrors the POST /ack guard, so
+  // a role without it sees an explanation instead of a 403.
+  const [canReadAckRoster, canRequireAck, canSubmitAck, canSaveAsTemplate] = await Promise.all([
     userHolds(user, "document.ack_roster_read", { spaceId: doc.space_id, legacyMin: "approver" }),
     userHolds(user, "document.ack_require", { spaceId: doc.space_id, legacyMin: "approver" }),
+    userHolds(user, "document.ack_submit", { spaceId: doc.space_id, legacyMin: "viewer" }),
     userHolds(user, "template.manage", { legacyMin: "admin" }),
   ]);
-  // Reader banner state + approver progress, only when the feature is licensed.
-  const myAck =
-    ackEnabled && doc.ack_required === 1 && doc.status === "published"
-      ? await getCurrentAck(doc.id, user.id)
-      : undefined;
+  // Read confirmation applies to a published, required, non-branch document
+  // when the feature is licensed. The reader's own record and the version
+  // they are asked to confirm (A1) seed the shared AckState; the approver
+  // progress row needs the roster.
+  const ackActive =
+    ackEnabled && doc.ack_required === 1 && doc.status === "published" && doc.branch_of === null;
+  const [myAck, ackVersion] = ackActive
+    ? await Promise.all([getCurrentAck(doc.id, user.id), getAckVersionInfo(doc.id)])
+    : [undefined, null];
   const ackRows =
     ackEnabled && canReadAckRoster && doc.ack_required === 1
       ? await ackStatusForDocument(doc.id)
       : [];
+  const showAckCard = ackActive && canSubmitAck;
+  // The reader confirms the text on screen, which is the newest version:
+  // POST /ack must cite it (409 otherwise). It is the marker's version too
+  // except after a kept edit (A2), when the marker stays behind.
+  const ackSeed = ackActive
+    ? {
+        ackedAt: myAck?.acknowledged_at ?? null,
+        ackedVersionId: myAck?.version_id ?? null,
+        ackedRev: myAck?.rev ?? null,
+        versionId: ackVersion?.latest_version_id ?? ackVersion?.version_id ?? doc.ack_version_id,
+        rev: ackVersion?.latest_rev ?? ackVersion?.rev ?? null,
+        canSubmit: canSubmitAck,
+      }
+    : null;
+  const ackPublishedLabel = ackActive
+    ? formatDate(ackVersion?.created_at ?? doc.updated_at, settingsForUser(settings, user))
+    : null;
 
   return (
     <PageWidth>
@@ -232,7 +259,9 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
           )}
         </span>
         <span>·</span>
-        <span title={formatDateTime(doc.updated_at, settingsForUser(settings, user))}>Updated {timeAgo(doc.updated_at)}</span>
+        <span>
+          Updated <RelativeTime value={doc.updated_at} />
+        </span>
         <span>·</span>
         <Link href={`/doc/${doc.id}/history`} className="hover:text-compass-600">
           {versionCount} version{versionCount === 1 ? "" : "s"}
@@ -253,20 +282,30 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
 
       <hr className="mb-6 border-slate-100 print:hidden" />
 
+      {/* Read-confirmation state shared by the notice strip, the sticky bar
+          and the card after the article (siblings below this point). */}
+      <AckProvider seed={ackSeed}>
       <StickyDocBar>
-        <StatusBadge status={doc.status} />
+        {/* The confirmation control comes first so it survives truncation;
+            under sm the bar is the control and the title only. */}
+        {showAckCard && <AckStickyControl />}
+        <span className={showAckCard ? "hidden sm:contents" : "contents"}>
+          <StatusBadge status={doc.status} />
+        </span>
         <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-800">
           {doc.title}
         </span>
-        <DocActions
-          id={doc.id}
-          spaceSlug={doc.space_slug}
-          canEdit={canEdit}
-          canDelete={canDelete}
-          canSaveAsTemplate={canSaveAsTemplate}
-          isPublished={doc.status === "published"}
-          isBranch={doc.branch_of !== null}
-        />
+        <div className="hidden min-w-0 sm:flex">
+          <DocActions
+            id={doc.id}
+            spaceSlug={doc.space_slug}
+            canEdit={canEdit}
+            canDelete={canDelete}
+            canSaveAsTemplate={canSaveAsTemplate}
+            isPublished={doc.status === "published"}
+            isBranch={doc.branch_of !== null}
+          />
+        </div>
       </StickyDocBar>
 
       {doc.branch_of !== null && branchSource ? (
@@ -280,11 +319,7 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
       ) : (
         <DocNotices
           docId={doc.id}
-          ack={
-            ackEnabled && doc.ack_required === 1 && doc.status === "published"
-              ? { ackedAt: myAck?.acknowledged_at ?? null }
-              : undefined
-          }
+          ack={ackActive ? { canSubmit: canSubmitAck } : undefined}
           ackProgress={
             ackEnabled && canReadAckRoster && doc.ack_required === 1 && doc.status === "published"
               ? {
@@ -382,6 +417,20 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
             />
           </article>
 
+          {/* The reading comes first: the confirmation card sits after the
+              article and before the feedback row (B1). */}
+          {showAckCard && (
+            <AckCard
+              docId={doc.id}
+              readerName={user.name}
+              meta={{
+                rev: ackSeed?.rev ?? null,
+                publishedLabel: ackPublishedLabel,
+                author: ackVersion?.author || doc.author,
+              }}
+            />
+          )}
+
           <DocFeedback docId={doc.id} />
 
           {settings.comments_enabled && (
@@ -389,6 +438,7 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
           )}
         </>
       </DocLayout>
+      </AckProvider>
     </PageWidth>
   );
 }
