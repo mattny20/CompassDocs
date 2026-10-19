@@ -23,6 +23,7 @@ import { Spinner } from "@/components/Spinner";
 import { Button, buttonClass } from "@/components/Button";
 import Link from "next/link";
 import {
+  Archive,
   ArrowDown,
   CalendarClock,
   CircleCheckBig,
@@ -76,6 +77,7 @@ export function DocNotices({
   branchCount = 0,
   pendingCount = 0,
   reviewOverdue,
+  retired,
 }: {
   docId: number;
   /** Reader-side read confirmation (enterprise): null = not applicable.
@@ -87,6 +89,12 @@ export function DocNotices({
   pendingCount?: number;
   /** Content review overdue (staff): server-formatted due date + edit rights. */
   reviewOverdue?: { dueDateLabel: string; canEdit: boolean } | null;
+  /**
+   * A retired policy (G3, 1.12.0): when, and the policy that replaced it
+   * when the reader may open it. One neutral row for everyone; the card
+   * and the sticky chip are gone because the policy asks nobody.
+   */
+  retired?: { at: string; replacedBy: { id: number; title: string } | null } | null;
 }) {
   const fmt = useFormatDate();
   const ackState = useAckState();
@@ -99,8 +107,10 @@ export function DocNotices({
 
   const hasAckRow = ack !== undefined && ack !== null;
   const hasReviewRow = Boolean(reviewOverdue) && !reviewed;
+  const hasRetiredRow = Boolean(retired);
   const rows =
     (hasAckRow ? 1 : 0) +
+    (hasRetiredRow ? 1 : 0) +
     (isDraft ? 1 : 0) +
     (branchCount > 0 ? 1 : 0) +
     (pendingCount > 0 ? 1 : 0) +
@@ -109,6 +119,29 @@ export function DocNotices({
 
   return (
     <div className="mb-8 divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-surface print:hidden">
+      {/* Retired policy: a neutral statement of fact, no action. The
+          replacement is a link only when the server found one the reader
+          may open; otherwise the date stands alone. */}
+      {retired && (
+        <p className={`${ROW} text-slate-600`}>
+          <Archive className={`${ICON} text-slate-400`} aria-hidden />
+          <span className="min-w-0 flex-1">
+            Retired {fmt.date(retired.at)}
+            {retired.replacedBy && (
+              <>
+                {" · replaced by "}
+                <Link
+                  href={`/doc/${retired.replacedBy.id}`}
+                  className="font-medium text-compass-700 hover:underline"
+                >
+                  {retired.replacedBy.title}
+                </Link>
+              </>
+            )}
+          </span>
+        </p>
+      )}
+
       {/* Reader row: tinted by the notice classes (both themes), ink
           inherited so the icon follows. One sentence and one action while
           pending (the action is w-full under sm: on a phone the row wraps

@@ -9,6 +9,14 @@ import { ADMIN, login, api } from "./helpers";
 // 1.11.0 (G2): an unpublished policy is paused, not gone: it moves to the
 // collapsed "Paused (unpublished)" group with an Unpublished chip and no
 // row actions, the tiles leave it out, and republishing moves it back.
+// 1.12.0 (B4): /compliance is a routed section. My policies (/compliance)
+// is the first page for everyone with a policy in scope: a standing line,
+// the To confirm and Confirmed groups, each row linking to the confirmation
+// card; the portal's views are /compliance/overview (the tiles),
+// /compliance/policies (Request, the progress list with its actions, the
+// paused group, Export CSV) and /compliance/people; the sidebar's
+// Compliance row carries the count of policies to confirm; a plain viewer
+// with a policy in scope sees the row and only the My policies tab.
 //
 // Read confirmation is entitlement-gated (policy_ack). CI runs the community
 // build, so each test skips itself when the portal answers 402 and runs in
@@ -87,6 +95,23 @@ async function fetchText(page: Page, path: string): Promise<{ status: number; te
   }, path);
 }
 
+/** The signed-in person confirms the policy's current version through the API. */
+async function confirmThrough(page: Page, docId: number): Promise<void> {
+  const summary = await api(page, `/api/documents/${docId}/ack`);
+  expect(summary.status).toBe(200);
+  const confirmed = await api(page, `/api/documents/${docId}/ack`, {
+    method: "POST",
+    body: { version_id: summary.body?.latest_version_id },
+  });
+  expect(confirmed.status, "confirmed").toBe(200);
+}
+
+/** The section's tab row: the one <nav aria-label="Compliance"> under the header. */
+const subnav = (page: Page) => page.getByRole("navigation", { name: "Compliance" });
+
+/** The sidebar's Compliance row (expanded sidebar: the label plus the badge's sr-only sentence). */
+const sidebarRow = (page: Page) => page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: /^Compliance/ });
+
 test("request asks with the audience count and Cancel sends nothing; Require and notify switches the policy on", async ({ page }) => {
   test.setTimeout(90_000);
   await login(page, ADMIN);
@@ -96,9 +121,12 @@ test("request asks with the audience count and Cancel sends nothing; Require and
     docId = await makePolicy(page, title);
     test.skip(!(await portalLicensed(page)), "policy_ack is not licensed in this build; the EE rig runs the flow");
 
-    await page.goto("/compliance");
+    // Request lives on the Policies page of the section (B4), under the
+    // shared header; the tab row lights it.
+    await page.goto("/compliance/policies");
     await expect(page.getByRole("heading", { name: /^Compliance/ })).toBeVisible();
-    await expect(page.getByText("Policies requiring confirmation")).toBeVisible();
+    await expect(subnav(page).getByRole("link", { name: "Policies" })).toHaveAttribute("aria-current", "page");
+    await expect(page.getByRole("heading", { name: "Request read confirmation" })).toBeVisible();
 
     // Pick the document; the primary names the action in the glossary's words.
     const picker = page.getByRole("combobox", { name: "Document" });
@@ -179,7 +207,7 @@ test("remind asks 'Remind N people?' and is refused inside the hour; stop requir
     expect(on.body?.ok).toBe(true);
     expect(typeof on.body?.queued, "the request answers with the queued count").toBe("number");
 
-    await page.goto("/compliance");
+    await page.goto("/compliance/policies");
     const row = page.locator("li", { hasText: title });
     await expect(row).toBeVisible();
 
@@ -257,7 +285,7 @@ test("the row's re-ask opens the question, refuses a short reason, resets the ro
 
     // Nobody has confirmed: the control is off, with its tooltip, and
     // nothing can be reset.
-    await page.goto("/compliance");
+    await page.goto("/compliance/policies");
     const row = page.locator("li", { hasText: title });
     await expect(row).toBeVisible();
     const reask = row.getByRole("button", { name: "Ask everyone to re-confirm…" });
@@ -267,11 +295,7 @@ test("the row's re-ask opens the question, refuses a short reason, resets the ro
     // The admin confirms the current version through the API; the control comes alive.
     const summary = await api(page, `/api/documents/${docId}/ack`);
     expect(summary.status).toBe(200);
-    const confirmed = await api(page, `/api/documents/${docId}/ack`, {
-      method: "POST",
-      body: { version_id: summary.body?.latest_version_id },
-    });
-    expect(confirmed.status, "the admin confirmed").toBe(200);
+    await confirmThrough(page, docId);
     await page.reload();
     await expect(row).toBeVisible();
     await expect(reask).toBeEnabled();
@@ -366,13 +390,7 @@ test("an unpublished policy is paused: it moves to the collapsed group with the 
     });
     expect(on.status, "requested quietly").toBe(200);
     // The admin confirms, so the row carries a confirmation the pause must keep.
-    const summary = await api(page, `/api/documents/${docId}/ack`);
-    expect(summary.status).toBe(200);
-    const confirmed = await api(page, `/api/documents/${docId}/ack`, {
-      method: "POST",
-      body: { version_id: summary.body?.latest_version_id },
-    });
-    expect(confirmed.status, "the admin confirmed").toBe(200);
+    await confirmThrough(page, docId);
 
     type Row = { id: number; status: string; required: number; acked: number };
     const portal = async () => {
@@ -403,9 +421,9 @@ test("an unpublished policy is paused: it moves to the collapsed group with the 
     expect(paused.kpis?.acked).toBe(published.reduce((n, d) => n + d.acked, 0));
     expect(paused.kpis?.outstanding).toBe(paused.kpis.required - paused.kpis.acked);
 
-    // The portal: the only row with this title sits inside the collapsed
-    // group, with the chip, its standing and no action at all.
-    await page.goto("/compliance");
+    // The Policies page: the only row with this title sits inside the
+    // collapsed group, with the chip, its standing and no action at all.
+    await page.goto("/compliance/policies");
     await expect(page.getByRole("heading", { name: /^Compliance/ })).toBeVisible();
     const group = page.locator("details", { hasText: "Paused (unpublished)" });
     await expect(group).toBeVisible();
@@ -422,10 +440,12 @@ test("an unpublished policy is paused: it moves to the collapsed group with the 
     await expect(row.getByText(/^1 of \d+ (person|people) confirmed$/)).toBeVisible();
     await expect(row.getByRole("button")).toHaveCount(0);
     await expect(row.getByRole("link")).toHaveCount(0);
-    // The Policies tile is the server's published count (the payload
-    // invariant above); it is read again here because other specs may have
-    // added a policy in between. The tiles are a description list: the
-    // label is the term and its number the definition.
+    // The Policies tile on the Overview page is the server's published
+    // count (the payload invariant above); it is read again here because
+    // other specs may have added a policy in between. The tiles are a
+    // description list: the label is the term and its number the definition.
+    await page.goto("/compliance/overview");
+    await expect(subnav(page).getByRole("link", { name: "Overview" })).toHaveAttribute("aria-current", "page");
     const tile = page.getByRole("term").filter({ hasText: "Policies requiring confirmation" }).locator("..");
     await expect(tile.getByRole("definition")).toHaveText(String((await portal()).kpis.policies));
     // The paused policy cannot be acted on through the API either.
@@ -440,7 +460,7 @@ test("an unpublished policy is paused: it moves to the collapsed group with the 
     const resumed = await portal();
     expect(resumed.mine?.status).toBe("published");
     expect(resumed.mine?.acked).toBe(1);
-    await page.reload();
+    await page.goto("/compliance/policies");
     const back = page.locator("li", { hasText: title });
     await expect(back).toHaveCount(1);
     await expect(page.locator("details", { hasText: "Paused (unpublished)" }).locator("li", { hasText: title })).toHaveCount(0);
@@ -465,19 +485,15 @@ test("the matrix and the per-policy record download as CSV", async ({ page }) =>
     expect(on.status).toBe(200);
     // The admin confirms the version, so one row of the matrix cites a
     // version and carries its provenance (C6).
-    const summary = await api(page, `/api/documents/${docId}/ack`);
-    expect(summary.status).toBe(200);
-    const confirmed = await api(page, `/api/documents/${docId}/ack`, {
-      method: "POST",
-      body: { version_id: summary.body?.latest_version_id },
-    });
-    expect(confirmed.status, "the admin confirmed").toBe(200);
+    await confirmThrough(page, docId);
 
-    await page.goto("/compliance");
+    await page.goto("/compliance/policies");
     const row = page.locator("li", { hasText: title });
     await expect(row).toBeVisible();
 
-    // The header's Export CSV is a real download with the documented name.
+    // The Policy progress card's Export CSV is a real download with the
+    // documented name (it was the page header's until the header became the
+    // section's, B4).
     const [matrix] = await Promise.all([
       page.waitForEvent("download"),
       page.getByRole("link", { name: "Export CSV" }).click(),
@@ -511,6 +527,175 @@ test("the matrix and the per-policy record download as CSV", async ({ page }) =>
     ]);
     expect(record.suggestedFilename()).toBe(`acknowledgements-doc-${docId}.csv`);
   } finally {
+    if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
+  }
+});
+
+test("My policies: the standing line, the two groups, the row's link to the confirmation card, the sidebar badge and the dashboard row", async ({ page }) => {
+  test.setTimeout(90_000);
+  await login(page, ADMIN);
+  const title = `E2E my policies ${stamp()}`;
+  let docId: number | undefined;
+  try {
+    docId = await makePolicy(page, title);
+    test.skip(!(await portalLicensed(page)), "policy_ack is not licensed in this build; the EE rig runs the flow");
+    const on = await api(page, "/api/admin/compliance", {
+      method: "POST",
+      body: { docId, action: "request", notify: false },
+    });
+    expect(on.status, "requested quietly").toBe(200);
+
+    // The API behind the page: the admin's own standing, 'pending' on the
+    // new policy, with the counts the standing line shows.
+    const mine = await api(page, "/api/compliance/mine");
+    expect(mine.status).toBe(200);
+    expect(typeof mine.body?.total).toBe("number");
+    expect(typeof mine.body?.confirmed).toBe("number");
+    const row0 = (mine.body?.rows ?? []).find((r: { id: number }) => r.id === docId);
+    expect(row0, "the policy is listed").toBeTruthy();
+    expect(row0.state).toBe("pending");
+    expect(row0.acknowledged_at).toBeNull();
+    expect(row0.prior_acknowledged_at).toBeNull();
+    expect(row0.rev).toBeNull();
+
+    // /compliance is My policies: the section header, the lit tab, the
+    // standing line and the bar, and the policy in the To confirm group with
+    // its chip and its link to the confirmation card.
+    await page.goto("/compliance");
+    await expect(page.getByRole("heading", { name: /^Compliance/ })).toBeVisible();
+    await expect(subnav(page).getByRole("link", { name: "My policies" })).toHaveAttribute("aria-current", "page");
+    await expect(page.getByText(/^\d+ of \d+ polic(y|ies) confirmed$/)).toBeVisible();
+    const toConfirm = page.getByRole("region", { name: "To confirm" });
+    await expect(toConfirm.getByRole("heading", { name: "To confirm" })).toBeVisible();
+    const row = toConfirm.locator("li", { hasText: title });
+    await expect(row).toBeVisible();
+    await expect(row.getByRole("link", { name: title })).toHaveAttribute("href", `/doc/${docId}#confirm-reading`);
+    await expect(row.getByText("To confirm", { exact: true })).toBeVisible();
+    await expect(row.getByText(/^.+ · Updated /)).toBeVisible();
+    // No history, print or CSV here (those wait for the person record).
+    await expect(page.getByRole("link", { name: /Export CSV/ })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /Print/ })).toHaveCount(0);
+
+    // The sidebar's Compliance row counts the policies to confirm, and the
+    // dashboard's row leads to the one policy or to My policies.
+    await expect(sidebarRow(page)).toHaveAccessibleName(/^Compliance \d+ policies to confirm$/);
+    await page.goto("/");
+    const attention = page.getByRole("link", { name: /^\d+ polic(y needs|ies need) your read confirmation/ });
+    await expect(attention).toBeVisible();
+    const label = (await attention.textContent()) ?? "";
+    const href = (await attention.getAttribute("href")) ?? "";
+    if (/^1 policy needs/.test(label)) expect(href).toBe(`/doc/${docId}#confirm-reading`);
+    else expect(href).toBe("/compliance");
+
+    // Confirmed through the API: the row moves to the Confirmed group with
+    // the date and the version, and the API agrees.
+    await confirmThrough(page, docId);
+    await page.goto("/compliance");
+    const confirmedGroup = page.getByRole("region", { name: "Confirmed" });
+    const done = confirmedGroup.locator("li", { hasText: title });
+    await expect(done).toBeVisible();
+    await expect(done.getByText(/^Confirmed .+ · v1$/)).toBeVisible();
+    await expect(page.getByRole("region", { name: "To confirm" }).locator("li", { hasText: title })).toHaveCount(0);
+    const after = (await api(page, "/api/compliance/mine")).body?.rows?.find((r: { id: number }) => r.id === docId);
+    expect(after?.state).toBe("confirmed");
+    expect(after?.rev).toBe(1);
+    expect(after?.acknowledged_at).toBeTruthy();
+    // Everything confirmed (on a quiet rig): the up-to-date line under the group.
+    if ((await page.getByRole("region", { name: "To confirm" }).count()) === 0) {
+      await expect(confirmedGroup.getByText(/^You're up to date\. \d+ polic(y|ies) confirmed\.$/)).toBeVisible();
+    }
+
+    // A re-ask lapses the confirmation: the chip says when they last confirmed.
+    const reask = await api(page, `/api/documents/${docId}/ack/reconfirm`, {
+      method: "POST",
+      body: { reason: "Section 4 now applies to contractors too" },
+    });
+    expect(reask.status, "re-asked").toBe(200);
+    await page.goto("/compliance");
+    const changed = page.getByRole("region", { name: "To confirm" }).locator("li", { hasText: title });
+    await expect(changed).toBeVisible();
+    await expect(changed.getByText(/^Changed since you confirmed .+$/)).toBeVisible();
+    const lapsed = (await api(page, "/api/compliance/mine")).body?.rows?.find((r: { id: number }) => r.id === docId);
+    expect(lapsed?.state).toBe("reconfirm");
+    expect(lapsed?.acknowledged_at).toBeNull();
+    expect(lapsed?.prior_acknowledged_at).toBeTruthy();
+  } finally {
+    if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
+  }
+});
+
+test("a viewer with a policy in scope sees the Compliance row with its badge and only the My policies tab; the portal's pages are not found", async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(120_000);
+  await login(page, ADMIN);
+  const suffix = stamp();
+  const title = `E2E my policies viewer ${suffix}`;
+  const viewer = { username: `e2e_mypol_${suffix}`, password: "E2eMine!12345" };
+  let docId: number | undefined;
+  let viewerId: number | undefined;
+  try {
+    docId = await makePolicy(page, title);
+    test.skip(!(await portalLicensed(page)), "policy_ack is not licensed in this build; the EE rig runs the flow");
+    const on = await api(page, "/api/admin/compliance", {
+      method: "POST",
+      body: { docId, action: "request", notify: false },
+    });
+    expect(on.status, "requested quietly").toBe(200);
+    const created = await api(page, "/api/admin/users", {
+      method: "POST",
+      body: { ...viewer, role: "viewer", name: "E2E My Policies Viewer" },
+    });
+    expect(created.status, "viewer created").toBe(201);
+    viewerId = created.body?.user?.id;
+    expect(viewerId).toBeTruthy();
+
+    const ctx = await browser.newContext();
+    try {
+      const vpage = await ctx.newPage();
+      await login(vpage, viewer);
+
+      // The sidebar shows the section (a policy in scope, no section grant)
+      // and the badge counts the policy to confirm.
+      await expect(sidebarRow(vpage)).toBeVisible();
+      await expect(sidebarRow(vpage)).toHaveAccessibleName(/^Compliance \d+ policies to confirm$/);
+
+      // My policies lists it; the tab row holds My policies and nothing else.
+      await vpage.goto("/compliance");
+      await expect(vpage.getByRole("heading", { name: /^Compliance/ })).toBeVisible();
+      const tabs = subnav(vpage).getByRole("link");
+      await expect(tabs).toHaveCount(1);
+      await expect(tabs.first()).toHaveText("My policies");
+      const row = vpage.getByRole("region", { name: "To confirm" }).locator("li", { hasText: title });
+      await expect(row).toBeVisible();
+      await expect(row.getByRole("link", { name: title })).toHaveAttribute("href", `/doc/${docId}#confirm-reading`);
+      await expect(row.getByText("To confirm", { exact: true })).toBeVisible();
+
+      // The person's own API opens; the portal's does not, and its pages
+      // answer the shell's not-found page, as /training/person does.
+      const mine = await api(vpage, "/api/compliance/mine");
+      expect(mine.status).toBe(200);
+      expect(mine.body?.rows?.some((r: { id: number; state: string }) => r.id === docId && r.state === "pending")).toBe(true);
+      expect((await api(vpage, "/api/admin/compliance")).status, "the portal needs program_read").toBe(403);
+      for (const path of ["/compliance/overview", "/compliance/policies", "/compliance/people", "/compliance/settings"]) {
+        await vpage.goto(path);
+        await expect(vpage.getByRole("heading", { name: "Page not found" }), path).toBeVisible();
+      }
+
+      // Confirming from the card: the row moves to Confirmed and the badge
+      // drops with it (the only policy this account owes on a quiet rig).
+      await confirmThrough(vpage, docId);
+      await vpage.goto("/compliance");
+      await expect(vpage.getByRole("region", { name: "Confirmed" }).locator("li", { hasText: title })).toBeVisible();
+      if ((await vpage.getByRole("region", { name: "To confirm" }).count()) === 0) {
+        await expect(sidebarRow(vpage)).toHaveAccessibleName("Compliance");
+      }
+    } finally {
+      await ctx.close();
+    }
+  } finally {
+    if (viewerId) await api(page, `/api/admin/users/${viewerId}`, { method: "DELETE" });
     if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
   }
 });

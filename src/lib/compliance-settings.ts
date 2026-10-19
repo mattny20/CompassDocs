@@ -3,6 +3,7 @@ import { cache } from "react";
 import { getSetting, setSetting } from "./db";
 import { audit } from "./audit";
 import type { AuditActor } from "./audit";
+import { isRecertDefault, RECERT_OPTIONS } from "./ack-recert";
 
 // Program settings (E4, 1.10.1): the documented defaults every policy
 // inherits, edited on /compliance/settings and read by the features that
@@ -15,10 +16,12 @@ import type { AuditActor } from "./audit";
 // Each card on the page ships with the item that reads its values, so the
 // page never shows a control nothing honours. In 1.10.1 that is the Editing
 // card (read by A5's per-document default) and the Confirmation statement
-// card. Deadlines and Reminders (E1/E2), the typed-signature toggle (C2),
-// Annual re-confirmation (G1) and Evidence (F2/C5) add their keys here when
-// they ship; `ack_report` is read with its default now so the sweeps have one
-// place to look, but the API refuses to write it until F2's card exists.
+// card; 1.12.0 adds the Re-confirmation card (G1: `ack_defaults.recert_months`,
+// the interval a policy receives when it is first set to required). Deadlines
+// and Reminders (E1/E2), the typed-signature toggle (C2) and Evidence (F2/C5)
+// add their keys here when they ship; `ack_report` is read with its default
+// now so the sweeps have one place to look, but the API refuses to write it
+// until F2's card exists.
 
 export const EDIT_DEFAULTS = ["ask", "material", "reset"] as const;
 /** What a policy does when its text changes: ask the editor each time, ask
@@ -32,6 +35,10 @@ export interface AckDefaults {
   /** Whether an editorial fix needs a change note as well as a material
    *  change (A3's keep path reads it; the material note is always required). */
   keep_reason_required: boolean;
+  /** "Re-confirm every" (G1): the interval a policy receives when it is first
+   *  set to require read confirmation (setAckRequired); null = no cycle. One
+   *  of RECERT_OPTIONS (null, 6, 12 or 24); a policy may set any 1..60 for itself. */
+  recert_months: number | null;
 }
 
 export interface AckReportSettings {
@@ -54,7 +61,7 @@ export const STATEMENT_MAX = 300;
  *  DEFAULT_CONFIRMATION_STATEMENT); kept as a literal here because the card
  *  is a client component and this module is server-only. */
 export const COMPLIANCE_DEFAULTS: ComplianceSettings = {
-  ack_defaults: { edit_default: "ask", keep_reason_required: true },
+  ack_defaults: { edit_default: "ask", keep_reason_required: true, recert_months: null },
   compliance_statement_default: "I confirm that I have read and understood this document.",
   ack_report: { enabled: false, cadence: "weekly", recipients: { users: [], groups: [] } },
 };
@@ -86,6 +93,9 @@ function normaliseAckDefaults(raw: Record<string, unknown> | null): AckDefaults 
     edit_default: isEditDefault(raw?.edit_default) ? raw.edit_default : d.edit_default,
     keep_reason_required:
       typeof raw?.keep_reason_required === "boolean" ? raw.keep_reason_required : d.keep_reason_required,
+    // Absent reads as the default (no cycle); so does a value the build does
+    // not offer (a hand edit of 7), as edit_default treats an unknown mode.
+    recert_months: raw && "recert_months" in raw && isRecertDefault(raw.recert_months) ? raw.recert_months : d.recert_months,
   };
 }
 
@@ -135,7 +145,11 @@ export interface ComplianceSettingsPatch {
 
 export type PatchResult = { ok: true; patch: ComplianceSettingsPatch } | { ok: false; error: string };
 
-const ACK_DEFAULT_KEYS = new Set<keyof AckDefaults>(["edit_default", "keep_reason_required"]);
+const ACK_DEFAULT_KEYS = new Set<keyof AckDefaults>(["edit_default", "keep_reason_required", "recert_months"]);
+/** "6, 12 or 24" for the error line, from the options the Select offers. */
+const RECERT_DEFAULT_LIST = RECERT_OPTIONS.filter((o) => o.months !== null)
+  .map((o) => String(o.months))
+  .reduce((acc, m, i, all) => (i === 0 ? m : i === all.length - 1 ? `${acc} or ${m}` : `${acc}, ${m}`), "");
 const TOP_KEYS = new Set<keyof ComplianceSettingsPatch>(["ack_defaults", "compliance_statement_default"]);
 
 /**
@@ -172,6 +186,11 @@ export function parseComplianceSettingsPatch(body: unknown): PatchResult {
             return { ok: false, error: '"ack_defaults.keep_reason_required" must be true or false.' };
           }
           inner.keep_reason_required = v;
+        } else if (k === "recert_months") {
+          if (!isRecertDefault(v)) {
+            return { ok: false, error: `"ack_defaults.recert_months" must be ${RECERT_DEFAULT_LIST} months, or null for never.` };
+          }
+          inner.recert_months = v;
         }
       }
       patch.ack_defaults = inner;

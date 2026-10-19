@@ -7,15 +7,11 @@ import {
   setTrainingProgress,
   setTrainingQuizScore,
   completeTraining,
-  getUserByUsername,
 } from "@/lib/db";
 import { gradeQuiz, deckQuestions } from "@/lib/training";
-import { verifyPassword } from "@/lib/password";
-import { audit, actorFrom } from "@/lib/audit";
+import { verifyAttestation, signedNameFrom } from "@/lib/attestation";
+import { audit, actorFrom, ipFrom } from "@/lib/audit";
 import type { SessionUser } from "@/lib/types";
-
-/** Whitespace-collapsed, case-insensitive name comparison for e-signatures. */
-const nameKey = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase();
 
 export const dynamic = "force-dynamic";
 
@@ -36,7 +32,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     return NextResponse.json({ error: "No such training assignment." }, { status: 404 });
   }
 
-  const body = (await req.json().catch(() => ({}))) as {
+  // The password is taken out of the body first, so nothing below can log
+  // or audit it (the shared rule of lib/attestation's callers).
+  const { password, ...body } = (await req.json().catch(() => ({}))) as {
     action?: string;
     slide?: number;
     answers?: number[][];
@@ -93,26 +91,27 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     }
     // E-signature gate: the deck can demand a typed full name and (for local
     // accounts) the account password before the confirmation is recorded.
+    // The check is lib/attestation's, shared with the read confirmation
+    // route (C2, 1.12.0); this route keeps its own two sentences and the
+    // helper's for the throttle it gained with the extraction.
     let signedName: string | null = null;
     if (assignment.require_signature === 1) {
-      const typed = String(body.typed_name ?? "").trim();
-      const expected = user.name || user.username;
-      if (!typed || nameKey(typed) !== nameKey(expected)) {
-        return NextResponse.json(
-          { error: `Type your full name exactly as it appears on your account (${expected}).` },
-          { status: 409 }
-        );
+      const signed = await verifyAttestation(
+        user,
+        { signed_name: body.typed_name, password },
+        { ip: ipFrom(req) }
+      );
+      if (!signed.ok) {
+        const expected = user.name || user.username;
+        const error =
+          signed.code === "name"
+            ? `Type your full name exactly as it appears on your account (${expected}).`
+            : signed.code === "password"
+              ? "Password check failed — re-enter your account password to sign."
+              : signed.error;
+        return NextResponse.json({ error }, { status: signed.status });
       }
-      const record = await getUserByUsername(user.username);
-      if (record?.password_hash && record.password_salt) {
-        if (!verifyPassword(String(body.password ?? ""), record.password_hash, record.password_salt)) {
-          return NextResponse.json(
-            { error: "Password check failed — re-enter your account password to sign." },
-            { status: 409 }
-          );
-        }
-      }
-      signedName = typed.slice(0, 200);
+      signedName = signedNameFrom(body.typed_name);
     }
     // The SHA-256 of the exact content confirmed is stored on every
     // completion — cheap, and it lets an auditor tie the record to the text.

@@ -25,6 +25,7 @@ import {
   getAttestedVersion,
   ackSummary,
   lastAckDecision,
+  getUserByUsername,
 } from "@/lib/db";
 import { getComplianceSettings } from "@/lib/compliance-settings";
 import { askedClause } from "./acknowledgements/ack-sentence";
@@ -138,6 +139,24 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
   // Draft-branch context: the source doc for the banner, live branches for the note.
   const branchSource = doc.branch_of !== null ? await getDocument(doc.branch_of) : undefined;
   const branchCount = isStaff && doc.branch_of === null ? (await listBranches(doc.id)).length : 0;
+  // A retired policy (G3, 1.12.0): the notices strip shows one neutral row
+  // for everyone, with the replacement as a link when this reader may open
+  // it (its space scope, and the draft rule); the card and the sticky chip
+  // are gone on their own, since the requirement is off.
+  const replacement =
+    ackEnabled && doc.ack_retired_at && doc.ack_superseded_by ? await getDocument(doc.ack_superseded_by) : undefined;
+  const retired =
+    ackEnabled && doc.ack_retired_at
+      ? {
+          at: doc.ack_retired_at,
+          replacedBy:
+            replacement &&
+            scopeAllows(scope, replacement.space_id) &&
+            (replacement.status === "published" || seeDraftsAnywhere)
+              ? { id: replacement.id, title: replacement.title }
+              : null,
+        }
+      : null;
   const mergeNeedsReview =
     branchSource?.status === "published" && !(await canPublishDirectly(user, doc.space_id));
   // The toolbar's two main decisions, resolved here rather than in the client
@@ -284,6 +303,13 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
   const ackPublishedLabel = ackActive
     ? formatDate(ackVersion?.latest_created_at ?? ackVersion?.created_at ?? doc.updated_at, fmtSettings)
     : null;
+  // The typed signature (C2): whether this document asks for one, and
+  // whether the reader's account has a password to re-enter (a local
+  // account); an SSO account signs with its name and is identified by its
+  // session. Read only when the card will ask, never echoed to the client
+  // beyond the yes/no.
+  const ackSignature = showAckCard && doc.ack_signature === 1;
+  const ackLocalAccount = ackSignature ? Boolean((await getUserByUsername(user.username))?.password_hash) : false;
 
   return (
     <PageWidth>
@@ -435,6 +461,7 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
           isDraft={doc.status === "draft" && isStaff}
           branchCount={branchCount}
           pendingCount={pending.length}
+          retired={retired}
           reviewOverdue={
             reviewOverdue && isStaff
               ? { dueDateLabel: reviewDueLabel, canEdit: hasEditRights }
@@ -526,10 +553,18 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
           {showAckCard && (
             <AckCard
               docId={doc.id}
-              readerName={user.name}
-              // The workspace's confirmation statement (E4); a per-document
-              // statement arrives with C2.
-              statement={complianceSettings?.compliance_statement_default}
+              // The name a signature must match (lib/attestation compares
+              // against the same fallback) and the printed line's subject.
+              readerName={user.name || user.username}
+              // The policy's own confirmation statement (C2), else the
+              // workspace default (E4).
+              statement={doc.ack_statement ?? complianceSettings?.compliance_statement_default}
+              // The typed signature (C2): the Sign to confirm block, the
+              // password field for a local account, and the name on the
+              // reader's current confirmation for the done state.
+              signature={ackSignature}
+              localAccount={ackLocalAccount}
+              signedName={myAck?.signed_name ?? null}
               // The newest version's provenance (C6), the one the reader
               // confirms: the stamped publisher over the byline, and the
               // approver when a change request carried it. A document with

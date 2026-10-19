@@ -22,7 +22,11 @@ const stamp = () => `${Date.now()}${Math.floor(Math.random() * 1000)}`;
 const BODY = "## Policy\n\nShort policy text for the access-control check. Read it and confirm at the end.";
 
 const ROSTER_HEADER =
-  "name,username,email,role,status,acknowledged_at,document,revision_as_of,version,version_id,content_sha256,version_source,former_staff,asked_at,asked_by,reason,kept_since_asked,ip,user_agent,version_published_by,version_approved_by,read_seconds,reached_end_self_reported";
+  "name,username,email,role,status,acknowledged_at,document,revision_as_of,version,version_id,content_sha256,version_source,former_staff,asked_at,asked_by,reason,kept_since_asked,ip,user_agent,version_published_by,version_approved_by,read_seconds,reached_end_self_reported,statement,signed_name,identity_proof,recert_months,effective_at,next_recert_at";
+
+/** The ledger (C4, 1.12.0): every confirmation ever recorded; compliance.export only. */
+const LEDGER_HEADER =
+  "document,document_id,space,name,username,email,role,acknowledged_at,superseded,version,version_id,content_sha256,version_source,statement,signed_name,identity_proof,read_seconds,reached_end_self_reported,ip,user_agent,account_removed";
 
 /** The address the admin's confirmation arrives from, as a proxy would report it. */
 const ADMIN_IP = "203.0.113.9";
@@ -216,6 +220,9 @@ test("a program_read-only role reads the portal and nothing more; unknown action
         expect(refused.status, `${action} needs program_manage`).toBe(403);
       }
       expect((await fetchText(rpage, "/api/admin/compliance?format=csv")).status, "the matrix needs export").toBe(403);
+      // The ledger (C4, 1.12.0) carries the IP and user agent of every
+      // confirmation ever recorded: the section alone does not open it.
+      expect((await fetchText(rpage, "/api/admin/compliance?format=ledger")).status, "the ledger needs export").toBe(403);
       // The program settings need program_manage on both verbs.
       expect((await api(rpage, "/api/admin/compliance/settings")).status, "reading the settings").toBe(403);
       const put = await api(rpage, "/api/admin/compliance/settings", {
@@ -333,13 +340,31 @@ test("a program_read-only role reads the portal and nothing more; unknown action
       const readAt = header.indexOf("read_seconds");
       const reachedAt = header.indexOf("reached_end_self_reported");
       expect(readAt, "read_seconds follows the provenance pair").toBe(header.indexOf("version_approved_by") + 1);
-      expect(reachedAt, "reached_end_self_reported is the last column").toBe(header.length - 1);
+      expect(reachedAt, "reached_end_self_reported follows it").toBe(readAt + 1);
       expect(adminLine![readAt], "no view was recorded: unknown, not zero").toBe("");
       expect(adminLine![reachedAt], "confirmed without the card's report").toBe("no");
+      // The six 1.12.0 columns close the line (C4): the statement the admin
+      // confirmed under (the workspace default: this policy sets none), no
+      // signature (the policy does not require one), and the policy's
+      // re-confirmation settings (none set here).
+      const statementAt = header.indexOf("statement");
+      expect(statementAt, "statement follows the evidence pair").toBe(reachedAt + 1);
+      expect(header.slice(statementAt), "the six columns in order, last").toEqual([
+        "statement",
+        "signed_name",
+        "identity_proof",
+        "recert_months",
+        "effective_at",
+        "next_recert_at",
+      ]);
+      expect(adminLine![header.indexOf("signed_name")], "no signature required, none recorded").toBe("");
+      expect(adminLine![header.indexOf("recert_months")], "no interval set").toBe("");
+      expect(adminLine![header.indexOf("next_recert_at")]).toBe("");
       for (const c of lines.slice(1).map(cells)) {
         if (c[1] !== ADMIN.username) {
           expect(c[readAt], "a pending row has no read time").toBe("");
           expect(c[reachedAt], "and no report").toBe("");
+          expect(c[statementAt], "and no statement").toBe("");
         }
       }
       // The JSON roster carries no ip either.
@@ -347,7 +372,20 @@ test("a program_read-only role reads the portal and nothing more; unknown action
       expect(roster.status).toBe(200);
       expect(roster.body?.can?.export).toBe(false);
       expect(roster.body?.rows?.every((r: Record<string, unknown>) => !("ip" in r))).toBe(true);
+      // The ledger view is readable with the roster permission, with the two
+      // personal-data fields blank; the ledger file needs export.
+      const ledgerView = await api(spage, `/api/documents/${docId}/acknowledgements?view=all`);
+      expect(ledgerView.status, "the All confirmations view opens with the roster permission").toBe(200);
+      expect(ledgerView.body?.can?.export).toBe(false);
+      const stewardLedgerRow = (ledgerView.body?.rows ?? []).find((r: { username: string }) => r.username === ADMIN.username);
+      expect(stewardLedgerRow, "the admin's confirmation is in the ledger").toBeTruthy();
+      expect(stewardLedgerRow?.ip, "blank without export").toBe("");
+      expect(stewardLedgerRow?.user_agent, "blank without export").toBe("");
+      expect(stewardLedgerRow?.superseded).toBe(false);
+      expect(stewardLedgerRow?.account_removed).toBe(false);
+      expect((await fetchText(spage, `/api/documents/${docId}/acknowledgements?format=ledger`)).status, "the per-policy ledger file needs export").toBe(403);
       expect((await fetchText(spage, "/api/admin/compliance?format=csv")).status, "the matrix still needs export").toBe(403);
+      expect((await fetchText(spage, "/api/admin/compliance?format=ledger")).status, "and so does the workspace ledger").toBe(403);
     } finally {
       await sctx.close();
     }
@@ -356,7 +394,7 @@ test("a program_read-only role reads the portal and nothing more; unknown action
       page,
       (r) => r.action === "ack.export" && Number(r.target_id) === docId && r.actor_name === "E2E Compliance Steward"
     );
-    expect(stewardExport.length).toBe(1);
+    expect(stewardExport.length, "one download on the record; the refused ledger file wrote nothing").toBe(1);
     expect(stewardExport[0].details?.format).toBe("roster");
     expect(stewardExport[0].details?.with_ip).toBe(false);
     expect(stewardExport[0].details?.rows).toBeGreaterThanOrEqual(1);
@@ -398,6 +436,50 @@ test("a program_read-only role reads the portal and nothing more; unknown action
     expect(matrixExport.length).toBeGreaterThanOrEqual(1);
     expect(matrixExport[0].details).toMatchObject({ format: "matrix", doc_id: "all", with_ip: false });
     expect(typeof matrixExport[0].details?.rows).toBe("number");
+    // The matrix carries the same six columns at the end (C4).
+    const matrixHeader = cells(matrix.text.trim().split("\n")[0]);
+    expect(matrixHeader.slice(-6)).toEqual(["statement", "signed_name", "identity_proof", "recert_months", "effective_at", "next_recert_at"]);
+
+    // The ledgers (C4, 1.12.0): the workspace file from the portal route and
+    // the per-policy file from the record route, both for an exporter, both
+    // with the documented header, the recorded address on the admin's row,
+    // and one ack.export row each marked with_ip.
+    const ledger = await fetchText(page, "/api/admin/compliance?format=ledger");
+    expect(ledger.status, "an exporter downloads the workspace ledger").toBe(200);
+    const ledgerLines = ledger.text.trim().split("\n");
+    expect(ledgerLines[0]).toBe(LEDGER_HEADER);
+    const ledgerHeader = cells(ledgerLines[0]);
+    const adminLedgerLine = ledgerLines
+      .slice(1)
+      .map(cells)
+      .find((c) => Number(c[ledgerHeader.indexOf("document_id")]) === docId && c[ledgerHeader.indexOf("username")] === ADMIN.username);
+    expect(adminLedgerLine, "the admin's confirmation of this policy is in the ledger").toBeTruthy();
+    expect(adminLedgerLine![ledgerHeader.indexOf("ip")], "with the recorded address").toBe(ADMIN_IP);
+    expect(adminLedgerLine![ledgerHeader.indexOf("superseded")], "the newest confirmation is not superseded").toBe("no");
+    expect(adminLedgerLine![ledgerHeader.indexOf("account_removed")]).toBe("no");
+    expect(adminLedgerLine![ledgerHeader.indexOf("document")]).toBe(title);
+    const ledgerExport = await auditRows(page, (r) => r.action === "ack.export" && r.details?.format === "ledger" && r.details?.doc_id === "all");
+    expect(ledgerExport.length).toBeGreaterThanOrEqual(1);
+    expect(ledgerExport[0].details).toMatchObject({ format: "ledger", doc_id: "all", with_ip: true });
+    expect(typeof ledgerExport[0].details?.rows).toBe("number");
+
+    const docLedger = await fetchText(page, `/api/documents/${docId}/acknowledgements?format=ledger`);
+    expect(docLedger.status, "an exporter downloads the per-policy ledger").toBe(200);
+    const docLedgerLines = docLedger.text.trim().split("\n");
+    expect(docLedgerLines[0]).toBe(LEDGER_HEADER);
+    expect(docLedgerLines.slice(1).map(cells).every((c) => Number(c[ledgerHeader.indexOf("document_id")]) === docId), "this policy's rows only").toBe(true);
+    const docLedgerExport = await auditRows(
+      page,
+      (r) => r.action === "ack.export" && Number(r.target_id) === docId && r.details?.format === "ledger"
+    );
+    expect(docLedgerExport.length).toBe(1);
+    expect(docLedgerExport[0].details).toMatchObject({ format: "ledger", doc_id: docId, with_ip: true });
+    // The exporter's ledger view carries the address and the user agent.
+    const adminLedgerView = await api(page, `/api/documents/${docId}/acknowledgements?view=all`);
+    expect(adminLedgerView.status).toBe(200);
+    const adminLedgerRow = (adminLedgerView.body?.rows ?? []).find((r: { username: string }) => r.username === ADMIN.username);
+    expect(adminLedgerRow?.ip).toBe(ADMIN_IP);
+    expect(typeof adminLedgerRow?.user_agent).toBe("string");
   } finally {
     if (readerRole) await api(page, `/api/admin/rbac/roles/${readerRole}`, { method: "DELETE" });
     if (stewardRole) await api(page, `/api/admin/rbac/roles/${stewardRole}`, { method: "DELETE" });
@@ -406,6 +488,163 @@ test("a program_read-only role reads the portal and nothing more; unknown action
     if (stewardId) await api(page, `/api/admin/users/${stewardId}`, { method: "DELETE" });
     if (requirerId) await api(page, `/api/admin/users/${requirerId}`, { method: "DELETE" });
     if (otherSpaceId) await api(page, `/api/admin/spaces/${otherSpaceId}`, { method: "DELETE" });
+    if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
+  }
+});
+
+// 1.12.0 (G3): retiring a policy is for holders of document.ack_require on
+// the document's space or compliance.program_manage. A program_read-only
+// role is 403 on both verbs; a holder of ack_require on the space retires
+// it with a reason (a short one is 400), the second retire is 409, PATCH
+// /ack { required: true } on the retired policy is 409, the document page
+// shows the neutral "Retired {date}" row and no confirmation card, the
+// portal lists it as retired and off the request picker, and un-retire
+// restores the requirement and the card. Both actions are audited.
+test("retire and un-retire: program_read only is 403; a holder of document.ack_require retires it, readers see the retired row, un-retire restores the card", async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(150_000);
+  await login(page, ADMIN);
+  const suffix = stamp();
+  const title = `E2E retire ${suffix}`;
+  const reader = { username: `e2e_retread_${suffix}`, password: "E2eRead!12345" };
+  const retirer = { username: `e2e_retirer_${suffix}`, password: "E2eRet!12345" };
+  const REASON = "Superseded by the new expense policy";
+  let docId: number | undefined;
+  let readerId: number | undefined;
+  let retirerId: number | undefined;
+  let readerRole: number | undefined;
+  let retirerRole: number | undefined;
+  try {
+    docId = await makePolicy(page, title);
+    test.skip(!(await portalLicensed(page)), "policy_ack is not licensed in this build; the EE rig runs the flow");
+
+    // The admin switches the policy on quietly and confirms it, so the
+    // retirement has one confirmation to freeze.
+    const on = await api(page, "/api/admin/compliance", { method: "POST", body: { docId, action: "request", notify: false } });
+    expect(on.status, "requested quietly").toBe(200);
+    const summary = await api(page, `/api/documents/${docId}/ack`);
+    expect(summary.status).toBe(200);
+    const confirmed = await api(page, `/api/documents/${docId}/ack`, {
+      method: "POST",
+      body: { version_id: summary.body?.latest_version_id },
+    });
+    expect(confirmed.status).toBe(200);
+
+    // The read-only role: 403 on both verbs, and nothing changed hands.
+    readerId = await makeUser(page, reader, "E2E Retire Reader");
+    readerRole = await grantRole(page, `E2E Retire Reader ${suffix}`, ["compliance.program_read"], readerId);
+    const rctx = await browser.newContext();
+    try {
+      const rpage = await rctx.newPage();
+      await login(rpage, reader);
+      const refused = await api(rpage, `/api/documents/${docId}/ack/retire`, { method: "POST", body: { reason: REASON } });
+      expect(refused.status, "retire needs ack_require on the space or program_manage").toBe(403);
+      const resumed = await api(rpage, `/api/documents/${docId}/ack/unretire`, { method: "POST", body: {} });
+      expect(resumed.status, "and so does un-retire").toBe(403);
+    } finally {
+      await rctx.close();
+    }
+    expect((await api(page, `/api/documents/${docId}`)).body?.doc?.ack_required).toBe(1);
+
+    // A viewer holding document.ack_require on the policy's own space (the
+    // sample space the policy was made in) retires it.
+    retirerId = await makeUser(page, retirer, "E2E Retirer");
+    const role = await api(page, "/api/admin/rbac/roles", {
+      method: "POST",
+      body: { name: `E2E Retirer ${suffix}`, description: "e2e: ack_require on the policy's space", permissions: ["document.ack_require"] },
+    });
+    expect(role.status).toBe(201);
+    retirerRole = role.body?.id;
+    const scoped = await api(page, "/api/admin/rbac/assignments", {
+      method: "POST",
+      body: { role_id: retirerRole, user_id: retirerId, space_id: 1 },
+    });
+    expect(scoped.status, "assigned on the policy's space").toBe(201);
+    const qctx = await browser.newContext();
+    try {
+      const qpage = await qctx.newPage();
+      await login(qpage, retirer);
+      const short = await api(qpage, `/api/documents/${docId}/ack/retire`, { method: "POST", body: { reason: "short" } });
+      expect(short.status, "a reason of ten characters").toBe(400);
+      expect(short.body?.error).toBe("A reason of at least 10 characters is required.");
+      const notRetired = await api(qpage, `/api/documents/${docId}/ack/unretire`, { method: "POST", body: {} });
+      expect(notRetired.status, "nothing to resume yet").toBe(409);
+      expect(notRetired.body?.error).toBe("This policy is not retired.");
+
+      const retired = await api(qpage, `/api/documents/${docId}/ack/retire`, { method: "POST", body: { reason: REASON } });
+      expect(retired.status, "retired").toBe(200);
+      expect(retired.body?.ok).toBe(true);
+      expect(retired.body?.acked, "the admin's confirmation was current").toBe(1);
+      expect(retired.body?.required).toBeGreaterThanOrEqual(1);
+      expect(retired.body?.rev, "the version people had been asked to confirm").toBe(1);
+
+      const again = await api(qpage, `/api/documents/${docId}/ack/retire`, { method: "POST", body: { reason: REASON } });
+      expect(again.status).toBe(409);
+      expect(again.body?.error).toBe("This policy is already retired.");
+      const reRequire = await api(qpage, `/api/documents/${docId}/ack`, { method: "PATCH", body: { required: true } });
+      expect(reRequire.status, "the shield cannot switch a retired policy back on").toBe(409);
+      expect(reRequire.body?.error).toBe("This policy is retired. Un-retire it first.");
+
+      // The reader-facing surface: one neutral row, no card, no sticky control.
+      await qpage.goto(`/doc/${docId}`);
+      await expect(qpage.locator("h1")).toContainText(title);
+      await expect(qpage.getByText(/^Retired \S/).first()).toBeVisible();
+      await expect(qpage.locator("#confirm-reading")).toHaveCount(0);
+      await expect(qpage.getByRole("link", { name: "Jump to confirmation" })).toHaveCount(0);
+    } finally {
+      await qctx.close();
+    }
+
+    // The document: requirement off, the retirement on the row. The
+    // portal: listed as retired with the reason, out of the request picker
+    // and out of the tiles.
+    const doc = (await api(page, `/api/documents/${docId}`)).body?.doc;
+    expect(doc?.ack_required).toBe(0);
+    expect(doc?.ack_retired_at).toBeTruthy();
+    expect(doc?.ack_retired_reason).toBe(REASON);
+    const view = await api(page, "/api/admin/compliance");
+    expect(view.status).toBe(200);
+    const row = (view.body?.docs ?? []).find((d: { id: number }) => d.id === docId);
+    expect(row, "a retired policy stays listed").toBeTruthy();
+    expect(row?.ack_retired_at).toBeTruthy();
+    expect(row?.ack_retired_by_name).toBe("E2E Retirer");
+    expect(row?.ack_retired_reason).toBe(REASON);
+    expect(row?.acked, "the frozen count").toBe(1);
+    expect(row?.retired_rev).toBe(1);
+    expect((view.body?.candidates ?? []).some((c: { id: number }) => c.id === docId), "not a request candidate").toBe(false);
+    const retiredAudit = await auditRows(page, (r) => r.action === "ack.retired" && Number(r.target_id) === docId);
+    expect(retiredAudit.length).toBe(1);
+    expect(retiredAudit[0].details).toMatchObject({ reason: REASON, acked: 1, superseded_by: null, version: 1 });
+
+    // Un-retire (the admin holds program_manage): the requirement and the
+    // card come back, the admin's confirmation still counts, the second
+    // call is 409.
+    const resumed = await api(page, `/api/documents/${docId}/ack/unretire`, { method: "POST", body: {} });
+    expect(resumed.status, "resumed").toBe(200);
+    expect(resumed.body?.ok).toBe(true);
+    expect(resumed.body?.current, "the prior confirmation is current again").toBe(1);
+    expect(resumed.body?.eligible).toBeGreaterThanOrEqual(1);
+    expect((await api(page, `/api/documents/${docId}/ack/unretire`, { method: "POST", body: {} })).status).toBe(409);
+    const after = (await api(page, `/api/documents/${docId}`)).body?.doc;
+    expect(after?.ack_required).toBe(1);
+    expect(after?.ack_retired_at).toBeNull();
+    expect(after?.ack_retired_reason).toBe("");
+    await page.goto(`/doc/${docId}`);
+    await expect(page.locator("#confirm-reading")).toHaveCount(1);
+    await expect(page.getByText(/^Retired \S/)).toHaveCount(0);
+    const unretiredAudit = await auditRows(page, (r) => r.action === "ack.unretired" && Number(r.target_id) === docId);
+    expect(unretiredAudit.length).toBe(1);
+    expect(unretiredAudit[0].details).toMatchObject({ current: 1 });
+    const portalAfter = await api(page, "/api/admin/compliance");
+    const liveRow = (portalAfter.body?.docs ?? []).find((d: { id: number }) => d.id === docId);
+    expect(liveRow?.ack_retired_at).toBeNull();
+  } finally {
+    if (readerRole) await api(page, `/api/admin/rbac/roles/${readerRole}`, { method: "DELETE" });
+    if (retirerRole) await api(page, `/api/admin/rbac/roles/${retirerRole}`, { method: "DELETE" });
+    if (readerId) await api(page, `/api/admin/users/${readerId}`, { method: "DELETE" });
+    if (retirerId) await api(page, `/api/admin/users/${retirerId}`, { method: "DELETE" });
     if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
   }
 });

@@ -25,8 +25,10 @@ import {
   setAckRequired,
   setAckLastReminded,
   compliancePendingUsers,
+  claimDueRecertifications,
 } from "./db";
 import type { AckOutboxInput, AckNoticeInput, AckActor, Queryable, ClaimedAckOutboxRow } from "./db";
+import { RECERT_LEDGER_REASON } from "./ack-recert";
 import type { AckNoticeMode, AckNoticeChannel, AckSource } from "./types";
 import { auditAck } from "./audit";
 import type { AckAuditAction } from "./audit";
@@ -741,4 +743,39 @@ export async function deliverAckNotices(opts: DeliverOptions = {}): Promise<Deli
     }
   }
   return out;
+}
+
+// --- The re-confirmation sweep (G1, 1.12.0) -------------------------------------
+
+/**
+ * Fire every re-confirmation cycle that is due (the hourly tick in
+ * instrumentation.ts, gated on the policy_ack entitlement there; safe to
+ * run from every instance at once). One atomic claim in lib/db
+ * (claimDueRecertifications) moves each due policy's marker, next date and
+ * reminder stamp, writes its 'reset' ledger row from source 'recurrence' and
+ * queues one immediate 'updated' notice carrying the months-since sentence;
+ * here each cycle is echoed to the audit log as ack.recert {version_id,
+ * reset, eligible} by the system (the drain writes a second ack.recert when
+ * the notice has gone out, with the delivery counts). Returns how many
+ * cycles fired. `documentIds` limits the sweep (tests sharing a database).
+ */
+export async function recertifyDueAcks(opts: { documentIds?: number[] } = {}): Promise<{ cycles: number }> {
+  const cycles = await claimDueRecertifications(null, opts);
+  for (const c of cycles) {
+    await auditAck("ack.recert", { id: c.document_id, title: c.title }, {
+      actor: { id: null, name: "system" },
+      version_id: c.version_id,
+      version: c.rev,
+      source: "recurrence",
+      reason: RECERT_LEDGER_REASON,
+      details: {
+        reset: c.confirmations_reset,
+        eligible: c.eligible,
+        recert_months: c.recert_months,
+        decision_id: c.decision_id,
+        outbox_id: c.outbox_id,
+      },
+    });
+  }
+  return { cycles: cycles.length };
 }

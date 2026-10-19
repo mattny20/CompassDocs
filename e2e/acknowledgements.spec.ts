@@ -1364,3 +1364,118 @@ test("importing a zip leaves a confirmed policy unchanged unless the box is tick
     if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
   }
 });
+
+// 1.12.0 (C2): a policy's own confirmation statement and the typed
+// signature. The settings route validates and answers what the document
+// holds; the card renders the statement and, when a signature is required,
+// the Sign to confirm block gates the button until the typed name matches;
+// the record keeps the name and how the signer was identified; the
+// Settings tab shows the same two settings.
+test("a policy with a typed signature: the button waits for the name, the record keeps it, and a per-document statement shows on the card and the Settings tab", async ({ page }) => {
+  await login(page, ADMIN);
+  const title = `E2E ack signature ${stamp()}`;
+  const custom = "I have read this document and will comply with it.";
+  let docId: number | undefined;
+  try {
+    docId = await makePolicy(page, title);
+    test.skip(
+      (await requireConfirmation(page, docId)) === "unlicensed",
+      "policy_ack is not licensed in this build; the EE rig runs the flow"
+    );
+
+    // The settings route: the defaults, then the validation, then the two
+    // settings set through PATCH.
+    const before = await api(page, `/api/documents/${docId}/ack-settings`);
+    expect(before.status).toBe(200);
+    expect(before.body?.statement).toBeNull();
+    expect(before.body?.signature).toBe(false);
+    expect(before.body?.statement_default).toBe(STATEMENT);
+    expect((await api(page, `/api/documents/${docId}/ack-settings`, { method: "PATCH", body: { signature: "yes" } })).status).toBe(400);
+    expect((await api(page, `/api/documents/${docId}/ack-settings`, { method: "PATCH", body: { statement: "x".repeat(501) } })).status).toBe(400);
+    const set = await api(page, `/api/documents/${docId}/ack-settings`, {
+      method: "PATCH",
+      body: { statement: custom, signature: true },
+    });
+    expect(set.status, "statement and signature saved").toBe(200);
+    expect(set.body?.statement).toBe(custom);
+    expect(set.body?.signature).toBe(true);
+
+    // The card: the policy's own statement (not the workspace default), the
+    // Sign to confirm block, and a button that waits for the name.
+    await page.goto(`/doc/${docId}`);
+    await expect(page.locator("h1")).toContainText(title);
+    const card = page.locator("#confirm-reading");
+    await expect(card.getByText(custom)).toBeVisible();
+    await expect(card.getByText(STATEMENT)).toHaveCount(0);
+    await expect(card.getByRole("heading", { name: "Sign to confirm" })).toBeVisible();
+    const button = card.getByRole("button", { name: CONFIRM });
+    await expect(button).toHaveAttribute("aria-disabled", "true");
+    await expect(card.getByText("Sign above to confirm")).toBeVisible();
+    // The help names the account's own name: the name the signature must match.
+    const help = (await card.getByText(/^Exactly as it appears on your account: /).textContent()) ?? "";
+    const expected = help.replace(/^Exactly as it appears on your account: /, "").trim();
+    expect(expected, "the account name on the help line").toBeTruthy();
+
+    const name = card.getByLabel("Type your full name to sign");
+    await name.fill("Somebody Else");
+    await expect(button).toHaveAttribute("aria-disabled", "true");
+    // A click while gated records nothing and sends nothing.
+    let posted = 0;
+    page.on("request", (r) => {
+      if (r.method() === "POST" && r.url().includes(`/api/documents/${docId}/ack`)) posted += 1;
+    });
+    await button.click();
+    await page.waitForTimeout(300);
+    expect(posted, "no POST while the name does not match").toBe(0);
+
+    await name.fill(expected.toUpperCase());
+    await expect(button).not.toHaveAttribute("aria-disabled", "true");
+    await expect(card.getByText("Sign above to confirm")).toHaveCount(0);
+
+    // The admin is a local account: the password is re-checked. One wrong
+    // password (the sign-in throttle counts it; the right one clears it).
+    const password = card.getByLabel("Re-enter your account password");
+    await password.fill("not-the-password");
+    await button.click();
+    await expect(page.locator('[role="alert"]').getByText(/Password check failed/)).toBeVisible();
+    await expect(card.getByRole("button", { name: CONFIRM })).toHaveCount(1);
+
+    await password.fill(ADMIN.password);
+    const [confirmPost] = await Promise.all([
+      page.waitForRequest((r) => r.method() === "POST" && r.url().includes(`/api/documents/${docId}/ack`) && !r.url().includes("ack-settings")),
+      button.click(),
+    ]);
+    const confirmBody = confirmPost.postDataJSON() as Record<string, unknown>;
+    expect(confirmBody.signed_name).toBe(expected.toUpperCase());
+    expect(typeof confirmBody.password).toBe("string");
+    await expect(page.locator('[role="status"]').getByText("Confirmation recorded.")).toBeVisible();
+    await expect(card.getByRole("heading", { name: "Confirmation recorded" })).toBeVisible();
+    await expect(card.getByText(/signed as /)).toBeVisible();
+
+    // The record keeps the name as typed and how the signer was identified;
+    // the statement stored is the one served.
+    const roster = await api(page, `/api/documents/${docId}/acknowledgements`);
+    expect(roster.status).toBe(200);
+    const mine = (roster.body?.rows ?? []).find((r: { username: string }) => r.username === ADMIN.username);
+    expect(mine?.signed_name).toBe(expected.toUpperCase());
+    expect(mine?.identity_proof).toBe("password");
+    expect(mine?.statement_text).toBe(custom);
+
+    // A fresh load shows the record's name, not a remembered click.
+    await page.goto(`/doc/${docId}`);
+    await expect(page.locator("#confirm-reading").getByText(/signed as /)).toBeVisible();
+
+    // The Settings tab holds the same two settings, under the shared header.
+    await page.goto(`/doc/${docId}/acknowledgements/settings`);
+    await expect(page.getByRole("heading", { name: "Read confirmation" })).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "Read confirmation" }).getByRole("link", { name: "Settings" })).toHaveAttribute(
+      "aria-current",
+      "page"
+    );
+    await expect(page.getByLabel("Confirmation statement")).toHaveValue(custom);
+    await expect(page.getByRole("switch", { name: "Require typed signature" })).toHaveAttribute("aria-checked", "true");
+    await expect(page.getByRole("button", { name: "Save settings" })).toBeDisabled();
+  } finally {
+    if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
+  }
+});

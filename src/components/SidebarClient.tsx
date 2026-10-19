@@ -79,6 +79,7 @@ export function SidebarClient({
   showCompliance,
   showTraining = false,
   trainingCount = 0,
+  pendingAckCount = 0,
   isEditor,
   isApprover,
   isAdmin,
@@ -108,6 +109,8 @@ export function SidebarClient({
   /** Training entitlement present: everyone gets the tab (badge = open assignments). */
   showTraining?: boolean;
   trainingCount?: number;
+  /** Policies the person has not confirmed the current ask of — badged on Compliance (B4). */
+  pendingAckCount?: number;
   isEditor: boolean;
   isApprover: boolean;
   isAdmin: boolean;
@@ -178,17 +181,34 @@ export function SidebarClient({
   // Less-used destinations fold under "More". Settings is NOT in the fold:
   // it is pinned for admins so every /admin page lights its row. A folded
   // destination that is the current page is always rendered and the toggle
-  // disappears — the fold must never hide where you are.
-  const folded = [
+  // disappears — the fold must never hide where you are. The same holds for
+  // a folded destination carrying a badge (B4: policies to confirm): the
+  // accent pill means work waiting for you, and a pill behind "More" waits
+  // for nobody.
+  const folded: {
+    href: string;
+    icon: React.ReactNode;
+    label: string;
+    show: boolean;
+    badge?: number;
+    badgeLabel?: string;
+  }[] = [
     { href: "/newsletter", icon: <Mail className="h-4 w-4" />, label: "Newsletter", show: showNewsletter },
     { href: "/analytics", icon: <ChartColumn className="h-4 w-4" />, label: "Analytics", show: isApprover },
     { href: "/announcements", icon: <Megaphone className="h-4 w-4" />, label: "Announcements", show: showAnnouncements },
-    { href: "/compliance", icon: <ShieldCheck className="h-4 w-4" />, label: "Compliance", show: showCompliance },
+    {
+      href: "/compliance",
+      icon: <ShieldCheck className="h-4 w-4" />,
+      label: "Compliance",
+      show: showCompliance,
+      badge: pendingAckCount,
+      badgeLabel: "policies to confirm",
+    },
     { href: "/trash", icon: <Trash2 className="h-4 w-4" />, label: "Trash", show: isEditor },
   ].filter((i) => i.show);
   const hasMoreItems = folded.length > 0;
-  const activeFolded = folded.some((i) => isActivePath(pathname, i.href));
-  const showFold = moreOpen || activeFolded;
+  const pinnedFold = folded.some((i) => isActivePath(pathname, i.href) || (i.badge ?? 0) > 0);
+  const showFold = moreOpen || pinnedFold;
 
   const moreLabel = moreOpen ? "Less" : "More";
   const moreToggle = (
@@ -366,7 +386,7 @@ export function SidebarClient({
         {/* The toggle sits where "More" was when folded, but drops below the
             expanded items when open — so "Less" ends the list it controls. On
             a folded page there is nothing to collapse, so there is no toggle. */}
-        {hasMoreItems && !activeFolded && !moreOpen && moreToggle}
+        {hasMoreItems && !pinnedFold && !moreOpen && moreToggle}
         {showFold && (
           <div id="sidebar-more">
             {folded.map((i) => (
@@ -377,11 +397,13 @@ export function SidebarClient({
                 label={i.label}
                 collapsed={collapsed}
                 active={isActivePath(pathname, i.href)}
+                badge={i.badge}
+                badgeLabel={i.badgeLabel}
               />
             ))}
           </div>
         )}
-        {hasMoreItems && !activeFolded && moreOpen && moreToggle}
+        {hasMoreItems && !pinnedFold && moreOpen && moreToggle}
       </nav>
 
       {!collapsed && (

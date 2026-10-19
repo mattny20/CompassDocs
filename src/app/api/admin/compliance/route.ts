@@ -10,6 +10,7 @@ import {
   ackSummary,
   getDocument,
   setAckRequired,
+  listAckLedgerAll,
 } from "@/lib/db";
 import { requestAcknowledgement, enqueueReminder } from "@/lib/compliance";
 import { audit, auditAck, actorFrom, ipFrom } from "@/lib/audit";
@@ -17,6 +18,13 @@ import { userHolds } from "@/lib/access";
 import { requestOrigin } from "@/lib/oauth";
 import { versionProvenance, provenanceCells } from "@/lib/version-provenance";
 import { csvCell } from "@/lib/csv";
+import {
+  MATRIX_CSV_HEADER,
+  LEDGER_CSV_HEADER,
+  attestationCsvCells,
+  recertCsvCells,
+  ledgerCsvCells,
+} from "@/lib/read-evidence";
 import type { SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +32,8 @@ export const dynamic = "force-dynamic";
 // Central compliance portal: org-wide read-confirmation progress, asking for
 // a read confirmation of any published doc, reminders to stragglers, and
 // stopping the requirement. Three keys gate it (F6, 1.10.1): program_read
-// for the JSON, export for the CSV matrix, program_manage for every POST.
+// for the JSON, export for the CSV matrix and the ledger (C4, 1.12.0),
+// program_manage for every POST.
 
 const REMIND_COOLDOWN_MS = 60 * 60 * 1000; // one reminder per doc per hour
 
@@ -57,14 +66,45 @@ async function publishedDoc(raw: unknown) {
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
-  const csv = url.searchParams.get("format") === "csv";
+  const format = url.searchParams.get("format");
+  const csv = format === "csv";
+  const ledger = format === "ledger";
   const preview = url.searchParams.get("preview");
 
-  // The key follows the shape of the answer: the matrix is an export of
-  // personal data, everything else is reading the programme.
-  const gate = await gated(csv ? "compliance.export" : "compliance.program_read");
+  // The key follows the shape of the answer: the matrix and the ledger are
+  // exports of personal data, everything else is reading the programme.
+  // complianceGuard is the section gate AND the key, so a program_read-only
+  // role is answered 403 on both files.
+  const gate = await gated(csv || ledger ? "compliance.export" : "compliance.program_read");
   if ("denied" in gate) return gate.denied;
   const { user } = gate;
+
+  if (ledger) {
+    // The workspace ledger (C4, 1.12.0): every confirmation ever recorded,
+    // over every document (purged ones from their title snapshot), with
+    // superseded rows, former staff and removed accounts, and the IP and
+    // user agent of each (the key above is what makes those two visible).
+    // Grouped by document, newest first within each; the header is
+    // LEDGER_CSV_HEADER, every cell through csvCell.
+    const rows = await listAckLedgerAll();
+    const esc = csvCell;
+    const lines = [LEDGER_CSV_HEADER, ...rows.map((r) => ledgerCsvCells(r, true).map(esc).join(","))];
+    await audit({
+      actor: actorFrom(user),
+      action: "ack.export",
+      targetType: "compliance",
+      targetId: null,
+      targetLabel: "All policies",
+      details: { format: "ledger", doc_id: "all", rows: rows.length, with_ip: true },
+      ip: ipFrom(req),
+    });
+    return new Response(lines.join("\n") + "\n", {
+      headers: {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": 'attachment; filename="compliance-ledger.csv"',
+      },
+    });
+  }
 
   if (preview !== null) {
     // ?preview={docId} -> the audience the Request question names (A8):
@@ -88,23 +128,25 @@ export async function GET(req: Request) {
     // appended, then the ledger's asked_at, asked_by, reason and
     // kept_since_asked (C1; asked_by and reason are empty when the marker
     // predates the ledger), then who published and approved the version each
-    // row cites (C6, 1.10.1). No IP column here: with_ip is false. Every
-    // cell goes through csvCell (quotes doubled, a formula-leading value
-    // prefixed with a quote), so a name or a note that starts with = never
-    // runs when the sheet opens; the header line is the literal below.
+    // row cites (C6, 1.10.1), and (C4, 1.12.0) the same six columns the
+    // roster appends: statement, signed_name, identity_proof (C2), then
+    // recert_months, effective_at, next_recert_at from the documents row
+    // (G1). No IP column here: with_ip is false. Every cell goes through
+    // csvCell (quotes doubled, a formula-leading value prefixed with a
+    // quote), so a name or a note that starts with = never runs when the
+    // sheet opens; the header is MATRIX_CSV_HEADER in src/lib/read-evidence.
     // Published policies only: a paused (unpublished) policy is out of the
     // numbers and off the row actions while it is down (G2), so it is out
     // of the matrix too; its record stays on the document's own page.
     const docs = (await complianceDocs()).filter((d) => d.status === "published");
     const esc = csvCell;
-    const lines = [
-      "document,space,revision_as_of,name,username,email,role,acknowledged_at,version,version_id,content_sha256,version_source,former_staff,asked_at,asked_by,reason,kept_since_asked,version_published_by,version_approved_by",
-    ];
+    const lines = [MATRIX_CSV_HEADER];
     for (const d of docs) {
-      const [rows, former, provenance] = await Promise.all([
+      const [rows, former, provenance, policy] = await Promise.all([
         ackStatusForDocument(d.id),
         ackFormerStaffRows(d.id),
         versionProvenance(d.id),
+        getDocument(d.id),
       ]);
       const asked = [
         esc(d.ack_revision_at),
@@ -112,6 +154,7 @@ export async function GET(req: Request) {
         esc(d.last_reset?.reason ?? ""),
         esc(d.kept_since_reset),
       ];
+      const recert = recertCsvCells(policy ?? {}).map(esc);
       for (const r of rows) {
         lines.push(
           [
@@ -130,6 +173,8 @@ export async function GET(req: Request) {
             esc(""),
             ...asked,
             ...provenanceCells(provenance, r.version_id).map(esc),
+            ...attestationCsvCells(r).map(esc),
+            ...recert,
           ].join(",")
         );
       }
@@ -151,6 +196,8 @@ export async function GET(req: Request) {
             esc(r.reason),
             ...asked,
             ...provenanceCells(provenance, r.version_id).map(esc),
+            ...attestationCsvCells(r).map(esc),
+            ...recert,
           ].join(",")
         );
       }
@@ -187,7 +234,7 @@ export async function GET(req: Request) {
   // the portal can show it, but nobody owes it while it is down, so it is
   // out of every sum and the percentage does not drop on unpublish.
   // complianceUserSummary applies the same rule per person.
-  const active = docs.filter((d) => d.status === "published");
+  const active = docs.filter((d) => d.status === "published" && d.ack_retired_at === null);
   const required = active.reduce((n, d) => n + d.required, 0);
   const acked = active.reduce((n, d) => n + d.acked, 0);
   const usersWithRequirements = users.filter((u) => u.required > 0);

@@ -135,6 +135,10 @@ describe("program settings", () => {
     refused({ ack_defaults: { edit_default: "ask", nope: true } }, 'Unknown setting "ack_defaults.nope"');
     refused({ ack_defaults: { edit_default: "never" } }, "ask, material or reset");
     refused({ ack_defaults: { keep_reason_required: "yes" } }, "true or false");
+    // The default interval offers the Select's options only (a policy may choose 1..60 for itself).
+    refused({ ack_defaults: { recert_months: 7 } }, "6, 12 or 24");
+    refused({ ack_defaults: { recert_months: "12" } }, "6, 12 or 24");
+    refused({ ack_defaults: { recert_months: 0 } }, "6, 12 or 24");
     refused({ ack_defaults: ["ask"] }, "must be an object");
     refused({ compliance_statement_default: "" }, "Enter a confirmation statement");
     refused({ compliance_statement_default: "x".repeat(301) }, "under 300 characters");
@@ -155,6 +159,11 @@ describe("program settings", () => {
     }
     const empty = parseComplianceSettingsPatch({});
     assert.equal(empty.ok, true, "nothing to change is not an error");
+    for (const months of [null, 6, 12, 24]) {
+      const r = parseComplianceSettingsPatch({ ack_defaults: { recert_months: months } });
+      assert.equal(r.ok, true, `recert_months ${months}`);
+      if (r.ok) assert.deepEqual(r.patch, { ack_defaults: { recert_months: months } });
+    }
   });
 
   test("one settings.compliance audit row per changed key, none for a key sent unchanged", async () => {
@@ -211,5 +220,33 @@ describe("program settings", () => {
     assert.equal(rows.length, 3);
     assert.deepEqual(rows[2].details, { key: "ack_defaults.keep_reason_required", from: true, to: false });
     await clearKeys();
+  });
+
+  test("the default re-confirmation interval round-trips, rejects 7, and a hand-edited 7 reads as never", async () => {
+    await clearKeys();
+    assert.equal((await readComplianceSettings()).ack_defaults.recert_months, null, "never until an admin chooses");
+
+    const { settings, changes } = await saveComplianceSettings({ ack_defaults: { recert_months: 12 } }, { actor });
+    assert.equal(settings.ack_defaults.recert_months, 12);
+    assert.deepEqual(changes, [{ key: "ack_defaults.recert_months", from: null, to: 12 }]);
+    assert.equal((await readComplianceSettings()).ack_defaults.recert_months, 12, "a fresh read returns what was saved");
+    assert.deepEqual(JSON.parse((await getSetting("ack_defaults"))!), { recert_months: 12 });
+    assert.equal(settings.ack_defaults.edit_default, "ask", "the siblings keep their defaults");
+
+    const back = await saveComplianceSettings({ ack_defaults: { recert_months: null } }, { actor });
+    assert.equal(back.settings.ack_defaults.recert_months, null);
+    assert.deepEqual(back.changes, [{ key: "ack_defaults.recert_months", from: 12, to: null }]);
+    assert.deepEqual(JSON.parse((await getSetting("ack_defaults"))!), { recert_months: null }, "never is stored as null, not dropped");
+
+    // The route refuses 7 (parseComplianceSettingsPatch); a hand edit of 7
+    // in the settings row is read as the default, like an unknown edit_default.
+    const refused = parseComplianceSettingsPatch({ ack_defaults: { recert_months: 7 } });
+    assert.equal(refused.ok, false);
+    await setSetting("ack_defaults", JSON.stringify({ recert_months: 7, edit_default: "material" }));
+    const read = await readComplianceSettings();
+    assert.equal(read.ack_defaults.recert_months, null, "7 is not an option the build offers");
+    assert.equal(read.ack_defaults.edit_default, "material", "a valid sibling still counts");
+    await clearKeys();
+    await pool().query("DELETE FROM audit_log WHERE action = 'settings.compliance' AND actor_name = $1", [STAMP]);
   });
 });

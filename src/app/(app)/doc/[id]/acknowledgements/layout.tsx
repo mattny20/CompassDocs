@@ -1,9 +1,9 @@
 import type { ReactNode } from "react";
-import { ClipboardCheck, Download } from "lucide-react";
+import { ClipboardCheck } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { PageContainer } from "@/components/PageWidth";
-import { buttonClass } from "@/components/Button";
 import { ReconfirmButton } from "@/components/ReconfirmButton";
+import { AckExportMenu } from "@/components/AckRoster";
 import { getAckVersionInfo, lastAckDecision } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings-store";
 import { formatDate, settingsForUser } from "@/lib/format";
@@ -31,7 +31,7 @@ export default async function AcknowledgementsLayout({
   // The newest reset is the ask behind the current marker
   // (resetAcknowledgements is the only code that moves it); kept edits on
   // top of it change the History tab, not this sentence.
-  const [rows, version, asked, settings, mayRequire, mayManage] = await Promise.all([
+  const [rows, version, asked, settings, mayRequire, mayManage, canExport] = await Promise.all([
     cachedAckRows(doc.id),
     getAckVersionInfo(doc.id),
     lastAckDecision(doc.id, { outcome: "reset" }),
@@ -39,6 +39,9 @@ export default async function AcknowledgementsLayout({
     // The re-ask's own gate (A7): the reconfirm route takes the same OR.
     userHolds(user, "document.ack_require", { spaceId: doc.space_id, legacyMin: "approver" }),
     userHolds(user, "compliance.program_manage", { legacyMin: "admin" }),
+    // The ledger export carries the IP and user agent of every confirmation:
+    // the Export menu offers it to compliance.export holders only (C4).
+    userHolds(user, "compliance.export", { legacyMin: "admin" }),
   ]);
   const fmt = settingsForUser(settings, user);
   const current = rows.filter((r) => r.acknowledged_at).length;
@@ -57,14 +60,19 @@ export default async function AcknowledgementsLayout({
 
   return (
     <PageContainer>
+      {/* The record is printed as evidence (STYLEGUIDE §Print): the paper
+          copy opens with what it is, which policy, and when it was taken. */}
+      <p className="mb-2 hidden text-sm font-semibold text-slate-800 print:block">
+        Read confirmations · {doc.title} · as of {formatDate(new Date().toISOString(), fmt)}
+      </p>
       <PageHeader
         back={{ href: `/doc/${doc.id}`, label: doc.title }}
         icon={<ClipboardCheck />}
         title="Read confirmation"
         subtitle={subtitle}
         actions={
-          // The record is printed as evidence: controls stay off paper
-          // (STYLEGUIDE §Print), as does the Record · History row below.
+          // Controls stay off paper (STYLEGUIDE §Print), as does the
+          // Record · History row below.
           <>
             {canReask && (
               <ReconfirmButton
@@ -75,18 +83,12 @@ export default async function AcknowledgementsLayout({
                 className="print:hidden"
               />
             )}
-            <a
-              href={`/api/documents/${doc.id}/acknowledgements?format=csv`}
-              data-tt="Download the record as CSV"
-              className={buttonClass("secondary", "md", "print:hidden")}
-            >
-              <Download className="h-4 w-4" /> Export CSV
-            </a>
+            <AckExportMenu docId={doc.id} canExport={canExport} />
           </>
         }
         className="mb-4"
       />
-      <AckSubnav docId={doc.id} />
+      <AckSubnav docId={doc.id} showSettings={mayRequire || mayManage} />
       {children}
     </PageContainer>
   );

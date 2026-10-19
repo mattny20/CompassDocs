@@ -199,6 +199,17 @@ export function recertMetaLine(doc: RecertFields, fmt: (iso: string) => string):
   return parts.length ? parts.join(" · ") : null;
 }
 
+/**
+ * The Record tab's subtitle: "Cycle 4 · annual". `cycle` is 1 + the number
+ * of ledger rows from source 'recurrence' (the first ask is cycle 1, each
+ * sweep starts the next); the cadence word is dropped without an interval.
+ */
+export function recertCycleSubtitle(cycle: number, months: number | null): string {
+  if (months == null) return `Cycle ${cycle}`;
+  const cadence = months === 12 ? "annual" : recertCadence(months);
+  return `Cycle ${cycle} · ${cadence}`;
+}
+
 /** The portal row's text: "Next re-confirmation 1 Jan 2027"; null without a cycle. */
 export function recertPortalLine(doc: RecertFields, fmt: (iso: string) => string): string | null {
   if (doc.ack_recert_months == null || !doc.ack_next_recert_at) return null;

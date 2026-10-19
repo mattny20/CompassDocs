@@ -17,6 +17,8 @@ import { getComplianceSettings } from "@/lib/compliance-settings";
 import { requestOrigin } from "@/lib/oauth";
 import { readSecondsSince } from "@/lib/analytics";
 import { reachedEndFromBody } from "@/lib/read-evidence";
+import { verifyAttestation, signedNameFrom } from "@/lib/attestation";
+import type { AckIdentityProof } from "@/lib/db";
 import type { SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -88,6 +90,16 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 // else, including a missing field, is false. The read time is never read
 // from the body: the route sums this person's view heartbeats for the
 // document since everyone was last asked (readSecondsSince) and stores that.
+//
+// The attestation (C2, 1.12.0): the row stores the confirmation statement
+// the server serves for this document (its own, else the workspace
+// default), never a statement the client sends, and the first 300
+// characters of the browser's User-Agent. When the policy requires a typed
+// signature the body also carries { signed_name, password }: the name must
+// match the account (lib/attestation, 409 otherwise), a local account's
+// password is re-checked behind the login throttle, and the row records the
+// name and how the signer was identified. The password is taken out of the
+// body before anything below can log or audit it, and is never stored.
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const gate = await apiGuard("viewer", "document.ack_submit");
   if (gate instanceof NextResponse) return gate;
@@ -109,15 +121,30 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     return NextResponse.json({ error: "This document doesn't ask for a read confirmation." }, { status: 400 });
   }
 
-  let body: any = null;
-  try {
-    body = await req.json();
-  } catch {
-    body = null;
-  }
-  const versionId = Number(body?.version_id);
-  if (body?.version_id === undefined || body?.version_id === null || !Number.isInteger(versionId)) {
+  const raw: unknown = await req.json().catch(() => null);
+  // The password leaves the body here, before any audit() or log call can
+  // see it (C2); `body` is what the rest of the handler reads.
+  const { password, ...body } = (raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {}) as Record<
+    string,
+    unknown
+  > & { password?: unknown };
+  const versionId = Number(body.version_id);
+  if (body.version_id === undefined || body.version_id === null || !Number.isInteger(versionId)) {
     return NextResponse.json({ error: "version_id is required." }, { status: 400 });
+  }
+
+  // The typed signature (C2): checked before anything is written, so a
+  // wrong name or password records nothing. The helper's own sentence is
+  // the answer (409, or 429 while the throttle holds).
+  let signedName: string | null = null;
+  let identityProof: AckIdentityProof | "" = "";
+  if (doc.ack_signature === 1) {
+    const signed = await verifyAttestation(user, { signed_name: body.signed_name, password }, { ip: ipFrom(req) });
+    if (!signed.ok) {
+      return NextResponse.json({ error: signed.error }, { status: signed.status });
+    }
+    signedName = signedNameFrom(body.signed_name);
+    identityProof = signed.identity_proof;
   }
 
   // The evidence beside the version: the self-reported latch, parsed and
@@ -125,10 +152,18 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   // (the last 30 days when a document somehow carries none).
   const reachedEnd = reachedEndFromBody(body);
   const readSeconds = await readSecondsSince(doc.id, user.id, doc.ack_revision_at ?? null);
+  // What the person agreed to, as this server serves it: the policy's own
+  // statement, else the workspace default at this moment (C2).
+  const statementText = doc.ack_statement ?? (await getComplianceSettings()).compliance_statement_default;
+  const userAgent = (req.headers.get("user-agent") ?? "").slice(0, 300);
 
   const { recorded, stale } = await recordAcknowledgement(doc.id, user.id, ipFrom(req) ?? "", versionId, {
     readSeconds,
     reachedEnd,
+    statementText,
+    signedName,
+    identityProof,
+    userAgent,
   });
   if (stale) {
     return NextResponse.json(
@@ -138,15 +173,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   }
   const ack = await getCurrentAck(doc.id, user.id);
   if (recorded) {
-    // The attestation evidence (C1): the version and hash the row cites, and
-    // the browser that sent it. signed_name / identity_proof arrive with C3.
+    // The attestation evidence (C1): the version and hash the row cites, the
+    // browser that sent it and, on a signed row, the name and how the signer
+    // was identified (C2). Never the password: it left the body above.
     await auditAck("document.acknowledge", doc, {
       actor: actorFrom(user),
       ip: ipFrom(req),
       version_id: ack?.version_id ?? versionId,
       version: ack?.rev ?? null,
       content_sha256: ack?.content_sha256 ?? null,
-      details: { user_agent: (req.headers.get("user-agent") ?? "").slice(0, 300) },
+      details: { user_agent: userAgent, signed_name: signedName, identity_proof: identityProof },
     });
   }
   return NextResponse.json({
@@ -154,6 +190,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     acknowledged_at: ack?.acknowledged_at ?? null,
     version_id: ack?.version_id ?? versionId,
     rev: ack?.rev ?? null,
+    signed_name: ack?.signed_name ?? signedName,
   });
 }
 
@@ -222,6 +259,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   }
   if (!hasRequired && !hasEditDefault) {
     return NextResponse.json({ error: "Send 'required' and/or 'edit_default'." }, { status: 400 });
+  }
+  // A retired policy (G3, 1.12.0) is never switched back on from here: the
+  // named way back is POST /ack/unretire, which clears the retirement.
+  if (hasRequired && body.required && doc.ack_retired_at) {
+    return NextResponse.json({ error: "This policy is retired. Un-retire it first." }, { status: 409 });
   }
   if (hasRequired && body.required && doc.status !== "published") {
     return NextResponse.json(

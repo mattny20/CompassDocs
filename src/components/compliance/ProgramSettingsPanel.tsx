@@ -2,12 +2,13 @@
 
 // Program settings (E4, 1.10.1): the defaults every policy inherits, as
 // cards with one Save row. Each card ships with the item that reads its
-// values, so the page never shows a control nothing honours. In this
-// release: Editing (the per-document default A5 applies when a document is
-// first set to required) and Confirmation statement (the sentence on the
-// end-of-article card). Deadlines and Reminders arrive with E1/E2, the
-// typed-signature toggle with C2, Annual re-confirmation with G1 and
-// Evidence with F2/C5; add each as another <Card> above the SaveRow.
+// values, so the page never shows a control nothing honours. Editing (the
+// per-document default A5 applies when a document is first set to required)
+// and Confirmation statement (the sentence on the end-of-article card) from
+// 1.10.1; Re-confirmation (the interval a policy receives when first set to
+// required, G1) from 1.12.0. Deadlines and Reminders arrive with E1/E2, the
+// typed-signature toggle with C2 and Evidence with F2/C5; add each as
+// another <Card> above the SaveRow.
 
 import { useState } from "react";
 import { ShieldCheck } from "lucide-react";
@@ -19,6 +20,7 @@ import { buttonClass } from "@/components/Button";
 import { toast } from "@/components/Toasts";
 import { useFormatDate } from "@/components/SettingsProvider";
 import { useLeaveGuard, useUnsavedChanges } from "@/lib/use-unsaved";
+import { RECERT_OPTIONS } from "@/lib/ack-recert";
 import { EDIT_DEFAULT_OPTIONS } from "./copy";
 import type { ComplianceSettings, EditDefault } from "@/lib/compliance-settings";
 
@@ -42,6 +44,8 @@ function statementError(text: string): string | undefined {
 interface FormState {
   edit_default: EditDefault;
   keep_reason_required: boolean;
+  /** null = never: a policy switched on receives no cycle. */
+  recert_months: number | null;
   statement: string;
 }
 
@@ -49,9 +53,13 @@ function fromSettings(s: ComplianceSettings): FormState {
   return {
     edit_default: s.ack_defaults.edit_default,
     keep_reason_required: s.ack_defaults.keep_reason_required,
+    recert_months: s.ack_defaults.recert_months,
     statement: s.compliance_statement_default,
   };
 }
+
+/** The Select's option value for an interval: "" for never, else the months. */
+const recertValue = (months: number | null) => (months === null ? "" : String(months));
 
 export function ProgramSettingsPanel({ initial }: { initial: ComplianceSettings }) {
   const [s, setS] = useState<FormState>(() => fromSettings(initial));
@@ -80,7 +88,11 @@ export function ProgramSettingsPanel({ initial }: { initial: ComplianceSettings 
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        ack_defaults: { edit_default: s.edit_default, keep_reason_required: s.keep_reason_required },
+        ack_defaults: {
+          edit_default: s.edit_default,
+          keep_reason_required: s.keep_reason_required,
+          recert_months: s.recert_months,
+        },
         compliance_statement_default: s.statement,
       }),
     });
@@ -138,7 +150,30 @@ export function ProgramSettingsPanel({ initial }: { initial: ComplianceSettings 
         <StatementPreview statement={s.statement} />
       </Card>
 
+      <Card
+        title="Re-confirmation"
+        description="How often everyone is asked to read and confirm a policy again, whether or not its text changed."
+      >
+        <Field
+          label="Re-confirm every"
+          help="Applied when a policy is first set to require confirmation. Each policy can change it on its Settings tab."
+          size="sm"
+        >
+          <Select
+            value={recertValue(s.recert_months)}
+            onChange={(e) => set("recert_months", e.target.value === "" ? null : Number(e.target.value))}
+          >
+            {RECERT_OPTIONS.map((o) => (
+              <option key={recertValue(o.months)} value={recertValue(o.months)}>
+                {o.label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      </Card>
+
       <SaveRow dirty={dirty} busy={saving} onSave={save} disabled={invalid} />
+      {/* Deadlines, reminders and evidence cards arrive with E1/E2 and F2/C5. */}
     </div>
   );
 }
