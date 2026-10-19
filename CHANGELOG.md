@@ -22,12 +22,13 @@ beside a grouped editor, markers in front of names, and name formats.
   and the selected preset's editor on the right: its name and actions
   (Make default, Duplicate, Download PDF, Delete) over five cards, each
   one job: **Document** (preset name, title, subtitle, footer note, file
-  name, workspace logo), **Page** (paper, orientation, density, margins,
-  layout, cards per row or page layout, shaded rows, page numbers, printed
-  date), **Columns** (the columns in order with Wrap after, assistant
-  details, photos, pinned people first, office information and its blocks
-  per row), **Order and filter** (sections by, sort by, then by, only
-  people where, one file per) and **Schedule** (the email schedule, with
+  name, name format, workspace logo), **Page** (paper, orientation,
+  density, margins, layout, cards per row or page layout, shaded rows,
+  page numbers, printed date, office information and its blocks per row),
+  **Columns** (the columns in order with Wrap after, assistant details,
+  photos, the markers to print), **Order and filter** (sections by, sort
+  by, then by, pinned people first, only people where, one file per) and
+  **Schedule** (the email schedule, with
   a notice when mail is not set up). One Save for the page, as before;
   every control, rule and message is unchanged. The list stacks over the
   editor on a phone. The settings search finds the cards ("Export ›
@@ -44,8 +45,8 @@ beside a grouped editor, markers in front of names, and name formats.
   markers it prints under **Columns → Mark people with**; the symbols go
   in front of the name in the PDF's table and cards and in the CSV's Name
   column, every assistant's name carries the assistant's own symbols, the
-  PDF's footer prints the key on every page ("* Public notary · † Partner")
-  and the page plan leaves room for it, and the CSV ends each row with a
+  PDF's footer prints the key on every page (one marker after another,
+  separated by a middle dot) and the page plan leaves room for it, and the CSV ends each row with a
   **Markers** column listing the labels. Up to 24 markers; a symbol the
   PDF cannot print is refused by name rather than saved to come out as a
   box. In the API: `GET` / `PUT /api/admin/directory/markers`, a preset's
@@ -53,14 +54,15 @@ beside a grouped editor, markers in front of names, and name formats.
   ("Updated directory markers").
 - **Name formats on exports.** A preset's **Document → Name format**
   writes the Name column, the who's-who cards and assistant names one of
-  six ways: as written, First name Last name, Last name, First name, First
-  name Last initial, Last name, First initial, or First initial Last name
-  ("Smith, Jane A." becomes "Jane Smith", "Smith, Jane", "Jane S.",
+  six ways: *As written*; *First name Last name*; *Last name, First name*;
+  *First name Last initial*; *Last name, First initial*; or *First initial
+  Last name* ("Smith, Jane A." becomes "Jane Smith", "Smith, Jane", "Jane S.",
   "Smith, J." or "J. Smith"). Honorifics, suffixes and credentials come
   off as the name sort already drops them, a particle surname rides whole
   ("van Beethoven, Ludwig"), and a single-word name prints as it is.
   Sorting is unchanged. In the API: a preset's `name_format`; both options
   ride on the export route as overrides like the other preset options.
+
 ### Changed
 - The ordered column list wraps its per-row controls on a phone instead
   of pushing the card sideways, and its add-column menu never exceeds the
