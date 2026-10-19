@@ -323,7 +323,43 @@ re-confirmation on an interval, and retirement. (Enterprise, `policy_ack`.)
   the sentence under the Read confirmation title ends "· Cycle 4 · annual"
   ("· Cycle 2 · every 6 months"): the first ask is cycle 1 and every annual
   re-confirmation on the History tab starts the next.
-<!-- wave 2: settings-ui, portal-ui -->
+- **Settings tab: Re-confirmation and Lifecycle.** The Read confirmation
+  page's Settings tab gains two cards under its one **Save settings** row.
+  **Re-confirmation**: **Re-confirm every** (Never, 6 months, 12 months or
+  24 months, the workspace's value marked "(workspace default)", and an
+  interval the API set outside those four shown as it is, "18 months");
+  **Next re-confirmation**, shown once an interval is chosen and prefilled
+  the way the server schedules it (the day everyone was last asked plus the
+  interval, or 14 days out when that has already passed), with the help
+  "Everyone is asked again on this date. A material change restarts the
+  interval." and a past date refused inline ("The next re-confirmation date
+  cannot be in the past."); a warning when the first cycle was pushed out
+  ("People last re-confirmed 18 months ago. The first cycle is scheduled
+  for 2 Nov 2026: change the date, or use Ask everyone to re-confirm
+  now."); and **Effective date**. **Lifecycle**: **Replaced by**, a picker
+  over the published documents you can see, saved with the settings and
+  shown to readers once the policy is retired; **Retire policy…**, which
+  asks the same question as the portal row (above) and retires the policy
+  in place, the card then reading "Retired 3 Mar 2026 by Mia Manager" with
+  the reason; and **Un-retire**, which asks the same question as the
+  portal's and resumes with the same toast, "Policy resumed: 42 of 50
+  confirmations still current".
+- **`PATCH /api/documents/{id}/ack-settings`** takes `recert_months` (a
+  whole number of months from 1 to 60, or null for never),
+  `next_recert_at` (a date not in the past, or null to schedule from the
+  last ask), `effective_at` (a date, or null) and `superseded_by` (the id
+  of a published document in your scope, or null), any subset in one call,
+  400 naming the first problem ("A policy cannot be replaced by itself.",
+  "The replacement must be a published document you can see."). `GET`
+  answers them beside `marker` (when everyone was last asked),
+  `recert_default` (the workspace interval) and `superseded_by_title`. The
+  `ack.settings_changed` audit row carries what the PATCH moved
+  (`recert_months`, `next_recert_at`, `effective_at`, and the replacement's
+  old and new ids as above), and a PATCH that changes nothing writes none.
+- **The cycle on the document.** The shield popover's status line gains a
+  second line, "Re-confirm yearly · next 1 Jan 2027", and the confirmation
+  card's version line gains "Effective 1 Jan 2026 · re-confirm yearly"
+  (either half alone when the other is unset; nothing without both).
 
 ### Changed
 - **CSV columns appended; existing columns unchanged.** Both the per-policy
@@ -362,6 +398,11 @@ re-confirmation on an interval, and retirement. (Enterprise, `policy_ack`.)
   CSV and the Record tab remain the complete record.
 - The Overview's tiles are five across from `lg`, three from `sm` and two
   on a phone.
+- `GET /api/documents/{id}/ack` (the summary) carries `ack_recert_months`,
+  `ack_next_recert_at` and `ack_effective_at`.
+- The Settings tab saves only the fields that changed since the last save,
+  so a stored next date that has since passed is never re-judged by a save
+  that did not touch it.
 - **Ask everyone to re-confirm…** and every reset of a policy's
   confirmations now also restart its re-confirmation interval; nothing
   changes for a policy without one. A cycle also stamps the policy's
