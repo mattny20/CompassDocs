@@ -42,7 +42,7 @@ describe("MarkdownView inline", () => {
     assert.deepEqual(MD_INLINE_SANITIZE_SCHEMA.tagNames, ["p", "em", "strong", "a", "code", "br"]);
     assert.deepEqual(Object.keys(MD_INLINE_SANITIZE_SCHEMA.attributes ?? {}), ["a"]);
     assert.ok(MD_INLINE_SANITIZE_SCHEMA.attributes?.a.includes("href"), "a link keeps its href");
-    assert.ok(MD_INLINE_SANITIZE_SCHEMA.protocols?.href.includes("https"), "under the default protocols");
+    assert.ok(MD_INLINE_SANITIZE_SCHEMA.protocols?.href?.includes("https"), "under the default protocols");
   });
 
   test("inline keeps emphasis, code and a link and drops an iframe directive, a video, an image, a task list, a heading, raw HTML and styles", () => {

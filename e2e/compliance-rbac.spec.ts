@@ -10,7 +10,13 @@ import { ADMIN, login, api } from "./helpers";
 // to a caller who also holds compliance.export. The program settings need
 // program_manage on both verbs, and the space-scoped document.ack_require
 // is checked on the document's own space: a role holding it on one space
-// cannot PATCH the requirement of a document in another.
+// cannot PATCH the requirement of a document in another. 1.12.0 adds the
+// scope rule on the new per-document routes (a policy in a space the caller
+// cannot see is 404 on ack-settings, retire and un-retire, and its Settings
+// tab is not found), the user_agent column beside the IP (blank without
+// export, filled for an exporter, on current and former-staff rows alike),
+// and the shipped Compliance manager preset saving the Settings tab's
+// statement card through the API with program_manage alone.
 //
 // Roles are created the way e2e/rbac-enforcement.spec.ts creates them, and
 // the test cleans up after itself: the suite shares one database. Licensed
@@ -56,10 +62,10 @@ async function apiWithHeaders(
   );
 }
 
-async function makePolicy(page: Page, title: string): Promise<number> {
+async function makePolicy(page: Page, title: string, spaceId = 1): Promise<number> {
   const made = await api(page, "/api/documents", {
     method: "POST",
-    body: { space_id: 1, title, type: "policy", status: "published", content: BODY, tags: [] },
+    body: { space_id: spaceId, title, type: "policy", status: "published", content: BODY, tags: [] },
   });
   expect(made.status, "policy created").toBe(201);
   const id = made.body?.doc?.id;
@@ -148,10 +154,13 @@ test("a program_read-only role reads the portal and nothing more; unknown action
   const title = `E2E compliance rbac ${suffix}`;
   const reader = { username: `e2e_compread_${suffix}`, password: "E2eRead!12345" };
   const steward = { username: `e2e_compstew_${suffix}`, password: "E2eStew!12345" };
+  const manager = { username: `e2e_compmgr_${suffix}`, password: "E2eMgr!12345" };
   let docId: number | undefined;
+  let hiddenId: number | undefined;
   let readerId: number | undefined;
   let stewardId: number | undefined;
   let requirerId: number | undefined;
+  let managerId: number | undefined;
   let readerRole: number | undefined;
   let stewardRole: number | undefined;
   let requirerRole: number | undefined;
@@ -269,6 +278,16 @@ test("a program_read-only role reads the portal and nothing more; unknown action
     });
     otherSpaceId = otherSpace.body?.space?.id ?? otherSpace.body?.id;
     expect(otherSpaceId, "the other space exists").toBeTruthy();
+    // A policy in the private space, required quietly, for the scope rule
+    // below: a document outside the caller's scope answers 404 on every
+    // per-document route and as a page, before the licence and the
+    // permission checks.
+    hiddenId = await makePolicy(page, `${title} hidden`, otherSpaceId!);
+    const hiddenOn = await api(page, "/api/admin/compliance", {
+      method: "POST",
+      body: { docId: hiddenId, action: "request", notify: false },
+    });
+    expect(hiddenOn.status, "the hidden policy is required quietly").toBe(200);
     const requirer = { username: `e2e_compreq_${suffix}`, password: "E2eReq!12345" };
     requirerId = await makeUser(page, requirer, "E2E Compliance Requirer");
     const reqRole = await api(page, "/api/admin/rbac/roles", {
@@ -330,6 +349,10 @@ test("a program_read-only role reads the portal and nothing more; unknown action
       expect(adminLine![4], "and it is confirmed").toBe("acknowledged");
       expect(adminLine![ipAt], "without export the ip column is blank").toBe("");
       for (const c of lines.slice(1).map(cells)) expect(c[ipAt]).toBe("");
+      // The user agent (filled from 1.12.0) follows the same rule.
+      const uaAt = header.indexOf("user_agent");
+      expect(uaAt, "user_agent follows ip").toBe(ipAt + 1);
+      for (const c of lines.slice(1).map(cells)) expect(c[uaAt], "without export the user_agent column is blank").toBe("");
       // The provenance columns are for everyone who may read the roster.
       expect(adminLine![header.indexOf("version_published_by")], "the version's publisher is named").not.toBe("");
       expect(adminLine![header.indexOf("version_approved_by")], "no change request, no approver").toBe("");
@@ -367,11 +390,17 @@ test("a program_read-only role reads the portal and nothing more; unknown action
           expect(c[statementAt], "and no statement").toBe("");
         }
       }
-      // The JSON roster carries no ip either.
+      // The JSON roster carries no ip or user agent either, on current and
+      // former-staff rows alike.
       const roster = await api(spage, `/api/documents/${docId}/acknowledgements`);
       expect(roster.status).toBe(200);
       expect(roster.body?.can?.export).toBe(false);
       expect(roster.body?.rows?.every((r: Record<string, unknown>) => !("ip" in r))).toBe(true);
+      expect(roster.body?.rows?.every((r: Record<string, unknown>) => !("user_agent" in r)), "nor user_agent").toBe(true);
+      expect(
+        (roster.body?.former_staff ?? []).every((r: Record<string, unknown>) => !("ip" in r) && !("user_agent" in r)),
+        "former staff rows carry no personal data without export"
+      ).toBe(true);
       // The ledger view is readable with the roster permission, with the two
       // personal-data fields blank; the ledger file needs export.
       const ledgerView = await api(spage, `/api/documents/${docId}/acknowledgements?view=all`);
@@ -386,9 +415,35 @@ test("a program_read-only role reads the portal and nothing more; unknown action
       expect((await fetchText(spage, `/api/documents/${docId}/acknowledgements?format=ledger`)).status, "the per-policy ledger file needs export").toBe(403);
       expect((await fetchText(spage, "/api/admin/compliance?format=csv")).status, "the matrix still needs export").toBe(403);
       expect((await fetchText(spage, "/api/admin/compliance?format=ledger")).status, "and so does the workspace ledger").toBe(403);
+
+      // Scope (1.12.0): the policy in the private space does not exist for
+      // the steward on any of the new per-document routes, nor as a page;
+      // 404 comes before the licence and the permission checks, so a
+      // hidden document is never confirmed to exist by a 402 or a 403.
+      expect((await api(spage, `/api/documents/${hiddenId}/ack-settings`)).status, "GET ack-settings out of scope").toBe(404);
+      expect(
+        (await api(spage, `/api/documents/${hiddenId}/ack-settings`, { method: "PATCH", body: { signature: true } })).status,
+        "PATCH ack-settings out of scope"
+      ).toBe(404);
+      expect(
+        (await api(spage, `/api/documents/${hiddenId}/ack/retire`, { method: "POST", body: { reason: "Superseded by the new expense policy" } }))
+          .status,
+        "retire out of scope"
+      ).toBe(404);
+      expect(
+        (await api(spage, `/api/documents/${hiddenId}/ack/unretire`, { method: "POST", body: {} })).status,
+        "un-retire out of scope"
+      ).toBe(404);
+      await spage.goto(`/doc/${hiddenId}/acknowledgements/settings`);
+      await expect(spage.getByRole("heading", { name: "Page not found" })).toBeVisible();
     } finally {
       await sctx.close();
     }
+    // The hidden policy is untouched by the refusals.
+    const hiddenDoc = (await api(page, `/api/documents/${hiddenId}`)).body?.doc;
+    expect(hiddenDoc?.ack_required).toBe(1);
+    expect(hiddenDoc?.ack_retired_at).toBeNull();
+    expect(hiddenDoc?.ack_signature ?? 0).toBe(0);
     // That download is on the record, marked as without the IP.
     const stewardExport = await auditRows(
       page,
@@ -398,6 +453,42 @@ test("a program_read-only role reads the portal and nothing more; unknown action
     expect(stewardExport[0].details?.format).toBe("roster");
     expect(stewardExport[0].details?.with_ip).toBe(false);
     expect(stewardExport[0].details?.rows).toBeGreaterThanOrEqual(1);
+
+    // The shipped Compliance manager preset (program_manage, program_read,
+    // export and ack_roster_read; no document.ack_require): the Settings
+    // tab admits program_manage alone, so its API does too — the statement
+    // card saves with 200 (1.12.0).
+    const rolesList = await api(page, "/api/admin/rbac/roles");
+    expect(rolesList.status).toBe(200);
+    const preset = (rolesList.body?.roles ?? []).find((r: { key: string }) => r.key === "compliance-manager");
+    expect(preset, "the shipped Compliance manager preset exists").toBeTruthy();
+    managerId = await makeUser(page, manager, "E2E Compliance Manager");
+    const presetAssigned = await api(page, "/api/admin/rbac/assignments", {
+      method: "POST",
+      body: { role_id: preset.id, user_id: managerId },
+    });
+    expect(presetAssigned.status, "the preset assigned").toBe(201);
+    const mctx = await browser.newContext();
+    try {
+      const mpage = await mctx.newPage();
+      await login(mpage, manager);
+      const settingsView = await api(mpage, `/api/documents/${docId}/ack-settings`);
+      expect(settingsView.status, "a Compliance manager reads the settings").toBe(200);
+      expect(settingsView.body?.statement).toBeNull();
+      const statement = `I have read this policy and will follow it (${suffix}).`;
+      const saved = await api(mpage, `/api/documents/${docId}/ack-settings`, { method: "PATCH", body: { statement } });
+      expect(saved.status, "and saves the statement card").toBe(200);
+      expect(saved.body?.statement).toBe(statement);
+      const back = await api(mpage, `/api/documents/${docId}/ack-settings`, { method: "PATCH", body: { statement: null } });
+      expect(back.status, "and clears it again").toBe(200);
+      expect(back.body?.statement).toBeNull();
+    } finally {
+      await mctx.close();
+    }
+    expect(
+      (await auditRows(page, (r) => r.action === "ack.settings_changed" && Number(r.target_id) === docId && r.actor_name === "E2E Compliance Manager")).length,
+      "both saves are on the record"
+    ).toBe(2);
 
     // The admin's exports: the same header, the IP column populated from the
     // record for an exporter (the forwarded address the confirmation
@@ -411,6 +502,7 @@ test("a program_read-only role reads the portal and nothing more; unknown action
     const adminOwnLine = adminLines.slice(1).map(cells).find((c) => c[1] === ADMIN.username);
     expect(adminOwnLine, "the admin's confirmed row is in the record").toBeTruthy();
     expect(adminOwnLine![adminIpAt], "an exporter sees the recorded address").toBe(ADMIN_IP);
+    expect(adminOwnLine![cells(adminLines[0]).indexOf("user_agent")], "an exporter sees the recorded user agent").not.toBe("");
     for (const c of adminLines.slice(1).map(cells)) {
       if (c[1] !== ADMIN.username) expect(c[adminIpAt], "a pending row has no address").toBe("");
     }
@@ -426,6 +518,8 @@ test("a program_read-only role reads the portal and nothing more; unknown action
     expect(adminJson.body?.rows?.every((r: Record<string, unknown>) => "ip" in r), "an exporter's JSON rows carry ip").toBe(true);
     const adminJsonRow = (adminJson.body?.rows ?? []).find((r: { username: string }) => r.username === ADMIN.username);
     expect(adminJsonRow?.ip, "and the admin's JSON row carries the same address").toBe(ADMIN_IP);
+    expect(typeof adminJsonRow?.user_agent, "and the recorded user agent").toBe("string");
+    expect(adminJsonRow?.user_agent).not.toBe("");
     // The JSON rows carry the evidence under the record's own names (C3).
     expect(adminJsonRow?.read_seconds, "an API confirmation without a view: unknown read time").toBeNull();
     expect(adminJsonRow?.reached_end, "and no self-reported flag").toBe(false);
@@ -487,6 +581,8 @@ test("a program_read-only role reads the portal and nothing more; unknown action
     if (readerId) await api(page, `/api/admin/users/${readerId}`, { method: "DELETE" });
     if (stewardId) await api(page, `/api/admin/users/${stewardId}`, { method: "DELETE" });
     if (requirerId) await api(page, `/api/admin/users/${requirerId}`, { method: "DELETE" });
+    if (managerId) await api(page, `/api/admin/users/${managerId}`, { method: "DELETE" });
+    if (hiddenId) await api(page, `/api/documents/${hiddenId}`, { method: "DELETE" });
     if (otherSpaceId) await api(page, `/api/admin/spaces/${otherSpaceId}`, { method: "DELETE" });
     if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
   }
