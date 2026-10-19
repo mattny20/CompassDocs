@@ -4,6 +4,43 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.11.2] - 2026-10-19
+
+Directory settings, organised: a Display page, export presets as a list
+beside a grouped editor, markers in front of names, and name formats.
+
+### Added
+- **Directory settings: a Display page.** The Directory page defaults (the
+  list's columns, the field the Groups view opens on, Sort names by) leave
+  the Export page for a page of their own, **Settings → Directory →
+  Display**, as one card, **Directory page defaults**, with one Save. The
+  tab row is now People · Display · Fields · Offices · Export · Sync.
+- **Export presets: a list beside the editor.** The Export page is a
+  preset list on the left (one row per preset, lit when open, with a
+  **Default** chip, a **ZIP** chip when the preset makes one file per
+  value, and a **Scheduled** chip whose tooltip is the schedule sentence)
+  and the selected preset's editor on the right: its name and actions
+  (Make default, Duplicate, Download PDF, Delete) over five cards, each
+  one job: **Document** (preset name, title, subtitle, footer note, file
+  name, workspace logo), **Page** (paper, orientation, density, margins,
+  layout, cards per row or page layout, shaded rows, page numbers, printed
+  date), **Columns** (the columns in order with Wrap after, assistant
+  details, photos, pinned people first, office information and its blocks
+  per row), **Order and filter** (sections by, sort by, then by, only
+  people where, one file per) and **Schedule** (the email schedule, with
+  a notice when mail is not set up). One Save for the page, as before;
+  every control, rule and message is unchanged. The list stacks over the
+  editor on a phone. The settings search finds the cards ("Export ›
+  Columns", "Display › Directory page defaults").
+MARKERS_PLACEHOLDER
+### Changed
+- The ordered column list wraps its per-row controls on a phone instead
+  of pushing the card sideways, and its add-column menu never exceeds the
+  card.
+
+### Upgrading
+- Nothing to migrate. UPGRADING_PLACEHOLDER
+
 ## [1.11.1] - 2026-10-19
 
 Directory export: wrap a column after a number of characters, sort by
