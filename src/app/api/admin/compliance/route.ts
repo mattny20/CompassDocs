@@ -137,8 +137,11 @@ export async function GET(req: Request) {
     // sheet opens; the header is MATRIX_CSV_HEADER in src/lib/read-evidence.
     // Published policies only: a paused (unpublished) policy is out of the
     // numbers and off the row actions while it is down (G2), so it is out
-    // of the matrix too; its record stays on the document's own page.
-    const docs = (await complianceDocs()).filter((d) => d.status === "published");
+    // of the matrix too; its record stays on the document's own page. A
+    // retired policy (G3, 1.12.0) is out for the same reason as it is out
+    // of the tiles: nobody owes it; its evidence stays exportable through
+    // its own roster and ledger CSVs.
+    const docs = (await complianceDocs()).filter((d) => d.status === "published" && d.ack_retired_at === null);
     const esc = csvCell;
     const lines = [MATRIX_CSV_HEADER];
     for (const d of docs) {
@@ -297,6 +300,13 @@ export async function POST(req: Request) {
   const ip = ipFrom(req);
   /** The outbox row's actor: the same name the audit row carries. */
   const sender = { id: user.id, name: user.name || user.username };
+
+  // A retired policy (G3, 1.12.0) answers no portal action: requiring it
+  // again would leave the retirement columns set on a live requirement.
+  // Un-retire is the one way back, as the shield's PATCH refuses too.
+  if (doc.ack_retired_at) {
+    return NextResponse.json({ error: "This policy is retired. Un-retire it first." }, { status: 409 });
+  }
 
   if (action === "request") {
     if (doc.ack_required === 1) {

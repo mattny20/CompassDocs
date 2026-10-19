@@ -5374,7 +5374,7 @@ export async function setAckRequired(
            ELSE ack_next_recert_at
          END,
          ack_recert_months = COALESCE(ack_recert_months, $3::int)
-     WHERE id = $1 AND ack_required = 0
+     WHERE id = $1 AND ack_required = 0 AND ack_retired_at IS NULL
      RETURNING ack_edit_default`,
     [docId, apply, recert]
   );
