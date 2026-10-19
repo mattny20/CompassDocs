@@ -354,7 +354,19 @@ describe("GET and PATCH /api/documents/[id]/ack-settings", () => {
 
     const initial = await call(route.GET as Handler, sessionRequest(url, adminSession, undefined, "GET"), id);
     assert.equal(initial.status, 200);
-    assert.deepEqual(initial.body, { statement: null, statement_default: defaultStatement, signature: false });
+    const { marker, recert_default, effective_at, ...rest } = initial.body;
+    assert.deepEqual(rest, {
+      statement: null,
+      statement_default: defaultStatement,
+      signature: false,
+      recert_months: null,
+      next_recert_at: null,
+      superseded_by: null,
+      superseded_by_title: null,
+    });
+    assert.match(String(effective_at), /^\d{4}-\d{2}-\d{2}$/, "the switch-on dated the policy (G1)");
+    assert.ok(!Number.isNaN(new Date(marker).getTime()), "the marker travels for the first-cycle date");
+    assert.ok([null, 6, 12, 24].includes(recert_default), `the workspace default is one of the options: ${recert_default}`);
 
     const refused = async (body: unknown, fragment: RegExp) => {
       const r = await call(route.PATCH as Handler, sessionRequest(url, adminSession, body, "PATCH"), id);
@@ -364,8 +376,8 @@ describe("GET and PATCH /api/documents/[id]/ack-settings", () => {
     await refused({ signature: "yes" }, /'signature' must be true or false\./);
     await refused({ statement: 42 }, /'statement' must be text\./);
     await refused({ statement: "x".repeat(501) }, /Keep the statement under 500 characters\./);
-    await refused({ statement: "ok", recert_months: 12 }, /Unknown setting "recert_months"\./);
-    await refused({}, /^Send one of: statement, signature\.$/);
+    await refused({ statement: "ok", frobnicate: 12 }, /Unknown setting "frobnicate"\./);
+    await refused({}, /^Send one of: statement, signature, recert_months, next_recert_at, effective_at, superseded_by\.$/);
     await refused([], /Invalid request\./);
     assert.deepEqual(await getAckSettings(id), { statement: null, signature: false }, "a refused body changes nothing");
     assert.equal((await auditRows("ack.settings_changed", id)).length, 0);
@@ -377,7 +389,12 @@ describe("GET and PATCH /api/documents/[id]/ack-settings", () => {
       id
     );
     assert.equal(set.status, 200, JSON.stringify(set.body));
-    assert.deepEqual(set.body, { ok: true, statement: custom, statement_default: defaultStatement, signature: true });
+    assert.equal(set.body.ok, true);
+    assert.deepEqual(
+      [set.body.statement, set.body.statement_default, set.body.signature],
+      [custom, defaultStatement, true],
+      "the answer is what the document now holds"
+    );
     assert.deepEqual(await getAckSettings(id), { statement: custom, signature: true });
     let audits = await auditRows("ack.settings_changed", id);
     assert.equal(audits.length, 1);
@@ -411,5 +428,104 @@ describe("GET and PATCH /api/documents/[id]/ack-settings", () => {
     assert.equal((await getAckSettings(id))?.signature, false);
     const anonymous = await call(route.GET as Handler, new Request(url), id);
     assert.equal(anonymous.status, 401);
+  });
+
+  test("the re-confirmation fields (G1) and the replacement (G3): validated per field, the next date scheduled from the marker, the replacement checked, each change audited once", async () => {
+    const route = await import("../src/app/api/documents/[id]/ack-settings/route");
+    const { id } = await newPolicy(`${STAMP} recert and lifecycle`);
+    const other = await newPolicy(`${STAMP} the replacement`);
+    const url = `http://localhost/api/documents/${id}/ack-settings`;
+    const patch = (body: unknown) => call(route.PATCH as Handler, sessionRequest(url, adminSession, body, "PATCH"), id);
+    const refused = async (body: unknown, fragment: RegExp) => {
+      const r = await patch(body);
+      assert.equal(r.status, 400, `${JSON.stringify(body)} is refused`);
+      assert.match(r.body.error, fragment, `${JSON.stringify(body)}: ${r.body.error}`);
+    };
+    const audits = async () => auditRows("ack.settings_changed", id);
+
+    // The interval: any whole number of months from 1 to 60 through the
+    // API (the Select offers four); the first cycle is dated from the
+    // marker, and a value out of range or a past date is refused.
+    await refused({ recert_months: 0 }, /^Re-confirm every 1 to 60 months, or never\.$/);
+    await refused({ recert_months: 61 }, /^Re-confirm every 1 to 60 months, or never\.$/);
+    await refused({ recert_months: "12" }, /^Re-confirm every 1 to 60 months, or never\.$/);
+    await refused({ next_recert_at: "2020-01-01" }, /^The next re-confirmation date cannot be in the past\.$/);
+    await refused({ next_recert_at: "not a date" }, /^Enter the next re-confirmation as a date\.$/);
+    await refused({ effective_at: "2026-02-31" }, /^Enter the effective date as a date\.$/);
+    assert.equal((await audits()).length, 0, "nothing refused is on the record");
+
+    const marker = new Date((await getAckRecert(id))!.ack_revision_at);
+    const seven = await patch({ recert_months: 7 });
+    assert.equal(seven.status, 200, JSON.stringify(seven.body));
+    assert.equal(seven.body.recert_months, 7);
+    assert.equal(
+      new Date(seven.body.next_recert_at).getTime(),
+      addMonths(marker, 7).getTime(),
+      "the first cycle is the marker plus the interval"
+    );
+    assert.equal((await audits()).length, 1);
+    let row = (await audits())[0];
+    assert.equal(row.details.recert_months, 7);
+    assert.equal(typeof row.details.next_recert_at, "string");
+    assert.equal(row.details.statement_changed, undefined, "the statement was not in the patch");
+
+    // The same interval again: nothing moved, no row. A later date is kept
+    // as sent; the effective date is independent of the cycle.
+    assert.equal((await patch({ recert_months: 7 })).status, 200);
+    assert.equal((await audits()).length, 1, "a no-op PATCH writes no audit row");
+    const later = new Date(Date.UTC(marker.getUTCFullYear() + 2, 0, 15));
+    const moved = await patch({ next_recert_at: later.toISOString().slice(0, 10), effective_at: "2026-01-01" });
+    assert.equal(moved.status, 200, JSON.stringify(moved.body));
+    assert.equal(new Date(moved.body.next_recert_at).getTime(), later.getTime(), "a date-only input is midnight UTC");
+    assert.equal(moved.body.effective_at, "2026-01-01");
+    assert.equal(moved.body.recert_months, 7, "the interval stayed");
+    assert.equal((await audits()).length, 2);
+    row = (await audits())[1];
+    assert.equal(row.details.effective_at, "2026-01-01");
+
+    // Never clears the next date, leaves the effective date.
+    const never = await patch({ recert_months: null });
+    assert.equal(never.status, 200);
+    assert.deepEqual([never.body.recert_months, never.body.next_recert_at, never.body.effective_at], [null, null, "2026-01-01"]);
+    assert.deepEqual(
+      [(await getAckRecert(id))!.ack_recert_months, (await getAckRecert(id))!.ack_next_recert_at],
+      [null, null]
+    );
+    assert.equal((await audits()).length, 3);
+
+    // The replacement: a published document the caller can see, never the
+    // policy itself; the audit row carries the move; null clears it.
+    await refused({ superseded_by: 0 }, /^'superseded_by' must be a document id or null\.$/);
+    await refused({ superseded_by: "x" }, /^'superseded_by' must be a document id or null\.$/);
+    await refused({ superseded_by: id }, /^A policy cannot be replaced by itself\.$/);
+    await refused({ superseded_by: 2_000_000_000 }, /^The replacement must be a published document you can see\.$/);
+    assert.equal((await audits()).length, 3, "a refused replacement is not on the record");
+    const replaced = await patch({ superseded_by: other.id });
+    assert.equal(replaced.status, 200, JSON.stringify(replaced.body));
+    assert.equal(replaced.body.superseded_by, other.id);
+    assert.equal(replaced.body.superseded_by_title, `${STAMP} the replacement`);
+    assert.equal((await audits()).length, 4);
+    row = (await audits())[3];
+    assert.deepEqual(
+      [row.details.superseded_by_changed, row.details.superseded_by_from, row.details.superseded_by_to],
+      [true, null, other.id]
+    );
+    assert.equal((await patch({ superseded_by: other.id })).status, 200);
+    assert.equal((await audits()).length, 4, "the same replacement again: no row");
+    const cleared = await patch({ superseded_by: null });
+    assert.equal(cleared.status, 200);
+    assert.deepEqual([cleared.body.superseded_by, cleared.body.superseded_by_title], [null, null]);
+    assert.equal((await audits()).length, 5);
+
+    // One PATCH may carry every card's fields; the GET answers them all.
+    const all = await patch({ statement: "Read and understood.", recert_months: 12, superseded_by: other.id });
+    assert.equal(all.status, 200, JSON.stringify(all.body));
+    const got = await call(route.GET as Handler, sessionRequest(url, adminSession, undefined, "GET"), id);
+    assert.deepEqual(
+      [got.body.statement, got.body.recert_months, got.body.superseded_by, got.body.superseded_by_title],
+      ["Read and understood.", 12, other.id, `${STAMP} the replacement`]
+    );
+    assert.equal(new Date(got.body.next_recert_at).getTime(), addMonths(marker, 12).getTime());
+    assert.equal((await audits()).length, 6, "one row for the one PATCH, however many fields it moved");
   });
 });

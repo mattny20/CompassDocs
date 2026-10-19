@@ -714,7 +714,11 @@ nothing else for a confirmation's state (never "Acknowledged").
   **Paused (unpublished) · 3** `<details>` group at the foot of the Policy
   progress card. The row offers no action (every row action needs a
   published document) and the tiles above leave the group out. The group's
-  count follows the summary with a middle dot, not a second bracket.
+  count follows the summary with a middle dot, not a second bracket. A
+  retired policy (1.12.0, `PortalPolicies`) is a neutral **Retired {date}**
+  chip with `Archive` and the retirer as its tooltip, in the collapsed
+  **Retired · 3** group below Paused; its row keeps the record link and the
+  CSV and offers Un-retire only.
 
 **Attribute chips** (a directory field shown as chips, a tag list) are not
 status: render them with `FieldChips`, which shows the option's **label**

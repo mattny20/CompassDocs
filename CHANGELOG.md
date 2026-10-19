@@ -289,6 +289,40 @@ re-confirmation on an interval, and retirement. (Enterprise, `policy_ack`.)
   answering not found), the routed portal pages, and the API-level retire
   and un-retire flow (403 for a read-only role, the DocNotices row, the
   card restored).
+- **The compliance portal's Retired group.** Compliance › Policies lists
+  retired policies in a collapsed **Retired · 3** group at the foot of the
+  Policy progress card, below Paused, each row with a neutral **Retired
+  3 Mar 2026** chip (who retired it is the chip's tooltip), the final
+  standing frozen at retirement ("42 of 50 people confirmed v12"), the
+  reason, **Replaced by** with the replacement as a link when one was
+  named, **View record** (the policy's Read confirmation page, which stays
+  open with History) and the per-policy CSV for exporters. No Remind, no
+  re-ask, no Stop requiring: nothing is asked and nothing can be stopped.
+  **Un-retire** is the row's one action for `compliance.program_manage`
+  holders: it asks once ("Resume read confirmation for "Expense policy"?
+  Confirmations made before it was retired stay on record. If the text
+  changed while it was retired, people whose confirmation is older than the
+  current version are asked again." / **Resume**) and toasts "Policy
+  resumed: 42 of 50 confirmations still current".
+- **Retire policy… on the portal row.** Beside Remind, Ask everyone to
+  re-confirm… and Stop requiring, managers get **Retire policy…**, which
+  opens the same question as the Settings tab's Lifecycle card ('Retire
+  "Expense policy"?', the standing, "Why is this policy being retired?" with
+  a reason of at least 10 characters, **Retire policy**), posts to the
+  policy's retire route and toasts "Policy retired: 42 of 50 confirmations
+  on record"; the row moves to the Retired group.
+- **Re-confirmation on the portal.** A policy with an interval shows
+  "Next re-confirmation 1 Jan 2027" on its row's meta line, after "Updated
+  … · last reminded …". Compliance › Overview gains a fifth tile,
+  **Re-confirmation due in 30 days**, counting the live policies (published,
+  required, not retired) whose next date falls within 30 days; `GET
+  /api/admin/compliance` carries it as `kpis.recert_due_30`, and every
+  `docs` row now carries `ack_recert_months`, `ack_next_recert_at` and
+  `ack_effective_at`.
+- **The Record tab's subtitle counts cycles.** On a policy with an interval
+  the sentence under the Read confirmation title ends "· Cycle 4 · annual"
+  ("· Cycle 2 · every 6 months"): the first ask is cycle 1 and every annual
+  re-confirmation on the History tab starts the next.
 <!-- wave 2: settings-ui, portal-ui -->
 
 ### Changed
@@ -317,6 +351,17 @@ re-confirmation on an interval, and retirement. (Enterprise, `policy_ack`.)
 - The decision ledger's `retired` outcome, reserved since 1.10.0, is now
   written; the History tab and the ledger exports show it with the frozen
   counts.
+- **The portal's roster expand is the Record tab's roster.** Expanding a
+  policy row on Compliance › Policies now shows the same table as the
+  policy's Record tab: Person with email, Role, the Confirmed / Pending
+  chip, the confirmation time, the version, the typed signature, Read time
+  and Reached end, with the **Show** filter, **Filter people** and its live
+  count, and a pager past 50 people, in place of the four-column table of
+  1.10.1. The IP column is not shown here (it belongs to the All
+  confirmations view, which the expand row does not offer); the per-policy
+  CSV and the Record tab remain the complete record.
+- The Overview's tiles are five across from `lg`, three from `sm` and two
+  on a phone.
 - **Ask everyone to re-confirm…** and every reset of a policy's
   confirmations now also restart its re-confirmation interval; nothing
   changes for a policy without one. A cycle also stamps the policy's
@@ -371,6 +416,9 @@ re-confirmation on an interval, and retirement. (Enterprise, `policy_ack`.)
   open My policies; the portal's lists are under `/compliance/policies` and
   `/compliance/people`, its tiles under `/compliance/overview`;
   `/compliance/settings` is unchanged.
+- The portal's two new payload fields (`kpis.recert_due_30` and the three
+  re-confirmation columns on `docs` rows) are additive; a client built
+  against 1.11.x ignores them.
 - **Rollback to 1.11.2 is supported.** 1.11.2 ignores the new columns and
   the index and leaves them in place. While rolled back: a row it writes
   takes the defaults (unsigned, no statement text, no user agent), a
