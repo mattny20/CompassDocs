@@ -228,7 +228,9 @@ test("a preset keeps column limits, assistant details, custom margins and a firs
     expect(pdf.head).toBe("%PDF-");
     expect(pdf.size).toBeGreaterThan(1500);
 
-    // The CSV's assistant cell carries the chosen field after the name.
+    // The CSV's assistant cell carries the chosen field after the name. Only
+    // Amy is exported (a "what I see" export of one row): Zed's details come
+    // from everyone the viewer may see, not from the rows in the file.
     const csv = await page.evaluate(
       async ({ id, ids }) => {
         const res = await fetch("/api/directory/export", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ preset: id, format: "csv", ids }) });
@@ -253,15 +255,35 @@ test("a preset keeps column limits, assistant details, custom margins and a firs
     await expect(page.getByRole("spinbutton", { name: "Bottom", exact: true })).toHaveValue("0.8");
     await expect(page.getByRole("checkbox", { name: "Phone", exact: true })).toBeChecked();
     await expect(page.getByRole("checkbox", { name: "Title", exact: true })).not.toBeChecked();
-    // Out of range is refused inline, not clamped by the server after a "saved".
-    await page.getByRole("spinbutton", { name: "Wrap Name after" }).fill("4");
-    await expect(page.getByText("Wrap after for Name: must be between 8 and 120.")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Save presets" })).toBeDisabled();
-    await page.getByRole("spinbutton", { name: "Wrap Name after" }).fill("12");
-    await expect(page.getByRole("button", { name: "Save presets" })).toBeEnabled();
-    // Save, so the leave guard has nothing to hold the next navigation for.
-    await page.getByRole("button", { name: "Save presets" }).click();
+    // Out of range is refused inline, not clamped by the server after a
+    // "saved": Save waits the moment the value is typed; the message waits
+    // until the input is left, so a "1" on the way to "12" is not shouted at.
+    const wrapName = page.getByRole("spinbutton", { name: "Wrap Name after" });
+    const wrapError = page.getByText("Wrap after for Name: must be between 8 and 120.");
+    const save = page.getByRole("button", { name: "Save presets" });
+    await wrapName.fill("4");
+    await expect(save).toBeDisabled();
+    await expect(wrapError).toHaveCount(0);
+    await wrapName.blur();
+    await expect(wrapError).toBeVisible();
+    await wrapName.fill("12");
+    await expect(wrapError).toHaveCount(0);
+    await expect(save).toBeEnabled();
+    // A custom margin takes one decimal place, the rule the server keeps, so
+    // 0.75 is refused here rather than saved as 0.8 behind a "saved".
+    const top = page.getByRole("spinbutton", { name: "Top", exact: true });
+    await top.fill("0.75");
+    await expect(page.getByText("Use one decimal place.")).toBeVisible();
+    await expect(save).toBeDisabled();
+    await top.fill("0.7");
+    await expect(page.getByText("Use one decimal place.")).toHaveCount(0);
+    await expect(save).toBeEnabled();
+    // Save, so the leave guard has nothing to hold the next navigation for;
+    // afterwards the inputs show what was saved.
+    await save.click();
     await expect(page.getByText("Export presets saved.")).toBeVisible();
+    await expect(top).toHaveValue("0.7");
+    await expect(wrapName).toHaveValue("12");
 
     // The admin default for "Sort names by" saves through the Directory
     // defaults card's route and comes back to it.

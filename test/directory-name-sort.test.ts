@@ -22,7 +22,7 @@ import {
   nameSortKey,
   sortableKeys,
 } from "../src/lib/directory-display";
-import { PRESET_DEFAULTS, sanitizePreset } from "../src/lib/directory-export-config";
+import { PRESET_DEFAULTS, sanitizePreset, type ExportPreset } from "../src/lib/directory-export-config";
 import type { DirectoryField, DirectoryPerson } from "../src/lib/directory";
 
 // @react-pdf/hyphenate's exports map carries only an `import` condition, so
@@ -125,7 +125,18 @@ describe("nameParts", () => {
     assert.deepEqual(nameParts("Mr. Bob Adams III"), { first: "Bob", last: "Adams" });
     assert.deepEqual(nameParts("Jane Smith, PhD"), { first: "Jane", last: "Smith" });
     assert.deepEqual(nameParts("Jane Smith PhD"), { first: "Jane", last: "Smith" });
+    assert.deepEqual(nameParts("Jane Smith MD PhD"), { first: "Jane", last: "Smith" });
     assert.deepEqual(nameParts("Smith, Jr."), { first: "Smith", last: "Smith" });
+  });
+
+  test("a credential comes off the end only: a given name that spells one is kept", () => {
+    assert.deepEqual(nameParts("JD Vance"), { first: "JD", last: "Vance" });
+    assert.deepEqual(nameParts("Vance, JD"), { first: "JD", last: "Vance" });
+    assert.deepEqual(nameParts("Md Rahman"), { first: "Md", last: "Rahman" });
+    assert.deepEqual(nameParts("JD Vance JD"), { first: "JD", last: "Vance" });
+    // A lone credential is a name, not nothing.
+    assert.deepEqual(nameParts("MD"), { first: "MD", last: "MD" });
+    assert.equal(initialsOf("JD Vance"), "JV");
   });
 
   test("a particle surname keeps its particles, but a two-word name never loses its first word", () => {
@@ -239,12 +250,22 @@ describe("sanitizePreset", () => {
     assert.equal(legacy.sort, "name");
   });
 
-  test("column limits keep known columns only, as whole numbers from 8 to 120; 0 and junk mean automatic", () => {
+  test("column limits keep the preset's own columns only, as whole numbers from 8 to 120; 0 and junk mean automatic", () => {
     const p = sanitizePreset(
-      { name: "x", column_limits: { title: 20.4, bogus: 30, phone: 200, email: 3, office: 0, name: "15", extension: "wide", assists: -4 } },
+      {
+        name: "x",
+        columns: ["name", "title", "phone", "email", "office", "extension"],
+        column_limits: { title: 20.4, bogus: 30, phone: 200, email: 3, office: 0, name: "15", extension: "wide", assists: -4 },
+      },
       fields
     );
     assert.deepEqual(p.column_limits, { title: 20, phone: 120, email: 8, name: 15 });
+    // A limit for a column the preset does not show is dropped: removing a
+    // column and adding it back later starts it automatic, and a "what I
+    // see" export carries no limit for a column it does not print.
+    assert.deepEqual(sanitizePreset({ name: "x", columns: ["name", "phone"], column_limits: { title: 20, phone: 30 } }, fields).column_limits, { phone: 30 });
+    assert.deepEqual(sanitizePreset({ name: "x", columns: [], column_limits: { name: 20, title: 20 } }, fields).column_limits, { name: 20 }, "an empty column list is the name column");
+    assert.deepEqual(sanitizePreset({ name: "x", column_limits: { department: 20, office: 20 } }, fields).column_limits, { department: 20 }, "the default columns scope a preset that names none");
     assert.deepEqual(sanitizePreset({ name: "x", column_limits: ["title"] }, fields).column_limits, {});
     assert.deepEqual(sanitizePreset({ name: "x", column_limits: "title=20" }, fields).column_limits, {});
   });
@@ -325,6 +346,23 @@ describe("PDF and CSV", () => {
     assert.equal(plain.cell(people[0], "assistant"), cellValue(people[0], "assistant", fields));
   });
 
+  test("assistant details come from the lookup, so an export of the people on screen still shows an assistant who is off it", () => {
+    const smith = people[0];
+    // Only Smith is exported (a "what I see" export of one row); without a
+    // lookup her assistant is not in the list and shows the name alone.
+    const alone = exporter.prepareExport({ preset: preset(), people: [smith], fields, company: "Acme" });
+    assert.equal(alone.cell(smith, "assistant"), "Pat Lee");
+    const looked = exporter.prepareExport({ preset: preset(), people: [smith], lookup: [smith, lee], fields, company: "Acme" });
+    assert.equal(looked.cell(smith, "assistant"), "Pat Lee · 602-555-0100 · x204");
+    assert.deepEqual(looked.sections[0].rows.map((p) => p.id), [smith.id], "the lookup adds no rows");
+    assert.equal(looked.total, 1);
+    // The CSV reads the same lookup; the route passes everyone the viewer may see.
+    const csv = exporter.renderDirectoryCsv({ preset: preset(), people: [smith], lookup: people, fields, company: "Acme" });
+    const lines = csv.replace(/^﻿/, "").trim().split("\r\n");
+    assert.equal(lines.length, 2);
+    assert.equal(lines[1], '"Smith, Jane",Managing Partner of Litigation,Pat Lee · 602-555-0100 · x204,602-555-0001');
+  });
+
   test("the CSV shows the assistant fields and follows the last-name sort", () => {
     const csv = exporter.renderDirectoryCsv({ preset: preset(), people, fields, company: "Acme" });
     const lines = csv.replace(/^﻿/, "").trim().split("\r\n");
@@ -335,19 +373,35 @@ describe("PDF and CSV", () => {
     assert.equal(lines[5], "Ludwig van Beethoven,Composer,Ghost Writer,");
   });
 
-  test("the PDF renders with a limited column and custom margins, one column and three to a page", async () => {
-    const one = await exporter.renderDirectoryPdf({ preset: preset(), people, fields, company: "Acme", logo: null, printedOn: "Oct 19, 2026" });
+  /**
+   * A PDF's bytes with pdfkit's clock taken out: the Info and XMP creation
+   * dates and the file id derived from them, all fixed-width so nothing
+   * else moves. What is left is the layout, the same every run.
+   */
+  const stable = (pdf: Buffer): string =>
+    pdf
+      .toString("latin1")
+      .replace(/\(D:\d{14}Z\)/g, "(D:)")
+      .replace(/<xmp:CreateDate>[^<]*<\/xmp:CreateDate>/g, "")
+      .replace(/\/ID \[[^\]]*\]/g, "");
+
+  test("the PDF renders with a limited column and custom margins, one column and three to a page, and each of the two changes the page", async () => {
+    const render = (patch: Partial<ExportPreset> = {}) =>
+      exporter.renderDirectoryPdf({ preset: { ...preset(), ...patch }, people, fields, company: "Acme", logo: null, printedOn: "Oct 19, 2026" });
+    const one = await render();
     assert.ok(Buffer.isBuffer(one));
     assert.equal(one.subarray(0, 5).toString("latin1"), "%PDF-");
     assert.ok(one.length > 1000, `pdf is ${one.length} bytes`);
-    const three = await exporter.renderDirectoryPdf({
-      preset: { ...preset(), page_columns: 3, margins: "narrow", column_limits: { title: 8, name: 10 } },
-      people,
-      fields,
-      company: "Acme",
-      logo: null,
-      printedOn: "Oct 19, 2026",
-    });
+    // Apart from its clock a render is deterministic: the same preset gives
+    // the same bytes, and a preset that differs only in its limits, or only
+    // in its margins, gives different ones, so the renderer reads both.
+    assert.equal(stable(one), stable(await render()), "two renders of one preset agree once the clock is taken out");
+    assert.notEqual(stable(one), stable(await render({ column_limits: {} })), "the column limit changes the page");
+    assert.notEqual(stable(one), stable(await render({ margins: "normal" })), "the custom margins change the page");
+    const threeUp = { page_columns: 3 as const, margins: "narrow" as const, column_limits: { title: 8, name: 10 } };
+    const three = await render(threeUp);
     assert.equal(three.subarray(0, 5).toString("latin1"), "%PDF-");
+    assert.notEqual(stable(three), stable(await render({ ...threeUp, column_limits: {} })), "the limits change the three-column plan");
+    assert.notEqual(stable(three), stable(await render({ ...threeUp, margins: "wide" })), "the margins change the three-column plan");
   });
 });

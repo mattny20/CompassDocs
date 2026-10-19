@@ -15,7 +15,7 @@ import {
   setListColumns,
   setNameSortDefault,
 } from "@/lib/directory";
-import { availableColumns } from "@/lib/directory-display";
+import { NAME_SORT_MODES, availableColumns } from "@/lib/directory-display";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
@@ -54,9 +54,13 @@ export async function PUT(req: Request) {
       return NextResponse.json({ error: e?.message || "Could not save." }, { status: 400 });
     }
   }
+  // Refused, not folded into "full": a typo must not reset the admin's default.
+  if (body?.name_sort !== undefined && !(NAME_SORT_MODES as readonly string[]).includes(String(body.name_sort))) {
+    return NextResponse.json({ error: "name_sort must be full, first or last." }, { status: 400 });
+  }
   if (body?.group_by !== undefined) await setGroupByDefault(String(body.group_by ?? ""));
   let nameSort: string | undefined;
-  if (body?.name_sort !== undefined) nameSort = await setNameSortDefault(String(body.name_sort ?? ""));
+  if (body?.name_sort !== undefined) nameSort = await setNameSortDefault(String(body.name_sort));
   if (body?.column_visibility !== undefined) await setColumnVisibility(body.column_visibility);
   await audit({
     actor: actorFrom(gate),

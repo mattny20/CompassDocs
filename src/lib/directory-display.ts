@@ -363,11 +363,13 @@ export function initialsOf(name: string): string {
  * First and last name, for sorting. "Smith, Jane A." is Jane / Smith; "Dr.
  * Jane A. Smith Jr." is Jane / Smith; "Ludwig van Beethoven" is Ludwig / van
  * Beethoven (a particle surname keeps its particles); a single word is both.
- * Honorifics, suffixes and trailing credentials are dropped as initialsOf
- * drops them.
+ * Honorifics and suffixes are dropped as initialsOf drops them; credentials
+ * come off the end only, so a given name that spells one keeps it ("JD
+ * Vance" is JD / Vance, "Jane Smith MD PhD" is Jane / Smith).
  */
 export function nameParts(name: string): { first: string; last: string } {
-  const words = nameWords(name).filter((w) => !NAME_CREDENTIAL.test(w));
+  const words = nameWords(name);
+  while (words.length > 1 && NAME_CREDENTIAL.test(words[words.length - 1])) words.pop();
   if (words.length === 0) return { first: "", last: "" };
   if (words.length === 1) return { first: words[0], last: words[0] };
   // The last name starts at the final word and takes the particles before it,

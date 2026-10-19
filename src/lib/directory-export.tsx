@@ -31,14 +31,18 @@ import {
   columnWidths,
   marginPoints,
   planPages,
+  plannedLineCount,
   rowWidth,
-  wrappedLineCount,
   type ExportLine,
 } from "./directory-export-layout";
 
 export interface ExportInput {
   preset: ExportPreset;
   people: DirectoryPerson[];
+  /** Everyone the viewer may see; assistant details are read from here, so
+   *  an export of the people on screen still shows an assistant's phone when
+   *  the assistant is off screen. Defaults to `people`. */
+  lookup?: DirectoryPerson[];
   fields: DirectoryField[];
   company: string;
   /** A data: URL of a PNG or JPEG logo, when the preset wants one and one exists. */
@@ -128,9 +132,11 @@ export function prepareExport(input: Omit<ExportInput, "logo" | "printedOn">): P
   }
 
   // The assistant column may carry the assistant's own details ("Jane Smith ·
-  // 555-0100"). The lookup is over everyone the caller passed, before the
-  // preset's filter, so an assistant outside the filter still shows them.
-  const byId = new Map(input.people.map((p) => [p.id, p]));
+  // 555-0100"). The lookup is everyone the caller may show, not the rows
+  // being exported, so an assistant outside the preset's filter, off the
+  // screen a "what I see" export copies, or in another office's file still
+  // shows them.
+  const byId = new Map((input.lookup ?? input.people).map((p) => [p.id, p]));
   const assistantFields = preset.assistant_fields ?? [];
   const cell = (p: DirectoryPerson, key: string): string =>
     key === "assistant" && assistantFields.length ? assistantText(p, fields, byId, assistantFields) : cellValue(p, key, fields);
@@ -527,10 +533,11 @@ function DirectoryDocument({ input, prepared }: { input: ExportInput; prepared: 
   // Two or three columns per page: the table is dealt into columns of a
   // known height (see directory-export-layout), and each page is laid out
   // explicitly.
-  // A row costs the lines its limited columns wrap onto; one otherwise.
+  // A row costs the lines its limited columns wrap onto, counted with a
+  // tenth in hand for wide glyphs (see plannedLineCount); one otherwise.
   const limited = prepared.columns.filter((c) => c.limit > 0);
   const rowLines = (p: DirectoryPerson) =>
-    limited.reduce((n, c) => Math.max(n, wrappedLineCount(prepared.cell(p, c.key), c.limit)), 1);
+    limited.reduce((n, c) => Math.max(n, plannedLineCount(prepared.cell(p, c.key), c.limit)), 1);
   const lines: ExportLine<DirectoryPerson>[] = [];
   for (const s of prepared.sections) {
     if (s.label !== null) lines.push({ kind: "section", label: s.label, count: s.rows.length });

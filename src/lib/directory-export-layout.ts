@@ -118,6 +118,24 @@ export function wrappedLineCount(text: string, limit: number): number {
   return Math.max(lines, Math.ceil(s.length / limit));
 }
 
+/**
+ * The share of a column's limit the page plan counts on. The column is sized
+ * by the average glyph, so a value of wide glyphs (capitals, digits) at the
+ * limit runs past it and wraps a line the character count did not foresee.
+ * Counting a tenth fewer characters a line only ever leaves white space.
+ */
+export const PLAN_SAFETY = 0.9;
+
+/**
+ * Lines the plan charges a value in a limited column: wrappedLineCount at
+ * floor(limit × 0.9), so "LITIGATION" at a limit of 10 is counted the second
+ * line the renderer gives it instead of spilling past the column the plan
+ * filled.
+ */
+export function plannedLineCount(text: string, limit: number): number {
+  return wrappedLineCount(text, Math.max(1, Math.floor(limit * PLAN_SAFETY)));
+}
+
 export interface WidthInput {
   key: string;
   /** Relative width among the automatic columns. */

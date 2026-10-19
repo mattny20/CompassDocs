@@ -14,7 +14,7 @@ import { Download, Copy, Plus, Trash2 } from "lucide-react";
 import type { DirectoryField } from "@/lib/directory";
 import type { ExportPreset } from "@/lib/directory-export-config";
 import { assistantDetailKeys, availableColumns, sortableKeys, type NameSortMode } from "@/lib/directory-display";
-import { Field, Select, TextInput, Toggle, rangeError } from "@/components/form";
+import { Field, FormError, Select, TextInput, Toggle, rangeError } from "@/components/form";
 import { describeSchedule, WEEKDAYS, type ExportSchedule } from "@/lib/directory-export-schedule-rules";
 import { toast } from "@/components/Toasts";
 import { OrderedKeyList, jsonFetch } from "./shared";
@@ -29,11 +29,12 @@ const MARGIN_SIDES = ["top", "right", "bottom", "left"] as const;
 type MarginSide = (typeof MARGIN_SIDES)[number];
 const MARGIN_LABEL: Record<MarginSide, string> = { top: "Top", right: "Right", bottom: "Bottom", left: "Left" };
 
-/** Inline validation for a margin: a decimal between 0.2 and 2 inches. */
+/** Inline validation for a margin: a one-decimal number between 0.2 and 2 inches, the same rule the server keeps, so what is typed is what is saved. */
 function marginError(value: number | string): string | undefined {
   const n = typeof value === "number" ? value : Number(value);
   if (value === "" || Number.isNaN(n)) return "Enter a number.";
   if (n < MARGIN_MIN || n > MARGIN_MAX) return `Must be between ${MARGIN_MIN} and ${MARGIN_MAX}.`;
+  if (Math.abs(Math.round(n * 10) / 10 - n) > 1e-9) return "Use one decimal place.";
   return undefined;
 }
 
@@ -112,6 +113,7 @@ export function DirectoryExportPanel({
   const assistantFieldOptions = useMemo(() => assistantDetailKeys(fields), [fields]);
   const columnLabelOf = (k: string) => available.find((a) => a.key === k)?.label ?? k;
   const assistantHelpId = useId();
+  const columnsHelpId = useId();
 
   // --- list defaults ---
   const [columns, setColumns] = useState(initialListColumns);
@@ -147,19 +149,34 @@ export function DirectoryExportPanel({
   }
 
   // "Wrap after": the number is kept as typed so the error can name it;
-  // blank is "automatic" and drops the key.
+  // blank is "automatic" and drops the key. Save waits on the committed
+  // value at once; the message waits until the input has been left, so a
+  // "1" on the way to "12" is not announced as a mistake.
   const limits = cur.column_limits ?? {};
+  const [touched, setTouched] = useState<Record<string, Record<string, boolean>>>({});
   function setLimit(key: string, raw: string) {
     const next = { ...limits };
     if (raw === "") delete next[key];
     else next[key] = Number(raw);
     update({ column_limits: next });
   }
-  const limitProblem = (p: ExportPreset) => {
-    const bad = Object.entries(p.column_limits ?? {}).find(([, n]) => rangeError(n, LIMIT_MIN, LIMIT_MAX));
-    return bad ? { key: bad[0], message: rangeError(bad[1], LIMIT_MIN, LIMIT_MAX)! } : undefined;
-  };
-  const curLimitProblem = limitProblem(cur);
+  function touchLimit(key: string) {
+    setTouched((t) => ({ ...t, [cur.id]: { ...t[cur.id], [key]: true } }));
+  }
+  const limitProblems = (p: ExportPreset) =>
+    Object.entries(p.column_limits ?? {}).flatMap(([key, n]) => {
+      const message = rangeError(n, LIMIT_MIN, LIMIT_MAX);
+      return message ? [{ key, message }] : [];
+    });
+  const limitProblem = (p: ExportPreset) => limitProblems(p)[0];
+  const shownLimitProblem = limitProblems(cur).find((x) => touched[cur.id]?.[x.key]);
+  const limitHelp =
+    cur.layout !== "cards"
+      ? "Wrap after: characters per line in this column; longer values wrap onto the next line. Blank lets the column size itself."
+      : undefined;
+  const columnsNote = shownLimitProblem
+    ? `Wrap after for ${columnLabelOf(shownLimitProblem.key)}: ${shownLimitProblem.message.charAt(0).toLowerCase()}${shownLimitProblem.message.slice(1)}`
+    : limitHelp;
 
   function toggleAssistantField(key: string, on: boolean) {
     const chosen = new Set(cur.assistant_fields ?? []);
@@ -181,7 +198,24 @@ export function DirectoryExportPanel({
     else setDirty(true);
   }
   const marginProblem = (p: ExportPreset) => p.margins === "custom" && MARGIN_SIDES.some((s) => marginError(marginShown(p, s)));
-  const invalid = presets.some((p) => limitProblem(p) || marginProblem(p));
+  // Save waits on every preset; the inline errors show only for the one on
+  // screen, so a problem elsewhere is named above the Save row.
+  const offending = presets.find((p) => limitProblem(p) || marginProblem(p));
+  const invalid = Boolean(offending);
+  const curClean = !limitProblem(cur) && !marginProblem(cur);
+  /** What was typed into a preset's inputs is dropped with the preset, so a later one with the same id starts clean. */
+  function forgetTyped(id: string) {
+    setMarginText((t) => {
+      const next = { ...t };
+      delete next[id];
+      return next;
+    });
+    setTouched((t) => {
+      const next = { ...t };
+      delete next[id];
+      return next;
+    });
+  }
 
   function addPreset(from?: ExportPreset) {
     const base = from ? { ...from, is_default: false } : { ...PRESET_BLANK };
@@ -194,6 +228,7 @@ export function DirectoryExportPanel({
   async function removePreset() {
     if (presets.length <= 1) return;
     if (!(await confirmDialog({ title: `Delete the "${cur.name}" preset?`, confirmLabel: "Delete", danger: true }))) return;
+    forgetTyped(cur.id);
     const next = presets.filter((_, i) => i !== selected);
     if (!next.some((p) => p.is_default)) next[0] = { ...next[0], is_default: true };
     setPresets(next);
@@ -213,6 +248,9 @@ export function DirectoryExportPanel({
       return;
     }
     setPresets(r.data.presets);
+    // The inputs now show what was saved, not what was typed.
+    setMarginText({});
+    setTouched({});
     setDirty(false);
     toast("ok", "Export presets saved.");
   }
@@ -318,7 +356,7 @@ export function DirectoryExportPanel({
                 </Select>
               </Field>
             </div>
-            <Field label="Margins" help="Custom is in inches, from 0.2 to 2.">
+            <Field label="Margins" help="Custom is in inches, from 0.2 to 2, a tenth at a time.">
               <Select value={cur.margins ?? "normal"} onChange={(e) => update({ margins: e.target.value as ExportPreset["margins"] })} className="w-full">
                 <option value="normal">Normal</option>
                 <option value="narrow">Narrow</option>
@@ -361,7 +399,7 @@ export function DirectoryExportPanel({
               )}
             </div>
             {cur.layout !== "cards" && (
-            <Field label="Page layout" help="Two or three columns suit a short table — name and extension — that would otherwise run down the left of an empty page. Values are cut to one line; three columns want landscape or very few columns.">
+            <Field label="Page layout" help="Two or three columns suit a short table that would otherwise run down the left of an empty page. Values are cut to one line unless the column has a Wrap after limit; three columns want landscape or very few columns.">
               <Select value={String(cur.page_columns)} onChange={(e) => update({ page_columns: e.target.value === "3" ? 3 : e.target.value === "2" ? 2 : 1 })} className="w-full">
                 <option value="1">One table across the page</option>
                 <option value="2">Two columns, side by side</option>
@@ -392,11 +430,10 @@ export function DirectoryExportPanel({
             <Field label="File name" help="Without extension; blank derives one from the title."><TextInput value={cur.filename} onChange={(e) => update({ filename: e.target.value })} placeholder="phone-directory" /></Field>
           </div>
           <div className="space-y-3">
-            <Field
-              label="Columns, in order"
-              help={cur.layout !== "cards" ? "Wrap after: characters per line in this column; longer values wrap onto the next line. Blank lets the column size itself." : undefined}
-              error={curLimitProblem ? `Wrap after for ${columnLabelOf(curLimitProblem.key)}: ${curLimitProblem.message.charAt(0).toLowerCase()}${curLimitProblem.message.slice(1)}` : undefined}
-            >
+            {/* A fieldset, not a Field: a Field's label would hand a click on
+                any text in the list to the first row's Wrap after input. */}
+            <fieldset aria-describedby={columnsNote ? columnsHelpId : undefined}>
+              <legend className="mb-1 block text-xs font-medium text-slate-500">Columns, in order</legend>
               <OrderedKeyList
                 value={cur.columns}
                 onChange={(columns) => update({ columns })}
@@ -417,7 +454,8 @@ export function DirectoryExportPanel({
                             placeholder="Auto"
                             value={limits[key] ?? ""}
                             onChange={(e) => setLimit(key, e.target.value)}
-                            hasError={Boolean(rangeError(limits[key] ?? LIMIT_MIN, LIMIT_MIN, LIMIT_MAX))}
+                            onBlur={() => touchLimit(key)}
+                            hasError={Boolean(touched[cur.id]?.[key] && rangeError(limits[key] ?? LIMIT_MIN, LIMIT_MIN, LIMIT_MAX))}
                             aria-label={`Wrap ${label} after`}
                           />
                         </span>
@@ -425,7 +463,16 @@ export function DirectoryExportPanel({
                     : undefined
                 }
               />
-            </Field>
+              {columnsNote && (
+                <p
+                  id={columnsHelpId}
+                  role={shownLimitProblem ? "alert" : undefined}
+                  className={shownLimitProblem ? "mt-1 text-xs text-red-600" : "mt-1 text-xs text-slate-500"}
+                >
+                  {columnsNote}
+                </p>
+              )}
+            </fieldset>
             {cur.columns.includes("assistant") && (
               <fieldset aria-describedby={assistantHelpId}>
                 <legend className="mb-1 block text-xs font-medium text-slate-500">Assistant details</legend>
@@ -561,6 +608,9 @@ export function DirectoryExportPanel({
             </Field>
           </div>
         </div>
+        {offending && curClean && (
+          <FormError className="mt-4">{`Fix the Wrap after or margin values in "${offending.name}" before saving.`}</FormError>
+        )}
         <SaveRow dirty={dirty} busy={savingPresets} onSave={savePresets} label="Save presets" disabled={invalid} className="mt-4" />
       </div>
     </div>

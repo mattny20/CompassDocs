@@ -73,15 +73,26 @@ async function run(user: SessionUser, req: Request, params: Record<string, unkno
   }
   const sanitized = sanitizePreset({ ...base, ...overrides }, fields, base.id);
   const columns = sanitized.columns.filter((c) => !scope.hidden.has(c));
-  const preset: ExportPreset = { ...sanitized, columns: columns.length ? columns : ["name"] };
+  const preset: ExportPreset = {
+    ...sanitized,
+    columns: columns.length ? columns : ["name"],
+    // A restricted column is blank on every row the viewer gets, the
+    // assistant's included; keeping the key out of the request as well means
+    // the file never asks for it.
+    assistant_fields: sanitized.assistant_fields.filter((k) => !scope.hidden.has(k)),
+  };
 
   const wanted = String(params.format ?? "pdf").toLowerCase();
   const format: "pdf" | "csv" | "vcf" = wanted === "csv" ? "csv" : wanted === "vcf" ? "vcf" : "pdf";
   const q = typeof params.q === "string" && params.q.trim() ? params.q.trim().slice(0, 80) : undefined;
-  let people = peopleForViewer(scope, await listPeople({ q }));
+  // Everyone the viewer may see is the assistant lookup: "what I see" sends
+  // only the ids on screen, and an assistant off screen still carries their
+  // details.
+  const everyone = peopleForViewer(scope, await listPeople({ q }));
+  let people = everyone;
   if (Array.isArray(params.ids)) {
     const wanted = new Set(params.ids.map(Number).filter((n) => Number.isInteger(n)));
-    if (wanted.size) people = people.filter((p) => wanted.has(p.id));
+    if (wanted.size) people = everyone.filter((p) => wanted.has(p.id));
   }
 
   const settings = await getAppSettings();
@@ -116,7 +127,7 @@ async function run(user: SessionUser, req: Request, params: Record<string, unkno
   // per office; split=office (any group_by key) asks for the zip ad hoc.
   const splitParam = params.split === undefined ? undefined : String(params.split);
   const runPreset = splitParam === undefined ? preset : { ...preset, split_by: splitParam === "0" || splitParam === "" ? "" : splitParam };
-  const file = await renderExportFile({ preset: sanitizePreset(runPreset, fields, preset.id), format, people, fields });
+  const file = await renderExportFile({ preset: sanitizePreset(runPreset, fields, preset.id), format, people, lookup: everyone, fields });
   return new Response(new Uint8Array(file.body), {
     headers: {
       "Content-Type": file.mime,

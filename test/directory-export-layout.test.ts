@@ -12,6 +12,7 @@ import {
   limitedWidth,
   marginPoints,
   planPages,
+  plannedLineCount,
   rowWidth,
   wrappedLineCount,
   type ExportLine,
@@ -162,6 +163,38 @@ describe("wrappedLineCount", () => {
       ["a b c d e f g h i j", 3],
     ] as const) {
       assert.ok(wrappedLineCount(s, limit) >= Math.ceil(s.length / limit), `${s} at ${limit}`);
+    }
+  });
+});
+
+describe("plannedLineCount", () => {
+  test("charges a line at a tenth fewer characters than the limit, so wide glyphs at the limit are counted the line the renderer gives them", () => {
+    // Ten capitals measure wider than the ten average glyphs the column was
+    // sized by: "LITIGATION" breaks mid-word at a limit of 10 and takes two
+    // lines; the plain count says one.
+    assert.equal(wrappedLineCount("LITIGATION", 10), 1);
+    assert.equal(plannedLineCount("LITIGATION", 10), 2);
+    // Digits are wide too: a phone number exactly at the limit is two lines.
+    assert.equal(plannedLineCount("602-555-0101", 12), 2);
+    // Comfortably under the limit, the count is unchanged.
+    assert.equal(plannedLineCount("Jane Smith", 20), 1);
+    assert.equal(plannedLineCount("Senior Paralegal", 20), 1);
+    assert.equal(plannedLineCount("", 10), 1);
+    // The smallest limit still plans at least seven characters a line.
+    assert.equal(plannedLineCount("1234567", 8), 1);
+    assert.equal(plannedLineCount("12345678", 8), 2);
+  });
+
+  test("never charges fewer lines than the plain count", () => {
+    for (const [s, limit] of [
+      ["Accounting Department", 12],
+      ["Managing Partner of Litigation", 12],
+      ["LITIGATION", 8],
+      ["Jane Marie Smith", 8],
+      ["x", 8],
+      ["Supercalifragilistic", 120],
+    ] as const) {
+      assert.ok(plannedLineCount(s, limit) >= wrappedLineCount(s, limit), `${s} at ${limit}`);
     }
   });
 });

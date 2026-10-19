@@ -80,7 +80,7 @@ const LS_GROUP = "compass_dir_group";
 const LS_CARDS_GROUP = "compass_dir_cards_group";
 const LS_MY_PINS = "compass_dir_mypins";
 const LS_OFFICE_INFO = "compass_dir_office_info";
-const LS_NAME_SORT = "cdc.directory.nameSort";
+const LS_NAME_SORT = "compass_dir_name_sort";
 
 /** A stored or posted "Sort names by" value, or nothing when it is not one. */
 function asNameSort(v: unknown): NameSortMode | undefined {
@@ -307,10 +307,12 @@ export function DirectoryClient({
     return [...filtered].sort(comparePeople(fields, effectiveSort, sortDir));
   }, [initialPeople, q, filterValue, groupField, effectiveSort, sortDir, fields]);
 
-  // Within a group: title order (the admin's, e.g. attorneys first), then name.
+  // Within a group: title order (the admin's, e.g. attorneys first), then
+  // name; with no title options, the name as "Sort names by" reads it.
   const withinGroup = useMemo(
-    () => (titleField && titleField.options.length ? comparePeople(fields, "title") : comparePeople(fields, "name")),
-    [fields, titleField]
+    () =>
+      titleField && titleField.options.length ? comparePeople(fields, "title") : comparePeople(fields, nameSortKey(nameSort)),
+    [fields, titleField, nameSort]
   );
 
   // Who started, marks an anniversary, or has a birthday this month — from
@@ -724,24 +726,24 @@ export function DirectoryClient({
           </div>
         )}
 
-        {view === "list" && (
-          <label className="inline-flex items-center gap-1.5 text-sm text-slate-500">
-            Sort names by
-            <select
-              value={nameSort}
-              onChange={(e) => saveNameSort(e.target.value)}
-              className={field}
-              data-tt="Which part of the name the Name column sorts by"
-            >
-              <option value="full">Full name</option>
-              {NAME_SORT_KEYS.map((k) => (
-                <option key={k.key} value={k.key.slice("name:".length)}>
-                  {k.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
+        {/* In every view: the list's Name column, the cards and each group's
+            members all order by the chosen part of the name. */}
+        <label className="inline-flex items-center gap-1.5 text-sm text-slate-500">
+          Sort names by
+          <select
+            value={nameSort}
+            onChange={(e) => saveNameSort(e.target.value)}
+            className={field}
+            data-tt="Which part of the name people are ordered by, in every view"
+          >
+            <option value="full">Full name</option>
+            {NAME_SORT_KEYS.map((k) => (
+              <option key={k.key} value={k.key.slice("name:".length)}>
+                {k.label}
+              </option>
+            ))}
+          </select>
+        </label>
 
         <div className="relative">
           <button

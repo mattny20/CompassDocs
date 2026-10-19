@@ -124,7 +124,7 @@ function oneOf<T extends readonly string[]>(list: T, v: unknown, fallback: T[num
   return (list as readonly string[]).includes(String(v)) ? (String(v) as T[number]) : fallback;
 }
 
-/** Column limits: known column keys only, each a whole number of characters in range; 0 or junk is dropped (automatic). */
+/** Column limits: the preset's own columns only, each a whole number of characters in range; 0 or junk is dropped (automatic). */
 function sanitizeColumnLimits(raw: unknown, valid: Set<string>): Record<string, number> {
   const out: Record<string, number> = {};
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;
@@ -199,7 +199,10 @@ export function sanitizePreset(raw: unknown, fields: DirectoryField[], fallbackI
       return k && fields.some((f) => f.key === k && f.group_by) ? k : "";
     })(),
     schedule: sanitizeSchedule(o.schedule),
-    column_limits: sanitizeColumnLimits(o.column_limits, valid),
+    // Scoped to the columns the preset shows: a column removed and added
+    // back later starts automatic, and a "what I see" export carries no
+    // limit for a column it does not print.
+    column_limits: sanitizeColumnLimits(o.column_limits, new Set(columns.length ? columns : ["name"])),
     assistant_fields: Array.isArray(o.assistant_fields)
       ? o.assistant_fields.map(String).filter((k, i, a) => detailKeys.has(k) && a.indexOf(k) === i)
       : [],
