@@ -305,11 +305,12 @@ test("the Settings tab: the three cards save through one Save row; a past next d
       )
     ).toBeVisible();
     await resume.getByRole("button", { name: "Resume" }).click();
-    const resumed = page.locator('[role="status"]').filter({ hasText: /^Policy resumed: 1 of \d+ confirmations still current$/ });
-    await expect(resumed).toBeVisible();
+    const toasts = page.locator('[role="status"]');
+    await expect(toasts.getByText(/^Policy resumed: 1 of \d+ confirmations still current$/)).toBeVisible();
     await expectFocusNotOnBody(page, "Un-retire");
-    // One confirmation is still current, so the toast offers the re-ask.
-    await expect(resumed.getByRole("button", { name: "Ask everyone to re-confirm…" })).toBeVisible();
+    // One confirmation is still current, so the toast offers the re-ask
+    // (the live region holds every ok toast; the action is its button).
+    await expect(toasts.getByRole("button", { name: "Ask everyone to re-confirm…" })).toBeVisible();
     await expect(resume).toHaveCount(0);
     await expect(lifecycle.getByRole("button", { name: "Retire policy…" })).toBeVisible();
     await expect(lifecycle.getByRole("button", { name: "Un-retire" })).toHaveCount(0);
