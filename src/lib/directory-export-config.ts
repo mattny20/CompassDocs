@@ -8,7 +8,8 @@
 
 import { sanitizeSchedule, stampSchedule, SCHEDULE_OFF, type ExportSchedule } from "./directory-export-schedule-rules";
 import { COLUMN_LIMIT, MARGIN_INCHES, MARGIN_PRESETS, type MarginBox, type MarginPreset } from "./directory-export-layout";
-import { NAME_SORT_KEYS, assistantDetailKeys } from "./directory-display";
+import { NAME_FORMAT_KEYS, NAME_SORT_KEYS, assistantDetailKeys, type NameFormat } from "./directory-display";
+import { MARKER_LIMIT, listMarkers, type ExportMarker } from "./directory-markers";
 import { getSetting, setSetting } from "./db";
 import { listFields, validColumnKeys, type DirectoryField } from "./directory";
 
@@ -75,6 +76,12 @@ export interface ExportPreset {
   margins: MarginPreset;
   /** Inches per side, used when margins is "custom"; each 0.2 to 2.0. */
   margin_custom: MarginBox;
+  /** Ids of the workspace's export markers this preset prints (a symbol in
+   *  front of the name, the key in the footer); see lib/directory-markers. */
+  markers: string[];
+  /** How the Name column, the cards and assistant names write a name;
+   *  "as_written" is the stored name. Sorting never reads this. */
+  name_format: NameFormat;
   is_default: boolean;
 }
 
@@ -110,6 +117,8 @@ export const PRESET_DEFAULTS: Omit<ExportPreset, "id" | "name"> = {
   assistant_fields: [],
   margins: "normal",
   margin_custom: { top: 0.5, right: 0.5, bottom: 0.6, left: 0.5 },
+  markers: [],
+  name_format: "as_written",
   is_default: false,
 };
 
@@ -149,8 +158,12 @@ function sanitizeMarginCustom(raw: unknown): MarginBox {
   return { top: side("top"), right: side("right"), bottom: side("bottom"), left: side("left") };
 }
 
-/** Coerce untrusted JSON into a preset. Unknown columns are dropped. */
-export function sanitizePreset(raw: unknown, fields: DirectoryField[], fallbackId = "preset"): ExportPreset {
+/**
+ * Coerce untrusted JSON into a preset. Unknown columns are dropped, as are
+ * marker ids outside `markerIds` (the stored markers) when it is given; a
+ * caller without the store keeps any non-blank id.
+ */
+export function sanitizePreset(raw: unknown, fields: DirectoryField[], fallbackId = "preset", markerIds?: ReadonlySet<string>): ExportPreset {
   const o = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   const valid = validColumnKeys(fields);
   // A sort may also use the virtual first-/last-name keys; a column may not.
@@ -208,19 +221,34 @@ export function sanitizePreset(raw: unknown, fields: DirectoryField[], fallbackI
       : [],
     margins: oneOf(MARGIN_PRESETS, o.margins, PRESET_DEFAULTS.margins),
     margin_custom: sanitizeMarginCustom(o.margin_custom),
+    markers: Array.isArray(o.markers)
+      ? o.markers
+          .map((k) => String(k).trim())
+          .filter((k, i, a) => (markerIds ? markerIds.has(k) : k !== "") && a.indexOf(k) === i)
+          .slice(0, MARKER_LIMIT)
+      : [],
+    name_format: oneOf(NAME_FORMAT_KEYS, o.name_format, PRESET_DEFAULTS.name_format),
     is_default: Boolean(o.is_default),
   };
 }
 
+/** The ids a preset may list: the stored markers', loaded once per call unless the caller has them. */
+async function markerIdSet(fields: DirectoryField[], markers?: ExportMarker[]): Promise<Set<string>> {
+  return new Set((markers ?? (await listMarkers(fields))).map((m) => m.id));
+}
+
 /** All presets, with the legacy print-columns setting folded in on first read. */
-export async function listExportPresets(fields?: DirectoryField[]): Promise<ExportPreset[]> {
+export async function listExportPresets(fields?: DirectoryField[], markers?: ExportMarker[]): Promise<ExportPreset[]> {
   const all = fields ?? (await listFields());
   const raw = await getSetting(SETTING);
   let presets: ExportPreset[] = [];
   if (raw) {
     try {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) presets = parsed.map((p, i) => sanitizePreset(p, all, `preset-${i + 1}`));
+      if (Array.isArray(parsed)) {
+        const ids = await markerIdSet(all, markers);
+        presets = parsed.map((p, i) => sanitizePreset(p, all, `preset-${i + 1}`, ids));
+      }
     } catch {}
   }
   if (presets.length === 0) {
@@ -252,12 +280,14 @@ export async function listExportPresets(fields?: DirectoryField[]): Promise<Expo
 export async function saveExportPresets(raw: unknown, fields?: DirectoryField[]): Promise<ExportPreset[]> {
   const all = fields ?? (await listFields());
   if (!Array.isArray(raw) || raw.length === 0) throw new Error("At least one export preset is required.");
+  const markers = await listMarkers(all);
+  const ids = await markerIdSet(all, markers);
   // A schedule that was just set, or moved, starts from now: its first send
   // is the next slot, not the one that already passed this period.
-  const before = new Map((await listExportPresets(all)).map((p) => [p.id, p]));
+  const before = new Map((await listExportPresets(all, markers)).map((p) => [p.id, p]));
   const now = new Date();
   const presets = raw.slice(0, MAX_PRESETS).map((p, i) => {
-    const s = sanitizePreset(p, all, `preset-${i + 1}`);
+    const s = sanitizePreset(p, all, `preset-${i + 1}`, ids);
     return { ...s, schedule: stampSchedule(s.schedule, before.get(s.id)?.schedule, now) };
   });
   const seen = new Set<string>();
@@ -280,11 +310,11 @@ export async function saveExportPresets(raw: unknown, fields?: DirectoryField[])
   return normalized;
 }
 
-export async function defaultExportPreset(fields?: DirectoryField[]): Promise<ExportPreset> {
-  const presets = await listExportPresets(fields);
+export async function defaultExportPreset(fields?: DirectoryField[], markers?: ExportMarker[]): Promise<ExportPreset> {
+  const presets = await listExportPresets(fields, markers);
   return presets.find((p) => p.is_default) ?? presets[0];
 }
 
-export async function getExportPreset(id: string, fields?: DirectoryField[]): Promise<ExportPreset | undefined> {
-  return (await listExportPresets(fields)).find((p) => p.id === id);
+export async function getExportPreset(id: string, fields?: DirectoryField[], markers?: ExportMarker[]): Promise<ExportPreset | undefined> {
+  return (await listExportPresets(fields, markers)).find((p) => p.id === id);
 }

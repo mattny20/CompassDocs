@@ -197,6 +197,26 @@ export function cellValue(p: PersonLike, key: string, fields: FieldLike[]): stri
   return field ? displayValue(field, raw) : raw;
 }
 
+/**
+ * Does a person's value for a key equal `want`? The raw, canonical and label
+ * forms all count, case-insensitively; a multi-valued field matches on any of
+ * its values; a people field or an inverse key matches a linked name. The
+ * export's filter and its markers both read this, so "Office = Phoenix"
+ * means the same thing to each.
+ */
+export function matchesValue(p: PersonLike, key: string, want: string, fields: FieldLike[]): boolean {
+  const w = String(want ?? "").trim().toLowerCase();
+  const field = fields.find((f) => f.key === key);
+  if (field?.kind === "people" || key === "assists" || key.endsWith(":in")) {
+    return cellValue(p, key, fields).toLowerCase().split(", ").includes(w);
+  }
+  const raw = rawValue(p, key);
+  if (!field) return raw.trim().toLowerCase() === w;
+  return resolveValues(field, raw).some(
+    (r) => r.raw.toLowerCase() === w || r.value.toLowerCase() === w || r.label.toLowerCase() === w
+  );
+}
+
 export interface Group<P extends PersonLike> {
   key: string;
   label: string;
@@ -368,8 +388,7 @@ export function initialsOf(name: string): string {
  * Vance" is JD / Vance, "Jane Smith MD PhD" is Jane / Smith).
  */
 export function nameParts(name: string): { first: string; last: string } {
-  const words = nameWords(name);
-  while (words.length > 1 && NAME_CREDENTIAL.test(words[words.length - 1])) words.pop();
+  const words = nameCore(name);
   if (words.length === 0) return { first: "", last: "" };
   if (words.length === 1) return { first: words[0], last: words[0] };
   // The last name starts at the final word and takes the particles before it,
@@ -377,6 +396,65 @@ export function nameParts(name: string): { first: string; last: string } {
   let from = words.length - 1;
   while (from > 1 && NAME_PARTICLE.test(words[from - 1])) from--;
   return { first: words[0], last: words.slice(from).join(" ") };
+}
+
+/** The name's words with trailing credentials taken off: what nameParts and formatName both split. */
+function nameCore(name: string): string[] {
+  const words = nameWords(name);
+  while (words.length > 1 && NAME_CREDENTIAL.test(words[words.length - 1])) words.pop();
+  return words;
+}
+
+/** The ways an export may write a name; "as_written" is the name as stored. */
+export const NAME_FORMATS = [
+  { key: "as_written", label: "As written" },
+  { key: "first_last", label: "First name Last name" },
+  { key: "last_first", label: "Last name, First name" },
+  { key: "first_last_initial", label: "First name Last initial" },
+  { key: "last_first_initial", label: "Last name, First initial" },
+  { key: "first_initial_last", label: "First initial Last name" },
+] as const;
+
+export type NameFormat = (typeof NAME_FORMATS)[number]["key"];
+
+export const NAME_FORMAT_KEYS = NAME_FORMATS.map((f) => f.key) as readonly NameFormat[];
+
+export function isNameFormat(key: string): key is NameFormat {
+  return (NAME_FORMAT_KEYS as readonly string[]).includes(key);
+}
+
+/** "J." for "Jane"; a word with no letter or digit in it is kept as it is. */
+function initialOf(word: string): string {
+  const c = word.replace(/^[^\p{L}\p{N}]+/u, "")[0];
+  return c ? `${c.toUpperCase()}.` : word;
+}
+
+/**
+ * A name written one of the NAME_FORMATS ways, built on nameParts: "Smith,
+ * Jane A." is "Jane Smith", "Smith, Jane", "Jane S.", "Smith, J." or "J.
+ * Smith"; a particle surname rides whole ("van Beethoven, Ludwig"), and its
+ * initial is the surname proper's ("Ludwig B.", "Maria C." for "de la Cruz,
+ * Maria"), since "Ludwig V." names no one. A single-word name prints as it
+ * is in every format, and "as_written" returns the name untouched (trimmed).
+ * Sorting never reads this: the sort keys parse the stored name.
+ */
+export function formatName(name: string, format: NameFormat): string {
+  const n = String(name ?? "").trim();
+  if (format === "as_written" || !n) return n;
+  if (nameCore(n).length <= 1) return n;
+  const { first, last } = nameParts(n);
+  switch (format) {
+    case "first_last":
+      return `${first} ${last}`;
+    case "last_first":
+      return `${last}, ${first}`;
+    case "first_last_initial":
+      return `${first} ${initialOf(last.split(" ").pop() ?? last)}`;
+    case "last_first_initial":
+      return `${last}, ${initialOf(first)}`;
+    case "first_initial_last":
+      return `${initialOf(first)} ${last}`;
+  }
 }
 
 /** Virtual sort keys: accepted wherever a sort key is, never as a column. */
@@ -445,24 +523,39 @@ export function assistantDetailKeys(fields: FieldLike[]): { key: string; label: 
   );
 }
 
+export interface AssistantTextOptions {
+  /** How each assistant's name is written; "as_written" when absent. */
+  nameFormat?: NameFormat;
+  /** The symbols printed before an assistant's name (the export's markers),
+   *  read from the assistant's own row; "" for none. An assistant off the
+   *  lookup has no row to read, so carries none. */
+  prefix?: (assistant: PersonLike) => string;
+}
+
 /**
  * An assistant column's cell with the chosen details, "Jane Smith · 555-0100
  * · x204", assistants joined with "; ". Details come from the assistant's own
  * row in `byId`; an assistant not in it (not in the export's list) shows the
- * name alone. The CSV and the PDF both read this, so they agree.
+ * name alone. The CSV and the PDF both read this, so they agree. With
+ * options, each name is written in the preset's format and carries the
+ * assistant's own marker symbols: "* Lee, Pat · x204".
  */
 export function assistantText(
   p: PersonLike,
   fields: FieldLike[],
   byId: ReadonlyMap<number, PersonLike>,
-  assistantFields: string[]
+  assistantFields: string[],
+  options?: AssistantTextOptions
 ): string {
   const refs = p.links?.assistant ?? [];
   return refs
     .map((ref) => {
       const a = byId.get(ref.id);
       const details = a ? assistantFields.map((k) => cellValue(a, k, fields).trim()).filter(Boolean) : [];
-      return [ref.name, ...details].join(" · ");
+      let name = options?.nameFormat ? formatName(ref.name, options.nameFormat) : ref.name;
+      const prefix = a && options?.prefix ? options.prefix(a) : "";
+      if (prefix) name = `${prefix} ${name}`;
+      return [name, ...details].join(" · ");
     })
     .join("; ");
 }

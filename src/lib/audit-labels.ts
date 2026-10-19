@@ -219,6 +219,7 @@ export const AUDIT_LABELS: Record<string, string> = {
   "settings.directory_list": "Updated directory list layout",
   "settings.directory_print": "Updated directory print layout",
   "settings.directory_export": "Updated directory export settings",
+  "settings.directory_markers": "Updated directory markers",
   "branding.logo_uploaded": "Uploaded logo",
   "branding.logo_fetched": "Fetched logo from website",
   "branding.logo_removed": "Removed logo",

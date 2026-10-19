@@ -363,6 +363,61 @@ focus):
   `text-xs text-amber-600`, or `Saved` in `text-xs text-slate-500`). A page
   whose cards are one document (office fields + office values) has one Save
   below the cards, not one per card.
+- **A settings list with one editable item at a time (export presets) is a
+  two-pane layout** (1.11.2): a rail-row list on the left (chips for state),
+  the selected item's editor on the right in grouped cards with one Save row
+  for the page. The list is a `padding="none"` `Card` whose rows are
+  `<button>`s in `railRowClass(active, { dense: true })` with
+  `aria-current="true"` on the lit one (they change what the editor shows,
+  not the page, so they are not links), each carrying `chipClass(tone,
+  "sm")` chips for the states worth seeing before opening it (**Default**
+  `info`, **ZIP** `neutral`, **Scheduled** `accent`), and one secondary
+  **New …** button in a footer row. The schedule sentence is not a tooltip
+  (the chip sits inside the row button, which cannot hold a focusable, and
+  the card clips its overflow) but a `text-2xs text-slate-500` truncated
+  line under the chips, so it reads on keyboard, touch and hover alike; the
+  chips carry `sr-only` commas and expansions so the row's accessible name
+  is a sentence ("Phone list, Default, ZIP, one file per value, Scheduled,
+  Every Friday at 07:00 UTC"). The editor is a header row (the item's name
+  as a plain `CardTitle`, an `h3` like the cards under it so the outline
+  stays flat: the lit row and its chip already say which item is open; its
+  actions: Make default, Duplicate, Download, Delete in `danger`) over
+  stacked `Card`s, each a `CardTitle` plus a one-line description and an
+  `id` with `scroll-mt-6` registered as a `topics` entry ("Export › Page"),
+  and the `SaveRow` sits below both panes. Download is a link with
+  `download` while the page is clean (the leave guard lets it through) and
+  a disabled `Button` inside `Tooltip` ("Save first to download this
+  preset") while anything on the page is unsaved, the item's own rows or a
+  definitions card's; Delete is wrapped in `Tooltip` ("Keep at least one
+  preset") only while it is disabled. The panes are
+  `lg:grid-cols-[18rem_minmax(0,1fr)]` and stack under `lg`, list first;
+  the editor wrapper is a `@container` and its cards' grids use `@sm:` /
+  `@md:` / `@2xl:` variants, because the pane, 18rem narrower than the
+  column, is the width they share (§Scaling). `PresetList` /
+  `PresetEditor` (`components/directory-admin/export/`) are the worked
+  example.
+- **A short table of definitions edited in place** (export markers, 1.11.2)
+  is a `padding="none"` `Card` holding a `Table` whose rows are dense
+  controls (`TextInput` / `Select` with `dense` and an `aria-label` naming
+  the row: "Symbol for Public notary"), an icon-only Remove
+  (`iconButtonClass`, `data-tt` plus `aria-label`), and a footer row with
+  the card's own non-sticky `SaveRow` and a secondary **Add …** button as
+  its child. The shared help, or the first touched row's problem, is one
+  line under the table with `hasError` on the offending control only (the
+  OrderedKeyList rule). The card keeps its own Save because its rows are
+  definitions the page's other Save refers to by id (a preset can only
+  tick a saved marker), and the page's sticky row belongs to the presets:
+  the card's `SaveRow` passes `shortcut={false}`, so Ctrl/⌘+S saves the
+  presets alone (two rows answering one keystroke would fire two saves)
+  and the row's keycap hides with it. Focus never falls to `<body>`: Add
+  focuses the new row's first input, Remove the next row's Remove (the
+  previous row's when the last went, the Add button when the table is
+  empty), and a choice that reveals an input ("Other…") focuses it. The
+  input whose value is the row's label is named by position ("Name of
+  marker 2"), since a name that changed on every keystroke would chatter;
+  the row's other controls take the typed label. Add is wrapped in
+  `Tooltip` ("Up to 24 markers.") once the limit is reached.
+  `MarkersCard` is the worked example.
 
 ## Forms
 

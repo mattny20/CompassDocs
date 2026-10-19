@@ -11,6 +11,7 @@ import { personPhotoLargeMap, type DirectoryField, type DirectoryPerson } from "
 import { groupPeople } from "./directory-display";
 import type { ExportPreset } from "./directory-export-config";
 import { exportFilename, renderDirectoryCsv, renderDirectoryPdf } from "./directory-export";
+import { listMarkers, type ExportMarker } from "./directory-markers";
 import { getOfficeConfig } from "./directory-offices-store";
 import { getAppSettings } from "./settings-store";
 import { formatDate } from "./format";
@@ -52,6 +53,8 @@ export async function renderExportFile(opts: {
   lookup?: DirectoryPerson[];
   /** Ignore the preset's split and make one file. */
   split?: boolean;
+  /** The workspace's markers, when the caller has them; read from the store otherwise, and only when the preset prints any. */
+  markers?: ExportMarker[];
 }): Promise<ExportFile> {
   const { preset, format, people, fields } = opts;
   // The assistant lookup covers the whole export, never one file's subset,
@@ -61,15 +64,16 @@ export async function renderExportFile(opts: {
   const settings = await getAppSettings();
   const company = settings.company_name || "Company";
   const printedOn = formatDate(new Date().toISOString(), settings);
-  const [logo, offices, photosLarge] = await Promise.all([
+  const [logo, offices, photosLarge, markers] = await Promise.all([
     format === "pdf" && preset.logo ? logoDataUrl() : Promise.resolve(null),
     format === "pdf" && preset.office_info ? getOfficeConfig() : Promise.resolve(undefined),
     format === "pdf" && preset.layout === "cards" && preset.photos ? personPhotoLargeMap(people.map((p) => p.id)) : Promise.resolve(undefined),
+    opts.markers ?? (preset.markers?.length ? listMarkers(fields) : Promise.resolve([])),
   ]);
   const one = async (p: ExportPreset, subset: DirectoryPerson[]): Promise<Buffer> =>
     format === "csv"
-      ? Buffer.from(renderDirectoryCsv({ preset: p, people: subset, lookup, fields, company }), "utf8")
-      : renderDirectoryPdf({ preset: p, people: subset, lookup, fields, company, logo, printedOn, offices, photosLarge });
+      ? Buffer.from(renderDirectoryCsv({ preset: p, people: subset, lookup, fields, company, markers }), "utf8")
+      : renderDirectoryPdf({ preset: p, people: subset, lookup, fields, company, logo, printedOn, offices, photosLarge, markers });
 
   const splitField = (opts.split ?? true) && preset.split_by ? fields.find((f) => f.key === preset.split_by && f.group_by) : undefined;
   if (!splitField) {

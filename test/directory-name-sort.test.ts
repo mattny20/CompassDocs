@@ -1,6 +1,7 @@
 // First-/last-name sorting, assistant details in the export, the preset keys
-// added in 1.11.1 (column limits, assistant fields, margins) and a smoke test
-// of the PDF and CSV renderers.
+// added in 1.11.1 (column limits, assistant fields, margins), the export
+// markers and name formats of 1.11.2, and a smoke test of the PDF and CSV
+// renderers.
 //
 // Run: npx tsx --tsconfig ./tsconfig.test.json --test test/directory-name-sort.test.ts
 // (needs no DATABASE_URL: nothing here reads the settings store).
@@ -10,6 +11,7 @@ import assert from "node:assert/strict";
 import Module from "node:module";
 import path from "node:path";
 import {
+  NAME_FORMATS,
   NAME_SORT_KEYS,
   assistantDetailKeys,
   assistantText,
@@ -17,11 +19,26 @@ import {
   cellValue,
   columnLabel,
   compareByKeys,
+  formatName,
   initialsOf,
+  matchesValue,
   nameParts,
   nameSortKey,
   sortableKeys,
 } from "../src/lib/directory-display";
+import {
+  MARKER_SYMBOLS,
+  markerFields,
+  markerKeyLine,
+  markerPrefix,
+  markerProblem,
+  markersFor,
+  markersForViewer,
+  markersProblem,
+  printableSymbol,
+  sanitizeMarkers,
+  type ExportMarker,
+} from "../src/lib/directory-marker-rules";
 import { PRESET_DEFAULTS, sanitizePreset, type ExportPreset } from "../src/lib/directory-export-config";
 import type { DirectoryField, DirectoryPerson } from "../src/lib/directory";
 
@@ -110,6 +127,13 @@ const people: DirectoryPerson[] = [
 ];
 const byId = new Map(people.map((p) => [p.id, p]));
 
+// The workspace's markers: Lee earns the notary's (extension x204); Smith and
+// Beethoven the Phoenix office's (PHX1, matched by the option's label).
+const NOTARY: ExportMarker = { id: "notary", label: "Public notary", symbol: "*", key: "extension", value: "x204" };
+const PHOENIX: ExportMarker = { id: "phoenix", label: "Phoenix office", symbol: "†", key: "office", value: "phoenix" };
+const ANY_EXT: ExportMarker = { id: "ext", label: "Has an extension", symbol: "¹", key: "extension", value: "" };
+const MARKS: ExportMarker[] = [NOTARY, PHOENIX, ANY_EXT];
+
 // --- Names ---------------------------------------------------------------------
 
 describe("nameParts", () => {
@@ -158,6 +182,179 @@ describe("nameParts", () => {
     assert.equal(initialsOf("Dr. Jane Smith"), "JS");
     assert.equal(initialsOf("Smith, Jr."), "S");
     assert.equal(initialsOf(""), "");
+  });
+});
+
+describe("formatName", () => {
+  test("the six formats are built on nameParts, so every spelling of a name formats the same", () => {
+    for (const n of ["Smith, Jane A.", "Jane A. Smith", "Dr. Jane A. Smith Jr.", "Jane Smith, PhD"]) {
+      assert.equal(formatName(n, "first_last"), "Jane Smith", n);
+      assert.equal(formatName(n, "last_first"), "Smith, Jane", n);
+      assert.equal(formatName(n, "first_last_initial"), "Jane S.", n);
+      assert.equal(formatName(n, "last_first_initial"), "Smith, J.", n);
+      assert.equal(formatName(n, "first_initial_last"), "J. Smith", n);
+    }
+    assert.equal(formatName("Smith, Jane A.", "as_written"), "Smith, Jane A.");
+    assert.equal(formatName("  Smith, Jane A. ", "as_written"), "Smith, Jane A.", "as written is the name untouched, trimmed");
+    assert.deepEqual(
+      NAME_FORMATS.map((f) => f.key),
+      ["as_written", "first_last", "last_first", "first_last_initial", "last_first_initial", "first_initial_last"]
+    );
+    assert.ok(NAME_FORMATS.every((f) => f.label.length > 0));
+  });
+
+  test("a particle surname rides whole, its initial is the surname proper's, an initial carries a full stop, and a single word prints as it is in every format", () => {
+    assert.equal(formatName("Ludwig van Beethoven", "last_first"), "van Beethoven, Ludwig");
+    assert.equal(formatName("Ludwig van Beethoven", "first_initial_last"), "L. van Beethoven");
+    assert.equal(formatName("Ludwig van Beethoven", "first_last_initial"), "Ludwig B.", "the particle's letter names no one");
+    assert.equal(formatName("Oscar De La Hoya", "first_initial_last"), "O. De La Hoya");
+    assert.equal(formatName("Oscar De La Hoya", "first_last_initial"), "Oscar H.");
+    assert.equal(formatName("de la Cruz, Maria", "first_last_initial"), "Maria C.");
+    assert.equal(formatName("de la Cruz, Maria", "last_first_initial"), "de la Cruz, M.", "the surname itself still rides whole");
+    assert.equal(formatName("Van Morrison", "first_last_initial"), "Van M.", "a two-word name never loses its first word");
+    assert.equal(formatName("Mary-Kate Olsen-Day", "first_last_initial"), "Mary-Kate O.");
+    assert.equal(formatName("JD Vance", "last_first_initial"), "Vance, J.");
+    for (const format of NAME_FORMATS.map((f) => f.key)) {
+      assert.equal(formatName("Cher", format), "Cher", format);
+      assert.equal(formatName("Smith, Jr.", format), "Smith, Jr.", `a surname and a suffix is one word: ${format}`);
+      assert.equal(formatName("MD", format), "MD", format);
+      assert.equal(formatName("", format), "", format);
+      assert.equal(formatName("   ", format), "", format);
+    }
+  });
+});
+
+// --- Markers -------------------------------------------------------------------
+
+describe("markers", () => {
+  test("markersFor and markerPrefix: matched as the export filter matches, in the markers' order; a blank value is any value", () => {
+    assert.deepEqual(markersFor(lee, MARKS, fields).map((m) => m.id), ["notary", "ext"]);
+    assert.equal(markerPrefix(lee, MARKS, fields), "*¹");
+    assert.equal(markerPrefix(people[0], MARKS, fields), "†", "Smith: PHX1 is Phoenix by its label");
+    assert.equal(markerPrefix(ortiz, MARKS, fields), "¹");
+    assert.equal(markerPrefix(people[5], MARKS, fields), "", "Adams: Tucson, no extension");
+    assert.deepEqual(markersFor(people[5], MARKS, fields), []);
+    // The option's code and its label both match, case-insensitively; a prefix does not.
+    assert.equal(markerPrefix(people[0], [{ ...PHOENIX, value: "phx1" }], fields), "†");
+    assert.equal(markerPrefix(people[0], [{ ...PHOENIX, value: "PHOENIX" }], fields), "†");
+    assert.equal(markerPrefix(people[0], [{ ...PHOENIX, value: "PHX" }], fields), "");
+    // The same rule the filter keeps.
+    assert.equal(matchesValue(people[0], "office", "Phoenix", fields), true);
+    assert.equal(matchesValue(people[0], "office", "Tucson", fields), false);
+    assert.equal(matchesValue(people[0], "assistant", "pat lee", fields), true, "a people field matches a linked name");
+  });
+
+  test("a multi-valued field matches on any of its values", () => {
+    const certs = field({ key: "certs", label: "Certifications", multi: 1, options: [{ value: "NOTARY", label: "Notary public" }, { value: "CPR" }], value_format: "label" });
+    const all = [...fields, certs];
+    const p = person(7, "Multi Person", { custom: { certs: "CPR, notary" } });
+    assert.equal(markerPrefix(p, [{ id: "n", label: "Notary", symbol: "*", key: "certs", value: "Notary public" }], all), "*");
+    assert.equal(markerPrefix(p, [{ id: "c", label: "CPR", symbol: "+", key: "certs", value: "cpr" }], all), "+");
+    assert.equal(markerPrefix(p, [{ id: "f", label: "First aid", symbol: "‡", key: "certs", value: "first aid" }], all), "");
+    assert.equal(markerPrefix(p, [{ id: "a", label: "Any", symbol: "°", key: "certs", value: "" }], all), "°");
+    assert.equal(markerPrefix(people[5], [{ id: "a", label: "Any", symbol: "°", key: "certs", value: "" }], all), "");
+  });
+
+  test("markerKeyLine is the footer's key, symbol then label, dotted apart", () => {
+    assert.equal(markerKeyLine(MARKS), "* Public notary  ·  † Phoenix office  ·  ¹ Has an extension");
+    assert.equal(markerKeyLine([NOTARY]), "* Public notary");
+    assert.equal(markerKeyLine([]), "");
+  });
+
+  test("markerFields offers every column but the name and the link columns", () => {
+    assert.deepEqual(markerFields(fields).map((f) => f.key), ["title", "department", "email", "phone", "mobile", "office", "extension"]);
+    assert.equal(markerFields(fields).find((f) => f.key === "office")?.label, "Office");
+  });
+
+  test("the WinAnsi rule: ASCII, the Latin-1 symbols and accented letters print; anything else does not", () => {
+    for (const s of MARKER_SYMBOLS) assert.ok(printableSymbol(s), s);
+    for (const s of ["ª", "º", "‰", "©", "®", "™", "¿", "¡", "«", "»", "é", "Ñ", "ß", "ÿ", "A1", "#!", "~", "^", "°F"]) assert.ok(printableSymbol(s), s);
+    for (const s of ["★", "✓", "→", "☆", "Ω", "😀", "*★", "†→"]) assert.ok(!printableSymbol(s), s);
+    assert.ok(printableSymbol(""), "nothing to print is nothing unprintable (the length rule refuses it)");
+  });
+
+  test("sanitizeMarkers: at most 24; a label of 1..40; a symbol of 1..3 printable characters; an eligible field; unique slug ids", () => {
+    const out = sanitizeMarkers(
+      [
+        { id: "notary", label: "Public notary", symbol: "*", key: "extension", value: "x204" },
+        { label: "Partner", symbol: "†", key: "title", value: "Partner" },
+        { label: "Partner", symbol: "‡", key: "title", value: "Of Counsel" },
+        { label: "", symbol: "*", key: "title", value: "" },
+        { label: "Star", symbol: "★", key: "title", value: "" },
+        { label: "Long", symbol: "****", key: "title", value: "" },
+        { label: "Blank", symbol: "   ", key: "title", value: "" },
+        { label: "Name", symbol: "*", key: "name", value: "" },
+        { label: "Link", symbol: "*", key: "assistant", value: "" },
+        { label: "Inverse", symbol: "*", key: "assists", value: "" },
+        { label: "Bogus", symbol: "*", key: "nope", value: "" },
+        { label: "x".repeat(50), symbol: "°", key: "office", value: "y".repeat(130) },
+        { id: "Keep This", label: "Accents", symbol: " é§ ", key: "department", value: " Legal " },
+        "junk",
+        null,
+      ],
+      fields
+    );
+    assert.deepEqual(
+      out.map((m) => m.id),
+      ["notary", "partner", "partner-2", "x".repeat(40), "keep-this"],
+      "a stored id is kept (slugged), a new one comes from the label, a repeat is suffixed"
+    );
+    assert.deepEqual(out[1], { id: "partner", label: "Partner", symbol: "†", key: "title", value: "Partner" });
+    assert.equal(out[3].label, "x".repeat(40));
+    assert.equal(out[3].value, "y".repeat(120));
+    assert.deepEqual(out[4], { id: "keep-this", label: "Accents", symbol: "é§", key: "department", value: "Legal" });
+    assert.deepEqual(sanitizeMarkers("nope", fields), []);
+    assert.deepEqual(sanitizeMarkers({ markers: [] }, fields), []);
+    assert.equal(sanitizeMarkers(Array.from({ length: 30 }, (_, i) => ({ label: `M${i}`, symbol: "*", key: "title" })), fields).length, 24);
+    // Stable: a sanitized set sanitizes to itself.
+    assert.deepEqual(sanitizeMarkers(out, fields), out);
+  });
+
+  test("ids are assigned in two passes: a stored id is reserved before any new marker's label can take it, wherever it sits", () => {
+    // The new "Notary" comes first in the list, but "notary" belongs to the
+    // stored marker presets refer to: the new one is the one suffixed.
+    const ahead = sanitizeMarkers(
+      [
+        { label: "Notary", symbol: "*", key: "title", value: "" },
+        { id: "notary", label: "Public notary", symbol: "†", key: "extension", value: "x204" },
+      ],
+      fields
+    );
+    assert.deepEqual(ahead.map((m) => m.id), ["notary-2", "notary"]);
+    assert.deepEqual(ahead[1], { id: "notary", label: "Public notary", symbol: "†", key: "extension", value: "x204" });
+    // A stored id given twice keeps its first holder; the repeats (and a
+    // new marker whose label slugs to it) are named as new markers are.
+    const twice = sanitizeMarkers(
+      [
+        { id: "dup", label: "Dup A", symbol: "*", key: "title", value: "" },
+        { id: "dup", label: "Dup B", symbol: "†", key: "title", value: "" },
+        { id: "DUP", label: "Dup C", symbol: "‡", key: "title", value: "" },
+        { label: "dup", symbol: "§", key: "title", value: "" },
+      ],
+      fields
+    );
+    assert.deepEqual(twice.map((m) => m.id), ["dup", "dup-b", "dup-c", "dup-2"]);
+    assert.deepEqual(sanitizeMarkers(twice, fields), twice, "and the result is stable");
+  });
+
+  test("markerProblem names the first thing wrong the way the route refuses it; markersProblem the first of a list", () => {
+    const keys = new Set(["title", "office", "extension"]);
+    assert.equal(markerProblem({ label: "", symbol: "*", key: "title" }, 0, keys)?.message, "Marker 1: give it a name.");
+    assert.equal(markerProblem({ label: "  ", symbol: "*", key: "title" }, 2, keys)?.field, "label");
+    assert.equal(markerProblem({ label: "Public notary", symbol: "★", key: "title" }, 0, keys)?.message, 'Marker "Public notary": the symbol "★" cannot be printed.');
+    assert.equal(markerProblem({ label: "Public notary", symbol: "", key: "title" }, 0, keys)?.message, 'Marker "Public notary": pick a symbol.');
+    assert.equal(markerProblem({ label: "Public notary", symbol: "****", key: "title" }, 0, keys)?.message, 'Marker "Public notary": the symbol is longer than 3 characters.');
+    assert.equal(markerProblem({ label: "Public notary", symbol: "*", key: "name" }, 0, keys)?.message, 'Marker "Public notary": pick a field.');
+    assert.equal(markerProblem({ label: "Public notary", symbol: "*", key: "" }, 0, keys)?.field, "key");
+    assert.equal(markerProblem({ label: "Public notary", symbol: "*", key: "title", value: "v".repeat(121) }, 0, keys)?.message, 'Marker "Public notary": the value is longer than 120 characters.');
+    assert.equal(markerProblem({ label: "x".repeat(41), symbol: "*", key: "title" }, 0, keys)?.field, "label");
+    assert.equal(markerProblem({ label: "Public notary", symbol: "*", key: "title", value: "" }, 0, keys), undefined);
+    assert.equal(markerProblem({ label: "Public notary", symbol: "¹²³", key: "extension", value: "x204" }, 0, keys), undefined);
+    assert.equal(markersProblem([{ label: "Public notary", symbol: "*", key: "title" }], fields), undefined);
+    assert.equal(markersProblem([{ label: "Public notary", symbol: "*", key: "title" }, { label: "Star", symbol: "★", key: "title" }], fields), 'Marker "Star": the symbol "★" cannot be printed.');
+    assert.equal(markersProblem(Array.from({ length: 25 }, () => ({ label: "a", symbol: "*", key: "title" })), fields), "Up to 24 markers.");
+    assert.equal(markersProblem("x", fields), "Send the markers as a list.");
+    assert.equal(markersProblem([], fields), undefined);
   });
 });
 
@@ -297,12 +494,30 @@ describe("sanitizePreset", () => {
     assert.equal(sanitizePreset({ name: "x", sort: "name:last", sort2: "name:last" }, fields).sort2, "", "a repeated key is dropped");
   });
 
+  test("markers and name_format: a preset stored before 1.11.2 gets none and as_written; ids are checked against the store when it is given", () => {
+    const legacy = sanitizePreset({ id: "phone-directory", name: "Phone directory", columns: ["name", "phone"], sort: "name" }, fields);
+    assert.deepEqual(legacy.markers, []);
+    assert.equal(legacy.name_format, "as_written");
+    assert.deepEqual(PRESET_DEFAULTS.markers, []);
+    assert.equal(PRESET_DEFAULTS.name_format, "as_written");
+    const loose = sanitizePreset({ name: "x", markers: ["notary", "notary", " ", "bogus"], name_format: "last_first_initial" }, fields);
+    assert.deepEqual(loose.markers, ["notary", "bogus"], "without the store, any non-blank id is kept once");
+    assert.equal(loose.name_format, "last_first_initial");
+    const checked = sanitizePreset({ name: "x", markers: ["notary", "bogus"], name_format: "nope" }, fields, "p", new Set(["notary", "partner"]));
+    assert.deepEqual(checked.markers, ["notary"]);
+    assert.equal(checked.name_format, "as_written");
+    assert.deepEqual(sanitizePreset({ name: "x", markers: "notary" }, fields).markers, []);
+    assert.deepEqual(sanitizePreset({ name: "x", markers: [1, 2] }, fields).markers, ["1", "2"]);
+    for (const key of NAME_FORMATS.map((f) => f.key)) assert.equal(sanitizePreset({ name: "x", name_format: key }, fields).name_format, key);
+  });
+
   test("sanitizing is stable: a sanitized preset sanitizes to itself", () => {
     const once = sanitizePreset(
-      { name: "Stable", columns: ["name", "assistant"], column_limits: { name: 14 }, assistant_fields: ["phone"], margins: "custom", margin_custom: { top: 1, right: 0.3, bottom: 1.1, left: 0.3 }, sort: "name:first" },
+      { name: "Stable", columns: ["name", "assistant"], column_limits: { name: 14 }, assistant_fields: ["phone"], margins: "custom", margin_custom: { top: 1, right: 0.3, bottom: 1.1, left: 0.3 }, sort: "name:first", markers: ["notary"], name_format: "last_first" },
       fields
     );
     assert.deepEqual(sanitizePreset(once, fields), once);
+    assert.deepEqual(sanitizePreset(once, fields, "p", new Set(["notary"])), once);
   });
 });
 
@@ -403,5 +618,129 @@ describe("PDF and CSV", () => {
     assert.equal(three.subarray(0, 5).toString("latin1"), "%PDF-");
     assert.notEqual(stable(three), stable(await render({ ...threeUp, column_limits: {} })), "the limits change the three-column plan");
     assert.notEqual(stable(three), stable(await render({ ...threeUp, margins: "wide" })), "the margins change the three-column plan");
+  });
+
+  // --- Markers and name formats (1.11.2) ---
+
+  test("a preset with no markers and no name format renders as it did, whatever markers the workspace has", () => {
+    const plain = exporter.prepareExport({ preset: preset(), people, fields, company: "Acme", markers: MARKS });
+    assert.deepEqual(plain.markers, []);
+    assert.equal(plain.nameFormat, "as_written");
+    assert.equal(plain.cell(people[0], "name"), "Smith, Jane");
+    assert.equal(plain.cell(lee, "name"), "Pat Lee");
+    assert.equal(plain.cell(people[0], "assistant"), "Pat Lee · 602-555-0100 · x204");
+    const bare = exporter.prepareExport({ preset: { ...preset(), assistant_fields: [] }, people, fields, company: "Acme", markers: MARKS });
+    assert.equal(bare.cell(people[1], "assistant"), "Pat Lee, Sam Ortiz", "the plain assistant column keeps its comma");
+    const withStore = exporter.renderDirectoryCsv({ preset: preset(), people, fields, company: "Acme", markers: MARKS });
+    const withoutStore = exporter.renderDirectoryCsv({ preset: preset(), people, fields, company: "Acme" });
+    assert.equal(withStore, withoutStore);
+    assert.ok(!withStore.includes("Markers"), "no Markers column");
+  });
+
+  test("markers: the name cell carries the person's symbols, each assistant their own, and the CSV a Markers column", () => {
+    const marked = { ...preset(), markers: ["notary", "phoenix"] };
+    const prepared = exporter.prepareExport({ preset: marked, people, fields, company: "Acme", markers: MARKS });
+    assert.deepEqual(prepared.markers.map((m) => m.id), ["notary", "phoenix"]);
+    assert.equal(prepared.cell(people[0], "name"), "† Smith, Jane");
+    assert.equal(prepared.cell(lee, "name"), "* Pat Lee");
+    assert.equal(prepared.cell(people[5], "name"), "Dr. Bob Adams Jr.", "no mark, no space");
+    assert.equal(prepared.cell(people[0], "assistant"), "* Pat Lee · 602-555-0100 · x204", "the assistant's own prefix, from the assistant's own row");
+    assert.equal(prepared.cell(people[1], "assistant"), "* Pat Lee · 602-555-0100 · x204; Sam Ortiz · x210");
+    assert.equal(prepared.cell(people[4], "assistant"), "Ghost Writer", "an assistant off the lookup has no row to mark from");
+    const both = person(8, "Both Marks", { office: "PHX1", custom: { extension: "x204" } });
+    assert.equal(prepared.cell(both, "name"), "*† Both Marks", "symbols joined, one space, in the markers' order");
+    // The preset's order of ids does not matter; the workspace's order does.
+    const reversed = exporter.prepareExport({ preset: { ...marked, markers: ["phoenix", "notary"] }, people, fields, company: "Acme", markers: MARKS });
+    assert.deepEqual(reversed.markers.map((m) => m.id), ["notary", "phoenix"]);
+    assert.equal(reversed.cell(both, "name"), "*† Both Marks");
+    // An id the workspace no longer has prints nothing.
+    const ghost = exporter.prepareExport({ preset: { ...marked, markers: ["ghost"] }, people, fields, company: "Acme", markers: MARKS });
+    assert.deepEqual(ghost.markers, []);
+    assert.equal(ghost.cell(lee, "name"), "Pat Lee");
+    // The CSV: the prefix in the name column, the labels in a trailing Markers column, no key.
+    const csv = exporter.renderDirectoryCsv({ preset: marked, people, fields, company: "Acme", markers: MARKS });
+    const lines = csv.replace(/^﻿/, "").trim().split("\r\n");
+    assert.equal(lines.length, 7);
+    assert.equal(lines[0], "Name,Title,Assistant,Phone,Markers");
+    assert.equal(lines[1], "Dr. Bob Adams Jr.,Of Counsel,,,");
+    assert.equal(lines[2], "* Pat Lee,Legal Assistant,,602-555-0100,Public notary");
+    assert.equal(lines[4], '"† Smith, Jane",Managing Partner of Litigation,* Pat Lee · 602-555-0100 · x204,602-555-0001,Phoenix office');
+    assert.equal(lines[5], "† Ludwig van Beethoven,Composer,Ghost Writer,,Phoenix office");
+    assert.equal(lines[6], "Adam Zimmer,Associate,* Pat Lee · 602-555-0100 · x204; Sam Ortiz · x210,602-555-0002,");
+    assert.equal(csv.includes("Public notary  ·"), false, "a spreadsheet has no footer for the key");
+    const twoLabels = exporter.renderDirectoryCsv({ preset: marked, people: [both], fields, company: "Acme", markers: MARKS });
+    assert.ok(twoLabels.includes("*† Both Marks,,,,Public notary; Phoenix office"), twoLabels);
+    // A "+" in front of a name is neutralised as a formula would be, as any leading + is.
+    const plus = exporter.renderDirectoryCsv({ preset: { ...marked, markers: ["plus"] }, people: [lee], fields, company: "Acme", markers: [{ id: "plus", label: "Plus", symbol: "+", key: "extension", value: "" }] });
+    assert.ok(plus.includes("'+ Pat Lee,"), plus);
+  });
+
+  test("a marker on a column the viewer may not see goes with the column: absent from the file's markers, its key line and its CSV column", () => {
+    // What the export route does for a viewer: the store cut to the
+    // viewer's columns before the preset's ids are read against it.
+    const MOBILE: ExportMarker = { id: "mob", label: "Mobile on file", symbol: "§", key: "mobile", value: "" };
+    const all = [...MARKS, MOBILE];
+    const viewer = markersForViewer(all, new Set(["mobile"]));
+    assert.deepEqual(viewer.map((m) => m.id), ["notary", "phoenix", "ext"]);
+    assert.equal(markersForViewer(all, new Set()), all, "an admin hides nothing and keeps the list as it is");
+    const chosen = { ...preset(), markers: ["notary", "mob"] };
+    const prepared = exporter.prepareExport({ preset: chosen, people, fields, company: "Acme", markers: viewer });
+    assert.deepEqual(prepared.markers.map((m) => m.id), ["notary"]);
+    assert.equal(markerKeyLine(prepared.markers), "* Public notary");
+    const csv = exporter.renderDirectoryCsv({ preset: chosen, people: [lee], fields, company: "Acme", markers: viewer });
+    assert.ok(csv.includes("* Pat Lee"), csv);
+    assert.ok(!csv.includes("Mobile on file"), csv);
+    // The admin's own export still prints it.
+    const admin = exporter.prepareExport({ preset: chosen, people, fields, company: "Acme", markers: all });
+    assert.deepEqual(admin.markers.map((m) => m.id), ["notary", "mob"]);
+  });
+
+  test("name formats: the name cell and assistant names are rewritten, with the symbols in front; the sort reads the stored names", () => {
+    const formatted = { ...preset(), name_format: "last_first_initial" as const, markers: ["notary", "phoenix"] };
+    const prepared = exporter.prepareExport({ preset: formatted, people, fields, company: "Acme", markers: MARKS });
+    assert.equal(prepared.nameFormat, "last_first_initial");
+    assert.equal(prepared.cell(people[0], "name"), "† Smith, J.");
+    assert.equal(prepared.cell(people[4], "name"), "† van Beethoven, L.");
+    assert.equal(prepared.cell(people[5], "name"), "Adams, B.");
+    assert.equal(prepared.cell(people[1], "assistant"), "* Lee, P. · 602-555-0100 · x204; Ortiz, S. · x210");
+    assert.equal(prepared.cell(people[4], "assistant"), "Writer, G.", "formatted even off the lookup; no row, no mark");
+    assert.deepEqual(
+      prepared.sections[0].rows.map((p) => p.name),
+      ["Dr. Bob Adams Jr.", "Pat Lee", "Sam Ortiz", "Smith, Jane", "Ludwig van Beethoven", "Adam Zimmer"],
+      "the last-name sort is unchanged"
+    );
+    // A format alone, with no markers and no assistant details: the names are
+    // written the new way; assistants are joined with a semicolon, since
+    // "Lee, Pat, Ortiz, Sam" would not read.
+    const only = exporter.prepareExport({ preset: { ...preset(), name_format: "first_last", assistant_fields: [] }, people, fields, company: "Acme" });
+    assert.deepEqual(only.markers, []);
+    assert.equal(only.cell(people[0], "name"), "Jane Smith");
+    assert.equal(only.cell(people[5], "name"), "Bob Adams");
+    assert.equal(only.cell(people[1], "assistant"), "Pat Lee; Sam Ortiz");
+    const csv = exporter.renderDirectoryCsv({ preset: formatted, people, fields, company: "Acme", markers: MARKS });
+    const lines = csv.replace(/^﻿/, "").trim().split("\r\n");
+    assert.equal(lines[1], '"Adams, B.",Of Counsel,,,');
+    assert.equal(lines[4], '"† Smith, J.",Managing Partner of Litigation,"* Lee, P. · 602-555-0100 · x204",602-555-0001,Phoenix office');
+    const cards = exporter.prepareExport({ preset: { ...formatted, layout: "cards" as const }, people, fields, company: "Acme", markers: MARKS });
+    assert.equal(cards.cell(people[0], "name"), "† Smith, J.", "the cards read the same name cell");
+  });
+
+  test("the PDF prints the key line: it renders in every layout, differs from the render without markers, and a markerless preset ignores the store", async () => {
+    const render = (patch: Partial<ExportPreset> = {}, markers?: ExportMarker[]) =>
+      exporter.renderDirectoryPdf({ preset: { ...preset(), ...patch }, people, fields, company: "Acme", logo: null, printedOn: "Oct 19, 2026", markers });
+    const chosen = { markers: ["notary", "phoenix"] };
+    const marked = await render(chosen, MARKS);
+    assert.equal(marked.subarray(0, 5).toString("latin1"), "%PDF-");
+    assert.ok(marked.length > 1000, `pdf is ${marked.length} bytes`);
+    assert.equal(stable(marked), stable(await render(chosen, MARKS)), "deterministic once the clock is taken out");
+    assert.notEqual(stable(marked), stable(await render({}, MARKS)), "the markers change the page");
+    assert.notEqual(stable(marked), stable(await render({ markers: ["notary"] }, MARKS)), "which markers print changes the key");
+    assert.equal(stable(await render({}, MARKS)), stable(await render()), "a preset that lists none renders the same whatever the workspace has");
+    assert.notEqual(stable(await render({ name_format: "last_first" })), stable(await render()), "the name format changes the page");
+    for (const layout of [{ layout: "cards" as const }, { page_columns: 2 as const, margins: "narrow" as const }, { page_columns: 3 as const }]) {
+      const withKey = await render({ ...layout, ...chosen }, MARKS);
+      assert.equal(withKey.subarray(0, 5).toString("latin1"), "%PDF-");
+      assert.notEqual(stable(withKey), stable(await render(layout, MARKS)), `the key line changes the ${JSON.stringify(layout)} page`);
+    }
   });
 });

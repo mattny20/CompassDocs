@@ -118,10 +118,17 @@ test("a preset can zip one file per office, lay people out as photo cards, and c
     expect(mine.schedule).toMatchObject({ frequency: "weekly", day: 5, hour: 7, recipients: ["reception@e2e.test"], format: "pdf" });
     expect(typeof mine.schedule.since).toBe("string");
 
-    // The Export page shows it, and the Directory's Export menu marks the zip.
+    // The Export page lists it with its chips and the schedule sentence
+    // under them, the editor's Schedule card shows the schedule, and the
+    // Directory's Export menu marks the zip.
     await page.goto("/admin/directory/export");
-    await page.getByRole("combobox", { name: "Preset" }).selectOption({ label: `E2E Who's who ${stamp}` });
-    await expect(page.getByText("Every Friday at 07:00 UTC")).toBeVisible();
+    const row = page.getByRole("button", { name: `E2E Who's who ${stamp}` });
+    await expect(row).toContainText("ZIP");
+    await expect(row).toContainText("Scheduled");
+    await expect(row).toContainText("Every Friday at 07:00 UTC");
+    await row.click();
+    const schedule = page.locator("section", { has: page.getByRole("heading", { name: "Schedule", exact: true }) }).last();
+    await expect(schedule.getByText("Every Friday at 07:00 UTC")).toBeVisible();
     await page.goto("/directory");
     await page.getByRole("button", { name: /Export/ }).click();
     await expect(page.getByRole("menuitem", { name: new RegExp(`E2E Who's who ${stamp}`) })).toContainText("ZIP");

@@ -15,6 +15,7 @@ export function Card({
   icon,
   padding = "p-5",
   className = "",
+  id,
   children,
   as: Tag = "section",
 }: {
@@ -27,11 +28,13 @@ export function Card({
    *  the children own their padding (a table). */
   padding?: "p-5" | "p-4" | "none";
   className?: string;
+  /** An anchor for the rail search (a `topics` entry); pair with `scroll-mt-6`. */
+  id?: string;
   children: ReactNode;
   as?: "section" | "div";
 }) {
   return (
-    <Tag className={`${CARD_CLASS} ${padding === "none" ? "overflow-hidden" : padding} ${className}`.trim()}>
+    <Tag id={id} className={`${CARD_CLASS} ${padding === "none" ? "overflow-hidden" : padding} ${className}`.trim()}>
       {(title || actions) && (
         <div className={`flex flex-wrap items-start justify-between gap-3 ${padding === "none" ? "border-b border-slate-100 px-4 py-3" : "mb-3"}`}>
           <div className="min-w-0">

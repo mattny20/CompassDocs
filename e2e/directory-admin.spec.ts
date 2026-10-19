@@ -2,17 +2,23 @@ import { test, expect } from "@playwright/test";
 import { ADMIN, login, api } from "./helpers";
 
 // The directory settings as pages (1.2.4): each job on its own route under
-// one header and tab row, and the Offices page feeding the PDF export.
+// one header and tab row, and the Offices page feeding the PDF export. Since
+// 1.11.2 the Directory page defaults have a page of their own (Display) and
+// the Export page is a preset list beside the selected preset's editor.
 
 const STAMP = Date.now();
+
+/** The five cards the preset editor groups its controls into, in order. */
+const PRESET_CARDS = ["Document", "Page", "Columns", "Order and filter", "Schedule"] as const;
 
 test("each directory settings job is a page under one header", async ({ page }) => {
   await login(page, ADMIN);
   for (const [path, heading] of [
     ["/admin/directory", "Add a person"],
+    ["/admin/directory/display", "Directory page defaults"],
     ["/admin/directory/fields", "Directory fields"],
     ["/admin/directory/offices", "Offices"],
-    ["/admin/directory/export", "Export presets"],
+    ["/admin/directory/export", "Presets"],
     ["/admin/directory/sync", "Google Workspace sync"],
   ] as const) {
     await page.goto(path);
@@ -242,9 +248,23 @@ test("a preset keeps column limits, assistant details, custom margins and a firs
     expect(csv.text).toContain(`Zed Aardvark${stamp} · 602-555-0101`);
 
     // The editor shows what was saved: the name sort, the per-column limit,
-    // the margins and their inches, the assistant's ticked field.
+    // the margins and their inches, the assistant's ticked field. The preset
+    // is a row in the list; its editor is the five group cards. At the
+    // Normal page width the editor pane is about 240px of inner width: the
+    // cards' grids follow the pane (container queries), so no card spills
+    // sideways and the Density select keeps a readable width.
+    await api(page, "/api/account/preferences", { method: "PATCH", body: { page_width: "normal" } });
     await page.goto("/admin/directory/export");
-    await page.getByRole("combobox", { name: "Preset" }).selectOption({ label: `E2E Wrap ${stamp}` });
+    await page.getByRole("button", { name: `E2E Wrap ${stamp}` }).click();
+    await expect(page.getByRole("heading", { name: `E2E Wrap ${stamp}` })).toBeVisible();
+    for (const card of PRESET_CARDS) {
+      await expect(page.getByRole("heading", { name: card, exact: true })).toBeVisible();
+      const section = page.locator("section", { has: page.getByRole("heading", { name: card, exact: true }) }).last();
+      const spill = await section.evaluate((el) => el.scrollWidth - el.clientWidth);
+      expect(spill, `the ${card} card does not spill sideways at Normal`).toBeLessThanOrEqual(0);
+    }
+    const density = await page.getByRole("combobox", { name: "Density" }).boundingBox();
+    expect(density!.width, "the Density select is wide enough to read at Normal").toBeGreaterThanOrEqual(160);
     // "Sort by" / "Then by" wrap a direction select too, so their names are not exact.
     await expect(page.getByRole("combobox", { name: "Sort by" })).toHaveValue("name:first");
     await expect(page.getByRole("combobox", { name: "Then by" })).toHaveValue("name:last");
@@ -285,12 +305,15 @@ test("a preset keeps column limits, assistant details, custom margins and a firs
     await expect(top).toHaveValue("0.7");
     await expect(wrapName).toHaveValue("12");
 
-    // The admin default for "Sort names by" saves through the Directory
-    // defaults card's route and comes back to it.
+    // The admin default for "Sort names by" saves through the Directory page
+    // defaults card's route and comes back to it, on the Display page; the
+    // Export page no longer carries it.
     const put = await api(page, "/api/admin/directory/list-columns", { method: "PUT", body: { name_sort: "last" } });
     expect(put.status).toBe(200);
-    await page.goto("/admin/directory/export");
+    await page.goto("/admin/directory/display");
     await expect(page.getByRole("combobox", { name: "Sort names by" })).toHaveValue("last");
+    await page.goto("/admin/directory/export");
+    await expect(page.getByRole("combobox", { name: "Sort names by" })).toHaveCount(0);
 
     // A fresh browser opens the list by last name (the admin's default), the
     // control switches it, and this browser's choice survives a reload.
@@ -331,6 +354,188 @@ test("a preset keeps column limits, assistant details, custom margins and a firs
   } finally {
     await api(page, "/api/admin/directory/export-presets", { method: "PUT", body: { presets } });
     await api(page, "/api/admin/directory/list-columns", { method: "PUT", body: { name_sort: defaults?.name_sort ?? "full" } });
+    await api(page, "/api/account/preferences", { method: "PATCH", body: { page_width: "wide" } });
     for (const p of [amy, zed]) await api(page, `/api/admin/directory/people/${p.id}`, { method: "DELETE" });
+  }
+});
+
+// 1.11.2: export markers (a symbol in front of a name for people who match a
+// field value, the key in the PDF's footer) and name formats, through the
+// markers route, a preset and the files it makes.
+test("markers round-trip and refuse an unprintable symbol; a preset prints them and writes names in a format", async ({ page }) => {
+  await login(page, ADMIN);
+  const stamp = Date.now();
+  const title = `E2E Notary ${stamp}`;
+  const before = (await api(page, "/api/admin/directory/markers")).body.markers as any[];
+  const presets = (await api(page, "/api/admin/directory/export-presets")).body.presets as any[];
+  // Zed is a notary by title and assists Jane, who is not one.
+  const zed = (await api(page, "/api/admin/directory/people", { method: "POST", body: { name: `Zed Aardvark${stamp}`, title, phone: "602-555-0101" } })).body.person;
+  const jane = (await api(page, "/api/admin/directory/people", { method: "POST", body: { name: "Smith, Jane A.", links: { assistant: [zed.id] } } })).body.person;
+  const id = `e2e-mark-${stamp}`;
+  try {
+    // A symbol the PDF's Helvetica cannot print is refused by name, never
+    // saved to come out as a box on paper; the stored set is untouched.
+    const refused = await api(page, "/api/admin/directory/markers", {
+      method: "PUT",
+      body: { markers: [...before, { label: "Public notary", symbol: "★", key: "title", value: title }] },
+    });
+    expect(refused.status).toBe(400);
+    expect(refused.body.error).toBe('Marker "Public notary": the symbol "★" cannot be printed.');
+    expect((await api(page, "/api/admin/directory/markers")).body.markers).toEqual(before);
+    // A printable one round-trips through PUT and GET with a slug id.
+    const saved = await api(page, "/api/admin/directory/markers", {
+      method: "PUT",
+      body: { markers: [...before, { label: "Public notary", symbol: "*", key: "title", value: title }] },
+    });
+    expect(saved.status).toBe(200);
+    const mine = saved.body.markers.find((m: any) => m.value === title);
+    expect(mine).toMatchObject({ label: "Public notary", symbol: "*", key: "title", value: title });
+    expect(mine.id).toMatch(/^public-notary/);
+    expect((await api(page, "/api/admin/directory/markers")).body.markers).toContainEqual(mine);
+
+    // A preset that prints the marker and writes names "Last, First initial";
+    // an id the workspace does not have drops out of the preset.
+    const put = await api(page, "/api/admin/directory/export-presets", {
+      method: "PUT",
+      body: {
+        presets: [
+          ...presets,
+          { id, name: `E2E Mark ${stamp}`, columns: ["name", "assistant", "phone"], assistant_fields: ["phone"], markers: [mine.id, "bogus"], name_format: "last_first_initial", filename: id },
+        ],
+      },
+    });
+    expect(put.status).toBe(200);
+    const preset = put.body.presets.find((p: any) => p.id === id);
+    expect(preset.markers).toEqual([mine.id]);
+    expect(preset.name_format).toBe("last_first_initial");
+
+    // The CSV: the notary's name cell starts with the symbol and the Markers
+    // column lists the label; Jane's name reads "Smith, J."; her assistant
+    // cell carries Zed's own prefix and format.
+    const csv = await page.evaluate(
+      async ({ id, ids }) => {
+        const res = await fetch("/api/directory/export", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ preset: id, format: "csv", ids }) });
+        return { status: res.status, text: await res.text() };
+      },
+      { id, ids: [jane.id, zed.id] }
+    );
+    expect(csv.status).toBe(200);
+    const lines = csv.text.replace(/^﻿/, "").trim().split("\r\n");
+    expect(lines[0]).toBe("Name,Assistant,Phone,Markers");
+    expect(lines).toHaveLength(3);
+    expect(lines).toContain(`"* Aardvark${stamp}, Z.",,602-555-0101,Public notary`);
+    expect(lines).toContain(`"Smith, J.","* Aardvark${stamp}, Z. · 602-555-0101",,`);
+
+    // The PDF renders with the key line in its footer.
+    const pdf = await page.evaluate(async (id) => {
+      const res = await fetch(`/api/directory/export?preset=${id}&format=pdf`);
+      const buf = new Uint8Array(await res.arrayBuffer());
+      return { status: res.status, head: String.fromCharCode(...buf.slice(0, 5)), size: buf.length };
+    }, id);
+    expect(pdf.status).toBe(200);
+    expect(pdf.head).toBe("%PDF-");
+    expect(pdf.size).toBeGreaterThan(1500);
+
+    // The page: the Markers card lists the marker (its Name input is named
+    // by position, so the row is found by its Remove button, which carries
+    // the label); Add lands on the new row's Name input and Remove on the
+    // Remove of the row before it. Then the preset's Document card shows
+    // the format and its Columns card ticks the marker.
+    await page.goto("/admin/directory/export");
+    await expect(page.getByRole("heading", { name: "Markers", exact: true })).toBeVisible();
+    const removeMine = page.getByRole("button", { name: "Remove Public notary" }).last();
+    const markerRow = page.getByRole("row").filter({ has: page.getByRole("button", { name: "Remove Public notary" }) }).last();
+    await expect(markerRow.getByRole("textbox", { name: /^Name of marker \d+$/ })).toHaveValue("Public notary");
+    await page.getByRole("button", { name: "Add a marker" }).click();
+    await expect(page.getByRole("textbox", { name: /^Name of marker \d+$/ }).last()).toBeFocused();
+    await page.getByRole("button", { name: /^Remove marker \d+$/ }).last().click();
+    await expect(removeMine).toBeFocused();
+    await page.getByRole("button", { name: `E2E Mark ${stamp}` }).click();
+    await expect(page.getByRole("combobox", { name: "Name format" })).toHaveValue("last_first_initial");
+    await expect(page.getByRole("checkbox", { name: "* Public notary" }).last()).toBeChecked();
+  } finally {
+    await api(page, "/api/admin/directory/export-presets", { method: "PUT", body: { presets } });
+    await api(page, "/api/admin/directory/markers", { method: "PUT", body: { markers: before } });
+    for (const p of [jane, zed]) await api(page, `/api/admin/directory/people/${p.id}`, { method: "DELETE" });
+  }
+});
+
+// 1.11.2: the Directory page defaults (list columns, the Groups view's field,
+// Sort names by) are the Display page, one card with one Save.
+test("the Display page holds the Directory page defaults and saves them", async ({ page }) => {
+  await login(page, ADMIN);
+  const defaults = (await api(page, "/api/admin/directory/list-columns")).body;
+  const want = defaults?.name_sort === "first" ? "last" : "first";
+  try {
+    await page.goto("/admin/directory/display");
+    await expect(page.getByRole("heading", { name: "Directory page defaults" })).toBeVisible();
+    await expect(page.getByRole("combobox", { name: "Groups view opens on" })).toBeVisible();
+    // The columns list is the shared ordered list; Name is always a row in it.
+    await expect(page.getByRole("button", { name: "Remove Name" })).toBeVisible();
+    const save = page.getByRole("button", { name: "Save defaults" });
+    await expect(save).toBeDisabled();
+    await page.getByRole("combobox", { name: "Sort names by" }).selectOption(want);
+    await expect(save).toBeEnabled();
+    await save.click();
+    await expect(page.getByText("Directory defaults saved.")).toBeVisible();
+    expect((await api(page, "/api/admin/directory/list-columns")).body.name_sort).toBe(want);
+  } finally {
+    await api(page, "/api/admin/directory/list-columns", { method: "PUT", body: { name_sort: defaults?.name_sort ?? "full" } });
+  }
+});
+
+// 1.11.2, at the tightest common phone width: the preset list stacks over the
+// editor, nothing pushes the page sideways (the Wrap after rows and the
+// custom margins wrap instead), and the Save row stays reachable.
+test("at 375px the Export page stacks the preset list over the editor and Save is reachable", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 375, height: 667 }, isMobile: true, hasTouch: true });
+  const page = await ctx.newPage();
+  await login(page, ADMIN);
+  const stamp = Date.now();
+  const id = `e2e-phone-${stamp}`;
+  const presets = (await api(page, "/api/admin/directory/export-presets")).body.presets as any[];
+  try {
+    const saved = await api(page, "/api/admin/directory/export-presets", {
+      method: "PUT",
+      body: {
+        presets: [
+          ...presets,
+          { id, name: `E2E Phone ${stamp}`, split_by: "office", margins: "custom", schedule: { frequency: "weekly", day: 1, hour: 6, recipients: "reception@e2e.test", format: "pdf" } },
+        ],
+      },
+    });
+    expect(saved.status).toBe(200);
+
+    await page.goto("/admin/directory/export");
+    const row = page.getByRole("button", { name: `E2E Phone ${stamp}` });
+    await expect(row).toContainText("ZIP");
+    await expect(row).toContainText("Scheduled");
+    await row.click();
+    await expect(page.getByRole("heading", { name: `E2E Phone ${stamp}` })).toBeVisible();
+    for (const card of PRESET_CARDS) await expect(page.getByRole("heading", { name: card, exact: true })).toBeVisible();
+
+    // The list sits above the editor.
+    const list = await page.getByRole("heading", { name: "Presets" }).boundingBox();
+    const first = await page.getByRole("heading", { name: "Document", exact: true }).boundingBox();
+    expect(list!.y, "the preset list stacks above the editor").toBeLessThan(first!.y);
+    // Nothing scrolls sideways: not the page, and not a card.
+    const overflow = await page.locator("#main").evaluate((el) => el.scrollWidth - el.clientWidth);
+    expect(overflow, "the page does not scroll sideways").toBeLessThanOrEqual(0);
+    for (const card of ["Presets", ...PRESET_CARDS]) {
+      const section = page.locator("section", { has: page.getByRole("heading", { name: card, exact: true }) }).last();
+      const spill = await section.evaluate((el) => el.scrollWidth - el.clientWidth);
+      expect(spill, `the ${card} card does not overflow`).toBeLessThanOrEqual(0);
+    }
+
+    // A change pins the Save row to the bottom of the viewport; it saves.
+    await page.getByRole("textbox", { name: "Subtitle" }).fill("Phone pass");
+    const save = page.getByRole("button", { name: "Save presets" });
+    await expect(save).toBeEnabled();
+    await expect(save).toBeInViewport();
+    await save.click();
+    await expect(page.getByText("Export presets saved.")).toBeVisible();
+  } finally {
+    await api(page, "/api/admin/directory/export-presets", { method: "PUT", body: { presets } });
+    await ctx.close();
   }
 });

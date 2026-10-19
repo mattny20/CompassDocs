@@ -4,6 +4,95 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.11.2] - 2026-10-19
+
+Directory settings, organised: a Display page, export presets as a list
+beside a grouped editor, markers in front of names, and name formats.
+
+### Added
+- **Directory settings: a Display page.** The Directory page defaults (the
+  list's columns, the field the Groups view opens on, Sort names by) leave
+  the Export page for a page of their own, **Settings → Directory →
+  Display**, as one card, **Directory page defaults**, with one Save. The
+  tab row is now People · Display · Fields · Offices · Export · Sync.
+- **Export presets: a list beside the editor.** The Export page is a
+  preset list on the left (one row per preset, lit when open, with a
+  **Default** chip, a **ZIP** chip when the preset makes one file per
+  value, and a **Scheduled** chip with the schedule sentence under it)
+  and the selected preset's editor on the right: its name and actions
+  (Make default, Duplicate, Download PDF, Delete; Download PDF waits, and
+  says so, while anything on the page is unsaved, the markers included)
+  over five cards, each
+  one job: **Document** (preset name, title, subtitle, footer note, file
+  name, name format, workspace logo), **Page** (paper, orientation,
+  density, margins, layout, cards per row or page layout, shaded rows,
+  page numbers, printed date, office information and its blocks per row),
+  **Columns** (the columns in order with Wrap after, assistant details,
+  photos, the markers to print), **Order and filter** (sections by, sort
+  by, then by, pinned people first, only people where, one file per) and
+  **Schedule** (the email schedule, with
+  a notice when mail is not set up). One Save for the page, as before;
+  every control, rule and message is unchanged. The list stacks over the
+  editor on a phone. The settings search finds the cards ("Export ›
+  Columns", "Display › Directory page defaults").
+- **Directory export markers.** Settings → Directory → Export gains a
+  **Markers** card: a symbol (an asterisk, a dagger, or any character the
+  PDF can print) in front of a person's name on exports, for people who
+  match a field value, with a name for the key: "* Public notary",
+  "† Partner". A marker reads any field but the name and the link columns
+  (a synced attribute, a custom attribute, a manual one), matches as the
+  export filter matches (the raw value, the option's code or its label,
+  case-insensitively; a multi-valued field on any of its values), and a
+  blank value marks everyone who has any value. Each preset ticks the
+  markers it prints under **Columns → Mark people with**; the symbols go
+  in front of the name in the PDF's table and cards and in the CSV's Name
+  column, every assistant's name carries the assistant's own symbols, the
+  PDF's footer prints the key on every page (one marker after another,
+  separated by a middle dot) and the page plan leaves room for it, and the CSV ends each row with a
+  **Markers** column listing the labels. Up to 24 markers; a symbol the
+  PDF cannot print is refused by name rather than saved to come out as a
+  box. An export made by someone who is not a directory admin prints only
+  the markers the preset lists (the export route's `markers` override can
+  drop one, never add one), and a marker on a column they may not see is
+  left out of its key and its Markers column altogether. In the card, Add
+  a marker lands on the new row's name, Remove moves to the next row (or
+  back to Add a marker when the table is empty), and Other… opens straight
+  into the symbol box. In the API: `GET` / `PUT /api/admin/directory/markers`, a preset's
+  `markers` (marker ids) and the audit entry `settings.directory_markers`
+  ("Updated directory markers").
+- **Name formats on exports.** A preset's **Document → Name format**
+  writes the Name column, the who's-who cards and assistant names one of
+  six ways: *As written*; *First name Last name*; *Last name, First name*;
+  *First name Last initial*; *Last name, First initial*; or *First initial
+  Last name* ("Smith, Jane A." becomes "Jane Smith", "Smith, Jane", "Jane S.",
+  "Smith, J." or "J. Smith"). Honorifics, suffixes and credentials come
+  off as the name sort already drops them, a particle surname rides whole
+  ("van Beethoven, Ludwig") and its initial is the surname proper's
+  ("Ludwig B.", "Maria C." for "de la Cruz, Maria"), and a single-word
+  name prints as it is.
+  Sorting is unchanged. In the API: a preset's `name_format`; both options
+  ride on the export route as overrides like the other preset options.
+
+### Changed
+- The ordered column list wraps its per-row controls on a phone instead
+  of pushing the card sideways, its add-column menu never exceeds the
+  card, and its Move up, Move down and Remove are the house icon buttons
+  on both the Display and the Export page.
+- The preset editor's cards size their grids by the editor pane rather
+  than the window, so at the Normal page width the Page card's selects and
+  the Order and filter card's filter keep a readable width instead of
+  clipping; the Markers table fits the settings column at that width
+  without scrolling sideways.
+- Delete on the last remaining preset says why it is off ("Keep at least
+  one preset"); Add a marker says so at 24 ("Up to 24 markers."). Ctrl/⌘+S
+  on the Export page saves the presets only; Save markers has its own
+  button and no shortcut, so one keystroke never fires two saves.
+
+### Upgrading
+- Nothing to migrate. A preset saved before 1.11.2 prints no markers and
+  writes names as written: its PDF and CSV are the files it made before.
+  Markers are empty until an admin adds one.
+
 ## [1.11.1] - 2026-10-19
 
 Directory export: wrap a column after a number of characters, sort by
