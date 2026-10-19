@@ -47,11 +47,24 @@ async function run(user: SessionUser, req: Request, params: Record<string, unkno
   for (const k of [
     "columns", "group_by", "sort", "sort_dir", "sort2", "sort2_dir", "paper", "orientation", "density", "page_columns",
     "logo", "photos", "pinned_first", "page_numbers", "printed_date", "office_info", "office_columns", "zebra", "title", "subtitle", "footer_note",
-    "layout", "cards_per_row", "split_by",
+    "layout", "cards_per_row", "split_by", "column_limits", "assistant_fields", "margins", "margin_custom",
   ]) {
     if (params[k] !== undefined) overrides[k] = params[k];
   }
   if (typeof overrides.columns === "string") overrides.columns = overrides.columns.split(",").map((s) => s.trim());
+  if (typeof overrides.assistant_fields === "string") {
+    overrides.assistant_fields = overrides.assistant_fields.split(",").map((s) => s.trim());
+  }
+  // The two object-valued options arrive as JSON objects in a POST body; a
+  // GET may carry them JSON-encoded. Anything unparseable is ignored.
+  for (const k of ["column_limits", "margin_custom"]) {
+    if (typeof overrides[k] !== "string") continue;
+    try {
+      overrides[k] = JSON.parse(overrides[k] as string);
+    } catch {
+      delete overrides[k];
+    }
+  }
   for (const k of ["logo", "photos", "pinned_first", "page_numbers", "printed_date", "office_info", "zebra"]) {
     if (typeof overrides[k] === "string") overrides[k] = overrides[k] === "1" || overrides[k] === "true";
   }
