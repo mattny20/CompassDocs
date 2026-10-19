@@ -169,3 +169,146 @@ test("reach people: contact card, photo upload, date fields and the month's stri
     await api(page, `/api/admin/directory/fields/${field.id}`, { method: "DELETE" });
   }
 });
+
+// 1.11.1: per-column wrapping, assistant details, custom margins and sorting
+// by first or last name, in the preset editor and on the Directory page.
+test("a preset keeps column limits, assistant details, custom margins and a first-name sort; the directory sorts names by part", async ({ page, browser }) => {
+  await login(page, ADMIN);
+  const stamp = Date.now();
+  // Two people whose full-name order and last-name order disagree: Amy Zebra
+  // leads by full and first name, Zed Aardvark by last name. Zed assists Amy.
+  const zed = (await api(page, "/api/admin/directory/people", { method: "POST", body: { name: `Zed Aardvark${stamp}`, phone: "602-555-0101" } })).body.person;
+  const amy = (await api(page, "/api/admin/directory/people", { method: "POST", body: { name: `Amy Zebra${stamp}`, title: "Partner", links: { assistant: [zed.id] } } })).body.person;
+  const presets = (await api(page, "/api/admin/directory/export-presets")).body.presets as any[];
+  const defaults = (await api(page, "/api/admin/directory/list-columns")).body;
+  const id = `e2e-wrap-${stamp}`;
+  try {
+    // The preset round-trips through PUT and GET, sanitized: an unknown column
+    // drops out of the limits, 500 clamps to 120, the assistant fields keep
+    // only real non-link keys once, and the name sorts are accepted as sorts.
+    const saved = await api(page, "/api/admin/directory/export-presets", {
+      method: "PUT",
+      body: {
+        presets: [
+          ...presets,
+          {
+            id,
+            name: `E2E Wrap ${stamp}`,
+            columns: ["name", "assistant", "phone"],
+            column_limits: { name: 12, bogus: 50, phone: 500 },
+            assistant_fields: ["phone", "phone", "name", "assists"],
+            margins: "custom",
+            margin_custom: { top: 0.7, right: 0.6, bottom: 0.8, left: 0.6 },
+            sort: "name:first",
+            sort2: "name:last",
+            filename: id,
+          },
+        ],
+      },
+    });
+    expect(saved.status).toBe(200);
+    const mine = saved.body.presets.find((p: any) => p.id === id);
+    expect(mine.column_limits).toEqual({ name: 12, phone: 120 });
+    expect(mine.assistant_fields).toEqual(["phone"]);
+    expect(mine.margins).toBe("custom");
+    expect(mine.margin_custom).toEqual({ top: 0.7, right: 0.6, bottom: 0.8, left: 0.6 });
+    expect(mine.sort).toBe("name:first");
+    expect(mine.sort2).toBe("name:last");
+    const back = (await api(page, "/api/admin/directory/export-presets")).body.presets.find((p: any) => p.id === id);
+    expect(back).toMatchObject({ column_limits: { name: 12, phone: 120 }, assistant_fields: ["phone"], margins: "custom", margin_custom: { top: 0.7 }, sort: "name:first", sort2: "name:last" });
+
+    // The PDF renders with a wrapped column and custom margins.
+    const pdf = await page.evaluate(async (id) => {
+      const res = await fetch(`/api/directory/export?preset=${id}&format=pdf`);
+      const buf = new Uint8Array(await res.arrayBuffer());
+      return { status: res.status, type: res.headers.get("content-type"), head: String.fromCharCode(...buf.slice(0, 5)), size: buf.length };
+    }, id);
+    expect(pdf.status).toBe(200);
+    expect(pdf.type).toContain("application/pdf");
+    expect(pdf.head).toBe("%PDF-");
+    expect(pdf.size).toBeGreaterThan(1500);
+
+    // The CSV's assistant cell carries the chosen field after the name.
+    const csv = await page.evaluate(
+      async ({ id, ids }) => {
+        const res = await fetch("/api/directory/export", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ preset: id, format: "csv", ids }) });
+        return { status: res.status, text: await res.text() };
+      },
+      { id, ids: [amy.id] }
+    );
+    expect(csv.status).toBe(200);
+    expect(csv.text).toContain(`Zed Aardvark${stamp} · 602-555-0101`);
+
+    // The editor shows what was saved: the name sort, the per-column limit,
+    // the margins and their inches, the assistant's ticked field.
+    await page.goto("/admin/directory/export");
+    await page.getByRole("combobox", { name: "Preset" }).selectOption({ label: `E2E Wrap ${stamp}` });
+    // "Sort by" / "Then by" wrap a direction select too, so their names are not exact.
+    await expect(page.getByRole("combobox", { name: "Sort by" })).toHaveValue("name:first");
+    await expect(page.getByRole("combobox", { name: "Then by" })).toHaveValue("name:last");
+    await expect(page.getByRole("spinbutton", { name: "Wrap Name after" })).toHaveValue("12");
+    await expect(page.getByRole("spinbutton", { name: "Wrap Phone after" })).toHaveValue("120");
+    await expect(page.getByRole("combobox", { name: "Margins", exact: true })).toHaveValue("custom");
+    await expect(page.getByRole("spinbutton", { name: "Top", exact: true })).toHaveValue("0.7");
+    await expect(page.getByRole("spinbutton", { name: "Bottom", exact: true })).toHaveValue("0.8");
+    await expect(page.getByRole("checkbox", { name: "Phone", exact: true })).toBeChecked();
+    await expect(page.getByRole("checkbox", { name: "Title", exact: true })).not.toBeChecked();
+    // Out of range is refused inline, not clamped by the server after a "saved".
+    await page.getByRole("spinbutton", { name: "Wrap Name after" }).fill("4");
+    await expect(page.getByText("Wrap after for Name: must be between 8 and 120.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Save presets" })).toBeDisabled();
+    await page.getByRole("spinbutton", { name: "Wrap Name after" }).fill("12");
+    await expect(page.getByRole("button", { name: "Save presets" })).toBeEnabled();
+    // Save, so the leave guard has nothing to hold the next navigation for.
+    await page.getByRole("button", { name: "Save presets" }).click();
+    await expect(page.getByText("Export presets saved.")).toBeVisible();
+
+    // The admin default for "Sort names by" saves through the Directory
+    // defaults card's route and comes back to it.
+    const put = await api(page, "/api/admin/directory/list-columns", { method: "PUT", body: { name_sort: "last" } });
+    expect(put.status).toBe(200);
+    await page.goto("/admin/directory/export");
+    await expect(page.getByRole("combobox", { name: "Sort names by" })).toHaveValue("last");
+
+    // A fresh browser opens the list by last name (the admin's default), the
+    // control switches it, and this browser's choice survives a reload.
+    const ctx = await browser.newContext();
+    const fresh = await ctx.newPage();
+    try {
+      await login(fresh, ADMIN);
+      await fresh.goto("/directory?view=list");
+      await fresh.getByRole("textbox", { name: "Search people" }).fill(String(stamp));
+      // The visible list only: the print table is in the DOM too, hidden.
+      const rows = fresh.getByRole("table").locator("tbody tr");
+      await expect(rows).toHaveCount(2);
+      const control = fresh.getByRole("combobox", { name: "Sort names by" });
+      await expect(control).toHaveValue("last");
+      await expect(rows.first()).toContainText(`Zed Aardvark${stamp}`);
+      await control.selectOption("full");
+      await expect(rows.first()).toContainText(`Amy Zebra${stamp}`);
+      await control.selectOption("last");
+      await expect(rows.first()).toContainText(`Zed Aardvark${stamp}`);
+      await control.selectOption("first");
+      await expect(rows.first()).toContainText(`Amy Zebra${stamp}`);
+      // "What I see" sends the effective sort key, not the column name.
+      const [req] = await Promise.all([
+        fresh.waitForRequest((r) => r.url().includes("/api/directory/export") && r.method() === "POST"),
+        (async () => {
+          await fresh.getByRole("button", { name: /Export/ }).click();
+          await fresh.getByRole("menuitem", { name: /What I see/ }).first().click();
+        })(),
+      ]);
+      expect(req.postDataJSON().sort).toBe("name:first");
+      await fresh.reload();
+      await fresh.getByRole("textbox", { name: "Search people" }).fill(String(stamp));
+      await expect(fresh.getByRole("combobox", { name: "Sort names by" })).toHaveValue("first");
+      await expect(fresh.getByRole("table").locator("tbody tr").first()).toContainText(`Amy Zebra${stamp}`);
+    } finally {
+      await ctx.close();
+    }
+  } finally {
+    await api(page, "/api/admin/directory/export-presets", { method: "PUT", body: { presets } });
+    await api(page, "/api/admin/directory/list-columns", { method: "PUT", body: { name_sort: defaults?.name_sort ?? "full" } });
+    for (const p of [amy, zed]) await api(page, `/api/admin/directory/people/${p.id}`, { method: "DELETE" });
+  }
+});
