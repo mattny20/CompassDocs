@@ -363,6 +363,25 @@ focus):
   `text-xs text-amber-600`, or `Saved` in `text-xs text-slate-500`). A page
   whose cards are one document (office fields + office values) has one Save
   below the cards, not one per card.
+- **A settings list with one editable item at a time (export presets) is a
+  two-pane layout** (1.11.2): a rail-row list on the left (chips for state),
+  the selected item's editor on the right in grouped cards with one Save row
+  for the page. The list is a `padding="none"` `Card` whose rows are
+  `<button>`s in `railRowClass(active, { dense: true })` with
+  `aria-current="true"` on the lit one (they change what the editor shows,
+  not the page, so they are not links), each carrying `chipClass(tone,
+  "sm")` chips for the states worth seeing before opening it (**Default**
+  `info`, **ZIP** `neutral`, **Scheduled** `accent` with the schedule
+  sentence as `data-tt`, `data-tt-align="start"` because the card clips its
+  overflow), and one secondary **New …** button in a footer row. The editor
+  is a header row (the item's name as the `CardTitle`, its chip, its
+  actions: Make default, Duplicate, Download, Delete in `danger`) over
+  stacked `Card`s, each a `CardTitle` plus a one-line description and an
+  `id` with `scroll-mt-6` registered as a `topics` entry ("Export › Page"),
+  and the `SaveRow` sits below both panes. The panes are
+  `lg:grid-cols-[18rem_minmax(0,1fr)]` and stack under `lg`, list first.
+  `PresetList` / `PresetEditor` (`components/directory-admin/export/`) are
+  the worked example.
 
 ## Forms
 

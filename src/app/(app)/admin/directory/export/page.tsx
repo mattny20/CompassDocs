@@ -1,5 +1,5 @@
 import { requireSettingsSection } from "@/lib/auth";
-import { listFields, getListColumns, getGroupByDefault, getNameSortDefault } from "@/lib/directory";
+import { listFields } from "@/lib/directory";
 import { listExportPresets } from "@/lib/directory-export-config";
 import { getExportRunLog } from "@/lib/directory-export-schedule";
 import { getSmtpConfig, smtpConfigured } from "@/lib/smtp-config";
@@ -12,23 +12,6 @@ export const metadata = settingsMetadata("/admin/directory", "Export");
 export default async function DirectoryExportPage() {
   await requireSettingsSection("/admin/directory");
   const fields = await listFields();
-  const [listColumns, groupBy, nameSort, presets, smtp, runLog] = await Promise.all([
-    getListColumns(fields),
-    getGroupByDefault(fields),
-    getNameSortDefault(),
-    listExportPresets(fields),
-    getSmtpConfig(),
-    getExportRunLog(),
-  ]);
-  return (
-    <DirectoryExportPanel
-      fields={fields}
-      initialListColumns={listColumns}
-      initialGroupBy={groupBy}
-      initialNameSort={nameSort}
-      initialPresets={presets}
-      smtpConfigured={smtpConfigured(smtp)}
-      runLog={runLog}
-    />
-  );
+  const [presets, smtp, runLog] = await Promise.all([listExportPresets(fields), getSmtpConfig(), getExportRunLog()]);
+  return <DirectoryExportPanel fields={fields} initialPresets={presets} smtpConfigured={smtpConfigured(smtp)} runLog={runLog} />;
 }

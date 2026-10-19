@@ -118,9 +118,13 @@ test("a preset can zip one file per office, lay people out as photo cards, and c
     expect(mine.schedule).toMatchObject({ frequency: "weekly", day: 5, hour: 7, recipients: ["reception@e2e.test"], format: "pdf" });
     expect(typeof mine.schedule.since).toBe("string");
 
-    // The Export page shows it, and the Directory's Export menu marks the zip.
+    // The Export page lists it with its chips, the editor shows the schedule,
+    // and the Directory's Export menu marks the zip.
     await page.goto("/admin/directory/export");
-    await page.getByRole("combobox", { name: "Preset" }).selectOption({ label: `E2E Who's who ${stamp}` });
+    const row = page.getByRole("button", { name: `E2E Who's who ${stamp}` });
+    await expect(row).toContainText("ZIP");
+    await expect(row).toContainText("Scheduled");
+    await row.click();
     await expect(page.getByText("Every Friday at 07:00 UTC")).toBeVisible();
     await page.goto("/directory");
     await page.getByRole("button", { name: /Export/ }).click();

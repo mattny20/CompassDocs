@@ -2,17 +2,23 @@ import { test, expect } from "@playwright/test";
 import { ADMIN, login, api } from "./helpers";
 
 // The directory settings as pages (1.2.4): each job on its own route under
-// one header and tab row, and the Offices page feeding the PDF export.
+// one header and tab row, and the Offices page feeding the PDF export. Since
+// 1.11.2 the Directory page defaults have a page of their own (Display) and
+// the Export page is a preset list beside the selected preset's editor.
 
 const STAMP = Date.now();
+
+/** The five cards the preset editor groups its controls into, in order. */
+const PRESET_CARDS = ["Document", "Page", "Columns", "Order and filter", "Schedule"] as const;
 
 test("each directory settings job is a page under one header", async ({ page }) => {
   await login(page, ADMIN);
   for (const [path, heading] of [
     ["/admin/directory", "Add a person"],
+    ["/admin/directory/display", "Directory page defaults"],
     ["/admin/directory/fields", "Directory fields"],
     ["/admin/directory/offices", "Offices"],
-    ["/admin/directory/export", "Export presets"],
+    ["/admin/directory/export", "Presets"],
     ["/admin/directory/sync", "Google Workspace sync"],
   ] as const) {
     await page.goto(path);
@@ -242,9 +248,12 @@ test("a preset keeps column limits, assistant details, custom margins and a firs
     expect(csv.text).toContain(`Zed Aardvark${stamp} · 602-555-0101`);
 
     // The editor shows what was saved: the name sort, the per-column limit,
-    // the margins and their inches, the assistant's ticked field.
+    // the margins and their inches, the assistant's ticked field. The preset
+    // is a row in the list; its editor is the five group cards.
     await page.goto("/admin/directory/export");
-    await page.getByRole("combobox", { name: "Preset" }).selectOption({ label: `E2E Wrap ${stamp}` });
+    await page.getByRole("button", { name: `E2E Wrap ${stamp}` }).click();
+    await expect(page.getByRole("heading", { name: `E2E Wrap ${stamp}` })).toBeVisible();
+    for (const card of PRESET_CARDS) await expect(page.getByRole("heading", { name: card, exact: true })).toBeVisible();
     // "Sort by" / "Then by" wrap a direction select too, so their names are not exact.
     await expect(page.getByRole("combobox", { name: "Sort by" })).toHaveValue("name:first");
     await expect(page.getByRole("combobox", { name: "Then by" })).toHaveValue("name:last");
@@ -285,12 +294,15 @@ test("a preset keeps column limits, assistant details, custom margins and a firs
     await expect(top).toHaveValue("0.7");
     await expect(wrapName).toHaveValue("12");
 
-    // The admin default for "Sort names by" saves through the Directory
-    // defaults card's route and comes back to it.
+    // The admin default for "Sort names by" saves through the Directory page
+    // defaults card's route and comes back to it, on the Display page; the
+    // Export page no longer carries it.
     const put = await api(page, "/api/admin/directory/list-columns", { method: "PUT", body: { name_sort: "last" } });
     expect(put.status).toBe(200);
-    await page.goto("/admin/directory/export");
+    await page.goto("/admin/directory/display");
     await expect(page.getByRole("combobox", { name: "Sort names by" })).toHaveValue("last");
+    await page.goto("/admin/directory/export");
+    await expect(page.getByRole("combobox", { name: "Sort names by" })).toHaveCount(0);
 
     // A fresh browser opens the list by last name (the admin's default), the
     // control switches it, and this browser's choice survives a reload.

@@ -47,32 +47,37 @@ export function OrderedKeyList({
     <div>
       <div className="space-y-1">
         {value.map((k, i) => (
-          <div key={k} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-1.5 text-sm">
+          // flex-wrap: on a phone the row's extra control and its buttons
+          // drop under the label instead of pushing the card sideways.
+          <div key={k} className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 px-3 py-1.5 text-sm">
             <span className="flex-1 font-medium text-slate-700">{label(k)}</span>
             {extra?.(k, label(k))}
-            <button type="button" onClick={() => move(i, -1)} disabled={i === 0} data-tt="Move up" aria-label={`Move ${label(k)} up`} className="rounded-sm p-1 text-slate-400 hover:text-slate-600 disabled:opacity-30">
-              <ArrowUp className="h-3.5 w-3.5" />
-            </button>
-            <button type="button" onClick={() => move(i, 1)} disabled={i === value.length - 1} data-tt="Move down" aria-label={`Move ${label(k)} down`} className="rounded-sm p-1 text-slate-400 hover:text-slate-600 disabled:opacity-30">
-              <ArrowDown className="h-3.5 w-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => onChange(value.filter((c) => c !== k))}
-              disabled={value.length <= minimum}
-              data-tt="Remove"
-              aria-label={`Remove ${label(k)}`}
-              className="rounded-sm p-1 text-slate-400 hover:text-red-600 disabled:opacity-30"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
+            <span className="ml-auto flex items-center gap-2">
+              <button type="button" onClick={() => move(i, -1)} disabled={i === 0} data-tt="Move up" aria-label={`Move ${label(k)} up`} className="rounded-sm p-1 text-slate-400 hover:text-slate-600 disabled:opacity-30">
+                <ArrowUp className="h-3.5 w-3.5" />
+              </button>
+              <button type="button" onClick={() => move(i, 1)} disabled={i === value.length - 1} data-tt="Move down" aria-label={`Move ${label(k)} down`} className="rounded-sm p-1 text-slate-400 hover:text-slate-600 disabled:opacity-30">
+                <ArrowDown className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => onChange(value.filter((c) => c !== k))}
+                disabled={value.length <= minimum}
+                data-tt="Remove"
+                aria-label={`Remove ${label(k)}`}
+                className="rounded-sm p-1 text-slate-400 hover:text-red-600 disabled:opacity-30"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </span>
           </div>
         ))}
       </div>
       {unused.length > 0 && (
         // hasError={false}: a wrapping Field's error belongs to one row's
-        // extra control, not to the add menu.
-        <Select value="" onChange={(e) => e.target.value && onChange([...value, e.target.value])} className="mt-2 w-64" aria-label={addLabel} hasError={false}>
+        // extra control, not to the add menu. w-full max-w-64: 16rem, but
+        // never wider than a phone's card.
+        <Select value="" onChange={(e) => e.target.value && onChange([...value, e.target.value])} className="mt-2 w-full max-w-64" aria-label={addLabel} hasError={false}>
           <option value="">{addLabel}</option>
           {unused.map((a) => (
             <option key={a.key} value={a.key}>
