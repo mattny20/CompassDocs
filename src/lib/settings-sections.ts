@@ -151,9 +151,10 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
           { href: "/admin/directory/sync", label: "Sync", icon: RefreshCw, keywords: "sync microsoft 365 entra graph schedule google" },
         ], topics: [
           { href: "/admin/directory/display#defaults", label: "Display › Directory page defaults", keywords: "list columns groups view opens on sort names by default" },
-          { href: "/admin/directory/export#document", label: "Export › Document", keywords: "preset name document title subtitle footer note file name workspace logo" },
+          { href: "/admin/directory/export#markers", label: "Export › Markers", keywords: "markers symbol asterisk dagger tag notary partner first aider key footer" },
+          { href: "/admin/directory/export#document", label: "Export › Document", keywords: "preset name document title subtitle footer note file name workspace logo name format first last initial" },
           { href: "/admin/directory/export#page", label: "Export › Page", keywords: "paper orientation density margins layout photo cards page layout shade rows page numbers printed date" },
-          { href: "/admin/directory/export#columns", label: "Export › Columns", keywords: "columns in order wrap after assistant details photos pinned office information blocks" },
+          { href: "/admin/directory/export#columns", label: "Export › Columns", keywords: "columns in order wrap after assistant details mark people with markers photos pinned office information blocks" },
           { href: "/admin/directory/export#order", label: "Export › Order and filter", keywords: "sections by sort by then by only people where filter one file per zip" },
           { href: "/admin/directory/export#schedule", label: "Export › Schedule", keywords: "email schedule weekly monthly recipients smtp attachment" },
         ] },

@@ -9,6 +9,7 @@ import {
   MARGIN_POINTS,
   columnGeometry,
   columnWidths,
+  footerAllowance,
   limitedWidth,
   marginPoints,
   planPages,
@@ -65,6 +66,23 @@ describe("columnGeometry", () => {
     assert.ok(narrow.slotsPerColumn > base.slotsPerColumn, `narrow ${narrow.slotsPerColumn} > normal ${base.slotsPerColumn}`);
     assert.ok(wide.slotsPerColumn < base.slotsPerColumn, `wide ${wide.slotsPerColumn} < normal ${base.slotsPerColumn}`);
     assert.equal(sidesOnly.slotsPerColumn, base.slotsPerColumn, "side margins do not change the row count");
+  });
+
+  test("a markers key line (footerLines: 2) takes one line height off the column; one footer line is the page every export had", () => {
+    assert.equal(footerAllowance(8.5, 1), 0);
+    assert.ok(Math.abs(footerAllowance(8.5, 2) - 10.2) < 1e-9, "one line at the body size");
+    assert.ok(Math.abs(footerAllowance(10, 2) - 12) < 1e-9);
+    assert.deepEqual(columnGeometry({ ...letter, footerLines: 1 }), columnGeometry(letter));
+    // With photo rows the lost line is a whole slot: 25 rows become 24.
+    const photos = { ...letter, photo: 20 };
+    assert.equal(columnGeometry(photos).slotsPerColumn, 25);
+    assert.equal(columnGeometry({ ...photos, footerLines: 2 }).slotsPerColumn, 24);
+    // Never more rows with a key line, never more than one fewer.
+    for (const g of [letter, { ...letter, paper: "legal" as const }, { ...letter, orientation: "landscape" as const }, { ...letter, margins: MARGIN_POINTS.narrow }, { ...letter, font: 10, pad: 4.5, head: 8.5 }]) {
+      const one = columnGeometry(g).slotsPerColumn;
+      const two = columnGeometry({ ...g, footerLines: 2 }).slotsPerColumn;
+      assert.ok(two <= one && two >= one - 1, `${JSON.stringify(g)}: ${two} with a key line, ${one} without`);
+    }
   });
 });
 

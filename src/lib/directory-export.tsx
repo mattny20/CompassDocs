@@ -19,16 +19,20 @@ import {
   cellValue,
   columnLabel,
   compareByKeys,
+  formatName,
   groupPeople,
   initialsOf,
+  matchesValue,
   pinnedFirst,
-  rawValue,
-  resolveValues,
+  type NameFormat,
+  type PersonLike,
 } from "./directory-display";
+import { markerKeyLine, markerPrefix, markersFor, type ExportMarker } from "./directory-marker-rules";
 import { officeBlocksFor, type OfficeBlock, type OfficeConfig } from "./directory-offices";
 import {
   columnGeometry,
   columnWidths,
+  footerAllowance,
   marginPoints,
   planPages,
   plannedLineCount,
@@ -53,6 +57,10 @@ export interface ExportInput {
   offices?: OfficeConfig;
   /** 240px photos by person id, for the who's-who layout; the row thumbnail is the fallback. */
   photosLarge?: Map<number, string>;
+  /** The workspace's export markers (listMarkers); the preset's `markers`
+   *  picks which of them print. Absent, or a preset that lists none: no
+   *  symbols, no key line. */
+  markers?: ExportMarker[];
 }
 
 export type PreparedOffice = OfficeBlock;
@@ -79,7 +87,13 @@ export interface PreparedExport {
   total: number;
   /** In the Office field's option order, then by first appearance. Empty unless the preset asks. */
   offices: PreparedOffice[];
-  /** A cell's text: the display value, with the assistant column carrying the preset's assistant details. */
+  /** The markers this export prints, in the workspace's order: what the key line lists and the name cells test against. */
+  markers: ExportMarker[];
+  /** How names are written in the name cell, the cards and the assistant column. */
+  nameFormat: NameFormat;
+  /** A cell's text: the display value, with the name carrying its marker
+   *  symbols and format and the assistant column carrying the preset's
+   *  assistant details (each assistant's name marked and formatted too). */
   cell: (p: DirectoryPerson, key: string) => string;
 }
 
@@ -95,19 +109,9 @@ const DENSITY: Record<ExportPreset["density"], { font: number; pad: number; head
   comfortable: { font: 10, pad: 4.5, head: 8.5, photo: 24 },
 };
 
-/** Does a person match a preset filter? Compares the raw, canonical and label forms. */
+/** Does a person match a preset filter? Compares the raw, canonical and label forms (matchesValue, which the markers read too). */
 function matchesFilter(p: DirectoryPerson, filter: ExportPreset["filter"], fields: DirectoryField[]): boolean {
-  if (!filter) return true;
-  const want = filter.value.trim().toLowerCase();
-  const field = fields.find((f) => f.key === filter.key);
-  if (field?.kind === "people" || filter.key === "assists" || filter.key.endsWith(":in")) {
-    return cellValue(p, filter.key, fields).toLowerCase().split(", ").includes(want);
-  }
-  const raw = rawValue(p, filter.key);
-  if (!field) return raw.trim().toLowerCase() === want;
-  return resolveValues(field, raw).some(
-    (r) => r.raw.toLowerCase() === want || r.value.toLowerCase() === want || r.label.toLowerCase() === want
-  );
+  return !filter || matchesValue(p, filter.key, filter.value, fields);
 }
 
 /** Filter, sort, group and size the table — shared by the PDF and the CSV. */
@@ -138,8 +142,26 @@ export function prepareExport(input: Omit<ExportInput, "logo" | "printedOn">): P
   // shows them.
   const byId = new Map((input.lookup ?? input.people).map((p) => [p.id, p]));
   const assistantFields = preset.assistant_fields ?? [];
-  const cell = (p: DirectoryPerson, key: string): string =>
-    key === "assistant" && assistantFields.length ? assistantText(p, fields, byId, assistantFields) : cellValue(p, key, fields);
+  // Markers and the name format decorate the name cell, the cards and every
+  // assistant's name: "*† Smith, Jane". A preset without either (every
+  // preset before 1.11.2) takes the plain path, so its file is unchanged.
+  const chosen = new Set(preset.markers ?? []);
+  const markers = (input.markers ?? []).filter((m) => chosen.has(m.id));
+  const nameFormat: NameFormat = preset.name_format ?? "as_written";
+  const decorated = markers.length > 0 || nameFormat !== "as_written";
+  const prefix = (p: PersonLike) => markerPrefix(p, markers, fields);
+  const displayName = (p: DirectoryPerson): string => {
+    const symbols = prefix(p);
+    const name = formatName(p.name, nameFormat);
+    return symbols ? `${symbols} ${name}` : name;
+  };
+  const cell = (p: DirectoryPerson, key: string): string => {
+    if (key === "name" && decorated) return displayName(p);
+    if (key === "assistant" && (assistantFields.length || decorated)) {
+      return assistantText(p, fields, byId, assistantFields, decorated ? { nameFormat, prefix } : undefined);
+    }
+    return cellValue(p, key, fields);
+  };
 
   const columns: PreparedColumn[] = preset.columns.map((key) => {
     let longest = columnLabel(key, fields).length;
@@ -156,6 +178,8 @@ export function prepareExport(input: Omit<ExportInput, "logo" | "printedOn">): P
     sections,
     total: visible.length,
     offices: preset.office_info ? officeBlocksFor(visible, fields.find((f) => f.key === "office"), input.offices) : [],
+    markers,
+    nameFormat,
     cell,
   };
 }
@@ -172,6 +196,12 @@ function DirectoryDocument({ input, prepared }: { input: ExportInput; prepared: 
   const cardPhoto = Math.round(d.photo * 2.4);
   const m = marginPoints(preset.margins, preset.margin_custom);
   const columnGap = preset.page_columns === 3 ? 14 : 18;
+  // The markers key: one line above the footer's note, on every page, so a
+  // reader of page 4 need not turn back to learn what "†" means. It grows
+  // the footer upward by a line, and the page's bottom padding by the same
+  // (the two-column plan takes it off the column through footerLines).
+  const keyLine = markerKeyLine(prepared.markers);
+  const footerLines: 1 | 2 = keyLine ? 2 : 1;
   // Column widths: a limited column is a fixed number of points; the rest
   // share what is left by weight.
   const widths = columnWidths(
@@ -196,7 +226,7 @@ function DirectoryDocument({ input, prepared }: { input: ExportInput; prepared: 
       color: "#1e293b",
       paddingTop: m.top,
       paddingRight: m.right,
-      paddingBottom: m.bottom,
+      paddingBottom: m.bottom + footerAllowance(d.font, footerLines),
       paddingLeft: m.left,
     },
     header: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 },
@@ -265,6 +295,17 @@ function DirectoryDocument({ input, prepared }: { input: ExportInput; prepared: 
       fontSize: d.font - 1,
       color: "#94a3b8",
     },
+    // The footer with a key line above its row: the same box, stacked.
+    footerStack: {
+      position: "absolute",
+      left: m.left,
+      right: m.right,
+      bottom: Math.max(10, m.bottom - 24),
+      fontSize: d.font - 1,
+      color: "#94a3b8",
+    },
+    footerKey: { marginBottom: 1 },
+    footerRow: { flexDirection: "row", justifyContent: "space-between" },
     officesHead: {
       fontFamily: "Helvetica-Bold",
       fontSize: d.head,
@@ -428,8 +469,8 @@ function DirectoryDocument({ input, prepared }: { input: ExportInput; prepared: 
     </View>
   ));
 
-  const footer = (
-    <View style={styles.footer} fixed>
+  const footerLine = (
+    <>
       <Text>{[preset.footer_note, input.company].filter(Boolean).join("  ·  ")}</Text>
       <Text
         render={({ pageNumber, totalPages }) =>
@@ -441,6 +482,16 @@ function DirectoryDocument({ input, prepared }: { input: ExportInput; prepared: 
             .join("  ·  ")
         }
       />
+    </>
+  );
+  const footer = keyLine ? (
+    <View style={styles.footerStack} fixed>
+      <Text style={styles.footerKey}>{keyLine}</Text>
+      <View style={styles.footerRow}>{footerLine}</View>
+    </View>
+  ) : (
+    <View style={styles.footer} fixed>
+      {footerLine}
     </View>
   );
 
@@ -466,7 +517,7 @@ function DirectoryDocument({ input, prepared }: { input: ExportInput; prepared: 
               <Text style={styles.cardInitials}>{initialsOf(p.name)}</Text>
             )
           ) : null}
-          <Text style={styles.cardName}>{p.name}</Text>
+          <Text style={styles.cardName}>{prepared.cell(p, "name")}</Text>
           {lines.map((l) =>
             l.key === "title" || l.key === "department" ? (
               <Text key={l.key} style={styles.cardTitle}>{l.value}</Text>
@@ -552,6 +603,7 @@ function DirectoryDocument({ input, prepared }: { input: ExportInput; prepared: 
     photo: preset.photos ? d.photo : 0,
     hasSubtitle: Boolean(prepared.subtitle),
     margins: m,
+    footerLines,
   });
   const pages = planPages(lines, geometry, preset.page_columns);
 
@@ -594,22 +646,31 @@ export async function renderDirectoryPdf(input: ExportInput): Promise<Buffer> {
 /**
  * The same table as CSV, UTF-8 with a BOM so Excel opens it correctly. A
  * leading =, +, - or @ is neutralised: a directory value that looks like a
- * formula must never execute when the file is opened in a spreadsheet.
+ * formula must never execute when the file is opened in a spreadsheet (a
+ * "+" marker symbol in front of a name is neutralised the same way). A
+ * spreadsheet has no footer for the key, so a preset that prints markers
+ * ends each row with a "Markers" column naming the person's: "Public
+ * notary; Partner".
  */
 export function renderDirectoryCsv(input: Omit<ExportInput, "logo" | "printedOn">): string {
   const prepared = prepareExport(input);
   const grouped = prepared.sections.some((s) => s.label !== null);
+  const marked = prepared.markers.length > 0;
   const cell = (v: string) => {
     let s = String(v ?? "");
     if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
     return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const lines: string[] = [];
-  lines.push([...(grouped ? ["Group"] : []), ...prepared.columns.map((c) => c.label)].map(cell).join(","));
+  lines.push([...(grouped ? ["Group"] : []), ...prepared.columns.map((c) => c.label), ...(marked ? ["Markers"] : [])].map(cell).join(","));
   for (const s of prepared.sections) {
     for (const p of s.rows) {
       lines.push(
-        [...(grouped ? [s.label ?? ""] : []), ...prepared.columns.map((c) => prepared.cell(p, c.key))]
+        [
+          ...(grouped ? [s.label ?? ""] : []),
+          ...prepared.columns.map((c) => prepared.cell(p, c.key)),
+          ...(marked ? [markersFor(p, prepared.markers, input.fields).map((m) => m.label).join("; ")] : []),
+        ]
           .map(cell)
           .join(",")
       );

@@ -382,6 +382,18 @@ focus):
   `lg:grid-cols-[18rem_minmax(0,1fr)]` and stack under `lg`, list first.
   `PresetList` / `PresetEditor` (`components/directory-admin/export/`) are
   the worked example.
+- **A short table of definitions edited in place** (export markers, 1.11.2)
+  is a `padding="none"` `Card` holding a `Table` whose rows are dense
+  controls (`TextInput` / `Select` with `dense` and an `aria-label` naming
+  the row: "Symbol for Public notary"), an icon-only Remove
+  (`iconButtonClass`, `data-tt` plus `aria-label`), and a footer row with
+  the card's own non-sticky `SaveRow` and a secondary **Add …** button as
+  its child. The shared help, or the first touched row's problem, is one
+  line under the table with `hasError` on the offending control only (the
+  OrderedKeyList rule). The card keeps its own Save because its rows are
+  definitions the page's other Save refers to by id (a preset can only
+  tick a saved marker), and the page's sticky row belongs to the presets.
+  `MarkersCard` is the worked example.
 
 ## Forms
 

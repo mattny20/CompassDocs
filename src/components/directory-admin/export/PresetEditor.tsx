@@ -16,7 +16,9 @@ import { Button, buttonClass } from "@/components/Button";
 import { SettingsLink } from "@/components/SettingsLink";
 import { Field, Select, TextInput, Toggle, rangeError } from "@/components/form";
 import type { DirectoryField } from "@/lib/directory";
+import { NAME_FORMATS, isNameFormat } from "@/lib/directory-display";
 import type { ExportPreset } from "@/lib/directory-export-config";
+import type { ExportMarker } from "@/lib/directory-marker-rules";
 import { describeSchedule, WEEKDAYS, type ExportSchedule } from "@/lib/directory-export-schedule-rules";
 import { OrderedKeyList, type KeyOption } from "../shared";
 import { LIMIT_MAX, LIMIT_MIN, MARGIN_LABEL, MARGIN_MAX, MARGIN_MIN, MARGIN_SIDES, marginError, type MarginSide } from "./preset-rules";
@@ -31,6 +33,9 @@ export interface PresetEditorModel {
   sortGroups: { label: string; keys: KeyOption[] }[];
   assistantFieldOptions: KeyOption[];
   toggleAssistantField: (key: string, on: boolean) => void;
+  /** The workspace's markers as saved (the Markers card's): what "Mark people with" offers. */
+  markers: ExportMarker[];
+  toggleMarker: (id: string, on: boolean) => void;
   /** "Wrap after", per column key, as typed. */
   limits: Record<string, number>;
   setLimit: (key: string, raw: string) => void;
@@ -116,6 +121,20 @@ function DocumentCard({ m }: { m: PresetEditorModel }) {
         <Field label="Subtitle"><TextInput value={cur.subtitle} onChange={(e) => update({ subtitle: e.target.value })} placeholder="Internal · updated weekly" /></Field>
         <Field label="Footer note" help="e.g. “Internal use only — do not distribute”."><TextInput value={cur.footer_note} onChange={(e) => update({ footer_note: e.target.value })} /></Field>
         <Field label="File name" help="Without extension; blank derives one from the title."><TextInput value={cur.filename} onChange={(e) => update({ filename: e.target.value })} placeholder="phone-directory" /></Field>
+        <Field label="Name format" help="Applies to the Name column, the cards and assistant names. Sorting is separate (Sort by).">
+          <Select
+            value={cur.name_format ?? "as_written"}
+            onChange={(e) => {
+              const v = e.target.value;
+              update({ name_format: isNameFormat(v) ? v : "as_written" });
+            }}
+            className="w-full"
+          >
+            {NAME_FORMATS.map((f) => (
+              <option key={f.key} value={f.key}>{f.label}</option>
+            ))}
+          </Select>
+        </Field>
       </div>
       <div className="mt-3">
         <Toggle label="Workspace logo" checked={cur.logo} onChange={(v) => update({ logo: v })} />
@@ -215,6 +234,7 @@ function ColumnsCard({ m }: { m: PresetEditorModel }) {
   const { cur, update } = m;
   const assistantHelpId = useId();
   const columnsHelpId = useId();
+  const markersHelpId = useId();
   return (
     <Card id="columns" className="scroll-mt-6" title="Columns" description="What each person's row carries, in order, and what goes with it.">
       <div className="space-y-3">
@@ -278,6 +298,28 @@ function ColumnsCard({ m }: { m: PresetEditorModel }) {
             </div>
             <p id={assistantHelpId} className="mt-1 text-xs text-slate-500">Shown after each assistant's name, e.g. phone and extension.</p>
           </fieldset>
+        )}
+        {m.markers.length > 0 ? (
+          <fieldset aria-describedby={markersHelpId}>
+            <legend className="mb-1 block text-xs font-medium text-slate-500">Mark people with</legend>
+            <div className="grid gap-x-3 rounded-lg border border-slate-200 p-1 sm:grid-cols-2">
+              {m.markers.map((mk) => (
+                <label key={mk.id} className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1 text-sm text-slate-700 hover:bg-slate-50">
+                  <input
+                    type="checkbox"
+                    checked={(cur.markers ?? []).includes(mk.id)}
+                    onChange={(e) => m.toggleMarker(mk.id, e.target.checked)}
+                  />
+                  {mk.symbol} {mk.label}
+                </label>
+              ))}
+            </div>
+            <p id={markersHelpId} className="mt-1 text-xs text-slate-500">Printed in front of the name, and in the footer key.</p>
+          </fieldset>
+        ) : (
+          <p className="text-xs text-slate-500">
+            To print a symbol in front of some names (a notary, a partner), <a href="#markers" className="link font-medium">add a marker</a> first.
+          </p>
         )}
         <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm">
           <Toggle label="Photos" checked={cur.photos} onChange={(v) => update({ photos: v })} />

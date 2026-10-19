@@ -56,5 +56,7 @@ export const PRESET_BLANK: Omit<ExportPreset, "id" | "name"> = {
   assistant_fields: [],
   margins: "normal",
   margin_custom: { top: 0.5, right: 0.5, bottom: 0.6, left: 0.5 },
+  markers: [],
+  name_format: "as_written",
   is_default: false,
 };

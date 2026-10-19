@@ -6,7 +6,10 @@
 // owns every preset, what has been typed into the inputs that are kept as
 // typed (Wrap after, custom margins, recipients), and the rules Save waits
 // on across all presets. The list defaults (columns, Groups view, Sort names
-// by) are the Display page's (DirectoryDisplayPanel) since 1.11.2.
+// by) are the Display page's (DirectoryDisplayPanel) since 1.11.2. The
+// Markers card above the panes (MarkersCard) saves on its own: its rows are
+// definitions the presets refer to by id, so a preset can only tick a
+// marker that is saved.
 
 import { useMemo, useState } from "react";
 import { SaveRow } from "@/components/SaveRow";
@@ -15,10 +18,12 @@ import { confirmDialog } from "@/components/Dialog";
 import type { DirectoryField } from "@/lib/directory";
 import type { ExportPreset } from "@/lib/directory-export-config";
 import { assistantDetailKeys, availableColumns, sortableKeys } from "@/lib/directory-display";
+import { markerFields, type ExportMarker } from "@/lib/directory-marker-rules";
 import { FormError, rangeError } from "@/components/form";
 import type { ExportSchedule } from "@/lib/directory-export-schedule-rules";
 import { toast } from "@/components/Toasts";
 import { jsonFetch } from "./shared";
+import { MarkersCard } from "./export/MarkersCard";
 import { PresetList } from "./export/PresetList";
 import { PresetEditor, type PresetEditorModel } from "./export/PresetEditor";
 import { LIMIT_MAX, LIMIT_MIN, MARGIN_SIDES, PRESET_BLANK, marginError, type MarginSide } from "./export/preset-rules";
@@ -26,11 +31,14 @@ import { LIMIT_MAX, LIMIT_MIN, MARGIN_SIDES, PRESET_BLANK, marginError, type Mar
 export function DirectoryExportPanel({
   fields,
   initialPresets,
+  initialMarkers = [],
   smtpConfigured = false,
   runLog = {},
 }: {
   fields: DirectoryField[];
   initialPresets: ExportPreset[];
+  /** The workspace's export markers (listMarkers). */
+  initialMarkers?: ExportMarker[];
   /** Whether scheduled emails can be sent at all. */
   smtpConfigured?: boolean;
   /** When each preset last went out on its schedule. */
@@ -55,12 +63,18 @@ export function DirectoryExportPanel({
   // list sanitizePreset keeps, so a tick here is a key the file renders.
   const assistantFieldOptions = useMemo(() => assistantDetailKeys(fields), [fields]);
   const columnLabelOf = (k: string) => available.find((a) => a.key === k)?.label ?? k;
+  // The fields a marker may read, labelled as the columns are.
+  const markerFieldOptions = useMemo(() => markerFields(fields), [fields]);
 
   const [presets, setPresets] = useState<ExportPreset[]>(initialPresets);
   const [selected, setSelected] = useState(0);
   const [savingPresets, setSavingPresets] = useState(false);
   const [dirty, setDirty] = useState(false);
-  useLeaveGuard(dirty, () => dirty);
+  // The markers as saved: what a preset may tick. The card's own unsaved
+  // rows count for the page's leave guard too.
+  const [markers, setMarkers] = useState<ExportMarker[]>(initialMarkers);
+  const [markersDirty, setMarkersDirty] = useState(false);
+  useLeaveGuard(dirty || markersDirty, () => dirty || markersDirty);
   const cur = presets[selected];
 
   function update(patch: Partial<ExportPreset>) {
@@ -108,6 +122,14 @@ export function DirectoryExportPanel({
     else chosen.delete(key);
     // Kept in the columns' own order, so the paper reads the way the list does.
     update({ assistant_fields: assistantFieldOptions.filter((c) => chosen.has(c.key)).map((c) => c.key) });
+  }
+  function toggleMarker(id: string, on: boolean) {
+    const chosen = new Set(cur.markers ?? []);
+    if (on) chosen.add(id);
+    else chosen.delete(id);
+    // Kept in the markers' own order: the symbols before a name and the
+    // footer key read in the order the Markers card lists them.
+    update({ markers: markers.filter((m) => chosen.has(m.id)).map((m) => m.id) });
   }
 
   // Custom margins: the text as typed, per preset and side, so a half-typed
@@ -188,6 +210,8 @@ export function DirectoryExportPanel({
     sortGroups,
     assistantFieldOptions,
     toggleAssistantField,
+    markers,
+    toggleMarker,
     limits,
     setLimit,
     touchLimit,
@@ -210,6 +234,8 @@ export function DirectoryExportPanel({
         sections, paper and branding. One preset is the default; people can also export exactly what they
         have on screen.
       </p>
+
+      <MarkersCard fieldOptions={markerFieldOptions} initialMarkers={initialMarkers} onSaved={setMarkers} onDirty={setMarkersDirty} />
 
       <div className="grid gap-6 lg:grid-cols-[18rem_minmax(0,1fr)] lg:items-start">
         <PresetList presets={presets} selected={selected} onSelect={setSelected} onNew={() => addPreset()} />

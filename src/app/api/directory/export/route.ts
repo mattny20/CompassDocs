@@ -17,6 +17,7 @@ import { listFields, listPeople } from "@/lib/directory";
 import { peopleForViewer, viewerScope } from "@/lib/directory-viewer";
 import { defaultExportPreset, getExportPreset, sanitizePreset, type ExportPreset } from "@/lib/directory-export-config";
 import { exportFilename } from "@/lib/directory-export";
+import { listMarkers } from "@/lib/directory-markers";
 import { renderExportFile } from "@/lib/directory-export-run";
 import { getAppSettings } from "@/lib/settings-store";
 import { exportRateLimited } from "@/lib/rate-limit";
@@ -37,9 +38,13 @@ async function run(user: SessionUser, req: Request, params: Record<string, unkno
   // restricted contact columns are removed below.
   const scope = await viewerScope(user, await listFields());
   const fields = scope.fields;
+  // The workspace's markers, read once: the preset's ids are checked against
+  // them and the renderer prints from them.
+  const markers = await listMarkers(fields);
+  const markerIds = new Set(markers.map((m) => m.id));
   const base = params.preset
-    ? (await getExportPreset(String(params.preset), fields)) ?? (await defaultExportPreset(fields))
-    : await defaultExportPreset(fields);
+    ? (await getExportPreset(String(params.preset), fields, markers)) ?? (await defaultExportPreset(fields, markers))
+    : await defaultExportPreset(fields, markers);
 
   // Overrides ride on top of the chosen preset; sanitizePreset drops anything
   // that is not a real column or option.
@@ -47,7 +52,7 @@ async function run(user: SessionUser, req: Request, params: Record<string, unkno
   for (const k of [
     "columns", "group_by", "sort", "sort_dir", "sort2", "sort2_dir", "paper", "orientation", "density", "page_columns",
     "logo", "photos", "pinned_first", "page_numbers", "printed_date", "office_info", "office_columns", "zebra", "title", "subtitle", "footer_note",
-    "layout", "cards_per_row", "split_by", "column_limits", "assistant_fields", "margins", "margin_custom",
+    "layout", "cards_per_row", "split_by", "column_limits", "assistant_fields", "margins", "margin_custom", "markers", "name_format",
   ]) {
     if (params[k] !== undefined) overrides[k] = params[k];
   }
@@ -55,6 +60,7 @@ async function run(user: SessionUser, req: Request, params: Record<string, unkno
   if (typeof overrides.assistant_fields === "string") {
     overrides.assistant_fields = overrides.assistant_fields.split(",").map((s) => s.trim());
   }
+  if (typeof overrides.markers === "string") overrides.markers = overrides.markers.split(",").map((s) => s.trim());
   // The two object-valued options arrive as JSON objects in a POST body; a
   // GET may carry them JSON-encoded. Anything unparseable is ignored.
   for (const k of ["column_limits", "margin_custom"]) {
@@ -71,7 +77,7 @@ async function run(user: SessionUser, req: Request, params: Record<string, unkno
   if (params.filter_key !== undefined || params.filter_value !== undefined) {
     overrides.filter = { key: params.filter_key, value: params.filter_value };
   }
-  const sanitized = sanitizePreset({ ...base, ...overrides }, fields, base.id);
+  const sanitized = sanitizePreset({ ...base, ...overrides }, fields, base.id, markerIds);
   const columns = sanitized.columns.filter((c) => !scope.hidden.has(c));
   const preset: ExportPreset = {
     ...sanitized,
@@ -127,7 +133,7 @@ async function run(user: SessionUser, req: Request, params: Record<string, unkno
   // per office; split=office (any group_by key) asks for the zip ad hoc.
   const splitParam = params.split === undefined ? undefined : String(params.split);
   const runPreset = splitParam === undefined ? preset : { ...preset, split_by: splitParam === "0" || splitParam === "" ? "" : splitParam };
-  const file = await renderExportFile({ preset: sanitizePreset(runPreset, fields, preset.id), format, people, lookup: everyone, fields });
+  const file = await renderExportFile({ preset: sanitizePreset(runPreset, fields, preset.id, markerIds), format, people, lookup: everyone, fields, markers });
   return new Response(new Uint8Array(file.body), {
     headers: {
       "Content-Type": file.mime,

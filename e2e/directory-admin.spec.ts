@@ -347,6 +347,98 @@ test("a preset keeps column limits, assistant details, custom margins and a firs
   }
 });
 
+// 1.11.2: export markers (a symbol in front of a name for people who match a
+// field value, the key in the PDF's footer) and name formats, through the
+// markers route, a preset and the files it makes.
+test("markers round-trip and refuse an unprintable symbol; a preset prints them and writes names in a format", async ({ page }) => {
+  await login(page, ADMIN);
+  const stamp = Date.now();
+  const title = `E2E Notary ${stamp}`;
+  const before = (await api(page, "/api/admin/directory/markers")).body.markers as any[];
+  const presets = (await api(page, "/api/admin/directory/export-presets")).body.presets as any[];
+  // Zed is a notary by title and assists Jane, who is not one.
+  const zed = (await api(page, "/api/admin/directory/people", { method: "POST", body: { name: `Zed Aardvark${stamp}`, title, phone: "602-555-0101" } })).body.person;
+  const jane = (await api(page, "/api/admin/directory/people", { method: "POST", body: { name: "Smith, Jane A.", links: { assistant: [zed.id] } } })).body.person;
+  const id = `e2e-mark-${stamp}`;
+  try {
+    // A symbol the PDF's Helvetica cannot print is refused by name, never
+    // saved to come out as a box on paper; the stored set is untouched.
+    const refused = await api(page, "/api/admin/directory/markers", {
+      method: "PUT",
+      body: { markers: [...before, { label: "Public notary", symbol: "★", key: "title", value: title }] },
+    });
+    expect(refused.status).toBe(400);
+    expect(refused.body.error).toBe('Marker "Public notary": the symbol "★" cannot be printed.');
+    expect((await api(page, "/api/admin/directory/markers")).body.markers).toEqual(before);
+    // A printable one round-trips through PUT and GET with a slug id.
+    const saved = await api(page, "/api/admin/directory/markers", {
+      method: "PUT",
+      body: { markers: [...before, { label: "Public notary", symbol: "*", key: "title", value: title }] },
+    });
+    expect(saved.status).toBe(200);
+    const mine = saved.body.markers.find((m: any) => m.value === title);
+    expect(mine).toMatchObject({ label: "Public notary", symbol: "*", key: "title", value: title });
+    expect(mine.id).toMatch(/^public-notary/);
+    expect((await api(page, "/api/admin/directory/markers")).body.markers).toContainEqual(mine);
+
+    // A preset that prints the marker and writes names "Last, First initial";
+    // an id the workspace does not have drops out of the preset.
+    const put = await api(page, "/api/admin/directory/export-presets", {
+      method: "PUT",
+      body: {
+        presets: [
+          ...presets,
+          { id, name: `E2E Mark ${stamp}`, columns: ["name", "assistant", "phone"], assistant_fields: ["phone"], markers: [mine.id, "bogus"], name_format: "last_first_initial", filename: id },
+        ],
+      },
+    });
+    expect(put.status).toBe(200);
+    const preset = put.body.presets.find((p: any) => p.id === id);
+    expect(preset.markers).toEqual([mine.id]);
+    expect(preset.name_format).toBe("last_first_initial");
+
+    // The CSV: the notary's name cell starts with the symbol and the Markers
+    // column lists the label; Jane's name reads "Smith, J."; her assistant
+    // cell carries Zed's own prefix and format.
+    const csv = await page.evaluate(
+      async ({ id, ids }) => {
+        const res = await fetch("/api/directory/export", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ preset: id, format: "csv", ids }) });
+        return { status: res.status, text: await res.text() };
+      },
+      { id, ids: [jane.id, zed.id] }
+    );
+    expect(csv.status).toBe(200);
+    const lines = csv.text.replace(/^﻿/, "").trim().split("\r\n");
+    expect(lines[0]).toBe("Name,Assistant,Phone,Markers");
+    expect(lines).toHaveLength(3);
+    expect(lines).toContain(`"* Aardvark${stamp}, Z.",,602-555-0101,Public notary`);
+    expect(lines).toContain(`"Smith, J.","* Aardvark${stamp}, Z. · 602-555-0101",,`);
+
+    // The PDF renders with the key line in its footer.
+    const pdf = await page.evaluate(async (id) => {
+      const res = await fetch(`/api/directory/export?preset=${id}&format=pdf`);
+      const buf = new Uint8Array(await res.arrayBuffer());
+      return { status: res.status, head: String.fromCharCode(...buf.slice(0, 5)), size: buf.length };
+    }, id);
+    expect(pdf.status).toBe(200);
+    expect(pdf.head).toBe("%PDF-");
+    expect(pdf.size).toBeGreaterThan(1500);
+
+    // The page: the Markers card lists the marker; the preset's Document card
+    // shows the format and its Columns card ticks the marker.
+    await page.goto("/admin/directory/export");
+    await expect(page.getByRole("heading", { name: "Markers", exact: true })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Name of Public notary" }).last()).toHaveValue("Public notary");
+    await page.getByRole("button", { name: `E2E Mark ${stamp}` }).click();
+    await expect(page.getByRole("combobox", { name: "Name format" })).toHaveValue("last_first_initial");
+    await expect(page.getByRole("checkbox", { name: "* Public notary" }).last()).toBeChecked();
+  } finally {
+    await api(page, "/api/admin/directory/export-presets", { method: "PUT", body: { presets } });
+    await api(page, "/api/admin/directory/markers", { method: "PUT", body: { markers: before } });
+    for (const p of [jane, zed]) await api(page, `/api/admin/directory/people/${p.id}`, { method: "DELETE" });
+  }
+});
+
 // 1.11.2: the Directory page defaults (list columns, the Groups view's field,
 // Sort names by) are the Display page, one card with one Save.
 test("the Display page holds the Directory page defaults and saves them", async ({ page }) => {

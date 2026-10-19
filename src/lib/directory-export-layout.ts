@@ -192,6 +192,16 @@ export function rowWidth(input: {
 
 // --- The two-column plan -------------------------------------------------------
 
+/**
+ * Points a footer of `footerLines` lines takes beyond the one line every
+ * export has: one line height per extra line (the footer's own font is a
+ * point smaller, so this leaves a little in hand). The renderer adds it to
+ * the page's bottom padding; columnGeometry takes it off the column.
+ */
+export function footerAllowance(font: number, footerLines: 1 | 2): number {
+  return (footerLines - 1) * font * 1.2;
+}
+
 export interface Geometry {
   /** Lines a column holds, after the column's own header row. */
   slotsPerColumn: number;
@@ -215,6 +225,10 @@ export function columnGeometry(input: {
   hasSubtitle: boolean;
   /** Page margins in points; the "normal" preset when absent. */
   margins?: MarginBox;
+  /** Lines the footer takes: 1 (the note and page line), or 2 when a
+   *  markers key sits above it; the second line is taken off the column.
+   *  Absent is 1, the page every export had. */
+  footerLines?: 1 | 2;
 }): Geometry {
   const [w, h] = PAPER_POINTS[input.paper];
   const pageHeight = input.orientation === "landscape" ? w : h;
@@ -227,7 +241,10 @@ export function columnGeometry(input: {
   const rowHeight = Math.max(lineHeight, input.photo || 0) + input.pad * 2 + 0.5;
   const sectionHeight = lineHeight + input.pad * 2 + 6;
   const safety = 10;
-  const usable = pageHeight - margins.top - margins.bottom - docHeader - thead - safety;
+  // A footer key line grows the footer upward into the page by one line; the
+  // renderer pads the page by the same amount (see footerAllowance).
+  const footer = footerAllowance(input.font, input.footerLines ?? 1);
+  const usable = pageHeight - margins.top - margins.bottom - docHeader - thead - safety - footer;
   return {
     slotsPerColumn: Math.max(1, Math.floor(usable / rowHeight)),
     sectionSlots: Math.max(1, Math.ceil(sectionHeight / rowHeight)),
