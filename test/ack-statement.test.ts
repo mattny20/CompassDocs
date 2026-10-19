@@ -313,38 +313,52 @@ describe("the row stores what the server served", () => {
 // --- The signature -----------------------------------------------------------------
 
 describe("a policy that requires a typed signature", () => {
-  test("409 without a matching name, 409 with a wrong password, then a signed row with identity_proof 'password'; the password reaches neither the row nor the audit entry", async () => {
+  test("409 without a matching name, 409 with a wrong password (audited as a failed sign-in), then a signed row with identity_proof 'password'; the password reaches neither the row, the audit entry nor a log line", async () => {
     const ack = await import("../src/app/api/documents/[id]/ack/route");
     const { id, v1 } = await newPolicy(`${STAMP} signature`);
     assert.deepEqual(await updateAckSettings(id, { signature: true }), { statement: null, signature: true });
     const url = `http://localhost/api/documents/${id}/ack`;
 
-    const unsigned = await call(ack.POST as Handler, sessionRequest(url, adminSession, { version_id: v1 }), id);
-    assert.equal(unsigned.status, 409);
-    assert.equal(unsigned.body.error, "Type your full name exactly as it appears on your account (Stmt Admin).");
-    assert.equal(unsigned.body.stale, undefined, "not the stale shape: the page must not reload");
+    const { result: signed, seen } = await withConsoleSpy(async () => {
+      const unsigned = await call(ack.POST as Handler, sessionRequest(url, adminSession, { version_id: v1 }), id);
+      assert.equal(unsigned.status, 409);
+      assert.equal(unsigned.body.error, "Type your full name exactly as it appears on your account (Stmt Admin).");
+      assert.equal(unsigned.body.stale, undefined, "not the stale shape: the page must not reload");
 
-    const wrongName = await call(
-      ack.POST as Handler,
-      sessionRequest(url, adminSession, { version_id: v1, signed_name: "Somebody Else", password: PASSWORD }),
-      id
-    );
-    assert.equal(wrongName.status, 409);
-    assert.match(wrongName.body.error, /^Type your full name/);
+      const wrongName = await call(
+        ack.POST as Handler,
+        sessionRequest(url, adminSession, { version_id: v1, signed_name: "Somebody Else", password: PASSWORD }),
+        id
+      );
+      assert.equal(wrongName.status, 409);
+      assert.match(wrongName.body.error, /^Type your full name/);
+      assert.equal((await auditRows("auth.login_failed", id)).length, 0, "a wrong name is not a password guess");
 
-    const wrongPassword = await call(
-      ack.POST as Handler,
-      sessionRequest(url, adminSession, { version_id: v1, signed_name: "stmt admin", password: "not-it" }),
-      id
-    );
-    assert.equal(wrongPassword.status, 409);
-    assert.equal(wrongPassword.body.error, "Password check failed. Re-enter your account password to sign.");
-    assert.equal(await row(id, adminId), undefined, "nothing was recorded by the refusals");
+      const wrongPassword = await call(
+        ack.POST as Handler,
+        sessionRequest(url, adminSession, { version_id: v1, signed_name: "stmt admin", password: "not-it" }),
+        id
+      );
+      assert.equal(wrongPassword.status, 409);
+      assert.equal(wrongPassword.body.error, "Password check failed. Re-enter your account password to sign.");
+      assert.equal(await row(id, adminId), undefined, "nothing was recorded by the refusals");
+      // The miss is on the record as the sign-in form records one, against
+      // the policy, with the address; the lock did not engage on one miss.
+      const failed = await auditRows("auth.login_failed", id);
+      assert.equal(failed.length, 1, "one auth.login_failed row for the one wrong password");
+      assert.deepEqual(failed[0].details, { via: "attestation" });
+      assert.equal(failed[0].ip, CLIENT_IP);
+      assert.equal((await auditRows("auth.lockout", id)).length, 0);
 
-    const signed = await call(
-      ack.POST as Handler,
-      sessionRequest(url, adminSession, { version_id: v1, reached_end: true, signed_name: "  Stmt Admin ", password: PASSWORD }),
-      id
+      return call(
+        ack.POST as Handler,
+        sessionRequest(url, adminSession, { version_id: v1, reached_end: true, signed_name: "  Stmt Admin ", password: PASSWORD }),
+        id
+      );
+    });
+    assert.ok(
+      !seen.some((s) => s.includes(PASSWORD) || s.includes("not-it")),
+      `the password never reaches a log line:\n${seen.join("\n")}`
     );
     assert.equal(signed.status, 200, JSON.stringify(signed.body));
     assert.equal(signed.body.signed_name, "Stmt Admin", "the name as typed, trimmed");
@@ -362,6 +376,33 @@ describe("a policy that requires a typed signature", () => {
     assert.equal(audits[0].details.identity_proof, "password");
     assert.equal(audits[0].details.user_agent, USER_AGENT.slice(0, 300));
     assert.doesNotMatch(JSON.stringify(audits[0].details), /Attest!Me|not-it/, "the password never reaches the audit row");
+
+    // The lockout, on an address of its own: the fifth wrong password locks
+    // the username+address pair and writes auth.lockout beside the fifth
+    // auth.login_failed; the right password is then 429 and records
+    // nothing more. No row anywhere carries a password.
+    const guess = (password: string) =>
+      call(
+        ack.POST as Handler,
+        sessionRequest(url, adminSession, { version_id: v1, signed_name: "Stmt Admin", password }, "POST", LOCKOUT_IP),
+        id
+      );
+    for (let i = 0; i < 5; i++) {
+      const r = await guess(`wrong-${i}`);
+      assert.equal(r.status, 409, `guess ${i + 1} is a plain refusal`);
+      assert.equal((await auditRows("auth.lockout", id)).length, i === 4 ? 1 : 0, `guess ${i + 1}: the lock engages on the fifth`);
+    }
+    const lockedOut = await guess(PASSWORD);
+    assert.equal(lockedOut.status, 429);
+    assert.match(lockedOut.body.error, /^Too many failed attempts/);
+    const failures = await auditRows("auth.login_failed", id);
+    assert.equal(failures.length, 6, "the first miss and the five guesses; the refusal under the lock is not a miss");
+    assert.ok(failures.every((r) => r.details.via === "attestation"));
+    assert.equal(failures[5].ip, LOCKOUT_IP);
+    const lockouts = await auditRows("auth.lockout", id);
+    assert.deepEqual([lockouts[0].details, lockouts[0].ip], [{ minutes: 15 }, LOCKOUT_IP]);
+    assert.doesNotMatch(JSON.stringify([...failures, ...lockouts]), /Attest!Me|not-it|wrong-/, "no password in the auth rows");
+    assert.equal((await auditRows("document.acknowledge", id)).length, 1, "the confirmation was recorded once");
   });
 });
 
