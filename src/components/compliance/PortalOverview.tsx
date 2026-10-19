@@ -1,10 +1,10 @@
 "use client";
 
 // Compliance › Overview (B4, 1.12.0): the programme's four tiles, as the
-// one-page portal showed them above its lists. Wave 2 adds the
-// re-confirmation tile (G1) beside them.
+// one-page portal showed them above its lists, and a fifth (G1) counting
+// the live policies whose next re-confirmation falls within 30 days.
 
-import { FileCheck, Users, CircleAlert, Percent } from "lucide-react";
+import { FileCheck, Users, CircleAlert, Percent, CalendarClock } from "lucide-react";
 import { usePortal, type PortalPageProps } from "./use-portal";
 import { PortalFallback } from "./PortalFallback";
 
@@ -18,13 +18,15 @@ export function PortalOverview({ licensed, canManageLicense = false }: PortalPag
     // label and a reader (or a test) finds "Policies requiring
     // confirmation" and its value without a class name. The label is
     // the term and comes first in the markup; the column reverses it
-    // visually so the tile still reads icon, number, label.
-    <dl className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+    // visually so the tile still reads icon, number, label. Five tiles:
+    // two to a row on a phone, three from sm, all five from lg.
+    <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
       {[
         { icon: <FileCheck className="h-4 w-4" />, label: "Policies requiring confirmation", value: k.policies },
         { icon: <Percent className="h-4 w-4" />, label: "Overall compliance", value: `${k.pct}%` },
         { icon: <Users className="h-4 w-4" />, label: "Fully compliant people", value: `${k.users_compliant}/${k.users_total}` },
         { icon: <CircleAlert className="h-4 w-4" />, label: "Outstanding confirmations", value: k.outstanding },
+        { icon: <CalendarClock className="h-4 w-4" />, label: "Re-confirmation due in 30 days", value: k.recert_due_30 ?? 0 },
       ].map((c) => (
         <div key={c.label} className="flex flex-col rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
           <dt className="order-last text-xs text-slate-500">{c.label}</dt>

@@ -29,6 +29,7 @@ import {
 } from "@/lib/db";
 import { getComplianceSettings } from "@/lib/compliance-settings";
 import { askedClause } from "./acknowledgements/ack-sentence";
+import { recertStatusLine } from "@/lib/ack-recert";
 import { DocNotices } from "@/components/DocNotices";
 import { StickyDocBar } from "@/components/StickyDocBar";
 import { AckProvider } from "@/components/AckState";
@@ -282,6 +283,8 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
           workspaceDefault: complianceSettings.ack_defaults.edit_default,
           summary: { eligible: ackSum.eligible, current: ackSum.current, rev: ackSum.rev },
           statusLine: ackStatusLine,
+          // The cycle (G1): "Re-confirm yearly · next 1 Jan 2027", or nothing.
+          recertLine: recertStatusLine(ackSum, (iso) => formatDate(iso, fmtSettings)),
           canViewRecord: canReadAckRoster,
           viewerName: user.name || user.username,
         }
@@ -565,6 +568,10 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
               signature={ackSignature}
               localAccount={ackLocalAccount}
               signedName={myAck?.signed_name ?? null}
+              // The policy's dates (G1): "Effective 1 Jan 2026 · re-confirm
+              // yearly" under the version line.
+              effectiveAt={doc.ack_effective_at}
+              recertMonths={doc.ack_recert_months}
               // The newest version's provenance (C6), the one the reader
               // confirms: the stamped publisher over the byline, and the
               // approver when a change request carried it. A document with

@@ -44,6 +44,14 @@ export interface AckSettingsProps {
   summary: { eligible: number; current: number; rev: number | null };
   /** Server-formatted "42 of 50 confirmed · v12 · asked 3 Mar 2026 by Matt"; null while the requirement is off. */
   statusLine: string | null;
+  /**
+   * The re-confirmation cycle (G1, 1.12.0), server-formatted through
+   * recertStatusLine: "Re-confirm yearly · next 1 Jan 2027"; null when the
+   * policy has no cycle, and then nothing is shown. It is the status line's
+   * second sentence, not a fifth control: the interval itself is set on the
+   * Settings tab.
+   */
+  recertLine?: string | null;
   /** document.ack_roster_read: shows the "View record" link. */
   canViewRecord: boolean;
   /** The signed-in person, named on the line after a quiet switch-on. */
@@ -72,6 +80,7 @@ export function AckSettings({
   workspaceDefault,
   summary,
   statusLine,
+  recertLine = null,
   canViewRecord,
   viewerName,
   onRequiredChange,
@@ -220,6 +229,14 @@ export function AckSettings({
               <Link href={`/doc/${docId}/acknowledgements`} className="font-medium text-compass-700 hover:underline">
                 View record
               </Link>
+            </>
+          )}
+          {/* The cycle (G1) on its own line under the standing, in the same
+              tone: "Re-confirm yearly · next 1 Jan 2027". */}
+          {required && recertLine && (
+            <>
+              <br />
+              {recertLine}
             </>
           )}
         </p>

@@ -25,6 +25,7 @@ import {
   recertCsvCells,
   ledgerCsvCells,
 } from "@/lib/read-evidence";
+import { recertDueWithin } from "@/lib/ack-recert";
 import type { SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -250,6 +251,9 @@ export async function GET(req: Request) {
       pct: required ? Math.round((acked / required) * 100) : 100,
       users_compliant: usersWithRequirements.filter((u) => u.acked === u.required).length,
       users_total: usersWithRequirements.length,
+      // The Overview's fifth tile (G1, 1.12.0): live policies whose next
+      // cycle falls within 30 days, over the same rows as the other sums.
+      recert_due_30: active.filter((d) => recertDueWithin(d, 30)).length,
     },
     docs,
     users,

@@ -5,10 +5,13 @@
 // the roster expand and the paused group. Moved from the one-page portal
 // with every action, dialog, toast and string as it was; the matrix's
 // Export CSV, a page-header action until the header became the section's,
-// sits on the Policy progress card it exports. Wave 2 adds the Retired
-// group (G3), the row actions for retirement, the "Next re-confirmation"
-// text (G1) and the AckRoster expand (C4).
+// sits on the Policy progress card it exports. 1.12.0 adds the collapsed
+// Retired group under Paused (G3: frozen counts, the reason, the
+// replacement, the record and the CSV, Un-retire), "Retire policy…" on the
+// live rows, the "Next re-confirmation {date}" meta text (G1) and the
+// Record tab's AckRoster inside the expand row (C4).
 
+import Link from "next/link";
 import {
   ShieldOff,
   FileCheck,
@@ -17,9 +20,10 @@ import {
   BellRing,
   ChevronDown,
   ChevronRight,
-  Check,
-  CircleDashed,
   CirclePause,
+  Archive,
+  ArchiveRestore,
+  ClipboardCheck,
   X,
 } from "lucide-react";
 import { LoadingRow } from "@/components/Spinner";
@@ -28,18 +32,15 @@ import { Button, buttonClass, iconButtonClass } from "@/components/Button";
 import { Card } from "@/components/Card";
 import { EntityPicker } from "@/components/EntityPicker";
 import { SectionEmpty } from "@/components/form";
-import { Table, Th, Td, TABLE_HEAD_ROW, TR } from "@/components/Table";
-import { Pager } from "@/components/Pager";
-import { RelativeTime } from "@/components/RelativeTime";
+import { AckRoster } from "@/components/AckRoster";
 import { ReconfirmButton } from "@/components/ReconfirmButton";
 import { EDIT_DEFAULT_CHIP, EDIT_DEFAULT_OPTIONS, people } from "@/components/compliance/copy";
 import type { EditDefault } from "@/lib/compliance-settings";
+import { recertPortalLine } from "@/lib/ack-recert";
 import { timeAgo } from "@/lib/ui";
 import { useFormatDate } from "@/components/SettingsProvider";
-import { pageOf, usePortal, type DecisionBrief, type DocRow, type PortalPageProps } from "./use-portal";
+import { usePortal, type DecisionBrief, type DocRow, type Portal, type PortalPageProps } from "./use-portal";
 import { PortalFallback } from "./PortalFallback";
-
-const ROSTER_PAGE = 50;
 
 /** The row behind the marker: the newest reset, or the newest decision when it is one. */
 function lastAsk(d: DocRow): DecisionBrief | null {
@@ -76,13 +77,16 @@ export function PortalPolicies({ licensed, canManageLicense = false }: PortalPag
   const fmt = useFormatDate();
   const portal = usePortal(licensed);
   if (!portal.data) return <PortalFallback licensed={licensed} canManageLicense={canManageLicense} portal={portal} />;
-  const { data, isBusy, busy, open, rosters, rosterPage, setRosterPage, candidate, setCandidate, previewing } = portal;
+  const { data, isBusy, busy, open, rosters, candidate, setCandidate, previewing } = portal;
   const { can } = data;
   // A paused policy (unpublished, requirement still on) is listed apart from
   // the live ones, with no actions: every row action needs a published
-  // document, and the server's tiles already leave it out (G2).
-  const active = data.docs.filter((d) => d.status === "published");
-  const paused = data.docs.filter((d) => d.status !== "published");
+  // document, and the server's tiles already leave it out (G2). A retired
+  // policy (G3) is its own group whatever its status: the requirement is
+  // off, the record is frozen, and the tiles leave it out too.
+  const retired = data.docs.filter((d) => d.ack_retired_at !== null);
+  const active = data.docs.filter((d) => d.status === "published" && d.ack_retired_at === null);
+  const paused = data.docs.filter((d) => d.status !== "published" && d.ack_retired_at === null);
 
   return (
     <div className="space-y-5">
@@ -192,6 +196,8 @@ export function PortalPolicies({ licensed, canManageLicense = false }: PortalPag
                             {d.ack_last_reminded_at
                               ? `last reminded ${timeAgo(d.ack_last_reminded_at)}`
                               : "never reminded"}
+                            {/* The stored next cycle date (G1), when the policy has one. */}
+                            {recertPortalLine(d, fmt.date) && ` · ${recertPortalLine(d, fmt.date)}`}
                           </span>
                           {lastAsk(d) && (
                             <span className="block text-xs text-slate-500">
@@ -248,7 +254,7 @@ export function PortalPolicies({ licensed, canManageLicense = false }: PortalPag
                       </div>
                     </div>
                     {(can.manage || can.export) && (
-                      // Four controls do not fit beside the title on a
+                      // Five controls do not fit beside the title on a
                       // phone: under sm the group takes the row's width
                       // and wraps; from sm it keeps the one-line layout.
                       <div className="flex w-full flex-wrap items-center gap-1.5 print:hidden sm:w-auto sm:shrink-0">
@@ -295,6 +301,23 @@ export function PortalPolicies({ licensed, canManageLicense = false }: PortalPag
                             Stop requiring
                           </Button>
                         )}
+                        {can.manage && (
+                          // Retire (G3): the end of the policy's life, with
+                          // a reason. The question is the hook's; the row
+                          // moves to the Retired group below on reload.
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            icon={<Archive />}
+                            onClick={() => void portal.retire(d)}
+                            disabled={busy}
+                            busy={isBusy(`retire-${d.id}`)}
+                            data-tt="End this policy with a reason; every confirmation stays on record under Retired"
+                            data-tt-wrap=""
+                          >
+                            Retire policy…
+                          </Button>
+                        )}
                         {can.export && (
                           <a
                             href={`/api/documents/${d.id}/acknowledgements?format=csv`}
@@ -317,52 +340,15 @@ export function PortalPolicies({ licensed, canManageLicense = false }: PortalPag
                           No one is expected to confirm this policy yet.
                         </SectionEmpty>
                       ) : (
-                        <>
-                          <Table scroll>
-                            <thead className={TABLE_HEAD_ROW}>
-                              <tr>
-                                <Th>Person</Th>
-                                <Th fit>Status</Th>
-                                <Th fit>Confirmed</Th>
-                                <Th fit>Version</Th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {pageOf(roster, rosterPage, ROSTER_PAGE).map((r) => (
-                                <tr key={r.id} className={TR}>
-                                  <Td className="text-slate-700">{r.name || r.username}</Td>
-                                  <Td fit>
-                                    {r.acknowledged_at ? (
-                                      <span className={chipClass("ok", "sm")}>
-                                        <Check className="h-3 w-3" aria-hidden /> Confirmed
-                                      </span>
-                                    ) : (
-                                      <span className={chipClass("warn", "sm")}>
-                                        <CircleDashed className="h-3 w-3" aria-hidden /> Pending
-                                      </span>
-                                    )}
-                                  </Td>
-                                  <Td fit className="text-slate-500">
-                                    {r.acknowledged_at ? <RelativeTime value={r.acknowledged_at} /> : ""}
-                                  </Td>
-                                  <Td fit className="text-slate-500">
-                                    {r.rev ? `v${r.rev}` : ""}
-                                  </Td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </Table>
-                          {roster.length > ROSTER_PAGE && (
-                            <div className="border-t border-slate-100 px-4 py-2">
-                              <Pager
-                                page={rosterPage}
-                                limit={ROSTER_PAGE}
-                                total={roster.length}
-                                onPage={setRosterPage}
-                              />
-                            </div>
-                          )}
-                        </>
+                        // The Record tab's roster (C4): the Show and people
+                        // filters, the pager and the evidence columns, on
+                        // the JSON rows the route already answers. No
+                        // ledger here (the view switch stays hidden) and no
+                        // word count (no read-time threshold without the
+                        // text); the IP column follows compliance.export.
+                        <div className="px-4 py-3">
+                          <AckRoster docId={d.id} rows={roster} canSeeIp={can.export} fmt={fmt.settings} />
+                        </div>
                       )}
                     </div>
                   )}
@@ -372,6 +358,7 @@ export function PortalPolicies({ licensed, canManageLicense = false }: PortalPag
           </ul>
         )}
         {paused.length > 0 && <PausedPolicies rows={paused} date={fmt.date} />}
+        {retired.length > 0 && <RetiredPolicies rows={retired} date={fmt.date} portal={portal} />}
       </Card>
     </div>
   );
@@ -418,6 +405,116 @@ function PausedPolicies({ rows, date }: { rows: DocRow[]; date: (iso: string) =>
             </span>
           </li>
         ))}
+      </ul>
+    </details>
+  );
+}
+
+/**
+ * Retired policies (G3, 1.12.0): the requirement is off for good, the
+ * record is frozen and nobody is asked. Each row shows when it was retired
+ * (the chip; who retired it is the chip's tooltip), the final standing
+ * ("42 of 50 people confirmed v12": the counts and the version frozen on
+ * the ledger row), the reason, the replacement when one was named, the
+ * policy's Record page and its CSV, because the evidence stays readable
+ * and exportable. No Remind, no re-ask, no Stop requiring: there is nothing
+ * to ask or to stop. Un-retire, for managers, is the one action. Collapsed
+ * by default and out of the tiles, like the paused group above it.
+ */
+function RetiredPolicies({
+  rows,
+  date,
+  portal,
+}: {
+  rows: DocRow[];
+  date: (iso: string) => string;
+  portal: Portal;
+}) {
+  const { data, isBusy, busy } = portal;
+  const can = data?.can ?? { manage: false, export: false };
+  return (
+    <details className="border-t border-slate-100 [&[open]>summary]:border-b [&[open]>summary]:border-slate-100">
+      <summary className="cursor-pointer select-none px-4 py-3 text-sm font-semibold text-slate-700 hover:text-compass-700 marker:text-compass-500">
+        Retired · {rows.length}
+      </summary>
+      <p className="px-4 pt-3 text-sm text-slate-500">
+        Policies that no longer ask anyone to confirm. Every confirmation made before a policy was retired
+        stays on record, and its Record and History pages stay open.
+      </p>
+      <ul className="divide-y divide-slate-100">
+        {rows.map((d) => {
+          const version = d.retired_rev ? ` v${d.retired_rev}` : "";
+          return (
+            <li key={d.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
+              <div className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium text-slate-800">
+                  {d.space_icon} {d.title}
+                </span>
+                {d.ack_retired_reason && (
+                  <span className="block text-xs text-slate-500">{d.ack_retired_reason}</span>
+                )}
+                {d.superseded_by_title && d.ack_superseded_by != null && (
+                  <span className="block text-xs text-slate-500">
+                    Replaced by{" "}
+                    <Link href={`/doc/${d.ack_superseded_by}`} className="font-medium text-compass-700 hover:underline">
+                      {d.superseded_by_title}
+                    </Link>
+                  </span>
+                )}
+              </div>
+              <span
+                className={chipClass("neutral", "sm")}
+                tabIndex={0}
+                data-tt={
+                  d.ack_retired_by_name
+                    ? `Retired by ${d.ack_retired_by_name}. Nobody is asked to confirm; every confirmation stays on record.`
+                    : "Nobody is asked to confirm; every confirmation stays on record."
+                }
+                data-tt-wrap=""
+              >
+                <Archive className="h-3 w-3" aria-hidden /> Retired {d.ack_retired_at ? date(d.ack_retired_at) : ""}
+              </span>
+              <span className="text-xs text-slate-500">
+                {d.acked} of {people(d.required)} confirmed{version}
+              </span>
+              <div className="flex w-full flex-wrap items-center gap-1.5 print:hidden sm:w-auto sm:shrink-0">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  icon={<ClipboardCheck />}
+                  href={`/doc/${d.id}/acknowledgements`}
+                  data-tt="Open this policy's record"
+                >
+                  View record
+                </Button>
+                {can.manage && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    icon={<ArchiveRestore />}
+                    onClick={() => void portal.unretire(d)}
+                    disabled={busy}
+                    busy={isBusy(`unretire-${d.id}`)}
+                    data-tt="Ask people to confirm this policy again; confirmations made before it was retired stay on record"
+                    data-tt-wrap=""
+                  >
+                    Un-retire
+                  </Button>
+                )}
+                {can.export && (
+                  <a
+                    href={`/api/documents/${d.id}/acknowledgements?format=csv`}
+                    data-tt="Download this policy's compliance record"
+                    aria-label="Download this policy's compliance record"
+                    className={iconButtonClass("bordered", "sm")}
+                  >
+                    <Download />
+                  </a>
+                )}
+              </div>
+            </li>
+          );
+        })}
       </ul>
     </details>
   );

@@ -2,8 +2,9 @@
 
 // Training home. "My training" for everyone; Overview (org rollup + triage
 // queue) and Manage decks (dense table + expandable deck cards) for admins
-// and Training-section grantees. Mirrors the CompliancePanel look so the two
-// programs feel like siblings.
+// and Training-section grantees. Mirrors the compliance portal's look
+// (PortalOverview, PortalPolicies, PortalPeople) so the two programs feel
+// like siblings.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { LoadingRow, Spinner } from "@/components/Spinner";

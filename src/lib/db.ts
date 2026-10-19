@@ -5497,6 +5497,15 @@ export interface ComplianceDocRow {
   ack_superseded_by: number | null;
   superseded_by_title: string | null;
   retired_rev: number | null;
+  /**
+   * Periodic re-confirmation (G1, 1.12.0): the interval in months (null =
+   * off), the stored next date and the effective date as 'YYYY-MM-DD'. The
+   * portal row reads "Next re-confirmation {date}" from them and the
+   * Overview tile counts the rows due within 30 days (recertDueWithin).
+   */
+  ack_recert_months: number | null;
+  ack_next_recert_at: string | null;
+  ack_effective_at: string | null;
 }
 
 /**
@@ -5517,6 +5526,7 @@ export async function complianceDocs(): Promise<ComplianceDocRow[]> {
             d.ack_edit_default,
             d.ack_retired_at, d.ack_retired_by_name, d.ack_retired_reason, d.ack_superseded_by,
             r.title AS superseded_by_title,
+            d.ack_recert_months, d.ack_next_recert_at, d.ack_effective_at::text AS ack_effective_at,
             ${VERSION_REV("d.ack_version_id")} AS ack_rev,
             COUNT(u.id)::int AS required,
             COUNT(u.id) FILTER (WHERE a.acknowledged_at IS NOT NULL)::int AS acked
@@ -5532,7 +5542,8 @@ export async function complianceDocs(): Promise<ComplianceDocRow[]> {
      WHERE (d.ack_required = 1 OR d.ack_retired_at IS NOT NULL) AND d.deleted_at IS NULL AND d.branch_of IS NULL
      GROUP BY d.id, d.title, s.name, s.icon, d.status, d.updated_at, d.ack_revision_at, d.ack_version_id,
               d.ack_last_reminded_at, d.ack_edit_default,
-              d.ack_retired_at, d.ack_retired_by_name, d.ack_retired_reason, d.ack_superseded_by, r.title
+              d.ack_retired_at, d.ack_retired_by_name, d.ack_retired_reason, d.ack_superseded_by, r.title,
+              d.ack_recert_months, d.ack_next_recert_at, d.ack_effective_at
      ORDER BY (d.ack_retired_at IS NOT NULL), (d.status <> 'published'),
               (COUNT(u.id) - COUNT(u.id) FILTER (WHERE a.acknowledged_at IS NOT NULL)) DESC, d.title`
   );
@@ -7427,6 +7438,15 @@ export interface AckSummary {
   workspace_edit_default?: AckEditDefault;
   /** The workspace's "Require a reason for editorial fixes too" (E4); filled by the route beside workspace_edit_default. */
   keep_reason_required?: boolean;
+  /**
+   * Periodic re-confirmation (G1, 1.12.0): the interval in months (null =
+   * off), the stored next date and the effective date as 'YYYY-MM-DD', so
+   * the shield popover's status line (recertStatusLine) reads from the
+   * summary the document page already has.
+   */
+  ack_recert_months: number | null;
+  ack_next_recert_at: string | null;
+  ack_effective_at: string | null;
   last_decision: AckDecision | null;
   /** The confirmed text, when asked for (the editor's what-changed view). */
   baseline?: { version_id: number; rev: number | null; title: string; content: string };
@@ -7442,8 +7462,17 @@ export interface AckSummary {
 export async function ackSummary(docId: number, opts: { baseline?: boolean } = {}): Promise<AckSummary> {
   await ready();
   const doc = (
-    await q<{ ack_required: number; ack_revision_at: string; ack_edit_default: string }>(
-      "SELECT ack_required, ack_revision_at, ack_edit_default FROM documents WHERE id = $1",
+    await q<{
+      ack_required: number;
+      ack_revision_at: string;
+      ack_edit_default: string;
+      ack_recert_months: number | null;
+      ack_next_recert_at: string | null;
+      ack_effective_at: string | null;
+    }>(
+      `SELECT ack_required, ack_revision_at, ack_edit_default,
+              ack_recert_months, ack_next_recert_at, ack_effective_at::text AS ack_effective_at
+       FROM documents WHERE id = $1`,
       [docId]
     )
   )[0];
@@ -7464,6 +7493,9 @@ export async function ackSummary(docId: number, opts: { baseline?: boolean } = {
     latest_version_id: info.latest_version_id,
     latest_rev: info.latest_rev,
     edit_default: editDefaultOf(doc),
+    ack_recert_months: doc.ack_recert_months,
+    ack_next_recert_at: doc.ack_next_recert_at,
+    ack_effective_at: doc.ack_effective_at,
     last_decision: last,
   };
   if (opts.baseline && info.version_id != null) {

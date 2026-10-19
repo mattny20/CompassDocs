@@ -17,6 +17,14 @@ import { ADMIN, login, api } from "./helpers";
 // paused group, Export CSV) and /compliance/people; the sidebar's
 // Compliance row carries the count of policies to confirm; a plain viewer
 // with a policy in scope sees the row and only the My policies tab.
+// 1.12.0 (G3): a retired policy moves to the collapsed "Retired · n" group
+// under Paused with a "Retired {date}" chip, its frozen count and version,
+// the reason, the record link and the CSV, no Remind / re-ask / Stop
+// requiring; Un-retire asks once and restores the row with a toast; the
+// live row's "Retire policy…" asks for a reason of ten characters.
+// 1.12.0 (G1): the Overview's fifth tile counts policies whose next
+// re-confirmation falls within 30 days; a policy with an interval shows
+// "Next re-confirmation {date}" on its row.
 //
 // Read confirmation is entitlement-gated (policy_ack). CI runs the community
 // build, so each test skips itself when the portal answers 402 and runs in
@@ -698,6 +706,207 @@ test("a viewer with a policy in scope sees the Compliance row with its badge and
     }
   } finally {
     if (viewerId) await api(page, `/api/admin/users/${viewerId}`, { method: "DELETE" });
+    if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
+  }
+});
+
+test("a retired policy sits in the collapsed Retired group with its chip, count and reason and no row actions but Un-retire; Un-retire restores it; the live row's Retire policy… asks for a reason", async ({ page }) => {
+  test.setTimeout(120_000);
+  await login(page, ADMIN);
+  const title = `E2E portal retired ${stamp()}`;
+  const REASON = "Superseded by the new expense policy";
+  let docId: number | undefined;
+  try {
+    docId = await makePolicy(page, title);
+    test.skip(!(await portalLicensed(page)), "policy_ack is not licensed in this build; the EE rig runs the flow");
+    const on = await api(page, "/api/admin/compliance", {
+      method: "POST",
+      body: { docId, action: "request", notify: false },
+    });
+    expect(on.status, "requested quietly").toBe(200);
+    // The admin confirms, so the retirement freezes one confirmation of version 1.
+    await confirmThrough(page, docId);
+
+    // Retired through the API: the requirement is off, the row stays in the
+    // payload as retired, and the tiles leave it out.
+    const retired = await api(page, `/api/documents/${docId}/ack/retire`, { method: "POST", body: { reason: REASON } });
+    expect(retired.status, "retired").toBe(200);
+    expect(retired.body).toMatchObject({ ok: true, acked: 1, rev: 1 });
+    expect(await ackRequired(page, docId)).toBe(0);
+    const view = await api(page, "/api/admin/compliance");
+    expect(view.status).toBe(200);
+    const row0 = (view.body?.docs ?? []).find((d: { id: number }) => d.id === docId);
+    expect(row0?.ack_retired_at).toBeTruthy();
+    expect(row0?.ack_retired_reason).toBe(REASON);
+    expect(row0?.retired_rev).toBe(1);
+    const live = (view.body?.docs ?? []).filter(
+      (d: { status: string; ack_retired_at: string | null }) => d.status === "published" && d.ack_retired_at === null
+    );
+    expect(view.body?.kpis?.policies, "the tile counts live policies only").toBe(live.length);
+
+    // The Policies page: the only row with this title sits inside the
+    // collapsed Retired group, after Paused, with the chip, the frozen
+    // standing, the reason, the record link and the CSV, and no Remind,
+    // re-ask or Stop requiring.
+    await page.goto("/compliance/policies");
+    await expect(page.getByRole("heading", { name: /^Compliance/ })).toBeVisible();
+    const group = page.locator("details", { hasText: /Retired · \d+/ });
+    await expect(group).toBeVisible();
+    await expect(group.locator("summary")).toHaveText(/^Retired · \d+$/);
+    expect(await page.locator("li", { hasText: title }).count(), "one row for the policy").toBe(1);
+    const row = group.locator("li", { hasText: title });
+    await expect(row).toHaveCount(1);
+    await group.locator("summary").click();
+    await expect(row).toBeVisible();
+    await expect(row.getByText(/^Retired \S/)).toBeVisible();
+    await expect(row.getByText(/^1 of \d+ (person|people) confirmed v1$/)).toBeVisible();
+    await expect(row.getByText(REASON)).toBeVisible();
+    await expect(row.getByRole("link", { name: "View record" })).toHaveAttribute("href", `/doc/${docId}/acknowledgements`);
+    await expect(row.getByRole("link", { name: "Download this policy's compliance record" })).toBeVisible();
+    await expect(row.getByRole("button", { name: "Remind", exact: true })).toHaveCount(0);
+    await expect(row.getByRole("button", { name: "Ask everyone to re-confirm…" })).toHaveCount(0);
+    await expect(row.getByRole("button", { name: "Stop requiring" })).toHaveCount(0);
+    await expect(row.getByRole("button", { name: "Retire policy…" })).toHaveCount(0);
+    const unretire = row.getByRole("button", { name: "Un-retire" });
+    await expect(unretire).toBeVisible();
+
+    // Un-retire asks once; Cancel changes nothing.
+    await unretire.click();
+    const resume = page.getByRole("dialog", { name: `Resume read confirmation for "${title}"?` });
+    await expect(resume).toBeVisible();
+    await expect(resume.getByText("Confirmations made before it was retired stay on record.", { exact: false })).toBeVisible();
+    await resume.getByRole("button", { name: "Cancel" }).click();
+    await expect(resume).toHaveCount(0);
+    expect(await ackRequired(page, docId), "Cancel leaves the policy retired").toBe(0);
+
+    // Resume: the toast carries the standing, the requirement is back, the
+    // row returns to the live list with its actions, and the group lets go.
+    await unretire.click();
+    await expect(resume).toBeVisible();
+    await resume.getByRole("button", { name: "Resume" }).click();
+    await expect(
+      page.locator('[role="status"]').getByText(/^Policy resumed: 1 of \d+ confirmations still current$/)
+    ).toBeVisible();
+    expect(await ackRequired(page, docId)).toBe(1);
+    const back = page.locator("li", { hasText: title });
+    await expect(back).toHaveCount(1);
+    await expect(page.locator("details", { hasText: /Retired · \d+/ }).locator("li", { hasText: title })).toHaveCount(0);
+    await expect(back.getByRole("button", { name: "Stop requiring" })).toBeVisible();
+    const after = (await api(page, "/api/admin/compliance")).body?.docs?.find((d: { id: number }) => d.id === docId);
+    expect(after?.ack_retired_at).toBeNull();
+    expect(after?.acked, "the prior confirmation is current again").toBe(1);
+
+    // The live row's own Retire policy…: the question names the standing,
+    // Cancel sends nothing, a short reason is refused inline, a real one
+    // retires with a toast and the row goes back to the group.
+    const retire = back.getByRole("button", { name: "Retire policy…" });
+    await expect(retire).toBeVisible();
+    await retire.click();
+    const dialog = page.getByRole("dialog", { name: `Retire "${title}"?` });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText(/^1 of \d+ people have confirmed version 1\. Retiring stops asking anyone to confirm/)).toBeVisible();
+    const field = dialog.getByLabel("Why is this policy being retired?");
+    const submit = dialog.getByRole("button", { name: "Retire policy" });
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+    await expect(dialog).toHaveCount(0);
+    expect(await ackRequired(page, docId), "Cancel retires nothing").toBe(1);
+    await retire.click();
+    await expect(dialog).toBeVisible();
+    await field.fill("Too short");
+    await submit.click();
+    await expect(dialog.getByText("Give a reason of at least 10 characters.")).toBeVisible();
+    await expect(dialog).toBeVisible();
+    expect(await ackRequired(page, docId), "a refused reason retires nothing").toBe(1);
+    await field.fill(REASON);
+    await submit.click();
+    await expect(
+      page.locator('[role="status"]').getByText(/^Policy retired: 1 of \d+ confirmations on record$/)
+    ).toBeVisible();
+    await expect(dialog).toHaveCount(0);
+    expect(await ackRequired(page, docId)).toBe(0);
+    await expect(page.locator("details", { hasText: /Retired · \d+/ }).locator("li", { hasText: title })).toHaveCount(1);
+    const audited = await auditRows(page, "ack.retired", docId);
+    expect(audited.length, "both retirements are on the record").toBe(2);
+    expect(audited[0].details?.reason).toBe(REASON);
+  } finally {
+    if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
+  }
+});
+
+test("the Overview's fifth tile counts re-confirmations due in 30 days, and a policy with an interval shows its next date on the row", async ({ page }) => {
+  test.setTimeout(90_000);
+  await login(page, ADMIN);
+  const title = `E2E portal recert ${stamp()}`;
+  let docId: number | undefined;
+  try {
+    docId = await makePolicy(page, title);
+    test.skip(!(await portalLicensed(page)), "policy_ack is not licensed in this build; the EE rig runs the flow");
+    const on = await api(page, "/api/admin/compliance", {
+      method: "POST",
+      body: { docId, action: "request", notify: false },
+    });
+    expect(on.status, "requested quietly").toBe(200);
+
+    type Row = { id: number; status: string; ack_retired_at: string | null; ack_recert_months: number | null; ack_next_recert_at: string | null };
+    const portal = async () => {
+      const res = await api(page, "/api/admin/compliance");
+      expect(res.status).toBe(200);
+      const docs: Row[] = res.body?.docs ?? [];
+      // The tile's rule, recomputed from the payload: live rows whose next
+      // date falls within 30 days (other specs add policies beside this one).
+      const limit = Date.now() + 30 * 86_400_000;
+      const due = docs.filter(
+        (d) =>
+          d.status === "published" &&
+          d.ack_retired_at === null &&
+          d.ack_recert_months !== null &&
+          d.ack_next_recert_at !== null &&
+          new Date(d.ack_next_recert_at).getTime() <= limit
+      ).length;
+      return { kpis: res.body?.kpis, mine: docs.find((d) => d.id === docId), due };
+    };
+    const before = await portal();
+    expect(typeof before.kpis?.recert_due_30, "the fifth number is in the payload").toBe("number");
+    expect(before.kpis.recert_due_30).toBe(before.due);
+
+    // A yearly interval through the Settings tab's route: the next date is
+    // scheduled a year from the marker, and the row says so.
+    const yearly = await api(page, `/api/documents/${docId}/ack-settings`, { method: "PATCH", body: { recert_months: 12 } });
+    expect(yearly.status, "the interval is set").toBe(200);
+    const withCycle = await portal();
+    expect(withCycle.mine?.ack_recert_months).toBe(12);
+    expect(withCycle.mine?.ack_next_recert_at).toBeTruthy();
+    expect(new Date(withCycle.mine!.ack_next_recert_at!).getTime(), "a year out, not within 30 days").toBeGreaterThan(
+      Date.now() + 31 * 86_400_000
+    );
+    await page.goto("/compliance/policies");
+    const row = page.locator("li", { hasText: title });
+    await expect(row).toBeVisible();
+    await expect(row.getByText(/· Next re-confirmation \S/)).toBeVisible();
+
+    // The next date moved to tomorrow: the policy joins the tile's count,
+    // and the Overview shows the server's number.
+    const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+    const soon = await api(page, `/api/documents/${docId}/ack-settings`, { method: "PATCH", body: { next_recert_at: tomorrow } });
+    expect(soon.status, "the next date moved").toBe(200);
+    const dueSoon = await portal();
+    expect(dueSoon.kpis.recert_due_30).toBeGreaterThanOrEqual(1);
+    expect(dueSoon.kpis.recert_due_30).toBe(dueSoon.due);
+    await page.goto("/compliance/overview");
+    await expect(subnav(page).getByRole("link", { name: "Overview" })).toHaveAttribute("aria-current", "page");
+    const tile = page.getByRole("term").filter({ hasText: "Re-confirmation due in 30 days" }).locator("..");
+    await expect(tile.getByRole("definition")).toHaveText(String((await portal()).kpis.recert_due_30));
+
+    // A retired policy leaves the count, whatever its date.
+    const retired = await api(page, `/api/documents/${docId}/ack/retire`, {
+      method: "POST",
+      body: { reason: "Retired for the re-confirmation tile test" },
+    });
+    expect(retired.status).toBe(200);
+    const afterRetire = await portal();
+    expect(afterRetire.kpis.recert_due_30).toBe(afterRetire.due);
+    expect(afterRetire.kpis.recert_due_30).toBe(dueSoon.kpis.recert_due_30 - 1);
+  } finally {
     if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
   }
 });

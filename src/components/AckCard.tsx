@@ -58,6 +58,7 @@ import { MarkdownView } from "@/components/MarkdownView";
 import { useFormatDate } from "@/components/SettingsProvider";
 import { monthsLabel, useAckState } from "@/components/AckState";
 import type { AckReason } from "@/components/AckState";
+import { recertMetaLine } from "@/lib/ack-recert";
 import { diffLines, diffStats } from "@/lib/diff";
 import { useAction } from "@/lib/use-action";
 import { CONFIRM_SECTION_ID } from "@/lib/use-reached-end";
@@ -116,6 +117,8 @@ export function AckCard({
   localAccount = false,
   signedName = null,
   meta,
+  effectiveAt = null,
+  recertMonths = null,
   readerName,
   current,
   baseline = null,
@@ -132,6 +135,9 @@ export function AckCard({
   signedName?: string | null;
   /** The version being confirmed: "Version 12 · published {date} by {author} · approved by {approvedBy}" (C6). */
   meta: { rev: number | null; publishedLabel: string | null; author: string; approvedBy?: string };
+  /** The policy's effective date ('YYYY-MM-DD') and re-confirmation interval (G1): "Effective 1 Jan 2026 · re-confirm yearly" under the version line. */
+  effectiveAt?: string | null;
+  recertMonths?: number | null;
   /** The signed-in reader: the name a signature must match, and the printed standing line's subject. */
   readerName: string;
   /** The text on screen, for the what-changed diff (B3). */
@@ -245,6 +251,12 @@ export function AckCard({
   ]
     .filter(Boolean)
     .join(" · ");
+  // The policy's dates (G1): the day it came into force and how often it
+  // asks again; null when it has neither, and then no line.
+  const recertLine = recertMetaLine(
+    { ack_effective_at: effectiveAt, ack_recert_months: recertMonths, ack_next_recert_at: null },
+    fmt.date
+  );
 
   const signedClause = signedAs ? `, signed as ${signedAs}` : "";
   const confirmedSentence = confirmed
@@ -365,6 +377,7 @@ export function AckCard({
                 <MarkdownView content={statement} docKey={`ack-statement-${docId}`} />
               </div>
               {metaLine && <p className="mt-1 text-xs text-slate-500">{metaLine}</p>}
+              {recertLine && <p className="mt-0.5 text-xs text-slate-500">{recertLine}</p>}
 
               {showChanges && prior && (
                 <details className="mt-5 w-full rounded-lg border border-slate-200 bg-surface text-left [&[open]>summary]:border-b [&[open]>summary]:border-slate-100">

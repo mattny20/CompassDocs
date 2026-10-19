@@ -11,11 +11,19 @@
 // audience count, and a "Remind N people?" confirmDialog, because sending
 // mail cannot be undone. Stop requiring tells rather than asks (STYLEGUIDE
 // §Feedback): the record is kept, and Undo re-requests quietly.
+//
+// Retire and Un-retire (G3, 1.12.0) both ask: retiring takes a reason of at
+// least 10 characters through the formDialog items/G3.md spells out, and
+// resuming a retired policy asks once because it puts the policy back on
+// everyone's list. Each posts to the policy's own route
+// (/api/documents/[id]/ack/retire, …/unretire), not to the portal's POST.
 
 import { useCallback, useEffect, useState } from "react";
-import { confirmDialog } from "@/components/Dialog";
+import { confirmDialog, formDialog } from "@/components/Dialog";
 import { toast } from "@/components/Toasts";
 import { requireAckDialog } from "@/components/RequireAckDialog";
+import { RECONFIRM_REASON_TOO_SHORT } from "@/components/ReconfirmButton";
+import type { AckRosterRow } from "@/components/AckRoster";
 import { people } from "@/components/compliance/copy";
 import type { EditDefault } from "@/lib/compliance-settings";
 import { useAction } from "@/lib/use-action";
@@ -43,6 +51,23 @@ export interface DocRow {
   drift_pct?: number | string | null;
   /** How the policy treats a text edit (A5): the "Asks editor" / "Asks when material" / "Always re-asks" chip. */
   ack_edit_default?: EditDefault;
+  /**
+   * Retirement (G3, 1.12.0): set on a retired policy, which the Policies
+   * page lists in its collapsed Retired group with `required` / `acked`
+   * frozen at that moment and `retired_rev` the version people had been
+   * asked to confirm. `superseded_by_title` is null when no replacement was
+   * named or it was trashed.
+   */
+  ack_retired_at: string | null;
+  ack_retired_by_name: string;
+  ack_retired_reason: string;
+  ack_superseded_by: number | null;
+  superseded_by_title: string | null;
+  retired_rev: number | null;
+  /** Periodic re-confirmation (G1, 1.12.0): the interval, the stored next date and the effective date ('YYYY-MM-DD'). */
+  ack_recert_months: number | null;
+  ack_next_recert_at: string | null;
+  ack_effective_at: string | null;
 }
 
 export interface DecisionBrief {
@@ -78,6 +103,8 @@ export interface CompliancePayload {
     pct: number;
     users_compliant: number;
     users_total: number;
+    /** Live policies whose next re-confirmation falls within 30 days (G1, 1.12.0). */
+    recert_due_30: number;
   };
   docs: DocRow[];
   users: PersonRow[];
@@ -86,14 +113,12 @@ export interface CompliancePayload {
   can: { manage: boolean; export: boolean };
 }
 
-/** One row of GET /api/documents/{id}/acknowledgements (the roster expand). */
-export interface RosterRow {
-  id: number;
-  name: string;
-  username: string;
-  acknowledged_at: string | null;
-  rev: number | null;
-}
+/**
+ * One row of GET /api/documents/{id}/acknowledgements (the roster expand):
+ * AckStatusRow as the route spreads it, which is the shape AckRoster takes
+ * (C4, 1.12.0), so the expand row mounts the Record tab's roster as is.
+ */
+export type RosterRow = AckRosterRow;
 
 /** The POST answers the portal reads back. */
 interface PostResult {
@@ -102,6 +127,9 @@ interface PostResult {
   eligible?: number;
   acked?: number;
   required?: number;
+  /** POST /ack/retire: the marker version's number; POST /ack/unretire: the confirmations current after the switch. */
+  rev?: number | null;
+  current?: number;
 }
 
 /** The props every routed portal page takes from its server page. */
@@ -151,12 +179,12 @@ export function usePortal(licensed: boolean) {
   }, []);
 
   /** One POST through useAction: the server's error or the fallback is toasted; the body comes back on success. */
-  async function post(key: string, body: Record<string, unknown>, fallback: string): Promise<PostResult | null> {
+  async function postTo(key: string, url: string, body: Record<string, unknown>, fallback: string): Promise<PostResult | null> {
     const box: { result?: PostResult } = {};
     const ok = await run(
       key,
       async () => {
-        const res = await fetch("/api/admin/compliance", {
+        const res = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
@@ -167,6 +195,11 @@ export function usePortal(licensed: boolean) {
       { fallback, refresh: false }
     );
     return ok ? (box.result ?? {}) : null;
+  }
+
+  /** The portal's own POST (request, remind, stop). */
+  function post(key: string, body: Record<string, unknown>, fallback: string): Promise<PostResult | null> {
+    return postTo(key, "/api/admin/compliance", body, fallback);
   }
 
   async function requestConfirmation() {
@@ -252,6 +285,60 @@ export function usePortal(licensed: boolean) {
     await load();
   }
 
+  // Retire (G3): the question carries the standing (the row's counts and the
+  // marker's version) and one required reason, awaited before anything is
+  // busy so Cancel leaves the row idle (STYLEGUIDE §Overlays). The server
+  // freezes the counts, keeps every confirmation and moves the policy to
+  // the Retired group on the next load; the toast says what is on record.
+  async function retire(d: DocRow) {
+    const version = d.ack_rev ? `version ${d.ack_rev}` : "the current version";
+    const values = await formDialog({
+      title: `Retire "${d.title}"?`,
+      body: `${d.acked} of ${d.required} people have confirmed ${version}. Retiring stops asking anyone to confirm, keeps every confirmation on record, and lists the policy under Retired in Compliance. The document itself stays as it is; unpublish it separately if people should no longer read it.`,
+      fields: [
+        {
+          key: "reason",
+          label: "Why is this policy being retired?",
+          type: "textarea",
+          required: true,
+          help: "Shown on the compliance record and in exports",
+          validate: (v) => (v.trim().length < 10 ? RECONFIRM_REASON_TOO_SHORT : undefined),
+        },
+      ],
+      confirmLabel: "Retire policy",
+    });
+    if (!values) return;
+    const r = await postTo(
+      `retire-${d.id}`,
+      `/api/documents/${d.id}/ack/retire`,
+      { reason: values.reason.trim() },
+      "Couldn't retire the policy."
+    );
+    if (!r) return;
+    dropRoster(d.id);
+    toast("ok", `Policy retired: ${r.acked ?? d.acked} of ${r.required ?? d.required} confirmations on record`);
+    await load();
+  }
+
+  // Un-retire (G3): one question, because resuming puts the policy back on
+  // everyone's list; the toast carries the standing the server answers
+  // with. The spec's "Ask everyone to re-confirm…" toast action is not
+  // wired here: the A7 question lives inside ReconfirmButton, which exports
+  // no callable; once it does, pass it as the toast's `action`.
+  async function unretire(d: DocRow) {
+    const answer = await confirmDialog({
+      title: `Resume read confirmation for "${d.title}"?`,
+      body: "Confirmations made before it was retired stay on record. If the text changed while it was retired, people whose confirmation is older than the current version are asked again.",
+      confirmLabel: "Resume",
+    });
+    if (answer !== true) return;
+    const r = await postTo(`unretire-${d.id}`, `/api/documents/${d.id}/ack/unretire`, {}, "Couldn't resume the policy.");
+    if (!r) return;
+    dropRoster(d.id);
+    toast("ok", `Policy resumed: ${r.current ?? 0} of ${r.eligible ?? 0} confirmations still current`);
+    await load();
+  }
+
   async function toggleRoster(docId: number) {
     if (open === docId) {
       setOpen(null);
@@ -289,6 +376,8 @@ export function usePortal(licensed: boolean) {
     requestConfirmation,
     remind,
     stopRequiring,
+    retire,
+    unretire,
     toggleRoster,
   };
 }
