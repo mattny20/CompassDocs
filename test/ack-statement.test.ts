@@ -5,7 +5,10 @@
 // name and how the signer was identified; the password reaches neither the
 // row nor the audit entry; and the per-policy settings route validates
 // what it is sent, answers what the document now holds and writes one
-// ack.settings_changed row per real change.
+// ack.settings_changed row per real change. Wave 2 (G1 + G3 UI) added the
+// re-confirmation fields and the replacement to the same route: the last
+// test covers their validation, the next date scheduled from the marker,
+// the replacement's rules and the audit details.
 //
 // The route handlers are called directly, the way test/ack-tokens.test.ts
 // does it: next/headers resolves to a stub that serves the request under
@@ -31,8 +34,10 @@ import {
   ackStatusForDocument,
   getAckSettings,
   updateAckSettings,
+  getAckRecert,
   createSession,
 } from "../src/lib/db";
+import { addMonths } from "../src/lib/ack-recert";
 import { readComplianceSettings } from "../src/lib/compliance-settings";
 import { hashPassword, newToken } from "../src/lib/password";
 import { fixtureQuery } from "./support/retry";
@@ -158,7 +163,9 @@ async function newPolicy(title: string): Promise<{ id: number; v1: number }> {
     author: "test",
   });
   docIds.push(doc.id);
-  await setAckRequired(doc.id, true, { editDefault: null });
+  // Both null: leave the columns alone rather than reading the workspace
+  // settings row, which another test file may be writing.
+  await setAckRequired(doc.id, true, { editDefault: null, recertMonths: null });
   return { id: doc.id, v1: (await listVersions(doc.id))[0].id };
 }
 
