@@ -32,14 +32,44 @@ beside a grouped editor, markers in front of names, and name formats.
   every control, rule and message is unchanged. The list stacks over the
   editor on a phone. The settings search finds the cards ("Export ›
   Columns", "Display › Directory page defaults").
-MARKERS_PLACEHOLDER
+- **Directory export markers.** Settings → Directory → Export gains a
+  **Markers** card: a symbol (an asterisk, a dagger, or any character the
+  PDF can print) in front of a person's name on exports, for people who
+  match a field value, with a name for the key: "* Public notary",
+  "† Partner". A marker reads any field but the name and the link columns
+  (a synced attribute, a custom attribute, a manual one), matches as the
+  export filter matches (the raw value, the option's code or its label,
+  case-insensitively; a multi-valued field on any of its values), and a
+  blank value marks everyone who has any value. Each preset ticks the
+  markers it prints under **Columns → Mark people with**; the symbols go
+  in front of the name in the PDF's table and cards and in the CSV's Name
+  column, every assistant's name carries the assistant's own symbols, the
+  PDF's footer prints the key on every page ("* Public notary · † Partner")
+  and the page plan leaves room for it, and the CSV ends each row with a
+  **Markers** column listing the labels. Up to 24 markers; a symbol the
+  PDF cannot print is refused by name rather than saved to come out as a
+  box. In the API: `GET` / `PUT /api/admin/directory/markers`, a preset's
+  `markers` (marker ids) and the audit entry `settings.directory_markers`
+  ("Updated directory markers").
+- **Name formats on exports.** A preset's **Document → Name format**
+  writes the Name column, the who's-who cards and assistant names one of
+  six ways: as written, First name Last name, Last name, First name, First
+  name Last initial, Last name, First initial, or First initial Last name
+  ("Smith, Jane A." becomes "Jane Smith", "Smith, Jane", "Jane S.",
+  "Smith, J." or "J. Smith"). Honorifics, suffixes and credentials come
+  off as the name sort already drops them, a particle surname rides whole
+  ("van Beethoven, Ludwig"), and a single-word name prints as it is.
+  Sorting is unchanged. In the API: a preset's `name_format`; both options
+  ride on the export route as overrides like the other preset options.
 ### Changed
 - The ordered column list wraps its per-row controls on a phone instead
   of pushing the card sideways, and its add-column menu never exceeds the
   card.
 
 ### Upgrading
-- Nothing to migrate. UPGRADING_PLACEHOLDER
+- Nothing to migrate. A preset saved before 1.11.2 prints no markers and
+  writes names as written: its PDF and CSV are the files it made before.
+  Markers are empty until an admin adds one.
 
 ## [1.11.1] - 2026-10-19
 
