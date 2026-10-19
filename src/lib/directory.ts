@@ -42,6 +42,8 @@ import {
   type FieldOption,
   type LinkRef,
   type ValueFormat,
+  NAME_SORT_MODES,
+  type NameSortMode,
 } from "./directory-display";
 
 /**
@@ -1499,6 +1501,18 @@ export async function getGroupByDefault(fields?: DirectoryField[]): Promise<stri
 
 export async function setGroupByDefault(key: string): Promise<void> {
   await setSetting("directory_group_by_default", key.trim());
+}
+
+/** How the Directory page sorts names before a person chooses: by the full name, the first name or the last name. */
+export async function getNameSortDefault(): Promise<NameSortMode> {
+  const raw = (await getSetting("directory_name_sort"))?.trim() ?? "";
+  return (NAME_SORT_MODES as readonly string[]).includes(raw) ? (raw as NameSortMode) : "full";
+}
+
+export async function setNameSortDefault(mode: string): Promise<NameSortMode> {
+  const m = (NAME_SORT_MODES as readonly string[]).includes(mode.trim()) ? (mode.trim() as NameSortMode) : "full";
+  await setSetting("directory_name_sort", m);
+  return m;
 }
 
 /** Which contact columns (email, phone, mobile) are for admins only. */

@@ -7,7 +7,18 @@ import { useState } from "react";
 import { Download, FileText, Table2, Contact } from "lucide-react";
 import { toast } from "@/components/Toasts";
 
-export function ExportPeopleButtons({ ids, groupBy = "", title }: { ids: number[]; groupBy?: string; title?: string }) {
+export function ExportPeopleButtons({
+  ids,
+  groupBy = "",
+  title,
+  sort = "name",
+}: {
+  ids: number[];
+  groupBy?: string;
+  title?: string;
+  /** The sort key the file uses: a column, or "name:first" / "name:last". */
+  sort?: string;
+}) {
   const [busy, setBusy] = useState<string>("");
   async function run(format: "pdf" | "csv" | "vcf") {
     setBusy(format);
@@ -15,7 +26,7 @@ export function ExportPeopleButtons({ ids, groupBy = "", title }: { ids: number[
       const res = await fetch("/api/directory/export", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids, format, group_by: groupBy, sort: "name", sort_dir: "asc", title }),
+        body: JSON.stringify({ ids, format, group_by: groupBy, sort, sort_dir: "asc", title }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));

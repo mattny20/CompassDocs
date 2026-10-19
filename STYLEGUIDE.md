@@ -417,6 +417,11 @@ One field recipe, one input recipe, one width scale. Everything lives in
 - Checkbox *lists*, radio groups and composite pickers (EntityPicker,
   SpaceIconPicker) keep their own markup; their text inputs still use the
   recipe.
+- A control inside a list row (OrderedKeyList `extra`) is a dense
+  `TextInput`/`Select` with a visible caption and an `aria-label` that
+  names the row ('Wrap Name after'); the shared help and the first error
+  live on the list's own label, and only the offending row's control takes
+  `hasError`.
 - **The Save row.** A page or card with a Save button uses `<SaveRow dirty
   busy onSave label disabled allowPristine>` from `components/SaveRow`
   with `useUnsavedChanges(snapshot)` and `useLeaveGuard(dirty,

@@ -1,11 +1,21 @@
-// Admin config for the on-screen directory: the default list columns, and
-// which field the grouped views open on. Users can still change columns for
-// themselves; this is what they see before they do.
+// Admin config for the on-screen directory: the default list columns, which
+// field the grouped views open on, and how names sort. Users can still change
+// these for themselves; this is what they see before they do.
 
 import { NextResponse } from "next/server";
 import { apiGuard } from "@/lib/api-auth";
-import { getColumnVisibility, getGroupByDefault, getListColumns, listFields, setColumnVisibility, setGroupByDefault, setListColumns } from "@/lib/directory";
-import { availableColumns } from "@/lib/directory-display";
+import {
+  getColumnVisibility,
+  getGroupByDefault,
+  getListColumns,
+  getNameSortDefault,
+  listFields,
+  setColumnVisibility,
+  setGroupByDefault,
+  setListColumns,
+  setNameSortDefault,
+} from "@/lib/directory";
+import { NAME_SORT_MODES, availableColumns } from "@/lib/directory-display";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
@@ -17,6 +27,7 @@ export async function GET() {
   return NextResponse.json({
     columns: await getListColumns(fields),
     group_by: await getGroupByDefault(fields),
+    name_sort: await getNameSortDefault(),
     column_visibility: await getColumnVisibility(),
     available: availableColumns(fields),
     group_by_fields: fields.filter((f) => f.group_by).map((f) => ({ key: f.key, label: f.label })),
@@ -43,14 +54,26 @@ export async function PUT(req: Request) {
       return NextResponse.json({ error: e?.message || "Could not save." }, { status: 400 });
     }
   }
+  // Refused, not folded into "full": a typo must not reset the admin's default.
+  if (body?.name_sort !== undefined && !(NAME_SORT_MODES as readonly string[]).includes(String(body.name_sort))) {
+    return NextResponse.json({ error: "name_sort must be full, first or last." }, { status: 400 });
+  }
   if (body?.group_by !== undefined) await setGroupByDefault(String(body.group_by ?? ""));
+  let nameSort: string | undefined;
+  if (body?.name_sort !== undefined) nameSort = await setNameSortDefault(String(body.name_sort));
   if (body?.column_visibility !== undefined) await setColumnVisibility(body.column_visibility);
   await audit({
     actor: actorFrom(gate),
     action: "settings.directory_list",
-    details: { columns, group_by: body?.group_by, column_visibility: body?.column_visibility },
+    details: { columns, group_by: body?.group_by, name_sort: nameSort, column_visibility: body?.column_visibility },
     ip: ipFrom(req),
   });
   const fields = await listFields();
-  return NextResponse.json({ ok: true, columns: await getListColumns(fields), group_by: await getGroupByDefault(fields), column_visibility: await getColumnVisibility() });
+  return NextResponse.json({
+    ok: true,
+    columns: await getListColumns(fields),
+    group_by: await getGroupByDefault(fields),
+    name_sort: await getNameSortDefault(),
+    column_visibility: await getColumnVisibility(),
+  });
 }

@@ -29,6 +29,10 @@ import {
 } from "lucide-react";
 import type { DirectoryPerson, DirectoryField } from "@/lib/directory";
 import {
+  NAME_SORT_KEYS,
+  NAME_SORT_MODES,
+  nameSortKey,
+  type NameSortMode,
   availableColumns,
   cellValue,
   columnLabel,
@@ -76,6 +80,12 @@ const LS_GROUP = "compass_dir_group";
 const LS_CARDS_GROUP = "compass_dir_cards_group";
 const LS_MY_PINS = "compass_dir_mypins";
 const LS_OFFICE_INFO = "compass_dir_office_info";
+const LS_NAME_SORT = "compass_dir_name_sort";
+
+/** A stored or posted "Sort names by" value, or nothing when it is not one. */
+function asNameSort(v: unknown): NameSortMode | undefined {
+  return NAME_SORT_MODES.find((s) => s === v);
+}
 
 export interface ExportPresetSummary {
   id: string;
@@ -128,6 +138,7 @@ export function DirectoryClient({
   fields,
   defaultColumns,
   defaultGroupBy,
+  defaultNameSort = "full",
   presets,
   isAdmin = false,
   initialView,
@@ -141,6 +152,8 @@ export function DirectoryClient({
   defaultColumns: string[];
   /** The group_by field key the grouped view opens on. */
   defaultGroupBy: string;
+  /** The admin's default for "Sort names by"; a browser's own choice wins once made. */
+  defaultNameSort?: NameSortMode;
   presets: ExportPresetSummary[];
   /** Admins get a link to Settings → Directory from the empty state. */
   isAdmin?: boolean;
@@ -169,6 +182,10 @@ export function DirectoryClient({
   const exportBtnRef = useRef<HTMLButtonElement>(null);
   const [sortBy, setSortBy] = useState("name");
   const [sortDir, setSortDir] = useState<1 | -1>(1);
+  const [nameSort, setNameSort] = useState<NameSortMode>(asNameSort(defaultNameSort) ?? "full");
+  // Sorting on Name sorts on the part of it this browser chose; every other
+  // column is itself. The export of "what I see" sends the same key.
+  const effectiveSort = sortBy === "name" ? nameSortKey(nameSort) : sortBy;
   const [groupBy, setGroupBy] = useState(defaultGroupBy);
   const [cardsGroupBy, setCardsGroupBy] = useState("");
   const [myPins, setMyPins] = useState<number[]>([]);
@@ -202,6 +219,8 @@ export function DirectoryClient({
       if (cg !== null && (cg === "" || groupFields.some((f) => f.key === cg))) setCardsGroupBy(cg);
       setMyPins(readJson<number[]>(LS_MY_PINS, []).filter((n) => Number.isInteger(n)));
       setOfficeInfo(readJson<boolean>(LS_OFFICE_INFO, true) !== false);
+      const ns = asNameSort(localStorage.getItem(LS_NAME_SORT));
+      if (ns) setNameSort(ns);
     } catch {
       /* first visit */
     }
@@ -239,6 +258,13 @@ export function DirectoryClient({
     const next = myPins.includes(id) ? myPins.filter((x) => x !== id) : [...myPins, id];
     setMyPins(next);
     writeJson(LS_MY_PINS, next);
+  }
+  function saveNameSort(v: string) {
+    const next = asNameSort(v) ?? "full";
+    setNameSort(next);
+    try {
+      localStorage.setItem(LS_NAME_SORT, next);
+    } catch {}
   }
 
   const allColumns = useMemo(() => availableColumns(fields).filter((c) => !hiddenColumns.includes(c.key)), [fields, hiddenColumns]);
@@ -278,13 +304,15 @@ export function DirectoryClient({
         .toLowerCase()
         .includes(needle);
     });
-    return [...filtered].sort(comparePeople(fields, sortBy, sortDir));
-  }, [initialPeople, q, filterValue, groupField, sortBy, sortDir, fields]);
+    return [...filtered].sort(comparePeople(fields, effectiveSort, sortDir));
+  }, [initialPeople, q, filterValue, groupField, effectiveSort, sortDir, fields]);
 
-  // Within a group: title order (the admin's, e.g. attorneys first), then name.
+  // Within a group: title order (the admin's, e.g. attorneys first), then
+  // name; with no title options, the name as "Sort names by" reads it.
   const withinGroup = useMemo(
-    () => (titleField && titleField.options.length ? comparePeople(fields, "title") : comparePeople(fields, "name")),
-    [fields, titleField]
+    () =>
+      titleField && titleField.options.length ? comparePeople(fields, "title") : comparePeople(fields, nameSortKey(nameSort)),
+    [fields, titleField, nameSort]
   );
 
   // Who started, marks an anniversary, or has a birthday this month — from
@@ -348,7 +376,7 @@ export function DirectoryClient({
         ids: people.map((p) => p.id),
         columns: view === "list" ? cols : undefined,
         group_by: groupedField?.key ?? "",
-        sort: sortBy,
+        sort: effectiveSort,
         sort_dir: sortDir === 1 ? "asc" : "desc",
         pinned_first: view !== "list" && pinned.length > 0,
         office_info: officeInfo,
@@ -697,6 +725,25 @@ export function DirectoryClient({
             </Popover>
           </div>
         )}
+
+        {/* In every view: the list's Name column, the cards and each group's
+            members all order by the chosen part of the name. */}
+        <label className="inline-flex items-center gap-1.5 text-sm text-slate-500">
+          Sort names by
+          <select
+            value={nameSort}
+            onChange={(e) => saveNameSort(e.target.value)}
+            className={field}
+            data-tt="Which part of the name people are ordered by, in every view"
+          >
+            <option value="full">Full name</option>
+            {NAME_SORT_KEYS.map((k) => (
+              <option key={k.key} value={k.key.slice("name:".length)}>
+                {k.label}
+              </option>
+            ))}
+          </select>
+        </label>
 
         <div className="relative">
           <button

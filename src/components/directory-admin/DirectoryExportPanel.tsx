@@ -4,7 +4,7 @@
 // export presets a PDF/CSV starts from. Both are admin choices that every
 // user sees before they change anything for themselves.
 
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { SaveRow } from "@/components/SaveRow";
 import { SettingsLink } from "@/components/SettingsLink";
 import { useLeaveGuard } from "@/lib/use-unsaved";
@@ -13,11 +13,30 @@ import { buttonClass } from "@/components/Button";
 import { Download, Copy, Plus, Trash2 } from "lucide-react";
 import type { DirectoryField } from "@/lib/directory";
 import type { ExportPreset } from "@/lib/directory-export-config";
-import { availableColumns } from "@/lib/directory-display";
-import { Field, Select, TextInput, Toggle } from "@/components/form";
+import { assistantDetailKeys, availableColumns, sortableKeys, type NameSortMode } from "@/lib/directory-display";
+import { Field, FormError, Select, TextInput, Toggle, rangeError } from "@/components/form";
 import { describeSchedule, WEEKDAYS, type ExportSchedule } from "@/lib/directory-export-schedule-rules";
 import { toast } from "@/components/Toasts";
 import { OrderedKeyList, jsonFetch } from "./shared";
+
+/** "Wrap after": characters per line a limited column holds (the contract's 8..120). */
+const LIMIT_MIN = 8;
+const LIMIT_MAX = 120;
+/** Custom margins, in inches (the contract's 0.2..2.0). */
+const MARGIN_MIN = 0.2;
+const MARGIN_MAX = 2;
+const MARGIN_SIDES = ["top", "right", "bottom", "left"] as const;
+type MarginSide = (typeof MARGIN_SIDES)[number];
+const MARGIN_LABEL: Record<MarginSide, string> = { top: "Top", right: "Right", bottom: "Bottom", left: "Left" };
+
+/** Inline validation for a margin: a one-decimal number between 0.2 and 2 inches, the same rule the server keeps, so what is typed is what is saved. */
+function marginError(value: number | string): string | undefined {
+  const n = typeof value === "number" ? value : Number(value);
+  if (value === "" || Number.isNaN(n)) return "Enter a number.";
+  if (n < MARGIN_MIN || n > MARGIN_MAX) return `Must be between ${MARGIN_MIN} and ${MARGIN_MAX}.`;
+  if (Math.abs(Math.round(n * 10) / 10 - n) > 1e-9) return "Use one decimal place.";
+  return undefined;
+}
 
 const PRESET_BLANK: Omit<ExportPreset, "id" | "name"> = {
   title: "",
@@ -47,6 +66,10 @@ const PRESET_BLANK: Omit<ExportPreset, "id" | "name"> = {
   cards_per_row: 4,
   split_by: "",
   schedule: { frequency: "off", day: 1, hour: 6, recipients: [], format: "pdf" },
+  column_limits: {},
+  assistant_fields: [],
+  margins: "normal",
+  margin_custom: { top: 0.5, right: 0.5, bottom: 0.6, left: 0.5 },
   is_default: false,
 };
 
@@ -54,6 +77,7 @@ export function DirectoryExportPanel({
   fields,
   initialListColumns,
   initialGroupBy,
+  initialNameSort = "full",
   initialPresets,
   smtpConfigured = false,
   runLog = {},
@@ -61,6 +85,8 @@ export function DirectoryExportPanel({
   fields: DirectoryField[];
   initialListColumns: string[];
   initialGroupBy: string;
+  /** What the list's Name column sorts by until a person picks for themselves. */
+  initialNameSort?: NameSortMode;
   initialPresets: ExportPreset[];
   /** Whether scheduled emails can be sent at all. */
   smtpConfigured?: boolean;
@@ -69,24 +95,34 @@ export function DirectoryExportPanel({
 }) {
   const available = useMemo(() => availableColumns(fields), [fields]);
   const groupFields = useMemo(() => fields.filter((f) => f.group_by), [fields]);
+  const linkKeys = useMemo(() => new Set(fields.filter((f) => f.kind === "people").map((f) => f.key)), [fields]);
   // Sort keys grouped so a synced custom field is as easy to find as Name.
+  // sortableKeys adds First name / Last name after Name: sortable, never a column.
   const sortGroups = useMemo(() => {
-    const builtin = new Set(["name", "title", "department", "email", "phone", "mobile", "office"]);
-    const isLink = (k: string) => k === "assists" || k.endsWith(":in") || fields.some((f) => f.key === k && f.kind === "people");
+    const sortable = sortableKeys(fields);
+    const builtin = new Set(["name", "name:first", "name:last", "title", "department", "email", "phone", "mobile", "office"]);
+    const isLink = (k: string) => k === "assists" || k.endsWith(":in") || linkKeys.has(k);
     return [
-      { label: "Built-in", keys: available.filter((c) => builtin.has(c.key)) },
-      { label: "Fields", keys: available.filter((c) => !builtin.has(c.key) && !isLink(c.key)) },
-      { label: "Links", keys: available.filter((c) => !builtin.has(c.key) && isLink(c.key)) },
+      { label: "Built-in", keys: sortable.filter((c) => builtin.has(c.key)) },
+      { label: "Fields", keys: sortable.filter((c) => !builtin.has(c.key) && !isLink(c.key)) },
+      { label: "Links", keys: sortable.filter((c) => !builtin.has(c.key) && isLink(c.key)) },
     ].filter((g) => g.keys.length);
-  }, [available, fields]);
+  }, [fields, linkKeys]);
+  // The assistant's own fields that can follow their name on paper; the same
+  // list sanitizePreset keeps, so a tick here is a key the file renders.
+  const assistantFieldOptions = useMemo(() => assistantDetailKeys(fields), [fields]);
+  const columnLabelOf = (k: string) => available.find((a) => a.key === k)?.label ?? k;
+  const assistantHelpId = useId();
+  const columnsHelpId = useId();
 
   // --- list defaults ---
   const [columns, setColumns] = useState(initialListColumns);
   const [groupBy, setGroupBy] = useState(initialGroupBy);
+  const [nameSort, setNameSort] = useState<NameSortMode>(initialNameSort);
   const [savingList, setSavingList] = useState(false);
   async function saveList() {
     setSavingList(true);
-    const r = await jsonFetch("/api/admin/directory/list-columns", { method: "PUT", body: JSON.stringify({ columns, group_by: groupBy }) });
+    const r = await jsonFetch("/api/admin/directory/list-columns", { method: "PUT", body: JSON.stringify({ columns, group_by: groupBy, name_sort: nameSort }) });
     setSavingList(false);
     if (!r.ok) {
       toast("error", r.data?.error || "Could not save.");
@@ -111,6 +147,76 @@ export function DirectoryExportPanel({
   function updateSchedule(patch: Partial<ExportSchedule>) {
     update({ schedule: { ...cur.schedule, ...patch } });
   }
+
+  // "Wrap after": the number is kept as typed so the error can name it;
+  // blank is "automatic" and drops the key. Save waits on the committed
+  // value at once; the message waits until the input has been left, so a
+  // "1" on the way to "12" is not announced as a mistake.
+  const limits = cur.column_limits ?? {};
+  const [touched, setTouched] = useState<Record<string, Record<string, boolean>>>({});
+  function setLimit(key: string, raw: string) {
+    const next = { ...limits };
+    if (raw === "") delete next[key];
+    else next[key] = Number(raw);
+    update({ column_limits: next });
+  }
+  function touchLimit(key: string) {
+    setTouched((t) => ({ ...t, [cur.id]: { ...t[cur.id], [key]: true } }));
+  }
+  const limitProblems = (p: ExportPreset) =>
+    Object.entries(p.column_limits ?? {}).flatMap(([key, n]) => {
+      const message = rangeError(n, LIMIT_MIN, LIMIT_MAX);
+      return message ? [{ key, message }] : [];
+    });
+  const limitProblem = (p: ExportPreset) => limitProblems(p)[0];
+  const shownLimitProblem = limitProblems(cur).find((x) => touched[cur.id]?.[x.key]);
+  const limitHelp =
+    cur.layout !== "cards"
+      ? "Wrap after: characters per line in this column; longer values wrap onto the next line. Blank lets the column size itself."
+      : undefined;
+  const columnsNote = shownLimitProblem
+    ? `Wrap after for ${columnLabelOf(shownLimitProblem.key)}: ${shownLimitProblem.message.charAt(0).toLowerCase()}${shownLimitProblem.message.slice(1)}`
+    : limitHelp;
+
+  function toggleAssistantField(key: string, on: boolean) {
+    const chosen = new Set(cur.assistant_fields ?? []);
+    if (on) chosen.add(key);
+    else chosen.delete(key);
+    // Kept in the columns' own order, so the paper reads the way the list does.
+    update({ assistant_fields: assistantFieldOptions.filter((c) => chosen.has(c.key)).map((c) => c.key) });
+  }
+
+  // Custom margins: the text as typed, per preset and side, so a half-typed
+  // "0." is not clamped under the admin's fingers. Only a valid number
+  // reaches the preset; Save waits while any side is invalid.
+  const [marginText, setMarginText] = useState<Record<string, Partial<Record<MarginSide, string>>>>({});
+  const marginShown = (p: ExportPreset, side: MarginSide) =>
+    marginText[p.id]?.[side] ?? String(p.margin_custom?.[side] ?? PRESET_BLANK.margin_custom[side]);
+  function setMargin(side: MarginSide, raw: string) {
+    setMarginText((t) => ({ ...t, [cur.id]: { ...t[cur.id], [side]: raw } }));
+    if (!marginError(raw)) update({ margin_custom: { ...(cur.margin_custom ?? PRESET_BLANK.margin_custom), [side]: Number(raw) } });
+    else setDirty(true);
+  }
+  const marginProblem = (p: ExportPreset) => p.margins === "custom" && MARGIN_SIDES.some((s) => marginError(marginShown(p, s)));
+  // Save waits on every preset; the inline errors show only for the one on
+  // screen, so a problem elsewhere is named above the Save row.
+  const offending = presets.find((p) => limitProblem(p) || marginProblem(p));
+  const invalid = Boolean(offending);
+  const curClean = !limitProblem(cur) && !marginProblem(cur);
+  /** What was typed into a preset's inputs is dropped with the preset, so a later one with the same id starts clean. */
+  function forgetTyped(id: string) {
+    setMarginText((t) => {
+      const next = { ...t };
+      delete next[id];
+      return next;
+    });
+    setTouched((t) => {
+      const next = { ...t };
+      delete next[id];
+      return next;
+    });
+  }
+
   function addPreset(from?: ExportPreset) {
     const base = from ? { ...from, is_default: false } : { ...PRESET_BLANK };
     const name = from ? `${from.name} (copy)` : "New export";
@@ -122,6 +228,7 @@ export function DirectoryExportPanel({
   async function removePreset() {
     if (presets.length <= 1) return;
     if (!(await confirmDialog({ title: `Delete the "${cur.name}" preset?`, confirmLabel: "Delete", danger: true }))) return;
+    forgetTyped(cur.id);
     const next = presets.filter((_, i) => i !== selected);
     if (!next.some((p) => p.is_default)) next[0] = { ...next[0], is_default: true };
     setPresets(next);
@@ -141,6 +248,9 @@ export function DirectoryExportPanel({
       return;
     }
     setPresets(r.data.presets);
+    // The inputs now show what was saved, not what was typed.
+    setMarginText({});
+    setTouched({});
     setDirty(false);
     toast("ok", "Export presets saved.");
   }
@@ -150,18 +260,27 @@ export function DirectoryExportPanel({
       <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
         <h3 className="mb-1 font-semibold text-slate-900">Directory defaults</h3>
         <p className="mb-3 text-sm text-slate-500">
-          The columns the list shows before a person changes them for themselves, and the field the
-          Groups view opens on.
+          The columns the list shows before a person changes them for themselves, the field the
+          Groups view opens on, and how names sort.
         </p>
         <div className="grid gap-4 lg:grid-cols-[1fr_16rem]">
           <OrderedKeyList value={columns} onChange={setColumns} available={available} />
-          <Field label="Groups view opens on">
-            <Select value={groupBy} onChange={(e) => setGroupBy(e.target.value)} className="w-full">
-              {groupFields.map((f) => (
-                <option key={f.key} value={f.key}>{f.label}</option>
-              ))}
-            </Select>
-          </Field>
+          <div className="space-y-3">
+            <Field label="Groups view opens on">
+              <Select value={groupBy} onChange={(e) => setGroupBy(e.target.value)} className="w-full">
+                {groupFields.map((f) => (
+                  <option key={f.key} value={f.key}>{f.label}</option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Sort names by" help="How the list orders the Name column until a person picks for themselves.">
+              <Select value={nameSort} onChange={(e) => setNameSort(e.target.value === "first" ? "first" : e.target.value === "last" ? "last" : "full")} className="w-full">
+                <option value="full">Full name</option>
+                <option value="first">First name</option>
+                <option value="last">Last name</option>
+              </Select>
+            </Field>
+          </div>
         </div>
         <button type="button" onClick={saveList} disabled={savingList} className={buttonClass("primary", "md", "mt-3")}>
           {savingList ? "Saving…" : "Save defaults"}
@@ -237,6 +356,31 @@ export function DirectoryExportPanel({
                 </Select>
               </Field>
             </div>
+            <Field label="Margins" help="Custom is in inches, from 0.2 to 2, a tenth at a time.">
+              <Select value={cur.margins ?? "normal"} onChange={(e) => update({ margins: e.target.value as ExportPreset["margins"] })} className="w-full">
+                <option value="normal">Normal</option>
+                <option value="narrow">Narrow</option>
+                <option value="wide">Wide</option>
+                <option value="custom">Custom</option>
+              </Select>
+            </Field>
+            {cur.margins === "custom" && (
+              <div className="grid grid-cols-4 gap-2">
+                {MARGIN_SIDES.map((side) => (
+                  <Field key={side} label={MARGIN_LABEL[side]} error={marginError(marginShown(cur, side))}>
+                    <TextInput
+                      type="number"
+                      inputMode="decimal"
+                      min={MARGIN_MIN}
+                      max={MARGIN_MAX}
+                      step={0.1}
+                      value={marginShown(cur, side)}
+                      onChange={(e) => setMargin(side, e.target.value)}
+                    />
+                  </Field>
+                ))}
+              </div>
+            )}
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="Layout" help="The sheet is a table. The who's who is a grid of photo cards — name, title and the other columns under each photo.">
                 <Select value={cur.layout} onChange={(e) => update({ layout: e.target.value === "cards" ? "cards" : "table" })} className="w-full">
@@ -255,7 +399,7 @@ export function DirectoryExportPanel({
               )}
             </div>
             {cur.layout !== "cards" && (
-            <Field label="Page layout" help="Two or three columns suit a short table — name and extension — that would otherwise run down the left of an empty page. Values are cut to one line; three columns want landscape or very few columns.">
+            <Field label="Page layout" help="Two or three columns suit a short table that would otherwise run down the left of an empty page. Values are cut to one line unless the column has a Wrap after limit; three columns want landscape or very few columns.">
               <Select value={String(cur.page_columns)} onChange={(e) => update({ page_columns: e.target.value === "3" ? 3 : e.target.value === "2" ? 2 : 1 })} className="w-full">
                 <option value="1">One table across the page</option>
                 <option value="2">Two columns, side by side</option>
@@ -286,9 +430,67 @@ export function DirectoryExportPanel({
             <Field label="File name" help="Without extension; blank derives one from the title."><TextInput value={cur.filename} onChange={(e) => update({ filename: e.target.value })} placeholder="phone-directory" /></Field>
           </div>
           <div className="space-y-3">
-            <Field label="Columns, in order">
-              <OrderedKeyList value={cur.columns} onChange={(columns) => update({ columns })} available={available} />
-            </Field>
+            {/* A fieldset, not a Field: a Field's label would hand a click on
+                any text in the list to the first row's Wrap after input. */}
+            <fieldset aria-describedby={columnsNote ? columnsHelpId : undefined}>
+              <legend className="mb-1 block text-xs font-medium text-slate-500">Columns, in order</legend>
+              <OrderedKeyList
+                value={cur.columns}
+                onChange={(columns) => update({ columns })}
+                available={available}
+                extra={
+                  cur.layout !== "cards"
+                    ? (key, label) => (
+                        <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
+                          Wrap after
+                          <TextInput
+                            type="number"
+                            inputMode="numeric"
+                            min={LIMIT_MIN}
+                            max={LIMIT_MAX}
+                            step={1}
+                            dense
+                            className="w-16 text-xs"
+                            placeholder="Auto"
+                            value={limits[key] ?? ""}
+                            onChange={(e) => setLimit(key, e.target.value)}
+                            onBlur={() => touchLimit(key)}
+                            hasError={Boolean(touched[cur.id]?.[key] && rangeError(limits[key] ?? LIMIT_MIN, LIMIT_MIN, LIMIT_MAX))}
+                            aria-label={`Wrap ${label} after`}
+                          />
+                        </span>
+                      )
+                    : undefined
+                }
+              />
+              {columnsNote && (
+                <p
+                  id={columnsHelpId}
+                  role={shownLimitProblem ? "alert" : undefined}
+                  className={shownLimitProblem ? "mt-1 text-xs text-red-600" : "mt-1 text-xs text-slate-500"}
+                >
+                  {columnsNote}
+                </p>
+              )}
+            </fieldset>
+            {cur.columns.includes("assistant") && (
+              <fieldset aria-describedby={assistantHelpId}>
+                <legend className="mb-1 block text-xs font-medium text-slate-500">Assistant details</legend>
+                <div className="grid gap-x-3 rounded-lg border border-slate-200 p-1 sm:grid-cols-2">
+                  {assistantFieldOptions.map((c) => (
+                    <label key={c.key} className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1 text-sm text-slate-700 hover:bg-slate-50">
+                      <input
+                        type="checkbox"
+                        checked={(cur.assistant_fields ?? []).includes(c.key)}
+                        onChange={(e) => toggleAssistantField(c.key, e.target.checked)}
+                      />
+                      {c.label}
+                    </label>
+                  ))}
+                </div>
+                <p id={assistantHelpId} className="mt-1 text-xs text-slate-500">Shown after each assistant's name, e.g. phone and extension.</p>
+              </fieldset>
+            )}
             <div className="grid grid-cols-2 gap-2">
               <Field label="Sections by">
                 <Select value={cur.group_by} onChange={(e) => update({ group_by: e.target.value })} className="w-full">
@@ -406,7 +608,10 @@ export function DirectoryExportPanel({
             </Field>
           </div>
         </div>
-        <SaveRow dirty={dirty} busy={savingPresets} onSave={savePresets} label="Save presets" className="mt-4" />
+        {offending && curClean && (
+          <FormError className="mt-4">{`Fix the Wrap after or margin values in "${offending.name}" before saving.`}</FormError>
+        )}
+        <SaveRow dirty={dirty} busy={savingPresets} onSave={savePresets} label="Save presets" disabled={invalid} className="mt-4" />
       </div>
     </div>
   );

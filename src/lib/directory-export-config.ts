@@ -7,12 +7,16 @@
 // on first read, so a workspace that had configured its phone list keeps it.
 
 import { sanitizeSchedule, stampSchedule, SCHEDULE_OFF, type ExportSchedule } from "./directory-export-schedule-rules";
+import { COLUMN_LIMIT, MARGIN_INCHES, MARGIN_PRESETS, type MarginBox, type MarginPreset } from "./directory-export-layout";
+import { NAME_SORT_KEYS, assistantDetailKeys } from "./directory-display";
 import { getSetting, setSetting } from "./db";
 import { listFields, validColumnKeys, type DirectoryField } from "./directory";
 
 export const PAPER_SIZES = ["letter", "a4", "legal"] as const;
 export const ORIENTATIONS = ["portrait", "landscape"] as const;
 export const DENSITIES = ["compact", "normal", "comfortable"] as const;
+export { MARGIN_PRESETS, MARGIN_INCHES, COLUMN_LIMIT };
+export type { MarginBox, MarginPreset };
 
 export interface ExportPreset {
   id: string;
@@ -60,6 +64,17 @@ export interface ExportPreset {
   split_by: string;
   /** Email the file on a schedule. */
   schedule: ExportSchedule;
+  /** Characters per line, per column key; a column listed here wraps its
+   *  value after that many characters instead of running on (or, in the
+   *  two-/three-column layouts, being cut with an ellipsis). Absent = automatic. */
+  column_limits: Record<string, number>;
+  /** For the assistant column: the assistant's own fields shown after the
+   *  name, e.g. ["phone", "extension"]; keys from assistantDetailKeys. */
+  assistant_fields: string[];
+  /** Page margins; "normal" is the page every export had before 1.11.1. */
+  margins: MarginPreset;
+  /** Inches per side, used when margins is "custom"; each 0.2 to 2.0. */
+  margin_custom: MarginBox;
   is_default: boolean;
 }
 
@@ -91,6 +106,10 @@ export const PRESET_DEFAULTS: Omit<ExportPreset, "id" | "name"> = {
   cards_per_row: 4,
   split_by: "",
   schedule: SCHEDULE_OFF,
+  column_limits: {},
+  assistant_fields: [],
+  margins: "normal",
+  margin_custom: { top: 0.5, right: 0.5, bottom: 0.6, left: 0.5 },
   is_default: false,
 };
 
@@ -105,10 +124,38 @@ function oneOf<T extends readonly string[]>(list: T, v: unknown, fallback: T[num
   return (list as readonly string[]).includes(String(v)) ? (String(v) as T[number]) : fallback;
 }
 
+/** Column limits: the preset's own columns only, each a whole number of characters in range; 0 or junk is dropped (automatic). */
+function sanitizeColumnLimits(raw: unknown, valid: Set<string>): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;
+  for (const [key, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (!valid.has(key)) continue;
+    const n = Number(v);
+    if (!Number.isFinite(n) || n <= 0) continue;
+    out[key] = Math.min(COLUMN_LIMIT.max, Math.max(COLUMN_LIMIT.min, Math.round(n)));
+  }
+  return out;
+}
+
+/** Custom margins in inches, each side clamped to the allowed range at one decimal; a missing side keeps its default. */
+function sanitizeMarginCustom(raw: unknown): MarginBox {
+  const o = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const side = (k: keyof MarginBox): number => {
+    const v = o[k];
+    const n = v === "" || v == null ? Number.NaN : Number(v);
+    if (!Number.isFinite(n)) return PRESET_DEFAULTS.margin_custom[k];
+    return Math.round(Math.min(MARGIN_INCHES.max, Math.max(MARGIN_INCHES.min, n)) * 10) / 10;
+  };
+  return { top: side("top"), right: side("right"), bottom: side("bottom"), left: side("left") };
+}
+
 /** Coerce untrusted JSON into a preset. Unknown columns are dropped. */
 export function sanitizePreset(raw: unknown, fields: DirectoryField[], fallbackId = "preset"): ExportPreset {
   const o = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   const valid = validColumnKeys(fields);
+  // A sort may also use the virtual first-/last-name keys; a column may not.
+  const sortable = new Set<string>([...valid, ...NAME_SORT_KEYS.map((k) => k.key)]);
+  const detailKeys = new Set(assistantDetailKeys(fields).map((c) => c.key));
   const columns = Array.isArray(o.columns)
     ? o.columns.map(String).filter((k, i, a) => valid.has(k) && a.indexOf(k) === i)
     : [...PRESET_DEFAULTS.columns].filter((k) => valid.has(k));
@@ -130,9 +177,9 @@ export function sanitizePreset(raw: unknown, fields: DirectoryField[], fallbackI
     logo: o.logo === undefined ? PRESET_DEFAULTS.logo : Boolean(o.logo),
     columns: columns.length ? columns : ["name"],
     group_by: groupBy && fields.some((f) => f.key === groupBy && f.group_by) ? groupBy : "",
-    sort: sortKey && valid.has(sortKey) ? sortKey : "name",
+    sort: sortKey && sortable.has(sortKey) ? sortKey : "name",
     sort_dir: o.sort_dir === "desc" ? "desc" : "asc",
-    sort2: sort2Key && valid.has(sort2Key) && sort2Key !== sortKey ? sort2Key : "",
+    sort2: sort2Key && sortable.has(sort2Key) && sort2Key !== sortKey ? sort2Key : "",
     sort2_dir: o.sort2_dir === "desc" ? "desc" : "asc",
     page_columns: Number(o.page_columns) === 3 ? 3 : Number(o.page_columns) === 2 ? 2 : 1,
     zebra: o.zebra === undefined ? true : Boolean(o.zebra),
@@ -152,6 +199,15 @@ export function sanitizePreset(raw: unknown, fields: DirectoryField[], fallbackI
       return k && fields.some((f) => f.key === k && f.group_by) ? k : "";
     })(),
     schedule: sanitizeSchedule(o.schedule),
+    // Scoped to the columns the preset shows: a column removed and added
+    // back later starts automatic, and a "what I see" export carries no
+    // limit for a column it does not print.
+    column_limits: sanitizeColumnLimits(o.column_limits, new Set(columns.length ? columns : ["name"])),
+    assistant_fields: Array.isArray(o.assistant_fields)
+      ? o.assistant_fields.map(String).filter((k, i, a) => detailKeys.has(k) && a.indexOf(k) === i)
+      : [],
+    margins: oneOf(MARGIN_PRESETS, o.margins, PRESET_DEFAULTS.margins),
+    margin_custom: sanitizeMarginCustom(o.margin_custom),
     is_default: Boolean(o.is_default),
   };
 }

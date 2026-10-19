@@ -48,10 +48,16 @@ export async function renderExportFile(opts: {
   format: "pdf" | "csv";
   people: DirectoryPerson[];
   fields: DirectoryField[];
+  /** Everyone the viewer may see; assistant details are read from here. Defaults to `people`. */
+  lookup?: DirectoryPerson[];
   /** Ignore the preset's split and make one file. */
   split?: boolean;
 }): Promise<ExportFile> {
   const { preset, format, people, fields } = opts;
+  // The assistant lookup covers the whole export, never one file's subset,
+  // so an office's own sheet in a zip still shows an assistant who sits in
+  // another office.
+  const lookup = opts.lookup ?? people;
   const settings = await getAppSettings();
   const company = settings.company_name || "Company";
   const printedOn = formatDate(new Date().toISOString(), settings);
@@ -62,8 +68,8 @@ export async function renderExportFile(opts: {
   ]);
   const one = async (p: ExportPreset, subset: DirectoryPerson[]): Promise<Buffer> =>
     format === "csv"
-      ? Buffer.from(renderDirectoryCsv({ preset: p, people: subset, fields, company }), "utf8")
-      : renderDirectoryPdf({ preset: p, people: subset, fields, company, logo, printedOn, offices, photosLarge });
+      ? Buffer.from(renderDirectoryCsv({ preset: p, people: subset, lookup, fields, company }), "utf8")
+      : renderDirectoryPdf({ preset: p, people: subset, lookup, fields, company, logo, printedOn, offices, photosLarge });
 
   const splitField = (opts.split ?? true) && preset.split_by ? fields.find((f) => f.key === preset.split_by && f.group_by) : undefined;
   if (!splitField) {

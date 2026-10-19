@@ -47,11 +47,24 @@ async function run(user: SessionUser, req: Request, params: Record<string, unkno
   for (const k of [
     "columns", "group_by", "sort", "sort_dir", "sort2", "sort2_dir", "paper", "orientation", "density", "page_columns",
     "logo", "photos", "pinned_first", "page_numbers", "printed_date", "office_info", "office_columns", "zebra", "title", "subtitle", "footer_note",
-    "layout", "cards_per_row", "split_by",
+    "layout", "cards_per_row", "split_by", "column_limits", "assistant_fields", "margins", "margin_custom",
   ]) {
     if (params[k] !== undefined) overrides[k] = params[k];
   }
   if (typeof overrides.columns === "string") overrides.columns = overrides.columns.split(",").map((s) => s.trim());
+  if (typeof overrides.assistant_fields === "string") {
+    overrides.assistant_fields = overrides.assistant_fields.split(",").map((s) => s.trim());
+  }
+  // The two object-valued options arrive as JSON objects in a POST body; a
+  // GET may carry them JSON-encoded. Anything unparseable is ignored.
+  for (const k of ["column_limits", "margin_custom"]) {
+    if (typeof overrides[k] !== "string") continue;
+    try {
+      overrides[k] = JSON.parse(overrides[k] as string);
+    } catch {
+      delete overrides[k];
+    }
+  }
   for (const k of ["logo", "photos", "pinned_first", "page_numbers", "printed_date", "office_info", "zebra"]) {
     if (typeof overrides[k] === "string") overrides[k] = overrides[k] === "1" || overrides[k] === "true";
   }
@@ -60,15 +73,26 @@ async function run(user: SessionUser, req: Request, params: Record<string, unkno
   }
   const sanitized = sanitizePreset({ ...base, ...overrides }, fields, base.id);
   const columns = sanitized.columns.filter((c) => !scope.hidden.has(c));
-  const preset: ExportPreset = { ...sanitized, columns: columns.length ? columns : ["name"] };
+  const preset: ExportPreset = {
+    ...sanitized,
+    columns: columns.length ? columns : ["name"],
+    // A restricted column is blank on every row the viewer gets, the
+    // assistant's included; keeping the key out of the request as well means
+    // the file never asks for it.
+    assistant_fields: sanitized.assistant_fields.filter((k) => !scope.hidden.has(k)),
+  };
 
   const wanted = String(params.format ?? "pdf").toLowerCase();
   const format: "pdf" | "csv" | "vcf" = wanted === "csv" ? "csv" : wanted === "vcf" ? "vcf" : "pdf";
   const q = typeof params.q === "string" && params.q.trim() ? params.q.trim().slice(0, 80) : undefined;
-  let people = peopleForViewer(scope, await listPeople({ q }));
+  // Everyone the viewer may see is the assistant lookup: "what I see" sends
+  // only the ids on screen, and an assistant off screen still carries their
+  // details.
+  const everyone = peopleForViewer(scope, await listPeople({ q }));
+  let people = everyone;
   if (Array.isArray(params.ids)) {
     const wanted = new Set(params.ids.map(Number).filter((n) => Number.isInteger(n)));
-    if (wanted.size) people = people.filter((p) => wanted.has(p.id));
+    if (wanted.size) people = everyone.filter((p) => wanted.has(p.id));
   }
 
   const settings = await getAppSettings();
@@ -103,7 +127,7 @@ async function run(user: SessionUser, req: Request, params: Record<string, unkno
   // per office; split=office (any group_by key) asks for the zip ad hoc.
   const splitParam = params.split === undefined ? undefined : String(params.split);
   const runPreset = splitParam === undefined ? preset : { ...preset, split_by: splitParam === "0" || splitParam === "" ? "" : splitParam };
-  const file = await renderExportFile({ preset: sanitizePreset(runPreset, fields, preset.id), format, people, fields });
+  const file = await renderExportFile({ preset: sanitizePreset(runPreset, fields, preset.id), format, people, lookup: everyone, fields });
   return new Response(new Uint8Array(file.body), {
     headers: {
       "Content-Type": file.mime,

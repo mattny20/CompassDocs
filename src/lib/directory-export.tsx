@@ -15,6 +15,7 @@ import { Document, Image, Page, StyleSheet, Text, View, renderToBuffer } from "@
 import type { ExportPreset } from "./directory-export-config";
 import type { DirectoryField, DirectoryPerson } from "./directory";
 import {
+  assistantText,
   cellValue,
   columnLabel,
   compareByKeys,
@@ -25,11 +26,23 @@ import {
   resolveValues,
 } from "./directory-display";
 import { officeBlocksFor, type OfficeBlock, type OfficeConfig } from "./directory-offices";
-import { columnGeometry, planPages, type ExportLine } from "./directory-export-layout";
+import {
+  columnGeometry,
+  columnWidths,
+  marginPoints,
+  planPages,
+  plannedLineCount,
+  rowWidth,
+  type ExportLine,
+} from "./directory-export-layout";
 
 export interface ExportInput {
   preset: ExportPreset;
   people: DirectoryPerson[];
+  /** Everyone the viewer may see; assistant details are read from here, so
+   *  an export of the people on screen still shows an assistant's phone when
+   *  the assistant is off screen. Defaults to `people`. */
+  lookup?: DirectoryPerson[];
   fields: DirectoryField[];
   company: string;
   /** A data: URL of a PNG or JPEG logo, when the preset wants one and one exists. */
@@ -49,6 +62,8 @@ export interface PreparedColumn {
   label: string;
   /** Relative width; derived from the longest value in the column. */
   weight: number;
+  /** Characters per line when the admin limited the column; 0 is automatic. */
+  limit: number;
 }
 
 export interface PreparedSection {
@@ -64,6 +79,8 @@ export interface PreparedExport {
   total: number;
   /** In the Office field's option order, then by first appearance. Empty unless the preset asks. */
   offices: PreparedOffice[];
+  /** A cell's text: the display value, with the assistant column carrying the preset's assistant details. */
+  cell: (p: DirectoryPerson, key: string) => string;
 }
 
 const PAPER: Record<ExportPreset["paper"], "LETTER" | "A4" | "LEGAL"> = {
@@ -114,12 +131,22 @@ export function prepareExport(input: Omit<ExportInput, "logo" | "printedOn">): P
     sections.push({ label: null, rows: rest });
   }
 
+  // The assistant column may carry the assistant's own details ("Jane Smith ·
+  // 555-0100"). The lookup is everyone the caller may show, not the rows
+  // being exported, so an assistant outside the preset's filter, off the
+  // screen a "what I see" export copies, or in another office's file still
+  // shows them.
+  const byId = new Map((input.lookup ?? input.people).map((p) => [p.id, p]));
+  const assistantFields = preset.assistant_fields ?? [];
+  const cell = (p: DirectoryPerson, key: string): string =>
+    key === "assistant" && assistantFields.length ? assistantText(p, fields, byId, assistantFields) : cellValue(p, key, fields);
+
   const columns: PreparedColumn[] = preset.columns.map((key) => {
     let longest = columnLabel(key, fields).length;
-    for (const p of visible) longest = Math.max(longest, cellValue(p, key, fields).length);
+    for (const p of visible) longest = Math.max(longest, cell(p, key).length);
     // Clamp so one long value can't starve the others, and give names room.
     const weight = Math.max(key === "name" ? 12 : 5, Math.min(34, longest));
-    return { key, label: columnLabel(key, fields), weight };
+    return { key, label: columnLabel(key, fields), weight, limit: preset.column_limits?.[key] ?? 0 };
   });
 
   return {
@@ -129,6 +156,7 @@ export function prepareExport(input: Omit<ExportInput, "logo" | "printedOn">): P
     sections,
     total: visible.length,
     offices: preset.office_info ? officeBlocksFor(visible, fields.find((f) => f.key === "office"), input.offices) : [],
+    cell,
   };
 }
 
@@ -142,15 +170,34 @@ function DirectoryDocument({ input, prepared }: { input: ExportInput; prepared: 
   const photoCol = preset.photos ? d.photo + 6 : 0;
   const twoUp = preset.page_columns > 1 && preset.layout !== "cards";
   const cardPhoto = Math.round(d.photo * 2.4);
+  const m = marginPoints(preset.margins, preset.margin_custom);
+  const columnGap = preset.page_columns === 3 ? 14 : 18;
+  // Column widths: a limited column is a fixed number of points; the rest
+  // share what is left by weight.
+  const widths = columnWidths(
+    prepared.columns.map((c) => ({ key: c.key, weight: c.weight, limit: c.limit })),
+    d.font,
+    rowWidth({
+      paper: preset.paper,
+      orientation: preset.orientation,
+      margins: m,
+      pageColumns: twoUp ? preset.page_columns : 1,
+      gap: columnGap,
+      photo: photoCol,
+    })
+  );
+  const fixedOf = new Map(widths.map((w) => [w.key, w.fixed]));
+  const hasLimits = widths.some((w) => w.fixed !== null);
 
   const styles = StyleSheet.create({
     page: {
       fontFamily: "Helvetica",
       fontSize: d.font,
       color: "#1e293b",
-      paddingTop: 34,
-      paddingHorizontal: 36,
-      paddingBottom: 44,
+      paddingTop: m.top,
+      paddingRight: m.right,
+      paddingBottom: m.bottom,
+      paddingLeft: m.left,
     },
     header: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 },
     logo: { height: 22, maxWidth: 110, objectFit: "contain" },
@@ -185,7 +232,8 @@ function DirectoryDocument({ input, prepared }: { input: ExportInput; prepared: 
     },
     row: {
       flexDirection: "row",
-      alignItems: "center",
+      // A wrapped cell reads from the top of its row; single-line rows centre as they always have.
+      alignItems: hasLimits ? "flex-start" : "center",
       borderBottomWidth: 0.5,
       borderBottomColor: "#e2e8f0",
       paddingVertical: d.pad,
@@ -205,13 +253,13 @@ function DirectoryDocument({ input, prepared }: { input: ExportInput; prepared: 
       textAlign: "center",
       paddingTop: d.photo / 2 - (d.font - 2.5) / 2 - 1,
     },
-    columns: { flexDirection: "row", gap: preset.page_columns === 3 ? 14 : 18 },
+    columns: { flexDirection: "row", gap: columnGap },
     column: { flex: 1 },
     footer: {
       position: "absolute",
-      left: 36,
-      right: 36,
-      bottom: 20,
+      left: m.left,
+      right: m.right,
+      bottom: Math.max(10, m.bottom - 24),
       flexDirection: "row",
       justifyContent: "space-between",
       fontSize: d.font - 1,
@@ -273,7 +321,15 @@ function DirectoryDocument({ input, prepared }: { input: ExportInput; prepared: 
     cardLabel: { color: "#94a3b8" },
   });
 
-  const width = (c: PreparedColumn) => `${((c.weight / totalWeight) * 100).toFixed(2)}%`;
+  // A limited column takes its points; the automatic columns share the rest
+  // by weight: as a share of the row when nothing is limited (the widths every
+  // export had), as flex growth beside the fixed columns otherwise.
+  const widthStyle = (c: PreparedColumn) => {
+    const fixed = fixedOf.get(c.key);
+    if (fixed != null) return { width: fixed, flexGrow: 0, flexShrink: 0 };
+    if (hasLimits) return { flexGrow: c.weight, flexShrink: 1, flexBasis: 0 };
+    return { width: `${((c.weight / totalWeight) * 100).toFixed(2)}%` };
+  };
 
   const header = (
     <View style={styles.header}>
@@ -292,7 +348,7 @@ function DirectoryDocument({ input, prepared }: { input: ExportInput; prepared: 
     <View style={styles.thead}>
       {preset.photos ? <View style={styles.photoCell} /> : null}
       {prepared.columns.map((c) => (
-        <Text key={c.key} style={[styles.th, { width: width(c) }]}>
+        <Text key={c.key} style={[styles.th, widthStyle(c)]}>
           {c.label}
         </Text>
       ))}
@@ -312,15 +368,20 @@ function DirectoryDocument({ input, prepared }: { input: ExportInput; prepared: 
           )}
         </View>
       ) : null}
-      {prepared.columns.map((c) => (
-        <Text
-          key={c.key}
-          style={[styles.td, c.key === "name" ? styles.name : {}, { width: width(c) }, twoUp ? { textOverflow: "ellipsis" } : {}]}
-          {...(twoUp ? { maxLines: 1 } : {})}
-        >
-          {cellValue(p, c.key, fields)}
-        </Text>
-      ))}
+      {prepared.columns.map((c) => {
+        // Side-by-side columns cut a long value with an ellipsis so a row stays
+        // one line; a column with a limit wraps instead, in every layout.
+        const clip = twoUp && !c.limit;
+        return (
+          <Text
+            key={c.key}
+            style={[styles.td, c.key === "name" ? styles.name : {}, widthStyle(c), clip ? { textOverflow: "ellipsis" } : {}]}
+            {...(clip ? { maxLines: 1 } : {})}
+          >
+            {prepared.cell(p, c.key)}
+          </Text>
+        );
+      })}
     </View>
   );
 
@@ -394,7 +455,7 @@ function DirectoryDocument({ input, prepared }: { input: ExportInput; prepared: 
       const photo = preset.photos ? input.photosLarge?.get(p.id) || p.photo : "";
       const lines = prepared.columns
         .filter((c) => c.key !== "name")
-        .map((c) => ({ key: c.key, label: c.label, value: cellValue(p, c.key, fields) }))
+        .map((c) => ({ key: c.key, label: c.label, value: prepared.cell(p, c.key) }))
         .filter((l) => l.value);
       return (
         <View key={p.id} style={styles.card}>
@@ -472,10 +533,15 @@ function DirectoryDocument({ input, prepared }: { input: ExportInput; prepared: 
   // Two or three columns per page: the table is dealt into columns of a
   // known height (see directory-export-layout), and each page is laid out
   // explicitly.
+  // A row costs the lines its limited columns wrap onto, counted with a
+  // tenth in hand for wide glyphs (see plannedLineCount); one otherwise.
+  const limited = prepared.columns.filter((c) => c.limit > 0);
+  const rowLines = (p: DirectoryPerson) =>
+    limited.reduce((n, c) => Math.max(n, plannedLineCount(prepared.cell(p, c.key), c.limit)), 1);
   const lines: ExportLine<DirectoryPerson>[] = [];
   for (const s of prepared.sections) {
     if (s.label !== null) lines.push({ kind: "section", label: s.label, count: s.rows.length });
-    for (const p of s.rows) lines.push({ kind: "row", row: p });
+    for (const p of s.rows) lines.push({ kind: "row", row: p, lines: rowLines(p) });
   }
   const geometry = columnGeometry({
     paper: preset.paper,
@@ -485,6 +551,7 @@ function DirectoryDocument({ input, prepared }: { input: ExportInput; prepared: 
     head: d.head,
     photo: preset.photos ? d.photo : 0,
     hasSubtitle: Boolean(prepared.subtitle),
+    margins: m,
   });
   const pages = planPages(lines, geometry, preset.page_columns);
 
@@ -542,7 +609,7 @@ export function renderDirectoryCsv(input: Omit<ExportInput, "logo" | "printedOn"
   for (const s of prepared.sections) {
     for (const p of s.rows) {
       lines.push(
-        [...(grouped ? [s.label ?? ""] : []), ...prepared.columns.map((c) => cellValue(p, c.key, input.fields))]
+        [...(grouped ? [s.label ?? ""] : []), ...prepared.columns.map((c) => prepared.cell(p, c.key))]
           .map(cell)
           .join(",")
       );

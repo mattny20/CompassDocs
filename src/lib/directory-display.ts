@@ -186,6 +186,9 @@ export function linkNames(p: PersonLike, key: string, direction: "out" | "in" = 
  * (`<field>:in`), people fields, and option formatting, in one place.
  */
 export function cellValue(p: PersonLike, key: string, fields: FieldLike[]): string {
+  // The virtual name keys sort by a part of the name; they are never columns.
+  if (key === "name:first") return nameParts(p.name).first;
+  if (key === "name:last") return nameParts(p.name).last;
   if (key === "assists") return linkNames(p, "assistant", "in");
   if (key.endsWith(":in")) return linkNames(p, key.slice(0, -3), "in");
   const field = fields.find((f) => f.key === key);
@@ -315,29 +318,93 @@ export function pinnedFirst<P extends PersonLike>(people: P[]): { pinned: P[]; r
   return { pinned, rest };
 }
 
+// --- Names ---------------------------------------------------------------------
+
+/** After a comma these are a suffix ("Smith, Jr."), not a first name. */
+const NAME_SUFFIX_AFTER_COMMA = /^\s*(esq|jr|sr|ii|iii|iv|phd|md|cpa)\.?\s*$/i;
+/** Honorifics and generational suffixes, dropped wherever a name is split into words. */
+const NAME_NOISE = /^(mr|mrs|ms|dr|prof|esq|jr|sr|ii|iii|iv)\.?$/i;
+/** Credentials that trail a name as a word ("Jane Smith PhD"); never a surname. */
+const NAME_CREDENTIAL = /^(phd|md|cpa|esq|jd|rn|dds|cfa|cfp|mba)\.?,?$/i;
+/** Surname particles that ride with the last word: "van Beethoven", "De La Hoya". */
+const NAME_PARTICLE =
+  /^(van|von|vander|vanden|der|den|de|da|di|del|della|dela|do|dos|das|du|la|le|les|lo|los|al|el|bin|ibn|ter|ten|op|af|av|zu|zum|zur|st\.?|san|santa)$/i;
+
+/**
+ * A name as words in Western order, without honorifics or suffixes:
+ * "Smith, Jane A." reads ["Jane", "A.", "Smith"]; "Dr. Jane Smith Jr." reads
+ * ["Jane", "Smith"]. Shared by initialsOf and nameParts so both agree on what
+ * a name's words are.
+ */
+function nameWords(name: string): string[] {
+  let n = String(name ?? "").trim();
+  if (!n) return [];
+  if (n.includes(",")) {
+    const [last, rest] = n.split(",", 2);
+    if (rest && !NAME_SUFFIX_AFTER_COMMA.test(rest)) n = `${rest.trim()} ${last.trim()}`;
+    else n = last.trim();
+  }
+  return n.split(/\s+/).filter((w) => w && !NAME_NOISE.test(w));
+}
+
 /**
  * Avatar/initials fallback. "Smith, Jane" reads JS; honorifics and suffixes
  * are dropped; up to three letters so timekeeper-style initials fit.
  */
 export function initialsOf(name: string): string {
-  let n = String(name ?? "").trim();
-  if (!n) return "";
-  if (n.includes(",")) {
-    const [last, rest] = n.split(",", 2);
-    if (rest && !/^\s*(esq|jr|sr|ii|iii|iv|phd|md|cpa)\.?\s*$/i.test(rest)) n = `${rest.trim()} ${last.trim()}`;
-    else n = last.trim();
-  }
-  return n
-    .split(/\s+/)
-    .filter((w) => w && !/^(mr|mrs|ms|dr|prof|esq|jr|sr|ii|iii|iv)\.?$/i.test(w))
+  return nameWords(name)
     .slice(0, 2)
     .map((w) => w.replace(/^[^\p{L}\p{N}]+/u, "")[0] ?? "")
     .join("")
     .toUpperCase();
 }
 
+/**
+ * First and last name, for sorting. "Smith, Jane A." is Jane / Smith; "Dr.
+ * Jane A. Smith Jr." is Jane / Smith; "Ludwig van Beethoven" is Ludwig / van
+ * Beethoven (a particle surname keeps its particles); a single word is both.
+ * Honorifics and suffixes are dropped as initialsOf drops them; credentials
+ * come off the end only, so a given name that spells one keeps it ("JD
+ * Vance" is JD / Vance, "Jane Smith MD PhD" is Jane / Smith).
+ */
+export function nameParts(name: string): { first: string; last: string } {
+  const words = nameWords(name);
+  while (words.length > 1 && NAME_CREDENTIAL.test(words[words.length - 1])) words.pop();
+  if (words.length === 0) return { first: "", last: "" };
+  if (words.length === 1) return { first: words[0], last: words[0] };
+  // The last name starts at the final word and takes the particles before it,
+  // but never the first word: "Van Morrison" is Van / Morrison.
+  let from = words.length - 1;
+  while (from > 1 && NAME_PARTICLE.test(words[from - 1])) from--;
+  return { first: words[0], last: words.slice(from).join(" ") };
+}
+
+/** Virtual sort keys: accepted wherever a sort key is, never as a column. */
+export const NAME_SORT_KEYS = [
+  { key: "name:first", label: "First name" },
+  { key: "name:last", label: "Last name" },
+] as const;
+
+export type NameSortKey = (typeof NAME_SORT_KEYS)[number]["key"];
+
+export function isNameSortKey(key: string): key is NameSortKey {
+  return NAME_SORT_KEYS.some((k) => k.key === key);
+}
+
+/** The Directory page's "Sort names by" choices; the admin default is the setting directory_name_sort. */
+export const NAME_SORT_MODES = ["full", "first", "last"] as const;
+
+export type NameSortMode = (typeof NAME_SORT_MODES)[number];
+
+/** The sort key a list sorted by name uses under a name-sort mode. */
+export function nameSortKey(mode: NameSortMode): "name" | NameSortKey {
+  return mode === "first" ? "name:first" : mode === "last" ? "name:last" : "name";
+}
+
 /** A field's column id in the list view / export: built-ins are bare keys. */
 export function columnLabel(key: string, fields: FieldLike[]): string {
+  const nameSort = NAME_SORT_KEYS.find((k) => k.key === key);
+  if (nameSort) return nameSort.label;
   if (key === "assists") return fields.find((f) => f.key === "assistant")?.inverse_label || "Assists";
   if (key.endsWith(":in")) {
     const f = fields.find((x) => x.key === key.slice(0, -3));
@@ -362,6 +429,42 @@ export function availableColumns(fields: FieldLike[]): { key: string; label: str
     if (f.kind === "people") out.push({ key: f.key === "assistant" ? "assists" : `${f.key}:in`, label: f.inverse_label || `${f.label} (inverse)` });
   }
   return out;
+}
+
+/** Every key a sort may use: the columns, with the first-/last-name keys right after "Name". */
+export function sortableKeys(fields: FieldLike[]): { key: string; label: string }[] {
+  const [name, ...rest] = availableColumns(fields);
+  return [name, ...NAME_SORT_KEYS, ...rest];
+}
+
+/** What an export may show after an assistant's name: any column but the name and the link columns. */
+export function assistantDetailKeys(fields: FieldLike[]): { key: string; label: string }[] {
+  const people = new Set(fields.filter((f) => f.kind === "people").map((f) => f.key));
+  return availableColumns(fields).filter(
+    (c) => c.key !== "name" && c.key !== "assists" && !c.key.endsWith(":in") && !people.has(c.key)
+  );
+}
+
+/**
+ * An assistant column's cell with the chosen details, "Jane Smith · 555-0100
+ * · x204", assistants joined with "; ". Details come from the assistant's own
+ * row in `byId`; an assistant not in it (not in the export's list) shows the
+ * name alone. The CSV and the PDF both read this, so they agree.
+ */
+export function assistantText(
+  p: PersonLike,
+  fields: FieldLike[],
+  byId: ReadonlyMap<number, PersonLike>,
+  assistantFields: string[]
+): string {
+  const refs = p.links?.assistant ?? [];
+  return refs
+    .map((ref) => {
+      const a = byId.get(ref.id);
+      const details = a ? assistantFields.map((k) => cellValue(a, k, fields).trim()).filter(Boolean) : [];
+      return [ref.name, ...details].join(" · ");
+    })
+    .join("; ");
 }
 
 // --- Dates -------------------------------------------------------------------

@@ -1,6 +1,6 @@
 import { BookUser } from "lucide-react";
 import { requireUser } from "@/lib/auth";
-import { listPeople, listFields, getListColumns, getGroupByDefault } from "@/lib/directory";
+import { listPeople, listFields, getListColumns, getGroupByDefault, getNameSortDefault } from "@/lib/directory";
 import { listExportPresets } from "@/lib/directory-export-config";
 import { cellValue, columnLabel } from "@/lib/directory-display";
 import { DirectoryClient, type View } from "@/components/DirectoryClient";
@@ -25,10 +25,11 @@ export default async function DirectoryPage({ searchParams }: { searchParams: Pr
   // columns are stripped here, before anything reaches the browser.
   const scope = await viewerScope(user, await listFields());
   const fields = scope.fields;
-  const [allPeople, allColumns, defaultGroupBy, presets, settings] = await Promise.all([
+  const [allPeople, allColumns, defaultGroupBy, defaultNameSort, presets, settings] = await Promise.all([
     listPeople(),
     getListColumns(fields),
     getGroupByDefault(fields),
+    getNameSortDefault(),
     listExportPresets(fields),
     getAppSettings(),
   ]);
@@ -57,6 +58,7 @@ export default async function DirectoryPage({ searchParams }: { searchParams: Pr
           fields={fields}
           defaultColumns={defaultColumns}
           defaultGroupBy={defaultGroupBy}
+          defaultNameSort={defaultNameSort}
           presets={presets.map((p) => ({ id: p.id, name: p.name, is_default: p.is_default, layout: p.layout, split_by: p.split_by }))}
           isAdmin={user.role === "admin"}
           initialView={initialView}

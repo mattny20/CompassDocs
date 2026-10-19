@@ -12,19 +12,27 @@ export interface KeyOption {
   label: string;
 }
 
-/** An ordered list of keys with move up/down, remove, and an add menu. */
+/**
+ * An ordered list of keys with move up/down, remove, and an add menu.
+ * `extra` renders a per-row control between the label and the row's
+ * buttons (the export preset's "Wrap after" input); the row keeps its
+ * recipe, so the list columns card and the preset editor stay one list.
+ */
 export function OrderedKeyList({
   value,
   onChange,
   available,
   minimum = 1,
   addLabel = "+ Add a column…",
+  extra,
 }: {
   value: string[];
   onChange: (next: string[]) => void;
   available: KeyOption[];
   minimum?: number;
   addLabel?: string;
+  /** A small control for one row, given its key and label. */
+  extra?: (key: string, label: string) => React.ReactNode;
 }) {
   const label = (k: string) => available.find((a) => a.key === k)?.label ?? k;
   const unused = available.filter((a) => !value.includes(a.key));
@@ -41,6 +49,7 @@ export function OrderedKeyList({
         {value.map((k, i) => (
           <div key={k} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-1.5 text-sm">
             <span className="flex-1 font-medium text-slate-700">{label(k)}</span>
+            {extra?.(k, label(k))}
             <button type="button" onClick={() => move(i, -1)} disabled={i === 0} data-tt="Move up" aria-label={`Move ${label(k)} up`} className="rounded-sm p-1 text-slate-400 hover:text-slate-600 disabled:opacity-30">
               <ArrowUp className="h-3.5 w-3.5" />
             </button>
@@ -61,7 +70,9 @@ export function OrderedKeyList({
         ))}
       </div>
       {unused.length > 0 && (
-        <Select value="" onChange={(e) => e.target.value && onChange([...value, e.target.value])} className="mt-2 w-64" aria-label={addLabel}>
+        // hasError={false}: a wrapping Field's error belongs to one row's
+        // extra control, not to the add menu.
+        <Select value="" onChange={(e) => e.target.value && onChange([...value, e.target.value])} className="mt-2 w-64" aria-label={addLabel} hasError={false}>
           <option value="">{addLabel}</option>
           {unused.map((a) => (
             <option key={a.key} value={a.key}>
