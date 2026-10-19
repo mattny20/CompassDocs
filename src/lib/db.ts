@@ -7787,6 +7787,31 @@ async function claimDueRecertificationsOn(client: Queryable, opts: { documentIds
   return cycles;
 }
 
+/**
+ * The SET clause a resume carries (G1 + G3): a cycle that fell due while the
+ * policy was retired (or otherwise not taking confirmations) would fire at
+ * the next tick, asking everyone again the day the policy came back. When
+ * there is an interval and the next date has passed, the next date moves to
+ * now + interval; anything else is untouched. unretirePolicy writes it in
+ * its own UPDATE so nothing can tick between the resume and the move;
+ * recertAfterResume runs it alone for any other path that brings a policy
+ * back with a stale date.
+ */
+const RECERT_NEXT_ON_RESUME = `ack_next_recert_at = CASE
+           WHEN ack_recert_months IS NOT NULL AND ack_next_recert_at <= now()
+           THEN now() + make_interval(months => ack_recert_months)
+           ELSE ack_next_recert_at
+         END`;
+
+/** Apply RECERT_NEXT_ON_RESUME on its own; answers the next date after the call (null without a cycle, or when the document is gone). */
+export async function recertAfterResume(docId: number): Promise<string | null> {
+  const r = await q<{ next: string | null }>(
+    `UPDATE documents SET ${RECERT_NEXT_ON_RESUME} WHERE id = $1 RETURNING ack_next_recert_at AS next`,
+    [docId]
+  );
+  return r[0]?.next ?? null;
+}
+
 /** The re-confirmation settings of one policy, as the Settings tab's card and the ack-settings GET read them. */
 export interface AckRecert extends RecertFields {
   /** The marker (ack_revision_at): the first cycle is dated from it, and the Settings tab's warn line compares it with the interval. */

@@ -26,8 +26,10 @@ const stamp = () => `${Date.now()}${Math.floor(Math.random() * 1000)}`;
 
 const BODY = "## Policy\n\nShort policy text for the portal smoke. Read it and confirm at the end.";
 
+// The 1.10.1 columns in place, the six attestation and re-confirmation
+// columns appended (1.12.0, C4): MATRIX_CSV_HEADER in src/lib/read-evidence.ts.
 const MATRIX_HEADER =
-  "document,space,revision_as_of,name,username,email,role,acknowledged_at,version,version_id,content_sha256,version_source,former_staff,asked_at,asked_by,reason,kept_since_asked,version_published_by,version_approved_by";
+  "document,space,revision_as_of,name,username,email,role,acknowledged_at,version,version_id,content_sha256,version_source,former_staff,asked_at,asked_by,reason,kept_since_asked,version_published_by,version_approved_by,statement,signed_name,identity_proof,recert_months,effective_at,next_recert_at";
 
 /** One CSV line into cells: quoted fields may hold commas and doubled quotes. */
 function cells(line: string): string[] {

@@ -28,6 +28,8 @@ import {
   keepAcknowledgements,
   getAckRecert,
   setAckRecert,
+  recertAfterResume,
+  unretirePolicy,
   RECERT_ACTOR,
 } from "../src/lib/db";
 import { recertifyDueAcks } from "../src/lib/compliance";
@@ -247,15 +249,40 @@ describe("the re-confirmation sweep", () => {
     assert.equal((await listAckDecisions(id)).length, 1);
   });
 
-  test("a retired policy waits, with the requirement on or off, and a trashed or branch document is never asked", async () => {
+  test("a retired policy waits, with the requirement on or off, cannot be switched on, and un-retire moves a cycle that fell due meanwhile; a trashed or branch document is never asked", async () => {
     const { id } = await confirmedPolicy(`${STAMP} retired`);
     await makeDue(id, 12);
     await pool().query("UPDATE documents SET ack_retired_at = now(), ack_required = 0 WHERE id = $1", [id]);
     assert.equal((await recertifyDueAcks({ documentIds: [id] })).cycles, 0, "retired and off");
+    // No path switches a retired policy on: the claim's WHERE refuses it.
+    const on = await setAckRequired(id, true, { editDefault: null, recertMonths: null });
+    assert.equal(on.switched_on, false, "a retired policy does not switch on");
+    assert.equal((await pool().query("SELECT ack_required FROM documents WHERE id = $1", [id])).rows[0].ack_required, 0);
     await pool().query("UPDATE documents SET ack_required = 1 WHERE id = $1", [id]);
     assert.equal((await recertifyDueAcks({ documentIds: [id] })).cycles, 0, "retired with the requirement still on");
-    await pool().query("UPDATE documents SET ack_retired_at = NULL WHERE id = $1", [id]);
-    assert.equal((await recertifyDueAcks({ documentIds: [id] })).cycles, 1, "un-retired: the cycle fires");
+    await pool().query("UPDATE documents SET ack_required = 0 WHERE id = $1", [id]);
+
+    // Un-retire: the cycle that fell due while retired is pushed out a whole
+    // interval instead of firing the day the policy comes back.
+    const resumed = await unretirePolicy(id);
+    assert.ok(resumed, "un-retired");
+    const back = await recertRow(id);
+    assertNear(back.ack_next_recert_at, addMonths(new Date(), 12), 60_000, "the next date is now + interval");
+    assert.equal(back.ack_recert_months, 12);
+    assert.equal((await recertifyDueAcks({ documentIds: [id] })).cycles, 0, "nothing fires on resume");
+    assert.equal((await listAckDecisions(id)).length, 0, "no ledger row either");
+
+    // recertAfterResume on its own: a date still ahead and a policy without a cycle are untouched.
+    const ahead = new Date(Date.now() + 10 * DAY).toISOString();
+    await pool().query("UPDATE documents SET ack_next_recert_at = $2 WHERE id = $1", [id, ahead]);
+    assert.equal(await recertAfterResume(id), ahead, "a future date stands");
+    const { id: plainResume } = await confirmedPolicy(`${STAMP} resume no cycle`);
+    assert.equal(await recertAfterResume(plainResume), null, "no cycle: nothing to move");
+    assert.equal(await recertAfterResume(-1), null, "a document that is gone");
+
+    // A stale date left by hand still fires once the policy is live again.
+    await makeDue(id, 12);
+    assert.equal((await recertifyDueAcks({ documentIds: [id] })).cycles, 1, "live with a due date: the cycle fires");
 
     const { id: trashed } = await confirmedPolicy(`${STAMP} trashed`);
     await makeDue(trashed, 12);
