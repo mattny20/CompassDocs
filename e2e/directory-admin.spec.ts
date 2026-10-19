@@ -346,3 +346,83 @@ test("a preset keeps column limits, assistant details, custom margins and a firs
     for (const p of [amy, zed]) await api(page, `/api/admin/directory/people/${p.id}`, { method: "DELETE" });
   }
 });
+
+// 1.11.2: the Directory page defaults (list columns, the Groups view's field,
+// Sort names by) are the Display page, one card with one Save.
+test("the Display page holds the Directory page defaults and saves them", async ({ page }) => {
+  await login(page, ADMIN);
+  const defaults = (await api(page, "/api/admin/directory/list-columns")).body;
+  const want = defaults?.name_sort === "first" ? "last" : "first";
+  try {
+    await page.goto("/admin/directory/display");
+    await expect(page.getByRole("heading", { name: "Directory page defaults" })).toBeVisible();
+    await expect(page.getByRole("combobox", { name: "Groups view opens on" })).toBeVisible();
+    // The columns list is the shared ordered list; Name is always a row in it.
+    await expect(page.getByRole("button", { name: "Remove Name" })).toBeVisible();
+    const save = page.getByRole("button", { name: "Save defaults" });
+    await expect(save).toBeDisabled();
+    await page.getByRole("combobox", { name: "Sort names by" }).selectOption(want);
+    await expect(save).toBeEnabled();
+    await save.click();
+    await expect(page.getByText("Directory defaults saved.")).toBeVisible();
+    expect((await api(page, "/api/admin/directory/list-columns")).body.name_sort).toBe(want);
+  } finally {
+    await api(page, "/api/admin/directory/list-columns", { method: "PUT", body: { name_sort: defaults?.name_sort ?? "full" } });
+  }
+});
+
+// 1.11.2, at the tightest common phone width: the preset list stacks over the
+// editor, nothing pushes the page sideways (the Wrap after rows and the
+// custom margins wrap instead), and the Save row stays reachable.
+test("at 375px the Export page stacks the preset list over the editor and Save is reachable", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 375, height: 667 }, isMobile: true, hasTouch: true });
+  const page = await ctx.newPage();
+  await login(page, ADMIN);
+  const stamp = Date.now();
+  const id = `e2e-phone-${stamp}`;
+  const presets = (await api(page, "/api/admin/directory/export-presets")).body.presets as any[];
+  try {
+    const saved = await api(page, "/api/admin/directory/export-presets", {
+      method: "PUT",
+      body: {
+        presets: [
+          ...presets,
+          { id, name: `E2E Phone ${stamp}`, split_by: "office", margins: "custom", schedule: { frequency: "weekly", day: 1, hour: 6, recipients: "reception@e2e.test", format: "pdf" } },
+        ],
+      },
+    });
+    expect(saved.status).toBe(200);
+
+    await page.goto("/admin/directory/export");
+    const row = page.getByRole("button", { name: `E2E Phone ${stamp}` });
+    await expect(row).toContainText("ZIP");
+    await expect(row).toContainText("Scheduled");
+    await row.click();
+    await expect(page.getByRole("heading", { name: `E2E Phone ${stamp}` })).toBeVisible();
+    for (const card of PRESET_CARDS) await expect(page.getByRole("heading", { name: card, exact: true })).toBeVisible();
+
+    // The list sits above the editor.
+    const list = await page.getByRole("heading", { name: "Presets" }).boundingBox();
+    const first = await page.getByRole("heading", { name: "Document", exact: true }).boundingBox();
+    expect(list!.y, "the preset list stacks above the editor").toBeLessThan(first!.y);
+    // Nothing scrolls sideways: not the page, and not a card.
+    const overflow = await page.locator("#main").evaluate((el) => el.scrollWidth - el.clientWidth);
+    expect(overflow, "the page does not scroll sideways").toBeLessThanOrEqual(0);
+    for (const card of ["Presets", ...PRESET_CARDS]) {
+      const section = page.locator("section", { has: page.getByRole("heading", { name: card, exact: true }) }).last();
+      const spill = await section.evaluate((el) => el.scrollWidth - el.clientWidth);
+      expect(spill, `the ${card} card does not overflow`).toBeLessThanOrEqual(0);
+    }
+
+    // A change pins the Save row to the bottom of the viewport; it saves.
+    await page.getByRole("textbox", { name: "Subtitle" }).fill("Phone pass");
+    const save = page.getByRole("button", { name: "Save presets" });
+    await expect(save).toBeEnabled();
+    await expect(save).toBeInViewport();
+    await save.click();
+    await expect(page.getByText("Export presets saved.")).toBeVisible();
+  } finally {
+    await api(page, "/api/admin/directory/export-presets", { method: "PUT", body: { presets } });
+    await ctx.close();
+  }
+});
