@@ -4,6 +4,78 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.11.1] - 2026-10-19
+
+Directory export: wrap a column after a number of characters, sort by
+first or last name, assistant details on the sheet, and page margins.
+
+### Added
+- **Wrap a column after a number of characters.** Every column in a
+  preset's "Columns, in order" list carries a **Wrap after** input (8 to
+  120 characters; blank keeps the column automatic). A long title or
+  email wraps onto the next line instead of running on, or being cut in
+  the two- and three-column layouts, which charge a wrapped row the lines
+  it takes so the page plan stays predictable. Columns without a limit
+  keep the widths every export had; limited columns that would take more
+  than two thirds of the row are scaled down together so the table still
+  fits. A value out of range is refused inline and Save waits. Hidden for
+  the photo-cards layout, where columns have no width. In the API the
+  preset's `column_limits` is `{ "title": 24 }`.
+- **Sort by first name or last name.** "Sort by" and "Then by" offer
+  **First name** and **Last name** under Built-in, right after Name, so a
+  phone list can read Smith, Jane without renaming anyone. The parts come
+  from the display name: "Smith, Jane A." sorts as Jane / Smith, "Dr. Jane
+  A. Smith Jr." as Jane / Smith, "Ludwig van Beethoven" as Ludwig / van
+  Beethoven (a particle surname keeps its particles; a two-word name never
+  loses its first word), honorifics, suffixes and trailing credentials are
+  dropped as the initials already drop them, and a single-word name is
+  both. Ties fall through to the next key and then to the full name. The
+  keys are `name:first` and `name:last` wherever a sort key is accepted
+  (a preset's `sort` / `sort2`, the Directory list, the export's `sort`);
+  they are never columns.
+- **Sort names by, on the Directory page.** The list view's toolbar gains
+  **Sort names by** (Full name, First name, Last name), applied whenever
+  the Name column is the sort, remembered in the browser, and sent with
+  "What I see" exports so the PDF matches the screen. The Directory
+  defaults card gains the same choice as the admin default
+  (`directory_name_sort`, read and written by `GET` / `PUT
+  /api/admin/directory/list-columns` as `name_sort`).
+- **Assistant details on the sheet.** When the Assistant column is in a
+  preset, an **Assistant details** list offers the assistant's own fields
+  (phone, extension, office, any custom field); the ticked ones follow
+  each assistant's name on paper and in the CSV, as "Pat Lee · 602-555-0100
+  · x204", blanks skipped, several assistants joined with "; ". The
+  details are read from the assistant's own row among everyone the export
+  covers (before the preset's filter, so an assistant outside a one-office
+  sheet still carries them); an assistant who is not in the export at all
+  shows the name alone. With no fields chosen the column reads as before.
+  In the API the preset's `assistant_fields` is `["phone", "extension"]`.
+- **Page margins.** A **Margins** choice of Normal (every export's page
+  until now), Narrow (0.3 in), Wide (1 in) or Custom, with Top, Right,
+  Bottom and Left in inches (0.2 to 2, a tenth at a time) when Custom.
+  The footer and the two- and three-column page plan follow the margins.
+  In the API: `margins` (`normal` | `narrow` | `wide` | `custom`) and
+  `margin_custom` (`{ top, right, bottom, left }` in inches).
+- `POST /api/directory/export` (and the `GET` form) accepts the four new
+  options as overrides on top of a preset: `column_limits`,
+  `assistant_fields`, `margins` and `margin_custom` (JSON-encoded on a
+  `GET`). Each is sanitised like the stored preset: unknown columns,
+  out-of-range numbers and junk are dropped or clamped, never refused.
+- Tests: the layout planner (margins, column widths, wrapped rows), the
+  name parts and the first- and last-name sort, the assistant text, the
+  sanitiser, and a rendered PDF and CSV.
+
+### Changed
+- The export's row cells (PDF, cards and CSV) read one cell function, so
+  the assistant details and every other value are the same text in each
+  format.
+
+### Upgrading
+- Nothing to migrate. A preset stored before 1.11.1 has none of the new
+  keys; it reads as automatic widths, no assistant details and Normal
+  margins, and renders exactly as it did. The admin's "Sort names by" is
+  Full name until changed.
+
 ## [1.11.0] - 2026-10-16
 
 Read confirmation, part three: every write path decides, readers see what
