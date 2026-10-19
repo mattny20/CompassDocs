@@ -6481,7 +6481,7 @@ export async function listPendingAcksFor(
          SELECT 1 FROM acknowledgements a
          WHERE a.document_id = d.id AND a.user_id = $1 AND ${ACK_CURRENT}
        )
-     ORDER BY d.ack_revision_at DESC, d.id DESC`,
+     ORDER BY d.updated_at DESC, d.id DESC`,
     Array.isArray(scope) ? [userId, scope] : [userId]
   );
 }

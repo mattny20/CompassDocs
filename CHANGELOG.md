@@ -14,8 +14,8 @@ re-confirmation on an interval, and retirement. (Enterprise, `policy_ack`.)
 - **My policies.** Compliance in the main navigation now opens on a page
   of your own: every policy you are asked to read and confirm, and where
   you stand on each. A standing line ("3 of 5 policies confirmed") and a
-  progress bar, then two groups: **To confirm** (the most recently asked
-  first) and **Confirmed**. Each row is the policy's space and title,
+  progress bar, then two groups: **To confirm** (the most recently
+  changed first, matching the row's "Updated" line) and **Confirmed**. Each row is the policy's space and title,
   linking straight to the confirmation card at the end of the document,
   when it was last saved ("Updated 3d ago"), and one chip from a closed
   set: **To confirm**, **Changed since you confirmed 3 Mar 2026** (an
@@ -303,7 +303,10 @@ re-confirmation on an interval, and retirement. (Enterprise, `policy_ack`.)
   Confirmations made before it was retired stay on record. If the text
   changed while it was retired, people whose confirmation is older than the
   current version are asked again." / **Resume**) and toasts "Policy
-  resumed: 42 of 50 confirmations still current".
+  resumed: 42 of 50 confirmations still current"; while any confirmation
+  is still current the toast carries **Ask everyone to re-confirm…** as
+  its action, the row's own question and POST, for the case where that
+  number is the wrong one.
 - **Retire policy… on the portal row.** Beside Remind, Ask everyone to
   re-confirm… and Stop requiring, managers get **Retire policy…**, which
   opens the same question as the Settings tab's Lifecycle card ('Retire
@@ -396,8 +399,7 @@ re-confirmation on an interval, and retirement. (Enterprise, `policy_ack`.)
   1.10.1. The IP column is not shown here (it belongs to the All
   confirmations view, which the expand row does not offer); the per-policy
   CSV and the Record tab remain the complete record.
-- The Overview's tiles are five across from `lg`, three from `sm` and two
-  on a phone.
+- The Overview's tiles follow the page width.
 - `GET /api/documents/{id}/ack` (the summary) carries `ack_recert_months`,
   `ack_next_recert_at` and `ack_effective_at`.
 - The Settings tab saves only the fields that changed since the last save,
@@ -407,7 +409,11 @@ re-confirmation on an interval, and retirement. (Enterprise, `policy_ack`.)
   confirmations now also restart its re-confirmation interval; nothing
   changes for a policy without one. A cycle also stamps the policy's
   reminder time, so **Remind** keeps its one-hour cooldown after the
-  cycle's notice went out.
+  cycle's notice went out. A policy with an interval of its own that is
+  stopped and requested again keeps its next re-confirmation date, unless
+  that date passed while it was off: then the request moves it out a whole
+  interval, as un-retire does, so the hourly sweep does not ask everyone a
+  second time on top of the request that just went out.
 - The training deck's e-signature gate runs through the same check as the
   policy signature (`lib/attestation`, extracted from the training route):
   its two sentences are unchanged, and its password branch is now throttled
@@ -440,10 +446,13 @@ re-confirmation on an interval, and retirement. (Enterprise, `policy_ack`.)
   (references `documents`, SET NULL when the replacement is purged); on
   `acknowledgements`: `statement_text` (text, NOT NULL DEFAULT ''),
   `signed_name` (text, null when unsigned), `identity_proof` (text, NOT
-  NULL DEFAULT '') and `user_agent` (text, NOT NULL DEFAULT ''); and one
-  partial index, `idx_documents_ack_recert` on `documents
+  NULL DEFAULT '') and `user_agent` (text, NOT NULL DEFAULT ''); and three
+  partial indexes: `idx_documents_ack_recert` on `documents
   (ack_next_recert_at) WHERE ack_required = 1 AND ack_recert_months IS NOT
-  NULL`, for the hourly sweep. Every line is a catalog-guarded `ADD COLUMN
+  NULL`, for the hourly sweep, and `idx_documents_ack_retired_by` and
+  `idx_documents_ack_superseded_by` under the two SET NULL references
+  (each `WHERE … IS NOT NULL`, so they hold only retired rows), so that
+  removing an account or purging a replacement does not scan `documents`. Every line is a catalog-guarded `ADD COLUMN
   IF NOT EXISTS` with a constant default, or a guarded index: no rewrite,
   no backfill, no lock on an up-to-date table. The Record tab, the ledger
   reads and My policies add no schema of their own; they are served by
@@ -461,13 +470,17 @@ re-confirmation on an interval, and retirement. (Enterprise, `policy_ack`.)
   re-confirmation columns on `docs` rows) are additive; a client built
   against 1.11.x ignores them.
 - **Rollback to 1.11.2 is supported.** 1.11.2 ignores the new columns and
-  the index and leaves them in place. While rolled back: a row it writes
+  the indexes and leaves them in place. While rolled back: a row it writes
   takes the defaults (unsigned, no statement text, no user agent), a
   policy's own statement and signature switch wait unused, and a policy
   that requires a signature records unsigned confirmations until 1.12.0
   runs again; no cycle fires, and an interval is honoured again on
   re-upgrade; a retired policy reads as a policy whose requirement is off
-  (the columns and the ledger row stay for the re-upgrade); and the
+  (the columns and the ledger row stay for the re-upgrade), and if someone
+  re-requires a retired policy from 1.11.2's request picker while rolled
+  back, it comes back as retired after the re-upgrade (its requirement
+  reads as on in the record, and Retire is refused as already retired):
+  use Un-retire to resume it; and the
   retention sweep purges trashed documents with confirmations as it did
   before (the archive still keeps every cited text).
 - Scripts that read the CSVs by column name are unaffected; scripts that
