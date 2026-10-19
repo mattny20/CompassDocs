@@ -76,7 +76,10 @@ describe("the confirmation ledger (All confirmations view, ledger exports)", () 
       author: "test",
     });
     docId = doc.id;
-    await setAckRequired(docId, true);
+    // Both null: leave the edit default and the interval columns alone rather
+    // than read the workspace settings row, which another test file may be
+    // writing (a default interval there would give the fixture a cycle).
+    await setAckRequired(docId, true, { editDefault: null, recertMonths: null });
     v1 = (await listVersions(docId))[0].id;
   });
 

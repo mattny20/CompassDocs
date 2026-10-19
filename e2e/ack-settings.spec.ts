@@ -44,6 +44,41 @@ async function requireQuietly(page: Page, docId: number): Promise<void> {
   expect(on.status, "requested quietly").toBe(200);
 }
 
+/**
+ * The workspace's "Re-confirm every" default (Program settings), which the
+ * first switch-on applies to a policy: set to Never for the test, so a rig
+ * whose admin chose 6/12/24 still starts each policy with no cycle. Returns
+ * what it was, for restoreRecertDefault in finally; undefined when the
+ * settings route is not licensed (the test skips itself right after).
+ */
+async function neutraliseRecertDefault(page: Page): Promise<number | null | undefined> {
+  const before = await api(page, "/api/admin/compliance/settings");
+  if (before.status !== 200) return undefined;
+  const was: number | null = before.body?.settings?.ack_defaults?.recert_months ?? null;
+  if (was !== null) {
+    const off = await api(page, "/api/admin/compliance/settings", {
+      method: "PUT",
+      body: { ack_defaults: { recert_months: null } },
+    });
+    expect(off.status, "the workspace interval set to Never for the test").toBe(200);
+  }
+  return was;
+}
+
+async function restoreRecertDefault(page: Page, was: number | null | undefined): Promise<void> {
+  if (was === undefined || was === null) return;
+  await api(page, "/api/admin/compliance/settings", { method: "PUT", body: { ack_defaults: { recert_months: was } } });
+}
+
+/** Focus never falls to <body> after Retire / Un-retire (STYLEGUIDE §Settings pages). */
+async function expectFocusNotOnBody(page: Page, after: string): Promise<void> {
+  await expect
+    .poll(() => page.evaluate(() => document.activeElement !== null && document.activeElement !== document.body), {
+      message: `focus is not on <body> after ${after}`,
+    })
+    .toBe(true);
+}
+
 async function makeUser(page: Page, user: { username: string; password: string }, name: string): Promise<number> {
   const created = await api(page, "/api/admin/users", { method: "POST", body: { ...user, role: "viewer", name } });
   expect(created.status, `${name} created`).toBe(201);
@@ -86,10 +121,14 @@ test("the Settings tab: the three cards save through one Save row; a past next d
   const REASON = "Superseded by the new expense policy";
   let docId: number | undefined;
   let replacementId: number | undefined;
+  let recertDefaultBefore: number | null | undefined;
   try {
     docId = await makeDoc(page, title);
     test.skip(!(await portalLicensed(page)), "policy_ack is not licensed in this build; the EE rig runs the flow");
     replacementId = await makeDoc(page, replacementTitle);
+    // The switch-on applies the workspace interval: Never for the test, so
+    // "no cycle yet" and the Select's "" below hold on any rig.
+    recertDefaultBefore = await neutraliseRecertDefault(page);
     await requireQuietly(page, docId);
 
     // The tab, under the shared header, with the Settings link lit.
@@ -226,7 +265,9 @@ test("the Settings tab: the three cards save through one Save row; a past next d
     await expect(question).toBeVisible();
     await reason.fill(REASON);
     await question.getByRole("button", { name: "Retire policy", exact: true }).click();
-    await expect(page.locator('[role="status"]').getByText(/^Policy retired\. 1 of \d+ confirmations stay on record\.$/)).toBeVisible();
+    // The portal row's sentence, word for word.
+    await expect(page.locator('[role="status"]').getByText(/^Policy retired: 1 of \d+ confirmations on record$/)).toBeVisible();
+    await expectFocusNotOnBody(page, "Retire");
     await expect(question).toHaveCount(0);
     await expect(lifecycle.getByText(/^Retired .+ by /)).toBeVisible();
     await expect(lifecycle.getByText(REASON)).toBeVisible();
@@ -264,7 +305,11 @@ test("the Settings tab: the three cards save through one Save row; a past next d
       )
     ).toBeVisible();
     await resume.getByRole("button", { name: "Resume" }).click();
-    await expect(page.locator('[role="status"]').getByText(/^Policy resumed: 1 of \d+ confirmations still current$/)).toBeVisible();
+    const resumed = page.locator('[role="status"]').filter({ hasText: /^Policy resumed: 1 of \d+ confirmations still current$/ });
+    await expect(resumed).toBeVisible();
+    await expectFocusNotOnBody(page, "Un-retire");
+    // One confirmation is still current, so the toast offers the re-ask.
+    await expect(resumed.getByRole("button", { name: "Ask everyone to re-confirm…" })).toBeVisible();
     await expect(resume).toHaveCount(0);
     await expect(lifecycle.getByRole("button", { name: "Retire policy…" })).toBeVisible();
     await expect(lifecycle.getByRole("button", { name: "Un-retire" })).toHaveCount(0);
@@ -278,6 +323,7 @@ test("the Settings tab: the three cards save through one Save row; a past next d
     await expect(page.getByText(/^Retired \S/)).toHaveCount(0);
     await expect(page.locator("#confirm-reading")).toHaveCount(1);
   } finally {
+    await restoreRecertDefault(page, recertDefaultBefore);
     if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
     if (replacementId) await api(page, `/api/documents/${replacementId}`, { method: "DELETE" });
   }
@@ -299,9 +345,12 @@ test("the Settings tab's gate: a holder of document.ack_require on the space ope
   let readerId: number | undefined;
   let approverRole: number | undefined;
   let readerRole: number | undefined;
+  let recertDefaultBefore: number | null | undefined;
   try {
     docId = await makeDoc(page, title);
     test.skip(!(await portalLicensed(page)), "policy_ack is not licensed in this build; the EE rig runs the flow");
+    // Never for the test: "nothing changed hands" below reads recert_months.
+    recertDefaultBefore = await neutraliseRecertDefault(page);
     await requireQuietly(page, docId);
 
     // The record's own permission plus the requirement's: the tab opens and
@@ -357,6 +406,7 @@ test("the Settings tab's gate: a holder of document.ack_require on the space ope
     }
     expect((await api(page, `/api/documents/${docId}/ack-settings`)).body?.recert_months, "nothing changed hands").toBeNull();
   } finally {
+    await restoreRecertDefault(page, recertDefaultBefore);
     if (approverRole) await api(page, `/api/admin/rbac/roles/${approverRole}`, { method: "DELETE" });
     if (readerRole) await api(page, `/api/admin/rbac/roles/${readerRole}`, { method: "DELETE" });
     if (approverId) await api(page, `/api/admin/users/${approverId}`, { method: "DELETE" });

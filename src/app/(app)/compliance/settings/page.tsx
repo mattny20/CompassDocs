@@ -28,7 +28,8 @@ export default async function ComplianceSettingsPage() {
   return (
     <>
       <p className="mb-4 text-sm text-slate-500">
-        Defaults every policy inherits. A policy can choose differently in its Read confirmation popover.
+        Defaults every policy inherits. A policy can choose differently in its Read confirmation popover (the edit default) or on
+        its Settings tab (the statement, the signature and the interval).
       </p>
       {licensed ? (
         <ProgramSettingsPanel initial={await getComplianceSettings()} />

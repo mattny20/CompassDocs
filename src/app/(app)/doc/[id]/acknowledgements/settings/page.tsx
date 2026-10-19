@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { userHolds, spaceScopeFor } from "@/lib/access";
+import { userHolds, spaceScopeFor, scopeAllows, canSeeDrafts } from "@/lib/access";
 import { getAckSettings, getAckRecert, getDocument, ackSummary } from "@/lib/db";
 import { getComplianceSettings } from "@/lib/compliance-settings";
 import { PolicySettingsPanel } from "@/components/PolicySettingsPanel";
@@ -55,6 +55,15 @@ export default async function AckSettingsPage({ params }: { params: Promise<{ id
     doc.ack_superseded_by ? getDocument(doc.ack_superseded_by) : Promise.resolve(undefined),
   ]);
   if (!settings || !recert) notFound();
+  // The title under this viewer's own scope and draft rule, as the route
+  // answers it (a title never crosses space scope); the id stays, so the
+  // chip falls back to "Document #id".
+  const replacementTitle =
+    replacement &&
+    scopeAllows(scope, replacement.space_id) &&
+    !(replacement.status === "draft" && !(await canSeeDrafts(user, replacement.space_id)))
+      ? replacement.title
+      : null;
 
   return (
     <PolicySettingsPanel
@@ -69,7 +78,7 @@ export default async function AckSettingsPage({ params }: { params: Promise<{ id
         marker: recert.ack_revision_at,
         recert_default: program.ack_defaults.recert_months,
         superseded_by: doc.ack_superseded_by,
-        superseded_by_title: replacement?.title ?? null,
+        superseded_by_title: replacementTitle,
         replacements: replacements.map((r) => ({ id: r.id, label: r.title, sublabel: `${r.space_icon} ${r.space_name}` })),
         required: doc.ack_required === 1,
         retired: doc.ack_retired_at

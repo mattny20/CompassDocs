@@ -18,9 +18,9 @@
 // confirmDialog, awaited before any busy state) and refresh the route, and
 // the card follows the server's answer.
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Archive, ArchiveRestore, X } from "lucide-react";
-import { Button } from "@/components/Button";
+import { Button, iconButtonClass } from "@/components/Button";
 import { Card } from "@/components/Card";
 import { confirmDialog, formDialog } from "@/components/Dialog";
 import { EntityPicker, type PickerOption } from "@/components/EntityPicker";
@@ -29,7 +29,7 @@ import { SaveRow } from "@/components/SaveRow";
 import { useFormatDate } from "@/components/SettingsProvider";
 import { toast } from "@/components/Toasts";
 import { Tooltip } from "@/components/Tooltip";
-import { RECONFIRM_REASON_TOO_SHORT } from "@/components/ReconfirmButton";
+import { RECONFIRM_LABEL, RECONFIRM_REASON_TOO_SHORT, askReconfirm } from "@/components/ReconfirmButton";
 import { RECERT_OPTIONS, addMonths, nextRecertDate, recertOptionLabel } from "@/lib/ack-recert";
 import { useAction } from "@/lib/use-action";
 import { useLeaveGuard, useUnsavedChanges } from "@/lib/use-unsaved";
@@ -131,11 +131,21 @@ function statementError(text: string): string | undefined {
   return text.trim().length > STATEMENT_MAX ? `Keep the statement under ${STATEMENT_MAX} characters.` : undefined;
 }
 
-/** The same rule validateRecertPatch applies: today counts, yesterday does not. */
-function nextDateError(s: PolicySettingsForm): string | undefined {
+/**
+ * The same rule validateRecertPatch applies: today counts, yesterday does
+ * not. Only an edited value is judged: a stored date that has passed (a
+ * retired or paused policy's, which the sweep never moves) is never sent by
+ * a save that did not touch it, so it is a hint on the card, not an error
+ * that locks the statement, the signature and the replacement.
+ */
+function nextDateError(s: PolicySettingsForm, saved: PolicySettingsForm): string | undefined {
   if (s.recert_months === null || !s.next_recert_at) return undefined;
+  if (s.next_recert_at === saved.next_recert_at) return undefined;
   return s.next_recert_at < ymd(new Date()) ? NEXT_DATE_PAST : undefined;
 }
+
+/** The plain hint under a stored next date that has already passed. */
+export const NEXT_DATE_PASSED_HINT = "This date has passed; the next cycle fires when the policy is live again.";
 
 export function PolicySettingsPanel({
   doc,
@@ -169,9 +179,12 @@ export function PolicySettingsPanel({
     setS((prev) => ({ ...prev, [key]: value }));
   }
 
+  // The clean form, derived from what the server holds: the save sends
+  // what differs from it, and the next-date rule judges only an edit.
+  const saved = fromInitial(server);
   const errors: PolicySettingsModel["errors"] = {
     statement: statementError(s.statement),
-    next_recert_at: nextDateError(s),
+    next_recert_at: nextDateError(s, saved),
   };
   const invalid = Object.values(errors).some(Boolean);
   const model: PolicySettingsModel = { s, set, errors };
@@ -182,7 +195,6 @@ export function PolicySettingsPanel({
       return;
     }
     // Only what moved since the last clean state goes to the server.
-    const saved = fromInitial(server);
     const body: Record<string, unknown> = {};
     if (s.statement.trim() !== saved.statement) body.statement = s.statement.trim();
     if (s.signature !== saved.signature) body.signature = s.signature;
@@ -235,7 +247,7 @@ export function PolicySettingsPanel({
         model={model}
         marker={server.marker}
         workspaceDefault={server.recert_default}
-        stored={{ recert_months: server.recert_months, next_recert_at: fromInitial(server).next_recert_at }}
+        stored={{ recert_months: server.recert_months, next_recert_at: saved.next_recert_at }}
       />
       <LifecycleCard
         model={model}
@@ -245,9 +257,12 @@ export function PolicySettingsPanel({
         onResumed={(standing) => {
           // Un-retire clears the replacement on the server (a policy that is
           // live again is not replaced by anything): the form follows.
+          // Un-retire switches the requirement back on in the same UPDATE,
+          // so Retire is offered again before the route refresh lands.
           setServer((prev) => ({
             ...prev,
             retired: null,
+            required: true,
             superseded_by: null,
             superseded_by_title: null,
             summary: { ...prev.summary, ...standing },
@@ -342,6 +357,14 @@ export function ReconfirmationCard({
   // in the past, so the server dates it 14 days from now instead.
   const pushedOut = s.recert_months !== null && addMonths(markerDate, s.recert_months).getTime() <= now.getTime();
   const firstCycle = s.next_recert_at || (s.recert_months !== null ? ymd(nextRecertDate(markerDate, s.recert_months, now)) : "");
+  // The stored date has passed and nobody moved it: a retired or paused
+  // policy's cycle fell due while the sweep left it alone. A hint, not an
+  // error (nextDateError judges only an edit), so the other cards still save.
+  const stale =
+    s.recert_months !== null &&
+    s.next_recert_at !== "" &&
+    s.next_recert_at === stored.next_recert_at &&
+    stored.next_recert_at < ymd(now);
 
   return (
     <Card
@@ -379,11 +402,15 @@ export function ReconfirmationCard({
         </Field>
       )}
 
+      {stale && <p className="mt-2 text-xs text-slate-500">{NEXT_DATE_PASSED_HINT}</p>}
+
       {pushedOut && s.recert_months !== null && (
         // The hint that must be amber (STYLEGUIDE §Notices: ink-warn, never a bare text-amber).
+        // The date is a calendar day ('YYYY-MM-DD'): the day formatter, so it
+        // reads as the day the input shows in every time zone.
         <p className="mt-2 text-xs ink-warn">
           People last re-confirmed {monthsBetween(markerDate, now)} months ago. The first cycle is scheduled for{" "}
-          {fmt.date(firstCycle)}: change the date, or use Ask everyone to re-confirm now.
+          {fmt.day(firstCycle)}: change the date, or use Ask everyone to re-confirm now.
         </p>
       )}
 
@@ -424,6 +451,34 @@ export function LifecycleCard({
   const fmt = useFormatDate();
   const { run, isBusy, busy } = useAction();
   const { retired, summary, replacements, required } = server;
+  // Focus after Retire / Un-retire (STYLEGUIDE §Settings pages: focus never
+  // falls to <body>). The dialog hands focus back to the button that opened
+  // it, and the state flip then unmounts that button. Focus moves to the
+  // button that replaced it; while that one is disabled (the route refresh
+  // keeps the card busy for a moment) it parks on the card's heading, and
+  // moves on to the button once it is live, unless the person went
+  // elsewhere meanwhile.
+  const headingRef = useRef<HTMLSpanElement>(null);
+  const retireRef = useRef<HTMLButtonElement>(null);
+  const unretireRef = useRef<HTMLButtonElement>(null);
+  const [focusNext, setFocusNext] = useState<"retire" | "unretire" | null>(null);
+  useEffect(() => {
+    if (!focusNext) return;
+    const heading = headingRef.current;
+    const active = document.activeElement;
+    const parked = active === null || active === document.body || active === heading;
+    if (!parked) {
+      setFocusNext(null);
+      return;
+    }
+    const target = (focusNext === "retire" ? retireRef : unretireRef).current;
+    if (target && !target.disabled) {
+      target.focus();
+      setFocusNext(null);
+    } else {
+      heading?.focus();
+    }
+  }, [focusNext, busy]);
   // The chip's title: the server's (the stored replacement, even one the
   // picker does not offer), else the picked option's.
   const chosenTitle =
@@ -470,9 +525,11 @@ export function LifecycleCard({
     );
     if (!ok) return;
     onRetired({ at: new Date().toISOString(), by: server.viewerName, reason });
+    setFocusNext("unretire");
     const acked = Number(box.result?.acked ?? summary.current);
     const total = Number(box.result?.required ?? summary.eligible);
-    toast("ok", `Policy retired. ${acked} of ${total} confirmations stay on record.`);
+    // The portal row's sentence, word for word (STYLEGUIDE §Vocabulary).
+    toast("ok", `Policy retired: ${acked} of ${total} confirmations on record`);
   }
 
   async function unretire() {
@@ -495,13 +552,29 @@ export function LifecycleCard({
     if (!done) return;
     const standing = { current: Number(box.result?.current ?? 0), eligible: Number(box.result?.eligible ?? summary.eligible) };
     onResumed(standing);
-    // The re-ask (A7) is the header's "Ask everyone to re-confirm…", back
-    // on the refreshed page; the toast carries no action of its own.
-    toast("ok", `Policy resumed: ${standing.current} of ${standing.eligible} confirmations still current`);
+    setFocusNext("retire");
+    // The re-ask (A7) from the toast while anyone's confirmation is still
+    // current: the header button's own question and POST (askReconfirm),
+    // whose run() refreshes the route, which hands the panel the new
+    // standing. Nothing to reset when nobody's is: no action.
+    toast(
+      "ok",
+      `Policy resumed: ${standing.current} of ${standing.eligible} confirmations still current`,
+      standing.current > 0
+        ? {
+            action: {
+              label: RECONFIRM_LABEL,
+              onClick: () =>
+                void askReconfirm({ docId: doc.id, title: doc.title, summary: { ...standing, rev: summary.rev }, run }),
+            },
+          }
+        : {}
+    );
   }
 
   const retireButton = (
     <Button
+      ref={retireRef}
       variant="secondary"
       size="sm"
       icon={<Archive />}
@@ -515,7 +588,13 @@ export function LifecycleCard({
 
   return (
     <Card
-      title="Lifecycle"
+      // The heading is focusable by script only (tabIndex -1): where focus
+      // parks while the button that replaced the one just used is disabled.
+      title={
+        <span ref={headingRef} tabIndex={-1}>
+          Lifecycle
+        </span>
+      }
       description="The policy that replaces this one, and retiring it when it no longer applies. Retiring keeps every confirmation on record and lists the policy under Retired in Compliance."
     >
       {/* A composite picker keeps its own markup (STYLEGUIDE §Forms): the
@@ -528,14 +607,16 @@ export function LifecycleCard({
         {s.superseded_by !== null ? (
           <span className="inline-flex items-center gap-1.5 rounded-lg border border-compass-200 bg-compass-50 px-3 py-1.5 text-sm font-medium text-compass-800">
             {chosenTitle}
+            {/* An icon-only control takes the icon-button recipe (STYLEGUIDE
+                §Buttons): a 28px square, never the glyph alone as the target. */}
             <button
               type="button"
               onClick={() => set("superseded_by", null)}
               data-tt="Clear replacement"
               aria-label="Clear replacement"
-              className="opacity-60 hover:opacity-100"
+              className={iconButtonClass("quiet", "sm", "-mr-1")}
             >
-              <X className="h-3.5 w-3.5" />
+              <X />
             </button>
           </span>
         ) : (
@@ -564,6 +645,7 @@ export function LifecycleCard({
               {retired.reason && <p className="mt-0.5 text-sm text-slate-600">{retired.reason}</p>}
             </div>
             <Button
+              ref={unretireRef}
               variant="secondary"
               size="sm"
               icon={<ArchiveRestore />}

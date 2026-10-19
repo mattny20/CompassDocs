@@ -490,6 +490,15 @@ One field recipe, one input recipe, one width scale. Everything lives in
   an optional field says so in the label (`(optional)`) rather than with a
   placeholder. Placeholders are examples, never the label: a control with
   no visible label needs `aria-label`.
+- **Dates.** An instant (a `timestamptz`: when something happened) prints
+  through `useFormatDate().date` / `.dateTime` (`formatDate` /
+  `formatDateTime` in a server component), in the workspace's or the
+  person's time zone. A calendar day (a `date` column, a chosen date on a
+  `type="date"` input: an effective date, a next re-confirmation date)
+  prints through `formatDay` / `useFormatDate().day`, never through the
+  instant formatter — projected into a zone west of UTC, "2026-01-01"
+  reads as the day before the one the person chose. Chart buckets keep
+  `.dayShort`.
 - Checkbox *lists*, radio groups and composite pickers (EntityPicker,
   SpaceIconPicker) keep their own markup; their text inputs still use the
   recipe.
@@ -987,9 +996,9 @@ per-route variants:
   per-policy settings (audience, deadline, reminders, the re-confirmation
   interval, the statement, signature) go to the document's Read
   confirmation **Settings** page (`/doc/[id]/acknowledgements/settings`,
-  with the house `SubNav`: Record · Settings · History), and the popover
-  gains one "All settings" link. A popover wanting a fifth control is the
-  signal to make the page.
+  with the house `SubNav`: Record · History · Settings), reached from the
+  record. A popover wanting a fifth control is the signal to make the
+  page.
 - **Questions are dialogs**: `confirmDialog({ title, body, confirmLabel,
   danger, typeToConfirm, secondary })` and `promptDialog({ title, label,
   type, initial, validate, min, max })` from `components/Dialog`, one

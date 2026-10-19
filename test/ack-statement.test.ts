@@ -121,19 +121,41 @@ async function call(handler: Handler, req: Request, id: number): Promise<{ statu
 }
 
 const CLIENT_IP = "203.0.113.21";
+/** A second address for the lockout: the throttle is per username+IP, so the rest of the file never meets the lock. */
+const LOCKOUT_IP = "203.0.113.22";
 const USER_AGENT = `AckStatementTest/1.0 (${"x".repeat(320)})`;
 
-function sessionRequest(url: string, session: string, body?: unknown, method = "POST"): Request {
+function sessionRequest(url: string, session: string, body?: unknown, method = "POST", ip = CLIENT_IP): Request {
   return new Request(url, {
     method,
     headers: {
       cookie: `compass_session=${session}`,
       "content-type": "application/json",
-      "x-forwarded-for": CLIENT_IP,
+      "x-forwarded-for": ip,
       "user-agent": USER_AGENT,
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
+}
+
+/**
+ * Everything the console printed while `run` ran, so a test can assert the
+ * password reached no log line (invariant 1 covers logs, not only rows).
+ */
+async function withConsoleSpy<T>(run: () => Promise<T>): Promise<{ result: T; seen: string[] }> {
+  const seen: string[] = [];
+  const orig = { log: console.log, warn: console.warn, error: console.error };
+  for (const k of ["log", "warn", "error"] as const) {
+    console[k] = (...a: unknown[]) => {
+      seen.push(a.map(String).join(" "));
+      orig[k](...a);
+    };
+  }
+  try {
+    return { result: await run(), seen };
+  } finally {
+    Object.assign(console, orig);
+  }
 }
 
 // --- Fixtures ----------------------------------------------------------------------

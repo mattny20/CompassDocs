@@ -45,6 +45,70 @@ export interface ReconfirmResult {
   queued: number;
 }
 
+/** The `run` of useAction(): the caller's action rig, so the control that asked stays busy. */
+type RunAction = ReturnType<typeof useAction>["run"];
+
+/**
+ * The A7 question and POST, callable without the button: the un-retire
+ * toasts ("Policy resumed: …") offer it as their action. Resolves with the
+ * route's answer after a successful ask, null when the person cancelled or
+ * the POST was refused (its refusal is already the toast).
+ */
+export async function askReconfirm({
+  docId,
+  title,
+  summary,
+  run,
+  refresh = true,
+}: {
+  docId: number;
+  /** The document's title for the question; "this document" when the caller has none. */
+  title?: string;
+  summary: ReconfirmSummary;
+  run: RunAction;
+  /** Refresh the route after success (default true); false when the caller reloads itself. */
+  refresh?: boolean;
+}): Promise<ReconfirmResult | null> {
+  const version = summary.rev ? `version ${summary.rev}` : "the current version";
+  // Awaited before any busy state (STYLEGUIDE §Overlays): Cancel leaves the
+  // control idle.
+  const values = await formDialog({
+    title: title ? `Ask everyone to re-confirm "${title}"?` : "Ask everyone to re-confirm this document?",
+    body: `${summary.current} of ${summary.eligible} people have confirmed ${version}. This resets those confirmations, notifies everyone who can see the document, and shows them your reason.`,
+    fields: [
+      {
+        key: "reason",
+        label: "Why are readers being asked again?",
+        type: "textarea",
+        required: true,
+        placeholder: "e.g. Section 4 now applies to contractors too",
+        validate: (v) => (v.trim().length < 10 ? RECONFIRM_REASON_TOO_SHORT : undefined),
+      },
+    ],
+    confirmLabel: `Ask ${people(summary.current)} to re-confirm`,
+  });
+  if (!values) return null;
+
+  const box: { result?: ReconfirmResult } = {};
+  const ok = await run(
+    `reconfirm-${docId}`,
+    async () => {
+      const res = await fetch(`/api/documents/${docId}/ack/reconfirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: values.reason.trim() }),
+      });
+      if (res.ok) box.result = (await res.clone().json().catch(() => ({}))) as ReconfirmResult;
+      return res;
+    },
+    { fallback: "Couldn't ask everyone to re-confirm.", refresh }
+  );
+  if (!ok) return null;
+  const result = { reset: Number(box.result?.reset ?? summary.current), queued: Number(box.result?.queued ?? 0) };
+  toast("ok", `${people(result.reset)} will be asked to re-confirm.`);
+  return result;
+}
+
 export function ReconfirmButton({
   docId,
   title,
@@ -68,44 +132,8 @@ export function ReconfirmButton({
   const busy = isBusy(key);
 
   async function ask() {
-    const version = summary.rev ? `version ${summary.rev}` : "the current version";
-    // Awaited before any busy state (STYLEGUIDE §Overlays): Cancel leaves the
-    // control idle.
-    const values = await formDialog({
-      title: title ? `Ask everyone to re-confirm "${title}"?` : "Ask everyone to re-confirm this document?",
-      body: `${summary.current} of ${summary.eligible} people have confirmed ${version}. This resets those confirmations, notifies everyone who can see the document, and shows them your reason.`,
-      fields: [
-        {
-          key: "reason",
-          label: "Why are readers being asked again?",
-          type: "textarea",
-          required: true,
-          placeholder: "e.g. Section 4 now applies to contractors too",
-          validate: (v) => (v.trim().length < 10 ? RECONFIRM_REASON_TOO_SHORT : undefined),
-        },
-      ],
-      confirmLabel: `Ask ${people(summary.current)} to re-confirm`,
-    });
-    if (!values) return;
-
-    const box: { result?: ReconfirmResult } = {};
-    const ok = await run(
-      key,
-      async () => {
-        const res = await fetch(`/api/documents/${docId}/ack/reconfirm`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ reason: values.reason.trim() }),
-        });
-        if (res.ok) box.result = (await res.clone().json().catch(() => ({}))) as ReconfirmResult;
-        return res;
-      },
-      { fallback: "Couldn't ask everyone to re-confirm.", refresh: !onDone }
-    );
-    if (!ok) return;
-    const result = { reset: Number(box.result?.reset ?? summary.current), queued: Number(box.result?.queued ?? 0) };
-    toast("ok", `${people(result.reset)} will be asked to re-confirm.`);
-    onDone?.(result);
+    const result = await askReconfirm({ docId, title, summary, run, refresh: !onDone });
+    if (result) onDone?.(result);
   }
 
   const button = (

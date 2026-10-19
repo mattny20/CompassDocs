@@ -733,6 +733,15 @@ test("a retired policy sits in the collapsed Retired group with its chip, count 
     expect(retired.status, "retired").toBe(200);
     expect(retired.body).toMatchObject({ ok: true, acked: 1, rev: 1 });
     expect(await ackRequired(page, docId)).toBe(0);
+    // The portal's POST refuses every action on a retired policy, and
+    // nothing is switched on behind the refusal: un-retire is the only way
+    // back.
+    for (const action of ["request", "remind", "stop"] as const) {
+      const r = await api(page, "/api/admin/compliance", { method: "POST", body: { docId, action, notify: false } });
+      expect(r.status, `${action} on a retired policy`).toBe(409);
+      expect(r.body?.error).toBe("This policy is retired. Un-retire it first.");
+    }
+    expect(await ackRequired(page, docId), "nothing switched on").toBe(0);
     const view = await api(page, "/api/admin/compliance");
     expect(view.status).toBe(200);
     const row0 = (view.body?.docs ?? []).find((d: { id: number }) => d.id === docId);
@@ -792,6 +801,9 @@ test("a retired policy sits in the collapsed Retired group with its chip, count 
     await expect(back).toHaveCount(1);
     await expect(page.locator("details", { hasText: /Retired · \d+/ }).locator("li", { hasText: title })).toHaveCount(0);
     await expect(back.getByRole("button", { name: "Stop requiring" })).toBeVisible();
+    // Un-retire unmounted the button that was used; focus lands on the
+    // resumed row's disclosure button, never on <body>.
+    await expect(back.locator("button[aria-expanded]"), "focus after the un-retire toast").toBeFocused();
     const after = (await api(page, "/api/admin/compliance")).body?.docs?.find((d: { id: number }) => d.id === docId);
     expect(after?.ack_retired_at).toBeNull();
     expect(after?.acked, "the prior confirmation is current again").toBe(1);
@@ -824,7 +836,11 @@ test("a retired policy sits in the collapsed Retired group with its chip, count 
     ).toBeVisible();
     await expect(dialog).toHaveCount(0);
     expect(await ackRequired(page, docId)).toBe(0);
-    await expect(page.locator("details", { hasText: /Retired · \d+/ }).locator("li", { hasText: title })).toHaveCount(1);
+    const movedRow = page.locator("details", { hasText: /Retired · \d+/ }).locator("li", { hasText: title });
+    await expect(movedRow).toHaveCount(1);
+    // Retire unmounted the button that was used; the group opens and focus
+    // lands on the moved row's "View record", never on <body>.
+    await expect(movedRow.getByRole("link", { name: "View record" }), "focus after the retire toast").toBeFocused();
     const audited = await auditRows(page, "ack.retired", docId);
     expect(audited.length, "both retirements are on the record").toBe(2);
     expect(audited[0].details?.reason).toBe(REASON);
@@ -883,6 +899,9 @@ test("the Overview's fifth tile counts re-confirmations due in 30 days, and a po
     const row = page.locator("li", { hasText: title });
     await expect(row).toBeVisible();
     await expect(row.getByText(/· Next re-confirmation \S/)).toBeVisible();
+    // The Record tab's subtitle counts the cycle and names the cadence.
+    await page.goto(`/doc/${docId}/acknowledgements`);
+    await expect(page.getByText(/· Cycle 1 · annual$/)).toBeVisible();
 
     // The next date moved to tomorrow: the policy joins the tile's count,
     // and the Overview shows the server's number.

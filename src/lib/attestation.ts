@@ -1,7 +1,7 @@
 import "server-only";
 import { getUserByUsername } from "./db";
 import { verifyPassword } from "./password";
-import { loginRetryAfter, recordLoginFailure, recordLoginSuccess } from "./login-guard";
+import { pairRetryAfter, recordPairFailure, recordLoginSuccess } from "./login-guard";
 
 // The typed signature (C2, 1.12.0): one check shared by the read
 // confirmation route (a policy with "Require typed signature" on) and the
@@ -13,10 +13,14 @@ import { loginRetryAfter, recordLoginFailure, recordLoginSuccess } from "./login
 // What comes back is a verdict and how the signer was identified, nothing
 // else: the result never carries the typed name or the password, so a
 // caller can log it, audit it or return it without leaking either. The
-// password branch sits behind the login throttle (lib/login-guard, the
-// same username+IP counters the sign-in form uses): a signed-in session
-// must not become an unthrottled oracle for the account's password, and a
-// correct password clears the pair as a sign-in does.
+// password branch sits behind the login throttle (lib/login-guard): the
+// username+IP pair the sign-in form counts, and only that pair, never the
+// per-address spray counter (a session has a fixed username, and an office
+// signing a policy must not lock its own sign-in). A signed-in session must
+// not become an unthrottled oracle for the account's password; a correct
+// password clears the pair as a sign-in does; and a failure says whether
+// it engaged the lock, so the caller can audit that moment as the sign-in
+// form does.
 
 /**
  * How a signed row's identity was asserted. 'password': a local account
@@ -36,6 +40,8 @@ export type AttestationResult =
       code: "name" | "password" | "locked";
       /** A sentence fit for the reader; names the account's own name, never the input. */
       error: string;
+      /** True when this failure locked the username+IP pair (the caller audits auth.lockout). */
+      lock_engaged: boolean;
     };
 
 /** The longest signed name a row keeps (the training route's limit). */
@@ -69,13 +75,14 @@ export async function verifyAttestation(
       status: 409,
       code: "name",
       error: `Type your full name exactly as it appears on your account (${expected}).`,
+      lock_engaged: false,
     };
   }
 
   const record = await getUserByUsername(user.username);
   if (record?.password_hash && record.password_salt) {
     const ip = opts.ip || "unknown";
-    const wait = loginRetryAfter(user.username, ip);
+    const wait = pairRetryAfter(user.username, ip);
     if (wait > 0) {
       const minutes = Math.ceil(wait / 60);
       return {
@@ -83,16 +90,18 @@ export async function verifyAttestation(
         status: 429,
         code: "locked",
         error: `Too many failed attempts. Try again in ${minutes} minute${minutes === 1 ? "" : "s"}.`,
+        lock_engaged: false,
       };
     }
     const password = typeof input.password === "string" ? input.password : "";
     if (!verifyPassword(password, record.password_hash, record.password_salt)) {
-      recordLoginFailure(user.username, ip);
+      const lockEngaged = recordPairFailure(user.username, ip);
       return {
         ok: false,
         status: 409,
         code: "password",
         error: "Password check failed. Re-enter your account password to sign.",
+        lock_engaged: lockEngaged,
       };
     }
     recordLoginSuccess(user.username, ip);

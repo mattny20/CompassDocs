@@ -56,6 +56,14 @@ export interface AckSettingsProps {
   canViewRecord: boolean;
   /** The signed-in person, named on the line after a quiet switch-on. */
   viewerName: string;
+  /**
+   * The retirement (G3, 1.12.0). On a retired policy the switch gives way
+   * to "Retired 3 Mar 2026 · un-retire it on the Settings tab", the tab
+   * linked when the viewer may open it: Un-retire is the only way back
+   * (PATCH /ack answers 409), so the popover points there rather than
+   * offering a switch that only ends in that toast.
+   */
+  retired?: { at: string; canOpenSettings: boolean } | null;
 }
 
 /** What PATCH answers (the parts the popover reads). */
@@ -83,6 +91,7 @@ export function AckSettings({
   recertLine = null,
   canViewRecord,
   viewerName,
+  retired = null,
   onRequiredChange,
 }: AckSettingsProps & {
   /** The trigger follows the requirement (compass tint while required). */
@@ -211,14 +220,32 @@ export function AckSettings({
         <ShieldCheck className="h-3.5 w-3.5" aria-hidden /> {ACK_SETTINGS_TITLE}
       </h2>
 
-      <Toggle
-        label={REQUIRE_TOGGLE_LABEL}
-        help={toggleHelp}
-        checked={required}
-        onChange={(next) => void onToggle(next)}
-        disabled={!isPublished || saving}
-        size="full"
-      />
+      {retired ? (
+        // The retirement is an instant (ack_retired_at), so the instant
+        // formatter, as on the notices strip and the Lifecycle card.
+        <p className="text-sm text-slate-600">
+          Retired {fmt.date(retired.at)} ·{" "}
+          {retired.canOpenSettings ? (
+            <Link
+              href={`/doc/${docId}/acknowledgements/settings`}
+              className="font-medium text-compass-700 hover:underline"
+            >
+              un-retire it on the Settings tab
+            </Link>
+          ) : (
+            "un-retire it on the Settings tab"
+          )}
+        </p>
+      ) : (
+        <Toggle
+          label={REQUIRE_TOGGLE_LABEL}
+          help={toggleHelp}
+          checked={required}
+          onChange={(next) => void onToggle(next)}
+          disabled={!isPublished || saving}
+          size="full"
+        />
+      )}
 
       {status && (
         <p className="mt-2 text-xs text-slate-500">

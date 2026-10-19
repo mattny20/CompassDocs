@@ -139,8 +139,13 @@ test("the Record tab: Show filters, the people filter count, the All confirmatio
     // username matches the admin's own row and nobody else's.
     const filter = main.getByRole("textbox", { name: "Filter people" });
     await expect(filter).toBeVisible();
-    const total = await rows.count();
-    await expect(main.getByText(new RegExp(`^${total} people$`))).toBeVisible();
+    // The count is read from the control, not from the rows on the page:
+    // the roster pages at 50 and a rig with leftover accounts outgrows it,
+    // while the ListFilter counts the whole audience.
+    const countText = (await main.getByText(/^\d+ people$/).textContent()) ?? "";
+    const total = Number(countText.match(/^\d+/)![0]);
+    expect(total).toBeGreaterThanOrEqual(1);
+    expect(await rows.count()).toBeLessThanOrEqual(total);
     await filter.fill(ADMIN.username);
     await expect(main.getByText(new RegExp(`^1 of ${total} people$`))).toBeVisible();
     await expect(rows).toHaveCount(1);

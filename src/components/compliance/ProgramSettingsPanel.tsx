@@ -137,7 +137,7 @@ export function ProgramSettingsPanel({ initial }: { initial: ComplianceSettings 
       >
         <Field
           label="Default statement"
-          help="One sentence, in the reader's voice. A policy can carry its own statement once per-policy settings arrive."
+          help="One sentence, in the reader's voice. A policy can carry its own statement on the Settings tab of its Read confirmation page."
           error={errors.statement}
         >
           <Textarea

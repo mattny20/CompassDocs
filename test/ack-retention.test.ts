@@ -243,8 +243,10 @@ describe("attestation retention", () => {
     assert.notEqual(bareV2, bare.v1);
     await pool().query("UPDATE documents SET deleted_at = now() - interval '40 days' WHERE id = ANY($1)", [[id, bare.id]]);
 
-    const n = await purgeExpiredTrash(30);
-    assert.ok(n >= 1, "the sweep ran");
+    // No assertion on the count: test/ack-retire.test.ts sweeps the same
+    // Trash in parallel and may purge this file's expired document first.
+    // The rows below prove the sweep ran.
+    await purgeExpiredTrash(30);
     const stayed = await pool().query("SELECT 1 FROM documents WHERE id = $1", [id]);
     assert.equal(stayed.rows.length, 1, "a document with confirmations on record is never auto-purged: it waits for Delete forever");
     const notYet = await pool().query("SELECT 1 FROM attested_texts WHERE document_id = $1", [id]);

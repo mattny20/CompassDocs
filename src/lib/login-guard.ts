@@ -10,6 +10,13 @@ import "server-only";
 //  - 30 failures from one IP across any usernames → the IP is locked for
 //    15 minutes (catches sprays across many accounts).
 //  - Any successful login clears the username+IP pair.
+//  - The typed signature (lib/attestation, 1.12.0) counts against the
+//    username+IP pair only (recordPairFailure / pairRetryAfter below): a
+//    signed-in session has a fixed username, so the pair already bounds
+//    the oracle to 5 guesses per address, and a workforce signing a policy
+//    behind one NAT must not trip the spray counter and lock sign-in for
+//    the whole office. A pair lock engaged there holds for the sign-in
+//    form too (loginRetryAfter reads the same map).
 
 const WINDOW_MS = 15 * 60 * 1000;
 const LOCK_MS = 15 * 60 * 1000;
@@ -71,4 +78,14 @@ export function recordLoginFailure(username: string, ip: string): boolean {
 
 export function recordLoginSuccess(username: string, ip: string): void {
   pairs.delete(pairKey(username, ip));
+}
+
+/** Seconds the username+IP pair is locked for, or 0 if allowed; the IP spray lock is not consulted. */
+export function pairRetryAfter(username: string, ip: string): number {
+  return lockedFor(pairs, pairKey(username, ip), Date.now());
+}
+
+/** Record a failed attempt against the username+IP pair only. Returns true if this failure engaged the pair's lock. */
+export function recordPairFailure(username: string, ip: string): boolean {
+  return bump(pairs, pairKey(username, ip), PAIR_LIMIT, Date.now());
 }

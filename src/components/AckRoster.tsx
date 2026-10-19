@@ -160,6 +160,7 @@ export function AckRoster({
   canSeeIp,
   fmt,
   words = 0,
+  frame = true,
 }: {
   docId: number;
   /** The current view: everyone asked, with their confirmation that counts (pending first). */
@@ -172,6 +173,8 @@ export function AckRoster({
   fmt: AppSettings;
   /** The live document's word count, for the Read time threshold; 0 never flags a row. */
   words?: number;
+  /** The table in its own bordered card (the default); false where the container frames it, as the portal's expand row does. */
+  frame?: boolean;
 }) {
   const [show, setShow] = useState<Show>("all");
   const [view, setView] = useState<View>("current");
@@ -237,12 +240,13 @@ export function AckRoster({
       )}
       {pager && <div className="mb-3">{pager}</div>}
 
-      {/* overflow-hidden keeps the rounded corners; the Table's own scroll
-          wrapper carries the sideways scroll on a phone (eight columns, six
-          of them nowrap, outgrow 375px). On paper the Table drops its minimum
-          width and the wrapper its scroll, so the far columns are not clipped
-          by this card on a portrait page. */}
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-surface shadow-xs">
+      {/* overflow-hidden keeps the rounded corners (frameless, it keeps the
+          Table's scroll wrapper inside the row); that wrapper carries the
+          sideways scroll on a phone (eight columns, six of them nowrap,
+          outgrow 375px). On paper the Table drops its minimum width and the
+          wrapper its scroll, so the far columns are not clipped by this card
+          on a portrait page. */}
+      <div className={frame ? "overflow-hidden rounded-xl border border-slate-200 bg-surface shadow-xs" : "overflow-hidden bg-surface"}>
         {nobody ? (
           <SectionEmpty className="px-4 py-6">{NOBODY_ASKED}</SectionEmpty>
         ) : nothingRecorded ? (
@@ -252,7 +256,7 @@ export function AckRoster({
           </SectionEmpty>
         ) : visible.length === 0 ? (
           <SectionEmpty className="px-4 py-6">
-            {needle ? `No people match "${filter.trim()}".` : show === "pending" ? "Nobody is pending: everyone asked has confirmed." : "Nobody has confirmed the current version yet."}
+            {needle ? "No people match your filter." : show === "pending" ? "Nobody is pending: everyone asked has confirmed." : "Nobody has confirmed the current version yet."}
           </SectionEmpty>
         ) : ledgerView ? (
           <LedgerTable rows={slice as AckLedgerViewRow[]} canSeeIp={canSeeIp} fmt={fmt} words={words} />

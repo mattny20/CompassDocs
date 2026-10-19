@@ -252,10 +252,12 @@ export function AckCard({
     .filter(Boolean)
     .join(" · ");
   // The policy's dates (G1): the day it came into force and how often it
-  // asks again; null when it has neither, and then no line.
+  // asks again; null when it has neither, and then no line. The effective
+  // date is a calendar day ('YYYY-MM-DD'), so the day formatter: the
+  // instant formatter would print the day before in any zone west of UTC.
   const recertLine = recertMetaLine(
     { ack_effective_at: effectiveAt, ack_recert_months: recertMonths, ack_next_recert_at: null },
-    fmt.date
+    fmt.day
   );
 
   const signedClause = signedAs ? `, signed as ${signedAs}` : "";
@@ -372,9 +374,11 @@ export function AckCard({
                 </p>
               )}
               {/* The statement as Markdown, at the card's own size (the
-                  prose recipe is the document's; this is one sentence). */}
+                  prose recipe is the document's; this is one sentence).
+                  Inline-only: emphasis, a link, code; never an image, an
+                  embed, a directive or a task list in what a reader signs. */}
               <div className="mt-2 max-w-md text-sm text-slate-600 [&_.doc-prose]:text-sm [&_.doc-prose]:leading-6 [&_.doc-prose]:text-slate-600 [&_.doc-prose_p]:my-0">
-                <MarkdownView content={statement} docKey={`ack-statement-${docId}`} />
+                <MarkdownView content={statement} docKey={`ack-statement-${docId}`} inline />
               </div>
               {metaLine && <p className="mt-1 text-xs text-slate-500">{metaLine}</p>}
               {recertLine && <p className="mt-0.5 text-xs text-slate-500">{recertLine}</p>}

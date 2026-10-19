@@ -1,7 +1,8 @@
 // The confirmation-marker upgrade against a database shaped like 1.9.4,
-// booted twice (A1/C5 double-boot idempotency), and the 1.10.1 additions
+// booted twice (A1/C5 double-boot idempotency), the 1.10.1 additions
 // against a database shaped like 1.10.0, booted twice (the path every real
-// upgrade takes).
+// upgrade takes), and the 1.12.0 columns and indexes (G1, C2, G3) against a
+// database shaped like 1.11.x, booted twice.
 //
 // The trap this pins: the marker must be backfilled from updated_at so that
 // every confirmation 1.9.x showed as current is still current after the
@@ -187,11 +188,16 @@ async function assertSchema1101(db: Client, label: string) {
         "idx_documents_space",
         "idx_documents_search",
         "idx_ra_user_space",
+        // 1.12.0 (G3): the partial indexes under the two SET NULL references.
+        "idx_documents_ack_retired_by",
+        "idx_documents_ack_superseded_by",
       ],
     ]
   );
+  // Sorted here, not by the database: the expected order must not depend
+  // on the rig's collation.
   assert.deepEqual(
-    indexes.rows.map((r) => r.indexname),
+    indexes.rows.map((r) => r.indexname).sort(),
     [
       "idx_ack_notices_by_user",
       "idx_ack_notices_doc_user_kind",
@@ -199,11 +205,23 @@ async function assertSchema1101(db: Client, label: string) {
       "idx_ack_outbox_due",
       "idx_doc_versions_approved_by",
       "idx_doc_versions_published_by",
+      "idx_documents_ack_retired_by",
+      "idx_documents_ack_superseded_by",
       "idx_documents_search",
       "idx_documents_space",
       "idx_ra_user_space",
     ],
     `${label}: the indexes exist`
+  );
+  // The OID 1082 text parser in lib/db is process-wide: it must reach
+  // exactly one column, so a later `date` column is read as text on purpose.
+  const dates = await db.query<{ c: string }>(
+    "SELECT table_name || '.' || column_name AS c FROM information_schema.columns WHERE table_schema = current_schema() AND data_type = 'date' ORDER BY 1"
+  );
+  assert.deepEqual(
+    dates.rows.map((r) => r.c),
+    ["documents.ack_effective_at"],
+    `${label}: the OID 1082 text parser reaches exactly one column; a new date column must be read as text on purpose`
   );
   const trigger = await db.query(
     "SELECT 1 FROM pg_trigger WHERE tgrelid = 'users'::regclass AND tgname = 'compass_users_ladder_sync' AND NOT tgisinternal"
@@ -456,7 +474,21 @@ describe("confirmation marker upgrade (1.9.4 → 1.10.1), booted twice", () => {
     );
   });
 
-  test("the 1.12.0 retirement columns (G3) are in place after the upgrade: nullable stamps, empty-string snapshots, and references that SET NULL", async () => {
+  test("1.12.0 (G3): the retirement columns, their SET NULL references and the two partial indexes come back on an upgrade boot, every existing document stays unretired, a retirement set between boots survives, and a second boot moves nothing", async () => {
+    // A database shaped like 1.11.x: the five columns gone (their two
+    // foreign keys and the two partial indexes go with them).
+    await db.query(`
+      ALTER TABLE documents
+        DROP COLUMN IF EXISTS ack_retired_at,
+        DROP COLUMN IF EXISTS ack_retired_by,
+        DROP COLUMN IF EXISTS ack_retired_by_name,
+        DROP COLUMN IF EXISTS ack_retired_reason,
+        DROP COLUMN IF EXISTS ack_superseded_by;
+    `);
+    const upgrade = boot(DB);
+    assert.ok(upgrade.ok, `the upgrade boot succeeds:\n${upgrade.out}`);
+    await assertSchema1101(db, "1.12.0 (G3) upgrade boot");
+
     const columns = await db.query<{ column_name: string; data_type: string; is_nullable: string; column_default: string | null }>(
       `SELECT column_name, data_type, is_nullable, column_default FROM information_schema.columns
        WHERE table_schema = current_schema() AND table_name = 'documents'
@@ -476,23 +508,66 @@ describe("confirmation marker upgrade (1.9.4 → 1.10.1), booted twice", () => {
     );
     // A deleted account or a purged replacement clears the reference; the
     // retirement itself (the stamp, the name, the reason) is never cascaded.
-    const fks = await db.query<{ conname: string; confdeltype: string; ref: string }>(
-      `SELECT conname, confdeltype, confrelid::regclass::text AS ref FROM pg_constraint
-       WHERE conrelid = 'documents'::regclass AND contype = 'f'
-         AND conname IN ('documents_ack_retired_by_fkey', 'documents_ack_superseded_by_fkey')
-       ORDER BY conname`
-    );
-    assert.deepEqual(
-      fks.rows.map((r) => [r.conname, r.confdeltype, r.ref]),
-      [
-        ["documents_ack_retired_by_fkey", "n", "users"],
-        ["documents_ack_superseded_by_fkey", "n", "documents"],
-      ],
-      "both references are ON DELETE SET NULL"
-    );
+    const fks = async () =>
+      (
+        await db.query<{ conname: string; confdeltype: string; ref: string }>(
+          `SELECT conname, confdeltype, confrelid::regclass::text AS ref FROM pg_constraint
+           WHERE conrelid = 'documents'::regclass AND contype = 'f'
+             AND conname IN ('documents_ack_retired_by_fkey', 'documents_ack_superseded_by_fkey')
+           ORDER BY conname`
+        )
+      ).rows.map((r) => [r.conname, r.confdeltype, r.ref]);
+    const expectedFks = [
+      ["documents_ack_retired_by_fkey", "n", "users"],
+      ["documents_ack_superseded_by_fkey", "n", "documents"],
+    ];
+    assert.deepEqual(await fks(), expectedFks, "both references are ON DELETE SET NULL");
     // The upgrade left every existing document unretired.
     const retired = await db.query("SELECT COUNT(*)::int AS n FROM documents WHERE ack_retired_at IS NOT NULL OR ack_required IS NULL");
     assert.equal(retired.rows[0].n, 0);
+
+    // A retirement set between boots (what retirePolicy writes, done by hand
+    // so the boot is the only code under test) survives the next boot
+    // untouched, references and all.
+    const [policy, replacement] = (await db.query<{ id: number }>("SELECT id FROM documents WHERE ack_required = 1 ORDER BY id LIMIT 2")).rows.map(
+      (r) => r.id
+    );
+    assert.ok(policy && replacement, "two fixture policies require confirmation");
+    const manager = (await db.query<{ id: number }>("SELECT id FROM users WHERE username = 'boot_late'")).rows[0].id;
+    await db.query(
+      `UPDATE documents
+         SET ack_required = 0, ack_retired_at = '2026-05-01T09:00:00Z', ack_retired_by = $2, ack_retired_by_name = 'Late Reader',
+             ack_retired_reason = 'Superseded by hand', ack_superseded_by = $3
+       WHERE id = $1`,
+      [policy, manager, replacement]
+    );
+    const second = boot(DB);
+    assert.ok(second.ok, `the second boot succeeds:\n${second.out}`);
+    const kept = await db.query<{
+      ack_required: number;
+      ack_retired_at: Date;
+      ack_retired_by: number;
+      ack_retired_by_name: string;
+      ack_retired_reason: string;
+      ack_superseded_by: number;
+    }>(
+      "SELECT ack_required, ack_retired_at, ack_retired_by, ack_retired_by_name, ack_retired_reason, ack_superseded_by FROM documents WHERE id = $1",
+      [policy]
+    );
+    const { ack_retired_at, ...rest } = kept.rows[0];
+    assert.equal(new Date(ack_retired_at).toISOString(), "2026-05-01T09:00:00.000Z", "the stamp is as written");
+    assert.deepEqual(
+      rest,
+      { ack_required: 0, ack_retired_by: manager, ack_retired_by_name: "Late Reader", ack_retired_reason: "Superseded by hand", ack_superseded_by: replacement },
+      "the retirement is as written"
+    );
+    assert.deepEqual(await fks(), expectedFks, "the references are still there");
+    assert.equal(
+      (await db.query("SELECT COUNT(*)::int AS n FROM documents WHERE ack_retired_at IS NOT NULL")).rows[0].n,
+      1,
+      "no other document was retired"
+    );
+    await assertSchema1101(db, "1.12.0 (G3) second boot");
   });
 });
 

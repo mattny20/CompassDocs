@@ -19,7 +19,9 @@ export const dynamic = "force-dynamic";
 // The same guards as POST /ack/retire, then 409 when the policy is not
 // retired. Answers { ok, current, eligible }: the confirmations that count
 // now, of the audience now, for the toast "Policy resumed: 42 of 50
-// confirmations still current".
+// confirmations still current". The audit row also names the replacement
+// the UPDATE cleared (superseded_by_cleared, null when there was none), as
+// the ack.retired row names the one that was set.
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const gate = await apiGuard("viewer");
   if (gate instanceof NextResponse) return gate;
@@ -60,7 +62,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     ip: ipFrom(req),
     version_id: doc.ack_version_id,
     source: "manual",
-    details: { current: result.current, eligible: result.eligible },
+    details: { current: result.current, eligible: result.eligible, superseded_by_cleared: doc.ack_superseded_by },
   });
   return NextResponse.json({ ok: true, current: result.current, eligible: result.eligible });
 }

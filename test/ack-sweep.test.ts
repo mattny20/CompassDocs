@@ -3,8 +3,10 @@
 // row and one notice, and leaves unpublished, retired and not-yet-due
 // policies alone; the first cycle of a newly set interval lands 14 days out
 // when the marker is older than the interval; every reset moves the next
-// date and a keep leaves it; the workspace default interval lands on the
-// first switch-on; and the pure rules and copy in lib/ack-recert.
+// date and a keep leaves it; a switch-on after a stop moves a next date
+// that passed meanwhile, as un-retire does; the workspace default interval
+// lands on the first switch-on; and the pure rules and copy in
+// lib/ack-recert.
 //
 // Run: DATABASE_URL=… npx tsx --tsconfig ./tsconfig.test.json --test test/ack-sweep.test.ts
 
@@ -124,6 +126,35 @@ function assertNear(actual: string | null, expected: Date, ms: number, label: st
 
 const manager = () => ({ id: null, name: "Sweep Manager" });
 
+/**
+ * Hold the document's row FOR UPDATE on a connection of its own while `run`
+ * starts, so every UPDATE `run` issues against the row queues on the lock;
+ * release it 300ms later and answer what `run` resolved to. `run` must
+ * still be pending when the lock goes: that is what proves the overlap.
+ */
+async function withRowHeld<T>(id: number, run: () => Promise<T>, label: string): Promise<T> {
+  const holder = await pool().connect();
+  try {
+    await holder.query("BEGIN");
+    await holder.query("SELECT 1 FROM documents WHERE id = $1 FOR UPDATE", [id]);
+    let settled = false;
+    const pending = run();
+    pending.then(
+      () => void (settled = true),
+      () => void (settled = true)
+    );
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(settled, false, `${label}: still queued on the row lock when it is released`);
+    await holder.query("COMMIT");
+    return await pending;
+  } catch (e) {
+    await holder.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    holder.release();
+  }
+}
+
 before(async () => {
   await getSetting("__schema_bootstrap__");
   const sp = await fixtureQuery(
@@ -158,9 +189,15 @@ describe("the re-confirmation sweep", () => {
     assert.ok(await getCurrentAck(id, readerId), "the reader is current before the cycle");
 
     // Two instances' hourly ticks at once, each in its own transaction on
-    // the shared pool: the second's UPDATE waits on the row lock, re-reads
-    // the next date the first moved and matches nothing.
-    const [a, b] = await Promise.all([recertifyDueAcks({ documentIds: [id] }), recertifyDueAcks({ documentIds: [id] })]);
+    // the shared pool. A third connection holds the row until both have
+    // reached their UPDATE, so the two claims really overlap: the first to
+    // get the lock moves the next date, the second re-reads the row as
+    // updated (READ COMMITTED), re-evaluates RECERT_DUE and matches nothing.
+    const [a, b] = await withRowHeld(
+      id,
+      () => Promise.all([recertifyDueAcks({ documentIds: [id] }), recertifyDueAcks({ documentIds: [id] })]),
+      "two sweeps"
+    );
     assert.equal(a.cycles + b.cycles, 1, `one cycle between the two sweeps (${a.cycles} + ${b.cycles})`);
 
     const decisions = await listAckDecisions(id);
@@ -388,6 +425,31 @@ describe("the stored next date", () => {
       own.release();
     }
     assert.deepEqual([(await recertRow(plain)).ack_recert_months, (await recertRow(plain)).ack_next_recert_at], [null, null]);
+  });
+
+  test("a switch-on after a stop moves a next date that passed meanwhile to now + interval (un-retire's rule), so no cycle fires on top of the request; a date still ahead stands", async () => {
+    const { id } = await confirmedPolicy(`${STAMP} stop and request`);
+    await setAckRecert(id, { recert_months: 12 });
+    await setAckRequired(id, false);
+    // The cycle fell due while the requirement was off: the sweep leaves a
+    // stopped policy alone, so the date is simply stale when it comes back.
+    await pool().query("UPDATE documents SET ack_next_recert_at = now() - interval '1 minute' WHERE id = $1", [id]);
+    assert.equal((await recertifyDueAcks({ documentIds: [id] })).cycles, 0, "stopped: the sweep waits");
+    const on = await setAckRequired(id, true, { editDefault: null, recertMonths: null });
+    assert.equal(on.switched_on, true);
+    const row = await recertRow(id);
+    assert.equal(row.ack_recert_months, 12, "the policy's own interval stands");
+    assertNear(row.ack_next_recert_at, addMonths(new Date(), 12), 60_000, "the stale date moved out a whole interval");
+    assert.equal((await recertifyDueAcks({ documentIds: [id] })).cycles, 0, "nothing fires at the next tick");
+    assert.equal((await listAckDecisions(id)).length, 0, "no ledger row");
+    assert.equal((await pendingAckOutboxFor(id)).length, 0, "no notice");
+
+    // Off and on with a date still ahead: untouched.
+    const ahead = new Date(Date.now() + 10 * DAY).toISOString();
+    await pool().query("UPDATE documents SET ack_next_recert_at = $2 WHERE id = $1", [id, ahead]);
+    await setAckRequired(id, false);
+    assert.equal((await setAckRequired(id, true, { editDefault: null, recertMonths: null })).switched_on, true);
+    assert.equal((await recertRow(id)).ack_next_recert_at, ahead, "a future date stands");
   });
 });
 

@@ -93,15 +93,38 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     // accounts) the account password before the confirmation is recorded.
     // The check is lib/attestation's, shared with the read confirmation
     // route (C2, 1.12.0); this route keeps its own two sentences and the
-    // helper's for the throttle it gained with the extraction.
+    // helper's for the throttle it gained with the extraction. A wrong
+    // password is audited as the sign-in form audits a miss
+    // (auth.login_failed with `via: "attestation"`, and auth.lockout when
+    // it engaged the throttle), against the deck; `signed` never carries
+    // the password.
     let signedName: string | null = null;
     if (assignment.require_signature === 1) {
-      const signed = await verifyAttestation(
-        user,
-        { signed_name: body.typed_name, password },
-        { ip: ipFrom(req) }
-      );
+      const ip = ipFrom(req);
+      const signed = await verifyAttestation(user, { signed_name: body.typed_name, password }, { ip });
       if (!signed.ok) {
+        if (signed.code === "password") {
+          await audit({
+            actor: actorFrom(user),
+            action: "auth.login_failed",
+            targetType: "document",
+            targetId: assignment.document_id,
+            targetLabel: assignment.title,
+            details: { via: "attestation" },
+            ip,
+          });
+          if (signed.lock_engaged) {
+            await audit({
+              actor: actorFrom(user),
+              action: "auth.lockout",
+              targetType: "document",
+              targetId: assignment.document_id,
+              targetLabel: assignment.title,
+              details: { minutes: 15 },
+              ip,
+            });
+          }
+        }
         const expected = user.name || user.username;
         const error =
           signed.code === "name"

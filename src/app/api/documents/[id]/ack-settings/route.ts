@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getDocument, getAckSettings, updateAckSettings, getAckRecert, setAckRecert, setSupersededBy } from "@/lib/db";
 import type { AckSettingsPatch } from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
-import { spaceScopeFor, scopeAllows, userHolds } from "@/lib/access";
+import { spaceScopeFor, scopeAllows, canSeeDrafts, userHolds } from "@/lib/access";
 import { featureEnabled } from "@/lib/ee";
 import { auditAck, actorFrom, ipFrom } from "@/lib/audit";
 import { getComplianceSettings } from "@/lib/compliance-settings";
@@ -25,14 +25,18 @@ export const dynamic = "force-dynamic";
 //          recert_months, next_recert_at, effective_at, marker, recert_default,
 //          superseded_by, superseded_by_title }
 // PATCH { any subset of the settable fields } → the same shape, read after
-//       the write; 400 naming the first problem; one ack.settings_changed
-//       audit row per PATCH that changed something, with the fields it moved.
+//       the write; 400 naming the first problem, before anything is
+//       written; one ack.settings_changed audit row per PATCH that changed
+//       something, with the fields it moved.
 //
-// Guards: apiGuard('approver', 'document.ack_require') admits a holder of
-// the space-scoped key from any space, so the key is checked again on the
-// document's own space, or compliance.program_manage (the Settings tab's
-// own gate): 403 otherwise. The document must be in the caller's scope
-// (404) and the feature licensed (402).
+// Guards, in the order of the sibling routes (retire, unretire, reconfirm):
+// session and CSRF (apiGuard('viewer')), the caller's space scope (404, so
+// a hidden document stays hidden), the draft rule (404 for a draft the
+// caller may not read), the licence (402), then document.ack_require on
+// the document's own space OR compliance.program_manage (403; the Settings
+// tab's own gate, and apiGuard takes one permission, so the OR is written
+// out). The replacement's title is answered under the same scope and draft
+// rule, so a title never crosses space scope.
 
 /** The longest per-policy statement; the card renders it through MarkdownView. */
 const STATEMENT_MAX = 500;
@@ -78,13 +82,16 @@ const FIELDS: { [K in keyof SettingsPatch]-?: Check<SettingsPatch[K]> } = {
 };
 
 async function gated(params: Promise<{ id: string }>) {
-  const gate = await apiGuard("approver", "document.ack_require");
+  const gate = await apiGuard("viewer");
   if (gate instanceof NextResponse) return { denied: gate };
   const user = gate as SessionUser;
 
   const { id } = await params;
   const doc = await getDocument(Number(id));
   if (!doc || !scopeAllows(await spaceScopeFor(user), doc.space_id)) {
+    return { denied: NextResponse.json({ error: "Not found." }, { status: 404 }) };
+  }
+  if (doc.status === "draft" && !(await canSeeDrafts(user, doc.space_id))) {
     return { denied: NextResponse.json({ error: "Not found." }, { status: 404 }) };
   }
   if (!(await featureEnabled("policy_ack"))) {
@@ -101,14 +108,23 @@ async function gated(params: Promise<{ id: string }>) {
   return { user, doc };
 }
 
-/** The replacement's title, for the form's chip; null when none is set or it was moved to the Trash. */
-async function supersededTitle(id: number | null): Promise<string | null> {
+/**
+ * The replacement's title for the form's chip, under the caller's own scope
+ * and draft rule (the id is answered as the row holds it, so the chip falls
+ * back to "Document #id"): null when none is set, when it was moved to the
+ * Trash, or when the caller may not see it. setSupersededBy judged the
+ * target against the scope of whoever set it, not of whoever reads it.
+ */
+async function supersededTitle(id: number | null, user: SessionUser): Promise<string | null> {
   if (id === null) return null;
-  return (await getDocument(id))?.title ?? null;
+  const replacement = await getDocument(id);
+  if (!replacement || !scopeAllows(await spaceScopeFor(user), replacement.space_id)) return null;
+  if (replacement.status === "draft" && !(await canSeeDrafts(user, replacement.space_id))) return null;
+  return replacement.title;
 }
 
 /** The document's settings as the form reads them: every settable field plus what it needs to show them. */
-async function answer(docId: number) {
+async function answer(docId: number, user: SessionUser) {
   const [settings, recert, doc, program] = await Promise.all([
     getAckSettings(docId),
     getAckRecert(docId),
@@ -128,14 +144,14 @@ async function answer(docId: number) {
     /** The workspace's interval (Program settings): the Select suffixes it "(workspace default)". */
     recert_default: program.ack_defaults.recert_months,
     superseded_by: supersededBy,
-    superseded_by_title: await supersededTitle(supersededBy),
+    superseded_by_title: await supersededTitle(supersededBy, user),
   };
 }
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { denied, doc } = await gated(params);
-  if (denied || !doc) return denied!;
-  return NextResponse.json(await answer(doc.id), { headers: { "Cache-Control": "no-store" } });
+  const { denied, user, doc } = await gated(params);
+  if (denied || !user || !doc) return denied!;
+  return NextResponse.json(await answer(doc.id, user), { headers: { "Cache-Control": "no-store" } });
 }
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -160,12 +176,40 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     return NextResponse.json({ error: `Send one of: ${Object.keys(FIELDS).join(", ")}.` }, { status: 400 });
   }
 
+  const { statement, signature, recert_months, next_recert_at, effective_at, superseded_by } = patch;
+
+  // Everything that can still be refused is judged before anything is
+  // written, so a 400 means nothing changed: a next date on a policy that
+  // has no interval (and is given none here) has nothing to fire, and the
+  // replacement is judged by setSupersededBy itself, which writes only
+  // when the target passes (published, live, in the caller's scope). Past
+  // this point no setter refuses, so every write below reaches the audit
+  // row at the end.
+  if (typeof next_recert_at === "string") {
+    const months =
+      recert_months !== undefined ? recert_months : ((await getAckRecert(doc.id))?.ack_recert_months ?? null);
+    if (months === null) {
+      return NextResponse.json({ error: "Set an interval before a next re-confirmation date." }, { status: 400 });
+    }
+  }
+
   // The audit row names what moved: every field is compared before and
   // after, and a PATCH that changes nothing writes no row.
   const details: Record<string, unknown> = {};
   let changed = false;
 
-  const { statement, signature, recert_months, next_recert_at, effective_at, superseded_by } = patch;
+  if (superseded_by !== undefined) {
+    // The target must be a published, live document in the caller's own
+    // scope: a manager cannot point readers at a document they may not see.
+    const r = await setSupersededBy(doc.id, superseded_by, await spaceScopeFor(user));
+    if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
+    const supersededChanged = r.from !== r.to;
+    details.superseded_by_changed = supersededChanged;
+    details.superseded_by_from = r.from;
+    details.superseded_by_to = r.to;
+    changed = changed || supersededChanged;
+  }
+
   if (statement !== undefined || signature !== undefined) {
     const before = (await getAckSettings(doc.id)) ?? { statement: null, signature: false };
     const after = (await updateAckSettings(doc.id, { statement, signature })) ?? before;
@@ -196,18 +240,6 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       before?.ack_effective_at !== after?.ack_effective_at;
   }
 
-  if (superseded_by !== undefined) {
-    // The target must be a published, live document in the caller's own
-    // scope: a manager cannot point readers at a document they may not see.
-    const r = await setSupersededBy(doc.id, superseded_by, await spaceScopeFor(user));
-    if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
-    const supersededChanged = r.from !== r.to;
-    details.superseded_by_changed = supersededChanged;
-    details.superseded_by_from = r.from;
-    details.superseded_by_to = r.to;
-    changed = changed || supersededChanged;
-  }
-
   if (changed) {
     await auditAck("ack.settings_changed", doc, {
       actor: actorFrom(user),
@@ -216,5 +248,5 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       details,
     });
   }
-  return NextResponse.json({ ok: true, ...(await answer(doc.id)) });
+  return NextResponse.json({ ok: true, ...(await answer(doc.id, user)) });
 }

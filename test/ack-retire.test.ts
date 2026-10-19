@@ -82,9 +82,10 @@ async function policy(title: string, opts: { confirm?: boolean; status?: "publis
     author: "test",
   });
   docIds.push(doc.id);
-  // editDefault null: leave the column at 'ask' rather than reading the
-  // workspace setting, which another test file may be writing.
-  await setAckRequired(doc.id, true, { editDefault: null });
+  // Both null: leave the edit default and the interval columns alone rather
+  // than read the workspace settings row, which another test file may be
+  // writing (a default interval there would give the fixture a cycle).
+  await setAckRequired(doc.id, true, { editDefault: null, recertMonths: null });
   const v1 = (await listVersions(doc.id))[0].id;
   if (opts.confirm !== false) await recordAcknowledgement(doc.id, readerId, "", v1);
   return { id: doc.id, v1 };
@@ -398,8 +399,10 @@ describe("the Trash keeps the evidence", () => {
     assert.equal(plainRow.ack_count, 0);
     assert.equal(plainRow.ack_retired_at, null);
 
-    const n = await purgeExpiredTrash(30);
-    assert.ok(n >= 1, "the sweep ran");
+    // No assertion on the count: test/ack-retention.test.ts sweeps the same
+    // Trash in parallel and may purge this file's expired document first.
+    // The rows below prove the sweep ran.
+    await purgeExpiredTrash(30);
     const after = await pool().query("SELECT id FROM documents WHERE id = ANY($1) ORDER BY id", [[kept.id, plain.id]]);
     assert.deepEqual(after.rows.map((r) => r.id), [kept.id], "the policy with a record stays; the plain document is gone");
     const record = await pool().query("SELECT COUNT(*)::int AS n FROM acknowledgements WHERE document_id = $1", [kept.id]);

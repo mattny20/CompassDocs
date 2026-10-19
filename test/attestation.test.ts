@@ -13,6 +13,7 @@ import assert from "node:assert/strict";
 import { pool, getSetting } from "../src/lib/db";
 import { hashPassword } from "../src/lib/password";
 import { verifyAttestation, nameKey, signedNameFrom, SIGNED_NAME_MAX } from "../src/lib/attestation";
+import { loginRetryAfter } from "../src/lib/login-guard";
 import { fixtureQuery } from "./support/retry";
 
 const STAMP = `attest-${Date.now()}`;
@@ -134,26 +135,55 @@ describe("local and SSO accounts", () => {
     assert.deepEqual(typedOnly, { ok: true, identity_proof: "typed_name_only" });
   });
 
-  test("the password branch sits behind the sign-in throttle: five wrong passwords lock the username and address, and the lock refuses the right one too", async () => {
+  test("the password branch sits behind the sign-in throttle: five wrong passwords lock the username and address (the fifth says so), and the lock refuses the right one too", async () => {
     const user = await newUser("locked", "Lock Smith", { password: PASSWORD });
-    // An address of this test's own: the throttle is keyed on username+IP,
-    // and the IP counter spans every username, so nothing here can lock
-    // another test's pair.
+    // An address of this test's own: the throttle is keyed on username+IP
+    // (the pair only: the signature never feeds the sign-in form's per-IP
+    // spray counter), so nothing here can lock another test's pair.
     const ip = { ip: "203.0.113.14" };
     for (let i = 0; i < 5; i++) {
       const r = await verifyAttestation(user, { signed_name: "Lock Smith", password: `wrong-${i}` }, ip);
       assert.equal(r.ok, false);
-      if (!r.ok) assert.equal(r.status, 409, `attempt ${i + 1} is a plain refusal`);
+      if (!r.ok) {
+        assert.equal(r.status, 409, `attempt ${i + 1} is a plain refusal`);
+        assert.equal(r.lock_engaged, i === 4, `attempt ${i + 1}: only the fifth failure engages the lock`);
+      }
     }
     const locked = await verifyAttestation(user, { signed_name: "Lock Smith", password: PASSWORD }, ip);
     assert.equal(locked.ok, false, "the right password is refused while the lock holds");
     if (!locked.ok) {
       assert.equal(locked.status, 429);
       assert.equal(locked.code, "locked");
+      assert.equal(locked.lock_engaged, false, "a refusal under the lock did not engage it");
       assert.match(locked.error, /^Too many failed attempts\. Try again in \d+ minutes?\.$/);
     }
+    // The sign-in form reads the same pair: the lock holds there too.
+    assert.ok(loginRetryAfter(user.username, ip.ip) > 0, "the sign-in form is locked for the same pair");
     // Another address for the same account is a different pair: not locked.
     const elsewhere = await verifyAttestation(user, { signed_name: "Lock Smith", password: PASSWORD }, { ip: "203.0.113.15" });
     assert.equal(elsewhere.ok, true);
+    // A wrong name is not a password guess: it never counts and never engages anything.
+    const wrongName = await verifyAttestation(user, { signed_name: "Someone Else", password: PASSWORD }, { ip: "203.0.113.16" });
+    assert.equal(wrongName.ok, false);
+    if (!wrongName.ok) assert.deepEqual([wrongName.code, wrongName.lock_engaged], ["name", false]);
+  });
+
+  test("the throttle counts the username+IP pair only: after one account's five failures, another account on the same address still signs, and the address is not locked for sign-in", async () => {
+    const first = await newUser("pair-a", "Pair Alpha", { password: PASSWORD });
+    const second = await newUser("pair-b", "Pair Beta", { password: PASSWORD });
+    // One shared address, as an office behind one NAT signs a policy.
+    const ip = "203.0.113.17";
+    for (let i = 0; i < 5; i++) {
+      const r = await verifyAttestation(first, { signed_name: "Pair Alpha", password: `wrong-${i}` }, { ip });
+      assert.equal(r.ok, false);
+    }
+    const alphaLocked = await verifyAttestation(first, { signed_name: "Pair Alpha", password: PASSWORD }, { ip });
+    assert.equal(alphaLocked.ok, false, "the first account's pair is locked");
+    if (!alphaLocked.ok) assert.equal(alphaLocked.status, 429);
+
+    const beta = await verifyAttestation(second, { signed_name: "Pair Beta", password: PASSWORD }, { ip });
+    assert.deepEqual(beta, { ok: true, identity_proof: "password" }, "the second account on the same address signs");
+    assert.equal(loginRetryAfter(second.username, ip), 0, "and can sign in: the address itself was never counted");
+    assert.ok(loginRetryAfter(first.username, ip) > 0, "while the first account's pair stays locked");
   });
 });

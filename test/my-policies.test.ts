@@ -1,8 +1,9 @@
 // My policies (B4, 1.12.0): what one person is asked to confirm, read four
 // ways from one document predicate. listMyPolicies lists every policy in
 // the person's scope with where they stand ('pending', 'reconfirm',
-// 'confirmed'), to-confirm rows first and then the most recently asked;
-// countPendingAcksFor is the sidebar badge and equals the pending rows;
+// 'confirmed'), to-confirm rows first and then the most recently changed
+// (updated_at, the date each row prints); countPendingAcksFor is the
+// sidebar badge and equals the pending rows;
 // listPendingAcksFor (the dashboard row, unlimited since 1.12.0) names the
 // same documents; hasPolicyInScope is the nav gate, one EXISTS over the
 // person's space scope. A paused policy (unpublished), a retired one
@@ -53,7 +54,10 @@ async function newPolicy(title: string, space = spaceId): Promise<{ id: number; 
     tags: [],
     author: "test",
   });
-  await setAckRequired(doc.id, true, { editDefault: null });
+  // Both null: leave the edit default and the interval columns alone rather
+  // than read the workspace settings row, which another test file may be
+  // writing (a default interval there would give the fixture a cycle).
+  await setAckRequired(doc.id, true, { editDefault: null, recertMonths: null });
   docIds.push(doc.id);
   return { id: doc.id, v1: (await listVersions(doc.id))[0].id };
 }
@@ -111,7 +115,7 @@ after(async () => {
 });
 
 describe("listMyPolicies: one person's standing on every policy in scope", () => {
-  test("states and order: to-confirm first, newest ask first, then the confirmed ones", async () => {
+  test("states and order: to-confirm first, most recently changed first, then the confirmed ones", async () => {
     const pending = await newPolicy(`${STAMP} pending`);
     const confirmed = await newPolicy(`${STAMP} confirmed`);
     await recordAcknowledgement(confirmed.id, readerId, "", confirmed.v1);
@@ -123,7 +127,7 @@ describe("listMyPolicies: one person's standing on every policy in scope", () =>
     assert.deepEqual(
       rows.map((r) => r.id),
       [reconfirm.id, pending.id, confirmed.id],
-      "the re-ask's marker is the newest, then the never-confirmed one, then the confirmed one"
+      "the re-asked one was saved last, then the never-confirmed one, then the confirmed one"
     );
     const byId = new Map(rows.map((r) => [r.id, r]));
 
@@ -173,7 +177,7 @@ describe("listMyPolicies: one person's standing on every policy in scope", () =>
     assert.deepEqual(
       dashboard.map((d) => d.id),
       toConfirm,
-      "and in the same order: newest ask first"
+      "and in the same order here: the dashboard lists the newest ask first, the page the most recently changed, which coincide for this fixture"
     );
     // The editor has confirmed nothing: everything is pending for them.
     assert.equal(await countPendingAcksFor(editorId, asScope([spaceId])), rows.length);
@@ -226,5 +230,30 @@ describe("listMyPolicies: one person's standing on every policy in scope", () =>
     assert.ok(wider.some((r) => r.id === elsewhere.id), "and appears once the scope includes its space");
     assert.equal(wider.find((r) => r.id === elsewhere.id)!.state, "pending");
     assert.equal(await hasPolicyInScope(readerId, asScope([otherSpaceId])), true);
+  });
+
+  test("21 required policies: the badge, the dashboard row (no LIMIT since 1.12.0) and the page agree, and the to-confirm group is ordered by updated_at", async () => {
+    const many: number[] = [];
+    for (let i = 1; i <= 21; i++) many.push((await newPolicy(`${STAMP} many ${String(i).padStart(2, "0")}`)).id);
+    // The first of them saved again last: it leads the group although its
+    // ask (ack_revision_at) is the oldest of the 21.
+    await fixtureQuery("UPDATE documents SET updated_at = now() + interval '1 minute' WHERE id = $1", [many[0]]);
+
+    const scope = asScope([spaceId]);
+    const count = await countPendingAcksFor(readerId, scope);
+    assert.ok(count >= 21, `at least the 21 new policies are pending (${count})`);
+    const dashboard = await listPendingAcksFor(readerId, scope);
+    assert.equal(dashboard.length, count, "the dashboard row is not capped");
+    assert.ok(many.every((id) => dashboard.some((d) => d.id === id)), "all 21 are in the dashboard row");
+
+    const rows = await mine(scope);
+    const toConfirm = rows.filter((r) => r.state !== "confirmed");
+    assert.equal(toConfirm.length, count, "the page lists every pending policy");
+    assert.ok(many.every((id) => rows.some((r) => r.id === id)), "all 21 are on the page");
+    assert.equal(toConfirm[0].id, many[0], "the most recently changed policy leads the group");
+    const times = toConfirm.map((r) => Date.parse(r.updated_at));
+    for (let i = 1; i < times.length; i++) {
+      assert.ok(times[i - 1] >= times[i], `the to-confirm group is ordered by updated_at DESC (rows ${i - 1} and ${i})`);
+    }
   });
 });

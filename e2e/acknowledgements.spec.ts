@@ -66,6 +66,25 @@ test("read confirmation: the entitlement gate holds in the community build", asy
       expect(reconfirm.status, "POST /ack/reconfirm").toBe(402);
       expect((await api(page, "/api/admin/compliance")).status, "GET /api/admin/compliance").toBe(402);
       expect((await api(page, "/api/admin/compliance/settings")).status, "GET /api/admin/compliance/settings").toBe(402);
+      // The 1.12.0 routes answer the same 402 before any shape, permission
+      // or state check, so the admin session is enough: the policy's
+      // settings, retire and un-retire, and the person's own list.
+      expect((await api(page, `/api/documents/${docId}/ack-settings`)).status, "GET /ack-settings").toBe(402);
+      expect(
+        (await api(page, `/api/documents/${docId}/ack-settings`, { method: "PATCH", body: { signature: true } })).status,
+        "PATCH /ack-settings"
+      ).toBe(402);
+      expect(
+        (
+          await api(page, `/api/documents/${docId}/ack/retire`, {
+            method: "POST",
+            body: { reason: "Superseded by the new expense policy" },
+          })
+        ).status,
+        "POST /ack/retire"
+      ).toBe(402);
+      expect((await api(page, `/api/documents/${docId}/ack/unretire`, { method: "POST", body: {} })).status, "POST /ack/unretire").toBe(402);
+      expect((await api(page, "/api/compliance/mine")).status, "GET /api/compliance/mine").toBe(402);
       // The erasure endpoint is gated the same way, so the API and the Users
       // page (which hides the button unlicensed) agree.
       const throwaway = { username: `e2e_ackgate_${stamp()}`, password: "E2eGate!12345" };

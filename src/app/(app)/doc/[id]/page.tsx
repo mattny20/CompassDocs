@@ -38,7 +38,7 @@ import { AckCard } from "@/components/AckCard";
 import { AckStickyControl } from "@/components/AckStickyControl";
 import { RelativeTime } from "@/components/RelativeTime";
 import { getAppSettings } from "@/lib/settings-store";
-import { formatDate, settingsForUser } from "@/lib/format";
+import { formatDate, formatDay, settingsForUser } from "@/lib/format";
 import { MarkdownView } from "@/components/MarkdownView";
 import { DocToc } from "@/components/DocToc";
 import { DocLayout } from "@/components/DocLayout";
@@ -184,10 +184,17 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
     userHolds(user, "template.manage", { legacyMin: "admin" }),
   ]);
   // Read confirmation applies to a published, required, non-branch document
-  // when the feature is licensed. The reader's own record and the version
-  // they are asked to confirm (A1) seed the shared AckState.
+  // when the feature is licensed, and never to a retired one (G3): retiring
+  // switches the requirement off in the same UPDATE, but a row re-required
+  // by a 1.11.2 binary while rolled back comes back as both, and the card
+  // must not sit under the "Retired …" notice. The reader's own record and
+  // the version they are asked to confirm (A1) seed the shared AckState.
   const ackActive =
-    ackEnabled && doc.ack_required === 1 && doc.status === "published" && doc.branch_of === null;
+    ackEnabled &&
+    doc.ack_required === 1 &&
+    doc.status === "published" &&
+    doc.branch_of === null &&
+    doc.ack_retired_at === null;
   const [myAck, ackVersion] = ackActive
     ? await Promise.all([getCurrentAck(doc.id, user.id), getAckVersionInfo(doc.id)])
     : [undefined, null];
@@ -284,9 +291,16 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
           summary: { eligible: ackSum.eligible, current: ackSum.current, rev: ackSum.rev },
           statusLine: ackStatusLine,
           // The cycle (G1): "Re-confirm yearly · next 1 Jan 2027", or nothing.
-          recertLine: recertStatusLine(ackSum, (iso) => formatDate(iso, fmtSettings)),
+          // The next date is the day the manager chose (midnight UTC), so
+          // the day formatter, never the zone-shifting instant one.
+          recertLine: recertStatusLine(ackSum, (iso) => formatDay(iso, fmtSettings)),
           canViewRecord: canReadAckRoster,
           viewerName: user.name || user.username,
+          // A retired policy (G3): the popover points at the Settings tab
+          // instead of offering a switch PATCH /ack would refuse with 409.
+          // Whoever sees the popover holds document.ack_require on the
+          // space, which is the tab's own gate.
+          retired: doc.ack_retired_at ? { at: doc.ack_retired_at, canOpenSettings: canRequireAck } : null,
         }
       : undefined;
   // The reader confirms the text on screen, which is the newest version:

@@ -11,6 +11,7 @@
 // live rows, the "Next re-confirmation {date}" meta text (G1) and the
 // Record tab's AckRoster inside the expand row (C4).
 
+import { useCallback, useEffect, useRef } from "react";
 import Link from "next/link";
 import {
   ShieldOff,
@@ -76,6 +77,43 @@ function editDefaultTip(value: EditDefault): string {
 export function PortalPolicies({ licensed, canManageLicense = false }: PortalPageProps) {
   const fmt = useFormatDate();
   const portal = usePortal(licensed);
+
+  // Focus after Retire policy… / Un-retire (STYLEGUIDE §Settings pages:
+  // focus never falls to <body>). The dialog hands focus back to the button
+  // that opened it, and that button unmounts when the reload moves the row
+  // between the live list and the Retired group. The target is noted before
+  // the question (a cancelled or refused action clears it, so focus stays
+  // where the dialog returned it) and taken once the new payload has
+  // rendered: the moved row's "View record" on a retired policy, with its
+  // group opened so the control is reachable, or the row's disclosure
+  // button on a resumed one. One ref per row, keyed by document id.
+  const rowFocus = useRef(new Map<number, HTMLElement>());
+  const pendingFocus = useRef<number | null>(null);
+  const registerFocus = useCallback(
+    (id: number) => (el: HTMLElement | null) => {
+      if (el) rowFocus.current.set(id, el);
+      else rowFocus.current.delete(id);
+    },
+    []
+  );
+  const { data: payload, loadError } = portal;
+  useEffect(() => {
+    const id = pendingFocus.current;
+    pendingFocus.current = null;
+    if (id == null) return;
+    const el = rowFocus.current.get(id);
+    if (!el) return;
+    const group = el.closest("details");
+    if (group && !group.open) group.open = true;
+    el.focus();
+  }, [payload, loadError]);
+  const focusAfter = (id: number, action: () => Promise<number | null>) => {
+    pendingFocus.current = id;
+    void action().then((moved) => {
+      if (moved == null) pendingFocus.current = null;
+    });
+  };
+
   if (!portal.data) return <PortalFallback licensed={licensed} canManageLicense={canManageLicense} portal={portal} />;
   const { data, isBusy, busy, open, rosters, candidate, setCandidate, previewing } = portal;
   const { can } = data;
@@ -177,6 +215,7 @@ export function PortalPolicies({ licensed, canManageLicense = false }: PortalPag
                   <div className="flex flex-wrap items-center gap-3 px-4 py-3">
                     <div className="min-w-0 flex-1">
                       <button
+                        ref={registerFocus(d.id)}
                         type="button"
                         onClick={() => void portal.toggleRoster(d.id)}
                         aria-expanded={open === d.id}
@@ -196,8 +235,8 @@ export function PortalPolicies({ licensed, canManageLicense = false }: PortalPag
                             {d.ack_last_reminded_at
                               ? `last reminded ${timeAgo(d.ack_last_reminded_at)}`
                               : "never reminded"}
-                            {/* The stored next cycle date (G1), when the policy has one. */}
-                            {recertPortalLine(d, fmt.date) && ` · ${recertPortalLine(d, fmt.date)}`}
+                            {/* The stored next cycle date (G1), when the policy has one: a calendar day, so the day formatter. */}
+                            {recertPortalLine(d, fmt.day) && ` · ${recertPortalLine(d, fmt.day)}`}
                           </span>
                           {lastAsk(d) && (
                             <span className="block text-xs text-slate-500">
@@ -309,7 +348,7 @@ export function PortalPolicies({ licensed, canManageLicense = false }: PortalPag
                             variant="secondary"
                             size="sm"
                             icon={<Archive />}
-                            onClick={() => void portal.retire(d)}
+                            onClick={() => focusAfter(d.id, () => portal.retire(d))}
                             disabled={busy}
                             busy={isBusy(`retire-${d.id}`)}
                             data-tt="End this policy with a reason; every confirmation stays on record under Retired"
@@ -346,8 +385,10 @@ export function PortalPolicies({ licensed, canManageLicense = false }: PortalPag
                         // ledger here (the view switch stays hidden) and no
                         // word count (no read-time threshold without the
                         // text); the IP column follows compliance.export.
+                        // Frameless: the strip's tint frames the table, not
+                        // a second card inside the row.
                         <div className="px-4 py-3">
-                          <AckRoster docId={d.id} rows={roster} canSeeIp={can.export} fmt={fmt.settings} />
+                          <AckRoster docId={d.id} rows={roster} canSeeIp={can.export} fmt={fmt.settings} frame={false} />
                         </div>
                       )}
                     </div>
@@ -358,7 +399,15 @@ export function PortalPolicies({ licensed, canManageLicense = false }: PortalPag
           </ul>
         )}
         {paused.length > 0 && <PausedPolicies rows={paused} date={fmt.date} />}
-        {retired.length > 0 && <RetiredPolicies rows={retired} date={fmt.date} portal={portal} />}
+        {retired.length > 0 && (
+          <RetiredPolicies
+            rows={retired}
+            date={fmt.date}
+            portal={portal}
+            register={registerFocus}
+            onUnretire={(d) => focusAfter(d.id, () => portal.unretire(d))}
+          />
+        )}
       </Card>
     </div>
   );
@@ -425,10 +474,15 @@ function RetiredPolicies({
   rows,
   date,
   portal,
+  register,
+  onUnretire,
 }: {
   rows: DocRow[];
   date: (iso: string) => string;
   portal: Portal;
+  /** The row's focus target ("View record"), registered by document id for the page's focus move after Retire. */
+  register: (id: number) => (el: HTMLElement | null) => void;
+  onUnretire: (d: DocRow) => void;
 }) {
   const { data, isBusy, busy } = portal;
   const can = data?.can ?? { manage: false, export: false };
@@ -478,21 +532,22 @@ function RetiredPolicies({
                 {d.acked} of {people(d.required)} confirmed{version}
               </span>
               <div className="flex w-full flex-wrap items-center gap-1.5 print:hidden sm:w-auto sm:shrink-0">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  icon={<ClipboardCheck />}
+                {/* A bare Link with the button recipe: it carries the ref
+                    that takes focus after Retire (Button forwards none). */}
+                <Link
+                  ref={register(d.id)}
                   href={`/doc/${d.id}/acknowledgements`}
+                  className={buttonClass("secondary", "sm")}
                   data-tt="Open this policy's record"
                 >
-                  View record
-                </Button>
+                  <ClipboardCheck className="h-3.5 w-3.5 shrink-0" aria-hidden /> View record
+                </Link>
                 {can.manage && (
                   <Button
                     variant="secondary"
                     size="sm"
                     icon={<ArchiveRestore />}
-                    onClick={() => void portal.unretire(d)}
+                    onClick={() => onUnretire(d)}
                     disabled={busy}
                     busy={isBusy(`unretire-${d.id}`)}
                     data-tt="Ask people to confirm this policy again; confirmations made before it was retired stay on record"

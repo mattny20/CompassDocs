@@ -844,6 +844,12 @@ const SCHEMA_SQL = `
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS ack_retired_by_name text NOT NULL DEFAULT '';
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS ack_retired_reason text NOT NULL DEFAULT '';
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS ack_superseded_by integer REFERENCES documents(id) ON DELETE SET NULL;
+  -- Both references SET NULL on delete: removing an account or purging a
+  -- replacement looks for the documents that cite it, and without an index
+  -- each firing is a sequential scan of documents (idx_documents_ack_version
+  -- is the same case). Partial, so the indexes hold only retired rows.
+  CREATE INDEX IF NOT EXISTS idx_documents_ack_retired_by ON documents(ack_retired_by) WHERE ack_retired_by IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS idx_documents_ack_superseded_by ON documents(ack_superseded_by) WHERE ack_superseded_by IS NOT NULL;
   -- 1.12.0 (G1): periodic re-confirmation. ack_recert_months NULL = no cycle;
   -- ack_next_recert_at is stored, never derived (set with the interval, moved
   -- by every reset and by the sweep's claim, whose WHERE tests it: see
@@ -5341,6 +5347,12 @@ async function workspaceAckDefaults(): Promise<{ edit_default: AckEditDefault; r
  * `recertMonths` works like `editDefault`: undefined reads the workspace,
  * null leaves the columns alone, a number applies instead.
  *
+ * A policy with an interval of its own that is stopped and switched on
+ * again keeps its next date, unless that date passed while it was off:
+ * then the switch-on moves it to now + interval, the rule un-retire
+ * applies (RECERT_NEXT_ON_RESUME), so the sweep does not fire a cycle at
+ * the next tick on top of the request that just went out.
+ *
  * A retired policy (G3, ack_retired_at set) never switches on here: the
  * WHERE refuses it and the call answers `switched_on: false` like a policy
  * that already requires confirmation. Un-retire (unretirePolicy) is the one
@@ -5366,6 +5378,9 @@ export async function setAckRequired(
   // against the row as updated by a concurrent call (READ COMMITTED), so of
   // two simultaneous switch-ons exactly one gets a row back. A snapshot
   // subquery here would let both report switched_on.
+  //
+  // The next date's second WHEN is RECERT_NEXT_ON_RESUME's body: a stale
+  // date on a policy with an interval moves out a whole interval.
   const r = await q<{ ack_edit_default: string }>(
     `UPDATE documents
      SET ack_required = 1,
@@ -5376,6 +5391,8 @@ export async function setAckRequired(
          ack_effective_at = COALESCE(ack_effective_at, CURRENT_DATE),
          ack_next_recert_at = CASE
            WHEN ack_recert_months IS NULL AND $3::int IS NOT NULL THEN now() + make_interval(months => $3::int)
+           WHEN ack_recert_months IS NOT NULL AND ack_next_recert_at <= now()
+           THEN now() + make_interval(months => ack_recert_months)
            ELSE ack_next_recert_at
          END,
          ack_recert_months = COALESCE(ack_recert_months, $3::int)
@@ -6495,9 +6512,11 @@ export interface MyPolicyRow {
 /**
  * The My policies page (B4): every policy in the person's scope with their
  * current confirmation and their latest earlier one, to-confirm rows first
- * and then the most recently asked. Both confirmations come from one
- * indexed probe each (idx_ack_doc / idx_ack_user), so the page costs two
- * index lookups per policy, not a scan of the person's history.
+ * and then the most recently changed (updated_at, the date each row
+ * prints; the dashboard row, listPendingAcksFor, keeps the newest ask
+ * first). Both confirmations come from one indexed probe each
+ * (idx_ack_doc / idx_ack_user), so the page costs two index lookups per
+ * policy, not a scan of the person's history.
  */
 export async function listMyPolicies(userId: number, scope: SpaceScope): Promise<MyPolicyRow[]> {
   return q(
@@ -6522,7 +6541,7 @@ export async function listMyPolicies(userId: number, scope: SpaceScope): Promise
        ORDER BY a.acknowledged_at DESC, a.id DESC LIMIT 1
      ) prior ON true
      WHERE ${MY_POLICY_DOC}${myPolicyScope(scope, 2)}
-     ORDER BY (cur.acknowledged_at IS NOT NULL), d.ack_revision_at DESC, d.id DESC`,
+     ORDER BY (cur.acknowledged_at IS NOT NULL), d.updated_at DESC, d.id DESC`,
     Array.isArray(scope) ? [userId, scope] : [userId]
   );
 }

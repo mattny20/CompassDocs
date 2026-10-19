@@ -22,7 +22,7 @@ import { useCallback, useEffect, useState } from "react";
 import { confirmDialog, formDialog } from "@/components/Dialog";
 import { toast } from "@/components/Toasts";
 import { requireAckDialog } from "@/components/RequireAckDialog";
-import { RECONFIRM_REASON_TOO_SHORT } from "@/components/ReconfirmButton";
+import { askReconfirm, RECONFIRM_LABEL, RECONFIRM_REASON_TOO_SHORT } from "@/components/ReconfirmButton";
 import type { AckRosterRow } from "@/components/AckRoster";
 import { people } from "@/components/compliance/copy";
 import type { EditDefault } from "@/lib/compliance-settings";
@@ -290,7 +290,9 @@ export function usePortal(licensed: boolean) {
   // busy so Cancel leaves the row idle (STYLEGUIDE §Overlays). The server
   // freezes the counts, keeps every confirmation and moves the policy to
   // the Retired group on the next load; the toast says what is on record.
-  async function retire(d: DocRow) {
+  // Resolves with the policy's id once the list has reloaded, so the page
+  // can move focus to the row's new place; null when cancelled or refused.
+  async function retire(d: DocRow): Promise<number | null> {
     const version = d.ack_rev ? `version ${d.ack_rev}` : "the current version";
     const values = await formDialog({
       title: `Retire "${d.title}"?`,
@@ -307,36 +309,63 @@ export function usePortal(licensed: boolean) {
       ],
       confirmLabel: "Retire policy",
     });
-    if (!values) return;
+    if (!values) return null;
     const r = await postTo(
       `retire-${d.id}`,
       `/api/documents/${d.id}/ack/retire`,
       { reason: values.reason.trim() },
       "Couldn't retire the policy."
     );
-    if (!r) return;
+    if (!r) return null;
     dropRoster(d.id);
     toast("ok", `Policy retired: ${r.acked ?? d.acked} of ${r.required ?? d.required} confirmations on record`);
     await load();
+    return d.id;
   }
 
   // Un-retire (G3): one question, because resuming puts the policy back on
   // everyone's list; the toast carries the standing the server answers
-  // with. The spec's "Ask everyone to re-confirm…" toast action is not
-  // wired here: the A7 question lives inside ReconfirmButton, which exports
-  // no callable; once it does, pass it as the toast's `action`.
-  async function unretire(d: DocRow) {
+  // with and, while any confirmation is still current, offers the deliberate
+  // re-ask (A7) as its action: the button's own question and POST through
+  // askReconfirm, with the list reloaded after a successful ask. Resolves
+  // with the policy's id once the list has reloaded (see retire).
+  async function unretire(d: DocRow): Promise<number | null> {
     const answer = await confirmDialog({
       title: `Resume read confirmation for "${d.title}"?`,
       body: "Confirmations made before it was retired stay on record. If the text changed while it was retired, people whose confirmation is older than the current version are asked again.",
       confirmLabel: "Resume",
     });
-    if (answer !== true) return;
+    if (answer !== true) return null;
     const r = await postTo(`unretire-${d.id}`, `/api/documents/${d.id}/ack/unretire`, {}, "Couldn't resume the policy.");
-    if (!r) return;
+    if (!r) return null;
     dropRoster(d.id);
-    toast("ok", `Policy resumed: ${r.current ?? 0} of ${r.eligible ?? 0} confirmations still current`);
+    const current = r.current ?? 0;
+    const eligible = r.eligible ?? 0;
+    const reload = () => {
+      dropRoster(d.id);
+      void load();
+    };
+    toast(
+      "ok",
+      `Policy resumed: ${current} of ${eligible} confirmations still current`,
+      current > 0
+        ? {
+            action: {
+              label: RECONFIRM_LABEL,
+              onClick: () =>
+                void askReconfirm({
+                  docId: d.id,
+                  title: d.title,
+                  summary: { current, eligible, rev: d.ack_rev ?? null },
+                  run,
+                  refresh: false,
+                }).then((asked) => asked && reload()),
+            },
+          }
+        : {}
+    );
     await load();
+    return d.id;
   }
 
   async function toggleRoster(docId: number) {

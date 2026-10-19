@@ -2,7 +2,7 @@
 
 // My policies (B4, 1.12.0): one person's standing on every policy they can
 // be asked to confirm. A standing line and the progress bar the Record tab
-// draws, then two groups: To confirm (newest ask first) and Confirmed. Each
+// draws, then two groups: To confirm (most recently changed first) and Confirmed. Each
 // row is the space icon, the title as a link to the confirmation card at the
 // end of the document, when it was last saved, and one chip from a closed
 // set: "To confirm" (warn), "Changed since you confirmed {date}" (warn) or
@@ -41,7 +41,7 @@ export function MyPolicies({ rows }: { rows: MyPolicyRow[] }) {
       <EmptyState
         icon={<ShieldCheck />}
         title="Nothing to confirm"
-        body="Policies you're asked to read and confirm will appear here with their due dates."
+        body="Policies you're asked to read and confirm will appear here."
       />
     );
   }
@@ -108,7 +108,7 @@ export function MyPolicies({ rows }: { rows: MyPolicyRow[] }) {
         </section>
       )}
 
-      {shown.length === 0 && <SectionEmpty>No policies match.</SectionEmpty>}
+      {shown.length === 0 && <SectionEmpty>No policies match your filter.</SectionEmpty>}
     </div>
   );
 }

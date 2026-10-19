@@ -11,7 +11,7 @@ import { apiGuard } from "@/lib/api-auth";
 import { spaceScopeFor, scopeAllows, canSeeDrafts, userHolds } from "@/lib/access";
 import { featureEnabled } from "@/lib/ee";
 import { ackSummary } from "@/lib/db";
-import { auditAck, actorFrom, ipFrom } from "@/lib/audit";
+import { audit, auditAck, actorFrom, ipFrom } from "@/lib/audit";
 import { requestAcknowledgement } from "@/lib/compliance";
 import { getComplianceSettings } from "@/lib/compliance-settings";
 import { requestOrigin } from "@/lib/oauth";
@@ -99,7 +99,11 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 // match the account (lib/attestation, 409 otherwise), a local account's
 // password is re-checked behind the login throttle, and the row records the
 // name and how the signer was identified. The password is taken out of the
-// body before anything below can log or audit it, and is never stored.
+// body before anything below can log or audit it, and is never stored. A
+// wrong password is on the record as a failed sign-in is (auth.login_failed
+// with `via: "attestation"`, and auth.lockout when it engaged the throttle):
+// the card is a password check reachable with a session cookie, so each
+// miss leaves a row an admin can see.
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const gate = await apiGuard("viewer", "document.ack_submit");
   if (gate instanceof NextResponse) return gate;
@@ -141,6 +145,31 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (doc.ack_signature === 1) {
     const signed = await verifyAttestation(user, { signed_name: body.signed_name, password }, { ip: ipFrom(req) });
     if (!signed.ok) {
+      if (signed.code === "password") {
+        // The rows the sign-in form writes on a miss, against the policy
+        // being signed; `signed` never carries the password.
+        const ip = ipFrom(req);
+        await audit({
+          actor: actorFrom(user),
+          action: "auth.login_failed",
+          targetType: "document",
+          targetId: doc.id,
+          targetLabel: doc.title,
+          details: { via: "attestation" },
+          ip,
+        });
+        if (signed.lock_engaged) {
+          await audit({
+            actor: actorFrom(user),
+            action: "auth.lockout",
+            targetType: "document",
+            targetId: doc.id,
+            targetLabel: doc.title,
+            details: { minutes: 15 },
+            ip,
+          });
+        }
+      }
       return NextResponse.json({ error: signed.error }, { status: signed.status });
     }
     signedName = signedNameFrom(body.signed_name);

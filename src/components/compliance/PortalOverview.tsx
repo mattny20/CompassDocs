@@ -18,9 +18,10 @@ export function PortalOverview({ licensed, canManageLicense = false }: PortalPag
     // label and a reader (or a test) finds "Policies requiring
     // confirmation" and its value without a class name. The label is
     // the term and comes first in the markup; the column reverses it
-    // visually so the tile still reads icon, number, label. Five tiles:
-    // two to a row on a phone, three from sm, all five from lg.
-    <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+    // visually so the tile still reads icon, number, label. Five tiles in
+    // a card-grid (STYLEGUIDE §Scaling): 11rem each, as many across as the
+    // page width holds, never a viewport breakpoint.
+    <dl className="card-grid [--card-min:11rem] gap-3">
       {[
         { icon: <FileCheck className="h-4 w-4" />, label: "Policies requiring confirmation", value: k.policies },
         { icon: <Percent className="h-4 w-4" />, label: "Overall compliance", value: `${k.pct}%` },
