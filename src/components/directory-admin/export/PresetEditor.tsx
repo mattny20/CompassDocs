@@ -85,11 +85,14 @@ export function PresetEditor({
           an h2 here would sit after the Markers and Presets h3s in the
           outline. */}
       <div className="flex flex-wrap items-center gap-3">
-        <div className="flex min-w-0 flex-1 items-center gap-2">
+        {/* The title keeps a floor width so a narrow pane wraps the actions
+            beneath it instead of squeezing the name and the chip to nothing;
+            a long name still truncates within the row it has. */}
+        <div className="flex min-w-[12rem] flex-1 items-center gap-2">
           <CardTitle className="min-w-0">
             <span className="min-w-0 truncate">{cur.name || "Untitled preset"}</span>
           </CardTitle>
-          {cur.is_default && <span className={chipClass("info", "sm")}>Default</span>}
+          {cur.is_default && <span className={`${chipClass("info", "sm")} shrink-0`}>Default</span>}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {!cur.is_default && (

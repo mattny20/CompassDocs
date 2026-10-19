@@ -120,11 +120,10 @@ before(async () => {
 });
 
 after(async () => {
-  await pool().query("DELETE FROM ack_notices WHERE document_id = ANY($1) OR user_id = ANY($2) OR by_user_id = ANY($2) OR document_title LIKE $3", [
-    docIds,
-    userIds,
-    `${STAMP}%`,
-  ]);
+  // Only this file's documents: a row this file's users received about
+  // ANOTHER file's policy belongs to that file (deleting it mid-run made the
+  // outbox test's "noticed equals the rows written" count come up short).
+  await pool().query("DELETE FROM ack_notices WHERE document_id = ANY($1) OR document_title LIKE $2", [docIds, `${STAMP}%`]);
   await pool().query("DELETE FROM ack_outbox WHERE document_id = ANY($1)", [docIds]);
   await pool().query("DELETE FROM acknowledgements WHERE document_id = ANY($1) OR user_id = ANY($2)", [docIds, userIds]);
   await pool().query("DELETE FROM ack_decisions WHERE document_id = ANY($1)", [docIds]);
