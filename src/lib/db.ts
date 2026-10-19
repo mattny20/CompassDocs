@@ -49,6 +49,10 @@ function toIso(raw: string | null): string | null {
 }
 types.setTypeParser(1184, (v) => toIso(v));
 types.setTypeParser(1114, (v) => toIso(v));
+// A plain `date` (1082) stays the 'YYYY-MM-DD' text Postgres sends: pg would
+// otherwise hand back a local-midnight Date object. First used by
+// documents.ack_effective_at (1.12.0); nothing else in the schema is a date.
+types.setTypeParser(1082, (v) => v);
 
 // --- Connection (singleton across hot reloads) -------------------------------
 
@@ -822,6 +826,25 @@ const SCHEMA_SQL = `
   -- it is set to required (setAckRequired). Metadata-only: a default on an
   -- existing column takes no rewrite.
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS ack_edit_default text NOT NULL DEFAULT 'ask';
+  -- 1.12.0 (G3): retirement. A retired policy keeps every confirmation and
+  -- its marker (ack_revision_at / ack_version_id stay put so the final roster
+  -- is reproducible from the ledger); ack_required drops to 0 and these five
+  -- columns say when, by whom, why and which policy replaced it. Metadata-only.
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS ack_retired_at timestamptz;
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS ack_retired_by integer REFERENCES users(id) ON DELETE SET NULL;
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS ack_retired_by_name text NOT NULL DEFAULT '';
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS ack_retired_reason text NOT NULL DEFAULT '';
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS ack_superseded_by integer REFERENCES documents(id) ON DELETE SET NULL;
+  -- 1.12.0 (G1): periodic re-confirmation. ack_recert_months NULL = no cycle;
+  -- ack_next_recert_at is stored, never derived (set with the interval, moved
+  -- by every reset and by the sweep's claim, whose WHERE tests it: see
+  -- claimDueRecertifications); ack_effective_at is the day the requirement
+  -- was first switched on (setAckRequired). The partial index is the sweep's
+  -- only scan. Metadata-only.
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS ack_recert_months integer;
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS ack_next_recert_at timestamptz;
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS ack_effective_at date;
+  CREATE INDEX IF NOT EXISTS idx_documents_ack_recert ON documents(ack_next_recert_at) WHERE ack_required = 1 AND ack_recert_months IS NOT NULL;
   CREATE TABLE IF NOT EXISTS acknowledgements (
     id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     document_id integer NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
@@ -3566,12 +3589,18 @@ export interface TrashedDocRow {
   space_name: string;
   space_icon: string;
   space_slug: string;
+  /** Confirmations on record for this document (G3, 1.12.0): a row with any is never auto-purged. */
+  ack_count: number;
+  /** When the policy was retired (G3), null for a document that never was. */
+  ack_retired_at: string | null;
 }
 
 /**
  * The Trash, a page at a time and without document bodies (the old query
  * loaded every body of every trashed document to render a title). `q`
- * matches the title or the space name, case-insensitively.
+ * matches the title or the space name, case-insensitively. Each row carries
+ * its confirmation count and its retirement stamp (G3, 1.12.0) so the page
+ * can say which rows the retention sweep leaves alone.
  */
 export async function listTrashedDocuments(opts: { q?: string; limit?: number; offset?: number } = {}): Promise<{
   rows: TrashedDocRow[];
@@ -3590,7 +3619,9 @@ export async function listTrashedDocuments(opts: { q?: string; limit?: number; o
   const [{ n: total }] = await q<{ n: number }>(`SELECT COUNT(*)::int AS n ${from}`, params);
   const rows = await q<TrashedDocRow>(
     `SELECT d.id, d.title, d.type, d.status, d.deleted_at,
-            s.name AS space_name, s.icon AS space_icon, s.slug AS space_slug
+            s.name AS space_name, s.icon AS space_icon, s.slug AS space_slug,
+            (SELECT COUNT(*)::int FROM acknowledgements a WHERE a.document_id = d.id) AS ack_count,
+            d.ack_retired_at
      ${from} ORDER BY d.deleted_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
     [...params, limit, offset]
   );
@@ -3685,6 +3716,12 @@ export async function purgeDocument(id: number): Promise<boolean> {
  * 0 (or less) disables auto-purge (Trash is kept forever). Returns the count
  * removed. The attested text behind every confirmation is archived first, in
  * the same transaction.
+ *
+ * A document with confirmations on record is never auto-purged (G3,
+ * 1.12.0): the NOT EXISTS leaves it in the Trash, where the page says so,
+ * until someone chooses "Delete forever" (purgeDocument, which archives the
+ * cited versions first). The sweep is for ordinary documents; evidence
+ * waits for a deliberate decision.
  */
 export async function purgeExpiredTrash(retentionDays: number): Promise<number> {
   if (!Number.isFinite(retentionDays) || retentionDays <= 0) return 0;
@@ -3695,6 +3732,7 @@ export async function purgeExpiredTrash(retentionDays: number): Promise<number> 
     const due = await client.query<{ id: number }>(
       `SELECT id FROM documents
        WHERE deleted_at IS NOT NULL AND deleted_at < now() - ($1 * interval '1 day')
+         AND NOT EXISTS (SELECT 1 FROM acknowledgements a WHERE a.document_id = documents.id)
        FOR UPDATE SKIP LOCKED`,
       [retentionDays]
     );
@@ -5398,6 +5436,22 @@ export interface ComplianceDocRow {
   kept_since_reset: number;
   /** How far the live text drifted from the confirmed version, in % of words (0 when nothing was kept). */
   drift_pct: number;
+  /**
+   * Retirement (G3, 1.12.0): when the policy was retired, by whom and why;
+   * null / '' for a live policy. A retired row's `required` and `acked` are
+   * the counts frozen on its 'retired' ledger row (the final standing), not
+   * the live audience, and `retired_rev` is the version people had been
+   * asked to confirm at that moment (the marker may move on later edits).
+   * The portal lists retired rows in their own collapsed group; the tiles
+   * leave them out.
+   */
+  ack_retired_at: string | null;
+  ack_retired_by_name: string;
+  ack_retired_reason: string;
+  /** The policy that replaced this one, and its title (null when none, or when it was trashed). */
+  ack_superseded_by: number | null;
+  superseded_by_title: string | null;
+  retired_rev: number | null;
 }
 
 /**
@@ -5405,39 +5459,48 @@ export interface ComplianceDocRow {
  * decisions. Published policies and paused ones alike (G2, 1.11.0: an
  * unpublished policy keeps its requirement and its confirmations; `status`
  * says which it is, and the route's KPI sums and the CSV matrix take only
- * the published rows). Draft branches never appear: they are working copies
- * whose text reaches readers only by merging, and only setAckRequired ever
+ * the published rows), and retired ones (G3, 1.12.0: the requirement is off
+ * but the record stays; they sort last, with their counts frozen at
+ * retirement). Draft branches never appear: they are working copies whose
+ * text reaches readers only by merging, and only setAckRequired ever
  * writes ack_required, so a branch cannot carry it anyway.
  */
 export async function complianceDocs(): Promise<ComplianceDocRow[]> {
-  const docs = await q<Omit<ComplianceDocRow, "last_decision" | "last_reset" | "kept_since_reset" | "drift_pct">>(
+  const docs = await q<Omit<ComplianceDocRow, "last_decision" | "last_reset" | "kept_since_reset" | "drift_pct" | "retired_rev">>(
     `SELECT d.id, d.title, s.name AS space_name, s.icon AS space_icon, d.status,
             d.updated_at, d.ack_revision_at, d.ack_version_id, d.ack_last_reminded_at,
             d.ack_edit_default,
+            d.ack_retired_at, d.ack_retired_by_name, d.ack_retired_reason, d.ack_superseded_by,
+            r.title AS superseded_by_title,
             ${VERSION_REV("d.ack_version_id")} AS ack_rev,
             COUNT(u.id)::int AS required,
             COUNT(u.id) FILTER (WHERE a.acknowledged_at IS NOT NULL)::int AS acked
      FROM documents d
      JOIN spaces s ON s.id = d.space_id
+     LEFT JOIN documents r ON r.id = d.ack_superseded_by AND r.deleted_at IS NULL
      LEFT JOIN users u ON ${ACK_ELIGIBLE}
      LEFT JOIN LATERAL (
        SELECT a.acknowledged_at FROM acknowledgements a
        WHERE a.document_id = d.id AND a.user_id = u.id AND ${ACK_CURRENT}
        ORDER BY a.acknowledged_at DESC LIMIT 1
      ) a ON true
-     WHERE d.ack_required = 1 AND d.deleted_at IS NULL AND d.branch_of IS NULL
+     WHERE (d.ack_required = 1 OR d.ack_retired_at IS NOT NULL) AND d.deleted_at IS NULL AND d.branch_of IS NULL
      GROUP BY d.id, d.title, s.name, s.icon, d.status, d.updated_at, d.ack_revision_at, d.ack_version_id,
-              d.ack_last_reminded_at, d.ack_edit_default
-     ORDER BY (d.status <> 'published'),
+              d.ack_last_reminded_at, d.ack_edit_default,
+              d.ack_retired_at, d.ack_retired_by_name, d.ack_retired_reason, d.ack_superseded_by, r.title
+     ORDER BY (d.ack_retired_at IS NOT NULL), (d.status <> 'published'),
               (COUNT(u.id) - COUNT(u.id) FILTER (WHERE a.acknowledged_at IS NOT NULL)) DESC, d.title`
   );
   if (docs.length === 0) return [];
   const ids = docs.map((d) => d.id);
-  // Three set-based reads instead of three per policy: the newest decision,
-  // the newest reset, and the kept edits since the marker with the drift
-  // they left (from the rows, no document text crosses the wire).
+  const retiredIds = docs.filter((d) => d.ack_retired_at !== null).map((d) => d.id);
+  // Four set-based reads instead of four per policy: the newest decision,
+  // the newest reset, the kept edits since the marker with the drift they
+  // left (from the rows, no document text crosses the wire), and for the
+  // retired rows the 'retired' ledger row whose counts and version are the
+  // final standing (G3).
   const briefCols = "x.document_id, x.decided_at, x.decided_by_name, x.reason, x.outcome, x.source";
-  const [latest, resets, driftBy] = await Promise.all([
+  const [latest, resets, driftBy, retiredRows] = await Promise.all([
     q<AckDecisionBrief & { document_id: number }>(
       `SELECT DISTINCT ON (x.document_id) ${briefCols} FROM ack_decisions x
        WHERE x.document_id = ANY($1) ORDER BY x.document_id, x.decided_at DESC, x.id DESC`,
@@ -5450,6 +5513,16 @@ export async function complianceDocs(): Promise<ComplianceDocRow[]> {
       [ids]
     ),
     keptSinceMarker(ids),
+    retiredIds.length === 0
+      ? Promise.resolve([] as { document_id: number; confirmations_affected: number | null; eligible: number | null; rev: number | null }[])
+      : q<{ document_id: number; confirmations_affected: number | null; eligible: number | null; rev: number | null }>(
+          `SELECT DISTINCT ON (x.document_id) x.document_id, x.confirmations_affected, x.eligible,
+                  ${VERSION_REV("x.version_id")} AS rev
+           FROM ack_decisions x
+           WHERE x.document_id = ANY($1) AND x.outcome = 'retired'
+           ORDER BY x.document_id, x.decided_at DESC, x.id DESC`,
+          [retiredIds]
+        ),
   ]);
   const brief = (r: AckDecisionBrief & { document_id: number }): AckDecisionBrief => ({
     decided_at: r.decided_at,
@@ -5460,13 +5533,22 @@ export async function complianceDocs(): Promise<ComplianceDocRow[]> {
   });
   const latestBy = new Map(latest.map((r) => [r.document_id, brief(r)]));
   const resetBy = new Map(resets.map((r) => [r.document_id, brief(r)]));
-  return docs.map((d) => ({
-    ...d,
-    last_decision: latestBy.get(d.id) ?? null,
-    last_reset: resetBy.get(d.id) ?? null,
-    kept_since_reset: driftBy.get(d.id)?.n ?? 0,
-    drift_pct: driftBy.get(d.id)?.pct ?? 0,
-  }));
+  const retiredBy = new Map(retiredRows.map((r) => [r.document_id, r]));
+  return docs.map((d) => {
+    const frozen = d.ack_retired_at !== null ? retiredBy.get(d.id) : undefined;
+    return {
+      ...d,
+      // A retired policy answers with the standing frozen on its ledger row
+      // (a row written by hand before 1.12.0 has none: the live counts stand in).
+      required: frozen?.eligible ?? d.required,
+      acked: frozen?.confirmations_affected ?? d.acked,
+      retired_rev: frozen ? (frozen.rev ?? d.ack_rev) : null,
+      last_decision: latestBy.get(d.id) ?? null,
+      last_reset: resetBy.get(d.id) ?? null,
+      kept_since_reset: driftBy.get(d.id)?.n ?? 0,
+      drift_pct: driftBy.get(d.id)?.pct ?? 0,
+    };
+  });
 }
 
 /** Eligible users who have NOT confirmed the doc's current marker. */
@@ -5516,7 +5598,11 @@ export async function complianceUserSummary(): Promise<
   );
 }
 
-/** Published docs not yet requiring acknowledgement (request-ack picker). */
+/**
+ * Published docs not yet requiring acknowledgement (request-ack picker). A
+ * retired policy is left out (G3): "Request read confirmation" must never
+ * silently re-require one; un-retire is the named way back.
+ */
 export async function ackCandidateDocs(): Promise<
   { id: number; title: string; space_name: string; space_icon: string }[]
 > {
@@ -5524,7 +5610,7 @@ export async function ackCandidateDocs(): Promise<
     `SELECT d.id, d.title, s.name AS space_name, s.icon AS space_icon
      FROM documents d JOIN spaces s ON s.id = d.space_id
      WHERE d.ack_required = 0 AND d.status = 'published' AND d.deleted_at IS NULL
-       AND d.branch_of IS NULL
+       AND d.branch_of IS NULL AND d.ack_retired_at IS NULL
      ORDER BY s.name, d.title`
   );
 }
