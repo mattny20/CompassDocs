@@ -17,7 +17,7 @@ import { listFields, listPeople } from "@/lib/directory";
 import { peopleForViewer, viewerScope } from "@/lib/directory-viewer";
 import { defaultExportPreset, getExportPreset, sanitizePreset, type ExportPreset } from "@/lib/directory-export-config";
 import { exportFilename } from "@/lib/directory-export";
-import { listMarkers } from "@/lib/directory-markers";
+import { listMarkers, markersForViewer } from "@/lib/directory-markers";
 import { renderExportFile } from "@/lib/directory-export-run";
 import { getAppSettings } from "@/lib/settings-store";
 import { exportRateLimited } from "@/lib/rate-limit";
@@ -38,9 +38,11 @@ async function run(user: SessionUser, req: Request, params: Record<string, unkno
   // restricted contact columns are removed below.
   const scope = await viewerScope(user, await listFields());
   const fields = scope.fields;
-  // The workspace's markers, read once: the preset's ids are checked against
-  // them and the renderer prints from them.
-  const markers = await listMarkers(fields);
+  // The workspace's markers, read once and cut to the viewer's columns (a
+  // marker on a restricted column would mark no one but still name itself
+  // in the key): the preset's ids are checked against them and the renderer
+  // prints from them.
+  const markers = markersForViewer(await listMarkers(fields), scope.hidden);
   const markerIds = new Set(markers.map((m) => m.id));
   const base = params.preset
     ? (await getExportPreset(String(params.preset), fields, markers)) ?? (await defaultExportPreset(fields, markers))
@@ -61,6 +63,12 @@ async function run(user: SessionUser, req: Request, params: Record<string, unkno
     overrides.assistant_fields = overrides.assistant_fields.split(",").map((s) => s.trim());
   }
   if (typeof overrides.markers === "string") overrides.markers = overrides.markers.split(",").map((s) => s.trim());
+  // A marker's label is the admin's to publish, preset by preset: a viewer's
+  // override may drop markers the preset prints, never add one it does not.
+  if (!scope.isAdmin && overrides.markers !== undefined) {
+    const listed = new Set(base.markers);
+    overrides.markers = Array.isArray(overrides.markers) ? overrides.markers.filter((id) => listed.has(String(id).trim())) : [];
+  }
   // The two object-valued options arrive as JSON objects in a POST body; a
   // GET may carry them JSON-encoded. Anything unparseable is ignored.
   for (const k of ["column_limits", "margin_custom"]) {

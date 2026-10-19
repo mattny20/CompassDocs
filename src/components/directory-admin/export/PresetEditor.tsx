@@ -6,6 +6,11 @@
 // order, and whether it emails itself. The state and the rules live in
 // DirectoryExportPanel (the Save row waits on every preset, not just this
 // one); this file only lays the controls out.
+//
+// The pane is 18rem narrower than the settings column, so the cards' grids
+// answer the pane, not the viewport: the wrapper is a `@container` and the
+// grids use `@md:` / `@2xl:` variants (STYLEGUIDE §Scaling; nothing in this
+// subtree overlays the page).
 
 import { useId } from "react";
 import { Copy, Download, Trash2 } from "lucide-react";
@@ -14,6 +19,7 @@ import { CardTitle } from "@/components/Heading";
 import { chipClass } from "@/components/Chip";
 import { Button, buttonClass } from "@/components/Button";
 import { SettingsLink } from "@/components/SettingsLink";
+import { Tooltip } from "@/components/Tooltip";
 import { Field, Select, TextInput, Toggle, rangeError } from "@/components/form";
 import type { DirectoryField } from "@/lib/directory";
 import { NAME_FORMATS, isNameFormat } from "@/lib/directory-display";
@@ -63,7 +69,8 @@ export function PresetEditor({
   onDelete,
 }: {
   model: PresetEditorModel;
-  /** Unsaved changes on the page: the download waits for a save. */
+  /** Unsaved changes anywhere on the page, presets or markers: the download
+   *  waits for a save (and the leave guard would otherwise stop the click). */
   dirty: boolean;
   canDelete: boolean;
   onMakeDefault: () => void;
@@ -72,10 +79,14 @@ export function PresetEditor({
 }) {
   const { cur } = model;
   return (
-    <div className="min-w-0 space-y-4">
+    <div className="@container min-w-0 space-y-4">
+      {/* The header is a plain card title, an h3 like the five cards under
+          it: the lit row and the Default chip say which preset is open, and
+          an h2 here would sit after the Markers and Presets h3s in the
+          outline. */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex min-w-0 flex-1 items-center gap-2">
-          <CardTitle as="h2" className="min-w-0">
+          <CardTitle className="min-w-0">
             <span className="min-w-0 truncate">{cur.name || "Untitled preset"}</span>
           </CardTitle>
           {cur.is_default && <span className={chipClass("info", "sm")}>Default</span>}
@@ -89,17 +100,37 @@ export function PresetEditor({
           <Button variant="secondary" icon={<Copy />} onClick={onDuplicate}>
             Duplicate
           </Button>
-          <a
-            href={`/api/directory/export?preset=${encodeURIComponent(cur.id)}`}
-            className={buttonClass("secondary", "md", dirty ? "pointer-events-none opacity-40" : "")}
-            data-tt={dirty ? "Save first to download this preset" : "Download this preset as a PDF"}
-            aria-disabled={dirty}
-          >
-            <Download className="h-4 w-4" aria-hidden /> Download PDF
-          </a>
-          <Button variant="danger" icon={<Trash2 />} onClick={onDelete} disabled={!canDelete}>
-            Delete
-          </Button>
+          {/* While anything is unsaved the download is a real disabled
+              button (the Tooltip takes the tab stop and says why); clean, it
+              is a link with `download`, which the leave guard lets through
+              and which never unloads the page. */}
+          {dirty ? (
+            <Tooltip label="Save first to download this preset">
+              <Button variant="secondary" icon={<Download />} disabled>
+                Download PDF
+              </Button>
+            </Tooltip>
+          ) : (
+            <a
+              href={`/api/directory/export?preset=${encodeURIComponent(cur.id)}`}
+              download
+              className={buttonClass("secondary")}
+              data-tt="Download this preset as a PDF"
+            >
+              <Download className="h-4 w-4" aria-hidden /> Download PDF
+            </a>
+          )}
+          {canDelete ? (
+            <Button variant="danger" icon={<Trash2 />} onClick={onDelete}>
+              Delete
+            </Button>
+          ) : (
+            <Tooltip label="Keep at least one preset">
+              <Button variant="danger" icon={<Trash2 />} disabled>
+                Delete
+              </Button>
+            </Tooltip>
+          )}
         </div>
       </div>
       <DocumentCard m={model} />
@@ -114,8 +145,13 @@ export function PresetEditor({
 function DocumentCard({ m }: { m: PresetEditorModel }) {
   const { cur, update } = m;
   return (
-    <Card id="document" className="scroll-mt-6" title="Document" description="What the preset is called, and what the file says at the top and bottom.">
-      <div className="grid gap-3 sm:grid-cols-2">
+    <Card
+      id="document"
+      className="scroll-mt-6"
+      title="Document"
+      description="What the preset is called, what the file is named, what it says at the top and bottom, and how names are written."
+    >
+      <div className="grid gap-3 @md:grid-cols-2">
         <Field label="Preset name"><TextInput value={cur.name} onChange={(e) => update({ name: e.target.value })} /></Field>
         <Field label="Document title" help="Blank = “<Company> directory”."><TextInput value={cur.title} onChange={(e) => update({ title: e.target.value })} placeholder="Phone directory" /></Field>
         <Field label="Subtitle"><TextInput value={cur.subtitle} onChange={(e) => update({ subtitle: e.target.value })} placeholder="Internal · updated weekly" /></Field>
@@ -147,29 +183,27 @@ function PageCard({ m }: { m: PresetEditorModel }) {
   const { cur, update } = m;
   return (
     <Card id="page" className="scroll-mt-6" title="Page" description="Paper, margins, and how the people are laid out on it.">
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="grid gap-2 sm:grid-cols-3">
-          <Field label="Paper">
-            <Select value={cur.paper} onChange={(e) => update({ paper: e.target.value as ExportPreset["paper"] })} className="w-full">
-              <option value="letter">Letter</option>
-              <option value="a4">A4</option>
-              <option value="legal">Legal</option>
-            </Select>
-          </Field>
-          <Field label="Orientation">
-            <Select value={cur.orientation} onChange={(e) => update({ orientation: e.target.value as ExportPreset["orientation"] })} className="w-full">
-              <option value="portrait">Portrait</option>
-              <option value="landscape">Landscape</option>
-            </Select>
-          </Field>
-          <Field label="Density">
-            <Select value={cur.density} onChange={(e) => update({ density: e.target.value as ExportPreset["density"] })} className="w-full">
-              <option value="compact">Compact</option>
-              <option value="normal">Normal</option>
-              <option value="comfortable">Comfortable</option>
-            </Select>
-          </Field>
-        </div>
+      <div className="grid gap-3 @sm:grid-cols-2 @2xl:grid-cols-4">
+        <Field label="Paper">
+          <Select value={cur.paper} onChange={(e) => update({ paper: e.target.value as ExportPreset["paper"] })} className="w-full">
+            <option value="letter">Letter</option>
+            <option value="a4">A4</option>
+            <option value="legal">Legal</option>
+          </Select>
+        </Field>
+        <Field label="Orientation">
+          <Select value={cur.orientation} onChange={(e) => update({ orientation: e.target.value as ExportPreset["orientation"] })} className="w-full">
+            <option value="portrait">Portrait</option>
+            <option value="landscape">Landscape</option>
+          </Select>
+        </Field>
+        <Field label="Density">
+          <Select value={cur.density} onChange={(e) => update({ density: e.target.value as ExportPreset["density"] })} className="w-full">
+            <option value="compact">Compact</option>
+            <option value="normal">Normal</option>
+            <option value="comfortable">Comfortable</option>
+          </Select>
+        </Field>
         <Field label="Margins" help="Custom is in inches, from 0.2 to 2, a tenth at a time.">
           <Select value={cur.margins ?? "normal"} onChange={(e) => update({ margins: e.target.value as ExportPreset["margins"] })} className="w-full">
             <option value="normal">Normal</option>
@@ -180,7 +214,7 @@ function PageCard({ m }: { m: PresetEditorModel }) {
         </Field>
       </div>
       {cur.margins === "custom" && (
-        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="mt-3 grid grid-cols-2 gap-2 @xl:grid-cols-4">
           {MARGIN_SIDES.map((side) => (
             <Field key={side} label={MARGIN_LABEL[side]} error={marginError(m.marginShown(side))}>
               <TextInput
@@ -196,7 +230,7 @@ function PageCard({ m }: { m: PresetEditorModel }) {
           ))}
         </div>
       )}
-      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+      <div className="mt-3 grid gap-3 @md:grid-cols-2">
         <Field label="Layout" help="The sheet is a table. The who's who is a grid of photo cards — name, title and the other columns under each photo.">
           <Select value={cur.layout} onChange={(e) => update({ layout: e.target.value === "cards" ? "cards" : "table" })} className="w-full">
             <option value="table">Table (the sheet)</option>
@@ -225,7 +259,18 @@ function PageCard({ m }: { m: PresetEditorModel }) {
         {cur.layout !== "cards" && <Toggle label="Shade alternate rows" checked={cur.zebra} onChange={(v) => update({ zebra: v })} />}
         <Toggle label="Page numbers" checked={cur.page_numbers} onChange={(v) => update({ page_numbers: v })} />
         <Toggle label="Printed date" checked={cur.printed_date} onChange={(v) => update({ printed_date: v })} />
+        <Toggle label="Office information" help="Closes the PDF with the profile of every office that appears in it — set up under Offices." checked={cur.office_info} onChange={(v) => update({ office_info: v })} />
       </div>
+      {cur.office_info && (
+        <Field label="Office blocks per row" help="Side by side at the end of the PDF. One per row lays a block's fields two abreast." size="sm" className="mt-3">
+          <Select value={String(cur.office_columns)} onChange={(e) => update({ office_columns: Number(e.target.value) as 1 | 2 | 3 | 4 })} className="w-full">
+            <option value="1">One, full width</option>
+            <option value="2">Two</option>
+            <option value="3">Three</option>
+            <option value="4">Four</option>
+          </Select>
+        </Field>
+      )}
     </Card>
   );
 }
@@ -284,7 +329,7 @@ function ColumnsCard({ m }: { m: PresetEditorModel }) {
         {cur.columns.includes("assistant") && (
           <fieldset aria-describedby={assistantHelpId}>
             <legend className="mb-1 block text-xs font-medium text-slate-500">Assistant details</legend>
-            <div className="grid gap-x-3 rounded-lg border border-slate-200 p-1 sm:grid-cols-2">
+            <div className="grid gap-x-3 rounded-lg border border-slate-200 p-1 @md:grid-cols-2">
               {m.assistantFieldOptions.map((c) => (
                 <label key={c.key} className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1 text-sm text-slate-700 hover:bg-slate-50">
                   <input
@@ -302,7 +347,7 @@ function ColumnsCard({ m }: { m: PresetEditorModel }) {
         {m.markers.length > 0 ? (
           <fieldset aria-describedby={markersHelpId}>
             <legend className="mb-1 block text-xs font-medium text-slate-500">Mark people with</legend>
-            <div className="grid gap-x-3 rounded-lg border border-slate-200 p-1 sm:grid-cols-2">
+            <div className="grid gap-x-3 rounded-lg border border-slate-200 p-1 @md:grid-cols-2">
               {m.markers.map((mk) => (
                 <label key={mk.id} className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1 text-sm text-slate-700 hover:bg-slate-50">
                   <input
@@ -323,19 +368,7 @@ function ColumnsCard({ m }: { m: PresetEditorModel }) {
         )}
         <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm">
           <Toggle label="Photos" checked={cur.photos} onChange={(v) => update({ photos: v })} />
-          <Toggle label="Pinned people first" checked={cur.pinned_first} onChange={(v) => update({ pinned_first: v })} />
-          <Toggle label="Office information" help="Closes the PDF with the profile of every office that appears in it — set up under Offices." checked={cur.office_info} onChange={(v) => update({ office_info: v })} />
         </div>
-        {cur.office_info && (
-          <Field label="Office blocks per row" help="Side by side at the end of the PDF. One per row lays a block's fields two abreast." size="sm">
-            <Select value={String(cur.office_columns)} onChange={(e) => update({ office_columns: Number(e.target.value) as 1 | 2 | 3 | 4 })} className="w-full">
-              <option value="1">One, full width</option>
-              <option value="2">Two</option>
-              <option value="3">Three</option>
-              <option value="4">Four</option>
-            </Select>
-          </Field>
-        )}
       </div>
     </Card>
   );
@@ -345,7 +378,7 @@ function OrderCard({ m }: { m: PresetEditorModel }) {
   const { cur, update } = m;
   return (
     <Card id="order" className="scroll-mt-6" title="Order and filter" description="Who is in the file, in which sections, and in what order.">
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-3 @md:grid-cols-2">
         <Field label="Sections by">
           <Select value={cur.group_by} onChange={(e) => update({ group_by: e.target.value })} className="w-full">
             <option value="">— one list —</option>
@@ -389,9 +422,12 @@ function OrderCard({ m }: { m: PresetEditorModel }) {
             </Select>
           </div>
         </Field>
+        <div className="flex items-center">
+          <Toggle label="Pinned people first" checked={cur.pinned_first} onChange={(v) => update({ pinned_first: v })} />
+        </div>
         <Field label="Only people where" help="e.g. Office = PHX1 for one office's sheet. Leave blank for everyone.">
           <div className="flex gap-1">
-            <Select value={cur.filter?.key ?? ""} onChange={(e) => update({ filter: e.target.value ? { key: e.target.value, value: cur.filter?.value ?? "" } : null })} className="w-40" aria-label="Filter field">
+            <Select value={cur.filter?.key ?? ""} onChange={(e) => update({ filter: e.target.value ? { key: e.target.value, value: cur.filter?.value ?? "" } : null })} className="w-32" aria-label="Filter field">
               <option value="">— none —</option>
               {m.available.filter((c) => c.key !== "name").map((c) => (
                 <option key={c.key} value={c.key}>{c.label}</option>
@@ -432,7 +468,7 @@ function ScheduleCard({ m }: { m: PresetEditorModel }) {
           SMTP is not set up (<SettingsLink href="/admin/notifications/email" />); the schedule is kept but nothing is sent until it is.
         </div>
       )}
-      <div className="grid gap-3 sm:grid-cols-4">
+      <div className="grid gap-3 @sm:grid-cols-2 @2xl:grid-cols-4">
         <Field label="How often">
           <Select value={cur.schedule.frequency} onChange={(e) => updateSchedule({ frequency: e.target.value as ExportSchedule["frequency"], day: e.target.value === "weekly" ? 1 : 1 })} className="w-full">
             <option value="off">Never</option>

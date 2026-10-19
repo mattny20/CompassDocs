@@ -5,6 +5,7 @@
 
 import { useState } from "react";
 import { ArrowDown, ArrowUp, X } from "lucide-react";
+import { iconButtonClass } from "@/components/Button";
 import { Select } from "@/components/form";
 
 export interface KeyOption {
@@ -52,12 +53,13 @@ export function OrderedKeyList({
           <div key={k} className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 px-3 py-1.5 text-sm">
             <span className="flex-1 font-medium text-slate-700">{label(k)}</span>
             {extra?.(k, label(k))}
-            <span className="ml-auto flex items-center gap-2">
-              <button type="button" onClick={() => move(i, -1)} disabled={i === 0} data-tt="Move up" aria-label={`Move ${label(k)} up`} className="rounded-sm p-1 text-slate-400 hover:text-slate-600 disabled:opacity-30">
-                <ArrowUp className="h-3.5 w-3.5" />
+            {/* Icon-only row actions (STYLEGUIDE §Buttons): the 28px quiet box sizes the glyph. */}
+            <span className="ml-auto flex items-center gap-1">
+              <button type="button" onClick={() => move(i, -1)} disabled={i === 0} data-tt="Move up" aria-label={`Move ${label(k)} up`} className={iconButtonClass("quiet", "sm")}>
+                <ArrowUp />
               </button>
-              <button type="button" onClick={() => move(i, 1)} disabled={i === value.length - 1} data-tt="Move down" aria-label={`Move ${label(k)} down`} className="rounded-sm p-1 text-slate-400 hover:text-slate-600 disabled:opacity-30">
-                <ArrowDown className="h-3.5 w-3.5" />
+              <button type="button" onClick={() => move(i, 1)} disabled={i === value.length - 1} data-tt="Move down" aria-label={`Move ${label(k)} down`} className={iconButtonClass("quiet", "sm")}>
+                <ArrowDown />
               </button>
               <button
                 type="button"
@@ -65,9 +67,9 @@ export function OrderedKeyList({
                 disabled={value.length <= minimum}
                 data-tt="Remove"
                 aria-label={`Remove ${label(k)}`}
-                className="rounded-sm p-1 text-slate-400 hover:text-red-600 disabled:opacity-30"
+                className={iconButtonClass("quiet", "sm")}
               >
-                <X className="h-3.5 w-3.5" />
+                <X />
               </button>
             </span>
           </div>

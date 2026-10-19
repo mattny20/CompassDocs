@@ -249,11 +249,22 @@ test("a preset keeps column limits, assistant details, custom margins and a firs
 
     // The editor shows what was saved: the name sort, the per-column limit,
     // the margins and their inches, the assistant's ticked field. The preset
-    // is a row in the list; its editor is the five group cards.
+    // is a row in the list; its editor is the five group cards. At the
+    // Normal page width the editor pane is about 240px of inner width: the
+    // cards' grids follow the pane (container queries), so no card spills
+    // sideways and the Density select keeps a readable width.
+    await api(page, "/api/account/preferences", { method: "PATCH", body: { page_width: "normal" } });
     await page.goto("/admin/directory/export");
     await page.getByRole("button", { name: `E2E Wrap ${stamp}` }).click();
     await expect(page.getByRole("heading", { name: `E2E Wrap ${stamp}` })).toBeVisible();
-    for (const card of PRESET_CARDS) await expect(page.getByRole("heading", { name: card, exact: true })).toBeVisible();
+    for (const card of PRESET_CARDS) {
+      await expect(page.getByRole("heading", { name: card, exact: true })).toBeVisible();
+      const section = page.locator("section", { has: page.getByRole("heading", { name: card, exact: true }) }).last();
+      const spill = await section.evaluate((el) => el.scrollWidth - el.clientWidth);
+      expect(spill, `the ${card} card does not spill sideways at Normal`).toBeLessThanOrEqual(0);
+    }
+    const density = await page.getByRole("combobox", { name: "Density" }).boundingBox();
+    expect(density!.width, "the Density select is wide enough to read at Normal").toBeGreaterThanOrEqual(160);
     // "Sort by" / "Then by" wrap a direction select too, so their names are not exact.
     await expect(page.getByRole("combobox", { name: "Sort by" })).toHaveValue("name:first");
     await expect(page.getByRole("combobox", { name: "Then by" })).toHaveValue("name:last");
@@ -343,6 +354,7 @@ test("a preset keeps column limits, assistant details, custom margins and a firs
   } finally {
     await api(page, "/api/admin/directory/export-presets", { method: "PUT", body: { presets } });
     await api(page, "/api/admin/directory/list-columns", { method: "PUT", body: { name_sort: defaults?.name_sort ?? "full" } });
+    await api(page, "/api/account/preferences", { method: "PATCH", body: { page_width: "wide" } });
     for (const p of [amy, zed]) await api(page, `/api/admin/directory/people/${p.id}`, { method: "DELETE" });
   }
 });
@@ -424,11 +436,20 @@ test("markers round-trip and refuse an unprintable symbol; a preset prints them 
     expect(pdf.head).toBe("%PDF-");
     expect(pdf.size).toBeGreaterThan(1500);
 
-    // The page: the Markers card lists the marker; the preset's Document card
-    // shows the format and its Columns card ticks the marker.
+    // The page: the Markers card lists the marker (its Name input is named
+    // by position, so the row is found by its Remove button, which carries
+    // the label); Add lands on the new row's Name input and Remove on the
+    // Remove of the row before it. Then the preset's Document card shows
+    // the format and its Columns card ticks the marker.
     await page.goto("/admin/directory/export");
     await expect(page.getByRole("heading", { name: "Markers", exact: true })).toBeVisible();
-    await expect(page.getByRole("textbox", { name: "Name of Public notary" }).last()).toHaveValue("Public notary");
+    const removeMine = page.getByRole("button", { name: "Remove Public notary" }).last();
+    const markerRow = page.getByRole("row").filter({ has: page.getByRole("button", { name: "Remove Public notary" }) }).last();
+    await expect(markerRow.getByRole("textbox", { name: /^Name of marker \d+$/ })).toHaveValue("Public notary");
+    await page.getByRole("button", { name: "Add a marker" }).click();
+    await expect(page.getByRole("textbox", { name: /^Name of marker \d+$/ }).last()).toBeFocused();
+    await page.getByRole("button", { name: /^Remove marker \d+$/ }).last().click();
+    await expect(removeMine).toBeFocused();
     await page.getByRole("button", { name: `E2E Mark ${stamp}` }).click();
     await expect(page.getByRole("combobox", { name: "Name format" })).toHaveValue("last_first_initial");
     await expect(page.getByRole("checkbox", { name: "* Public notary" }).last()).toBeChecked();

@@ -33,6 +33,7 @@ import {
   markerPrefix,
   markerProblem,
   markersFor,
+  markersForViewer,
   markersProblem,
   printableSymbol,
   sanitizeMarkers,
@@ -202,10 +203,15 @@ describe("formatName", () => {
     assert.ok(NAME_FORMATS.every((f) => f.label.length > 0));
   });
 
-  test("a particle surname rides whole, an initial carries a full stop, and a single word prints as it is in every format", () => {
+  test("a particle surname rides whole, its initial is the surname proper's, an initial carries a full stop, and a single word prints as it is in every format", () => {
     assert.equal(formatName("Ludwig van Beethoven", "last_first"), "van Beethoven, Ludwig");
-    assert.equal(formatName("Ludwig van Beethoven", "first_last_initial"), "Ludwig V.");
+    assert.equal(formatName("Ludwig van Beethoven", "first_initial_last"), "L. van Beethoven");
+    assert.equal(formatName("Ludwig van Beethoven", "first_last_initial"), "Ludwig B.", "the particle's letter names no one");
     assert.equal(formatName("Oscar De La Hoya", "first_initial_last"), "O. De La Hoya");
+    assert.equal(formatName("Oscar De La Hoya", "first_last_initial"), "Oscar H.");
+    assert.equal(formatName("de la Cruz, Maria", "first_last_initial"), "Maria C.");
+    assert.equal(formatName("de la Cruz, Maria", "last_first_initial"), "de la Cruz, M.", "the surname itself still rides whole");
+    assert.equal(formatName("Van Morrison", "first_last_initial"), "Van M.", "a two-word name never loses its first word");
     assert.equal(formatName("Mary-Kate Olsen-Day", "first_last_initial"), "Mary-Kate O.");
     assert.equal(formatName("JD Vance", "last_first_initial"), "Vance, J.");
     for (const format of NAME_FORMATS.map((f) => f.key)) {
@@ -302,6 +308,33 @@ describe("markers", () => {
     assert.equal(sanitizeMarkers(Array.from({ length: 30 }, (_, i) => ({ label: `M${i}`, symbol: "*", key: "title" })), fields).length, 24);
     // Stable: a sanitized set sanitizes to itself.
     assert.deepEqual(sanitizeMarkers(out, fields), out);
+  });
+
+  test("ids are assigned in two passes: a stored id is reserved before any new marker's label can take it, wherever it sits", () => {
+    // The new "Notary" comes first in the list, but "notary" belongs to the
+    // stored marker presets refer to: the new one is the one suffixed.
+    const ahead = sanitizeMarkers(
+      [
+        { label: "Notary", symbol: "*", key: "title", value: "" },
+        { id: "notary", label: "Public notary", symbol: "†", key: "extension", value: "x204" },
+      ],
+      fields
+    );
+    assert.deepEqual(ahead.map((m) => m.id), ["notary-2", "notary"]);
+    assert.deepEqual(ahead[1], { id: "notary", label: "Public notary", symbol: "†", key: "extension", value: "x204" });
+    // A stored id given twice keeps its first holder; the repeats (and a
+    // new marker whose label slugs to it) are named as new markers are.
+    const twice = sanitizeMarkers(
+      [
+        { id: "dup", label: "Dup A", symbol: "*", key: "title", value: "" },
+        { id: "dup", label: "Dup B", symbol: "†", key: "title", value: "" },
+        { id: "DUP", label: "Dup C", symbol: "‡", key: "title", value: "" },
+        { label: "dup", symbol: "§", key: "title", value: "" },
+      ],
+      fields
+    );
+    assert.deepEqual(twice.map((m) => m.id), ["dup", "dup-b", "dup-c", "dup-2"]);
+    assert.deepEqual(sanitizeMarkers(twice, fields), twice, "and the result is stable");
   });
 
   test("markerProblem names the first thing wrong the way the route refuses it; markersProblem the first of a list", () => {
@@ -640,6 +673,26 @@ describe("PDF and CSV", () => {
     // A "+" in front of a name is neutralised as a formula would be, as any leading + is.
     const plus = exporter.renderDirectoryCsv({ preset: { ...marked, markers: ["plus"] }, people: [lee], fields, company: "Acme", markers: [{ id: "plus", label: "Plus", symbol: "+", key: "extension", value: "" }] });
     assert.ok(plus.includes("'+ Pat Lee,"), plus);
+  });
+
+  test("a marker on a column the viewer may not see goes with the column: absent from the file's markers, its key line and its CSV column", () => {
+    // What the export route does for a viewer: the store cut to the
+    // viewer's columns before the preset's ids are read against it.
+    const MOBILE: ExportMarker = { id: "mob", label: "Mobile on file", symbol: "§", key: "mobile", value: "" };
+    const all = [...MARKS, MOBILE];
+    const viewer = markersForViewer(all, new Set(["mobile"]));
+    assert.deepEqual(viewer.map((m) => m.id), ["notary", "phoenix", "ext"]);
+    assert.equal(markersForViewer(all, new Set()), all, "an admin hides nothing and keeps the list as it is");
+    const chosen = { ...preset(), markers: ["notary", "mob"] };
+    const prepared = exporter.prepareExport({ preset: chosen, people, fields, company: "Acme", markers: viewer });
+    assert.deepEqual(prepared.markers.map((m) => m.id), ["notary"]);
+    assert.equal(markerKeyLine(prepared.markers), "* Public notary");
+    const csv = exporter.renderDirectoryCsv({ preset: chosen, people: [lee], fields, company: "Acme", markers: viewer });
+    assert.ok(csv.includes("* Pat Lee"), csv);
+    assert.ok(!csv.includes("Mobile on file"), csv);
+    // The admin's own export still prints it.
+    const admin = exporter.prepareExport({ preset: chosen, people, fields, company: "Acme", markers: all });
+    assert.deepEqual(admin.markers.map((m) => m.id), ["notary", "mob"]);
   });
 
   test("name formats: the name cell and assistant names are rewritten, with the symbols in front; the sort reads the stored names", () => {

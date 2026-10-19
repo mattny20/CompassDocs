@@ -107,14 +107,16 @@ export function markersProblem(raw: unknown, fields: FieldLike[]): string | unde
  * Coerce untrusted JSON into markers: at most MARKER_LIMIT; a label of 1..40
  * characters; a symbol of 1..3 printable characters; a field key markers
  * may read; a value of up to 120 characters. Anything short of that is
- * dropped. Ids are unique slugs: a stored id is kept (presets refer to it),
- * a new marker's comes from its label.
+ * dropped. Ids are unique slugs, assigned in two passes: every stored id is
+ * reserved first (presets refer to it, so a new marker whose label slugs to
+ * one never takes it, wherever it sits in the list; a stored id given twice
+ * keeps its first holder), then a new marker's id comes from its label,
+ * suffixed past anything in use.
  */
 export function sanitizeMarkers(raw: unknown, fields: FieldLike[]): ExportMarker[] {
   if (!Array.isArray(raw)) return [];
   const keys = new Set(markerFields(fields).map((f) => f.key));
-  const out: ExportMarker[] = [];
-  const seen = new Set<string>();
+  const kept: ExportMarker[] = [];
   for (const item of raw.slice(0, MARKER_LIMIT)) {
     const o = (item && typeof item === "object" ? item : {}) as Record<string, unknown>;
     const label = String(o.label ?? "").trim().slice(0, MARKER_LABEL_MAX);
@@ -122,13 +124,32 @@ export function sanitizeMarkers(raw: unknown, fields: FieldLike[]): ExportMarker
     const key = String(o.key ?? "").trim();
     const value = String(o.value ?? "").trim().slice(0, MARKER_VALUE_MAX);
     if (!label || !symbol || [...symbol].length > MARKER_SYMBOL_MAX || !printableSymbol(symbol) || !keys.has(key)) continue;
-    const base = slug(String(o.id ?? "")) || slug(label) || `marker-${out.length + 1}`;
+    kept.push({ id: slug(String(o.id ?? "")), label, symbol, key, value });
+  }
+  const seen = new Set<string>();
+  for (const m of kept) {
+    if (m.id && !seen.has(m.id)) seen.add(m.id);
+    else m.id = "";
+  }
+  return kept.map((m, i) => {
+    if (m.id) return m;
+    const base = slug(m.label) || `marker-${i + 1}`;
     let id = base;
     for (let n = 2; seen.has(id); n++) id = `${base}-${n}`;
     seen.add(id);
-    out.push({ id, label, symbol, key, value });
-  }
-  return out;
+    return { ...m, id };
+  });
+}
+
+/**
+ * The markers a viewer's export may print: those whose field the viewer may
+ * see. A marker on a restricted column (a mobile number for admins only)
+ * would mark no one, since the value is redacted, but its label would still
+ * show in the footer key and the CSV's Markers column; so it goes with the
+ * column. Admins have no hidden keys and keep every marker.
+ */
+export function markersForViewer(markers: ExportMarker[], hidden: ReadonlySet<string>): ExportMarker[] {
+  return hidden.size ? markers.filter((m) => !hidden.has(m.key)) : markers;
 }
 
 /** Does this person earn this marker? A blank value marks anyone with a value. */

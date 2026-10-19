@@ -8,12 +8,19 @@
 // same the PUT route refuses with, so what is typed is what is saved: Save
 // waits the moment a row is wrong, and the message waits until the row's
 // control has been left, so a name still being typed is not shouted at.
+//
+// Focus never falls to <body>: Add lands on the new row's Name input (so
+// leaving it is the natural moment its blur-gated message appears), Remove
+// on the Remove of the row that took the removed one's place (the previous
+// row's when the last went; the Add button when the table is empty), and
+// "Other…" on the symbol input it reveals.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { Card } from "@/components/Card";
-import { Button, iconButtonClass } from "@/components/Button";
+import { buttonClass, iconButtonClass } from "@/components/Button";
 import { SaveRow } from "@/components/SaveRow";
+import { Tooltip } from "@/components/Tooltip";
 import { SectionEmpty, Select, TextInput } from "@/components/form";
 import { TABLE_HEAD_ROW, TR, Table, Td, Th } from "@/components/Table";
 import { toast } from "@/components/Toasts";
@@ -57,9 +64,20 @@ interface Row extends ExportMarker {
   uid: string;
 }
 
+/** Where focus goes once the change that moved it has rendered. */
+type FocusTarget = { kind: "name" | "other" | "remove"; uid: string } | { kind: "add" };
+
 const strip = (r: Row): ExportMarker => ({ id: r.id, label: r.label, symbol: r.symbol, key: r.key, value: r.value });
 const toRows = (markers: ExportMarker[]): Row[] => markers.map((m) => ({ ...m, uid: m.id }));
 const listed = (symbol: string) => (MARKER_SYMBOLS as readonly string[]).includes(symbol);
+
+/** A ref callback that files a row's control under its uid. */
+function bind<T extends HTMLElement>(map: { current: Map<string, T> }, uid: string) {
+  return (el: T | null) => {
+    if (el) map.current.set(uid, el);
+    else map.current.delete(uid);
+  };
+}
 
 export function MarkersCard({
   fieldOptions,
@@ -87,6 +105,25 @@ export function MarkersCard({
     onDirty?.(dirty);
   }, [dirty, onDirty]);
 
+  const nameRefs = useRef(new Map<string, HTMLInputElement>());
+  const otherRefs = useRef(new Map<string, HTMLInputElement>());
+  const removeRefs = useRef(new Map<string, HTMLButtonElement>());
+  const addRef = useRef<HTMLButtonElement>(null);
+  const [focus, setFocus] = useState<FocusTarget | null>(null);
+  useEffect(() => {
+    if (!focus) return;
+    const el =
+      focus.kind === "add"
+        ? addRef.current
+        : focus.kind === "name"
+          ? nameRefs.current.get(focus.uid)
+          : focus.kind === "other"
+            ? otherRefs.current.get(focus.uid)
+            : removeRefs.current.get(focus.uid);
+    el?.focus();
+    setFocus(null);
+  }, [focus]);
+
   const keys = useMemo(() => new Set(fieldOptions.map((f) => f.key)), [fieldOptions]);
   const problems = rows.flatMap((r, i) => {
     const problem = markerProblem(r, i, keys);
@@ -94,6 +131,7 @@ export function MarkersCard({
   });
   const invalid = problems.length > 0;
   const shown = problems.find((p) => touched.has(p.uid));
+  const full = rows.length >= MARKER_LIMIT;
 
   function patch(uid: string, changes: Partial<ExportMarker>) {
     setRows((rs) => rs.map((r) => (r.uid === uid ? { ...r, ...changes } : r)));
@@ -103,19 +141,25 @@ export function MarkersCard({
     setTouched((t) => new Set(t).add(uid));
   }
   function add() {
-    if (rows.length >= MARKER_LIMIT) return;
+    if (full) return;
     const uid = `new-${++seq.current}`;
     setRows((rs) => [...rs, { uid, id: "", label: "", symbol: "*", key: fieldOptions[0]?.key ?? "", value: "" }]);
     markDirty();
+    setFocus({ kind: "name", uid });
   }
   function remove(uid: string) {
-    setRows((rs) => rs.filter((r) => r.uid !== uid));
+    const i = rows.findIndex((r) => r.uid === uid);
+    const rest = rows.filter((r) => r.uid !== uid);
+    const next = rest[i] ?? rest[i - 1];
+    setRows(rest);
     markDirty();
+    setFocus(next ? { kind: "remove", uid: next.uid } : { kind: "add" });
   }
   function pickSymbol(uid: string, choice: string) {
     if (choice === OTHER) {
       setOther((o) => new Set(o).add(uid));
       patch(uid, { symbol: "" });
+      setFocus({ kind: "other", uid });
       return;
     }
     setOther((o) => {
@@ -143,6 +187,14 @@ export function MarkersCard({
     toast("ok", "Markers saved.");
   }
 
+  // A bare button (buttonClass), not <Button>: it takes the ref focus
+  // returns to when the last row is removed.
+  const addButton = (
+    <button ref={addRef} type="button" className={buttonClass("secondary")} onClick={add} disabled={full}>
+      <Plus className="h-4 w-4" aria-hidden /> Add a marker
+    </button>
+  );
+
   return (
     <Card
       id="markers"
@@ -155,7 +207,7 @@ export function MarkersCard({
         <SectionEmpty className="px-4 py-4">A marker you add here appears in every preset's Mark people with list.</SectionEmpty>
       ) : (
         <>
-          <Table scroll minWidth="40rem">
+          <Table scroll minWidth="32rem">
             <thead className={TABLE_HEAD_ROW}>
               <tr>
                 <Th fit>Symbol</Th>
@@ -169,6 +221,10 @@ export function MarkersCard({
             </thead>
             <tbody>
               {rows.map((r, i) => {
+                // The row's controls are named by the label as typed; the
+                // Name input by its position, since its label is what is
+                // being typed and a name that changed on every keystroke
+                // would chatter.
                 const who = r.label.trim() || `marker ${i + 1}`;
                 const problem = touched.has(r.uid) ? problems.find((p) => p.uid === r.uid) : undefined;
                 const isOther = other.has(r.uid) || !listed(r.symbol);
@@ -194,6 +250,7 @@ export function MarkersCard({
                         </Select>
                         {isOther && (
                           <TextInput
+                            ref={bind(otherRefs, r.uid)}
                             dense
                             className="w-14"
                             maxLength={MARKER_SYMBOL_MAX}
@@ -208,6 +265,7 @@ export function MarkersCard({
                     </Td>
                     <Td>
                       <TextInput
+                        ref={bind(nameRefs, r.uid)}
                         dense
                         maxLength={MARKER_LABEL_MAX}
                         value={r.label}
@@ -215,7 +273,7 @@ export function MarkersCard({
                         onChange={(e) => patch(r.uid, { label: e.target.value })}
                         onBlur={() => touch(r.uid)}
                         hasError={problem?.field === "label"}
-                        aria-label={`Name of ${who}`}
+                        aria-label={`Name of marker ${i + 1}`}
                       />
                     </Td>
                     <Td>
@@ -249,6 +307,7 @@ export function MarkersCard({
                     </Td>
                     <Td fit>
                       <button
+                        ref={bind(removeRefs, r.uid)}
                         type="button"
                         className={iconButtonClass("quiet", "sm")}
                         onClick={() => remove(r.uid)}
@@ -272,10 +331,10 @@ export function MarkersCard({
         </>
       )}
       <div className="border-t border-slate-100 px-4 py-3">
-        <SaveRow dirty={dirty} busy={saving} onSave={save} label="Save markers" sticky={false} disabled={invalid}>
-          <Button variant="secondary" icon={<Plus />} onClick={add} disabled={rows.length >= MARKER_LIMIT}>
-            Add a marker
-          </Button>
+        {/* shortcut={false}: Ctrl/⌘+S stays the page's presets shortcut; two
+            rows answering one keystroke would fire two saves. */}
+        <SaveRow dirty={dirty} busy={saving} onSave={save} label="Save markers" sticky={false} shortcut={false} disabled={invalid}>
+          {full ? <Tooltip label={`Up to ${MARKER_LIMIT} markers.`}>{addButton}</Tooltip> : addButton}
         </SaveRow>
       </div>
     </Card>

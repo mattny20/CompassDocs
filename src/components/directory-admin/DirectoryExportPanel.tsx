@@ -166,7 +166,13 @@ export function DirectoryExportPanel({
   function addPreset(from?: ExportPreset) {
     const base = from ? { ...from, is_default: false } : { ...PRESET_BLANK };
     const name = from ? `${from.name} (copy)` : "New export";
-    const id = `${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")}-${presets.length + 1}`;
+    // Until Save the id is the list row's React key, so it must not repeat
+    // an unsaved one: the suffix counts past the ids in use, not from the
+    // array's length, which a deletion shrinks.
+    const stem = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+    let n = presets.length + 1;
+    while (presets.some((p) => p.id === `${stem}-${n}`)) n++;
+    const id = `${stem}-${n}`;
     setPresets((ps) => [...ps, { ...base, id, name }]);
     setSelected(presets.length);
     setDirty(true);
@@ -241,7 +247,7 @@ export function DirectoryExportPanel({
         <PresetList presets={presets} selected={selected} onSelect={setSelected} onNew={() => addPreset()} />
         <PresetEditor
           model={model}
-          dirty={dirty}
+          dirty={dirty || markersDirty}
           canDelete={presets.length > 1}
           onMakeDefault={makeDefault}
           onDuplicate={() => addPreset(cur)}

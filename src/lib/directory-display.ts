@@ -432,10 +432,11 @@ function initialOf(word: string): string {
 /**
  * A name written one of the NAME_FORMATS ways, built on nameParts: "Smith,
  * Jane A." is "Jane Smith", "Smith, Jane", "Jane S.", "Smith, J." or "J.
- * Smith"; a particle surname rides whole ("van Beethoven, Ludwig"). A
- * single-word name prints as it is in every format, and "as_written" returns
- * the name untouched (trimmed). Sorting never reads this: the sort keys
- * parse the stored name.
+ * Smith"; a particle surname rides whole ("van Beethoven, Ludwig"), and its
+ * initial is the surname proper's ("Ludwig B.", "Maria C." for "de la Cruz,
+ * Maria"), since "Ludwig V." names no one. A single-word name prints as it
+ * is in every format, and "as_written" returns the name untouched (trimmed).
+ * Sorting never reads this: the sort keys parse the stored name.
  */
 export function formatName(name: string, format: NameFormat): string {
   const n = String(name ?? "").trim();
@@ -448,7 +449,7 @@ export function formatName(name: string, format: NameFormat): string {
     case "last_first":
       return `${last}, ${first}`;
     case "first_last_initial":
-      return `${first} ${initialOf(last)}`;
+      return `${first} ${initialOf(last.split(" ").pop() ?? last)}`;
     case "last_first_initial":
       return `${last}, ${initialOf(first)}`;
     case "first_initial_last":
