@@ -93,8 +93,9 @@ re-confirmation on an interval, and retirement. (Enterprise, `policy_ack`.)
   **Re-enter your account password**. The confirm button waits, with the
   help "Sign above to confirm" under it, until the typed name matches the
   account's (case and spacing do not matter); the password is checked on the
-  server. The done state and the printed standing line then read "You
-  confirmed version 12 on 3 Mar 2026, 14:02, signed as Dana Whitfield." A
+  server. The done state then reads "You confirmed version 12 on 3 Mar 2026,
+  14:02, signed as Dana Whitfield." and the printed standing line ends
+  "· signed as Dana Whitfield". A
   kept edit's **Re-confirm the current text** asks for the signature again
   on such a policy. The row stores the name as typed (`signed_name`) and how
   the signer was identified (`identity_proof`: `password` for a local
@@ -183,7 +184,12 @@ re-confirmation on an interval, and retirement. (Enterprise, `policy_ack`.)
 - **Effective date.** A policy is dated the day its requirement is first
   switched on (`ack_effective_at`), kept through an off-and-on and through
   an upgrade (existing policies are undated until someone dates them on
-  the Settings tab).
+  the Settings tab). The effective date and the next re-confirmation date
+  are calendar days and read as the day chosen in every time zone: the
+  card's "Effective 1 Jan 2026", the popover's "next 1 Jan 2027", the
+  portal row's "Next re-confirmation 1 Jan 2027" and the Settings tab's own
+  line go through one day formatter pinned to UTC, so a workspace west of
+  UTC no longer reads the day before.
 - **Program settings → Re-confirmation.** A **Re-confirm every** default
   (Never / 6 months / 12 months / 24 months; Never until an admin chooses)
   that a policy receives when it is first set to require read
@@ -215,7 +221,10 @@ re-confirmation on an interval, and retirement. (Enterprise, `policy_ack`.)
   sticky control are gone (the policy asks nobody), and the notices strip
   shows one neutral row for everyone: "Retired 3 Mar 2026 · replaced by
   Expense policy 2026", with the replacement as a link when the reader may
-  open it, or "Retired 3 Mar 2026" alone.
+  open it, or "Retired 3 Mar 2026" alone. For a manager, the shield
+  popover shows "Retired 3 Mar 2026 · un-retire it on the Settings tab"
+  (the tab linked) in place of the Require readers to confirm switch,
+  which PATCH /ack would only refuse with 409.
 - **Un-retire.** `POST /api/documents/{id}/ack/unretire` clears the
   retirement (the replacement too) and switches the requirement back on.
   Confirmations made before the policy was retired count again, unless the
@@ -226,7 +235,11 @@ re-confirmation on an interval, and retirement. (Enterprise, `policy_ack`.)
   statement, so nobody is asked again the day a policy comes back. An
   unpublished document resumes as Paused. 409 "This policy is not retired."
   otherwise; the answer is `{ ok, current, eligible }`. Audit:
-  `ack.unretired` ("Resumed retired policy") with the standing.
+  `ack.unretired` ("Resumed retired policy") with the standing. The
+  "Policy resumed: 42 of 50 confirmations still current" toast offers
+  **Ask everyone to re-confirm…** while anyone's confirmation is still
+  current, on the Settings tab and in the portal: the same question and
+  reset as the page header's button.
 - **A replacement.** `documents.ack_superseded_by` names the policy that
   replaced a retired one; it is validated as a published document other
   than the policy itself, inside the caller's scope. `PATCH
@@ -346,7 +359,14 @@ re-confirmation on an interval, and retirement. (Enterprise, `policy_ack`.)
   in place, the card then reading "Retired 3 Mar 2026 by Mia Manager" with
   the reason; and **Un-retire**, which asks the same question as the
   portal's and resumes with the same toast, "Policy resumed: 42 of 50
-  confirmations still current".
+  confirmations still current". Only a date you change is checked: a
+  stored next date that has already passed (a retired or paused policy's,
+  which the sweep leaves alone) shows the hint "This date has passed; the
+  next cycle fires when the policy is live again." under the field, and
+  the statement, the signature and the replacement still save. After
+  Retire or Un-retire, focus lands on the button that replaced the one
+  used (the card's heading for a moment while the page refreshes), never
+  on the page body.
 - **`PATCH /api/documents/{id}/ack-settings`** takes `recert_months` (a
   whole number of months from 1 to 60, or null for never),
   `next_recert_at` (a date not in the past, or null to schedule from the
