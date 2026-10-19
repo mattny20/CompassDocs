@@ -5340,6 +5340,11 @@ async function workspaceAckDefaults(): Promise<{ edit_default: AckEditDefault; r
  * (ack_recert_months = the default, ack_next_recert_at = now + interval).
  * `recertMonths` works like `editDefault`: undefined reads the workspace,
  * null leaves the columns alone, a number applies instead.
+ *
+ * A retired policy (G3, ack_retired_at set) never switches on here: the
+ * WHERE refuses it and the call answers `switched_on: false` like a policy
+ * that already requires confirmation. Un-retire (unretirePolicy) is the one
+ * way back; the routes answer 409 before they get here.
  */
 export async function setAckRequired(
   docId: number,
@@ -5786,7 +5791,8 @@ export async function unretirePolicy(docId: number): Promise<{ title: string; cu
   const r = await q<{ title: string }>(
     `UPDATE documents
        SET ack_required = 1, ack_retired_at = NULL, ack_retired_by = NULL,
-           ack_retired_by_name = '', ack_retired_reason = '', ack_superseded_by = NULL
+           ack_retired_by_name = '', ack_retired_reason = '', ack_superseded_by = NULL,
+           ${RECERT_NEXT_ON_RESUME}
      WHERE id = $1 AND ack_retired_at IS NOT NULL AND deleted_at IS NULL
      RETURNING title`,
     [docId]
