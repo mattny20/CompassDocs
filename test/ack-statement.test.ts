@@ -556,29 +556,53 @@ describe("GET and PATCH /api/documents/[id]/ack-settings", () => {
     );
     assert.equal((await audits()).length, 3);
 
+    // A next date needs an interval to fire on: with none stored and none
+    // in the body it is refused by name, not stored silently; the interval
+    // in the same body counts.
+    const laterYmd = later.toISOString().slice(0, 10);
+    await refused({ next_recert_at: laterYmd }, /^Set an interval before a next re-confirmation date\.$/);
+    await refused({ recert_months: null, next_recert_at: laterYmd }, /^Set an interval before a next re-confirmation date\.$/);
+    assert.equal((await audits()).length, 3, "a refused date is not on the record");
+    const withInterval = await patch({ recert_months: 6, next_recert_at: laterYmd });
+    assert.equal(withInterval.status, 200, JSON.stringify(withInterval.body));
+    assert.deepEqual([withInterval.body.recert_months, new Date(withInterval.body.next_recert_at).getTime()], [6, later.getTime()]);
+    assert.equal((await audits()).length, 4);
+    assert.equal((await patch({ recert_months: null })).status, 200);
+    assert.equal((await audits()).length, 5);
+
     // The replacement: a published document the caller can see, never the
     // policy itself; the audit row carries the move; null clears it.
     await refused({ superseded_by: 0 }, /^'superseded_by' must be a document id or null\.$/);
     await refused({ superseded_by: "x" }, /^'superseded_by' must be a document id or null\.$/);
     await refused({ superseded_by: id }, /^A policy cannot be replaced by itself\.$/);
     await refused({ superseded_by: 2_000_000_000 }, /^The replacement must be a published document you can see\.$/);
-    assert.equal((await audits()).length, 3, "a refused replacement is not on the record");
+    assert.equal((await audits()).length, 5, "a refused replacement is not on the record");
+    // Beside other fields, the replacement is judged first: a refusal
+    // leaves the statement, the signature and the interval untouched too,
+    // and nothing is on the record.
+    await refused(
+      { statement: "Changed anyway?", signature: true, recert_months: 9, superseded_by: 2_000_000_000 },
+      /^The replacement must be a published document you can see\.$/
+    );
+    assert.deepEqual(await getAckSettings(id), { statement: null, signature: false }, "the statement and signature did not move");
+    assert.equal((await getAckRecert(id))!.ack_recert_months, null, "nor the interval");
+    assert.equal((await audits()).length, 5, "and nothing is on the record");
     const replaced = await patch({ superseded_by: other.id });
     assert.equal(replaced.status, 200, JSON.stringify(replaced.body));
     assert.equal(replaced.body.superseded_by, other.id);
     assert.equal(replaced.body.superseded_by_title, `${STAMP} the replacement`);
-    assert.equal((await audits()).length, 4);
-    row = (await audits())[3];
+    assert.equal((await audits()).length, 6);
+    row = (await audits())[5];
     assert.deepEqual(
       [row.details.superseded_by_changed, row.details.superseded_by_from, row.details.superseded_by_to],
       [true, null, other.id]
     );
     assert.equal((await patch({ superseded_by: other.id })).status, 200);
-    assert.equal((await audits()).length, 4, "the same replacement again: no row");
+    assert.equal((await audits()).length, 6, "the same replacement again: no row");
     const cleared = await patch({ superseded_by: null });
     assert.equal(cleared.status, 200);
     assert.deepEqual([cleared.body.superseded_by, cleared.body.superseded_by_title], [null, null]);
-    assert.equal((await audits()).length, 5);
+    assert.equal((await audits()).length, 7);
 
     // One PATCH may carry every card's fields; the GET answers them all.
     const all = await patch({ statement: "Read and understood.", recert_months: 12, superseded_by: other.id });
@@ -589,6 +613,6 @@ describe("GET and PATCH /api/documents/[id]/ack-settings", () => {
       ["Read and understood.", 12, other.id, `${STAMP} the replacement`]
     );
     assert.equal(new Date(got.body.next_recert_at).getTime(), addMonths(marker, 12).getTime());
-    assert.equal((await audits()).length, 6, "one row for the one PATCH, however many fields it moved");
+    assert.equal((await audits()).length, 8, "one row for the one PATCH, however many fields it moved");
   });
 });
