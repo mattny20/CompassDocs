@@ -1,14 +1,18 @@
 // My policies (B4, 1.12.0): what one person is asked to confirm, read four
 // ways from one document predicate. listMyPolicies lists every policy in
 // the person's scope with where they stand ('pending', 'reconfirm',
-// 'confirmed'), to-confirm rows first and then the most recently changed
-// (updated_at, the date each row prints); countPendingAcksFor is the
-// sidebar badge and equals the pending rows;
+// 'overdue', 'confirmed'), to-confirm rows first in the person's priority
+// (E1, 1.13.0: overdue first, then the soonest deadline, then the most
+// recently changed, updated_at being the date each row prints), then the
+// confirmed ones; countPendingAcksFor is the sidebar badge and equals the
+// pending rows; countOverdueAcksFor is the dashboard's "· 1 overdue";
 // listPendingAcksFor (the dashboard row, unlimited since 1.12.0) names the
-// same documents; hasPolicyInScope is the nav gate, one EXISTS over the
-// person's space scope. A paused policy (unpublished), a retired one
-// (ack_retired_at set), a trashed one and one outside the scope are absent
-// from all four.
+// same documents in the same order with each deadline; hasPolicyInScope is
+// the nav gate, one EXISTS over the person's space scope; getMyAssignment
+// is the document page's probe of the reader's own row (the deadline, the
+// cycle, the per-person ask that restarted it). A paused policy
+// (unpublished), a retired one (ack_retired_at set), a trashed one and one
+// outside the scope are absent from all of them.
 //
 // Run: DATABASE_URL=… npx tsx --tsconfig ./tsconfig.test.json --test test/my-policies.test.ts
 
@@ -21,10 +25,13 @@ import {
   updateDocument,
   setAckRequired,
   recordAcknowledgement,
+  claimReconfirmation,
   listVersions,
   listMyPolicies,
   listPendingAcksFor,
   countPendingAcksFor,
+  countOverdueAcksFor,
+  getMyAssignment,
   hasPolicyInScope,
 } from "../src/lib/db";
 import { asScope } from "../src/lib/space-scope";
@@ -126,8 +133,8 @@ describe("listMyPolicies: one person's standing on every policy in scope", () =>
     const rows = await mine();
     assert.deepEqual(
       rows.map((r) => r.id),
-      [reconfirm.id, pending.id, confirmed.id],
-      "the re-asked one was saved last, then the never-confirmed one, then the confirmed one"
+      [pending.id, reconfirm.id, confirmed.id],
+      "to confirm first, the soonest deadline leading (the never-confirmed one was assigned first, so it is due first; the re-asked one keeps its later deadline), then the confirmed one"
     );
     const byId = new Map(rows.map((r) => [r.id, r]));
 
@@ -140,6 +147,12 @@ describe("listMyPolicies: one person's standing on every policy in scope", () =>
     assert.equal(p.space_icon, "📁");
     assert.equal(p.space_name, `My Policies ${STAMP}`);
     assert.ok(p.updated_at, "the row carries when the document was last saved");
+    assert.ok(p.due_at, "the row carries the person's deadline (E1): the cascade's days from assignment");
+    assert.ok(Date.parse(p.due_at!) > Date.now(), "and it is ahead");
+    assert.ok(
+      Date.parse(p.due_at!) < Date.parse(byId.get(reconfirm.id)!.due_at!),
+      "assigned first, due first: the order key"
+    );
 
     const c = byId.get(confirmed.id)!;
     assert.equal(c.state, "confirmed");
@@ -177,8 +190,13 @@ describe("listMyPolicies: one person's standing on every policy in scope", () =>
     assert.deepEqual(
       dashboard.map((d) => d.id),
       toConfirm,
-      "and in the same order here: the dashboard lists the newest ask first, the page the most recently changed, which coincide for this fixture"
+      "and in the same order: the dashboard's three titles are the page's first three (overdue first, then the soonest deadline, then the most recently changed)"
     );
+    for (const d of dashboard) {
+      assert.ok(d.due_at, "each dashboard row carries the deadline for its '(due …)'");
+      assert.equal(d.overdue, false, "nothing is overdue yet");
+    }
+    assert.equal(await countOverdueAcksFor(readerId, asScope([spaceId])), 0);
     // The editor has confirmed nothing: everything is pending for them.
     assert.equal(await countPendingAcksFor(editorId, asScope([spaceId])), rows.length);
   });
@@ -232,11 +250,17 @@ describe("listMyPolicies: one person's standing on every policy in scope", () =>
     assert.equal(await hasPolicyInScope(readerId, asScope([otherSpaceId])), true);
   });
 
-  test("21 required policies: the badge, the dashboard row (no LIMIT since 1.12.0) and the page agree, and the to-confirm group is ordered by updated_at", async () => {
+  test("21 required policies: the badge, the dashboard row (no LIMIT since 1.12.0) and the page agree, and the to-confirm group is ordered by the deadline, then updated_at", async () => {
     const many: number[] = [];
     for (let i = 1; i <= 21; i++) many.push((await newPolicy(`${STAMP} many ${String(i).padStart(2, "0")}`)).id);
-    // The first of them saved again last: it leads the group although its
-    // ask (ack_revision_at) is the oldest of the 21.
+    // One deadline for the 21, sooner than the fixture's older policies, so
+    // they lead the group and the tie goes to updated_at: the first of them
+    // saved again last leads although its ask (ack_revision_at) is the
+    // oldest of the 21.
+    await fixtureQuery(
+      "UPDATE policy_assignments SET due_at = now() + interval '1 day' WHERE document_id = ANY($1) AND user_id = $2",
+      [many, readerId]
+    );
     await fixtureQuery("UPDATE documents SET updated_at = now() + interval '1 minute' WHERE id = $1", [many[0]]);
 
     const scope = asScope([spaceId]);
@@ -250,10 +274,133 @@ describe("listMyPolicies: one person's standing on every policy in scope", () =>
     const toConfirm = rows.filter((r) => r.state !== "confirmed");
     assert.equal(toConfirm.length, count, "the page lists every pending policy");
     assert.ok(many.every((id) => rows.some((r) => r.id === id)), "all 21 are on the page");
-    assert.equal(toConfirm[0].id, many[0], "the most recently changed policy leads the group");
-    const times = toConfirm.map((r) => Date.parse(r.updated_at));
+    assert.deepEqual(
+      toConfirm
+        .slice(0, 21)
+        .map((r) => r.id)
+        .sort(),
+      [...many].sort(),
+      "the 21 with the soonest deadline lead the group"
+    );
+    assert.equal(toConfirm[0].id, many[0], "among equal deadlines the most recently changed policy leads");
+    const times = toConfirm.slice(0, 21).map((r) => Date.parse(r.updated_at));
     for (let i = 1; i < times.length; i++) {
-      assert.ok(times[i - 1] >= times[i], `the to-confirm group is ordered by updated_at DESC (rows ${i - 1} and ${i})`);
+      assert.ok(times[i - 1] >= times[i], `equal deadlines are ordered by updated_at DESC (rows ${i - 1} and ${i})`);
     }
+    const dues = toConfirm.map((r) => (r.due_at ? Date.parse(r.due_at) : Number.POSITIVE_INFINITY));
+    for (let i = 1; i < dues.length; i++) {
+      assert.ok(dues[i - 1] <= dues[i], `the to-confirm group is ordered by the deadline, soonest first (rows ${i - 1} and ${i})`);
+    }
+    assert.deepEqual(
+      dashboard.map((d) => d.id),
+      toConfirm.map((r) => r.id),
+      "the dashboard row lists them in the page's order"
+    );
+  });
+
+  test("an overdue policy (E1): state 'overdue', first on the page and the dashboard, counted by countOverdueAcksFor; the policy's or the space's grace delays it; a confirmation ends it", async () => {
+    const scope = asScope([spaceId]);
+    const late = await newPolicy(`${STAMP} overdue`);
+    const backdate = () =>
+      fixtureQuery("UPDATE policy_assignments SET due_at = now() - interval '2 days' WHERE document_id = $1 AND user_id = $2", [
+        late.id,
+        readerId,
+      ]);
+    assert.equal((await backdate()).rowCount, 1, "the reader's row on the new policy");
+    const stateOf = async (userId = readerId) => (await listMyPolicies(userId, scope)).find((r) => r.id === late.id)?.state;
+
+    const rows = await mine(scope);
+    const row = rows.find((r) => r.id === late.id)!;
+    assert.equal(row.state, "overdue");
+    assert.equal(row.acknowledged_at, null);
+    assert.ok(row.due_at && Date.parse(row.due_at) < Date.now(), "the chip prints the date that passed");
+    assert.equal(rows[0].id, late.id, "overdue leads the To confirm group whatever the other deadlines");
+    const dashboard = await listPendingAcksFor(readerId, scope);
+    assert.equal(dashboard[0].id, late.id, "and the dashboard's first title");
+    assert.equal(dashboard[0].overdue, true);
+    assert.ok(dashboard.slice(1).every((d) => !d.overdue), "only that one");
+    assert.equal(await countOverdueAcksFor(readerId, scope), 1, "the dashboard's '· 1 overdue'");
+    assert.equal(await countOverdueAcksFor(readerId, asScope([emptySpaceId])), 0, "the scope holds");
+    assert.equal(await countOverdueAcksFor(editorId, scope), 0, "the editor's row on the same policy keeps its own deadline");
+    assert.equal(await countPendingAcksFor(readerId, scope), dashboard.length, "the badge counts it among the pending ones, not twice");
+
+    // The grace from the cascade: the policy's own number, else the space's
+    // policy_defaults (a junk value there reads as unset), else the built-in 0.
+    assert.equal(
+      (await fixtureQuery("UPDATE policy_settings SET overdue_grace_days = 3 WHERE document_id = $1", [late.id])).rowCount,
+      1,
+      "the policy's settings row (written at switch-on)"
+    );
+    assert.equal(await stateOf(), "pending", "3 days of grace: two days late is not yet overdue");
+    assert.equal(await countOverdueAcksFor(readerId, scope), 0);
+    assert.equal((await listPendingAcksFor(readerId, scope)).find((d) => d.id === late.id)!.overdue, false);
+    await fixtureQuery("UPDATE policy_settings SET overdue_grace_days = 1 WHERE document_id = $1", [late.id]);
+    assert.equal(await stateOf(), "overdue", "one day of grace has passed");
+    await fixtureQuery("UPDATE policy_settings SET overdue_grace_days = NULL WHERE document_id = $1", [late.id]);
+    await fixtureQuery(`UPDATE spaces SET policy_defaults = '{"overdue_grace_days": 5}' WHERE id = $1`, [spaceId]);
+    assert.equal(await stateOf(), "pending", "the space's grace applies when the policy inherits");
+    await fixtureQuery(`UPDATE spaces SET policy_defaults = '{"overdue_grace_days": "x"}' WHERE id = $1`, [spaceId]);
+    assert.equal(await stateOf(), "overdue", "a junk space value reads as unset, as sanitizeLayer reads it");
+    await fixtureQuery(`UPDATE spaces SET policy_defaults = '{"overdue_grace_days": 120}' WHERE id = $1`, [spaceId]);
+    assert.equal(await stateOf(), "overdue", "an out-of-range space value reads as unset too");
+    await fixtureQuery("UPDATE spaces SET policy_defaults = '{}' WHERE id = $1", [spaceId]);
+    assert.equal(await stateOf(), "overdue");
+
+    // A confirmation ends it, however old the deadline; a lapse with the
+    // deadline still past is 'overdue', not 'reconfirm' (the deadline is
+    // the fact to act on), and the earlier confirmation is still the prior one.
+    await recordAcknowledgement(late.id, readerId, "", late.v1);
+    assert.equal(await stateOf(), "confirmed");
+    assert.equal(await countOverdueAcksFor(readerId, scope), 0);
+    const v2 = await reset(late.id, "The cap is now 75.");
+    await backdate();
+    const lapsed = (await mine(scope)).find((r) => r.id === late.id)!;
+    assert.equal(lapsed.state, "overdue");
+    assert.ok(lapsed.prior_acknowledged_at, "the lapsed confirmation is still the prior one");
+    assert.equal(await countOverdueAcksFor(readerId, scope), 1);
+    await recordAcknowledgement(late.id, readerId, "", v2);
+    assert.equal(await stateOf(), "confirmed");
+    assert.equal(await countOverdueAcksFor(readerId, scope), 0);
+  });
+
+  test("getMyAssignment: the reader's own row with its deadline and cycle; null without an open row; the per-person ask that restarted the cycle (D4)", async () => {
+    const p = await newPolicy(`${STAMP} mine`);
+    const marker = async () =>
+      String((await pool().query("SELECT ack_revision_at FROM documents WHERE id = $1", [p.id])).rows[0].ack_revision_at);
+    const row = await getMyAssignment(p.id, readerId);
+    assert.ok(row, "the reader has an open row");
+    assert.ok(row.due_at && Date.parse(row.due_at) > Date.now(), "the deadline for the chips");
+    assert.ok(row.cycle_started_at);
+    assert.equal(row.asked_again, null, "enrolment is not a re-ask");
+    assert.equal(await getMyAssignment(p.id, 0), null, "no row, no card");
+
+    // A per-person re-ask (D4): the row's cycle restarts after the marker
+    // (which stays), and the ledger row stamped at that same instant is the
+    // reason the page shows this reader and nobody else.
+    const before = await marker();
+    await recordAcknowledgement(p.id, readerId, "", p.v1);
+    const claim = await claimReconfirmation(null, p.id, {
+      source: "manual",
+      reason: "Please read section 4 again",
+      actor: { id: editorId, name: "My Policies Editor" },
+      userIds: [readerId],
+    });
+    assert.equal(claim.claimed, true);
+    const again = await getMyAssignment(p.id, readerId);
+    assert.ok(again?.asked_again, "the ask is on the row");
+    assert.equal(again.asked_again.reason, "Please read section 4 again");
+    assert.equal(again.asked_again.decided_by_name, "My Policies Editor");
+    assert.equal(Date.parse(again.asked_again.decided_at), Date.parse(again.cycle_started_at), "one instant for the row and the ledger row");
+    assert.ok(Date.parse(again.cycle_started_at) > Date.parse(before), "the cycle restarted after the marker");
+    assert.equal(await marker(), before, "which did not move");
+    assert.equal((await getMyAssignment(p.id, editorId))?.asked_again, null, "the editor was not asked");
+    assert.equal((await mine()).find((r) => r.id === p.id)!.state, "reconfirm", "the reader's confirmation lapsed");
+    assert.ok(again.due_at && Date.parse(again.due_at) > Date.now(), "the deadline was re-armed with the ask");
+
+    // An exempt row is not an open row: no card, no cues.
+    await fixtureQuery("UPDATE policy_assignments SET exempt_at = now() WHERE document_id = $1 AND user_id = $2", [p.id, readerId]);
+    assert.equal(await getMyAssignment(p.id, readerId), null);
+    await fixtureQuery("UPDATE policy_assignments SET exempt_at = NULL WHERE document_id = $1 AND user_id = $2", [p.id, readerId]);
+    assert.ok(await getMyAssignment(p.id, readerId));
   });
 });
