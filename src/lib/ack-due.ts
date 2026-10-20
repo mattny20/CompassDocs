@@ -119,8 +119,17 @@ export const DUE_FIELDS: readonly { key: DueNumberKey; label: string; help: stri
 
 export const DUE_HISTORY_MAX = 10;
 
-/** One entry of policy_assignments.due_history (the last DUE_HISTORY_MAX are kept). */
+/**
+ * One entry of policy_assignments.due_history (the last DUE_HISTORY_MAX are
+ * kept). `kind` says who wrote it: 'extend' for a manager's extension
+ * (undoExtension pops only those), 'moved' for a rule change moving every
+ * open row ("Also move existing deadlines"), which is undone by re-applying
+ * the previous rule, never as an extension. The dates are as Postgres's
+ * JSON serialiser renders a timestamptz (microseconds, +00:00); parse with
+ * new Date().
+ */
 export interface DueHistoryEntry {
+  kind: "extend" | "moved";
   from: string | null;
   to: string | null;
   /** The user id that moved it; null for a rule change nobody signed (a sweep). */

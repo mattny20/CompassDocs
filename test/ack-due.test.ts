@@ -562,6 +562,7 @@ describe("moving deadlines", () => {
     assertNear(a2.due_at, new Date(new Date(a.cycle_started_at).getTime() + 30 * DAY), 5_000, "A: cycle start + 30 days");
     assert.equal(a2.escalated_at, null, "the escalation stamp is cleared: the new date is ahead");
     assert.equal(a2.due_history.length, 1);
+    assert.equal(a2.due_history[0].kind, "moved", "a rule move is never undone as an extension");
     assertSameInstant(a2.due_history[0].from, a.due_at, "history: from the old date");
     assertSameInstant(a2.due_history[0].to, a2.due_at, "history: to the new date");
     assert.equal(a2.due_history[0].by, null);
@@ -619,7 +620,7 @@ describe("moving deadlines", () => {
     const reasons = row.due_history.map((h) => h.reason);
     assert.equal(reasons[0], `Deadline rule changed to ${20 + 4} days after assignment`, "the first three moves fell off");
     assert.equal(reasons[DUE_HISTORY_MAX - 1], `Deadline rule changed to ${20 + DUE_HISTORY_MAX + 3} days after assignment`);
-    assert.ok(row.due_history.every((h) => h.by === readerB));
+    assert.ok(row.due_history.every((h) => h.by === readerB && h.kind === "moved"));
     for (let i = 1; i < row.due_history.length; i++) {
       assert.equal(row.due_history[i].from, row.due_history[i - 1].to, `entry ${i} starts where the previous ended`);
     }
@@ -702,6 +703,32 @@ describe("the re-confirmation cycle restarts the clocks", () => {
       [doc.id, null, "UTC"]
     );
     assert.equal(past.rows[0].due, "2026-12-04T10:00:00.000Z", "the fixed day has passed: from + the built-in 14");
+  });
+
+  test("dueRearmSql drops into any UPDATE of a row (and an ON CONFLICT SET) without joins: the one fragment every clock restart uses", async () => {
+    const doc = await newPolicy("rearm");
+    await setPolicyRule(doc.id, { due_days: 3 });
+    const a = await assign(doc.id, readerA, { dueInDays: null });
+    const r = await pool().query<{ due_at: string }>(
+      `UPDATE policy_assignments pa SET ${dueRearmSql("pa", { workspace: "$2", timeZone: "$3" })} WHERE pa.id = $1 RETURNING due_at`,
+      [a.id, 21, "UTC"]
+    );
+    assertNear(r.rows[0].due_at, new Date(Date.now() + 3 * DAY), 60_000, "the policy's 3 days from now");
+    // The same fragment in an upsert's SET, the row named by the table.
+    const up = await pool().query<{ due_at: string }>(
+      `INSERT INTO policy_assignments (document_id, user_id, source) VALUES ($1, $4, 'manual')
+       ON CONFLICT (document_id, user_id) DO UPDATE
+         SET cycle_started_at = now(), ${dueRearmSql("policy_assignments", { workspace: "$2", timeZone: "$3" })}
+       RETURNING due_at`,
+      [doc.id, 21, "UTC", readerA]
+    );
+    assertNear(up.rows[0].due_at, new Date(Date.now() + 3 * DAY), 60_000, "re-opened: the policy's 3 days again");
+    await setPolicyRule(doc.id, {});
+    const inherited = await pool().query<{ due_at: string }>(
+      `UPDATE policy_assignments pa SET ${dueRearmSql("pa", { workspace: "$2", timeZone: "$3", from: "clock_timestamp()" })} WHERE pa.id = $1 RETURNING due_at`,
+      [a.id, 21, "UTC"]
+    );
+    assertNear(inherited.rows[0].due_at, new Date(Date.now() + 21 * DAY), 60_000, "no policy number: the workspace's 21");
   });
 });
 

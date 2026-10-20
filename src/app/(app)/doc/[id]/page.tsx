@@ -265,8 +265,11 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
   // 2026 by Matt" (the roster's own clause, minus the reason). The approver
   // progress row left the notice strip for this popover (B1).
   const showAckSettings = ackEnabled && canRequireAck && doc.branch_of === null;
+  // scope 'all' (D4, 1.13.0): a per-person re-ask writes a 'reset' row of
+  // scope 'users'; the popover's "asked {date} by {name}" is the document's
+  // last ask, never one person's.
   const [ackSum, lastReset] = showAckSettings
-    ? await Promise.all([ackSummary(doc.id), ackActive ? lastAckDecision(doc.id, { outcome: "reset" }) : null])
+    ? await Promise.all([ackSummary(doc.id), ackActive ? lastAckDecision(doc.id, { outcome: "reset", scope: "all" }) : null])
     : [null, null];
   // While nobody has been told, which is the state a quiet switch-on leaves
   // (no reset decision, no reminder stamp), the line says so: askedClause

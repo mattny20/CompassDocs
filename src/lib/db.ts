@@ -5777,7 +5777,7 @@ export async function complianceDocs(): Promise<ComplianceDocRow[]> {
     ),
     q<AckDecisionBrief & { document_id: number }>(
       `SELECT DISTINCT ON (x.document_id) ${briefCols} FROM ack_decisions x
-       WHERE x.document_id = ANY($1) AND x.outcome = 'reset'
+       WHERE x.document_id = ANY($1) AND x.outcome = 'reset' AND x.scope = 'all'
        ORDER BY x.document_id, x.decided_at DESC, x.id DESC`,
       [ids]
     ),
@@ -9847,7 +9847,7 @@ export async function moveDeadlines(
               SELECT COALESCE(jsonb_agg(h.e ORDER BY h.i), '[]'::jsonb)
                 FROM (SELECT e, i FROM jsonb_array_elements(pa.due_history) WITH ORDINALITY AS x(e, i)
                        ORDER BY i DESC LIMIT $6::int - 1) AS h
-            ) || jsonb_build_array(jsonb_build_object('from', t.from_due, 'to', t.to_due, 'by', $4::int, 'at', now(), 'reason', $5::text))
+            ) || jsonb_build_array(jsonb_build_object('kind', 'moved', 'from', t.from_due, 'to', t.to_due, 'by', $4::int, 'at', now(), 'reason', $5::text))
        FROM target t
       WHERE pa.id = t.id AND pa.due_at IS DISTINCT FROM t.to_due
       RETURNING pa.id`,

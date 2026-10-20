@@ -34,6 +34,7 @@ import { enqueueAckNotice, deliverAckNotices, noticeCopy, recordNotices } from "
 import type { Mailer } from "../src/lib/compliance";
 import { notify } from "../src/lib/notifications";
 import { fixtureQuery } from "./support/retry";
+import { assignEveryone } from "./support/assign";
 // E2 (1.13.0): the sweep's deliveries.
 import { listAckNotices as listNoticesE2 } from "../src/lib/db";
 import { DUE_BUNDLE_OVER } from "../src/lib/compliance";
@@ -273,9 +274,10 @@ describe("the notice outbox", () => {
 
     // Someone who has not heard yet (a new account) still does. Who is
     // pending is read off policy_assignments since 1.13.0 (D1): the account
-    // created by a raw INSERT gets the row the create-user hook would give it.
+    // created by a raw INSERT (no provisioning hook) gets its row the way
+    // the hourly sweep would give it, through the policy's reconcile.
     const readerC = await newUser("Reader C");
-    await pool().query("INSERT INTO policy_assignments (document_id, user_id, source) VALUES ($1, $2, 'new_member') ON CONFLICT DO NOTHING", [id, readerC]);
+    await assignEveryone(id);
     const third = await enqueueAckNotice(null, {
       document_id: id,
       mode: "updated",

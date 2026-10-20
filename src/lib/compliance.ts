@@ -1708,7 +1708,17 @@ export async function complianceHourly(): Promise<void> {
     }
   };
   await step("audience reconcile", () => reconcileAllPolicies());
-  await step("expired exemptions", () => expireExemptions());
+  // An exemption that ran out is revoked by the clock: the same audit key
+  // the manager's revocation writes, by the system, with the re-armed date.
+  await step("expired exemptions", async () => {
+    for (const row of await expireExemptions()) {
+      await auditAck("ack.exemption_revoked", { id: row.document_id, title: row.title }, {
+        actor: { id: null, name: "system" },
+        source: "system",
+        details: { assignment_id: row.id, user_id: row.user_id, due_at: row.to_at, expired: true },
+      });
+    }
+  });
   await step("reminders", () => remindDueAcks({ defaults }));
   await step("escalation", () => escalateOverdueAcks({ defaults }));
   await step("re-confirmation", () => recertifyDueAcks({ defaults: layer }));
