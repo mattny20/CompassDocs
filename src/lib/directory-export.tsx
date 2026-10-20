@@ -680,7 +680,8 @@ function DirectoryDocument({ input, prepared }: { input: ExportInput; prepared: 
                       shade = 0;
                       return sectionHead(line.label, line.count, `s-${pi}-${ci}-${li}`, line.meta ?? "");
                     }
-                    return row(line.row.p, shade++, `r-${pi}-${ci}-${line.row.p.id}`, line.row.head);
+                    // Keyed by line, not person: a head leads every section they head and sits in their own.
+                    return row(line.row.p, shade++, `r-${pi}-${ci}-${li}`, line.row.head);
                   })}
                 </View>
               );
