@@ -5989,10 +5989,7 @@ export async function complianceDocs(): Promise<ComplianceDocRow[]> {
        GROUP BY pa.document_id`,
       [ids]
     ),
-    // policySetNames is the sets agent's (D3), landing in this file in the
-    // same release; the typeof guard keeps this query answering until it
-    // does and is to be dropped once it has (the fix round).
-    typeof policySetNames === "function" ? policySetNames(ids) : Promise.resolve(new Map<number, string[]>()),
+    policySetNames(ids),
   ]);
   const brief = (r: AckDecisionBrief & { document_id: number }): AckDecisionBrief => ({
     decided_at: r.decided_at,
