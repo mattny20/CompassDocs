@@ -12914,6 +12914,13 @@ export async function approveChangeRequest(
         cr.document_id,
       ]
     );
+    // A policy resumed from a pause through an approved request (G2): the
+    // pause did not stop the clock, so open rows whose deadline ran out
+    // while it was unpublished are re-armed from the cascade (E1), exactly
+    // as updateDocument's publish path does.
+    if (publishing && live.ack_required === 1) {
+      await rearmAfterResume(client, cr.document_id);
+    }
     // The version the decision is about: the row written now, or (publish
     // transition without a text change) the newest row already there.
     let versionId: number | null = null;
