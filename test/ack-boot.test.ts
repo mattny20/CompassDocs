@@ -950,7 +950,7 @@ describe("the 1.10.1 additions against a 1.10.0 database, booted twice", () => {
     // More shape: a second active reader, a disabled one (never in the
     // denominator), and a second policy nobody confirmed, all as 1.12.0
     // wrote them.
-    const spaceId = (await db.query<{ id: number }>("SELECT space_id FROM documents WHERE ack_required = 1 ORDER BY id LIMIT 1")).rows[0].space_id;
+    const spaceId = (await db.query<{ space_id: number }>("SELECT space_id FROM documents WHERE ack_required = 1 ORDER BY id LIMIT 1")).rows[0].space_id;
     await db.query(
       `INSERT INTO users (username, name, email, role, status) VALUES
          ('boot110_second', 'Second Reader', 'second@boot110.test', 'viewer', 'active'),

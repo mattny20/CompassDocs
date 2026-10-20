@@ -46,7 +46,7 @@ import {
   audienceRulesFromTable,
   audienceSourceSql,
 } from "./audience";
-import type { AudienceSqlAliases } from "./audience";
+import type { AudienceSqlAliases, AudienceNarrowing } from "./audience";
 import type { AudienceMode, AudienceRule, PolicySettings } from "./types";
 
 export type { AckPolicy, AckSource, AckOutcome, AckDecision, AckOutcomeInfo } from "./types";
@@ -6011,7 +6011,7 @@ const NO_CHANGE: ReconcileResult = { added: 0, closed: 0, reopened: 0 };
 export async function reconcilePolicyAssignments(
   client: Queryable | null,
   docId: number,
-  opts: { defaults?: AudienceDefaults; auto?: boolean } = {}
+  opts: { defaults?: AudienceDefaults; auto?: boolean; narrowing?: AudienceNarrowing } = {}
 ): Promise<ReconcileResult> {
   if (client) return reconcilePolicyOn(client, docId, opts);
   await ready();
@@ -6032,7 +6032,7 @@ export async function reconcilePolicyAssignments(
 async function reconcilePolicyOn(
   client: Queryable,
   docId: number,
-  opts: { defaults?: AudienceDefaults; auto?: boolean }
+  opts: { defaults?: AudienceDefaults; auto?: boolean; narrowing?: AudienceNarrowing }
 ): Promise<ReconcileResult> {
   const defaults = opts.defaults ?? (await workspaceAudienceDefaults());
   // Self-healing: a policy switched on by a 1.12.0 binary during a rolling
@@ -6053,7 +6053,7 @@ async function reconcilePolicyOn(
   if (!h || !h.live) return { ...NO_CHANGE };
   const closed = await client.query(
     `UPDATE policy_assignments pa
-     SET removed_at = now(), removed_reason = ${audienceRemovedReasonSql(SAVED_AUDIENCE)}
+     SET removed_at = now(), removed_reason = ${audienceRemovedReasonSql(SAVED_AUDIENCE, opts.narrowing)}
      FROM ${AUDIENCE_FROM}, users u
      WHERE pa.document_id = $1 AND d.id = pa.document_id AND u.id = pa.user_id
        AND pa.removed_at IS NULL
@@ -6164,7 +6164,7 @@ async function auditAudienceMoved(doc: { id: number; title: string }, r: Reconci
 
 async function reconcileEach(
   docs: { id: number; title: string }[],
-  opts: { defaults: AudienceDefaults; auto: boolean }
+  opts: { defaults: AudienceDefaults; auto: boolean; narrowing?: AudienceNarrowing }
 ): Promise<ReconcileResult> {
   const total: ReconcileResult = { added: 0, closed: 0, reopened: 0 };
   for (const d of docs) {
@@ -6229,7 +6229,7 @@ export async function reconcilePoliciesForGroup(groupId: number): Promise<Reconc
      ORDER BY d.id`,
     [String(groupId)]
   );
-  const total = await reconcileEach(docs, { defaults, auto: true });
+  const total = await reconcileEach(docs, { defaults, auto: true, narrowing: "left_group" });
   audienceSyncTally.added += total.added + total.reopened;
   audienceSyncTally.closed += total.closed;
   return total;

@@ -153,17 +153,23 @@ export function audienceSourceSql(a: AudienceSqlAliases): string {
                  ELSE 'role' END`;
 }
 
+/** What a reconcile writes as removed_reason when neither the account nor the access changed: the trigger says which. */
+export type AudienceNarrowing = "left_group" | "audience_narrowed";
+
 /**
  * Why an open row closes, read from what changed: the account was
- * disabled, the person lost sight of the space, a group rule stopped
- * matching them, or the rules narrowed. Written as the row's removed_reason;
- * `pa` is the policy_assignments alias of the UPDATE.
+ * disabled, the person lost sight of the space, else what triggered the
+ * reconcile (`narrowing`: a group hook says 'left_group', a save of the
+ * rules or the hourly sweep 'audience_narrowed'). The row's own source
+ * cannot tell these apart: a row from the switch-on keeps source 'space'
+ * through a later move to targeted mode. Written as the row's
+ * removed_reason.
  */
-export function audienceRemovedReasonSql(a: AudienceSqlAliases, pa = "pa"): string {
+export function audienceRemovedReasonSql(a: AudienceSqlAliases, narrowing: AudienceNarrowing = "audience_narrowed"): string {
+  const fallback = narrowing === "left_group" ? "'left_group'" : "'audience_narrowed'";
   return `CASE WHEN ${a.user}.status <> 'active' THEN 'disabled'
                  WHEN NOT ${a.visible} THEN 'access_removed'
-                 WHEN ${pa}.source = 'group' THEN 'left_group'
-                 ELSE 'audience_narrowed' END`;
+                 ELSE ${fallback} END`;
 }
 
 /** "policy" / "policies" for a count (the welcome notice and the toast). */

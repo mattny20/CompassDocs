@@ -217,10 +217,13 @@ async function row(docId: number, userId: number) {
      FROM policy_assignments WHERE document_id = $1 AND user_id = $2`,
     [docId, userId]
   );
+  // Timestamps come back as ISO text (lib/db's type parsers), so they are compared through Date.parse.
   return r.rows[0] as
-    | { id: number; source: string; removed_at: Date | null; removed_reason: string; exempt_at: Date | null; exempt_reason: string; cycle_started_at: Date; due_at: Date | null }
+    | { id: number; source: string; removed_at: string | null; removed_reason: string; exempt_at: string | null; exempt_reason: string; cycle_started_at: string; due_at: string | null }
     | undefined;
 }
+
+const at = (iso: string | null | undefined): number => (iso ? Date.parse(iso) : NaN);
 
 async function ledgerCount(docId: number): Promise<number> {
   return (await pool().query("SELECT COUNT(*)::int AS n FROM acknowledgements WHERE document_id = $1", [docId])).rows[0].n;
@@ -466,8 +469,8 @@ describe("people who leave and come back", () => {
     assert.equal(back.source, "group", "admitted by the group rule now");
     assert.equal(back.exempt_reason, "On leave", "the exemption history survives");
     assert.ok(back.exempt_at, "and the person is still excused (the roster shows Exempt)");
-    assert.ok(back.cycle_started_at.getTime() > first.cycle_started_at.getTime(), "a fresh cycle");
-    assert.ok(back.due_at && back.due_at.getTime() > Date.now() + 13 * 86_400_000, "a fresh deadline from the cascade (14 days built in)");
+    assert.ok(at(back.cycle_started_at) > at(first.cycle_started_at), "a fresh cycle");
+    assert.ok(at(back.due_at) > Date.now() + 13 * 86_400_000, "a fresh deadline from the cascade (14 days built in)");
     assert.equal(await ledgerCount(id), before, "the ledger is untouched");
 
     // The sync path (setGroupMembers) reconciles too and tallies for the report.
@@ -498,8 +501,8 @@ describe("people who leave and come back", () => {
     const on = (await row(id, people.frank))!;
     assert.equal(on.id, first.id, "the same row");
     assert.equal(on.removed_at, null);
-    assert.ok(on.cycle_started_at.getTime() > first.cycle_started_at.getTime(), "a fresh cycle");
-    assert.ok(on.due_at && on.due_at.getTime() > Date.now(), "a fresh deadline, never a past date");
+    assert.ok(at(on.cycle_started_at) > at(first.cycle_started_at), "a fresh cycle");
+    assert.ok(at(on.due_at) > Date.now(), "a fresh deadline, never a past date");
     assert.equal(await getCurrentAck(id, people.frank), undefined, "the earlier confirmation does not count for the new cycle");
     assert.equal((await listMyPolicies(people.frank, asScope([spaceA]))).find((r) => r.id === id)!.state, "reconfirm");
     assert.ok((await compliancePendingUsers(id)).some((u) => u.id === people.frank));
@@ -554,7 +557,7 @@ describe("new accounts and the welcome notice", () => {
     assert.equal(await hasOpenAssignment(w3.id, newbie.id), false, "'Enrol new joiners automatically' is off");
     const r1 = (await row(w1.id, newbie.id))!;
     assert.equal(r1.source, "new_member");
-    assert.ok(r1.due_at && r1.due_at.getTime() > Date.now() + 13 * 86_400_000, "due the new-joiner days from now");
+    assert.ok(at(r1.due_at) > Date.now() + 13 * 86_400_000, "due the new-joiner days from now");
     const owed = await listOwedPoliciesFor(newbie.id);
     assert.ok(owed.some((p) => p.id === w1.id) && owed.some((p) => p.id === w2.id) && !owed.some((p) => p.id === w3.id));
     assert.ok(owed.length >= 2);
