@@ -123,6 +123,9 @@ async function auditRows(page: Page, pick: (r: any) => boolean): Promise<{ detai
 /** The record's table under the heading with this name (each section is labelled by its heading). */
 const section = (page: Page, name: RegExp | string) => page.getByRole("region", { name });
 
+/** The page's own content, without the sidebar (its rows share words with the back links). */
+const main = (page: Page) => page.locator("#main");
+
 test("a person opens their own record, the admin opens it with the Actions section, downloads the audited CSV and prints it, and a stranger is not found", async ({
   page,
   browser,
@@ -155,7 +158,7 @@ test("a person opens their own record, the admin opens it with the Actions secti
       await ppage.goto("/compliance/person/me");
       await expect(ppage.getByRole("heading", { name: `Compliance record - ${personName}` })).toBeVisible();
       await expect(ppage.getByText(`@${person.username} · ${SUBTITLE}`)).toBeVisible();
-      await expect(ppage.getByRole("link", { name: "My policies" })).toHaveAttribute("href", "/compliance");
+      await expect(main(ppage).getByRole("link", { name: "My policies" })).toHaveAttribute("href", "/compliance");
       const row = section(ppage, "Current requirements").locator("tr", { hasText: title });
       await expect(row).toBeVisible();
       await expect(row.getByRole("link", { name: title })).toHaveAttribute("href", `/doc/${docId}`);
@@ -182,7 +185,7 @@ test("a person opens their own record, the admin opens it with the Actions secti
     await page.goto(`/compliance/person/${personId}`);
     await expect(page.getByRole("heading", { name: `Compliance record - ${personName}` })).toBeVisible();
     await expect(page.getByText(`@${person.username} · ${SUBTITLE}`)).toBeVisible();
-    await expect(page.getByRole("link", { name: "People" })).toHaveAttribute("href", "/compliance/people");
+    await expect(main(page).getByRole("link", { name: "People", exact: true })).toHaveAttribute("href", "/compliance/people");
     await expect(section(page, "Current requirements").locator("tr", { hasText: title })).toBeVisible();
     const actions = section(page, "Actions");
     await expect(actions).toBeVisible();
@@ -230,7 +233,7 @@ test("a person opens their own record, the admin opens it with the Actions secti
     await page.emulateMedia({ media: "print" });
     await expect(footer).toBeVisible();
     await expect(actions, "the Actions section stays off paper").toBeHidden();
-    await expect(page.getByRole("link", { name: "CSV" })).toBeHidden();
+    await expect(main(page).getByRole("link", { name: "CSV", exact: true })).toBeHidden();
     await expect(section(page, "Current requirements").locator("tr", { hasText: title })).toBeVisible();
     await page.emulateMedia({ media: "screen" });
 
@@ -332,7 +335,7 @@ test("a group lead with the setting on opens a member's record scoped to their o
       await expect(lpage.getByText("1 policy you can't view")).toBeVisible();
       await expect(section(lpage, "Current requirements").locator("tr", { hasText: publicTitle })).toBeVisible();
       await expect(lpage.getByText(privateTitle)).toHaveCount(0);
-      await expect(lpage.getByRole("link", { name: "Your team's policies" })).toHaveAttribute("href", "/compliance/team");
+      await expect(main(lpage).getByRole("link", { name: "Your team's policies" })).toHaveAttribute("href", "/compliance/team");
       await expect(lpage.getByRole("heading", { name: "Actions" })).toHaveCount(0);
 
       // The lead's CSV carries the same scope and its own audit row.

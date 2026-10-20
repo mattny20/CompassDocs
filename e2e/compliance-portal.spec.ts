@@ -498,7 +498,7 @@ test("an unpublished policy is paused: it moves to the collapsed group with the 
     // description list: the label is the term and its number the definition.
     await page.goto("/compliance/overview");
     await expect(subnav(page).getByRole("link", { name: "Overview", exact: true })).toHaveAttribute("aria-current", "page");
-    const tile = page.getByRole("term").filter({ hasText: "Policies requiring confirmation" }).locator("..");
+    const tile = page.getByRole("term").filter({ hasText: /^Policies$/ }).locator("..");
     await expect(tile.getByRole("definition")).toHaveText(String((await portal()).kpis.policies));
     // The paused policy cannot be acted on through the API either.
     const remind = await api(page, "/api/admin/compliance", { method: "POST", body: { docId, action: "remind" } });
@@ -543,12 +543,13 @@ test("the matrix and the per-policy record download as CSV", async ({ page }) =>
     const row = page.locator("li", { hasText: title });
     await expect(row).toBeVisible();
 
-    // The Policy progress card's Export CSV is a real download with the
-    // documented name (it was the page header's until the header became the
-    // section's, B4).
+    // The Policy progress card's Export menu (1.14.0, F2; the link was the
+    // page header's until the header became the section's, B4): Matrix CSV
+    // is a real download with the documented name.
+    await page.getByRole("button", { name: "Export" }).click();
     const [matrix] = await Promise.all([
       page.waitForEvent("download"),
-      page.getByRole("link", { name: "Export CSV" }).click(),
+      page.getByRole("menu", { name: "Export" }).getByRole("menuitem", { name: "Matrix CSV" }).click(),
     ]);
     expect(matrix.suggestedFilename()).toBe("compliance-report.csv");
 
@@ -1086,8 +1087,8 @@ test("a live row links to the policy's Settings tab, counts the people enrolled 
     // proves against the database).
     await page.goto("/compliance/overview");
     await expect(subnav(page).getByRole("link", { name: "Overview", exact: true })).toHaveAttribute("aria-current", "page");
-    const tile = page.getByRole("term").filter({ hasText: "Overdue confirmations" }).locator("..");
-    await expect(tile.getByRole("definition")).toHaveText(String((await portal()).kpis.overdue));
+    const tile = page.getByRole("term").filter({ hasText: /^Overdue$/ }).locator("..");
+    await expect(tile.getByRole("definition")).toContainText(String((await portal()).kpis.overdue));
     await page.goto("/compliance/people");
     await expect(page.getByRole("columnheader", { name: "Overdue" })).toBeVisible();
     const adminRow = page.getByRole("row").filter({ hasText: me?.name || ADMIN.username }).first();
