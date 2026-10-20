@@ -427,8 +427,13 @@ focus):
   or taken from (the Order and filter card's **Section order**, 1.13.0),
   is the same `OrderedKeyList` with `removable={false}` in a fieldset with
   a legend, one row per item with a `text-2xs text-slate-500` count as its
-  `extra`, a `LoadingRow` while its route answers, a `SectionEmpty` when
-  it has no rows, and one secondary **Reset …** button under the help.
+  `extra` (a second `text-2xs` line under the count for a fact about the
+  row, such as "Head: Jane Smith"), a `LoadingRow` while its route answers,
+  a `SectionEmpty` when it has no rows, and one secondary **Reset …**
+  button under the help. A `Toggle` that only means something once the
+  data allows it (the card's **Section heads first**, 1.13.0, shown only
+  when the chosen Sections by field has a head) sits under the control it
+  qualifies and is left out, not disabled, until then.
 - **A short table of definitions edited in place** (export markers, 1.11.2)
   is a `padding="none"` `Card` holding a `Table` whose rows are dense
   controls (`TextInput` / `Select` with `dense` and an `aria-label` naming
@@ -529,6 +534,14 @@ One field recipe, one input recipe, one width scale. Everything lives in
   names the row ('Wrap Name after'); the shared help and the first error
   live on the list's own label, and only the offending row's control takes
   `hasError`.
+- A composite picker that belongs to each row of a definitions table (the
+  Fields page's per-option **Heads** EntityPicker, 1.13.0) is not put in
+  the table, whose sideways scroll would clip its list, but in a fieldset
+  with a legend right under it, one captioned picker per row in a
+  two-column grid, each with an `aria-label` naming the row ("Heads of
+  Engineering") and a sublabel per choice that says what tells them apart
+  (the person's own value for the field); the shared help is one line
+  under the grid and a refusal is a `FormError` under it, not a toast.
 - **The Save row.** A page or card with a Save button uses `<SaveRow dirty
   busy onSave label disabled allowPristine>` from `components/SaveRow`
   with `useUnsavedChanges(snapshot)` and `useLeaveGuard(dirty,
