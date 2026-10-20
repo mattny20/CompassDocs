@@ -13,9 +13,10 @@ import { ADMIN, login, api } from "./helpers";
 // toast ("{Name} was reminded earlier today."). The setting off hides the
 // page (not found), the Team tab and the My policies banner ("You lead a
 // team. See your team's policies"). A compliance.team_read holder sees
-// every group, setting or not; a plain viewer who leads nothing is not
-// found. The Program settings toggle "Group leads see policy standing"
-// round-trips through the page's one Save.
+// every group, setting or not, with the tab and no banner (they lead
+// nothing); a plain viewer who leads nothing is not found. The Program
+// settings toggle "Group leads see policy standing" round-trips through
+// the page's one Save.
 //
 // Read confirmation is entitlement-gated (policy_ack). CI runs the community
 // build, so each test skips itself when the portal answers 402 and runs in
@@ -322,9 +323,12 @@ test("a compliance.team_read holder who leads nothing sees every group; a plain 
       await expect(hpage.getByRole("heading", { name: "Your team's policies" })).toBeVisible();
       await expect(subnav(hpage).getByRole("link", { name: "Team", exact: true })).toHaveAttribute("aria-current", "page");
       await expect(hpage.getByRole("heading", { name: groupName })).toBeVisible();
-      await expect(hpage.getByText("You lead a team.")).toHaveCount(0);
+      // The holder leads nothing, so My policies says nothing about a team
+      // (the Team tab is their way in); the API agrees.
+      expect((await api(hpage, "/api/compliance/mine")).body?.lead_team).toBe(false);
       await hpage.goto("/compliance");
-      await expect(hpage.getByText("You lead a team.")).toBeVisible();
+      await expect(subnav(hpage).getByRole("link", { name: "Team", exact: true })).toBeVisible();
+      await expect(hpage.getByText("You lead a team.")).toHaveCount(0);
     } finally {
       await hctx.close();
     }

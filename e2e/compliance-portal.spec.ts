@@ -1137,3 +1137,401 @@ test("at 375px the expanded policy row's roster toolbar fits without sideways sc
     await ctx.close();
   }
 });
+
+// 1.14.0 (F1): the seven tiles over the live policies and the Needs
+// attention queue. The portal's assignments route exempts and snoozes the
+// joiner's row (D2), the kept edit drifts the policy (C1), and the queue's
+// own "Ask everyone to re-confirm…" clears the drift row.
+test("the Overview's tiles carry the server's numbers, an exempt row counts in Exempt, a snooze moves only the snoozed count, and a drifted policy is a queue row whose re-ask clears it", async ({ page }) => {
+  test.setTimeout(120_000);
+  await login(page, ADMIN);
+  const suffix = stamp();
+  const title = `E2E portal tiles ${suffix}`;
+  const joiner = { username: `e2e_tiles_${suffix}`, password: "E2eTile!12345" };
+  let docId: number | undefined;
+  let joinerId: number | undefined;
+  try {
+    docId = await makePolicy(page, title);
+    test.skip(!(await portalLicensed(page)), "policy_ack is not licensed in this build; the EE rig runs the flow");
+    const on = await api(page, "/api/admin/compliance", { method: "POST", body: { docId, action: "request", notify: false } });
+    expect(on.status, "requested quietly").toBe(200);
+    // A joiner enrolled on arrival (D1): an open row of a plain viewer to
+    // exempt and snooze without touching the admin's own.
+    const created = await api(page, "/api/admin/users", {
+      method: "POST",
+      body: { ...joiner, role: "viewer", name: "E2E Tiles Joiner" },
+    });
+    expect(created.status, "joiner created").toBe(201);
+    joinerId = created.body?.user?.id;
+    expect(joinerId).toBeTruthy();
+
+    type Kpis = {
+      policies: number;
+      pct: number;
+      outstanding: number;
+      overdue: number;
+      overdue_people: number;
+      due_7d: number;
+      pending: number;
+      exempt: number;
+      escalated: number;
+      snoozed: number;
+      drifted: number;
+      recert_due_30: number;
+    };
+    type QueueRow = { reason: string; document_id: number; user_id: number | null; detail: string | null };
+    type Doc = { id: number; drift_pct: number | string; kept_since_reset: number };
+    const portal = async () => {
+      const res = await api(page, "/api/admin/compliance");
+      expect(res.status).toBe(200);
+      return {
+        kpis: res.body?.kpis as Kpis,
+        attention: res.body?.attention as { rows: QueueRow[]; total: number; snoozed: number },
+        docs: (res.body?.docs ?? []) as Doc[],
+      };
+    };
+    const roster = await api(page, `/api/documents/${docId}/acknowledgements`);
+    expect(roster.status).toBe(200);
+    const joinerRow = (roster.body?.rows ?? []).find((r: { id: number }) => r.id === joinerId);
+    expect(joinerRow, "the joiner is on the roster").toBeTruthy();
+    const assignmentId = Number(joinerRow.assignment_id);
+    expect(assignmentId).toBeGreaterThan(0);
+
+    // The payload: the seven keys, pending as the new name of outstanding,
+    // and the queue beside the tiles.
+    const first = await portal();
+    for (const key of ["overdue_people", "due_7d", "pending", "exempt", "escalated", "snoozed", "drifted"] as const) {
+      expect(typeof first.kpis[key], key).toBe("number");
+    }
+    expect(first.kpis.pending).toBe(first.kpis.outstanding);
+    expect(Array.isArray(first.attention?.rows), "the queue is in the payload").toBe(true);
+    expect(typeof first.attention.total).toBe("number");
+    expect(typeof first.attention.snoozed).toBe("number");
+
+    // The tiles: a description list, the label the term and the server's
+    // number its definition; Overdue carries the people behind it.
+    await page.goto("/compliance/overview");
+    await expect(subnav(page).getByRole("link", { name: "Overview", exact: true })).toHaveAttribute("aria-current", "page");
+    const tile = (label: string) =>
+      page.getByRole("term").filter({ hasText: new RegExp(`^${label}$`) }).locator("..").getByRole("definition");
+    const k = (await portal()).kpis;
+    await expect(tile("Policies")).toHaveText(String(k.policies));
+    await expect(tile("Compliance")).toHaveText(`${k.pct}%`);
+    await expect(tile("Overdue")).toContainText(String(k.overdue));
+    await expect(tile("Overdue")).toContainText(/\d+ (person|people)$/);
+    await expect(tile("Due in 7 days")).toHaveText(String(k.due_7d));
+    await expect(tile("Pending")).toHaveText(String(k.pending));
+    await expect(tile("Exempt")).toHaveText(String(k.exempt));
+    // The seventh tile (G1) stays beside the six.
+    await expect(tile("Re-confirmation due in 30 days")).toHaveText(String(k.recert_due_30));
+    await expect(page.getByRole("heading", { name: "Needs attention" })).toBeVisible();
+
+    // Exempt the joiner (D2): Exempt rises by one and Pending drops by one
+    // (the row leaves the denominator); the tiles follow on reload.
+    const exempted = await api(page, "/api/admin/compliance/assignments", {
+      method: "POST",
+      body: { action: "exempt", assignment_ids: [assignmentId], reason: "E2E exemption for the Exempt tile" },
+    });
+    expect(exempted.status, "exempted").toBe(200);
+    expect(exempted.body?.changed).toEqual([assignmentId]);
+    const afterExempt = await portal();
+    expect(afterExempt.kpis.exempt).toBe(first.kpis.exempt + 1);
+    expect(afterExempt.kpis.pending).toBe(first.kpis.pending - 1);
+    await page.reload();
+    await expect(tile("Exempt")).toHaveText(String(afterExempt.kpis.exempt));
+    await expect(tile("Pending")).toHaveText(String(afterExempt.kpis.pending));
+
+    // Pending again, then snoozed: the D2 invariant on the tiles. Only the
+    // snoozed count moves; Overdue, Pending and Exempt hold.
+    const unexempted = await api(page, "/api/admin/compliance/assignments", {
+      method: "POST",
+      body: { action: "unexempt", assignment_ids: [assignmentId] },
+    });
+    expect(unexempted.status, "pending again").toBe(200);
+    const open = await portal();
+    expect(open.kpis.pending).toBe(first.kpis.pending);
+    expect(open.kpis.exempt).toBe(first.kpis.exempt);
+    const snoozed = await api(page, "/api/admin/compliance/assignments", {
+      method: "POST",
+      body: { action: "snooze", assignment_ids: [assignmentId], days: 7 },
+    });
+    expect(snoozed.status, "snoozed").toBe(200);
+    expect(snoozed.body?.until).toBeTruthy();
+    const afterSnooze = await portal();
+    expect(afterSnooze.kpis.snoozed).toBe(open.kpis.snoozed + 1);
+    expect(afterSnooze.kpis.overdue).toBe(open.kpis.overdue);
+    expect(afterSnooze.kpis.pending).toBe(open.kpis.pending);
+    expect(afterSnooze.kpis.exempt).toBe(open.kpis.exempt);
+    await page.reload();
+    await expect(tile("Overdue")).toContainText(String(afterSnooze.kpis.overdue));
+    await expect(tile("Pending")).toHaveText(String(afterSnooze.kpis.pending));
+
+    // A drifted policy (C1 into F1): the admin confirms v1, then a material
+    // edit is kept against the suggestion, moving the text past the re-ask
+    // threshold. The queue lists the policy once, at the top, with the
+    // drift chip, the policy linking to its Record tab, and the deliberate
+    // re-ask as its one action.
+    await confirmThrough(page, docId);
+    const kept = await api(page, `/api/documents/${docId}`, {
+      method: "PUT",
+      body: {
+        content: `${BODY}\n\nContractors and temporary staff must also read and confirm this policy every year, before any site access is granted.`,
+        status: "published",
+        ack_policy: "keep",
+        ack_reason: "Keeping the confirmations for the queue test",
+        versionNote: "Drift for the queue",
+      },
+    });
+    expect(kept.status, "the edit is kept").toBe(200);
+    expect(kept.body?.ack_outcome?.policy).toBe("keep");
+    const drifted = await portal();
+    const mine = drifted.docs.find((d) => d.id === docId);
+    expect(Number(mine?.drift_pct), "the kept edit drifted the text past the threshold").toBeGreaterThanOrEqual(5);
+    expect(mine?.kept_since_reset).toBe(1);
+    expect(drifted.kpis.drifted).toBeGreaterThanOrEqual(1);
+    const queued = drifted.attention.rows.find((r) => r.reason === "drifted" && r.document_id === docId);
+    expect(queued, "the policy is a queue row").toBeTruthy();
+    expect(queued!.detail).toMatch(/^\d+(\.\d+)?% since v1$/);
+    expect(queued!.user_id, "a policy-level row names nobody").toBeNull();
+
+    await page.reload();
+    const queue = page.locator("#needs-attention");
+    await expect(queue.getByText(/^(showing \d+ of \d+|\d+)( · \d+ snoozed)?$/)).toBeVisible();
+    const row = queue.locator("li", { hasText: title });
+    await expect(row).toHaveCount(1);
+    await expect(row.getByText(`Confirmed text drifted ${queued!.detail}`)).toBeVisible();
+    await expect(row.getByRole("link", { name: title })).toHaveAttribute("href", `/doc/${docId}/acknowledgements`);
+    await expect(row.getByRole("button", { name: "Snooze" })).toHaveCount(0);
+    const reask = row.getByRole("button", { name: "Ask everyone to re-confirm…" });
+    await expect(reask).toBeEnabled();
+    await reask.click();
+    const dialog = page.getByRole("dialog", { name: `Ask everyone to re-confirm "${title}"?` });
+    await expect(dialog).toBeVisible();
+    await dialog.getByLabel("Why are readers being asked again?").fill("The contractor clause changed what everyone agreed to");
+    await dialog.getByRole("button", { name: "Ask 1 person to re-confirm" }).click();
+    await expect(page.locator('[role="status"]').getByText("1 person will be asked to re-confirm.")).toBeVisible();
+    await expect(dialog).toHaveCount(0);
+    // The marker moved to the kept text: nothing has drifted since, and
+    // the row is gone from the queue and the payload.
+    await expect(row).toHaveCount(0);
+    const cleared = await portal();
+    expect(cleared.attention.rows.some((r) => r.document_id === docId && r.reason === "drifted")).toBe(false);
+    expect(cleared.docs.find((d) => d.id === docId)?.kept_since_reset).toBe(0);
+  } finally {
+    if (joinerId) await api(page, `/api/admin/users/${joinerId}`, { method: "DELETE" });
+    if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
+  }
+});
+
+// 1.14.0 (F1, D3, F2): the live row's stacked bar and legend, the Sort and
+// filter controls, the set chip and "In set" once a set names the policy
+// (through the sets routes), and the Export menu with its four items.
+test("a live row's stacked bar and legend, the Sort and the filter, the set chip and In set after a set is assigned, and the Export menu's four items", async ({ page }) => {
+  test.setTimeout(120_000);
+  await login(page, ADMIN);
+  const suffix = stamp();
+  const title = `E2E portal bar ${suffix}`;
+  const setName = `E2E onboarding set ${suffix}`;
+  let docId: number | undefined;
+  let setId: number | undefined;
+  try {
+    docId = await makePolicy(page, title);
+    test.skip(!(await portalLicensed(page)), "policy_ack is not licensed in this build; the EE rig runs the flow");
+    const on = await api(page, "/api/admin/compliance", { method: "POST", body: { docId, action: "request", notify: false } });
+    expect(on.status, "requested quietly").toBe(200);
+    // One confirmation, so the bar has a confirmed segment beside the pending one.
+    await confirmThrough(page, docId);
+
+    type Doc = {
+      id: number;
+      required: number;
+      acked: number;
+      confirmed: number;
+      pending: number;
+      overdue: number;
+      exempt: number;
+      owner_name: string | null;
+      set_names: string[];
+      edit_default: string;
+    };
+    const view = await api(page, "/api/admin/compliance");
+    expect(view.status).toBe(200);
+    const mine = (view.body?.docs ?? []).find((d: Doc) => d.id === docId) as Doc | undefined;
+    expect(mine, "the policy is in the payload").toBeTruthy();
+    expect(mine!.confirmed).toBe(1);
+    expect(mine!.pending).toBe(mine!.required - 1);
+    expect(mine!.exempt).toBe(0);
+    expect(mine!.set_names).toEqual([]);
+    expect(mine!.edit_default).toBe("ask");
+
+    // The row: the bar's accessible name and its legend carry the same four
+    // numbers; the owner (whoever switched the requirement on, by the
+    // cascade's last tier) sits on the subtitle when the server names one.
+    await page.goto("/compliance/policies");
+    const row = page.locator("li", { hasText: title });
+    await expect(row).toBeVisible();
+    await expect(row.getByRole("img", { name: `1 confirmed, ${mine!.pending} pending, 0 overdue, 0 exempt` })).toBeVisible();
+    await expect(row.getByText(`1 confirmed · ${mine!.pending} pending · 0 overdue · 0 exempt`)).toBeVisible();
+    if (mine!.owner_name) await expect(row.getByText(`· owner ${mine!.owner_name}`)).toBeVisible();
+    await expect(row.getByText("Asks editor")).toBeVisible();
+
+    // Sort: the four orders, by their captioned Select; the row stays
+    // wherever the order puts it. Filter: the one row and its count.
+    const sort = page.getByRole("combobox", { name: "Sort" });
+    await expect(sort.locator("option")).toHaveText(["Most overdue", "Lowest compliance", "Due soonest", "Title A-Z"]);
+    await sort.selectOption("title");
+    await expect(row).toBeVisible();
+    await sort.selectOption("due");
+    await expect(row).toBeVisible();
+    const filter = page.getByRole("textbox", { name: "Filter policies" });
+    await filter.fill(title);
+    await expect(page.getByText(/^1 of \d+ policies$/)).toBeVisible();
+    await expect(row).toBeVisible();
+    await filter.fill(`${title} nothing like this`);
+    await expect(page.getByText("No policies match your filter.")).toBeVisible();
+    await filter.fill("");
+    await expect(row).toBeVisible();
+
+    // A set that names the policy (D3): created and assigned to the admin
+    // through the sets routes. The policy is in space mode, so the set does
+    // not narrow it; the row still shows the set chip, and "In set" narrows
+    // the list to the set's policies.
+    const made = await api(page, "/api/admin/compliance/sets", {
+      method: "POST",
+      body: { name: setName, doc_ids: [docId], assign_new_members: false },
+    });
+    expect(made.status, "set created").toBe(201);
+    setId = made.body?.set?.id;
+    expect(setId).toBeTruthy();
+    const me = (view.body?.users ?? []).find((u: { username: string }) => u.username === ADMIN.username);
+    expect(me?.id, "the admin's own row").toBeTruthy();
+    const assigned = await api(page, `/api/admin/compliance/sets/${setId}`, { method: "POST", body: { user_ids: [me.id] } });
+    expect(assigned.status, "set assigned").toBe(200);
+    expect(assigned.body?.policies).toBe(1);
+    expect(Array.isArray(assigned.body?.not_narrowed)).toBe(true);
+    const tagged = (await api(page, "/api/admin/compliance")).body?.docs?.find((d: Doc) => d.id === docId) as Doc | undefined;
+    expect(tagged?.set_names).toEqual([setName]);
+    await page.reload();
+    await expect(row).toBeVisible();
+    await expect(row.getByText(setName)).toBeVisible();
+    const inSet = page.getByRole("combobox", { name: "In set" });
+    await expect(inSet).toBeVisible();
+    await inSet.selectOption({ label: setName });
+    await expect(row).toBeVisible();
+    await expect(page.getByText(/^1 policies$/)).toBeVisible();
+    await inSet.selectOption("");
+
+    // The Export menu (F2): a menu button with the four items in order,
+    // Matrix CSV a real download; the old link is gone.
+    await expect(page.getByRole("link", { name: "Export CSV" })).toHaveCount(0);
+    const exportButton = page.getByRole("button", { name: "Export" });
+    await expect(exportButton).toHaveAttribute("aria-haspopup", "menu");
+    await expect(exportButton).toHaveAttribute("aria-expanded", "false");
+    await exportButton.click();
+    const menu = page.getByRole("menu", { name: "Export" });
+    await expect(menu).toBeVisible();
+    await expect(exportButton).toHaveAttribute("aria-expanded", "true");
+    await expect(menu.getByRole("menuitem")).toHaveText(["Matrix CSV", "Ledger CSV", "Audit package (ZIP)", "Print…"]);
+    const [matrix] = await Promise.all([page.waitForEvent("download"), menu.getByRole("menuitem", { name: "Matrix CSV" }).click()]);
+    expect(matrix.suggestedFilename()).toBe("compliance-report.csv");
+    await expect(menu).toHaveCount(0);
+    await exportButton.click();
+    const [pack] = await Promise.all([
+      page.waitForEvent("download"),
+      page.getByRole("menu", { name: "Export" }).getByRole("menuitem", { name: "Audit package (ZIP)" }).click(),
+    ]);
+    expect(pack.suggestedFilename()).toMatch(/^compliance-audit-package-\d{4}-\d{2}-\d{2}\.zip$/);
+  } finally {
+    if (setId) await api(page, `/api/admin/compliance/sets/${setId}`, { method: "DELETE" });
+    if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
+  }
+});
+
+// 1.14.0 (F1, F3): the People page's Standing chip, its Show control and
+// filter, and the person's link to their compliance record.
+test("the People page's Standing chip, its Show control and filter, and the person's record link", async ({ page, browser }) => {
+  test.setTimeout(120_000);
+  await login(page, ADMIN);
+  const suffix = stamp();
+  const title = `E2E portal standing ${suffix}`;
+  const joiner = { username: `e2e_standing_${suffix}`, password: "E2eStand!12345" };
+  const joinerName = "E2E Standing Joiner";
+  let docId: number | undefined;
+  let joinerId: number | undefined;
+  try {
+    docId = await makePolicy(page, title);
+    test.skip(!(await portalLicensed(page)), "policy_ack is not licensed in this build; the EE rig runs the flow");
+    const on = await api(page, "/api/admin/compliance", { method: "POST", body: { docId, action: "request", notify: false } });
+    expect(on.status, "requested quietly").toBe(200);
+    const created = await api(page, "/api/admin/users", {
+      method: "POST",
+      body: { ...joiner, role: "viewer", name: joinerName },
+    });
+    expect(created.status, "joiner created").toBe(201);
+    joinerId = created.body?.user?.id;
+    expect(joinerId).toBeTruthy();
+
+    type Person = { id: number; required: number; acked: number; overdue: number; exempt: number };
+    const personRow = async (): Promise<Person> => {
+      const res = await api(page, "/api/admin/compliance");
+      expect(res.status).toBe(200);
+      const u = (res.body?.users ?? []).find((x: Person) => x.id === joinerId);
+      expect(u, "the joiner has a row").toBeTruthy();
+      return u;
+    };
+    // The chip's rule, from the payload: everything confirmed is Compliant,
+    // anything overdue "{n} overdue", else "{n} outstanding".
+    const standing = (u: Person) =>
+      u.acked >= u.required ? "Compliant" : u.overdue > 0 ? `${u.overdue} overdue` : `${u.required - u.acked} outstanding`;
+    const before = await personRow();
+    expect(before.required).toBeGreaterThanOrEqual(1);
+    expect(before.acked).toBe(0);
+    expect(typeof before.exempt).toBe("number");
+
+    await page.goto("/compliance/people");
+    await expect(subnav(page).getByRole("link", { name: "People", exact: true })).toHaveAttribute("aria-current", "page");
+    await expect(page.getByRole("columnheader", { name: "Standing" })).toBeVisible();
+    const show = page.getByRole("radiogroup", { name: "Show" });
+    await expect(show.getByRole("radio")).toHaveText(["All", "Outstanding", "Overdue", "Compliant"]);
+    const filter = page.getByRole("textbox", { name: "Filter people" });
+    await filter.fill(joiner.username);
+    await expect(page.getByText(/^1 of \d+ people$/)).toBeVisible();
+    const row = page.getByRole("row").filter({ hasText: joinerName });
+    await expect(row).toHaveCount(1);
+    await expect(row.getByRole("link", { name: joinerName })).toHaveAttribute("href", `/compliance/person/${joinerId}`);
+    await expect(row.getByText(standing(before), { exact: true })).toBeVisible();
+    // Compliant hides the joiner (nothing confirmed), Outstanding shows them,
+    // Overdue follows their overdue count.
+    await show.getByRole("radio", { name: "Compliant" }).click();
+    await expect(row).toHaveCount(0);
+    await show.getByRole("radio", { name: "Overdue" }).click();
+    await expect(row).toHaveCount(before.overdue > 0 ? 1 : 0);
+    await show.getByRole("radio", { name: "Outstanding" }).click();
+    await expect(row).toHaveCount(1);
+
+    // Confirmed as the joiner: the chip follows the payload (Compliant when
+    // this is the only policy they owe, on a quiet rig).
+    const ctx = await browser.newContext();
+    try {
+      const vpage = await ctx.newPage();
+      await login(vpage, joiner);
+      await confirmThrough(page, docId, vpage);
+    } finally {
+      await ctx.close();
+    }
+    const after = await personRow();
+    expect(after.acked).toBe(before.acked + 1);
+    await page.reload();
+    await page.getByRole("textbox", { name: "Filter people" }).fill(joiner.username);
+    const again = page.getByRole("row").filter({ hasText: joinerName });
+    await expect(again).toHaveCount(1);
+    await expect(again.getByText(standing(after), { exact: true })).toBeVisible();
+    if (after.acked >= after.required) {
+      await page.getByRole("radiogroup", { name: "Show" }).getByRole("radio", { name: "Compliant" }).click();
+      await expect(again).toHaveCount(1);
+    }
+  } finally {
+    if (joinerId) await api(page, `/api/admin/users/${joinerId}`, { method: "DELETE" });
+    if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
+  }
+});

@@ -52,9 +52,16 @@ export async function evidencePageProps(): Promise<EvidencePageProps> {
  * the led ones when Program settings let leads see policy standing. Read by
  * the section layout (the Team tab), the team page (its guard, then
  * notFound()) and GET /api/compliance/mine (`lead_team`, the My policies
- * banner), so the three can never disagree about who may open the page.
+ * banner: `allowed` and `leads`, because "You lead a team" is said only to
+ * someone who does), so the three can never disagree about who may open
+ * the page.
  */
-export async function teamViewAllowed(userId: number): Promise<boolean> {
+export async function teamViewAccess(userId: number): Promise<{ allowed: boolean; leads: boolean }> {
   const [groups, grants, settings] = await Promise.all([userLeadGroups(userId), grantsFor(userId), getComplianceSettings()]);
-  return admits(grants, "compliance.team_read") || (groups.length > 0 && settings.ack_defaults.leads_see_policies);
+  const leads = groups.length > 0;
+  return { allowed: admits(grants, "compliance.team_read") || (leads && settings.ack_defaults.leads_see_policies), leads };
+}
+
+export async function teamViewAllowed(userId: number): Promise<boolean> {
+  return (await teamViewAccess(userId)).allowed;
 }

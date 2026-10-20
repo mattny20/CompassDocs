@@ -3,7 +3,7 @@ import { apiGuard } from "@/lib/api-auth";
 import { spaceScopeFor } from "@/lib/access";
 import { featureEnabled } from "@/lib/ee";
 import { listMyPolicies } from "@/lib/db";
-import { teamViewAllowed } from "@/app/(app)/compliance/portal-page";
+import { teamViewAccess } from "@/app/(app)/compliance/portal-page";
 import type { SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -36,9 +36,11 @@ export async function GET() {
       rows,
       confirmed: rows.filter((r) => r.state === "confirmed").length,
       total: rows.length,
-      // F4 (1.14.0): whether /compliance/team would open for this person
-      // (the team page's own rule), for the lead's banner on My policies.
-      lead_team: await teamViewAllowed(user.id),
+      // F4 (1.14.0): whether this person leads a group and /compliance/team
+      // would open for them (the team page's own rule), for the lead's
+      // banner on My policies ("You lead a team."); a compliance.team_read
+      // holder who leads nothing has the Team tab and no banner.
+      lead_team: await teamViewAccess(user.id).then((a) => a.allowed && a.leads),
     },
     { headers: { "Cache-Control": "no-store" } }
   );

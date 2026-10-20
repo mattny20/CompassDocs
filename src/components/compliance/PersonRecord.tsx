@@ -148,7 +148,7 @@ function StatusChip({ row, date }: { row: PolicyTranscriptRow; date: (iso: strin
 
 /** "v12", with "(inferred)" in text and its tooltip on rows from before 1.10.0. */
 function VersionCell({ row }: { row: PolicyTranscriptRow }) {
-  if (!row.version) return <>{row.acknowledged_at ? "—" : ""}</>;
+  if (!row.version) return null;
   if (row.version_source === "inferred") {
     return (
       <span className="inline-flex items-center gap-1.5">
@@ -565,7 +565,7 @@ export function PersonRecord({
                       {r.due_at && !r.exempt ? date(r.due_at) : ""}
                     </Td>
                     <Td fit className="text-slate-500">
-                      {r.acknowledged_at ? dateTime(r.acknowledged_at) : "—"}
+                      {dateTime(r.acknowledged_at)}
                     </Td>
                     <Td fit className="text-slate-500">
                       <VersionCell row={r} />
@@ -630,7 +630,7 @@ export function PersonRecord({
                       </span>
                     </Td>
                     <Td fit className="text-slate-500">
-                      {r.acknowledged_at ? dateTime(r.acknowledged_at) : "—"}
+                      {dateTime(r.acknowledged_at)}
                     </Td>
                     <Td fit className="text-slate-500">
                       <VersionCell row={r} />
