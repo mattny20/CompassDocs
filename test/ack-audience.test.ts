@@ -16,10 +16,19 @@
 // does it: next/headers resolves to a stub that serves the request under
 // test, and lib/ee to a stub that grants policy_ack.
 //
-// Five test files share the database. Counts over an internal space include
-// every account the other files are inserting, so the assertions here name
-// this file's own people (membership, never a bare total) and use a private
-// space when a whole set must be known.
+// Twenty-odd test files share the database and run at once. Every active
+// account sees an internal space, so a count over all the rows of a policy
+// there moves with the accounts the other files insert, enrol and disable,
+// and a role rule reaches every account of that role in the database. The
+// assertions here name this file's own people (membership, never a bare
+// total; a role rule's count is a bound). Where a whole set must be known
+// (the hourly sweep's counts, the migration's shape, a space-mode preview)
+// the policies live in a private space granted to a group of this file's
+// people, which no other file's account hook, switch-on or sweep can enrol
+// into or out of; the workspace's admins (space.read_all through the
+// ladder) still see it, so even there a count names the file's people. The
+// welcome fixtures are the exception: the account hook must find them, so
+// they are internal and the new account's list is read as a superset.
 //
 // Run: DATABASE_URL=… npx tsx --tsconfig ./tsconfig.test.json --test test/ack-audience.test.ts
 
@@ -160,11 +169,12 @@ function sessionRequest(url: string, session: string, body: unknown): Request {
 
 const STAMP = `ackaud-${Date.now()}`;
 
-let spaceA = 0; // internal
+let spaceA = 0; // internal (the welcome fixtures too: the account hook must see them)
 let spaceP = 0; // private, granted to group G1
-let spaceW = 0; // internal, the welcome and migration fixtures
+let spaceW = 0; // private, granted to group G3 (every one of this file's people): the heal and migration fixtures, whose counts are over every row
 let g1 = 0;
 let g2 = 0;
+let g3 = 0;
 // The two private-space policies (space mode, then targeted): the ceiling
 // assertions on the account hooks name them.
 let closedId = 0;
@@ -262,7 +272,7 @@ before(async () => {
   await getSetting("__schema_bootstrap__");
   const spaces = await fixtureQuery(
     `INSERT INTO spaces (name, slug, icon, description, visibility) VALUES
-       ($1, $2, '📁', '', 'internal'), ($3, $4, '📁', '', 'private'), ($5, $6, '📁', '', 'internal')
+       ($1, $2, '📁', '', 'internal'), ($3, $4, '📁', '', 'private'), ($5, $6, '📁', '', 'private')
      RETURNING id`,
     [`Audience A ${STAMP}`, `${STAMP}-a`, `Audience P ${STAMP}`, `${STAMP}-p`, `Audience W ${STAMP}`, `${STAMP}-w`]
   );
@@ -271,9 +281,12 @@ before(async () => {
   await newPerson("dave", "approver");
   g1 = (await createGroup({ name: `${STAMP} G1` })).id;
   g2 = (await createGroup({ name: `${STAMP} G2` })).id;
+  g3 = (await createGroup({ name: `${STAMP} G3` })).id;
   await addGroupMember(g1, people.alice);
   await addGroupMember(g2, people.bob);
+  await setGroupMembers(g3, Object.values(people));
   await setSpaceGroups(spaceP, [g1]);
+  await setSpaceGroups(spaceW, [g3]);
 });
 
 after(async () => {
@@ -291,7 +304,7 @@ after(async () => {
     [docIds.map(String), userIds.map(String)]
   );
   await pool().query("DELETE FROM documents WHERE id = ANY($1)", [docIds]);
-  await pool().query("DELETE FROM groups WHERE id = ANY($1)", [[g1, g2]]);
+  await pool().query("DELETE FROM groups WHERE id = ANY($1)", [[g1, g2, g3]]);
   await pool().query("DELETE FROM users WHERE id = ANY($1)", [userIds]);
   await pool().query("DELETE FROM spaces WHERE id = ANY($1)", [[spaceA, spaceP, spaceW]]);
 });
@@ -356,9 +369,14 @@ describe("space mode: the old rule, as rows", () => {
     assert.equal(await hasOpenAssignment(closed.id, people.bob), false);
     assert.equal(await hasPolicyInScope(people.bob, asScope([spaceP])), false, "no row, no nav item");
     assert.equal(await countPendingAcksFor(people.carol, asScope([spaceP])), 0);
+    // The per-person summary counts every policy in the database that asks
+    // the person, the other files' internal ones included (one snapshot for
+    // both people), so the private policy shows as alice's one over bob.
     const perUser = await complianceUserSummary();
-    assert.equal(perUser.find((u) => u.id === people.alice)!.required, 2, "alice owes both");
-    assert.equal(perUser.find((u) => u.id === people.bob)!.required, 1, "bob owes the internal one only");
+    const owedBy = (id: number) => perUser.find((u) => u.id === id)!.required;
+    assert.ok(owedBy(people.bob) >= 1, "bob owes the internal one");
+    assert.equal(owedBy(people.alice), owedBy(people.bob) + 1, "alice owes the private one on top");
+    assert.equal(owedBy(people.carol), owedBy(people.bob), "carol, like bob, is not granted the private space");
 
     // Reconciling again moves nothing.
     assert.deepEqual(await reconcilePolicyAssignments(null, open.id), { added: 0, closed: 0, reopened: 0 });
@@ -447,13 +465,16 @@ describe("targeted mode: rules, exclusions and the ceiling", () => {
     await pool().query("DELETE FROM ack_outbox WHERE id = $1", [told[0].id]);
 
     // An exclude rule is a targeted-mode rule: in space mode (a hand-written
-    // row, or the preview of a draft) it keeps nobody out.
-    const spaceWide = await previewAudience(id, { audience_mode: "space", rules: [], exclude_stewards: false });
-    const spaceWithExclude = await previewAudience(id, {
+    // row, or the preview of a draft) it keeps nobody out. Compared on the
+    // private space's policy, whose set (G1 and the workspace's admins) no
+    // other file's account insert moves between the two previews.
+    const spaceWide = await previewAudience(closedId, { audience_mode: "space", rules: [], exclude_stewards: false });
+    const spaceWithExclude = await previewAudience(closedId, {
       audience_mode: "space",
-      rules: sanitizeRules([{ kind: "user", ref: people.carol, effect: "exclude" }]),
+      rules: sanitizeRules([{ kind: "user", ref: people.alice, effect: "exclude" }]),
       exclude_stewards: false,
     });
+    assert.ok(spaceWide.count >= 1, "alice at least");
     assert.equal(spaceWithExclude.count, spaceWide.count, "an exclude rule is ignored in space mode");
     const targetedWithExclude = await previewAudience(id, {
       audience_mode: "targeted",
@@ -487,14 +508,26 @@ describe("targeted mode: rules, exclusions and the ceiling", () => {
   test("a person a rule names who cannot see the space is not enrolled and counts as 'no access' in the preview; a grant brings them in through the space hook", async () => {
     const { id } = await newPolicy("ceiling", spaceP);
     ceilingId = id;
+    // The people named by name are this file's, so their preview is exact.
+    const byName = sanitizeRules([{ kind: "user", ref: people.bob }, { kind: "user", ref: people.dave }]);
+    assert.deepEqual(
+      await previewAudience(id, { audience_mode: "targeted", rules: byName, exclude_stewards: false }),
+      { count: 0, no_access: 2, sample: [] },
+      "neither bob nor dave can see the private space: both are named and shown as No access"
+    );
+    // A role rule reaches every approver in the shared database (the other
+    // files insert their own), all above this space's ceiling: dave is the
+    // one this file knows, so his count is a bound, and the row-level proof
+    // below is by person.
     const rules = sanitizeRules([{ kind: "user", ref: people.bob }, { kind: "role", ref: "approver" }]);
-    const preview = await previewAudience(id, { audience_mode: "targeted", rules, exclude_stewards: false });
-    assert.equal(preview.count, 0, "neither bob nor dave can see the private space");
-    assert.equal(preview.no_access, 2, "both are named and shown as No access");
-    assert.deepEqual(preview.sample, []);
+    const byRole = await previewAudience(id, { audience_mode: "targeted", rules, exclude_stewards: false });
+    assert.equal(byRole.count, 0, "no approver can see the private space");
+    assert.ok(byRole.no_access >= 2, `bob and dave at least are named and shown as No access (${byRole.no_access})`);
+    assert.deepEqual(byRole.sample, []);
     const saved = await saveAudienceRules(id, { audience_mode: "targeted", rules });
     assert.equal(saved!.added, 0, "a rule narrows and never widens");
     assert.equal(await hasOpenAssignment(id, people.bob), false);
+    assert.equal(await hasOpenAssignment(id, people.dave), false, "named by role, still above the ceiling");
     assert.equal(await hasOpenAssignment(id, people.alice), false, "alice sees the space but no rule names her");
     assert.equal((await row(id, people.alice))!.removed_reason, "audience_narrowed");
 
@@ -503,7 +536,11 @@ describe("targeted mode: rules, exclusions and the ceiling", () => {
     assert.equal(await hasOpenAssignment(id, people.bob), true, "the grant writer reconciled the space's policies");
     assert.equal((await row(id, people.bob))!.source, "user");
     assert.equal(await hasOpenAssignment(id, people.dave), false);
-    assert.equal((await previewAudience(id, { audience_mode: "targeted", rules, exclude_stewards: false })).no_access, 1);
+    assert.deepEqual(
+      await previewAudience(id, { audience_mode: "targeted", rules: byName, exclude_stewards: false }),
+      { count: 1, no_access: 1, sample: [`Bob ${STAMP}`] },
+      "bob is in, dave is still No access"
+    );
     // And taking the grant away closes the row with 'access_removed'.
     await setSpaceGroups(spaceP, [g1]);
     assert.equal((await row(id, people.bob))!.removed_reason, "access_removed");
@@ -638,9 +675,13 @@ describe("the ack route", () => {
 
 describe("new accounts and the welcome notice", () => {
   test("a new account is enrolled in every policy that admits it and enrols new joiners, with one welcome notice listing them; a single policy goes as a request", async () => {
-    const w1 = await newPolicy("welcome 1", spaceW);
-    const w2 = await newPolicy("welcome 2", spaceW);
-    const w3 = await newPolicy("welcome off", spaceW);
+    // An internal space: the account hook must find these, and the same
+    // hook enrols the joiner in every other file's internal policy (and
+    // their switch-ons in theirs), so the joiner's list is read as a
+    // superset and every count below is the delivery's own.
+    const w1 = await newPolicy("welcome 1");
+    const w2 = await newPolicy("welcome 2");
+    const w3 = await newPolicy("welcome off");
     await saveAudienceRules(w3.id, { assign_new_members: false });
     const { hash, salt } = hashPassword("Newbie!12345");
     const newbie = await createUser({
@@ -696,17 +737,25 @@ describe("new accounts and the welcome notice", () => {
     // may be another file's (the after() hook deletes the row by person).
     assert.ok(owed.some((p) => p.id === queued[0].document_id), "keyed to one of the policies they owe");
 
-    // Deliver it: one email naming every policy owed, one inbox line, one record row per policy.
+    // Deliver it: one email naming every policy owed, one inbox line, one
+    // record row per policy. The drain claims by document and the key may
+    // be another file's policy, whose own pending rows this drain must not
+    // take: the row is pinned to w1 (owed too) first, which deliverWelcome
+    // never reads. The list is resolved at delivery, and the other files'
+    // switch-ons keep enrolling the joiner meanwhile, so the count the
+    // mail states is checked against the record the same delivery wrote,
+    // not against the list read above.
     const sent: { to: string[]; subject: string; text: string }[] = [];
     const mailer: Mailer = async (to, subject, text) => {
       sent.push({ to, subject, text });
     };
-    await pool().query("UPDATE ack_outbox SET not_before = now() WHERE id = $1", [queued[0].id]);
-    const out = await deliverAckNotices({ documentIds: [queued[0].document_id], mailer, origin: "https://docs.example.test" });
+    await pool().query("UPDATE ack_outbox SET document_id = $2, not_before = now() WHERE id = $1", [queued[0].id, w1.id]);
+    const out = await deliverAckNotices({ documentIds: [w1.id], mailer, origin: "https://docs.example.test" });
     assert.equal(out.delivered, 1, JSON.stringify(out));
     assert.equal(sent.length, 1, "one mail, not one per policy");
     assert.deepEqual(sent[0].to, [`${STAMP}-newbie@example.test`]);
-    assert.match(sent[0].subject, new RegExp(`Welcome: ${owed.length} policies to read`));
+    const counted = Number(sent[0].subject.match(/Welcome: (\d+) policies to read/)?.[1]);
+    assert.ok(counted >= 2, `the subject counts the policies owed (${sent[0].subject})`);
     assert.ok(sent[0].text.includes(w1.title) && sent[0].text.includes(w2.title), "the list names the policies");
     assert.ok(!sent[0].text.includes(w3.title));
     assert.match(sent[0].text, /\(due [A-Za-z0-9][^)]*\)/, `with their due dates, formatted the workspace's way:\n${sent[0].text}`);
@@ -717,9 +766,21 @@ describe("new accounts and the welcome notice", () => {
         newbie.id,
       ])
     ).rows;
-    assert.equal(notices.length, owed.length, "one record row per policy named");
+    assert.equal(notices.length, counted, "one record row per policy the mail counted");
+    const recorded = notices.map((n) => n.document_id as number);
+    assert.ok(recorded.includes(w1.id) && recorded.includes(w2.id), "the policies owed here are among them");
+    assert.ok(
+      recorded.every((d) => ![w3.id, closedId, ceilingId].includes(d)),
+      "and none that does not ask them: the one with enrolment off, the private space's two"
+    );
     assert.ok(notices.every((n) => n.kind === "welcome" && n.channels.includes("inapp") && n.channels.includes("email")));
-    const inbox = (await pool().query("SELECT title, link FROM notifications WHERE user_id = $1 AND kind = 'ack_requested'", [newbie.id])).rows;
+    // The other files' request drains reach the joiner too (their policies
+    // ask them now), so the inbox is read for the welcome line alone.
+    const inbox = (
+      await pool().query("SELECT title, link FROM notifications WHERE user_id = $1 AND kind = 'ack_requested' AND title LIKE 'Welcome:%'", [
+        newbie.id,
+      ])
+    ).rows;
     assert.equal(inbox.length, 1, "one inbox line");
     assert.equal(inbox[0].link, "/compliance");
     assert.match(inbox[0].title, /^Welcome: \d+ policies to read$/);
@@ -733,21 +794,29 @@ describe("new accounts and the welcome notice", () => {
     assert.deepEqual(one, { mode: "request", user_ids: [newbie.id], document_id: w1.id });
     await pool().query("DELETE FROM ack_outbox WHERE id = $1", [single]);
 
-    // Running the enrolment again moves nothing and tells nobody.
+    // Running the enrolment again moves nothing and tells nobody. (Another
+    // file's switch-on commits the flag before its own reconcile runs; a
+    // call landing in that gap opens that policy's row first, which is the
+    // hook doing its job, and after() deletes the row it queues, by person.)
     const again = await autoAssignPolicies(newbie.id);
-    assert.deepEqual(again, { policies: [], outbox_id: null });
+    assert.deepEqual(again.policies.filter((p) => docIds.includes(p.id)), [], "none of this file's policies");
+    if (again.policies.length === 0) assert.equal(again.outbox_id, null, "nothing moved, nobody told");
   });
 
   test("a failing reconcile never fails the write it decorates: the account is created and the membership stands, with no row (invariant 9)", async () => {
-    // A trigger that refuses every assignment row of one username, so the
-    // other files' hooks are untouched: what a lock timeout or a bad rule
-    // would do to this person's enrolment.
+    // A trigger that refuses every assignment row of one username on this
+    // file's policies: what a lock timeout or a bad rule would do to this
+    // person's enrolment. Scoped to both, so the other files' hooks are
+    // untouched: their switch-ons enrol every active account into their
+    // internal-space policies, this one included, and a trigger on the
+    // person alone would fail those writes while it stands.
     const fn = `ackaud_hookfail_${Date.now()}`;
     const username = `${STAMP}-hookfail`;
     await pool().query(
       `CREATE FUNCTION ${fn}() RETURNS trigger AS $$
        BEGIN
-         IF NEW.user_id IN (SELECT id FROM users WHERE username = '${username}') THEN
+         IF NEW.user_id IN (SELECT id FROM users WHERE username = '${username}')
+            AND NEW.document_id IN (SELECT id FROM documents WHERE title LIKE '${STAMP}%') THEN
            RAISE EXCEPTION 'ackaud: the hook is made to fail';
          END IF;
          RETURN NEW;
@@ -771,7 +840,13 @@ describe("new accounts and the welcome notice", () => {
       });
       userIds.push(user.id);
       assert.ok(user.id > 0, "the account is created although its enrolment failed");
-      assert.equal((await pool().query("SELECT COUNT(*)::int AS n FROM policy_assignments WHERE user_id = $1", [user.id])).rows[0].n, 0);
+      // The hook's one INSERT covers every policy that admits the person;
+      // the first row of this file's raises, so it writes none anywhere.
+      // Counted over this file's policies: the other files' switch-ons
+      // write their own rows for this account, as for any other.
+      const rows = async () =>
+        (await pool().query("SELECT COUNT(*)::int AS n FROM policy_assignments WHERE user_id = $1 AND document_id = ANY($2)", [user.id, docIds])).rows[0].n;
+      assert.equal(await rows(), 0, "no row on any of this file's policies");
       assert.ok(errors.some((e) => e.includes("[ack] could not enrol the new account")), `the failure is logged: ${errors.join(" | ")}`);
       assert.equal((await pool().query("SELECT 1 FROM ack_outbox WHERE user_ids @> $1::jsonb", [JSON.stringify([user.id])])).rowCount, 0, "no welcome");
 
@@ -783,7 +858,7 @@ describe("new accounts and the welcome notice", () => {
       assert.ok(errors.some((e) => e.includes("[ack] could not reconcile policy")), "the policy's failure is logged and the loop goes on");
       await setGroupMembers(g1, [people.alice, user.id]);
       assert.deepEqual(await members(), [people.alice, user.id].sort((a, b) => a - b), "the sync's membership stands");
-      assert.equal((await pool().query("SELECT COUNT(*)::int AS n FROM policy_assignments WHERE user_id = $1", [user.id])).rows[0].n, 0, "still no row");
+      assert.equal(await rows(), 0, "still no row");
       assert.equal(await hasOpenAssignment(ceilingId, people.alice), false, "alice (G1, not named by the ceiling policy's rules) is untouched by the failures");
       await removeGroupMember(g1, user.id);
       assert.ok(!(await members()).includes(user.id));
@@ -798,6 +873,9 @@ describe("new accounts and the welcome notice", () => {
 
 describe("the hourly safety net and the migration", () => {
   test("reconcileAllPolicies heals a missing settings row and a missing row, keeps a confirmation made before the heal current, and audits only when something moved", async () => {
+    // The sweep's counts are over every row of the policy, so it lives in
+    // the private space: its people are G3 and the workspace's admins, and
+    // no other file's account insert or hook can add to or close them.
     const { id, title, v1 } = await newPolicy("heal", spaceW);
     await pool().query("DELETE FROM policy_settings WHERE document_id = $1", [id]);
     const quiet = await reconcileAllPolicies({ documentIds: [id] });
@@ -837,8 +915,9 @@ describe("the hourly safety net and the migration", () => {
     // Two space-mode policies with a confirmation each, as 1.12.0 left them;
     // the rows are wiped and the flag cleared inside a transaction that is
     // rolled back, so nothing of the shared database is touched. The
-    // comparison names this file's people: other files are inserting
-    // accounts the migration would (rightly) also give rows to.
+    // comparison names this file's people: the private space keeps the
+    // other files' accounts out, but the workspace's admins see it, and the
+    // migration (rightly) gives them rows too.
     const m1 = await newPolicy("migrate 1", spaceW);
     const m2 = await newPolicy("migrate 2", spaceW);
     await recordAcknowledgement(m1.id, people.alice, "", m1.v1);
@@ -876,8 +955,10 @@ describe("the hourly safety net and the migration", () => {
       assert.deepEqual(after.roster, before.roster, "nor does any roster");
       const shape = (
         await client.query(
-          "SELECT bool_and(source = 'space') AS space, bool_and(cycle_started_at = d.ack_revision_at) AS from_marker FROM policy_assignments pa JOIN documents d ON d.id = pa.document_id WHERE pa.document_id = ANY($1)",
-          [ids]
+          `SELECT bool_and(source = 'space') AS space, bool_and(cycle_started_at = d.ack_revision_at) AS from_marker
+           FROM policy_assignments pa JOIN documents d ON d.id = pa.document_id
+           WHERE pa.document_id = ANY($1) AND pa.user_id = ANY($2)`,
+          [ids, userIds]
         )
       ).rows[0];
       assert.deepEqual(shape, { space: true, from_marker: true }, "source 'space', the cycle dated from the marker");

@@ -565,7 +565,9 @@ test("a preset's section order: previewed with counts, saved, moved in the edito
     await reset.click();
     await expect(reset).toBeDisabled();
     await save.click();
-    await expect(page.getByText("Export presets saved.")).toBeVisible();
+    // The first save's toast is still up (7 s), so this save adds a second
+    // one; the count waits for it, and the toast follows the PUT.
+    await expect(page.getByText("Export presets saved.")).toHaveCount(2);
     expect((await api(page, "/api/admin/directory/export-presets")).body.presets.find((p: any) => p.id === id).section_order).toEqual([]);
     // One list: the fieldset goes with the field.
     await page.getByRole("combobox", { name: "Sections by" }).selectOption("");
@@ -633,15 +635,15 @@ test("section heads: a head in another section leads it on the files and in the 
     expect(pdf.head).toBe("%PDF-");
     expect(pdf.size).toBeGreaterThan(1500);
 
-    // The CSV: Jane first in Engineering with no mark in the name cell, the
-    // "Section head of" column naming it on each of her rows, and Jane again
-    // as an ordinary row in Executive.
+    // The CSV: one row per person, where their own value puts them, so Jane
+    // prints once, in Executive, with no mark in the name cell and the
+    // "Section head of" column naming Engineering; no head row leads Engineering.
     const lines = await csvRows({ preset: id, format: "csv", ids: [jane.id, bob.id] });
     expect(lines[0]).toBe("Group,Name,Section head of");
-    expect(lines.slice(1)).toEqual([`Engineering,${jane.name},Engineering`, `Engineering,${bob.name},`, `Executive,${jane.name},Engineering`]);
-    // The toggle off as an override: the head prints only where her value puts her; the column stays.
+    expect(lines.slice(1)).toEqual([`Engineering,${bob.name},`, `Executive,${jane.name},Engineering`]);
+    // The toggle off as an override changes no row of a spreadsheet; the column stays.
     const off = await csvRows({ preset: id, format: "csv", ids: [jane.id, bob.id], section_heads: false });
-    expect(off.slice(1)).toEqual([`Engineering,${bob.name},`, `Executive,${jane.name},Engineering`]);
+    expect(off.slice(1)).toEqual(lines.slice(1));
 
     // The Groups view: Engineering leads with Jane and her Head chip, the
     // heading names her; Executive lists her as an ordinary tile.
@@ -680,8 +682,9 @@ test("section heads: a head in another section leads it on the files and in the 
     await save.click();
     await expect(page.getByText("Export presets saved.")).toBeVisible();
     expect((await api(page, "/api/admin/directory/export-presets")).body.presets.find((p: any) => p.id === id).section_heads).toBe(false);
+    // The stored toggle off: the CSV still exports and still reads the same.
     const stored = await csvRows({ preset: id, format: "csv", ids: [jane.id, bob.id] });
-    expect(stored.slice(1)).toEqual([`Engineering,${bob.name},`, `Executive,${jane.name},Engineering`]);
+    expect(stored.slice(1)).toEqual(lines.slice(1));
   } finally {
     await api(page, "/api/admin/directory/export-presets", { method: "PUT", body: { presets } });
     for (const p of [jane, bob]) await api(page, `/api/admin/directory/people/${p.id}`, { method: "DELETE" });
