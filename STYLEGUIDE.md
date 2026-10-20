@@ -779,6 +779,20 @@ text-slate-500` before them ("Notary · Phoenix").
   card the bubble can clip (§Tooltips), so the rule is also spelled out in
   a footnote under the table (`text-xs text-slate-500`, the Record tab's
   `EVIDENCE_NOTE`), shown whenever a row carries such a value.
+- **A bulk bar** (1.13.0, `AckRoster` is the worked example; `SpaceViews`'
+  `BulkBar` is the older hand-rolled one). A table with a leading checkbox
+  column (`<Th fit>` holding a header checkbox `aria-label="Select all
+  people on this page"`, `<Td fit>` row checkboxes `aria-label="Select
+  {name}"`, both inheriting the accent) shows, only while something is
+  selected, one bar above the table: `rounded-lg border border-compass-200
+  bg-compass-50/70 px-3 py-2`, "{n} selected" in `text-sm font-semibold
+  text-compass-800`, a ghost `sm` **Clear selection**, a hairline, then the
+  same actions the rows offer as `secondary` `sm` `Button`s with their
+  lucide icons, disabled with `busy` while a request is in flight. The bar
+  is `print:hidden`. A bulk action over more than the server's cap (200) is
+  disabled inside `Tooltip("Up to 200 people at a time.")`. Selection is
+  per page: the header checkbox selects the rows on the page, and a
+  successful action clears it.
 
 ## Loading
 

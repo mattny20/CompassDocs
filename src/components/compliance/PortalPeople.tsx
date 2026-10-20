@@ -2,9 +2,11 @@
 
 // Compliance › People (B4, 1.12.0): each person's required and confirmed
 // counts with their standing, as the one-page portal's People card showed
-// them. The person record (F3) later links each row to its page.
+// them, and (E1, 1.13.0) how many of their outstanding confirmations are
+// past their due date. The person record (F3) later links each row to its
+// page.
 
-import { Users, Check, CircleAlert } from "lucide-react";
+import { Users, Check, CircleAlert, CalendarX2 } from "lucide-react";
 import { chipClass } from "@/components/Chip";
 import { Card } from "@/components/Card";
 import { SectionEmpty } from "@/components/form";
@@ -46,6 +48,9 @@ export function PortalPeople({ licensed, canManageLicense = false }: PortalPageP
                   Confirmed
                 </Th>
                 <Th fit align="right">
+                  Overdue
+                </Th>
+                <Th fit align="right">
                   Standing
                 </Th>
               </tr>
@@ -62,6 +67,18 @@ export function PortalPeople({ licensed, canManageLicense = false }: PortalPageP
                   </Td>
                   <Td fit align="right" className="text-slate-600">
                     {u.acked}
+                  </Td>
+                  <Td fit align="right">
+                    {/* Overdue (E1): the state chip when any confirmation is
+                        past its date and grace; a plain 0 otherwise, so the
+                        column reads as a count and the chip as the alarm. */}
+                    {(u.overdue ?? 0) > 0 ? (
+                      <span className={chipClass("error")}>
+                        <CalendarX2 className="h-3 w-3" aria-hidden /> {u.overdue} overdue
+                      </span>
+                    ) : (
+                      <span className="text-slate-500">0</span>
+                    )}
                   </Td>
                   <Td fit align="right">
                     {u.acked >= u.required ? (

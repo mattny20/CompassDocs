@@ -68,6 +68,24 @@ export interface DocRow {
   ack_recert_months: number | null;
   ack_next_recert_at: string | null;
   ack_effective_at: string | null;
+  /** Audiences (D1, 1.13.0): people whose assignment row was opened in the last seven days ("+6 enrolled this week"). */
+  enrolled_week?: number;
+  /** Deadlines (E1, 1.13.0): open rows past their due date and the grace with no current confirmation ("· 12 overdue"). */
+  overdue?: number;
+  /**
+   * The policy's deadline rule (E1): its own days or fixed date ('YYYY-MM-DD'),
+   * both null when it inherits, and the days the cascade resolves (policy,
+   * space, workspace, built-in): portalDueLine reads "Due 29 Oct 2026" or
+   * "Due 14 days after assignment" from it. Null from a server without one.
+   */
+  due_rule?: { due_days: number | null; due_at: string | null; resolved_days: number } | null;
+  /**
+   * Reminders (E2, 1.13.0): when the policy's people were last reminded (the
+   * manual Remind or the sweep, whichever is later) and when the sweep next
+   * reminds someone; reminderSubtitle words it. Null on a paused or retired
+   * row, which reminds nobody.
+   */
+  reminder?: { last_reminded_at: string | null; next_reminder_at: string | null } | null;
 }
 
 export interface DecisionBrief {
@@ -85,6 +103,8 @@ export interface PersonRow {
   role: string;
   required: number;
   acked: number;
+  /** Of the required policies, those past their due date and the grace with no current confirmation (E1, 1.13.0). */
+  overdue?: number;
 }
 
 export interface CandidateDoc {
@@ -105,6 +125,8 @@ export interface CompliancePayload {
     users_total: number;
     /** Live policies whose next re-confirmation falls within 30 days (G1, 1.12.0). */
     recert_due_30: number;
+    /** Open rows past their due date and the grace with no current confirmation, over the live policies (E1, 1.13.0). */
+    overdue?: number;
   };
   docs: DocRow[];
   users: PersonRow[];
@@ -119,6 +141,12 @@ export interface CompliancePayload {
  * (C4, 1.12.0), so the expand row mounts the Record tab's roster as is.
  */
 export type RosterRow = AckRosterRow;
+
+/** A policy's cached roster: its rows and the resolved grace the Overdue chip and filter read (E1, 1.13.0; the route's `defaults`). */
+export interface RosterCache {
+  rows: RosterRow[];
+  grace: number;
+}
 
 /** The POST answers the portal reads back. */
 interface PostResult {
@@ -148,7 +176,7 @@ export function usePortal(licensed: boolean) {
   const [data, setData] = useState<CompliancePayload | null>(null);
   const [loadError, setLoadError] = useState("");
   const [open, setOpen] = useState<number | null>(null);
-  const [rosters, setRosters] = useState<Record<number, RosterRow[]>>({});
+  const [rosters, setRosters] = useState<Record<number, RosterCache>>({});
   const [rosterPage, setRosterPage] = useState(0);
   const [candidate, setCandidate] = useState<number | null>(null);
   const [previewing, setPreviewing] = useState(false);
@@ -368,6 +396,33 @@ export function usePortal(licensed: boolean) {
     return d.id;
   }
 
+  /** One read of a policy's roster JSON: the rows and the resolved grace (the route's `defaults`, 1.13.0). */
+  const fetchRoster = useCallback(async (docId: number): Promise<RosterCache> => {
+    const res = await fetch(`/api/documents/${docId}/acknowledgements`);
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(d?.error || "");
+    return { rows: (d?.rows ?? []) as RosterRow[], grace: Number(d?.defaults?.overdue_grace_days ?? 0) };
+  }, []);
+
+  /**
+   * Re-read one policy's roster after a row or bulk action in the expand
+   * row (1.13.0: extend, exempt, snooze, a per-person re-ask, and each Undo),
+   * and the counts with it. The row stays open; a failed read is a toast,
+   * never a stale table presented as fresh.
+   */
+  const reloadRoster = useCallback(
+    async (docId: number) => {
+      try {
+        const next = await fetchRoster(docId);
+        setRosters((prev) => ({ ...prev, [docId]: next }));
+      } catch (e) {
+        toast("error", (e instanceof Error && e.message) || "Couldn't reload the roster.");
+      }
+      void load();
+    },
+    [fetchRoster, load]
+  );
+
   async function toggleRoster(docId: number) {
     if (open === docId) {
       setOpen(null);
@@ -377,10 +432,8 @@ export function usePortal(licensed: boolean) {
     setRosterPage(0);
     if (rosters[docId]) return;
     try {
-      const res = await fetch(`/api/documents/${docId}/acknowledgements`);
-      const d = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(d?.error || "");
-      setRosters((prev) => ({ ...prev, [docId]: (d?.rows ?? []) as RosterRow[] }));
+      const next = await fetchRoster(docId);
+      setRosters((prev) => ({ ...prev, [docId]: next }));
     } catch (e) {
       // Never a permanent spinner: say why, and fold the row back.
       toast("error", (e instanceof Error && e.message) || "Couldn't load the roster.");
@@ -402,6 +455,7 @@ export function usePortal(licensed: boolean) {
     setCandidate,
     previewing,
     dropRoster,
+    reloadRoster,
     requestConfirmation,
     remind,
     stopRequiring,

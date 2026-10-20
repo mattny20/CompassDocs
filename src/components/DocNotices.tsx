@@ -17,6 +17,9 @@
 // lapsed (B3, 1.11.0) the sentence says so, honestly: "changed since you
 // confirmed it on 3 Mar" only when the text did change, and the re-ask's
 // own shape otherwise. The change notes and the diff stay in the card.
+// A deadline (E1, 1.13.0) adds " by 29 Oct 2026" to that one sentence and
+// nothing else: the row keeps one sentence and one action; the chips and
+// the overdue copy are the sticky bar's and the card's.
 
 import { useState } from "react";
 import { Spinner } from "@/components/Spinner";
@@ -70,6 +73,16 @@ export function reconfirmSentence(prior: PriorConfirmation, date: (iso: string) 
   return "You were asked to confirm this document again. Please read it and confirm again.";
 }
 
+/**
+ * The pending sentence with the reader's deadline (E1): "… You'll be asked
+ * to confirm at the end by 29 Oct 2026." / "… Please read it and confirm
+ * again by 29 Oct 2026." `dueBy` is the server-formatted date, or nothing.
+ */
+export function withDueBy(sentence: string, dueBy: string | null | undefined): string {
+  if (!dueBy) return sentence;
+  return `${sentence.replace(/\.$/, "")} by ${dueBy}.`;
+}
+
 export function DocNotices({
   docId,
   ack,
@@ -82,8 +95,9 @@ export function DocNotices({
   docId: number;
   /** Reader-side read confirmation (enterprise): null = not applicable.
    *  `canSubmit` is document.ack_submit in this space; the confirmed/pending
-   *  state itself is read from AckState. */
-  ack?: { canSubmit: boolean } | null;
+   *  state itself is read from AckState. `dueBy` is the reader's deadline
+   *  (E1), formatted by the page, appended to the pending sentence. */
+  ack?: { canSubmit: boolean; dueBy?: string | null } | null;
   isDraft?: boolean;
   branchCount?: number;
   pendingCount?: number;
@@ -160,7 +174,7 @@ export function DocNotices({
         ) : ack.canSubmit ? (
           <div className={`${ROW} notice-warn`}>
             <FileCheck className={ICON} aria-hidden />
-            <p className="min-w-0 flex-1">{prior ? reconfirmSentence(prior, fmt.date) : FIRST_REQUEST}</p>
+            <p className="min-w-0 flex-1">{withDueBy(prior ? reconfirmSentence(prior, fmt.date) : FIRST_REQUEST, ack.dueBy)}</p>
             <Button
               variant="secondary"
               size="sm"

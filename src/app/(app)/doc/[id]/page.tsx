@@ -26,11 +26,13 @@ import {
   ackSummary,
   lastAckDecision,
   getUserByUsername,
-  hasOpenAssignment,
+  getMyAssignment,
 } from "@/lib/db";
 import { getComplianceSettings } from "@/lib/compliance-settings";
+import { resolvePolicyDefaults } from "@/lib/compliance";
 import { askedClause } from "./acknowledgements/ack-sentence";
 import { recertStatusLine } from "@/lib/ack-recert";
+import { dueChip, dueStickyLabel, overdueConfirmCopy } from "@/lib/ack-due";
 import { DocNotices } from "@/components/DocNotices";
 import { StickyDocBar } from "@/components/StickyDocBar";
 import { AckProvider } from "@/components/AckState";
@@ -77,6 +79,15 @@ function monthsBetween(fromIso: string, toIso: string): number {
   let months = (to.getUTCFullYear() - from.getUTCFullYear()) * 12 + (to.getUTCMonth() - from.getUTCMonth());
   if (to.getUTCDate() < from.getUTCDate()) months -= 1;
   return Math.max(1, months);
+}
+
+/** The reset that explains a lapse: a ledger row, or the per-person ask read off the reader's own row (D4). */
+interface LapseRow {
+  decided_at: string;
+  decided_by_name: string;
+  reason: string;
+  source: string;
+  scope?: "all" | "users";
 }
 
 export default async function DocPage({ params }: { params: Promise<{ id: string }> }) {
@@ -199,10 +210,13 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
   // The audience (D1, 1.13.0): the card, the sticky control and the notice
   // row appear only for a person the policy asks (an open assignment row:
   // not removed from the audience, not exempt). Everyone else reads the
-  // document as any other; POST /ack answers them 400 as well.
-  const [myAck, ackVersion, ackAssigned] = ackActive
-    ? await Promise.all([getCurrentAck(doc.id, user.id), getAckVersionInfo(doc.id), hasOpenAssignment(doc.id, user.id)])
-    : [undefined, null, false];
+  // document as any other; POST /ack answers them 400 as well. The row
+  // also carries the reader's deadline (E1) and, when a per-person re-ask
+  // restarted its cycle, that ask (D4).
+  const [myAck, ackVersion, myRow] = ackActive
+    ? await Promise.all([getCurrentAck(doc.id, user.id), getAckVersionInfo(doc.id), getMyAssignment(doc.id, user.id)])
+    : [undefined, null, null];
+  const ackAssigned = myRow !== null;
   const showAckCard = ackActive && canSubmitAck && ackAssigned;
   // The re-confirmation view (B3): when no confirmation counts but the
   // reader has one that lapsed, the page works out what they confirmed
@@ -216,10 +230,23 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
   const confirmedVersionId = priorAck?.version_id ?? null;
   const revOf = new Map(versions.map((v, i) => [v.id, versions.length - i]));
   const changesSince = confirmedVersionId !== null ? versions.filter((v) => v.id > confirmedVersionId) : [];
+  // Which reset is this reader's (D4, 1.13.0): when their own row's cycle
+  // started after the document marker, a per-person ask restarted it, and
+  // the ledger row stamped at that instant (scope 'users') is the reason.
+  // A cycle restarted without one (a return to the audience) or a cycle no
+  // later than the marker reads the newest whole-audience reset (scope
+  // 'all'), so nobody is shown another person's per-person reason after a
+  // reset of everyone.
+  const rowCycleLater = Boolean(
+    myRow && new Date(myRow.cycle_started_at).getTime() > new Date(doc.ack_revision_at).getTime()
+  );
+  const personalAsk = rowCycleLater && myRow?.asked_again ? myRow.asked_again : null;
   const [baselineVersion, lapseDecision] = priorAck
     ? await Promise.all([
         confirmedVersionId !== null ? getAttestedVersion(confirmedVersionId) : Promise.resolve(undefined),
-        lastAckDecision(doc.id, { outcome: "reset" }),
+        personalAsk
+          ? Promise.resolve<LapseRow>({ ...personalAsk, source: "manual", scope: "users" })
+          : lastAckDecision(doc.id, { outcome: "reset", scope: "all" }),
       ])
     : [undefined, null];
   const baseline =
@@ -328,6 +355,30 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
   const ackPublishedLabel = ackActive
     ? formatDate(ackVersion?.latest_created_at ?? ackVersion?.created_at ?? doc.updated_at, fmtSettings)
     : null;
+  // The reader's deadline (E1, 1.13.0), from their own row and measured
+  // with the policy's grace (the cascade), formatted here in the reader's
+  // date format and the workspace zone so the card, the strip and the
+  // sticky bar name one day: the card's chip and its overdue sentence, the
+  // sticky bar's short chip, and the " by 29 Oct 2026" the strip's sentence
+  // gains. All of them leave with the pending state (dueChip answers null
+  // once a confirmation counts).
+  const dueDefaults = showAckCard && myRow?.due_at ? (await resolvePolicyDefaults(doc.id)).values : null;
+  const dueRow = { due_at: myRow?.due_at ?? null, acknowledged_at: myAck?.acknowledged_at ?? null };
+  const dueFmt = (iso: string) => formatDate(iso, fmtSettings);
+  const dueNow = new Date();
+  const dueZone = fmtSettings.timezone || "UTC";
+  const dueChipFor = dueDefaults ? dueChip(dueRow, dueDefaults, dueFmt, dueNow, dueZone) : null;
+  const dueCue =
+    dueChipFor && myRow?.due_at
+      ? {
+          tone: dueChipFor.tone,
+          label: dueChipFor.label,
+          overdueCopy: dueChipFor.tone === "error" ? overdueConfirmCopy(myRow.due_at, dueFmt) : null,
+        }
+      : null;
+  const dueStickyWords = dueDefaults ? dueStickyLabel(dueRow, dueDefaults, dueNow, dueZone) : null;
+  const dueSticky = dueChipFor && dueStickyWords ? { tone: dueChipFor.tone, label: dueStickyWords } : null;
+  const dueBy = dueChipFor && myRow?.due_at ? dueFmt(myRow.due_at) : null;
   // The typed signature (C2): whether this document asks for one, and
   // whether the reader's account has a password to re-enter (a local
   // account); an SSO account signs with its name and is identified by its
@@ -447,7 +498,7 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
       <StickyDocBar>
         {/* The confirmation control comes first so it survives truncation;
             under sm the bar is the control and the title only. */}
-        {showAckCard && <AckStickyControl />}
+        {showAckCard && <AckStickyControl due={dueSticky} />}
         <span className={showAckCard ? "hidden sm:contents" : "contents"}>
           <StatusBadge status={doc.status} />
         </span>
@@ -482,7 +533,7 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
       ) : (
         <DocNotices
           docId={doc.id}
-          ack={ackActive && ackAssigned ? { canSubmit: canSubmitAck } : undefined}
+          ack={ackActive && ackAssigned ? { canSubmit: canSubmitAck, dueBy } : undefined}
           isDraft={doc.status === "draft" && isStaff}
           branchCount={branchCount}
           pendingCount={pending.length}
@@ -594,6 +645,9 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
               // yearly" under the version line.
               effectiveAt={doc.ack_effective_at}
               recertMonths={doc.ack_recert_months}
+              // The deadline (E1): the chip under the title and, once
+              // overdue, the sentence above the button.
+              due={dueCue}
               // The newest version's provenance (C6), the one the reader
               // confirms: the stamped publisher over the byline, and the
               // approver when a change request carried it. A document with

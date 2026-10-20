@@ -25,6 +25,14 @@ import { ADMIN, login, api } from "./helpers";
 // 1.12.0 (G1): the Overview's fifth tile counts policies whose next
 // re-confirmation falls within 30 days; a policy with an interval shows
 // "Next re-confirmation {date}" on its row.
+// 1.13.0 (D1, E1, E2): a live row carries an icon button to the policy's
+// Settings tab, "+n enrolled this week" once someone joins the audience,
+// the deadline rule ("Due 14 days after assignment", "· 12 overdue" once
+// anyone is past it) and the reminder cadence ("never reminded · next
+// automatic reminder {date}", "last reminded today · …" after Remind); the
+// Overview gains an Overdue confirmations tile; the People page an Overdue
+// column. An overdue row needs a backdated deadline, which no API offers,
+// so that path is proved in test/ack-portal.test.ts against the database.
 //
 // Read confirmation is entitlement-gated (policy_ack). CI runs the community
 // build, so each test skips itself when the portal answers 402 and runs in
@@ -946,6 +954,132 @@ test("the Overview's fifth tile counts re-confirmations due in 30 days, and a po
     expect(afterRetire.kpis.recert_due_30).toBe(afterRetire.due);
     expect(afterRetire.kpis.recert_due_30).toBe(dueSoon.kpis.recert_due_30 - 1);
   } finally {
+    if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
+  }
+});
+
+test("a live row links to the policy's Settings tab, counts the people enrolled this week, reads its deadline rule and its reminder cadence; the Overview's Overdue tile and the People page's Overdue column carry the server's numbers", async ({ page }) => {
+  test.setTimeout(120_000);
+  await login(page, ADMIN);
+  const suffix = stamp();
+  const title = `E2E portal due ${suffix}`;
+  const joiner = { username: `e2e_joiner_${suffix}`, password: "E2eJoin!12345" };
+  let docId: number | undefined;
+  let joinerId: number | undefined;
+  try {
+    docId = await makePolicy(page, title);
+    test.skip(!(await portalLicensed(page)), "policy_ack is not licensed in this build; the EE rig runs the flow");
+    // Required quietly: no notice and no reminder stamp, so the cadence
+    // line starts from "never reminded" and Remind is allowed below.
+    const on = await api(page, "/api/admin/compliance", {
+      method: "POST",
+      body: { docId, action: "request", notify: false },
+    });
+    expect(on.status, "requested quietly").toBe(200);
+
+    type Row = {
+      id: number;
+      status: string;
+      ack_retired_at: string | null;
+      required: number;
+      overdue: number;
+      enrolled_week: number;
+      due_rule: { due_days: number | null; due_at: string | null; resolved_days: number } | null;
+      reminder: { last_reminded_at: string | null; next_reminder_at: string | null } | null;
+    };
+    const portal = async () => {
+      const res = await api(page, "/api/admin/compliance");
+      expect(res.status).toBe(200);
+      const docs: Row[] = res.body?.docs ?? [];
+      const live = docs.filter((d) => d.status === "published" && d.ack_retired_at === null);
+      return { kpis: res.body?.kpis, users: res.body?.users ?? [], mine: docs.find((d) => d.id === docId)!, live };
+    };
+
+    // The payload: the four new row fields with their shapes, the overdue
+    // sum over the live rows, and a per-person overdue count. A policy
+    // switched on a moment ago has nobody overdue and everyone it asks
+    // enrolled this week.
+    const first = await portal();
+    expect(first.mine, "the policy is in the payload").toBeTruthy();
+    expect(first.mine.overdue, "nobody is past a deadline set a moment ago").toBe(0);
+    expect(first.mine.enrolled_week, "everyone the switch-on enrolled joined this week").toBe(first.mine.required);
+    expect(first.mine.due_rule).toMatchObject({ due_days: null, due_at: null });
+    expect(first.mine.due_rule!.resolved_days, "the cascade settles on a number of days").toBeGreaterThanOrEqual(1);
+    expect(first.mine.reminder?.last_reminded_at, "a quiet request reminds nobody").toBeNull();
+    expect(first.mine.reminder?.next_reminder_at, "the sweep has a date for the first reminder").toBeTruthy();
+    expect(typeof first.kpis?.overdue, "the Overdue tile's number is in the payload").toBe("number");
+    expect(first.kpis.overdue).toBe(first.live.reduce((n, d) => n + d.overdue, 0));
+    const me = first.users.find((u: { username: string }) => u.username === ADMIN.username);
+    expect(typeof me?.overdue, "every person carries an overdue count").toBe("number");
+
+    // The row: the icon button to the Settings tab, the audience line with
+    // the deadline rule (no overdue suffix), the cadence line.
+    await page.goto("/compliance/policies");
+    const row = page.locator("li", { hasText: title });
+    await expect(row).toBeVisible();
+    const settings = row.getByRole("link", { name: "Read confirmation settings" });
+    await expect(settings).toHaveAttribute("href", `/doc/${docId}/acknowledgements/settings`);
+    await expect(row.locator('[data-tt="Read confirmation settings"]')).toHaveCount(1);
+    await expect(row.getByText(/· Due \d+ days after assignment$/)).toBeVisible();
+    await expect(row.getByText(/\d+ overdue/)).toHaveCount(0);
+    await expect(row.getByText(/^never reminded · next automatic reminder \S/)).toBeVisible();
+    await settings.click();
+    await page.waitForURL(`**/doc/${docId}/acknowledgements/settings`);
+    await expect(page.getByRole("heading", { name: "Confirmation statement" })).toBeVisible();
+
+    // A new account joins the audience (D1 enrols it on arrival): the row's
+    // count rises by one and the line says so.
+    const created = await api(page, "/api/admin/users", {
+      method: "POST",
+      body: { ...joiner, role: "viewer", name: "E2E Portal Joiner" },
+    });
+    expect(created.status, "joiner created").toBe(201);
+    joinerId = created.body?.user?.id;
+    expect(joinerId).toBeTruthy();
+    const joined = await portal();
+    expect(joined.mine.enrolled_week, "one more person enrolled this week").toBe(first.mine.enrolled_week + 1);
+    expect(joined.mine.required).toBe(first.mine.required + 1);
+    await page.goto("/compliance/policies");
+    await expect(row.getByText(`+${joined.mine.enrolled_week} enrolled this week`)).toBeVisible();
+
+    // The policy's own rule through the Settings tab's route (E1): the row
+    // reads the new number of days; the payload carries it as the policy's
+    // own, and nobody is overdue on a deadline still ahead.
+    const days = await api(page, `/api/documents/${docId}/ack-settings`, { method: "PATCH", body: { due_days: 5 } });
+    expect(days.status, "the deadline rule is set").toBe(200);
+    const ruled = await portal();
+    expect(ruled.mine.due_rule).toMatchObject({ due_days: 5, due_at: null, resolved_days: 5 });
+    expect(ruled.mine.overdue).toBe(0);
+    await page.goto("/compliance/policies");
+    await expect(row.getByText(/· Due 5 days after assignment$/)).toBeVisible();
+
+    // Remind: the question, the toast, and the cadence line now dated from
+    // the reminder the people just got (the manual Remind stamps the rows).
+    await row.getByRole("button", { name: "Remind", exact: true }).click();
+    const remind = page.getByRole("dialog", { name: /^Remind \d+ (person|people)\?$/ });
+    await expect(remind).toBeVisible();
+    await remind.getByRole("button", { name: "Send reminders" }).click();
+    await expect(page.locator('[role="status"]').getByText(/^Reminders queued for \d+ (person|people)\.$/)).toBeVisible();
+    await expect(row.getByText(/^last reminded today · next automatic reminder \S/)).toBeVisible();
+    const reminded = await portal();
+    expect(reminded.mine.reminder?.last_reminded_at, "the summary carries the stamp").toBeTruthy();
+
+    // The Overview's Overdue tile is the server's number, and the People
+    // page's Overdue column reads 0 for the admin on a quiet rig (the
+    // chip appears only past a deadline, which test/ack-portal.test.ts
+    // proves against the database).
+    await page.goto("/compliance/overview");
+    await expect(subnav(page).getByRole("link", { name: "Overview", exact: true })).toHaveAttribute("aria-current", "page");
+    const tile = page.getByRole("term").filter({ hasText: "Overdue confirmations" }).locator("..");
+    await expect(tile.getByRole("definition")).toHaveText(String((await portal()).kpis.overdue));
+    await page.goto("/compliance/people");
+    await expect(page.getByRole("columnheader", { name: "Overdue" })).toBeVisible();
+    const adminRow = page.getByRole("row").filter({ hasText: me?.name || ADMIN.username }).first();
+    if ((me?.overdue ?? 0) === 0 && (await adminRow.count()) > 0) {
+      await expect(adminRow.getByText(/\d+ overdue/)).toHaveCount(0);
+    }
+  } finally {
+    if (joinerId) await api(page, `/api/admin/users/${joinerId}`, { method: "DELETE" });
     if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
   }
 });

@@ -5718,7 +5718,46 @@ export interface ComplianceDocRow {
   ack_recert_months: number | null;
   ack_next_recert_at: string | null;
   ack_effective_at: string | null;
+  /**
+   * Deadlines (E1, 1.13.0): `overdue` counts the open rows of active
+   * accounts whose due date plus the grace (the space's policy_defaults,
+   * else the workspace's ack_defaults, else 0 days) has passed with no
+   * current confirmation; `due_days` / `due_at` are the policy's own rule as
+   * policy_settings stores it (both null = inherit; `due_at` is
+   * 'YYYY-MM-DD') and `due_days_resolved` the days the cascade settles on
+   * (policy, space, workspace, built-in 14), so the portal row can read
+   * "Due 29 Oct 2026 · 12 overdue" or "Due 14 days after assignment"
+   * (portalDueLine in lib/ack-due). A retired row's counts are the live
+   * ones (nothing is overdue on a policy that asks nobody).
+   */
+  overdue: number;
+  due_days: number | null;
+  due_at: string | null;
+  due_days_resolved: number;
+  /**
+   * Audiences (D1, 1.13.0): people whose assignment row was opened in the
+   * last seven days and is still open ("+6 enrolled this week"); a row
+   * re-opened for a returning person keeps its original assigned_at, so a
+   * return is not an enrolment.
+   */
+  enrolled_week: number;
 }
+
+// The workspace's grace after a due date (ack_defaults.overdue_grace_days,
+// E1) is read raw by workspaceOverdueGraceDays, declared beside the My
+// policies queries further down (one reader for the portal, the dashboard
+// and My policies); null there means the built-in 0.
+
+/**
+ * An open row past its due date and the grace with no current confirmation,
+ * over the aliases complianceDocs and complianceUserSummary share (pa, s, a
+ * the LATERAL confirmation): the portal's overdue counts (E1). The grace has
+ * no per-policy column, so it resolves space, workspace (the parameter),
+ * built-in 0; isOverdue in lib/ack-due is the same rule in TypeScript.
+ */
+const PA_OVERDUE = (graceParam: string) =>
+  `a.acknowledged_at IS NULL AND pa.due_at IS NOT NULL
+   AND pa.due_at + make_interval(days => COALESCE((s.policy_defaults->>'overdue_grace_days')::int, ${graceParam}::int, 0)) < now()`;
 
 /**
  * Central compliance portal: every ack-required doc with counts and its last
@@ -5732,7 +5771,12 @@ export interface ComplianceDocRow {
  * writes ack_required, so a branch cannot carry it anyway.
  */
 export async function complianceDocs(): Promise<ComplianceDocRow[]> {
-  const docs = await q<Omit<ComplianceDocRow, "last_decision" | "last_reset" | "kept_since_reset" | "drift_pct" | "retired_rev">>(
+  // The workspace layer of the cascade (E1), read once: the days a policy
+  // without its own rule gets, and the grace before a row counts as overdue.
+  const [workspaceDays, workspaceGrace] = await Promise.all([workspaceDueDays(), workspaceOverdueGraceDays()]);
+  const docs = await q<
+    Omit<ComplianceDocRow, "last_decision" | "last_reset" | "kept_since_reset" | "drift_pct" | "retired_rev" | "enrolled_week">
+  >(
     `SELECT d.id, d.title, s.name AS space_name, s.icon AS space_icon, d.status,
             d.updated_at, d.ack_revision_at, d.ack_version_id, d.ack_last_reminded_at,
             d.ack_edit_default,
@@ -5741,10 +5785,14 @@ export async function complianceDocs(): Promise<ComplianceDocRow[]> {
             d.ack_recert_months, d.ack_next_recert_at, d.ack_effective_at::text AS ack_effective_at,
             ${VERSION_REV("d.ack_version_id")} AS ack_rev,
             COUNT(u.id)::int AS required,
-            COUNT(u.id) FILTER (WHERE a.acknowledged_at IS NOT NULL)::int AS acked
+            COUNT(u.id) FILTER (WHERE a.acknowledged_at IS NOT NULL)::int AS acked,
+            COUNT(u.id) FILTER (WHERE ${PA_OVERDUE("$2")})::int AS overdue,
+            ps.due_days, ps.due_at::text AS due_at,
+            COALESCE(ps.due_days, (s.policy_defaults->>'due_days')::int, $1::int, 14) AS due_days_resolved
      FROM documents d
      JOIN spaces s ON s.id = d.space_id
      LEFT JOIN documents r ON r.id = d.ack_superseded_by AND r.deleted_at IS NULL
+     LEFT JOIN policy_settings ps ON ps.document_id = d.id
      LEFT JOIN policy_assignments pa ON pa.document_id = d.id AND ${PA_OPEN}
      LEFT JOIN users u ON u.id = pa.user_id AND u.status = 'active'
      LEFT JOIN LATERAL (
@@ -5753,23 +5801,26 @@ export async function complianceDocs(): Promise<ComplianceDocRow[]> {
        ORDER BY a.acknowledged_at DESC LIMIT 1
      ) a ON true
      WHERE (d.ack_required = 1 OR d.ack_retired_at IS NOT NULL) AND d.deleted_at IS NULL AND d.branch_of IS NULL
-     GROUP BY d.id, d.title, s.name, s.icon, d.status, d.updated_at, d.ack_revision_at, d.ack_version_id,
+     GROUP BY d.id, d.title, s.id, s.name, s.icon, d.status, d.updated_at, d.ack_revision_at, d.ack_version_id,
               d.ack_last_reminded_at, d.ack_edit_default,
               d.ack_retired_at, d.ack_retired_by_name, d.ack_retired_reason, d.ack_superseded_by, r.title,
-              d.ack_recert_months, d.ack_next_recert_at, d.ack_effective_at
+              d.ack_recert_months, d.ack_next_recert_at, d.ack_effective_at, ps.document_id
      ORDER BY (d.ack_retired_at IS NOT NULL), (d.status <> 'published'),
-              (COUNT(u.id) - COUNT(u.id) FILTER (WHERE a.acknowledged_at IS NOT NULL)) DESC, d.title`
+              (COUNT(u.id) - COUNT(u.id) FILTER (WHERE a.acknowledged_at IS NOT NULL)) DESC, d.title`,
+    [workspaceDays, workspaceGrace]
   );
   if (docs.length === 0) return [];
   const ids = docs.map((d) => d.id);
   const retiredIds = docs.filter((d) => d.ack_retired_at !== null).map((d) => d.id);
-  // Four set-based reads instead of four per policy: the newest decision,
+  // Five set-based reads instead of five per policy: the newest decision,
   // the newest reset, the kept edits since the marker with the drift they
-  // left (from the rows, no document text crosses the wire), and for the
+  // left (from the rows, no document text crosses the wire), for the
   // retired rows the 'retired' ledger row whose counts and version are the
-  // final standing (G3).
+  // final standing (G3), and the rows opened this week (D1: over every open
+  // row, exempt ones included, so the count says who joined the audience
+  // rather than who owes it today).
   const briefCols = "x.document_id, x.decided_at, x.decided_by_name, x.reason, x.outcome, x.source";
-  const [latest, resets, driftBy, retiredRows] = await Promise.all([
+  const [latest, resets, driftBy, retiredRows, enrolled] = await Promise.all([
     q<AckDecisionBrief & { document_id: number }>(
       `SELECT DISTINCT ON (x.document_id) ${briefCols} FROM ack_decisions x
        WHERE x.document_id = ANY($1) ORDER BY x.document_id, x.decided_at DESC, x.id DESC`,
@@ -5792,6 +5843,12 @@ export async function complianceDocs(): Promise<ComplianceDocRow[]> {
            ORDER BY x.document_id, x.decided_at DESC, x.id DESC`,
           [retiredIds]
         ),
+    q<{ document_id: number; n: number }>(
+      `SELECT document_id, COUNT(*)::int AS n FROM policy_assignments
+       WHERE document_id = ANY($1) AND removed_at IS NULL AND assigned_at > now() - interval '7 days'
+       GROUP BY document_id`,
+      [ids]
+    ),
   ]);
   const brief = (r: AckDecisionBrief & { document_id: number }): AckDecisionBrief => ({
     decided_at: r.decided_at,
@@ -5803,6 +5860,7 @@ export async function complianceDocs(): Promise<ComplianceDocRow[]> {
   const latestBy = new Map(latest.map((r) => [r.document_id, brief(r)]));
   const resetBy = new Map(resets.map((r) => [r.document_id, brief(r)]));
   const retiredBy = new Map(retiredRows.map((r) => [r.document_id, r]));
+  const enrolledBy = new Map(enrolled.map((r) => [r.document_id, r.n]));
   return docs.map((d) => {
     const frozen = d.ack_retired_at !== null ? retiredBy.get(d.id) : undefined;
     return {
@@ -5816,6 +5874,7 @@ export async function complianceDocs(): Promise<ComplianceDocRow[]> {
       last_reset: resetBy.get(d.id) ?? null,
       kept_since_reset: driftBy.get(d.id)?.n ?? 0,
       drift_pct: driftBy.get(d.id)?.pct ?? 0,
+      enrolled_week: enrolledBy.get(d.id) ?? 0,
     };
   });
 }
@@ -5841,21 +5900,27 @@ export async function compliancePendingUsers(
 
 /**
  * Per-user compliance: how many required policies each active user has
- * left. Published policies only: a paused (unpublished) policy is not
- * owed by anyone while it is down, and a draft branch is never a policy.
+ * left, and how many of those are overdue (E1, 1.13.0: the open row's due
+ * date plus the grace has passed with no current confirmation; the space's
+ * grace, else the workspace's, else none). Published policies only: a
+ * paused (unpublished) policy is not owed by anyone while it is down, and a
+ * draft branch is never a policy.
  */
 export async function complianceUserSummary(): Promise<
-  { id: number; name: string; username: string; role: string; required: number; acked: number }[]
+  { id: number; name: string; username: string; role: string; required: number; acked: number; overdue: number }[]
 > {
+  const workspaceGrace = await workspaceOverdueGraceDays();
   return q(
     `SELECT u.id, u.name, u.username, u.role,
             COUNT(d.id)::int AS required,
-            COUNT(d.id) FILTER (WHERE a.acknowledged_at IS NOT NULL)::int AS acked
+            COUNT(d.id) FILTER (WHERE a.acknowledged_at IS NOT NULL)::int AS acked,
+            COUNT(d.id) FILTER (WHERE ${PA_OVERDUE("$1")})::int AS overdue
      FROM users u
      LEFT JOIN policy_assignments pa ON pa.user_id = u.id AND ${PA_OPEN}
      LEFT JOIN documents d
        ON d.id = pa.document_id
       AND d.ack_required = 1 AND d.status = 'published' AND d.deleted_at IS NULL AND d.branch_of IS NULL
+     LEFT JOIN spaces s ON s.id = d.space_id
      LEFT JOIN LATERAL (
        SELECT a.acknowledged_at FROM acknowledgements a
        WHERE a.document_id = d.id AND a.user_id = u.id AND ${ACK_CURRENT_PA}
@@ -5863,7 +5928,8 @@ export async function complianceUserSummary(): Promise<
      ) a ON true
      WHERE u.status = 'active'
      GROUP BY u.id, u.name, u.username, u.role
-     ORDER BY (COUNT(d.id) - COUNT(d.id) FILTER (WHERE a.acknowledged_at IS NOT NULL)) DESC, u.name`
+     ORDER BY (COUNT(d.id) - COUNT(d.id) FILTER (WHERE a.acknowledged_at IS NOT NULL)) DESC, u.name`,
+    [workspaceGrace]
   );
 }
 
@@ -6376,6 +6442,65 @@ export async function getPolicySettings(docId: number): Promise<PolicySettings |
     [docId]
   );
   return r[0] ?? null;
+}
+
+/** The deadline (E1) and reminder (E2) columns of policy_settings a PATCH /ack-settings may set: null = inherit; a key absent = untouched. */
+export interface PolicySettingsNumbersPatch {
+  due_days?: number | null;
+  /** A fixed deadline as 'YYYY-MM-DD'. */
+  due_at?: string | null;
+  remind_before_days?: number | null;
+  remind_every_days?: number | null;
+  escalate_after_days?: number | null;
+  nudge_every_days?: number | null;
+  owner_user_id?: number | null;
+}
+
+/**
+ * Write a policy's own deadline rule, reminder cadence and owner (the
+ * Settings tab's Deadline and Reminders cards, wave 2 of 1.13.0). The row is
+ * created when the policy has none yet (a 1.12.0 switch-on), only the keys
+ * present are touched, and the row is answered as stored. Null when the
+ * document is gone. The caller moves deadlines (movePolicyDeadlines) and
+ * audits; nothing here reconciles or notifies.
+ */
+export async function updatePolicySettings(
+  docId: number,
+  patch: PolicySettingsNumbersPatch
+): Promise<PolicySettings | null> {
+  const exists = await q("SELECT 1 FROM documents WHERE id = $1", [docId]);
+  if (exists.length === 0) return null;
+  await q("INSERT INTO policy_settings (document_id) VALUES ($1) ON CONFLICT (document_id) DO NOTHING", [docId]);
+  const has = (key: keyof PolicySettingsNumbersPatch) => Object.prototype.hasOwnProperty.call(patch, key);
+  await q(
+    `UPDATE policy_settings
+        SET due_days = CASE WHEN $2::boolean THEN $3::int ELSE due_days END,
+            due_at = CASE WHEN $4::boolean THEN $5::date ELSE due_at END,
+            remind_before_days = CASE WHEN $6::boolean THEN $7::int ELSE remind_before_days END,
+            remind_every_days = CASE WHEN $8::boolean THEN $9::int ELSE remind_every_days END,
+            escalate_after_days = CASE WHEN $10::boolean THEN $11::int ELSE escalate_after_days END,
+            nudge_every_days = CASE WHEN $12::boolean THEN $13::int ELSE nudge_every_days END,
+            owner_user_id = CASE WHEN $14::boolean THEN $15::int ELSE owner_user_id END
+      WHERE document_id = $1`,
+    [
+      docId,
+      has("due_days"),
+      patch.due_days ?? null,
+      has("due_at"),
+      patch.due_at ?? null,
+      has("remind_before_days"),
+      patch.remind_before_days ?? null,
+      has("remind_every_days"),
+      patch.remind_every_days ?? null,
+      has("escalate_after_days"),
+      patch.escalate_after_days ?? null,
+      has("nudge_every_days"),
+      patch.nudge_every_days ?? null,
+      has("owner_user_id"),
+      patch.owner_user_id ?? null,
+    ]
+  );
+  return getPolicySettings(docId);
 }
 
 /**
@@ -7038,6 +7163,15 @@ export interface AckStatusRow {
   exempt_until: string | null;
   snoozed_until: string | null;
   asked_again_at: string | null;
+  /**
+   * The per-person re-ask behind asked_again_at (D4): the reason the manager
+   * gave and their name, from the ledger row the claim wrote at the same
+   * instant (ack_decisions, outcome 'reset', scope 'users', decided_at =
+   * the row's cycle_started_at). '' when the cycle restarted for another
+   * reason (the person re-joined the audience) or asked_again_at is null.
+   */
+  asked_again_reason: string;
+  asked_again_by: string;
 }
 
 /**
@@ -7046,7 +7180,9 @@ export interface AckStatusRow {
  * and their assignment row beside it (exempt rows last). A confirmation is
  * current against the later of the document marker and the person's own
  * cycle start (D4), so a per-person re-ask shows that person pending and
- * nobody else.
+ * nobody else. The re-ask's reason rides along from the ledger: the claim
+ * stamps the rows and its decision row with one clock_timestamp(), so the
+ * equality join is exact (handoff-reask.md).
  */
 export async function ackStatusForDocument(docId: number): Promise<AckStatusRow[]> {
   return q(
@@ -7064,7 +7200,11 @@ export async function ackStatusForDocument(docId: number): Promise<AckStatusRow[
             COALESCE(pa.exempt_by_name, '') AS exempt_by_name,
             pa.exempt_at, pa.exempt_until, pa.snoozed_until,
             CASE WHEN pa.cycle_started_at > d.ack_revision_at AND pa.cycle_started_at > pa.assigned_at
-                 THEN pa.cycle_started_at END AS asked_again_at
+                 THEN pa.cycle_started_at END AS asked_again_at,
+            CASE WHEN pa.cycle_started_at > d.ack_revision_at AND pa.cycle_started_at > pa.assigned_at
+                 THEN COALESCE(reask.reason, '') ELSE '' END AS asked_again_reason,
+            CASE WHEN pa.cycle_started_at > d.ack_revision_at AND pa.cycle_started_at > pa.assigned_at
+                 THEN COALESCE(reask.decided_by_name, '') ELSE '' END AS asked_again_by
      FROM policy_assignments pa
      JOIN users u ON u.id = pa.user_id
      JOIN documents d ON d.id = pa.document_id
@@ -7075,6 +7215,12 @@ export async function ackStatusForDocument(docId: number): Promise<AckStatusRow[
        WHERE a.document_id = d.id AND a.user_id = u.id AND ${ACK_CURRENT_PA}
        ORDER BY a.acknowledged_at DESC, a.id DESC LIMIT 1
      ) a ON true
+     LEFT JOIN LATERAL (
+       SELECT x.reason, x.decided_by_name FROM ack_decisions x
+       WHERE x.document_id = d.id AND x.outcome = 'reset' AND x.scope = 'users'
+         AND x.decided_at = pa.cycle_started_at
+       ORDER BY x.id DESC LIMIT 1
+     ) reask ON true
      WHERE pa.document_id = $1 AND pa.removed_at IS NULL AND u.status = 'active'
      ORDER BY (pa.exempt_at IS NOT NULL), (a.acknowledged_at IS NULL) DESC, u.name`,
     [docId]
@@ -7723,36 +7869,93 @@ function myPolicyScope(scope: SpaceScope, param: number): string {
 }
 
 /**
- * Published ack-required docs in the user's scope they haven't confirmed
- * yet (the dashboard row), newest ask first. Unlimited since 1.12.0: the
- * dashboard shows the count, and the count must be the truth.
+ * The workspace's overdue grace (ack_defaults.overdue_grace_days, 0..90) as
+ * stored, or null for the built-in; read raw the way workspaceDueDays reads
+ * due_days, because the typed reader (lib/compliance-settings) is
+ * server-only and this file is not.
  */
-export async function listPendingAcksFor(
-  userId: number,
-  scope: SpaceScope
-): Promise<{ id: number; title: string; space_name: string; space_icon: string }[]> {
+async function workspaceOverdueGraceDays(): Promise<number | null> {
+  try {
+    const raw = await getSetting("ack_defaults");
+    const v = raw ? (JSON.parse(raw) as { overdue_grace_days?: unknown }).overdue_grace_days : undefined;
+    return typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= 90 ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * One open row's overdue test (E1, 1.13.0): its due date plus the policy's
+ * grace has passed. The grace resolves the cascade's way (lib/ack-due
+ * resolveDefaults): policy_settings.overdue_grace_days, else the space's
+ * policy_defaults, else the workspace's ack_defaults (the parameter), else
+ * the built-in 0; a space value that is not a whole number of days in range
+ * reads as unset, as sanitizeLayer reads it. Needs `pa`, `ps`
+ * (policy_settings LEFT JOINed on the document) and `s` (spaces) in scope;
+ * the caller adds "and no current confirmation".
+ */
+function paOverdueSql(workspaceParam: string): string {
+  return `pa.due_at IS NOT NULL AND pa.due_at + make_interval(days => COALESCE(
+      ps.overdue_grace_days,
+      CASE WHEN s.policy_defaults->>'overdue_grace_days' ~ '^\\d{1,2}$'
+            AND (s.policy_defaults->>'overdue_grace_days')::int <= 90
+           THEN (s.policy_defaults->>'overdue_grace_days')::int END,
+      ${workspaceParam}::int, 0)) < now()`;
+}
+
+/** The parameters of a My policies query: the person, the scope when it is a list, and the workspace grace last. */
+function myPolicyParams(userId: number, scope: SpaceScope, grace: number | null): { params: unknown[]; graceParam: string } {
+  const params: unknown[] = Array.isArray(scope) ? [userId, scope, grace] : [userId, grace];
+  return { params, graceParam: `$${params.length}` };
+}
+
+/** The dashboard's row (listPendingAcksFor): one policy the person has not confirmed the current ask of. */
+export interface PendingAckRow {
+  id: number;
+  title: string;
+  space_name: string;
+  space_icon: string;
+  /** The person's deadline on this policy (their open row, E1); null without one. */
+  due_at: string | null;
+  /** The deadline plus the policy's grace has passed (E1). */
+  overdue: boolean;
+}
+
+/**
+ * Published ack-required docs in the user's scope they haven't confirmed
+ * yet (the dashboard row), in the person's own priority: overdue first,
+ * then the soonest deadline, then the most recently changed (the order My
+ * policies uses for its To confirm group, so the dashboard's three titles
+ * are the page's first three). Unlimited since 1.12.0: the dashboard shows
+ * the count, and the count must be the truth.
+ */
+export async function listPendingAcksFor(userId: number, scope: SpaceScope): Promise<PendingAckRow[]> {
+  const { params, graceParam } = myPolicyParams(userId, scope, await workspaceOverdueGraceDays());
   return q(
-    `SELECT d.id, d.title, s.name AS space_name, s.icon AS space_icon
+    `SELECT d.id, d.title, s.name AS space_name, s.icon AS space_icon, pa.due_at,
+            (${paOverdueSql(graceParam)}) AS overdue
      FROM policy_assignments pa
      JOIN documents d ON d.id = pa.document_id
      JOIN spaces s ON s.id = d.space_id
+     LEFT JOIN policy_settings ps ON ps.document_id = d.id
      WHERE pa.user_id = $1 AND ${PA_OPEN} AND ${MY_POLICY_DOC}${myPolicyScope(scope, 2)}
        AND NOT EXISTS (
          SELECT 1 FROM acknowledgements a
          WHERE a.document_id = d.id AND a.user_id = $1 AND ${ACK_CURRENT_PA}
        )
-     ORDER BY d.updated_at DESC, d.id DESC`,
-    Array.isArray(scope) ? [userId, scope] : [userId]
+     ORDER BY (${paOverdueSql(graceParam)}) DESC, pa.due_at ASC NULLS LAST, d.updated_at DESC, d.id DESC`,
+    params
   );
 }
 
 /**
  * Where a person stands on one policy. 'pending': never confirmed the current
  * ask; 'reconfirm': confirmed before, and the marker moved since (an edit, a
- * manual re-ask or the annual cycle); 'confirmed': a confirmation on or after
- * the marker. 'overdue' joins the union with due dates (E1, 1.13.0).
+ * manual re-ask or the annual cycle); 'overdue' (E1, 1.13.0): either of
+ * those once the deadline plus the policy's grace has passed; 'confirmed': a
+ * confirmation on or after the marker (never overdue, however old the date).
  */
-export type MyPolicyState = "pending" | "reconfirm" | "confirmed";
+export type MyPolicyState = "pending" | "reconfirm" | "overdue" | "confirmed";
 
 export interface MyPolicyRow {
   id: number;
@@ -7766,31 +7969,37 @@ export interface MyPolicyRow {
   prior_acknowledged_at: string | null;
   /** The version number the current confirmation cites ("v12"); null unless 'confirmed'. */
   rev: number | null;
+  /** The person's deadline on this policy (their open row, E1); null without one. */
+  due_at: string | null;
   updated_at: string;
 }
 
 /**
  * The My policies page (B4): every policy in the person's scope with their
- * current confirmation and their latest earlier one, to-confirm rows first
- * and then the most recently changed (updated_at, the date each row
- * prints; the dashboard row, listPendingAcksFor, keeps the newest ask
- * first). Both confirmations come from one indexed probe each
- * (idx_ack_doc / idx_ack_user), so the page costs two index lookups per
- * policy, not a scan of the person's history.
+ * current confirmation and their latest earlier one. To-confirm rows first,
+ * in the person's priority (E1): overdue ones, then the soonest deadline,
+ * then the most recently changed (updated_at, the date each row prints);
+ * the confirmed ones follow, most recently changed first. Both confirmations
+ * come from one indexed probe each (idx_ack_doc / idx_ack_user), so the page
+ * costs two index lookups per policy, not a scan of the person's history.
  */
 export async function listMyPolicies(userId: number, scope: SpaceScope): Promise<MyPolicyRow[]> {
+  const { params, graceParam } = myPolicyParams(userId, scope, await workspaceOverdueGraceDays());
   return q(
     `SELECT d.id, d.title, s.icon AS space_icon, s.name AS space_name,
             CASE WHEN cur.acknowledged_at IS NOT NULL THEN 'confirmed'
+                 WHEN ov.overdue THEN 'overdue'
                  WHEN prior.acknowledged_at IS NOT NULL THEN 'reconfirm'
                  ELSE 'pending' END AS state,
             cur.acknowledged_at,
             prior.acknowledged_at AS prior_acknowledged_at,
             ${VERSION_REV("cur.version_id")} AS rev,
+            pa.due_at,
             d.updated_at
      FROM policy_assignments pa
      JOIN documents d ON d.id = pa.document_id
      JOIN spaces s ON s.id = d.space_id
+     LEFT JOIN policy_settings ps ON ps.document_id = d.id
      LEFT JOIN LATERAL (
        SELECT a.acknowledged_at, a.version_id FROM acknowledgements a
        WHERE a.document_id = d.id AND a.user_id = $1 AND ${ACK_CURRENT_PA}
@@ -7802,9 +8011,13 @@ export async function listMyPolicies(userId: number, scope: SpaceScope): Promise
          AND a.acknowledged_at < GREATEST(d.ack_revision_at, pa.cycle_started_at)
        ORDER BY a.acknowledged_at DESC, a.id DESC LIMIT 1
      ) prior ON true
+     CROSS JOIN LATERAL (SELECT (${paOverdueSql(graceParam)}) AS overdue) ov
      WHERE pa.user_id = $1 AND ${PA_OPEN} AND ${MY_POLICY_DOC}${myPolicyScope(scope, 2)}
-     ORDER BY (cur.acknowledged_at IS NOT NULL), d.updated_at DESC, d.id DESC`,
-    Array.isArray(scope) ? [userId, scope] : [userId]
+     ORDER BY (cur.acknowledged_at IS NOT NULL),
+              CASE WHEN cur.acknowledged_at IS NULL THEN ov.overdue END DESC NULLS LAST,
+              CASE WHEN cur.acknowledged_at IS NULL THEN pa.due_at END ASC NULLS LAST,
+              d.updated_at DESC, d.id DESC`,
+    params
   );
 }
 
@@ -7820,6 +8033,31 @@ export async function countPendingAcksFor(userId: number, scope: SpaceScope): Pr
          WHERE a.document_id = d.id AND a.user_id = $1 AND ${ACK_CURRENT_PA}
        )`,
     Array.isArray(scope) ? [userId, scope] : [userId]
+  );
+  return r[0]?.n ?? 0;
+}
+
+/**
+ * The dashboard's "· 2 overdue" (E1, 1.13.0): how many of the policies
+ * countPendingAcksFor counts are past their deadline and the policy's
+ * grace. Equals the overdue rows of listPendingAcksFor and the 'overdue'
+ * rows of listMyPolicies.
+ */
+export async function countOverdueAcksFor(userId: number, scope: SpaceScope): Promise<number> {
+  const { params, graceParam } = myPolicyParams(userId, scope, await workspaceOverdueGraceDays());
+  const r = await q<{ n: number }>(
+    `SELECT COUNT(*)::int AS n
+     FROM policy_assignments pa
+     JOIN documents d ON d.id = pa.document_id
+     JOIN spaces s ON s.id = d.space_id
+     LEFT JOIN policy_settings ps ON ps.document_id = d.id
+     WHERE pa.user_id = $1 AND ${PA_OPEN} AND ${MY_POLICY_DOC}${myPolicyScope(scope, 2)}
+       AND ${paOverdueSql(graceParam)}
+       AND NOT EXISTS (
+         SELECT 1 FROM acknowledgements a
+         WHERE a.document_id = d.id AND a.user_id = $1 AND ${ACK_CURRENT_PA}
+       )`,
+    params
   );
   return r[0]?.n ?? 0;
 }
@@ -7843,6 +8081,58 @@ export async function hasPolicyInScope(userId: number, scope: SpaceScope): Promi
     Array.isArray(scope) ? [userId, scope] : [userId]
   );
   return r[0]?.some === true;
+}
+
+/** The reader's own open row on one policy (D1, E1, D4): what the document page needs beside their confirmation. */
+export interface MyAssignment {
+  /** The person's deadline; null without one. */
+  due_at: string | null;
+  /** When this row's cycle started: enrolment, or the per-person re-ask / return that restarted it. */
+  cycle_started_at: string;
+  /**
+   * The per-person re-ask that restarted the cycle (D4): the ledger row
+   * (outcome 'reset', scope 'users') stamped at the same instant as the
+   * row, which the claim writes from one clock reading. Null when the cycle
+   * started otherwise (enrolment, a return to the audience).
+   */
+  asked_again: { decided_at: string; decided_by_name: string; reason: string } | null;
+}
+
+/**
+ * Does this policy ask this person right now, and on what terms: their open
+ * row (not removed, not exempt) with its deadline and cycle, or null (no
+ * card, no strip row, no sticky control; POST /ack answers 400). The
+ * document page reads this instead of hasOpenAssignment so one probe serves
+ * the gate, the due cues and the reason for a lapse.
+ */
+export async function getMyAssignment(docId: number, userId: number): Promise<MyAssignment | null> {
+  const r = await q<{
+    due_at: string | null;
+    cycle_started_at: string;
+    decided_at: string | null;
+    decided_by_name: string | null;
+    reason: string | null;
+  }>(
+    `SELECT pa.due_at, pa.cycle_started_at, reask.decided_at, reask.decided_by_name, reask.reason
+     FROM policy_assignments pa
+     LEFT JOIN LATERAL (
+       SELECT x.decided_at, x.decided_by_name, x.reason FROM ack_decisions x
+       WHERE x.document_id = pa.document_id AND x.outcome = 'reset' AND x.scope = 'users'
+         AND x.decided_at = pa.cycle_started_at
+       ORDER BY x.id DESC LIMIT 1
+     ) reask ON true
+     WHERE pa.document_id = $1 AND pa.user_id = $2 AND ${PA_OPEN}`,
+    [docId, userId]
+  );
+  const row = r[0];
+  if (!row) return null;
+  return {
+    due_at: row.due_at,
+    cycle_started_at: row.cycle_started_at,
+    asked_again: row.decided_at
+      ? { decided_at: row.decided_at, decided_by_name: row.decided_by_name ?? "", reason: row.reason ?? "" }
+      : null,
+  };
 }
 
 export interface AttestedVersion {

@@ -8,6 +8,7 @@ import {
   listRecentlyViewedBy,
   listDraftsByAuthor,
   listPendingAcksFor,
+  countOverdueAcksFor,
   listActiveAnnouncementsFor,
   listDashboardNewslettersFor,
   listChangeRequests,
@@ -47,9 +48,11 @@ export default async function DashboardPage() {
   const { isEditor, isApprover } = await navCapabilities(user);
   const scope = await spaceScopeFor(user);
   const appSettings = await getAppSettings();
-  const pendingAcks = (await featureEnabled("policy_ack"))
-    ? await listPendingAcksFor(user.id, scope)
-    : [];
+  // The policies to confirm, in the person's priority (overdue first, then
+  // the soonest deadline), and how many are overdue (E1, 1.13.0).
+  const [pendingAcks, overdueAcks] = (await featureEnabled("policy_ack"))
+    ? await Promise.all([listPendingAcksFor(user.id, scope), countOverdueAcksFor(user.id, scope)])
+    : [[], 0];
   const [
     spaces,
     recent,
@@ -186,14 +189,22 @@ export default async function DashboardPage() {
             {pendingAcks.length > 0 && (
               // One policy: straight to its confirmation card. More: My
               // policies, which lists them all (B4). The count is the whole
-              // list, no longer the first twenty.
+              // list, no longer the first twenty. The label counts the
+              // overdue ones and the detail names each deadline (E1).
               <AttentionRow
                 href={pendingAcks.length === 1 ? `/doc/${pendingAcks[0].id}#confirm-reading` : "/compliance"}
                 icon={<ClipboardCheck className="h-4 w-4" aria-hidden />}
-                label={`${pendingAcks.length} ${pendingAcks.length === 1 ? "policy needs" : "policies need"} your read confirmation`}
+                label={`${pendingAcks.length} ${pendingAcks.length === 1 ? "policy needs" : "policies need"} your read confirmation${
+                  overdueAcks > 0 ? ` · ${overdueAcks} overdue` : ""
+                }`}
                 detail={pendingAcks
                   .slice(0, 3)
-                  .map((d) => `${d.space_icon} ${d.title}`)
+                  .map(
+                    (d) =>
+                      `${d.space_icon} ${d.title}${
+                        d.due_at ? ` (due ${formatDate(d.due_at, settingsForUser(appSettings, user))})` : ""
+                      }`
+                  )
                   .join(" · ")}
               />
             )}

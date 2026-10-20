@@ -12,8 +12,9 @@ import {
   setAckRequired,
   listAckLedgerAll,
   stampAckReminded,
+  ackReminderSummary,
 } from "@/lib/db";
-import { requestAcknowledgement, enqueueReminder } from "@/lib/compliance";
+import { requestAcknowledgement, enqueueReminder, sweepDefaults, workspaceDueDefaults } from "@/lib/compliance";
 import { audit, auditAck, actorFrom, ipFrom } from "@/lib/audit";
 import { userHolds } from "@/lib/access";
 import { requestOrigin } from "@/lib/oauth";
@@ -233,12 +234,13 @@ export async function GET(req: Request) {
     });
   }
 
-  const [docs, users, candidates, manage, canExport] = await Promise.all([
+  const [rows, users, candidates, manage, canExport, workspace] = await Promise.all([
     complianceDocs(),
     complianceUserSummary(),
     ackCandidateDocs(),
     userHolds(user, "compliance.program_manage", { legacyMin: "admin" }),
     userHolds(user, "compliance.export", { legacyMin: "admin" }),
+    workspaceDueDefaults(),
   ]);
 
   // The tiles count published policies only (G2, 1.11.0): a paused policy
@@ -246,7 +248,25 @@ export async function GET(req: Request) {
   // the portal can show it, but nobody owes it while it is down, so it is
   // out of every sum and the percentage does not drop on unpublish.
   // complianceUserSummary applies the same rule per person.
-  const active = docs.filter((d) => d.status === "published" && d.ack_retired_at === null);
+  const live = (d: { status: string; ack_retired_at: string | null }) => d.status === "published" && d.ack_retired_at === null;
+  // The reminder subtitle (E2, 1.13.0): when each live policy's people were
+  // last reminded (the manual Remind or the sweep, whichever is later) and
+  // when the sweep next reminds someone, with the cadence resolved as the
+  // claim resolves it; a paused or retired policy reminds nobody.
+  const reminders = await ackReminderSummary(rows.filter(live).map((d) => d.id), sweepDefaults(workspace));
+  const docs = rows.map((d) => ({
+    ...d,
+    // The policy's deadline rule (E1): its own days or fixed date (both null
+    // = inherit) with the days the cascade resolves, for portalDueLine.
+    due_rule: { due_days: d.due_days, due_at: d.due_at, resolved_days: d.due_days_resolved },
+    reminder: reminders.has(d.id)
+      ? {
+          last_reminded_at: reminders.get(d.id)!.last_reminded_at,
+          next_reminder_at: reminders.get(d.id)!.next_reminder_at,
+        }
+      : null,
+  }));
+  const active = docs.filter(live);
   const required = active.reduce((n, d) => n + d.required, 0);
   const acked = active.reduce((n, d) => n + d.acked, 0);
   const usersWithRequirements = users.filter((u) => u.required > 0);
@@ -262,6 +282,9 @@ export async function GET(req: Request) {
       // The Overview's fifth tile (G1, 1.12.0): live policies whose next
       // cycle falls within 30 days, over the same rows as the other sums.
       recert_due_30: active.filter((d) => recertDueWithin(d, 30)).length,
+      // The Overdue tile (E1, 1.13.0): open rows past their due date and
+      // grace with no current confirmation, summed over the live policies.
+      overdue: active.reduce((n, d) => n + d.overdue, 0),
     },
     docs,
     users,

@@ -37,6 +37,13 @@
 // a button that posts an empty name would only come back 409. The done
 // state and the printed standing line then read "signed as {name}".
 //
+// A deadline (E1, 1.13.0) is information, never a wall: a chip under the
+// title says "Due 29 Oct 2026" (neutral beyond three days, warn at three or
+// fewer) or "Overdue since 29 Oct 2026" (error), and on an overdue policy
+// one sentence above the button says that confirming now still records
+// today's date. The page formats both from the reader's own row; the button
+// is the same button.
+//
 // The card is print:hidden; a one-line standing statement takes its place on
 // paper so a printed policy carries the printer's own status.
 //
@@ -48,9 +55,10 @@
 import { useId, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { CircleCheckBig, History, PenLine, ShieldCheck } from "lucide-react";
+import { CalendarClock, CircleAlert, CircleCheckBig, History, PenLine, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/Button";
 import { CARD_CLASS } from "@/components/Card";
+import { chipClass } from "@/components/Chip";
 import { CardTitle, SubHeading } from "@/components/Heading";
 import { DocDiff } from "@/components/DocDiff";
 import { Field, TextInput } from "@/components/form";
@@ -59,6 +67,7 @@ import { useFormatDate } from "@/components/SettingsProvider";
 import { monthsLabel, useAckState } from "@/components/AckState";
 import type { AckReason } from "@/components/AckState";
 import { recertMetaLine } from "@/lib/ack-recert";
+import type { DueTone } from "@/lib/ack-due";
 import { diffLines, diffStats } from "@/lib/diff";
 import { useAction } from "@/lib/use-action";
 import { CONFIRM_SECTION_ID } from "@/lib/use-reached-end";
@@ -119,6 +128,7 @@ export function AckCard({
   meta,
   effectiveAt = null,
   recertMonths = null,
+  due = null,
   readerName,
   current,
   baseline = null,
@@ -138,6 +148,14 @@ export function AckCard({
   /** The policy's effective date ('YYYY-MM-DD') and re-confirmation interval (G1): "Effective 1 Jan 2026 · re-confirm yearly" under the version line. */
   effectiveAt?: string | null;
   recertMonths?: number | null;
+  /**
+   * The reader's deadline (E1): dueChip's tone and label ("Due 29 Oct 2026"
+   * / "Overdue since 29 Oct 2026") and, once overdue, overdueConfirmCopy's
+   * sentence for the line above the button; null without a deadline. The
+   * page formats them from the reader's own row; the chip and the sentence
+   * leave with the pending state.
+   */
+  due?: { tone: DueTone; label: string; overdueCopy: string | null } | null;
   /** The signed-in reader: the name a signature must match, and the printed standing line's subject. */
   readerName: string;
   /** The text on screen, for the what-changed diff (B3). */
@@ -368,6 +386,17 @@ export function AckCard({
             </>
           ) : (
             <>
+              {/* The deadline (E1): a status chip, never a gate. */}
+              {due && (
+                <span className={chipClass(due.tone, "md", "mt-2")}>
+                  {due.tone === "error" ? (
+                    <CircleAlert className="h-3 w-3" aria-hidden />
+                  ) : (
+                    <CalendarClock className="h-3 w-3" aria-hidden />
+                  )}
+                  {due.label}
+                </span>
+              )}
               {prior?.reason && (
                 <p className="mt-2 max-w-md text-sm font-medium text-slate-700">
                   {reasonSentence(prior.reason, fmt.date)}
@@ -443,6 +472,10 @@ export function AckCard({
               )}
 
               {signBlock}
+
+              {/* Overdue (E1): the same button; only the copy says the date
+                  recorded is today's, not the one that passed. */}
+              {due?.overdueCopy && <p className="mt-4 max-w-md text-sm text-slate-700">{due.overdueCopy}</p>}
 
               <Button
                 variant="primary"

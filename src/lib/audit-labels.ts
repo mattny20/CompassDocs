@@ -81,7 +81,7 @@ export const AUDIT_LABELS: Record<string, string> = {
   // one has a label here.
   "ack.edit_default_set": "Changed re-confirmation default",
   "ack.settings_changed": "Changed read-confirmation settings",
-  "ack.reconfirmation_requested": "Asked everyone to re-confirm",
+  "ack.reconfirmation_requested": "Asked to re-confirm",
   "ack.confirmations_kept": "Kept confirmations after an edit",
   "ack.confirmations_reset": "Reset confirmations after an edit",
   "ack.reset_notified": "Sent re-confirmation notices",

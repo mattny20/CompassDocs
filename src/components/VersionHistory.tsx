@@ -65,12 +65,24 @@ export type VersionDecision = {
   version_id: number | null;
   /** 'reset' (everyone was asked to re-confirm) or 'kept' (editorial). */
   outcome: string;
+  /** 'users' for a per-person re-ask (D4, 1.13.0): some people, not everyone; absent or 'all' otherwise. */
+  scope?: "all" | "users";
+  /** How many people a per-person re-ask asked (the ledger's confirmations_affected); null when unknown. */
+  confirmations_affected?: number | null;
   decided_by_name: string;
   /** For approvals: who submitted the change (differs from the approver). */
   submitted_by_name: string;
   /** For approvals (A6, 1.11.0): what the submitter recommended; '' when they gave no recommendation. */
   submitted_policy?: "keep" | "reset" | "";
 };
+
+/** The reset chip's words: everyone, or the people a per-person re-ask named (D4). */
+export function resetLabel(d: Pick<VersionDecision, "scope" | "confirmations_affected">): string {
+  if (d.scope !== "users") return "Asked everyone to re-confirm";
+  const n = d.confirmations_affected;
+  if (n === null || n === undefined) return "Asked some people to re-confirm";
+  return `Asked ${n} ${n === 1 ? "person" : "people"} to re-confirm`;
+}
 
 /** The recommendation in the words of the review queue ("recommends: editorial fix"). */
 const POLICY_WORDS: Record<"keep" | "reset", string> = { keep: "editorial fix", reset: "material change" };
@@ -612,7 +624,7 @@ export function VersionHistory({
                   )}
                   {decision && (
                     <span className={chipClass(decision.outcome === "reset" ? "warn" : "info", "sm", "ml-1.5")}>
-                      {decision.outcome === "reset" ? "Asked everyone to re-confirm" : "Editorial (kept)"}
+                      {decision.outcome === "reset" ? resetLabel(decision) : "Editorial (kept)"}
                     </span>
                   )}
                   {approved ? (

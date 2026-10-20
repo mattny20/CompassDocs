@@ -1,22 +1,53 @@
 "use client";
 
 // The Record tab's roster (C4, 1.12.0): the house Table with the house
-// controls over it. "Show" narrows the current view to pending or confirmed
-// people ("Overdue" and "Exempt" arrive with due dates and exemptions),
-// "Filter people" narrows what is on the page with its live count, the
-// Pager keeps a 400-person space readable, and "Current version / All
-// confirmations" switches between the roster (one row per person, their
-// confirmation that counts against the marker) and the ledger (every
-// confirmation ever recorded for the document, superseded rows included).
-// Controls stay off paper (STYLEGUIDE §Print): the record is printed as
-// evidence, and the page prints the view and page on screen.
+// controls over it. "Show" narrows the current view to pending, overdue,
+// confirmed or exempt people, "Filter people" narrows what is on the page
+// with its live count, the Pager keeps a 400-person space readable, and
+// "Current version / All confirmations" switches between the roster (one
+// row per person, their confirmation that counts against the marker) and
+// the ledger (every confirmation ever recorded for the document, superseded
+// rows included). Controls stay off paper (STYLEGUIDE §Print): the record is
+// printed as evidence, and the page prints the view and page on screen.
 //
-// Shared with the compliance portal's expand row in wave 2: the server page
-// passes the rows it already read; the portal passes the JSON roster and
-// may leave `ledger` out, which hides the view switch.
+// 1.13.0 (D2, D4, E1): each row carries its assignment (lib/db
+// ackStatusForDocument): the Due column, the Exemption column (the reason,
+// who recorded it and until when; a per-person re-ask's reason; a snooze),
+// the Overdue / Exempt / "Asked again {date}" chips, and, for a viewer who
+// may act (document.ack_require on the space or compliance.program_manage),
+// a leading checkbox column, row actions as icon buttons (Extend…, Exempt…,
+// Remove exemption, Snooze / Unsnooze, Ask to re-confirm…) and a bulk bar
+// "{n} selected" with the same actions over the checked assignment ids.
+// Every action is one POST to `endpoint` (the space-scoped twin
+// /api/documents/{id}/acknowledgements/actions for a steward, the admin
+// route /api/admin/compliance/assignments for a program manager; the same
+// body and answer), reversible, so it tells and offers Undo as the inverse
+// call (STYLEGUIDE §Feedback); the re-ask is a notice already sent and
+// offers none. The control is disabled while a request is in flight
+// (useAction), and focus returns to the row once the refreshed rows have
+// rendered, because the button that opened the dialog may be gone by then
+// (Exempt… becomes Remove exemption).
+//
+// Shared with the compliance portal's expand row: the server page passes
+// the rows it already read; the portal passes the JSON roster and may leave
+// `ledger` out, which hides the view switch, and passes `onChanged` so it
+// can reload its own copy of the rows.
 
-import { useCallback, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown, Download, FileSpreadsheet, PenLine, Printer } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  BellOff,
+  BellRing,
+  CalendarPlus,
+  Check,
+  ChevronDown,
+  Download,
+  FileSpreadsheet,
+  PenLine,
+  Printer,
+  RotateCcw,
+  UserCheck,
+  UserMinus,
+} from "lucide-react";
 import { chipClass } from "@/components/Chip";
 import { Segmented } from "@/components/Segmented";
 import { ListFilter } from "@/components/ListFilter";
@@ -24,12 +55,31 @@ import { Pager } from "@/components/Pager";
 import { Popover, MenuItem, MenuSeparator } from "@/components/Popover";
 import { SectionEmpty } from "@/components/form";
 import { Table, Th, Td, TABLE_HEAD_ROW, TR } from "@/components/Table";
-import { buttonClass } from "@/components/Button";
-import { formatDateTime } from "@/lib/format";
+import { Button, buttonClass, iconButtonClass } from "@/components/Button";
+import { Tooltip } from "@/components/Tooltip";
+import { formDialog } from "@/components/Dialog";
+import { toast } from "@/components/Toasts";
+import { RECONFIRM_REASON_TOO_SHORT } from "@/components/ReconfirmButton";
+import { people } from "@/components/compliance/copy";
+import { useAction } from "@/lib/use-action";
+import { formatDate, formatDateTime } from "@/lib/format";
 import type { AppSettings } from "@/lib/settings";
 import { isShortRead, readTimeLabel, SHORT_READ_TOOLTIP } from "@/lib/read-evidence";
+import { isOverdue } from "@/lib/ack-due";
+import {
+  ASSIGNMENT_IDS_MAX,
+  EXEMPT_REASON_MAX,
+  EXTEND_DAYS_DEFAULT,
+  EXTEND_DAYS_MAX,
+  REASK_REASON_MIN,
+  SNOOZE_DAYS_DEFAULT,
+  SNOOZE_INVARIANT,
+  exemptionText,
+  snoozeText,
+} from "@/lib/ack-assignments";
+import type { AssignmentAction } from "@/lib/ack-assignments";
 
-/** One person of the current view: AckStatusRow's shape (the C2 fields are optional so the portal's JSON rows fit too). */
+/** One person of the current view: AckStatusRow's shape (the C2 and 1.13.0 fields are optional so the portal's JSON rows fit too). */
 export interface AckRosterRow {
   id: number;
   name: string;
@@ -43,6 +93,23 @@ export interface AckRosterRow {
   reached_end?: boolean | null;
   /** The name typed when the policy required a signature (C2); blank or absent on unsigned rows. */
   signed_name?: string | null;
+  /**
+   * The person's assignment row (D1/D2/D4, 1.13.0): its id (what the
+   * actions send), the deadline (null without one), the exemption (then the
+   * row is in no count) with its reason, who recorded it, when and until
+   * when, the snooze's end, and the per-person re-ask (when, why, by whom).
+   */
+  assignment_id?: number | null;
+  due_at?: string | null;
+  exempt?: boolean;
+  exempt_reason?: string;
+  exempt_by_name?: string;
+  exempt_at?: string | null;
+  exempt_until?: string | null;
+  snoozed_until?: string | null;
+  asked_again_at?: string | null;
+  asked_again_reason?: string;
+  asked_again_by?: string;
 }
 
 /** One row of the ledger (the All confirmations view): AckLedgerRow's shape, personal data already blanked by the server. */
@@ -62,8 +129,11 @@ export interface AckLedgerViewRow {
   ip: string;
 }
 
-type Show = "all" | "pending" | "confirmed";
+type Show = "all" | "pending" | "overdue" | "confirmed" | "exempt";
 type View = "current" | "ledger";
+
+/** A row's standing (STYLEGUIDE §Status chips: the closed set). */
+type RowState = "confirmed" | "pending" | "overdue" | "exempt";
 
 /** Rows per page: a space of 400 people stays readable. */
 export const ROSTER_PAGE = 50;
@@ -71,7 +141,9 @@ export const ROSTER_PAGE = 50;
 const SHOW_OPTIONS: { value: Show; label: string }[] = [
   { value: "all", label: "All" },
   { value: "pending", label: "Pending" },
+  { value: "overdue", label: "Overdue" },
   { value: "confirmed", label: "Confirmed" },
+  { value: "exempt", label: "Exempt" },
 ];
 
 const VIEW_OPTIONS: { value: View; label: string }[] = [
@@ -79,8 +151,33 @@ const VIEW_OPTIONS: { value: View; label: string }[] = [
   { value: "ledger", label: "All confirmations" },
 ];
 
+/** The section-level line when the Show choice leaves nobody. */
+const EMPTY_BY_SHOW: Record<Show, string> = {
+  all: "Nobody is asked to confirm this document.",
+  pending: "Nobody is pending: everyone asked has confirmed.",
+  overdue: "Nobody is overdue.",
+  confirmed: "Nobody has confirmed the current version yet.",
+  exempt: "Nobody is exempt from this policy.",
+};
+
 /** The sentence the roster shows while nobody is asked yet (also the portal's expand row). */
 export const NOBODY_ASKED = "No one is asked to confirm this document yet. Everyone who can see it is listed here once it is published.";
+
+/** The bulk bar's cap, as the server enforces it (ASSIGNMENT_IDS_MAX). */
+export const BULK_CAP_TOOLTIP = `Up to ${ASSIGNMENT_IDS_MAX} people at a time.`;
+
+/** The error toast when the server changed none of the rows sent (every id came back skipped). */
+export const NOTHING_CHANGED = "Nothing changed: the selected people were skipped (exempt, removed or already in that state).";
+
+/** What the two action routes answer (lib/ack-assignment-actions AssignmentAnswer). */
+interface ActionAnswer {
+  action: AssignmentAction;
+  changed: number[];
+  skipped: number[];
+  until: string | null;
+}
+
+const DAY = 86_400_000;
 
 /** "v12", marked "(inferred)" on rows from before 1.10.0. The explanation is
  *  a footnote under the table, not a tooltip: the table scrolls sideways
@@ -153,17 +250,137 @@ function matches(needle: string, ...values: (string | null | undefined)[]): bool
   return values.some((v) => (v ?? "").toLowerCase().includes(needle));
 }
 
+const nameOf = (r: AckRosterRow) => r.name || r.username;
+
+/** A snooze that has not run out yet (the server reads a passed snoozed_until as no snooze). */
+function isSnoozed(r: AckRosterRow, now: Date): boolean {
+  return Boolean(r.snoozed_until) && new Date(r.snoozed_until!).getTime() > now.getTime();
+}
+
+/** Exempt outranks everything (the row is in no count); then the confirmation; then the deadline (lib/ack-due isOverdue with the policy's grace). */
+function stateOf(r: AckRosterRow, grace: number, now: Date): RowState {
+  if (r.exempt) return "exempt";
+  if (r.acknowledged_at) return "confirmed";
+  if (r.due_at && isOverdue({ due_at: r.due_at, acknowledged_at: null }, { overdue_grace_days: grace }, now)) return "overdue";
+  return "pending";
+}
+
+/** Today as the date input and the server see it (YYYY-MM-DD, UTC: parseAssignmentRequest's rule). */
+const today = () => new Date().toISOString().slice(0, 10);
+
+/**
+ * The Exemption column, plain text, never a tooltip in the table
+ * (STYLEGUIDE §Tables): "On leave until 1 Dec · Priya Shah · 3 Oct" on an
+ * exempt row; the re-ask's reason and who asked on a row asked again; the
+ * snooze ("Snoozed until 22 Oct") after either.
+ */
+function exemptionNote(r: AckRosterRow, fmt: AppSettings, now: Date): string {
+  const f = (iso: string) => formatDate(iso, fmt);
+  const parts: string[] = [];
+  if (r.exempt) {
+    parts.push(
+      exemptionText(
+        { exempt_reason: r.exempt_reason ?? "", exempt_until: r.exempt_until ?? null, exempt_by_name: r.exempt_by_name ?? "", exempt_at: r.exempt_at ?? null },
+        f
+      )
+    );
+  } else if (r.asked_again_at && !r.acknowledged_at && r.asked_again_reason) {
+    parts.push([r.asked_again_reason, r.asked_again_by].filter(Boolean).join(" · "));
+  }
+  if (!r.exempt && isSnoozed(r, now)) parts.push(snoozeText({ snoozed_until: r.snoozed_until! }, f));
+  return parts.filter(Boolean).join(" · ");
+}
+
+/** The status chip (the closed set) and, on a row asked again that has not confirmed since, the "Asked again {date}" chip beside it. */
+function StatusCell({ row, state, fmt }: { row: AckRosterRow; state: RowState; fmt: AppSettings }) {
+  const chip =
+    state === "exempt" ? (
+      <span className={chipClass("neutral")}>Exempt</span>
+    ) : state === "confirmed" ? (
+      <span className={chipClass("ok")}>Confirmed</span>
+    ) : state === "overdue" ? (
+      <span className={chipClass("error")}>Overdue</span>
+    ) : (
+      <span className={chipClass("warn")}>Pending</span>
+    );
+  const askedAgain = (state === "pending" || state === "overdue") && row.asked_again_at;
+  if (!askedAgain) return chip;
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1">
+      {chip}
+      <span className={chipClass("warn")}>Asked again {formatDate(row.asked_again_at, fmt)}</span>
+    </span>
+  );
+}
+
+/** A row action: an icon button with its tooltip and the same accessible name (STYLEGUIDE §Buttons). */
+function IconAction({
+  icon,
+  label,
+  onClick,
+  disabled,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+  disabled: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      className={iconButtonClass("quiet", "sm")}
+      data-tt={label}
+      aria-label={label}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      {icon}
+    </button>
+  );
+}
+
+/** A bulk-bar action: the same `secondary` `sm` button the rows' menus would be, disabled inside the cap's tooltip past 200 people. */
+function BulkButton({
+  icon,
+  label,
+  count,
+  busy,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  /** How many of the selected rows this action applies to. */
+  count: number;
+  busy: boolean;
+  onClick: () => void;
+}) {
+  const tooMany = count > ASSIGNMENT_IDS_MAX;
+  const button = (
+    <Button variant="secondary" size="sm" icon={icon} onClick={onClick} disabled={busy || tooMany}>
+      {label}
+    </Button>
+  );
+  return tooMany ? <Tooltip label={BULK_CAP_TOOLTIP}>{button}</Tooltip> : button;
+}
+
 export function AckRoster({
   docId,
+  title,
   rows,
   ledger,
   canSeeIp,
   fmt,
   words = 0,
   frame = true,
+  endpoint,
+  can,
+  grace = 0,
+  onChanged,
 }: {
   docId: number;
-  /** The current view: everyone asked, with their confirmation that counts (pending first). */
+  /** The document's title for the dialogs and toasts ("this document" when absent). */
+  title?: string;
+  /** The current view: everyone asked, with their confirmation that counts (pending first, exempt last). */
   rows: AckRosterRow[];
   /** Every confirmation ever recorded, newest first; absent hides the view switch (the portal's expand row). */
   ledger?: AckLedgerViewRow[];
@@ -175,24 +392,86 @@ export function AckRoster({
   words?: number;
   /** The table in its own bordered card (the default); false where the container frames it, as the portal's expand row does. */
   frame?: boolean;
+  /**
+   * Where the row and bulk actions POST (D2/D4): the space-scoped twin
+   * /api/documents/{id}/acknowledgements/actions for a steward, the admin
+   * route /api/admin/compliance/assignments for a program manager. Absent:
+   * a read-only roster (no checkbox column, no actions, no bulk bar).
+   */
+  endpoint?: string;
+  /** What the viewer may do: `act` = document.ack_require on the policy's space or compliance.program_manage. */
+  can?: { act: boolean };
+  /** The policy's resolved overdue_grace_days (lib/ack-due isOverdue): the Overdue chip and filter. */
+  grace?: number;
+  /** After a successful action or Undo: the caller reloads its rows (the portal). Without it the route is refreshed (a server page). */
+  onChanged?: () => void;
 }) {
   const [show, setShow] = useState<Show>("all");
   const [view, setView] = useState<View>("current");
   const [filter, setFilter] = useState("");
   const [page, setPage] = useState(0);
+  const [selected, setSelected] = useState<Set<number>>(() => new Set());
   const needle = filter.trim().toLowerCase();
+  const { run, busy } = useAction();
+  const canAct = Boolean(endpoint && can?.act);
+  const named = title ? `"${title}"` : "this document";
+
+  // One clock per set of rows: the Overdue chips, the filters and the snooze
+  // text agree with each other, and a re-render on a keystroke moves nothing.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const now = useMemo(() => new Date(), [rows]);
 
   const hasLedger = Array.isArray(ledger);
   const ledgerView = hasLedger && view === "ledger";
+
+  const byAssignment = useMemo(() => {
+    const m = new Map<number, AckRosterRow>();
+    for (const r of rows) if (r.assignment_id != null) m.set(r.assignment_id, r);
+    return m;
+  }, [rows]);
+
+  // Focus after an action (STYLEGUIDE §Settings pages: focus never falls to
+  // <body>). The dialog hands focus back to the button that opened it, and
+  // that button may unmount when the refreshed rows render (Exempt… becomes
+  // Remove exemption). The row is noted before the request and focused once
+  // the new rows are in; a cancelled or refused action clears the note.
+  const rowEls = useRef(new Map<number, HTMLTableRowElement>());
+  const pendingFocus = useRef<number | null>(null);
+  const registerRow = useCallback(
+    (id: number) => (el: HTMLTableRowElement | null) => {
+      if (el) rowEls.current.set(id, el);
+      else rowEls.current.delete(id);
+    },
+    []
+  );
+  useEffect(() => {
+    // A selection only ever names rows that are still here.
+    setSelected((s) => {
+      let dropped = false;
+      const next = new Set<number>();
+      for (const id of s) {
+        if (byAssignment.has(id)) next.add(id);
+        else dropped = true;
+      }
+      return dropped ? next : s;
+    });
+    const id = pendingFocus.current;
+    if (id == null) return;
+    pendingFocus.current = null;
+    rowEls.current.get(id)?.focus();
+  }, [byAssignment]);
 
   // What the Show control leaves, then what the filter leaves of that: the
   // count beside the filter reads "3 of 42 people" against the Show choice.
   const base = useMemo(() => {
     if (ledgerView) return ledger ?? [];
-    if (show === "pending") return rows.filter((r) => !r.acknowledged_at);
-    if (show === "confirmed") return rows.filter((r) => r.acknowledged_at);
-    return rows;
-  }, [ledgerView, ledger, rows, show]);
+    if (show === "all") return rows;
+    return rows.filter((r) => {
+      const s = stateOf(r, grace, now);
+      if (show === "pending") return s === "pending" || s === "overdue";
+      return s === show;
+    });
+  }, [ledgerView, ledger, rows, show, grace, now]);
   const visible = useMemo(
     () => (needle ? base.filter((r) => matches(needle, r.name, r.username, r.email)) : base),
     [base, needle]
@@ -215,8 +494,311 @@ export function AckRoster({
     setPage(0);
   };
 
+  // ── The actions (D2, D4) ──────────────────────────────────────────────────
+
+  /** One POST through useAction: the server's error or the fallback is toasted; the answer comes back on success. */
+  const post = useCallback(
+    async (key: string, body: Record<string, unknown>, fallback: string): Promise<ActionAnswer | null> => {
+      if (!endpoint) return null;
+      const box: { result?: Partial<ActionAnswer> } = {};
+      const ok = await run(
+        key,
+        async () => {
+          const res = await fetch(endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          if (res.ok) box.result = (await res.clone().json().catch(() => ({}))) as Partial<ActionAnswer>;
+          return res;
+        },
+        { fallback, refresh: !onChanged }
+      );
+      if (!ok) return null;
+      onChanged?.();
+      return {
+        action: body.action as AssignmentAction,
+        changed: box.result?.changed ?? [],
+        skipped: box.result?.skipped ?? [],
+        until: box.result?.until ?? null,
+      };
+    },
+    [endpoint, onChanged, run]
+  );
+
+  const idsOf = (targets: AckRosterRow[]) => targets.map((r) => r.assignment_id).filter((id): id is number => id != null);
+  /** "Ana Ruiz" for one row, "3 people" for more (STYLEGUIDE §Vocabulary). */
+  const whoOf = (ids: number[]): string => {
+    if (ids.length === 1) {
+      const r = byAssignment.get(ids[0]);
+      if (r) return nameOf(r);
+    }
+    return people(ids.length);
+  };
+  const skippedNote = (n: number): string => (n > 0 ? ` ${people(n)} ${n === 1 ? "was" : "were"} skipped.` : "");
+  /** A refused request (already toasted) or one that changed nothing (toasted here) ends the flow; otherwise the selection is spent. */
+  const settled = (r: ActionAnswer | null): r is ActionAnswer => {
+    if (!r) {
+      pendingFocus.current = null;
+      return false;
+    }
+    if (r.changed.length === 0) {
+      toast("error", NOTHING_CHANGED);
+      return false;
+    }
+    setSelected(new Set());
+    return true;
+  };
+
+  async function exempt(targets: AckRosterRow[]) {
+    const ids = idsOf(targets);
+    if (!ids.length) return;
+    const who = ids.length === 1 ? nameOf(targets[0]) : people(ids.length);
+    // Awaited before anything is busy (STYLEGUIDE §Overlays): Cancel leaves the row idle.
+    const values = await formDialog({
+      title: `Exempt ${who} from this policy`,
+      fields: [
+        {
+          key: "reason",
+          label: "Reason",
+          type: "textarea",
+          required: true,
+          help: "Shown on the compliance record and in exports",
+          validate: (v) => (v.trim().length > EXEMPT_REASON_MAX ? `Keep the reason under ${EXEMPT_REASON_MAX} characters.` : undefined),
+        },
+        {
+          key: "until",
+          label: "Until (optional)",
+          type: "date",
+          required: false,
+          validate: (v) => (v && v <= today() ? "Pick a date after today." : undefined),
+        },
+      ],
+      confirmLabel: "Exempt",
+    });
+    if (!values) return;
+    await exemptWith(ids, values.reason.trim(), values.until || null);
+  }
+
+  async function exemptWith(ids: number[], reason: string, until: string | null, opts: { undo?: boolean } = {}) {
+    pendingFocus.current = ids[0];
+    const r = await post(`exempt-${ids[0]}`, { action: "exempt", assignment_ids: ids, reason, until }, "Couldn't record the exemption.");
+    if (!settled(r)) return;
+    const text = `Exempted ${whoOf(r.changed)} from ${named}${skippedNote(r.skipped.length)}`;
+    if (opts.undo) {
+      toast("ok", text);
+      return;
+    }
+    toast("ok", text, { action: { label: "Undo", onClick: () => void unexempt(r.changed, { undo: true }) } });
+  }
+
+  async function unexempt(ids: number[], opts: { undo?: boolean } = {}) {
+    // The rows as they stand now, for Remove exemption's own Undo: each is
+    // exempted again with its own reason and date.
+    const before = ids.map((id) => byAssignment.get(id)).filter((r): r is AckRosterRow => Boolean(r));
+    pendingFocus.current = ids[0];
+    const r = await post(`unexempt-${ids[0]}`, { action: "unexempt", assignment_ids: ids }, "Couldn't remove the exemption.");
+    if (!settled(r)) return;
+    const who = whoOf(r.changed);
+    if (opts.undo) {
+      toast("ok", `Exemption undone: ${who} ${r.changed.length === 1 ? "is" : "are"} pending again.`);
+      return;
+    }
+    const changed = before.filter((row) => r.changed.includes(row.assignment_id!));
+    toast("ok", `Removed the exemption for ${who}: pending again with a fresh due date.${skippedNote(r.skipped.length)}`, {
+      action: { label: "Undo", onClick: () => void reexempt(changed) },
+    });
+  }
+
+  /** Remove exemption's Undo: the inverse call, one per distinct reason and date (an exemption needs its reason). */
+  async function reexempt(before: AckRosterRow[]) {
+    const groups = new Map<string, { reason: string; until: string | null; ids: number[] }>();
+    for (const row of before) {
+      if (row.assignment_id == null) continue;
+      const day = row.exempt_until ? row.exempt_until.slice(0, 10) : null;
+      const until = day && day > today() ? day : null;
+      const reason = row.exempt_reason || "Exemption restored";
+      const key = `${reason}\u0000${until ?? ""}`;
+      const g = groups.get(key) ?? { reason, until, ids: [] };
+      g.ids.push(row.assignment_id);
+      groups.set(key, g);
+    }
+    for (const g of groups.values()) await exemptWith(g.ids, g.reason, g.until, { undo: true });
+  }
+
+  async function extend(targets: AckRosterRow[]) {
+    const ids = idsOf(targets);
+    if (!ids.length) return;
+    const values = await formDialog({
+      title: ids.length === 1 ? "Extend due date" : `Extend due dates for ${people(ids.length)}`,
+      fields: [
+        { key: "days", label: "Days", type: "number", min: 1, max: EXTEND_DAYS_MAX, initial: String(EXTEND_DAYS_DEFAULT) },
+        { key: "reason", label: "Reason (optional)", type: "textarea", required: false, help: "Recorded on the compliance record" },
+      ],
+      confirmLabel: "Extend",
+    });
+    if (!values) return;
+    const days = Number(values.days);
+    pendingFocus.current = ids[0];
+    const r = await post(
+      `extend-${ids[0]}`,
+      { action: "extend", assignment_ids: ids, days, reason: values.reason.trim() },
+      "Couldn't extend the due date."
+    );
+    if (!settled(r)) return;
+    const by = `${days} ${days === 1 ? "day" : "days"}`;
+    const text =
+      r.changed.length === 1
+        ? `Extended the deadline for ${whoOf(r.changed)} by ${by}${skippedNote(r.skipped.length)}`
+        : `Extended ${r.changed.length} deadlines by ${by}${skippedNote(r.skipped.length)}`;
+    toast("ok", text, { action: { label: "Undo", onClick: () => void undoExtend(r.changed) } });
+  }
+
+  async function undoExtend(ids: number[]) {
+    pendingFocus.current = ids[0];
+    const r = await post(`undo-extend-${ids[0]}`, { action: "undo_extend", assignment_ids: ids }, "Couldn't undo the extension.");
+    if (!settled(r)) return;
+    toast(
+      "ok",
+      r.changed.length === 1
+        ? `Extension undone: the deadline for ${whoOf(r.changed)} is back to its previous date.`
+        : `Extension undone: ${r.changed.length} deadlines are back to their previous dates.`
+    );
+  }
+
+  async function snooze(targets: AckRosterRow[], opts: { undo?: boolean } = {}) {
+    const ids = idsOf(targets);
+    if (!ids.length) return;
+    pendingFocus.current = ids[0];
+    const r = await post(
+      `snooze-${ids[0]}`,
+      { action: "snooze", assignment_ids: ids, days: SNOOZE_DAYS_DEFAULT },
+      "Couldn't snooze reminders."
+    );
+    if (!settled(r)) return;
+    const until = r.until ? formatDate(r.until, fmt) : `${SNOOZE_DAYS_DEFAULT} days from now`;
+    const text = `Snoozed reminders for ${whoOf(r.changed)} until ${until}${skippedNote(r.skipped.length)}`;
+    if (opts.undo) {
+      toast("ok", text);
+      return;
+    }
+    toast("ok", text, { action: { label: "Undo", onClick: () => void unsnooze(r.changed, { undo: true }) } });
+  }
+
+  async function unsnooze(ids: number[], opts: { undo?: boolean } = {}) {
+    const before = ids.map((id) => byAssignment.get(id)).filter((r): r is AckRosterRow => Boolean(r));
+    pendingFocus.current = ids[0];
+    const r = await post(`unsnooze-${ids[0]}`, { action: "unsnooze", assignment_ids: ids }, "Couldn't resume reminders.");
+    if (!settled(r)) return;
+    const who = whoOf(r.changed);
+    if (opts.undo) {
+      toast("ok", `Snooze undone: reminders resume for ${who}.`);
+      return;
+    }
+    toast("ok", `Reminders resume for ${who}.${skippedNote(r.skipped.length)}`, {
+      action: { label: "Undo", onClick: () => void snooze(before.filter((row) => r.changed.includes(row.assignment_id!)), { undo: true }) },
+    });
+  }
+
+  async function reask(targets: AckRosterRow[]) {
+    const ids = idsOf(targets);
+    if (!ids.length) return;
+    const one = ids.length === 1 ? targets[0] : null;
+    const version = one?.rev ? `version ${one.rev}` : "the current version";
+    const values = await formDialog({
+      title: one
+        ? title
+          ? `Ask ${nameOf(one)} to re-confirm "${title}"?`
+          : `Ask ${nameOf(one)} to re-confirm this document?`
+        : `Ask ${people(ids.length)} to re-confirm`,
+      body: one
+        ? `Their confirmation of ${version} stays in the record. They are asked to read the document and confirm again.`
+        : "Their confirmations stay in the record. They are asked to read the document and confirm again.",
+      fields: [
+        {
+          key: "reason",
+          label: one ? "Why is this person being asked again?" : "Why are these people being asked again?",
+          type: "textarea",
+          required: true,
+          validate: (v) => (v.trim().length < REASK_REASON_MIN ? RECONFIRM_REASON_TOO_SHORT : undefined),
+        },
+      ],
+      confirmLabel: "Ask to re-confirm",
+    });
+    if (!values) return;
+    pendingFocus.current = ids[0];
+    const r = await post(
+      `reask-${ids[0]}`,
+      { action: "reask", assignment_ids: ids, reason: values.reason.trim() },
+      "Couldn't ask to re-confirm."
+    );
+    if (!r) {
+      pendingFocus.current = null;
+      return;
+    }
+    if (r.changed.length === 0) {
+      toast("error", "Nobody was asked: the selected people are exempt or no longer asked to confirm this document.");
+      return;
+    }
+    setSelected(new Set());
+    const skipped = r.skipped.length;
+    // No Undo: the notice is already on its way (the spec offers none).
+    toast(
+      "ok",
+      `${whoOf(r.changed)} will be asked to re-confirm.` +
+        (skipped > 0 ? ` ${people(skipped)} ${skipped === 1 ? "was" : "were"} skipped (exempt or no longer asked).` : "")
+    );
+  }
+
+  // ── Selection and the bulk bar ────────────────────────────────────────────
+
+  const pageIds = useMemo(
+    () => (ledgerView ? [] : (slice as AckRosterRow[]).map((r) => r.assignment_id).filter((id): id is number => id != null)),
+    [slice, ledgerView]
+  );
+  const allOnPage = pageIds.length > 0 && pageIds.every((id) => selected.has(id));
+  const someOnPage = !allOnPage && pageIds.some((id) => selected.has(id));
+  const toggleOne = (id: number) =>
+    setSelected((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const togglePage = () =>
+    setSelected((s) => {
+      const next = new Set(s);
+      if (allOnPage) for (const id of pageIds) next.delete(id);
+      else for (const id of pageIds) next.add(id);
+      return next;
+    });
+  const headCheck = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (headCheck.current) headCheck.current.indeterminate = someOnPage;
+  }, [someOnPage]);
+
+  const targets = useMemo(
+    () => [...selected].map((id) => byAssignment.get(id)).filter((r): r is AckRosterRow => Boolean(r)),
+    [selected, byAssignment]
+  );
+  // Each bulk action goes to the rows it applies to, so a mixed selection
+  // never sends a confirmed person an extension or an exempt one a snooze.
+  const sub = useMemo(() => {
+    const st = (r: AckRosterRow) => stateOf(r, grace, now);
+    const open = targets.filter((r) => st(r) === "pending" || st(r) === "overdue");
+    return {
+      open,
+      exemptable: targets.filter((r) => !r.exempt),
+      exempt: targets.filter((r) => Boolean(r.exempt)),
+      snoozable: open.filter((r) => !isSnoozed(r, now)),
+      snoozed: targets.filter((r) => !r.exempt && isSnoozed(r, now)),
+      confirmed: targets.filter((r) => st(r) === "confirmed"),
+    };
+  }, [targets, grace, now]);
+
   const nobody = rows.length === 0 && !ledgerView;
   const nothingRecorded = ledgerView && (ledger?.length ?? 0) === 0;
+  const anySnoozed = !ledgerView && (slice as AckRosterRow[]).some((r) => !r.exempt && isSnoozed(r, now));
   const pager = paged && (
     <Pager page={current} limit={ROSTER_PAGE} total={visible.length} onPage={setPage} className="print:hidden" />
   );
@@ -238,11 +820,56 @@ export function AckRoster({
           />
         </div>
       )}
+      {canAct && !ledgerView && selected.size > 0 && (
+        // The bulk bar: one bar above the table while something is checked,
+        // the same actions as the rows over the checked assignment ids.
+        <div
+          role="region"
+          aria-label="Selected people"
+          className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-compass-200 bg-compass-50/70 px-3 py-2 print:hidden"
+        >
+          <span className="text-sm font-semibold text-compass-800">{selected.size} selected</span>
+          <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())} disabled={busy}>
+            Clear selection
+          </Button>
+          <span className="mx-1 h-4 w-px bg-compass-200" aria-hidden />
+          {sub.open.length > 0 && (
+            <BulkButton icon={<CalendarPlus />} label="Extend…" count={sub.open.length} busy={busy} onClick={() => void extend(sub.open)} />
+          )}
+          {sub.exemptable.length > 0 && (
+            <BulkButton icon={<UserMinus />} label="Exempt…" count={sub.exemptable.length} busy={busy} onClick={() => void exempt(sub.exemptable)} />
+          )}
+          {sub.exempt.length > 0 && (
+            <BulkButton
+              icon={<UserCheck />}
+              label="Remove exemption"
+              count={sub.exempt.length}
+              busy={busy}
+              onClick={() => void unexempt(idsOf(sub.exempt))}
+            />
+          )}
+          {sub.snoozable.length > 0 && (
+            <BulkButton icon={<BellOff />} label="Snooze" count={sub.snoozable.length} busy={busy} onClick={() => void snooze(sub.snoozable)} />
+          )}
+          {sub.snoozed.length > 0 && (
+            <BulkButton icon={<BellRing />} label="Unsnooze" count={sub.snoozed.length} busy={busy} onClick={() => void unsnooze(idsOf(sub.snoozed))} />
+          )}
+          {sub.confirmed.length > 0 && (
+            <BulkButton
+              icon={<RotateCcw />}
+              label="Ask to re-confirm…"
+              count={sub.confirmed.length}
+              busy={busy}
+              onClick={() => void reask(sub.confirmed)}
+            />
+          )}
+        </div>
+      )}
       {pager && <div className="mb-3">{pager}</div>}
 
       {/* overflow-hidden keeps the rounded corners (frameless, it keeps the
           Table's scroll wrapper inside the row); that wrapper carries the
-          sideways scroll on a phone (eight columns, six of them nowrap,
+          sideways scroll on a phone (twelve columns, most of them nowrap,
           outgrow 375px). On paper the Table drops its minimum width and the
           wrapper its scroll, so the far columns are not clipped by this card
           on a portrait page. */}
@@ -255,66 +882,210 @@ export function AckRoster({
             re-confirmation replaced, is listed here once people confirm.
           </SectionEmpty>
         ) : visible.length === 0 ? (
-          <SectionEmpty className="px-4 py-6">
-            {needle ? "No people match your filter." : show === "pending" ? "Nobody is pending: everyone asked has confirmed." : "Nobody has confirmed the current version yet."}
-          </SectionEmpty>
+          <SectionEmpty className="px-4 py-6">{needle ? "No people match your filter." : EMPTY_BY_SHOW[show]}</SectionEmpty>
         ) : ledgerView ? (
           <LedgerTable rows={slice as AckLedgerViewRow[]} canSeeIp={canSeeIp} fmt={fmt} words={words} />
         ) : (
-          <CurrentTable rows={slice as AckRosterRow[]} fmt={fmt} words={words} />
+          <CurrentTable
+            rows={slice as AckRosterRow[]}
+            fmt={fmt}
+            words={words}
+            grace={grace}
+            now={now}
+            canAct={canAct}
+            busy={busy}
+            selected={selected}
+            allOnPage={allOnPage}
+            headCheck={headCheck}
+            onToggle={toggleOne}
+            onTogglePage={togglePage}
+            registerRow={registerRow}
+            actions={{ extend, exempt, unexempt, snooze, unsnooze, reask }}
+          />
         )}
       </div>
       {pager && <div className="mt-3">{pager}</div>}
+      {/* The snooze invariant, spelled out where a snoozed row is on the
+          page: the tooltip inside the scrolling table may clip (§Tooltips). */}
+      {anySnoozed && <p className="mt-3 text-xs text-slate-500">{SNOOZE_INVARIANT}</p>}
     </div>
   );
 }
 
-function CurrentTable({ rows, fmt, words }: { rows: AckRosterRow[]; fmt: AppSettings; words: number }) {
+interface RowActions {
+  extend: (targets: AckRosterRow[]) => Promise<void>;
+  exempt: (targets: AckRosterRow[]) => Promise<void>;
+  unexempt: (ids: number[]) => Promise<void>;
+  snooze: (targets: AckRosterRow[]) => Promise<void>;
+  unsnooze: (ids: number[]) => Promise<void>;
+  reask: (targets: AckRosterRow[]) => Promise<void>;
+}
+
+function CurrentTable({
+  rows,
+  fmt,
+  words,
+  grace,
+  now,
+  canAct,
+  busy,
+  selected,
+  allOnPage,
+  headCheck,
+  onToggle,
+  onTogglePage,
+  registerRow,
+  actions,
+}: {
+  rows: AckRosterRow[];
+  fmt: AppSettings;
+  words: number;
+  grace: number;
+  now: Date;
+  canAct: boolean;
+  busy: boolean;
+  selected: Set<number>;
+  allOnPage: boolean;
+  headCheck: React.RefObject<HTMLInputElement | null>;
+  onToggle: (id: number) => void;
+  onTogglePage: () => void;
+  registerRow: (id: number) => (el: HTMLTableRowElement | null) => void;
+  actions: RowActions;
+}) {
+  const f = (iso: string) => formatDate(iso, fmt);
+  // "Pause reminders until {date}": a week from now, the row action's duration.
+  const snoozeUntil = f(new Date(now.getTime() + SNOOZE_DAYS_DEFAULT * DAY).toISOString());
+  const selectable = rows.some((r) => r.assignment_id != null);
   return (
-    <Table scroll minWidth="60rem">
+    <Table scroll minWidth={canAct ? "86rem" : "76rem"}>
       <thead className={TABLE_HEAD_ROW}>
         <tr>
+          {canAct && (
+            <Th fit className="print:hidden">
+              <input
+                ref={headCheck}
+                type="checkbox"
+                aria-label="Select all people on this page"
+                checked={allOnPage}
+                disabled={busy || !selectable}
+                onChange={onTogglePage}
+                className="h-4 w-4 align-middle"
+              />
+            </Th>
+          )}
           <Th>Person</Th>
           <Th>Role</Th>
           <Th fit>Status</Th>
+          <Th fit>Due</Th>
           <Th fit>Confirmed</Th>
           <Th fit>Version</Th>
           <Th fit>Signed</Th>
           <Th fit>Read time</Th>
           <Th fit>Reached end (self-reported)</Th>
+          <Th>Exemption</Th>
+          {canAct && (
+            <Th fit className="print:hidden">
+              <span className="sr-only">Actions</span>
+            </Th>
+          )}
         </tr>
       </thead>
       <tbody>
-        {rows.map((r) => (
-          <tr key={r.id} className={TR}>
-            <Td>
-              <PersonCell name={r.name} username={r.username} email={r.email} />
-            </Td>
-            <Td className="text-slate-500">{r.role ?? ""}</Td>
-            <Td fit>
-              {r.acknowledged_at ? (
-                <span className={chipClass("ok")}>Confirmed</span>
-              ) : (
-                <span className={chipClass("warn")}>Pending</span>
+        {rows.map((r) => {
+          const state = stateOf(r, grace, now);
+          const id = r.assignment_id ?? null;
+          const snoozed = isSnoozed(r, now);
+          const note = exemptionNote(r, fmt, now);
+          return (
+            <tr
+              key={r.id}
+              className={TR}
+              ref={canAct && id != null ? registerRow(id) : undefined}
+              tabIndex={canAct && id != null ? -1 : undefined}
+              aria-selected={canAct && id != null ? selected.has(id) : undefined}
+            >
+              {canAct && (
+                <Td fit className="print:hidden">
+                  {id != null && (
+                    <input
+                      type="checkbox"
+                      aria-label={`Select ${nameOf(r)}`}
+                      checked={selected.has(id)}
+                      disabled={busy}
+                      onChange={() => onToggle(id)}
+                      className="h-4 w-4 align-middle"
+                    />
+                  )}
+                </Td>
               )}
-            </Td>
-            <Td fit className="text-slate-500">
-              {r.acknowledged_at ? formatDateTime(r.acknowledged_at, fmt) : "—"}
-            </Td>
-            <Td fit className="text-slate-500">
-              <VersionCell row={r} />
-            </Td>
-            <Td fit className="text-slate-700">
-              <SignedCell name={r.acknowledged_at ? r.signed_name : null} />
-            </Td>
-            <Td fit className="text-slate-500">
-              <ReadTimeCell seconds={r.read_seconds} words={words} />
-            </Td>
-            <Td fit>
-              <ReachedEndCell reached={r.reached_end} />
-            </Td>
-          </tr>
-        ))}
+              <Td>
+                <PersonCell name={r.name} username={r.username} email={r.email} />
+              </Td>
+              <Td className="text-slate-500">{r.role ?? ""}</Td>
+              <Td fit>
+                <StatusCell row={r} state={state} fmt={fmt} />
+              </Td>
+              {/* The deadline is an instant (policy_assignments.due_at), so
+                  the instant formatter in the workspace zone; blank without
+                  one, and on an exempt row (no deadline applies). */}
+              <Td fit className="text-slate-500">
+                {r.due_at && !r.exempt ? f(r.due_at) : ""}
+              </Td>
+              <Td fit className="text-slate-500">
+                {r.acknowledged_at ? formatDateTime(r.acknowledged_at, fmt) : "—"}
+              </Td>
+              <Td fit className="text-slate-500">
+                <VersionCell row={r} />
+              </Td>
+              <Td fit className="text-slate-700">
+                <SignedCell name={r.acknowledged_at ? r.signed_name : null} />
+              </Td>
+              <Td fit className="text-slate-500">
+                <ReadTimeCell seconds={r.read_seconds} words={words} />
+              </Td>
+              <Td fit>
+                <ReachedEndCell reached={r.reached_end} />
+              </Td>
+              <Td className="text-slate-500">{note}</Td>
+              {canAct && (
+                <Td fit className="print:hidden">
+                  {id != null && (
+                    <div className="flex items-center justify-end gap-0.5">
+                      {state === "exempt" ? (
+                        <IconAction icon={<UserCheck />} label="Remove exemption" disabled={busy} onClick={() => void actions.unexempt([id])} />
+                      ) : (
+                        <>
+                          {state === "confirmed" ? (
+                            <IconAction icon={<RotateCcw />} label="Ask to re-confirm…" disabled={busy} onClick={() => void actions.reask([r])} />
+                          ) : (
+                            <IconAction icon={<CalendarPlus />} label="Extend due date…" disabled={busy} onClick={() => void actions.extend([r])} />
+                          )}
+                          <IconAction icon={<UserMinus />} label="Exempt…" disabled={busy} onClick={() => void actions.exempt([r])} />
+                          {state !== "confirmed" &&
+                            (snoozed ? (
+                              <IconAction
+                                icon={<BellRing />}
+                                label={`Unsnooze (reminders paused until ${f(r.snoozed_until!)})`}
+                                disabled={busy}
+                                onClick={() => void actions.unsnooze([id])}
+                              />
+                            ) : (
+                              <IconAction
+                                icon={<BellOff />}
+                                label={`Pause reminders until ${snoozeUntil}`}
+                                disabled={busy}
+                                onClick={() => void actions.snooze([r])}
+                              />
+                            ))}
+                        </>
+                      )}
+                    </div>
+                  )}
+                </Td>
+              )}
+            </tr>
+          );
+        })}
       </tbody>
     </Table>
   );
