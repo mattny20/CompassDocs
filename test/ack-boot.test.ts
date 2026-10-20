@@ -938,4 +938,124 @@ describe("the 1.10.1 additions against a 1.10.0 database, booted twice", () => {
     await db.query("DELETE FROM ack_outbox WHERE id = $1", [legacy.rows[0].id]);
     await assertSchema1101(db, "1.13.0 (E2) second boot");
   });
+
+  test("1.13.0 (D1): the three audience tables, their indexes and the UNIQUE come back on an upgrade boot; every person who owed a policy under 1.12.0 gets one open row dated from the marker, so the KPI sums and every roster are identical before and after; the flag is set; and a second boot moves nothing", async () => {
+    // A database shaped like 1.12.0: the three tables and the one-shot flag gone.
+    await db.query(`
+      DROP TABLE IF EXISTS policy_assignments;
+      DROP TABLE IF EXISTS policy_audience_rules;
+      DROP TABLE IF EXISTS policy_settings;
+      DELETE FROM settings WHERE key = 'policy_assignments_migrated';
+    `);
+    // More shape: a second active reader, a disabled one (never in the
+    // denominator), and a second policy nobody confirmed, all as 1.12.0
+    // wrote them.
+    const spaceId = (await db.query<{ id: number }>("SELECT space_id FROM documents WHERE ack_required = 1 ORDER BY id LIMIT 1")).rows[0].space_id;
+    await db.query(
+      `INSERT INTO users (username, name, email, role, status) VALUES
+         ('boot110_second', 'Second Reader', 'second@boot110.test', 'viewer', 'active'),
+         ('boot110_gone', 'Gone Reader', 'gone@boot110.test', 'viewer', 'disabled')`
+    );
+    const quiet = (
+      await db.query<{ id: number }>(
+        `INSERT INTO documents (space_id, title, slug, type, status, content, author, ack_required)
+         VALUES ($1, 'Boot 1.13 quiet policy', 'boot-113-quiet', 'policy', 'published', 'quiet text', 'boot', 1) RETURNING id`,
+        [spaceId]
+      )
+    ).rows[0].id;
+    await db.query("INSERT INTO doc_versions (document_id, title, content, author, note) VALUES ($1, 'Boot 1.13 quiet policy', 'quiet text', 'boot', 'Created')", [quiet]);
+    // What 1.12.0 showed, per policy: everyone active who can see the space
+    // (the fixture spaces are internal, so every active account) and who is
+    // current against the marker.
+    const LEGACY = `SELECT d.id AS document_id, u.id AS user_id,
+                           EXISTS (SELECT 1 FROM acknowledgements a WHERE a.document_id = d.id AND a.user_id = u.id
+                                     AND a.acknowledged_at >= d.ack_revision_at) AS current
+                    FROM documents d JOIN spaces s ON s.id = d.space_id JOIN users u ON u.status = 'active'
+                    WHERE (d.ack_required = 1 OR d.ack_retired_at IS NOT NULL) AND s.visibility IN ('public', 'internal')
+                    ORDER BY 1, 2`;
+    const before = (await db.query(LEGACY)).rows;
+    assert.ok(before.length >= 6, `the fixture has policies and people (${before.length})`);
+    assert.ok(before.some((r) => r.current), "and at least one current confirmation");
+    const privateSpaces = await db.query("SELECT COUNT(*)::int AS n FROM documents d JOIN spaces s ON s.id = d.space_id WHERE d.ack_required = 1 AND s.visibility = 'private'");
+    assert.equal(privateSpaces.rows[0].n, 0, "the legacy rule above is the whole audience: no private-space policy in this database");
+
+    const upgrade = boot(DB);
+    assert.ok(upgrade.ok, `the upgrade boot succeeds:\n${upgrade.out}`);
+    assert.match(upgrade.out, /\[ack\] policy audiences materialised: \d+ policy setting row\(s\) and \d+ assignment\(s\)/, "the migration ran and logged its counts");
+    await assertSchema1101(db, "1.13.0 (D1) upgrade boot");
+
+    const tables = await db.query<{ t: string }>(
+      "SELECT to_regclass('policy_settings')::text AS t UNION ALL SELECT to_regclass('policy_audience_rules')::text UNION ALL SELECT to_regclass('policy_assignments')::text"
+    );
+    assert.deepEqual(tables.rows.map((r) => r.t), ["policy_settings", "policy_audience_rules", "policy_assignments"], "the three tables exist");
+    const unique = await db.query<{ def: string }>(
+      "SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conrelid = 'policy_assignments'::regclass AND contype = 'u'"
+    );
+    assert.deepEqual(unique.rows.map((r) => r.def), ["UNIQUE (document_id, user_id)"], "one row per person and policy");
+    const rulesUnique = await db.query<{ def: string }>(
+      "SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conrelid = 'policy_audience_rules'::regclass AND contype = 'u'"
+    );
+    assert.deepEqual(rulesUnique.rows.map((r) => r.def), ["UNIQUE (document_id, kind, ref, effect)"]);
+    const partial = await db.query<{ indexdef: string }>(
+      "SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'idx_policy_assign_due'"
+    );
+    assert.match(partial.rows[0].indexdef, /USING btree \(due_at\) WHERE \(\(exempt_at IS NULL\) AND \(removed_at IS NULL\)\)/, "the due index covers the open rows only");
+    assert.equal(
+      (await db.query("SELECT value FROM settings WHERE key = 'policy_assignments_migrated'")).rows[0]?.value,
+      "1",
+      "the one-shot flag is set"
+    );
+
+    // The rows: the same people, the same currency, every row open, source
+    // 'space', the cycle dated from the marker (not the upgrade), one
+    // settings row per policy in space mode.
+    const AFTER = `SELECT pa.document_id, pa.user_id,
+                          EXISTS (SELECT 1 FROM acknowledgements a WHERE a.document_id = d.id AND a.user_id = u.id
+                                    AND a.acknowledged_at >= GREATEST(d.ack_revision_at, pa.cycle_started_at)) AS current
+                   FROM policy_assignments pa
+                   JOIN documents d ON d.id = pa.document_id
+                   JOIN users u ON u.id = pa.user_id AND u.status = 'active'
+                   WHERE pa.removed_at IS NULL AND pa.exempt_at IS NULL
+                   ORDER BY 1, 2`;
+    const after = (await db.query(AFTER)).rows;
+    assert.deepEqual(after, before, "every roster is identical, confirmation by confirmation");
+    const sums = (q: typeof before) => ({
+      eligible: q.length,
+      current: q.filter((r) => r.current).length,
+    });
+    assert.deepEqual(sums(after), sums(before), "so the KPI sums are identical");
+    const shape = (
+      await db.query<{ n: number; open: boolean; space: boolean; from_marker: boolean }>(
+        `SELECT COUNT(*)::int AS n, bool_and(removed_at IS NULL AND exempt_at IS NULL) AS open, bool_and(source = 'space') AS space,
+                bool_and(pa.cycle_started_at = d.ack_revision_at) AS from_marker
+         FROM policy_assignments pa JOIN documents d ON d.id = pa.document_id`
+      )
+    ).rows[0];
+    assert.equal(shape.n, before.length, "no row for a disabled account");
+    assert.deepEqual({ open: shape.open, space: shape.space, from_marker: shape.from_marker }, { open: true, space: true, from_marker: true });
+    const gone = (await db.query("SELECT id FROM users WHERE username = 'boot110_gone'")).rows[0].id;
+    assert.equal((await db.query("SELECT COUNT(*)::int AS n FROM policy_assignments WHERE user_id = $1", [gone])).rows[0].n, 0);
+    const settings = await db.query<{ n: number; space: boolean; auto: boolean }>(
+      "SELECT COUNT(*)::int AS n, bool_and(audience_mode = 'space') AS space, bool_and(assign_new_members = 1 AND exclude_stewards = 0) AS auto FROM policy_settings"
+    );
+    const policies = (await db.query("SELECT COUNT(*)::int AS n FROM documents WHERE ack_required = 1 OR ack_retired_at IS NOT NULL")).rows[0].n;
+    assert.deepEqual(settings.rows[0], { n: policies, space: true, auto: true }, "one settings row per policy, space mode, new joiners enrolled");
+
+    // Something a tenant does between boots that a re-run would undo: a row
+    // closed by hand (the way a manager's narrowing leaves it). A second
+    // boot must leave it closed: the materialisation is one-shot.
+    const second = (await db.query("SELECT id FROM users WHERE username = 'boot110_second'")).rows[0].id;
+    await db.query("UPDATE policy_assignments SET removed_at = now(), removed_reason = 'audience_narrowed' WHERE document_id = $1 AND user_id = $2", [quiet, second]);
+    const between = (await db.query(AFTER)).rows;
+    const reboot = boot(DB);
+    assert.ok(reboot.ok, `the second boot succeeds:\n${reboot.out}`);
+    assert.doesNotMatch(reboot.out, /policy audiences materialised/, "the migration did not run again");
+    assert.deepEqual((await db.query(AFTER)).rows, between, "nothing moved on the second boot");
+    assert.equal(
+      (await db.query("SELECT removed_reason FROM policy_assignments WHERE document_id = $1 AND user_id = $2", [quiet, second])).rows[0].removed_reason,
+      "audience_narrowed",
+      "the closed row stays closed"
+    );
+    await assertSchema1101(db, "1.13.0 (D1) second boot");
+  });
 });
