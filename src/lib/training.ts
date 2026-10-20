@@ -8,12 +8,9 @@ import {
   claimTrainingReminders,
   claimTrainingEscalations,
   claimRecertifications,
-  claimTrainingPeriod,
   getNotifyPrefsFor,
   getSetting,
   listUsers,
-  listTrainingDigestLeads,
-  teamTrainingRows,
   trainingOverview,
   trainingNeedsAttention,
   listTrainingDecks,
@@ -481,70 +478,16 @@ export async function monthlyTrainingEvidence(): Promise<void> {
   }
 }
 
-// --- Weekly team digest for group leads -------------------------------------
+// The weekly team digest for group leads moved to lib/team-digest in 1.14.0
+// (F4): it is called by the neutral orchestrator (lib/periodic) so a
+// workspace licensed for read confirmations alone still gets it, and its
+// claim key is 'team_digest_week' (isoWeekId lives in lib/periodic too).
 
-function isoWeekId(d: Date): string {
-  const t = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-  t.setUTCDate(t.getUTCDate() + 4 - (t.getUTCDay() || 7));
-  const yearStart = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
-  const week = Math.ceil(((t.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
-  return `${t.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
-}
-
-/**
- * Weekly sweep: each group lead gets one email summarizing where their
- * team(s) stand. Claimed once per ISO week (UTC) via the settings table.
- */
-export async function weeklyTeamDigest(): Promise<void> {
-  const leads = await listTrainingDigestLeads();
-  if (!leads.length) return;
-  const smtp = await getSmtpConfig();
-  if (!smtpConfigured(smtp)) return;
-  if (!(await claimTrainingPeriod("training_team_digest_week", isoWeekId(new Date())))) return;
-
-  const settings = await getAppSettings();
-  const origin = settings.custom_domain ? `https://${settings.custom_domain}` : "";
-  for (const lead of leads) {
-    const rows = await teamTrainingRows(lead.group_ids);
-    const byGroup = new Map<string, { open: number; overdue: number; done: number }>();
-    const now = Date.now();
-    for (const r of rows) {
-      const g = byGroup.get(r.group_name) ?? { open: 0, overdue: 0, done: 0 };
-      if (r.deck) {
-        if (r.completed_at) g.done += 1;
-        else {
-          g.open += 1;
-          if (r.due_at && new Date(r.due_at).getTime() < now) g.overdue += 1;
-        }
-      }
-      byGroup.set(r.group_name, g);
-    }
-    const summary = [...byGroup.entries()]
-      .map(
-        ([name, g]) =>
-          `- **${name}**: ${g.done} done · ${g.open} open${g.overdue ? ` · **${g.overdue} overdue**` : ""}`
-      )
-      .join("\n");
-    const { subject, text, html } = await renderEmail(
-      "training_team_digest",
-      {
-        lead_name: lead.name,
-        summary: summary || "- No training activity this week.",
-        team_url: `${origin}/training/team`,
-        org_name: settings.company_name,
-      },
-      origin
-    );
-    await sendMail([lead.email], subject, text, html).catch(() => {});
-  }
-}
-
-/** Hourly orchestrator for all training sweeps (instrumentation.ts). */
+/** Hourly orchestrator for the training sweeps (instrumentation.ts); the weekly digest is lib/periodic's. */
 export async function trainingHourly(): Promise<void> {
   if (!(await featureEnabled("training"))) return;
   await remindDueTraining().catch(() => {});
   await escalateOverdueTraining().catch(() => {});
   await recertifyDueTraining().catch(() => {});
   await monthlyTrainingEvidence().catch(() => {});
-  await weeklyTeamDigest().catch(() => {});
 }

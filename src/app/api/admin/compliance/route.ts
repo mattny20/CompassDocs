@@ -13,6 +13,8 @@ import {
   listAckLedgerAll,
   stampAckReminded,
   ackReminderSummary,
+  policyNeedsAttention,
+  complianceKpiExtras,
 } from "@/lib/db";
 import { requestAcknowledgement, enqueueReminder, sweepDefaults, workspaceDueDefaults } from "@/lib/compliance";
 import { audit, auditAck, actorFrom, ipFrom } from "@/lib/audit";
@@ -27,8 +29,10 @@ import {
   recertCsvCells,
   ledgerCsvCells,
   exemptionCsvCells,
+  matrixStatus,
 } from "@/lib/read-evidence";
 import { recertDueWithin } from "@/lib/ack-recert";
+import { RESET_MIN_PCT } from "@/lib/diff";
 import type { SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -137,8 +141,11 @@ export async function GET(req: Request) {
     // recert_months, effective_at, next_recert_at from the documents row
     // (G1), and (D2, 1.13.0) the same five the roster appends after them:
     // exempt_reason, exempt_by, exempt_until (filled on an exempt row,
-    // which is in no count; the matrix has no status column), snoozed_until
-    // and due_at. No IP column here: with_ip is false. Every cell goes through
+    // which is in no count), snoozed_until and due_at, then (1.14.0) the
+    // standing as the portal counts it, status (F1: confirmed | pending |
+    // overdue | exempt through matrixStatus with the policy's resolved
+    // grace), and the policy sets the policy belongs to, set (D3). No IP
+    // column here: with_ip is false. Every cell goes through
     // csvCell (quotes doubled, a formula-leading value prefixed with a
     // quote), so a name or a note that starts with = never runs when the
     // sheet opens; the header is MATRIX_CSV_HEADER in src/lib/read-evidence.
@@ -186,6 +193,8 @@ export async function GET(req: Request) {
             ...attestationCsvCells(r).map(esc),
             ...recert,
             ...exemptionCsvCells(r).map(esc),
+            esc(matrixStatus(r, d.overdue_grace_days)),
+            esc(d.set_names.join("; ")),
           ].join(",")
         );
       }
@@ -209,8 +218,11 @@ export async function GET(req: Request) {
             ...provenanceCells(provenance, r.version_id).map(esc),
             ...attestationCsvCells(r).map(esc),
             ...recert,
-            // No assignment row travels with a former staff member: five blanks.
+            // No assignment row travels with a former staff member: five blanks,
+            // then the standing their record holds (a confirmation).
             ...exemptionCsvCells({}).map(esc),
+            esc(matrixStatus({ acknowledged_at: r.acknowledged_at }, d.overdue_grace_days)),
+            esc(d.set_names.join("; ")),
           ].join(",")
         );
       }
@@ -234,13 +246,17 @@ export async function GET(req: Request) {
     });
   }
 
-  const [rows, users, candidates, manage, canExport, workspace] = await Promise.all([
+  const [rows, users, candidates, manage, canExport, workspace, attention, extras] = await Promise.all([
     complianceDocs(),
     complianceUserSummary(),
     ackCandidateDocs(),
     userHolds(user, "compliance.program_manage", { legacyMin: "admin" }),
     userHolds(user, "compliance.export", { legacyMin: "admin" }),
     workspaceDueDefaults(),
+    // The Needs attention queue and the three tile numbers the rows cannot
+    // add up (F1, 1.14.0): over the live policies, the same rows as the sums.
+    policyNeedsAttention(),
+    complianceKpiExtras(),
   ]);
 
   // The tiles count published policies only (G2, 1.11.0): a paused policy
@@ -285,7 +301,25 @@ export async function GET(req: Request) {
       // The Overdue tile (E1, 1.13.0): open rows past their due date and
       // grace with no current confirmation, summed over the live policies.
       overdue: active.reduce((n, d) => n + d.overdue, 0),
+      // The six tiles of 1.14.0 (F1), all over the live policies and
+      // additive to the keys above: the people with an overdue row (the
+      // Overdue tile's sub-line), the rows due inside seven days, pending
+      // (the new name of outstanding), the exempt rows (outside the
+      // denominator), the rows whose escalation fired, the rows under a
+      // running snooze (which never leaves the other numbers), and the
+      // policies whose confirmed text drifted past the re-ask threshold
+      // through kept edits.
+      overdue_people: users.filter((u) => u.overdue > 0).length,
+      due_7d: extras.due_7d,
+      pending: required - acked,
+      exempt: active.reduce((n, d) => n + d.exempt, 0),
+      escalated: extras.escalated,
+      snoozed: extras.snoozed,
+      drifted: active.filter((d) => d.drift_pct >= RESET_MIN_PCT).length,
     },
+    // The queue (F1): { rows, total, snoozed }, rows limited to 200 with
+    // total counted before the limit; a snoozed row is counted, not listed.
+    attention,
     docs,
     users,
     candidates,

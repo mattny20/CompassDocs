@@ -315,6 +315,8 @@ describe("CSV headers and the personal-data rule", () => {
   const SIX = ",statement,signed_name,identity_proof,recert_months,effective_at,next_recert_at";
   /** The five 1.13.0 (D2) columns: after the six, on both files. */
   const FIVE = ",exempt_reason,exempt_by,exempt_until,snoozed_until,due_at";
+  /** The two 1.14.0 columns (F1 status, D3 set): after the five, on the matrix. */
+  const TWO = ",status,set";
 
   const ledgerRow: LedgerCsvRow = {
     document_title: "Expenses",
@@ -340,13 +342,14 @@ describe("CSV headers and the personal-data rule", () => {
     account_removed: false,
   };
 
-  test("both export headers keep their legacy prefix, then the six 1.12.0 columns, then the five 1.13.0 columns", () => {
+  test("both export headers keep their legacy prefix, then the six 1.12.0 columns, then the five 1.13.0 columns; the matrix then the two of 1.14.0", () => {
     assert.ok(ROSTER_CSV_HEADER.startsWith(ROSTER_1110), "the roster header starts with the 1.11.0 columns");
     assert.ok(ROSTER_CSV_HEADER.startsWith(ROSTER_1110 + SIX), "the 1.12.0 columns are still in place");
     assert.equal(ROSTER_CSV_HEADER, ROSTER_1110 + SIX + FIVE);
     assert.ok(MATRIX_CSV_HEADER.startsWith(MATRIX_1101), "the matrix header starts with the 1.10.1 columns");
     assert.ok(MATRIX_CSV_HEADER.startsWith(MATRIX_1101 + SIX));
-    assert.equal(MATRIX_CSV_HEADER, MATRIX_1101 + SIX + FIVE);
+    assert.ok(MATRIX_CSV_HEADER.startsWith(MATRIX_1101 + SIX + FIVE), "the 1.13.0 columns are still in place");
+    assert.equal(MATRIX_CSV_HEADER, MATRIX_1101 + SIX + FIVE + TWO);
     assert.equal(`,${ATTESTATION_CSV_COLUMNS}`, SIX);
     assert.equal(`,${EXEMPTION_CSV_COLUMNS}`, FIVE);
   });

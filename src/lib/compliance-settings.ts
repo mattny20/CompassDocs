@@ -52,13 +52,31 @@ export interface AckDefaults extends AckDueDefaults {
    *  set to require read confirmation (setAckRequired); null = no cycle. One
    *  of RECERT_OPTIONS (null, 6, 12 or 24); a policy may set any 1..60 for itself. */
   recert_months: number | null;
+  /** "Group leads see policy standing" (F4, 1.14.0): whether leading a group
+   *  (group_leads) opens /compliance/team and the Policies section of the
+   *  weekly digest for that group's members, within the lead's own space
+   *  scope. compliance.team_read opens them regardless. Widening what every
+   *  existing lead can see is a permissions change, so a workspace that had
+   *  an ack_defaults row before 1.14.0 reads it as OFF until an admin turns
+   *  it on; a workspace with no row yet (a new install) reads it as ON. */
+  leads_see_policies: boolean;
 }
 
+/**
+ * The scheduled programme report (F2, 1.14.0): whether it goes out, weekly
+ * (the first tick of each ISO week) or monthly (with the monthly snapshot),
+ * and to whom (user ids; the route refuses an id that is not an active
+ * account). Read by lib/compliance-audit's weeklyComplianceReport and
+ * monthlyComplianceEvidence, edited through GET/PUT /api/admin/compliance/report.
+ */
 export interface AckReportSettings {
   enabled: boolean;
   cadence: "weekly" | "monthly";
-  recipients: { users: number[]; groups: number[] };
+  recipients: number[];
 }
+
+/** The most recipients a report takes. */
+export const REPORT_RECIPIENTS_MAX = 50;
 
 export interface ComplianceSettings {
   ack_defaults: AckDefaults;
@@ -74,9 +92,9 @@ export const STATEMENT_MAX = 300;
  *  DEFAULT_CONFIRMATION_STATEMENT); kept as a literal here because the card
  *  is a client component and this module is server-only. */
 export const COMPLIANCE_DEFAULTS: ComplianceSettings = {
-  ack_defaults: { edit_default: "ask", keep_reason_required: true, recert_months: null, ...NO_DUE_DEFAULTS },
+  ack_defaults: { edit_default: "ask", keep_reason_required: true, recert_months: null, leads_see_policies: true, ...NO_DUE_DEFAULTS },
   compliance_statement_default: "I confirm that I have read and understood this document.",
-  ack_report: { enabled: false, cadence: "weekly", recipients: { users: [], groups: [] } },
+  ack_report: { enabled: false, cadence: "weekly", recipients: [] },
 };
 
 // --- Reading --------------------------------------------------------------------
@@ -113,6 +131,12 @@ function normaliseAckDefaults(raw: Record<string, unknown> | null): AckDefaults 
     // Absent reads as the default (no cycle); so does a value the build does
     // not offer (a hand edit of 7), as edit_default treats an unknown mode.
     recert_months: raw && "recert_months" in raw && isRecertDefault(raw.recert_months) ? raw.recert_months : d.recert_months,
+    // Decided from the presence of the stored row (F4): no row (or an
+    // unreadable one) is a workspace that never saved program settings, which
+    // gets the default (on); a row without the key is an upgraded workspace,
+    // whose leads keep seeing what they saw (off) until an admin opts in.
+    leads_see_policies:
+      typeof raw?.leads_see_policies === "boolean" ? raw.leads_see_policies : raw === null ? d.leads_see_policies : false,
   };
 }
 
@@ -122,11 +146,17 @@ function idList(v: unknown): number[] {
 
 function normaliseReport(raw: Record<string, unknown> | null): AckReportSettings {
   const d = COMPLIANCE_DEFAULTS.ack_report;
-  const recipients = raw?.recipients && typeof raw.recipients === "object" ? (raw.recipients as Record<string, unknown>) : null;
+  // A list of user ids since 1.14.0; the {users, groups} shape the key was
+  // reserved with before then reads as its users.
+  const recipients = Array.isArray(raw?.recipients)
+    ? idList(raw.recipients)
+    : raw?.recipients && typeof raw.recipients === "object"
+      ? idList((raw.recipients as Record<string, unknown>).users)
+      : [];
   return {
     enabled: typeof raw?.enabled === "boolean" ? raw.enabled : d.enabled,
     cadence: raw?.cadence === "monthly" ? "monthly" : "weekly",
-    recipients: { users: idList(recipients?.users), groups: idList(recipients?.groups) },
+    recipients: [...new Set(recipients.filter((n) => n > 0))].slice(0, REPORT_RECIPIENTS_MAX),
   };
 }
 
@@ -158,17 +188,68 @@ export const getComplianceSettings = cache(readComplianceSettings);
 export interface ComplianceSettingsPatch {
   ack_defaults?: Partial<AckDefaults>;
   compliance_statement_default?: string;
+  /** The report block (F2): any subset; the recipients list replaces the stored one. */
+  ack_report?: Partial<AckReportSettings>;
 }
 
 export type PatchResult = { ok: true; patch: ComplianceSettingsPatch } | { ok: false; error: string };
 
-const ACK_DEFAULT_KEYS = new Set<keyof AckDefaults>(["edit_default", "keep_reason_required", "recert_months", ...DUE_NUMBER_KEYS]);
+const ACK_DEFAULT_KEYS = new Set<keyof AckDefaults>(["edit_default", "keep_reason_required", "recert_months", "leads_see_policies", ...DUE_NUMBER_KEYS]);
 const isDueKey = (k: string): k is DueNumberKey => (DUE_NUMBER_KEYS as readonly string[]).includes(k);
 /** "6, 12 or 24" for the error line, from the options the Select offers. */
 const RECERT_DEFAULT_LIST = RECERT_OPTIONS.filter((o) => o.months !== null)
   .map((o) => String(o.months))
   .reduce((acc, m, i, all) => (i === 0 ? m : i === all.length - 1 ? `${acc} or ${m}` : `${acc}, ${m}`), "");
-const TOP_KEYS = new Set<keyof ComplianceSettingsPatch>(["ack_defaults", "compliance_statement_default"]);
+const TOP_KEYS = new Set<keyof ComplianceSettingsPatch>(["ack_defaults", "compliance_statement_default", "ack_report"]);
+const REPORT_KEYS = new Set<keyof AckReportSettings>(["enabled", "cadence", "recipients"]);
+
+/**
+ * Validate the report block (F2): `enabled` a boolean, `cadence` weekly or
+ * monthly, `recipients` a list of up to REPORT_RECIPIENTS_MAX user ids
+ * (duplicates collapse). Pure; whether each id is an active account is
+ * checked by validateReportRecipients at save time. Used by
+ * parseComplianceSettingsPatch and by PUT /api/admin/compliance/report.
+ */
+export function parseAckReportPatch(value: unknown): { ok: true; patch: Partial<AckReportSettings> } | { ok: false; error: string } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { ok: false, error: '"ack_report" must be an object.' };
+  }
+  const patch: Partial<AckReportSettings> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (!REPORT_KEYS.has(k as keyof AckReportSettings)) {
+      return { ok: false, error: `Unknown setting "ack_report.${k}".` };
+    }
+    if (k === "enabled") {
+      if (typeof v !== "boolean") return { ok: false, error: '"ack_report.enabled" must be true or false.' };
+      patch.enabled = v;
+    } else if (k === "cadence") {
+      if (v !== "weekly" && v !== "monthly") return { ok: false, error: '"ack_report.cadence" must be weekly or monthly.' };
+      patch.cadence = v;
+    } else if (k === "recipients") {
+      if (!Array.isArray(v) || v.some((n) => !Number.isInteger(n) || (n as number) <= 0)) {
+        return { ok: false, error: '"ack_report.recipients" must be a list of user ids.' };
+      }
+      const ids = [...new Set(v as number[])];
+      if (ids.length > REPORT_RECIPIENTS_MAX) {
+        return { ok: false, error: `Choose up to ${REPORT_RECIPIENTS_MAX} recipients.` };
+      }
+      patch.recipients = ids;
+    }
+  }
+  return { ok: true, patch };
+}
+
+/**
+ * The recipients must be active accounts (a report goes to people who can
+ * act on it, never to a disabled or deleted account). Answers the sentence
+ * a route returns as its 400, or null when every id is fine.
+ */
+export async function validateReportRecipients(ids: readonly number[]): Promise<string | null> {
+  if (ids.length === 0) return null;
+  const { listUsers } = await import("./db");
+  const active = new Set((await listUsers()).filter((u) => u.status === "active").map((u) => u.id));
+  return ids.every((id) => active.has(id)) ? null : "Every recipient must be an active account.";
+}
 
 /**
  * Validate a request body. Every key is checked and an unknown one is
@@ -204,6 +285,11 @@ export function parseComplianceSettingsPatch(body: unknown): PatchResult {
             return { ok: false, error: '"ack_defaults.keep_reason_required" must be true or false.' };
           }
           inner.keep_reason_required = v;
+        } else if (k === "leads_see_policies") {
+          if (typeof v !== "boolean") {
+            return { ok: false, error: '"ack_defaults.leads_see_policies" must be true or false.' };
+          }
+          inner.leads_see_policies = v;
         } else if (k === "recert_months") {
           if (!isRecertDefault(v)) {
             return { ok: false, error: `"ack_defaults.recert_months" must be ${RECERT_DEFAULT_LIST} months, or null for never.` };
@@ -226,6 +312,10 @@ export function parseComplianceSettingsPatch(body: unknown): PatchResult {
         return { ok: false, error: `Keep the statement under ${STATEMENT_MAX} characters.` };
       }
       patch.compliance_statement_default = text;
+    } else if (key === "ack_report") {
+      const report = parseAckReportPatch(value);
+      if (!report.ok) return report;
+      patch.ack_report = report.patch;
     }
   }
   return { ok: true, patch };
@@ -277,7 +367,38 @@ export async function saveComplianceSettings(
     await setSetting("compliance_statement_default", statement);
   }
 
+  // The report block (F2): merged over what is stored, like ack_defaults;
+  // the recipients list is compared as a set.
+  if (patch.ack_report) {
+    const sameIds = (a: number[], b: number[]) => a.length === b.length && a.every((id) => b.includes(id));
+    const reportChanges: ComplianceSettingChange[] = [];
+    for (const k of Object.keys(patch.ack_report) as (keyof AckReportSettings)[]) {
+      const to = patch.ack_report[k];
+      if (to === undefined) continue;
+      const from = before.ack_report[k];
+      const same = k === "recipients" ? sameIds(from as number[], to as number[]) : from === to;
+      if (!same) reportChanges.push({ key: `ack_report.${k}`, from, to });
+    }
+    if (reportChanges.length) {
+      changes.push(...reportChanges);
+      await setSetting("ack_report", JSON.stringify({ ...before.ack_report, ...patch.ack_report }));
+    }
+  }
+
   for (const change of changes) {
+    if (change.key.startsWith("ack_report.")) {
+      // The report's own key (F2), so the Evidence surfaces filter on it.
+      await audit({
+        actor: by.actor,
+        action: "ack.report_settings",
+        targetType: "setting",
+        targetId: change.key,
+        targetLabel: change.key,
+        details: { key: change.key.slice("ack_report.".length), from: change.from, to: change.to },
+        ip: by.ip,
+      });
+      continue;
+    }
     const dueKey = change.key.startsWith("ack_defaults.") ? change.key.slice("ack_defaults.".length) : "";
     if (isDueKey(dueKey)) {
       // The deadline cascade's workspace layer (E1): the same action a

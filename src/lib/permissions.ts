@@ -84,6 +84,7 @@ export const PERMISSIONS = [
   { key: "compliance.export", label: "Export compliance records", description: "Download the attestation records as CSV", scope: "section" },
   { key: "compliance.program_manage", label: "Run compliance program", description: "Ask people to confirm, send reminders", scope: "section" },
   { key: "compliance.program_read", label: "Read compliance program", description: "Read-confirmation progress and who is still pending", scope: "section" },
+  { key: "compliance.team_read", label: "Read team policies", description: "See policy standing for groups you lead", scope: "global", principal: "lead" },
   // --- directory ---
   { key: "directory.field_manage", label: "Manage directory fields", description: "Define custom directory fields", scope: "global" },
   { key: "directory.person_manage", label: "Manage people", description: "Create/update/delete directory person records", scope: "global" },
@@ -770,6 +771,7 @@ export const SECTION_ROLES = {
       "compliance.export",
       "compliance.program_manage",
       "compliance.program_read",
+      "compliance.team_read",
       "document.ack_roster_read",
     ] as const satisfies readonly PermissionKey[],
   },

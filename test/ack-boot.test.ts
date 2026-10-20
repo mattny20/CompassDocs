@@ -1020,11 +1020,13 @@ describe("the 1.10.1 additions against a 1.10.0 database, booted twice", () => {
         ["policy_assignments", "policy_assignments_document_id_fkey", "c"],
         ["policy_assignments", "policy_assignments_user_id_fkey", "c"],
         ["policy_audience_rules", "policy_audience_rules_document_id_fkey", "c"],
+        // 1.14.0 (D3): the set that wrote a rule; a deleted set leaves the rule untagged.
+        ["policy_audience_rules", "policy_audience_rules_set_id_fkey", "n"],
         ["policy_settings", "policy_settings_document_id_fkey", "c"],
         ["policy_settings", "policy_settings_owner_user_id_fkey", "n"],
         ["policy_settings", "policy_settings_requested_by_fkey", "n"],
       ],
-      "the six FKs: CASCADE for the three document_id and the user_id, SET NULL for the owner and the requester"
+      "the seven FKs: CASCADE for the three document_id and the user_id, SET NULL for the owner, the requester and the rule's set"
     );
     const partial = await db.query<{ indexdef: string }>(
       "SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'idx_policy_assign_due'"
@@ -1137,5 +1139,111 @@ describe("the 1.10.1 additions against a 1.10.0 database, booted twice", () => {
       "and the settings row is back, in space mode"
     );
     await assertSchema1101(db, "1.13.0 (D1) second boot");
+  });
+
+  test("1.14.0 (D3): policy_sets, policy_set_docs, their index and the rules' set_id come back on an upgrade boot with the contracted references, a 1.13.0-shaped rule still inserts, a set written between boots survives, and a second boot moves nothing", async () => {
+    // A database shaped like 1.13.0: the two tables and the column gone (the
+    // column's foreign key goes with it).
+    await db.query(`
+      ALTER TABLE policy_audience_rules DROP COLUMN IF EXISTS set_id;
+      DROP TABLE IF EXISTS policy_set_docs;
+      DROP TABLE IF EXISTS policy_sets;
+    `);
+    const upgrade = boot(DB);
+    assert.ok(upgrade.ok, `the upgrade boot succeeds:\n${upgrade.out}`);
+    await assertSchema1101(db, "1.14.0 (D3) upgrade boot");
+
+    const tables = await db.query<{ t: string }>("SELECT to_regclass('policy_sets')::text AS t UNION ALL SELECT to_regclass('policy_set_docs')::text");
+    assert.deepEqual(tables.rows.map((r) => r.t), ["policy_sets", "policy_set_docs"], "both tables exist");
+    const shape = async () =>
+      (
+        await db.query<{ table_name: string; column_name: string; data_type: string; is_nullable: string; column_default: string | null }>(
+          `SELECT table_name, column_name, data_type, is_nullable, column_default FROM information_schema.columns
+           WHERE table_schema = current_schema()
+             AND (table_name IN ('policy_sets', 'policy_set_docs') OR (table_name = 'policy_audience_rules' AND column_name = 'set_id'))
+           ORDER BY table_name, column_name`
+        )
+      ).rows;
+    const expected = [
+      { table_name: "policy_audience_rules", column_name: "set_id", data_type: "integer", is_nullable: "YES", column_default: null },
+      { table_name: "policy_set_docs", column_name: "document_id", data_type: "integer", is_nullable: "NO", column_default: null },
+      { table_name: "policy_set_docs", column_name: "position", data_type: "integer", is_nullable: "NO", column_default: "0" },
+      { table_name: "policy_set_docs", column_name: "set_id", data_type: "integer", is_nullable: "NO", column_default: null },
+      { table_name: "policy_sets", column_name: "active", data_type: "integer", is_nullable: "NO", column_default: "1" },
+      { table_name: "policy_sets", column_name: "assign_new_members", data_type: "integer", is_nullable: "NO", column_default: "1" },
+      { table_name: "policy_sets", column_name: "created_at", data_type: "timestamp with time zone", is_nullable: "NO", column_default: "now()" },
+      { table_name: "policy_sets", column_name: "created_by", data_type: "integer", is_nullable: "YES", column_default: null },
+      { table_name: "policy_sets", column_name: "deactivated_at", data_type: "timestamp with time zone", is_nullable: "YES", column_default: null },
+      { table_name: "policy_sets", column_name: "description", data_type: "text", is_nullable: "NO", column_default: "''::text" },
+      { table_name: "policy_sets", column_name: "id", data_type: "integer", is_nullable: "NO", column_default: null },
+      { table_name: "policy_sets", column_name: "name", data_type: "text", is_nullable: "NO", column_default: null },
+    ];
+    assert.deepEqual(await shape(), expected, "the columns with their defaults (metadata-only: constant defaults, no backfill)");
+    const pk = await db.query<{ def: string }>("SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conrelid = 'policy_set_docs'::regclass AND contype = 'p'");
+    assert.deepEqual(pk.rows.map((r) => r.def), ["PRIMARY KEY (set_id, document_id)"], "one position per policy and set");
+    const fks = async () =>
+      (
+        await db.query<{ t: string; conname: string; confdeltype: string }>(
+          `SELECT conrelid::regclass::text AS t, conname, confdeltype FROM pg_constraint
+           WHERE contype = 'f' AND (conrelid IN ('policy_sets'::regclass, 'policy_set_docs'::regclass)
+                                    OR (conrelid = 'policy_audience_rules'::regclass AND conname = 'policy_audience_rules_set_id_fkey'))
+           ORDER BY 1, 2`
+        )
+      ).rows.map((r) => [r.t, r.conname, r.confdeltype]);
+    const expectedFks = [
+      ["policy_audience_rules", "policy_audience_rules_set_id_fkey", "n"],
+      ["policy_set_docs", "policy_set_docs_document_id_fkey", "c"],
+      ["policy_set_docs", "policy_set_docs_set_id_fkey", "c"],
+      ["policy_sets", "policy_sets_created_by_fkey", "n"],
+    ];
+    assert.deepEqual(await fks(), expectedFks, "a deleted set untags its rules and loses its members; a purged document leaves the set; a deleted creator reads as nobody");
+    const index = await db.query<{ indexdef: string }>(
+      "SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'idx_policy_set_docs_doc'"
+    );
+    assert.equal(index.rows.length, 1, "idx_policy_set_docs_doc exists");
+    assert.match(index.rows[0].indexdef, /USING btree \(document_id\)/);
+    assert.equal((await db.query("SELECT COUNT(*)::int AS n FROM policy_sets")).rows[0].n, 0, "the upgrade creates no set");
+
+    // A 1.13.0-shaped rule insert (what a rolled-back binary writes: no
+    // set_id) still works and reads as a manager's rule.
+    const policy = (await db.query<{ id: number }>("SELECT id FROM documents WHERE ack_required = 1 ORDER BY id LIMIT 1")).rows[0].id;
+    const legacy = await db.query<{ id: number; set_id: number | null }>(
+      "INSERT INTO policy_audience_rules (document_id, kind, ref, effect) VALUES ($1, 'role', 'viewer', 'include') RETURNING id, set_id",
+      [policy]
+    );
+    assert.equal(legacy.rows[0].set_id, null);
+
+    // A set written between boots (what createPolicySet and assignPolicySet
+    // write, done by hand so the boot is the only code under test) survives
+    // the next one untouched, members, tag and all.
+    const setId = (
+      await db.query<{ id: number }>(
+        "INSERT INTO policy_sets (name, description, assign_new_members) VALUES ('Boot onboarding', 'Day one', 1) RETURNING id"
+      )
+    ).rows[0].id;
+    await db.query("INSERT INTO policy_set_docs (set_id, document_id, position) VALUES ($1, $2, 0)", [setId, policy]);
+    await db.query("UPDATE policy_audience_rules SET set_id = $2 WHERE id = $1", [legacy.rows[0].id, setId]);
+    const second = boot(DB);
+    assert.ok(second.ok, `the second boot succeeds:\n${second.out}`);
+    assert.deepEqual(await shape(), expected, "the second boot leaves the shape alone");
+    assert.deepEqual(await fks(), expectedFks, "the references are still there");
+    const kept = await db.query<{ name: string; active: number; assign_new_members: number; members: number; tagged: number }>(
+      `SELECT p.name, p.active, p.assign_new_members,
+              (SELECT COUNT(*)::int FROM policy_set_docs sd WHERE sd.set_id = p.id) AS members,
+              (SELECT COUNT(*)::int FROM policy_audience_rules r WHERE r.set_id = p.id) AS tagged
+       FROM policy_sets p WHERE p.id = $1`,
+      [setId]
+    );
+    assert.deepEqual(kept.rows[0], { name: "Boot onboarding", active: 1, assign_new_members: 1, members: 1, tagged: 1 }, "the set is as written");
+    // Deleting the set: the members go with it, the rule stays untagged (the contracted ON DELETE rules at work).
+    await db.query("DELETE FROM policy_sets WHERE id = $1", [setId]);
+    assert.equal((await db.query("SELECT COUNT(*)::int AS n FROM policy_set_docs WHERE set_id = $1", [setId])).rows[0].n, 0);
+    assert.deepEqual(
+      (await db.query("SELECT set_id FROM policy_audience_rules WHERE id = $1", [legacy.rows[0].id])).rows,
+      [{ set_id: null }],
+      "the rule keeps its id, untagged"
+    );
+    await db.query("DELETE FROM policy_audience_rules WHERE id = $1", [legacy.rows[0].id]);
+    await assertSchema1101(db, "1.14.0 (D3) second boot");
   });
 });

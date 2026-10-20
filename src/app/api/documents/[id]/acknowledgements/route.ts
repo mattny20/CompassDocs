@@ -167,6 +167,44 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     return csvResponse(csv, `acknowledgements-ledger-doc-${doc.id}.csv`);
   }
 
+  if (format === "package") {
+    // The one-policy audit package (F2, 1.14.0): the same ZIP the programme
+    // exports, scoped to this policy (its rows, its ledger, its decisions,
+    // its notices, its audit rows, its retirement snapshot and the texts
+    // its confirmations cite), so a space steward can hand an auditor one
+    // policy's bundle. The roster permission opened the record; the file
+    // carries IPs and user agents, so it takes compliance.export or
+    // document.ack_require on the policy's own space. Audited as
+    // ack.audit_export once the stream has closed, with the bytes sent.
+    const mayRequire =
+      canExport || (await userHolds(user, "document.ack_require", { spaceId: doc.space_id, legacyMin: "approver" }));
+    if (!mayRequire) {
+      return NextResponse.json({ error: "You don't have permission for that." }, { status: 403 });
+    }
+    const { buildCompliancePackage } = await import("@/lib/compliance-audit");
+    const pkg = await buildCompliancePackage({ documentId: doc.id, by: user.name || user.username });
+    const actor = actorFrom(user);
+    const ip = ipFrom(req);
+    pkg.done
+      .then(({ bytes, policies }) =>
+        auditAck("ack.audit_export", doc, {
+          actor,
+          ip,
+          version_id: version.version_id,
+          version: version.rev,
+          details: { format: "package", document_id: doc.id, bytes, policies },
+        })
+      )
+      .catch((e) => console.error(`[ack] audit package of document ${doc.id}:`, e));
+    return new Response(pkg.stream, {
+      headers: {
+        "content-type": "application/zip",
+        "content-disposition": `attachment; filename="${pkg.filename}"`,
+        "cache-control": "no-store",
+      },
+    });
+  }
+
   if (view === "all") {
     // The ledger as JSON for the All confirmations view: every row, with
     // the two personal-data fields blank unless the caller may export.

@@ -4,7 +4,6 @@
 // ZIP of everything an auditor asks for, with a hash manifest). Server-only.
 
 import "server-only";
-import { createHash } from "node:crypto";
 import JSZip from "jszip";
 import {
   listTrainingDecks,
@@ -20,9 +19,11 @@ import {
 import { deckQuestions } from "@/lib/training";
 import { getAppSettings } from "@/lib/settings-store";
 import { currentVersion } from "@/lib/version";
+// The hash both audit packages use lives in lib/evidence (F2, 1.14.0);
+// re-exported here so every caller of training-audit's sha256Hex still finds it.
+import { sha256Hex } from "@/lib/evidence";
 
-export const sha256Hex = (s: string | Buffer): string =>
-  createHash("sha256").update(s).digest("hex");
+export { sha256Hex };
 
 export type MatrixCell = "completed" | "waived" | "overdue" | "open" | null;
 

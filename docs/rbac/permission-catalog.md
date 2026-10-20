@@ -225,13 +225,16 @@ Today there are **six** distinct principal types. Only the first carries a role 
 | `announcement.dismiss` | Dismiss announcement | Dismiss for yourself | global | V,E,A,Ad | self |
 | `announcement.manage` | Manage announcements | Post/edit/expire org-wide announcements with email + chat delivery | section | Sec(announcements) · Ad | High blast radius — reaches every inbox |
 
-### 3.13 `compliance` — 3 · **all EE:policy_ack**
+### 3.13 `compliance` — 4 · **all EE:policy_ack**
 
 | Key | Label | Description | Scope | Legacy roles |
 |---|---|---|---|---|
 | `compliance.program_read` | Read compliance program | Read-confirmation progress and who is still pending | section | Sec(compliance) · Ad |
 | `compliance.program_manage` | Run compliance program | Ask people to confirm, send reminders | section | Sec(compliance) · Ad |
 | `compliance.export` | Export compliance records | Download the attestation records as CSV | section | Sec(compliance) · Ad |
+| `compliance.team_read` | Read team policies | See policy standing for groups you lead | global | **L** (group leadership, when Program settings → *Group leads see policy standing* is on) · the Compliance manager role · any custom role (a holder sees every group) |
+
+`compliance.team_read` (1.14.0, F4) mirrors `training.team_read`: leading a group (`userLeadGroups`) opens `/compliance/team` and `GET /api/compliance/team` for that group's members, scoped to the policies in spaces the lead can read; unlike training, the leadership path is an opt-in (`ack_defaults.leads_see_policies`, off for workspaces upgraded with a saved program-settings row, on for new ones), because widening what every existing lead can see is a permissions change. The permission itself is role-grantable and opens every group.
 
 ### 3.14 `status` — 3
 

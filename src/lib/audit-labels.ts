@@ -106,8 +106,19 @@ export const AUDIT_LABELS: Record<string, string> = {
   "ack.due_moved": "Moved read confirmation deadlines",
   "ack.defaults_set": "Changed policy defaults",
   "ack.snapshot": "Took read confirmation snapshot",
+  "ack.snapshot_failed": "Could not take read confirmation snapshot",
+  "ack.snapshot_rewritten": "Rewrote read confirmation snapshot for an erasure",
   "ack.audit_export": "Exported read confirmation evidence",
+  "ack.report_settings": "Changed compliance report settings",
+  "ack.report_sent": "Sent compliance report",
   "ack.retention_purge": "Purged read confirmation records past retention",
+  "ack.record_exported": "Exported a person's compliance record",
+  // Policy sets (D3, 1.14.0)
+  "ack.set_created": "Created policy set",
+  "ack.set_updated": "Edited policy set",
+  "ack.set_deactivated": "Deactivated policy set",
+  "ack.set_deleted": "Deleted policy set",
+  "ack.set_assigned": "Assigned policy set",
 
   // Spaces and categories
   "space.create": "Created space",

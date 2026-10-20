@@ -15,7 +15,10 @@ export const dynamic = "force-dynamic";
 // each row carries the person's deadline (`due_at`, null without one) and
 // the state union has 'overdue' (the deadline plus the policy's grace has
 // passed), and the rows arrive in the page's order: overdue first, then the
-// soonest deadline, then the most recently changed.
+// soonest deadline, then the most recently changed. Since 1.14.0 (D3) each
+// row carries `set_names` (the active policy sets the policy belongs to, by
+// name; [] when none) and `set_position` (its 0-based place in the first of
+// them; null when none), so the page can group rows by set.
 export async function GET() {
   const gate = await apiGuard("viewer");
   if (gate instanceof NextResponse) return gate;
