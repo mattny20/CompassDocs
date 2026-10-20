@@ -1276,7 +1276,10 @@ describe("lifecycle guards (G2, 1.11.0): metadata paths, pauses, branches, side 
     assert.ok(!(await pendingFor(otherId)).some((d) => d.id === id), "and it leaves the dashboard row");
     // Published policies come first, paused ones after, so the portal's
     // split is also the query's order.
-    const docs = await complianceDocs();
+    // Retired policies (G3, 1.12.0) sort after the paused ones and keep
+    // their published status, so they are left out of this comparison:
+    // another test file's retired policy would otherwise sit between.
+    const docs = (await complianceDocs()).filter((d) => d.ack_retired_at === null);
     const lastLive = docs.map((d) => d.status).lastIndexOf("published");
     const firstPaused = docs.findIndex((d) => d.status !== "published");
     assert.ok(firstPaused >= 0 && (lastLive < 0 || lastLive < firstPaused), "paused rows sort after the live ones");

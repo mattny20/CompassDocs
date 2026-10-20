@@ -3,14 +3,18 @@ import {
   updateSpace,
   deleteSpace,
   getSpaceById,
+  getUserById,
   setSpaceGroups,
   getSpaceGroupIds,
   setSpaceSubscriptionGroups,
   setSpaceEditors,
   setSpaceEditorGroups,
+  canSeeSpace,
 } from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
+import { diffLayers, mergeLayer, parsePolicyDefaultsPatch, sanitizeLayer } from "@/lib/ack-due";
+import type { PolicyDefaultsLayer } from "@/lib/ack-due";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +23,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (gate instanceof NextResponse) return gate;
 
   const id = Number((await params).id);
-  if (!Number.isInteger(id) || !(await getSpaceById(id))) {
+  const existing = Number.isInteger(id) ? await getSpaceById(id) : undefined;
+  if (!existing) {
     return NextResponse.json({ error: "Space not found." }, { status: 404 });
   }
 
@@ -38,6 +43,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     visibility?: string;
     default_template_id?: number | null;
     default_view?: string;
+    policy_defaults?: PolicyDefaultsLayer;
   } = {};
   if (body?.name !== undefined) {
     const name = String(body.name).trim();
@@ -81,6 +87,32 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       return NextResponse.json({ error: "Unknown view." }, { status: 400 });
     }
     patch.default_view = body.default_view;
+  }
+
+  // Policy defaults (E1): the space layer of the deadline cascade. The body
+  // sends any subset of the seven numbers and owner_user_id; null clears a
+  // key (inherit from the workspace). Merged over what the space holds, so
+  // a partial save keeps the rest; each key that moves is audited below.
+  // The owner hears who is overdue on this space's policies by name (E2),
+  // so they must be an active account that can see the space, judged
+  // against the space as it stands (the ack-settings route refuses a
+  // policy's own owner with the same sentence).
+  let defaultsChanges: ReturnType<typeof diffLayers> = [];
+  if (body?.policy_defaults !== undefined) {
+    const parsed = parsePolicyDefaultsPatch(body.policy_defaults, { owner: true, prefix: "policy_defaults." });
+    if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
+    if (parsed.patch.owner_user_id != null) {
+      if (!(await getUserById(parsed.patch.owner_user_id))) {
+        return NextResponse.json({ error: "Owner not found." }, { status: 400 });
+      }
+      if (!(await canSeeSpace(parsed.patch.owner_user_id, id))) {
+        return NextResponse.json({ error: "The owner must be an active account that can see this space." }, { status: 400 });
+      }
+    }
+    const before = sanitizeLayer(existing.policy_defaults);
+    const next = mergeLayer(before, parsed.patch);
+    defaultsChanges = diffLayers(before, next);
+    patch.policy_defaults = next;
   }
 
   const space = await updateSpace(id, patch);
@@ -130,6 +162,17 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     },
     ip: ipFrom(req),
   });
+  for (const change of defaultsChanges) {
+    await audit({
+      actor: actorFrom(gate),
+      action: "ack.defaults_set",
+      targetType: "space",
+      targetId: id,
+      targetLabel: space?.name,
+      details: { scope: "space", space_id: id, key: change.key, from: change.from, to: change.to },
+      ip: ipFrom(req),
+    });
+  }
   return NextResponse.json({ space, groupIds });
 }
 

@@ -757,7 +757,7 @@ describe("ask everyone to re-confirm (A7)", () => {
     assert.equal((await pendingAckOutboxFor(id)).length, 1, "still one notice");
   });
 
-  test("a rollback leaves no marker, no row and no notice; a document that does not take confirmations is refused without a stamp; a per-person list is refused until D4", async () => {
+  test("a rollback leaves no marker, no row and no notice; a document that does not take confirmations is refused without a stamp; a per-person list leaves the marker where it is (D4)", async () => {
     const { id } = await confirmedPolicy(`${STAMP} rollback`);
     const before = await marker(id);
     const client = await pool().connect();
@@ -774,10 +774,20 @@ describe("ask everyone to re-confirm (A7)", () => {
     assert.equal((await pendingAckOutboxFor(id)).length, 0);
     assert.ok(await getCurrentAck(id, readerId), "the confirmation still counts");
 
-    await assert.rejects(
-      claimReconfirmation(null, id, { source: "manual", reason: "One person only", actor: manager(), userIds: [readerId] }),
-      /audiences/
+    // A per-person list (D4) is the other statement: the reader's row is
+    // re-opened (test/ack-reask.test.ts has the rest) and the document
+    // marker stays where it is.
+    await fixtureQuery(
+      `INSERT INTO policy_assignments (document_id, user_id, source) VALUES ($1, $2, 'space')
+       ON CONFLICT (document_id, user_id) DO UPDATE SET removed_at = NULL, exempt_at = NULL`,
+      [id, readerId]
     );
+    const one = await claimReconfirmation(null, id, { source: "manual", reason: "One person only", actor: manager(), userIds: [readerId] });
+    assert.equal(one.claimed, true);
+    if (!one.claimed) throw new Error("unreachable");
+    assert.equal(one.scope, "users");
+    assert.deepEqual(one.user_ids, [readerId]);
+    assert.deepEqual(await marker(id), before, "a per-person ask never moves the marker");
 
     await setAckRequired(id, false);
     const off = await claimReconfirmation(null, id, { source: "manual", reason: "Requirement is off now", actor: manager() });

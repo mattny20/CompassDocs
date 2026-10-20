@@ -9,10 +9,14 @@
 // Retired group under Paused (G3: frozen counts, the reason, the
 // replacement, the record and the CSV, Un-retire), "Retire policy…" on the
 // live rows, the "Next re-confirmation {date}" meta text (G1) and the
-// Record tab's AckRoster inside the expand row (C4).
+// Record tab's AckRoster inside the expand row (C4). 1.13.0 gives each live
+// row an icon button to the policy's Settings tab (D1), a second meta line,
+// "+6 enrolled this week" (D1), the deadline rule with the overdue count
+// (E1) and the reminder cadence in place of the bare "last reminded" (E2).
 
 import { useCallback, useEffect, useRef } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   ShieldOff,
   FileCheck,
@@ -25,6 +29,7 @@ import {
   Archive,
   ArchiveRestore,
   ClipboardCheck,
+  Settings2,
   X,
 } from "lucide-react";
 import { LoadingRow } from "@/components/Spinner";
@@ -38,6 +43,8 @@ import { ReconfirmButton } from "@/components/ReconfirmButton";
 import { EDIT_DEFAULT_CHIP, EDIT_DEFAULT_OPTIONS, people } from "@/components/compliance/copy";
 import type { EditDefault } from "@/lib/compliance-settings";
 import { recertPortalLine } from "@/lib/ack-recert";
+import { portalDueLine } from "@/lib/ack-due";
+import { reminderSubtitle } from "@/lib/ack-remind";
 import { timeAgo } from "@/lib/ui";
 import { useFormatDate } from "@/components/SettingsProvider";
 import { usePortal, type DecisionBrief, type DocRow, type Portal, type PortalPageProps } from "./use-portal";
@@ -55,6 +62,41 @@ function askedLine(x: DecisionBrief, date: (iso: string) => string): string {
   if (x.decided_by_name) line += ` by ${x.decided_by_name}`;
   if (x.reason) line += `: ${x.reason}`;
   return line;
+}
+
+/**
+ * The row's first meta line: when the text changed, who joined the audience
+ * this week (D1) and the deadline rule with the overdue count (E1): "Updated
+ * 3 Oct 2026 · +6 enrolled this week · Due 29 Oct 2026 · 12 overdue". The
+ * rule's fixed date is a calendar day (the day formatter); a row from a
+ * server without a rule says nothing about a deadline.
+ */
+function audienceLine(d: DocRow, fmt: { date: (iso: string) => string; day: (ymd: string) => string }): string {
+  const parts = [`Updated ${fmt.date(d.updated_at)}`];
+  if ((d.enrolled_week ?? 0) > 0) parts.push(`+${d.enrolled_week} enrolled this week`);
+  if (d.due_rule) parts.push(portalDueLine(d.due_rule, { due_days: d.due_rule.resolved_days }, d.overdue ?? 0, fmt.day));
+  return parts.join(" · ");
+}
+
+/**
+ * The row's second meta line: the reminders and the cycle. "last reminded 2
+ * days ago · next automatic reminder 29 Oct 2026" from the sweep's summary
+ * (E2: the manual Remind and the automatic cadence stamp the same rows, so
+ * one sentence covers both), "never reminded" when nobody has been, and the
+ * stored next cycle date (G1) after it. A row from a server without the
+ * summary keeps the 1.12.0 wording from the policy's own reminder stamp.
+ */
+function reminderLine(d: DocRow, fmt: { date: (iso: string) => string; day: (ymd: string) => string }): string {
+  const summary = d.reminder ? reminderSubtitle(d.reminder, fmt.date) : null;
+  const reminded = summary
+    ? d.reminder!.last_reminded_at
+      ? summary
+      : `never reminded · ${summary}`
+    : d.ack_last_reminded_at
+      ? `last reminded ${timeAgo(d.ack_last_reminded_at)}`
+      : "never reminded";
+  const recert = recertPortalLine(d, fmt.day);
+  return recert ? `${reminded} · ${recert}` : reminded;
 }
 
 /** "Edited 3 times since v12 without re-asking · 7.8% drift" (the number feeds the needs-attention queue later). */
@@ -113,6 +155,26 @@ export function PortalPolicies({ licensed, canManageLicense = false }: PortalPag
       if (moved == null) pendingFocus.current = null;
     });
   };
+
+  // The escalation notice's link (E2, 1.13.0): /compliance/policies?policy={id}
+  // opens that policy's roster and brings the row into view once the
+  // payload has loaded, with focus on its disclosure button, so the owner
+  // lands on the overdue people rather than on a folded list. Once per id:
+  // a row folded afterwards stays folded. A paused or retired policy has no
+  // roster here and is left alone.
+  const searchParams = useSearchParams();
+  const wanted = Number(searchParams.get("policy")) || null;
+  const wantedOpened = useRef<number | null>(null);
+  const { openRoster } = portal;
+  useEffect(() => {
+    if (wanted == null || !payload || wantedOpened.current === wanted) return;
+    if (!payload.docs.some((d) => d.id === wanted && d.status === "published" && d.ack_retired_at === null)) return;
+    wantedOpened.current = wanted;
+    void openRoster(wanted);
+    const el = rowFocus.current.get(wanted);
+    el?.scrollIntoView({ block: "start" });
+    el?.focus({ preventScroll: true });
+  }, [wanted, payload, openRoster]);
 
   if (!portal.data) return <PortalFallback licensed={licensed} canManageLicense={canManageLicense} portal={portal} />;
   const { data, isBusy, busy, open, rosters, candidate, setCandidate, previewing } = portal;
@@ -230,14 +292,10 @@ export function PortalPolicies({ licensed, canManageLicense = false }: PortalPag
                           <span className="block truncate text-sm font-medium text-slate-800">
                             {d.space_icon} {d.title}
                           </span>
-                          <span className="block text-xs text-slate-500">
-                            Updated {fmt.date(d.updated_at)} ·{" "}
-                            {d.ack_last_reminded_at
-                              ? `last reminded ${timeAgo(d.ack_last_reminded_at)}`
-                              : "never reminded"}
-                            {/* The stored next cycle date (G1), when the policy has one: a calendar day, so the day formatter. */}
-                            {recertPortalLine(d, fmt.day) && ` · ${recertPortalLine(d, fmt.day)}`}
-                          </span>
+                          {/* Two meta lines (1.13.0): the audience and the
+                              deadline, then the reminders and the cycle. */}
+                          <span className="block text-xs text-slate-500">{audienceLine(d, fmt)}</span>
+                          <span className="block text-xs text-slate-500">{reminderLine(d, fmt)}</span>
                           {lastAsk(d) && (
                             <span className="block text-xs text-slate-500">
                               {askedLine(lastAsk(d)!, fmt.date)}
@@ -357,6 +415,21 @@ export function PortalPolicies({ licensed, canManageLicense = false }: PortalPag
                             Retire policy…
                           </Button>
                         )}
+                        {can.manage && (
+                          // The policy's Settings tab (D1, 1.13.0): who must
+                          // confirm, the deadline, the reminders and the
+                          // rest live on the record's page, not here; the
+                          // guard there is ack_require on the space or
+                          // program_manage, which `manage` is.
+                          <Link
+                            href={`/doc/${d.id}/acknowledgements/settings`}
+                            data-tt="Read confirmation settings"
+                            aria-label="Read confirmation settings"
+                            className={iconButtonClass("bordered", "sm")}
+                          >
+                            <Settings2 />
+                          </Link>
+                        )}
                         {can.export && (
                           <a
                             href={`/api/documents/${d.id}/acknowledgements?format=csv`}
@@ -374,7 +447,7 @@ export function PortalPolicies({ licensed, canManageLicense = false }: PortalPag
                     <div className="border-t border-slate-100 bg-slate-50/60">
                       {!roster ? (
                         <LoadingRow className="py-3" />
-                      ) : roster.length === 0 ? (
+                      ) : roster.rows.length === 0 ? (
                         <SectionEmpty className="px-4 py-4">
                           No one is expected to confirm this policy yet.
                         </SectionEmpty>
@@ -386,9 +459,25 @@ export function PortalPolicies({ licensed, canManageLicense = false }: PortalPag
                         // word count (no read-time threshold without the
                         // text); the IP column follows compliance.export.
                         // Frameless: the strip's tint frames the table, not
-                        // a second card inside the row.
+                        // a second card inside the row. 1.13.0: the row and
+                        // bulk actions post to the portal's assignments
+                        // route (program_manage holders act; everyone else
+                        // reads), the Overdue chip reads the policy's
+                        // resolved grace, and every action reloads this
+                        // roster and the counts above it.
                         <div className="px-4 py-3">
-                          <AckRoster docId={d.id} rows={roster} canSeeIp={can.export} fmt={fmt.settings} frame={false} />
+                          <AckRoster
+                            docId={d.id}
+                            title={d.title}
+                            rows={roster.rows}
+                            canSeeIp={can.export}
+                            fmt={fmt.settings}
+                            frame={false}
+                            endpoint="/api/admin/compliance/assignments"
+                            can={{ act: can.manage }}
+                            grace={roster.grace}
+                            onChanged={() => void portal.reloadRoster(d.id)}
+                          />
                         </div>
                       )}
                     </div>

@@ -18,6 +18,9 @@ export interface KeyOption {
  * `extra` renders a per-row control between the label and the row's
  * buttons (the export preset's "Wrap after" input); the row keeps its
  * recipe, so the list columns card and the preset editor stay one list.
+ * `removable={false}` is the same list for a set that is only reordered,
+ * never added to or taken from (the export's Section order): no Remove, no
+ * add menu.
  */
 export function OrderedKeyList({
   value,
@@ -26,6 +29,7 @@ export function OrderedKeyList({
   minimum = 1,
   addLabel = "+ Add a column…",
   extra,
+  removable = true,
 }: {
   value: string[];
   onChange: (next: string[]) => void;
@@ -34,6 +38,8 @@ export function OrderedKeyList({
   addLabel?: string;
   /** A small control for one row, given its key and label. */
   extra?: (key: string, label: string) => React.ReactNode;
+  /** Whether rows can be removed and others added; false for a fixed set in an order. */
+  removable?: boolean;
 }) {
   const label = (k: string) => available.find((a) => a.key === k)?.label ?? k;
   const unused = available.filter((a) => !value.includes(a.key));
@@ -61,21 +67,23 @@ export function OrderedKeyList({
               <button type="button" onClick={() => move(i, 1)} disabled={i === value.length - 1} data-tt="Move down" aria-label={`Move ${label(k)} down`} className={iconButtonClass("quiet", "sm")}>
                 <ArrowDown />
               </button>
-              <button
-                type="button"
-                onClick={() => onChange(value.filter((c) => c !== k))}
-                disabled={value.length <= minimum}
-                data-tt="Remove"
-                aria-label={`Remove ${label(k)}`}
-                className={iconButtonClass("quiet", "sm")}
-              >
-                <X />
-              </button>
+              {removable && (
+                <button
+                  type="button"
+                  onClick={() => onChange(value.filter((c) => c !== k))}
+                  disabled={value.length <= minimum}
+                  data-tt="Remove"
+                  aria-label={`Remove ${label(k)}`}
+                  className={iconButtonClass("quiet", "sm")}
+                >
+                  <X />
+                </button>
+              )}
             </span>
           </div>
         ))}
       </div>
-      {unused.length > 0 && (
+      {removable && unused.length > 0 && (
         // hasError={false}: a wrapping Field's error belongs to one row's
         // extra control, not to the add menu. w-full max-w-64: 16rem, but
         // never wider than a phone's card.

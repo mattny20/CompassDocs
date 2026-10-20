@@ -17,7 +17,9 @@ const stamp = () => `${Date.now()}${Math.floor(Math.random() * 1000)}`;
 const PARA = `Policy text long enough to need scrolling. ${"Lorem ipsum dolor sit amet consectetur adipiscing elit. ".repeat(10)}`;
 const BODY = Array.from({ length: 14 }, (_, i) => `## Section ${i + 1}\n\n${PARA}`).join("\n\n");
 
-const POINTER = "Please read this document carefully. You'll be asked to confirm at the end.";
+// Since 1.13.0 (E1) every enrolled person has a deadline, so the strip's one
+// sentence ends " by {date}." (e2e/my-policies.spec.ts covers the cues).
+const POINTER = /^Please read this document carefully\. You'll be asked to confirm at the end( by .+)?\.$/;
 const STATEMENT = "I confirm that I have read and understood this document.";
 const CONFIRM = "I've read and understood this";
 const CONFIRMED = /You confirmed (version \d+|reading this document) on /;
@@ -1102,8 +1104,9 @@ test("API: a no-op merge still records the branch, and GET /ack on a draft follo
 // and no disclosure: nothing changed to show. Licensed builds only (see
 // above).
 
-const CHANGED_SINCE = /^This document changed since you confirmed it on .+\. Please read the changes and confirm again\.$/;
-const ASKED_AGAIN = /^Everyone was asked to confirm this document again on .+\. Please read it and confirm again\.$/;
+const CHANGED_SINCE = /^This document changed since you confirmed it on .+\. Please read the changes and confirm again( by .+)?\.$/;
+const ASKED_AGAIN = /^Everyone was asked to confirm this document again on .+\. Please read it and confirm again( by .+)?\.$/;
+const ASKED_YOU = /^.+ asked you to confirm this document again on .+\. Please read it and confirm again( by .+)?\.$/;
 
 /** Confirm the newest version through the API; returns that version's id. */
 async function confirmLatestVersion(page: Page, docId: number): Promise<number> {
@@ -1266,6 +1269,105 @@ test("a manual re-ask with no text change: the reason line, an honest strip sent
     expect((await rosterCount(page, docId)).confirmed).toBe(1);
   } finally {
     if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
+  }
+});
+
+// 1.13.0 (D4): a per-person re-ask lapses one person's confirmation and
+// leaves the document marker alone, so the page tells each reader their own
+// story: the person asked reads who asked them and why; someone lapsed by an
+// earlier whole-audience ask reads that one, never the other person's reason.
+test("a per-person re-ask: the person asked reads their own reason on the strip and the card; someone lapsed by the earlier whole-audience ask reads that one", async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(120_000);
+  await login(page, ADMIN);
+  const suffix = stamp();
+  const title = `E2E ack per-person ${suffix}`;
+  const viewer = { username: `e2e_reask_${suffix}`, password: "E2eReask!12345" };
+  let docId: number | undefined;
+  let viewerId: number | undefined;
+  try {
+    docId = await makePolicy(page, title);
+    test.skip(
+      (await requireConfirmation(page, docId)) === "unlicensed",
+      "policy_ack is not licensed in this build; the EE rig runs the flow"
+    );
+    // A viewer created after the switch-on is enrolled on arrival (D1).
+    const created = await api(page, "/api/admin/users", {
+      method: "POST",
+      body: { ...viewer, role: "viewer", name: "E2E Re-ask Viewer" },
+    });
+    expect(created.status, "viewer created").toBe(201);
+    viewerId = created.body?.user?.id;
+    expect(viewerId).toBeTruthy();
+
+    const ctx = await browser.newContext();
+    try {
+      const vpage = await ctx.newPage();
+      await login(vpage, viewer);
+
+      // Both confirm; then everyone is asked again (A7) and both lapse.
+      const versionId = await confirmLatestVersion(page, docId);
+      const confirmAs = async (as: Page) => {
+        const r = await api(as, `/api/documents/${docId}/ack`, { method: "POST", body: { version_id: versionId } });
+        expect(r.status, "confirmed").toBe(200);
+      };
+      await confirmAs(vpage);
+      expect((await rosterCount(page, docId)).confirmed).toBe(2);
+      const ALL = "Section 4 now applies to contractors too";
+      const everyone = await api(page, `/api/documents/${docId}/ack/reconfirm`, { method: "POST", body: { reason: ALL } });
+      expect(everyone.status, "everyone asked").toBe(200);
+      expect((await rosterCount(page, docId)).confirmed).toBe(0);
+
+      // The viewer confirms again; then the viewer alone is asked again (D4).
+      await confirmAs(vpage);
+      expect((await rosterCount(page, docId)).confirmed).toBe(1);
+      const ONE = "Your confirmation took three seconds; please read it properly";
+      const one = await api(page, `/api/documents/${docId}/ack/reconfirm`, {
+        method: "POST",
+        body: { reason: ONE, user_ids: [viewerId] },
+      });
+      expect(one.status, "one person asked").toBe(200);
+      expect(one.body?.user_ids).toEqual([viewerId]);
+      expect(one.body?.skipped).toEqual([]);
+      expect((await rosterCount(page, docId)).confirmed).toBe(0);
+
+      // The viewer: their own sentence on the strip, the asker's reason on
+      // the card, no disclosure (nothing changed to show), the sticky link.
+      await vpage.goto(`/doc/${docId}`);
+      await expect(vpage.locator("h1")).toContainText(title);
+      await expect(vpage.getByText(ASKED_YOU)).toBeVisible();
+      await expect(vpage.getByText(ASKED_AGAIN)).toHaveCount(0);
+      const vcard = vpage.locator("#confirm-reading");
+      await expect(vcard.getByText(new RegExp(`^.+ asked you to confirm this document again on .+: "${ONE}"$`))).toBeVisible();
+      await expect(vcard.locator("details")).toHaveCount(0);
+      await vpage.locator("#main").evaluate((el) => el.scrollTo(0, 600));
+      await vpage.waitForTimeout(400);
+      await expect(vpage.getByRole("link", { name: "Re-confirm needed" })).toBeVisible();
+
+      // The admin, lapsed by the whole-audience ask: that sentence and that
+      // reason, and nothing of the viewer's.
+      await page.goto(`/doc/${docId}`);
+      await expect(page.getByText(ASKED_AGAIN)).toBeVisible();
+      await expect(page.getByText(ASKED_YOU)).toHaveCount(0);
+      const card = page.locator("#confirm-reading");
+      await expect(card.getByText(new RegExp(`^.+ asked everyone to confirm this document again on .+: "${ALL}"$`))).toBeVisible();
+      await expect(card.getByText(ONE)).toHaveCount(0);
+
+      // The viewer confirms the same version again: current, and the
+      // ledger keeps every row.
+      await vcard.getByRole("button", { name: CONFIRM }).click();
+      await expect(vpage.locator('[role="status"]').getByText("Confirmation recorded.")).toBeVisible();
+      await expect(vcard.getByText(/^You confirmed version 1 on /)).toBeVisible();
+      await expect(vpage.getByText(ASKED_YOU)).toHaveCount(0);
+      expect((await rosterCount(page, docId)).confirmed).toBe(1);
+    } finally {
+      await ctx.close();
+    }
+  } finally {
+    if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
+    if (viewerId) await api(page, `/api/admin/users/${viewerId}`, { method: "DELETE" });
   }
 });
 

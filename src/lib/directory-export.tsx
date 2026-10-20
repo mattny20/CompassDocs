@@ -20,10 +20,16 @@ import {
   columnLabel,
   compareByKeys,
   formatName,
+  groupHeads,
   groupPeople,
+  headsLabel,
   initialsOf,
+  leadWithHeads,
   matchesValue,
+  orderGroups,
   pinnedFirst,
+  registryHasHeads,
+  sectionsHeadedBy,
   type NameFormat,
   type PersonLike,
 } from "./directory-display";
@@ -47,6 +53,14 @@ export interface ExportInput {
    *  an export of the people on screen still shows an assistant's phone when
    *  the assistant is off screen. Defaults to `people`. */
   lookup?: DirectoryPerson[];
+  /**
+   * The rows this file prints, among the people the preset covers; absent,
+   * all of them. The zip's one-file-per-section passes the section's
+   * members here with the whole population in `people`, so the file's
+   * section heads are drawn from everyone the export covers and lead the
+   * file as they lead the single-file export.
+   */
+  only?: (p: DirectoryPerson) => boolean;
   fields: DirectoryField[];
   company: string;
   /** A data: URL of a PNG or JPEG logo, when the preset wants one and one exists. */
@@ -76,8 +90,23 @@ export interface PreparedColumn {
 
 export interface PreparedSection {
   label: string | null;
+  /** The section's heads first (marked Head), then its members; a head who
+   *  is also a member is in here once, at the top. */
   rows: DirectoryPerson[];
+  /** The first `heads.length` rows: the section's heads, in the option's
+   *  order. Empty for a section without any, for a preset with Section
+   *  heads first off, and for every export before 1.13.0. */
+  heads: DirectoryPerson[];
 }
+
+/** The text after a section heading's count: " · Head: Jane Smith", "" for none. */
+export function sectionMeta(section: Pick<PreparedSection, "heads">, nameFormat: NameFormat): string {
+  const line = headsLabel(section.heads.map((h) => formatName(h.name, nameFormat)));
+  return line ? ` · ${line}` : "";
+}
+
+/** What a head row's name cell carries after the name. */
+const HEAD_SUFFIX = " · Head";
 
 export interface PreparedExport {
   title: string;
@@ -91,10 +120,14 @@ export interface PreparedExport {
   markers: ExportMarker[];
   /** How names are written in the name cell, the cards and the assistant column. */
   nameFormat: NameFormat;
+  /** Whether rows end with the "Section head of" column: any sections field in the registry has a head. */
+  headsColumn: boolean;
   /** A cell's text: the display value, with the name carrying its marker
    *  symbols and format and the assistant column carrying the preset's
-   *  assistant details (each assistant's name marked and formatted too). */
-  cell: (p: DirectoryPerson, key: string) => string;
+   *  assistant details (each assistant's name marked and formatted too).
+   *  `head` marks the name cell of a section's head row (" · Head"); the
+   *  CSV never passes it, its column carries the sections instead. */
+  cell: (p: DirectoryPerson, key: string, head?: boolean) => string;
 }
 
 const PAPER: Record<ExportPreset["paper"], "LETTER" | "A4" | "LEGAL"> = {
@@ -117,7 +150,11 @@ function matchesFilter(p: DirectoryPerson, filter: ExportPreset["filter"], field
 /** Filter, sort, group and size the table — shared by the PDF and the CSV. */
 export function prepareExport(input: Omit<ExportInput, "logo" | "printedOn">): PreparedExport {
   const { preset, fields } = input;
-  const visible = input.people.filter((p) => p.hidden !== 1 && matchesFilter(p, preset.filter, fields));
+  // Everyone the export covers (the filter, the ids and the viewer's scope
+  // apply), then the rows this file prints among them (`only`: the same
+  // list unless one export is being split into files).
+  const covered = input.people.filter((p) => p.hidden !== 1 && matchesFilter(p, preset.filter, fields));
+  const visible = input.only ? covered.filter(input.only) : covered;
   const sorted = [...visible].sort(
     compareByKeys(fields, [
       { key: preset.sort, dir: preset.sort_dir === "desc" ? -1 : 1 },
@@ -127,12 +164,25 @@ export function prepareExport(input: Omit<ExportInput, "logo" | "printedOn">): P
 
   const sections: PreparedSection[] = [];
   const { pinned, rest } = preset.pinned_first ? pinnedFirst(sorted) : { pinned: [], rest: sorted };
-  if (pinned.length) sections.push({ label: "Key contacts", rows: pinned });
+  if (pinned.length) sections.push({ label: "Key contacts", rows: pinned, heads: [] });
   const groupField = preset.group_by ? fields.find((f) => f.key === preset.group_by && f.group_by) : undefined;
   if (groupField) {
-    for (const g of groupPeople(rest, groupField)) sections.push({ label: `${g.label}`, rows: g.members });
+    // A section's heads lead it, drawn from the people this export covers
+    // (a head the filter or the ids leave out is not in the file; a file of
+    // a split export draws from the whole export), unless the preset
+    // switched Section heads first off. A field without any heads makes the
+    // sections it always made.
+    const headsOn = (preset.section_heads ?? true) && groupField.options.some((o) => (o.heads?.length ?? 0) > 0);
+    const printed = new Map(covered.map((p) => [p.id, p]));
+    // The field's own order (options first, then the rest alphabetically,
+    // "No <field>" last), with the preset's section order moved to the
+    // front; an empty order leaves it as it is.
+    for (const g of orderGroups(groupPeople(rest, groupField), preset.section_order ?? [])) {
+      const heads = headsOn ? groupHeads(groupField, g.key, printed) : [];
+      sections.push({ label: `${g.label}`, rows: leadWithHeads(g.members, heads), heads });
+    }
   } else {
-    sections.push({ label: null, rows: rest });
+    sections.push({ label: null, rows: rest, heads: [] });
   }
 
   // The assistant column may carry the assistant's own details ("Jane Smith ·
@@ -155,17 +205,23 @@ export function prepareExport(input: Omit<ExportInput, "logo" | "printedOn">): P
     const name = formatName(p.name, nameFormat);
     return symbols ? `${symbols} ${name}` : name;
   };
-  const cell = (p: DirectoryPerson, key: string): string => {
-    if (key === "name" && decorated) return displayName(p);
+  const cell = (p: DirectoryPerson, key: string, head = false): string => {
+    if (key === "name") {
+      const name = decorated ? displayName(p) : cellValue(p, key, fields);
+      return head ? `${name}${HEAD_SUFFIX}` : name;
+    }
     if (key === "assistant" && (assistantFields.length || decorated)) {
       return assistantText(p, fields, byId, assistantFields, decorated ? { nameFormat, prefix } : undefined);
     }
     return cellValue(p, key, fields);
   };
 
+  const headRows = sections.flatMap((s) => s.heads);
   const columns: PreparedColumn[] = preset.columns.map((key) => {
     let longest = columnLabel(key, fields).length;
     for (const p of visible) longest = Math.max(longest, cell(p, key).length);
+    // A head row's name cell is the name plus its mark.
+    if (key === "name") for (const h of headRows) longest = Math.max(longest, cell(h, key, true).length);
     // Clamp so one long value can't starve the others, and give names room.
     const weight = Math.max(key === "name" ? 12 : 5, Math.min(34, longest));
     return { key, label: columnLabel(key, fields), weight, limit: preset.column_limits?.[key] ?? 0 };
@@ -180,6 +236,7 @@ export function prepareExport(input: Omit<ExportInput, "logo" | "printedOn">): P
     offices: preset.office_info ? officeBlocksFor(visible, fields.find((f) => f.key === "office"), input.offices) : [],
     markers,
     nameFormat,
+    headsColumn: registryHasHeads(fields),
     cell,
   };
 }
@@ -260,6 +317,7 @@ function DirectoryDocument({ input, prepared }: { input: ExportInput; prepared: 
       textTransform: "uppercase",
       letterSpacing: 0.4,
     },
+    sectionMeta: { fontFamily: "Helvetica", textTransform: "none", letterSpacing: 0, color: "#334155" },
     row: {
       flexDirection: "row",
       // A wrapped cell reads from the top of its row; single-line rows centre as they always have.
@@ -398,7 +456,9 @@ function DirectoryDocument({ input, prepared }: { input: ExportInput; prepared: 
 
   // Alternate rows are shaded so the eye keeps its line across a wide page;
   // the count restarts at every section, so a section always opens unshaded.
-  const row = (p: DirectoryPerson, index: number, key: string) => (
+  // A section's head rows (`head`) are the same row with " · Head" after
+  // the name.
+  const row = (p: DirectoryPerson, index: number, key: string, head = false) => (
     <View key={key} style={[styles.row, preset.zebra && index % 2 === 1 ? styles.rowShaded : {}]} wrap={false}>
       {preset.photos ? (
         <View style={styles.photoCell}>
@@ -419,17 +479,20 @@ function DirectoryDocument({ input, prepared }: { input: ExportInput; prepared: 
             style={[styles.td, c.key === "name" ? styles.name : {}, widthStyle(c), clip ? { textOverflow: "ellipsis" } : {}]}
             {...(clip ? { maxLines: 1 } : {})}
           >
-            {prepared.cell(p, c.key)}
+            {prepared.cell(p, c.key, head && c.key === "name")}
           </Text>
         );
       })}
     </View>
   );
 
-  const sectionHead = (label: string, count: number, key: string) => (
+  // The heading: "ENGINEERING (13)", then the section's heads in the same
+  // bar, written as names rather than capitals.
+  const sectionHead = (label: string, count: number, key: string, meta = "") => (
     <View key={key} minPresenceAhead={40}>
       <Text style={styles.section}>
         {label} ({count})
+        {meta ? <Text style={styles.sectionMeta}>{meta}</Text> : null}
       </Text>
     </View>
   );
@@ -502,7 +565,7 @@ function DirectoryDocument({ input, prepared }: { input: ExportInput; prepared: 
     // one unbreakable unit and the section heading rides with its first row.
     const perRow = preset.cards_per_row;
     const plain = new Set(["name", "title", "department", "email", "phone", "mobile", "office"]);
-    const card = (p: DirectoryPerson) => {
+    const card = (p: DirectoryPerson, head = false) => {
       const photo = preset.photos ? input.photosLarge?.get(p.id) || p.photo : "";
       const lines = prepared.columns
         .filter((c) => c.key !== "name")
@@ -517,7 +580,7 @@ function DirectoryDocument({ input, prepared }: { input: ExportInput; prepared: 
               <Text style={styles.cardInitials}>{initialsOf(p.name)}</Text>
             )
           ) : null}
-          <Text style={styles.cardName}>{prepared.cell(p, "name")}</Text>
+          <Text style={styles.cardName}>{prepared.cell(p, "name", head)}</Text>
           {lines.map((l) =>
             l.key === "title" || l.key === "department" ? (
               <Text key={l.key} style={styles.cardTitle}>{l.value}</Text>
@@ -537,9 +600,9 @@ function DirectoryDocument({ input, prepared }: { input: ExportInput; prepared: 
         const group = s.rows.slice(i, i + perRow);
         blocks.push(
           <View key={`${si}-${i}`} wrap={false}>
-            {i === 0 && s.label !== null ? sectionHead(s.label, s.rows.length, `h-${si}`) : null}
+            {i === 0 && s.label !== null ? sectionHead(s.label, s.rows.length, `h-${si}`, sectionMeta(s, prepared.nameFormat)) : null}
             <View style={styles.cardRow}>
-              {group.map(card)}
+              {group.map((p, k) => card(p, i + k < s.heads.length))}
               {Array.from({ length: perRow - group.length }, (_, k) => (
                 <View key={`pad-${k}`} style={{ flex: 1 }} />
               ))}
@@ -570,8 +633,8 @@ function DirectoryDocument({ input, prepared }: { input: ExportInput; prepared: 
           </View>
           {prepared.sections.map((s, si) => (
             <View key={si}>
-              {s.label !== null ? sectionHead(s.label, s.rows.length, `h-${si}`) : null}
-              {s.rows.map((p, ri) => row(p, ri, `${si}-${p.id}`))}
+              {s.label !== null ? sectionHead(s.label, s.rows.length, `h-${si}`, sectionMeta(s, prepared.nameFormat)) : null}
+              {s.rows.map((p, ri) => row(p, ri, `${si}-${p.id}`, ri < s.heads.length))}
             </View>
           ))}
           {offices}
@@ -587,12 +650,19 @@ function DirectoryDocument({ input, prepared }: { input: ExportInput; prepared: 
   // A row costs the lines its limited columns wrap onto, counted with a
   // tenth in hand for wide glyphs (see plannedLineCount); one otherwise.
   const limited = prepared.columns.filter((c) => c.limit > 0);
-  const rowLines = (p: DirectoryPerson) =>
-    limited.reduce((n, c) => Math.max(n, plannedLineCount(prepared.cell(p, c.key), c.limit)), 1);
-  const lines: ExportLine<DirectoryPerson>[] = [];
+  const rowLines = (p: DirectoryPerson, head: boolean) =>
+    limited.reduce((n, c) => Math.max(n, plannedLineCount(prepared.cell(p, c.key, head && c.key === "name"), c.limit)), 1);
+  // A planned row carries whether it is its section's head row.
+  const lines: ExportLine<{ p: DirectoryPerson; head: boolean }>[] = [];
   for (const s of prepared.sections) {
-    if (s.label !== null) lines.push({ kind: "section", label: s.label, count: s.rows.length });
-    for (const p of s.rows) lines.push({ kind: "row", row: p, lines: rowLines(p) });
+    if (s.label !== null) {
+      const meta = sectionMeta(s, prepared.nameFormat);
+      lines.push({ kind: "section", label: s.label, count: s.rows.length, ...(meta ? { meta } : {}) });
+    }
+    s.rows.forEach((p, i) => {
+      const head = i < s.heads.length;
+      lines.push({ kind: "row", row: { p, head }, lines: rowLines(p, head) });
+    });
   }
   const geometry = columnGeometry({
     paper: preset.paper,
@@ -621,9 +691,10 @@ function DirectoryDocument({ input, prepared }: { input: ExportInput; prepared: 
                   {col.lines.map((line, li) => {
                     if (line.kind === "section") {
                       shade = 0;
-                      return sectionHead(line.label, line.count, `s-${pi}-${ci}-${li}`);
+                      return sectionHead(line.label, line.count, `s-${pi}-${ci}-${li}`, line.meta ?? "");
                     }
-                    return row(line.row, shade++, `r-${pi}-${ci}-${line.row.id}`);
+                    // Keyed by line, not person: a head leads every section they head and sits in their own.
+                    return row(line.row.p, shade++, `r-${pi}-${ci}-${li}`, line.row.head);
                   })}
                 </View>
               );
@@ -650,26 +721,43 @@ export async function renderDirectoryPdf(input: ExportInput): Promise<Buffer> {
  * "+" marker symbol in front of a name is neutralised the same way). A
  * spreadsheet has no footer for the key, so a preset that prints markers
  * ends each row with a "Markers" column naming the person's: "Public
- * notary; Partner".
+ * notary; Partner". Once any sections field has a head, every row also
+ * ends with "Section head of", the sections the person heads
+ * ("Engineering; Design"), sectioned or not; a head row's name cell
+ * carries no mark, the column says it, and a head prints once, where their
+ * own value puts them (the vCard's rule: a head whose own value is the
+ * section they head keeps that one row, at its top).
  */
 export function renderDirectoryCsv(input: Omit<ExportInput, "logo" | "printedOn">): string {
   const prepared = prepareExport(input);
   const grouped = prepared.sections.some((s) => s.label !== null);
   const marked = prepared.markers.length > 0;
+  const headed = prepared.headsColumn;
   const cell = (v: string) => {
     let s = String(v ?? "");
     if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
     return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const lines: string[] = [];
-  lines.push([...(grouped ? ["Group"] : []), ...prepared.columns.map((c) => c.label), ...(marked ? ["Markers"] : [])].map(cell).join(","));
+  lines.push(
+    [...(grouped ? ["Group"] : []), ...prepared.columns.map((c) => c.label), ...(marked ? ["Markers"] : []), ...(headed ? ["Section head of"] : [])]
+      .map(cell)
+      .join(",")
+  );
+  // A section's head rows (the first `heads` of its rows) are skipped when
+  // the person also prints as an ordinary row elsewhere: the column already
+  // names what they head, and a spreadsheet wants one row per person.
+  const own = new Set<number>();
+  for (const s of prepared.sections) s.rows.slice(s.heads.length).forEach((p) => own.add(p.id));
   for (const s of prepared.sections) {
-    for (const p of s.rows) {
+    for (const [i, p] of s.rows.entries()) {
+      if (i < s.heads.length && own.has(p.id)) continue;
       lines.push(
         [
           ...(grouped ? [s.label ?? ""] : []),
           ...prepared.columns.map((c) => prepared.cell(p, c.key)),
           ...(marked ? [markersFor(p, prepared.markers, input.fields).map((m) => m.label).join("; ")] : []),
+          ...(headed ? [sectionsHeadedBy(p, input.fields).join("; ")] : []),
         ]
           .map(cell)
           .join(",")

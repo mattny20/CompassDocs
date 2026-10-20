@@ -24,6 +24,9 @@ import {
   getAckOutboxRow,
   pendingAckOutboxFor,
   listAckNotices,
+  hasOpenAssignment,
+  canSeeSpace,
+  stampAckReminded,
 } from "../src/lib/db";
 import {
   requestAcknowledgement,
@@ -44,6 +47,8 @@ let readerB = 0;
 let actorId = 0;
 const userIds: number[] = [];
 const docIds: number[] = [];
+/** Spaces a test creates beyond the file's own (deleted after its documents). */
+const extraSpaces: number[] = [];
 const actor = () => ({ id: actorId, name: "Not Actor" });
 const emailOf = (tag: string) => `${STAMP}-${tag}@example.test`;
 
@@ -133,7 +138,7 @@ after(async () => {
   await pool().query("DELETE FROM notifications WHERE kind = 'ack_requested' AND title LIKE $1", [`%${STAMP}%`]);
   await pool().query("DELETE FROM documents WHERE id = ANY($1)", [docIds]);
   await pool().query("DELETE FROM users WHERE id = ANY($1)", [userIds]);
-  await pool().query("DELETE FROM spaces WHERE id = $1", [spaceId]);
+  await pool().query("DELETE FROM spaces WHERE id = ANY($1)", [[spaceId, ...extraSpaces]]);
 });
 
 describe("the per-person notice log", () => {
@@ -183,7 +188,8 @@ describe("the per-person notice log", () => {
     assert.equal(mine.filter((m) => m.to === emailOf("Reader A")).length, 1, "A was emailed once");
     assert.equal(mine.filter((m) => m.to === emailOf("Reader B")).length, 0, "B was not");
     const mail = mine.find((m) => m.to === emailOf("Reader A"))!;
-    assert.match(mail.subject, new RegExp(`Action required: confirm "${doc.title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"$`));
+    // The subject may end " by {date}" (E1, 1.13.0): the person's own due date, from their assignment row.
+    assert.match(mail.subject, new RegExp(`Action required: confirm "${doc.title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"( by .+)?$`));
     assert.match(mail.text, /Not Actor requested that you read and confirm:/);
     assert.ok(mail.text.includes(`${ORIGIN}/doc/${doc.id}#confirm-reading`), "the link lands on the card");
     assert.match(mail.text, /and confirm at the end that you have read and understood it\.$/);
@@ -235,7 +241,8 @@ describe("the per-person notice log", () => {
       `Reminder: confirm "${doc.title}"`,
     ]);
     assert.equal(inbox.rows.length, 1);
-    assert.equal(inbox.rows[0].body, `You still need to read and confirm "${doc.title}".`);
+    // Minus the "by {date}" the person's assignment row adds (E1, 1.13.0).
+    assert.equal(inbox.rows[0].body.replace(/ by [^"]+\.$/, "."), `You still need to read and confirm "${doc.title}".`);
     const audit = (await auditRow("ack.reminder_sent", doc.id))!;
     assert.equal(audit.details.noticed, (await listAckNotices({ documentId: doc.id })).filter((n) => n.outbox_id === rem.outbox_id).length);
   });
@@ -372,5 +379,52 @@ describe("the per-person notice log", () => {
     assert.equal(row.by_name, "system");
     assert.equal(row.outbox_id, null);
     assert.deepEqual(await recordNotices([]), []);
+  });
+
+  test("a person who lost sight of a private space before the sweep closed their row gets no manual-remind notice and is not stamped", async () => {
+    // A private space nobody is granted; an admin sees it through
+    // space.read_all (the ladder trigger mirrors users.role into the global
+    // assignment), so the switch-on enrols them.
+    const sp = await fixtureQuery(
+      `INSERT INTO spaces (name, slug, icon, description, visibility) VALUES ($1, $2, '📁', '', 'private') RETURNING id`,
+      [`Ack Notices Private ${STAMP}`, `${STAMP}-private`]
+    );
+    const privateId = sp.rows[0].id as number;
+    extraSpaces.push(privateId);
+    const watcher = (
+      await fixtureQuery(
+        `INSERT INTO users (username, name, email, role, status) VALUES ($1, $2, $3, 'admin', 'active') RETURNING id`,
+        [`${STAMP}-Watcher`, "Not Watcher", emailOf("Watcher")]
+      )
+    ).rows[0].id as number;
+    userIds.push(watcher);
+    const created = await createDocument({
+      space_id: privateId,
+      title: `${STAMP} private remind`,
+      type: "policy",
+      status: "published",
+      content: "Policy body that everyone must read.",
+      summary: "",
+      tags: [],
+      author: "test",
+    });
+    docIds.push(created.id);
+    const doc = { id: created.id, title: created.title };
+    await setAckRequired(doc.id, true, { editDefault: null, recertMonths: null });
+    assert.equal(await hasOpenAssignment(doc.id, watcher), true, "enrolled through space.read_all");
+
+    // The grant goes in Roles & permissions, which is not hooked: the row
+    // stays open until the hourly reconcile closes it.
+    await pool().query("UPDATE users SET role = 'viewer' WHERE id = $1", [watcher]);
+    assert.equal(await canSeeSpace(watcher, privateId), false, "the space is out of sight");
+    assert.equal(await hasOpenAssignment(doc.id, watcher), true, "the row is still open");
+
+    const rem = await enqueueReminder(doc, actor(), ORIGIN);
+    assert.equal(rem.claimed, true);
+    assert.equal(await stampAckReminded(doc.id, [watcher]), 0, "the manual Remind does not stamp a row it cannot reach");
+    await drainUntilDone(null, rem.outbox_id!);
+    assert.equal((await listAckNotices({ documentId: doc.id, userId: watcher })).length, 0, "no notice for a person who cannot open the policy");
+    const inbox = await pool().query("SELECT 1 FROM notifications WHERE user_id = $1 AND title = $2", [watcher, `Reminder: confirm "${doc.title}"`]);
+    assert.equal(inbox.rows.length, 0, "nothing in their inbox either");
   });
 });

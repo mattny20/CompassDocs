@@ -13,6 +13,8 @@ import {
   CheckCircle2,
   CalendarClock,
   ClipboardCheck,
+  ClipboardClock,
+  ShieldAlert,
 } from "lucide-react";
 import { timeAgo } from "@/lib/ui";
 import { CONFIRM_SECTION_ID } from "@/lib/use-reached-end";
@@ -36,10 +38,12 @@ const KIND_ICON: Record<string, React.ReactNode> = {
   cr_resolved: <CheckCircle2 className="h-4 w-4" aria-hidden />,
   review_due: <CalendarClock className="h-4 w-4" aria-hidden />,
   ack_requested: <ClipboardCheck className="h-4 w-4" aria-hidden />,
+  ack_due: <ClipboardClock className="h-4 w-4" aria-hidden />,
+  ack_escalation: <ShieldAlert className="h-4 w-4" aria-hidden />,
 };
 
-/** The inbox kinds that ask for a read confirmation (a request, a reminder, a re-confirmation notice all share one kind). */
-const ACK_KINDS = new Set(["ack_requested"]);
+/** The inbox kinds that ask for a read confirmation (a request, a reminder, a re-confirmation notice share one kind; the automatic reminder (E2) is its own). */
+const ACK_KINDS = new Set(["ack_requested", "ack_due"]);
 
 /**
  * Where a notification opens. A read-confirmation notice lands on the

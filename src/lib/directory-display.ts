@@ -20,7 +20,15 @@ export interface FieldOption {
   color?: string;
   /** Excluded from grouped views and the filter menu. */
   hidden?: boolean;
+  /** The people who head this section (directory person ids, at most
+   *  OPTION_HEADS_LIMIT, in the order they print): they lead the option's
+   *  section on exports and in the Groups view, marked Head, whatever their
+   *  own value for the field (1.13.0). Absent on every option before then. */
+  heads?: number[];
 }
+
+/** How many people may head one option. */
+export const OPTION_HEADS_LIMIT = 5;
 
 /** The shape every consumer needs; DirectoryField satisfies it. */
 export interface FieldLike {
@@ -265,6 +273,136 @@ export function groupPeople<P extends PersonLike>(people: P[], field: FieldLike)
     (a, b) => a.index - b.index || a.label.localeCompare(b.label, undefined, { sensitivity: "base" })
   );
   if (empty.length) out.push({ key: "", label: `No ${field.label.toLowerCase()}`, index: Number.POSITIVE_INFINITY, members: empty });
+  return out;
+}
+
+/**
+ * Groups in an admin's order (an export preset's `section_order`): the
+ * groups whose key is listed come first, in the list's order; the rest
+ * follow in the order given, the field's own. An empty list hands the
+ * groups back as they are, so a preset without an order prints as it always
+ * did. Keys match case-insensitively, as groupPeople files them; a listed
+ * key no group has is skipped.
+ */
+export function orderGroups<G extends { key: string }>(groups: G[], order: readonly string[]): G[] {
+  if (order.length === 0) return groups;
+  const rank = new Map<string, number>();
+  order.forEach((v, i) => {
+    const k = String(v ?? "").trim().toLowerCase();
+    if (k && !rank.has(k)) rank.set(k, i);
+  });
+  const listed: { g: G; at: number }[] = [];
+  const rest: G[] = [];
+  for (const g of groups) {
+    const at = rank.get(g.key.toLowerCase());
+    if (at === undefined) rest.push(g);
+    else listed.push({ g, at });
+  }
+  listed.sort((a, b) => a.at - b.at);
+  return [...listed.map((x) => x.g), ...rest];
+}
+
+/** One section an export's "Sections by" field makes, as the preset editor previews it. */
+export interface SectionSummary {
+  /** The group's key, what `section_order` stores: the option's value, else the raw value. */
+  value: string;
+  /** The heading the export prints. */
+  label: string;
+  count: number;
+  /** The section's heads among the people counted, in the option's order; absent when it has none. */
+  heads?: { id: number; name: string }[];
+}
+
+/**
+ * The sections a field makes of a list of people, in the field's own order
+ * (groupPeople's: options first, unmatched values alphabetically), each
+ * with its count. A filter (the preset's "only people where") narrows the
+ * people first. People with no value are left out: their "No <field>"
+ * section has no value to list in an order and always prints last. A
+ * section whose option has heads among the people names them.
+ */
+export function sectionSummaries<P extends PersonLike>(
+  people: P[],
+  field: FieldLike,
+  fields: FieldLike[],
+  filter?: { key: string; value: string } | null
+): SectionSummary[] {
+  const kept = filter ? people.filter((p) => matchesValue(p, filter.key, filter.value, fields)) : people;
+  const byId = new Map(kept.map((p) => [p.id, p]));
+  return groupPeople(kept, field)
+    .filter((g) => g.key !== "")
+    .map((g) => {
+      const heads = groupHeads(field, g.key, byId).map((h) => ({ id: h.id, name: h.name }));
+      return { value: g.key, label: g.label, count: g.members.length, ...(heads.length ? { heads } : {}) };
+    });
+}
+
+// --- Section heads -------------------------------------------------------------
+
+/** The option a group's key names (the key is the option's value, as groupPeople files it). */
+function optionForGroup(field: Pick<FieldLike, "options">, groupKey: string): FieldOption | undefined {
+  const k = String(groupKey ?? "").trim().toLowerCase();
+  return k ? (field.options ?? []).find((o) => o.value.toLowerCase() === k) : undefined;
+}
+
+/**
+ * The people who head a group: its option's `heads`, in that order, looked
+ * up among `byId` (the people being shown or printed), so a head who is
+ * gone, hidden, filtered out or off the viewer's screen is simply not
+ * there. A group with no option, or an option with no heads, has none.
+ */
+export function groupHeads<P extends PersonLike>(
+  field: Pick<FieldLike, "options">,
+  groupKey: string,
+  byId: ReadonlyMap<number, P>
+): P[] {
+  const out: P[] = [];
+  for (const id of optionForGroup(field, groupKey)?.heads ?? []) {
+    const p = byId.get(id);
+    if (p && !out.includes(p)) out.push(p);
+  }
+  return out;
+}
+
+/**
+ * A section's rows with its heads in front: the heads in their order, then
+ * the members as given, a head who is also a member lifted out of the
+ * members so they print once, at the top. No heads hands the members back.
+ */
+export function leadWithHeads<P extends PersonLike>(members: P[], heads: P[]): P[] {
+  if (heads.length === 0) return members;
+  const lifted = new Set(heads.map((h) => h.id));
+  return [...heads, ...members.filter((m) => !lifted.has(m.id))];
+}
+
+/** "Head: Jane Smith", "Heads: Jane Smith, Pat Lee"; "" for none. What a heading's meta text carries. */
+export function headsLabel(names: string[]): string {
+  if (names.length === 0) return "";
+  return `${names.length === 1 ? "Head" : "Heads"}: ${names.join(", ")}`;
+}
+
+/** The fields whose sections can have heads: the ones "Sections by" offers. */
+export function headedFields(fields: FieldLike[]): FieldLike[] {
+  return fields.filter((f) => f.group_by);
+}
+
+/** True when any section of any "Sections by" field has a head: whether an export carries the "Section head of" column. */
+export function registryHasHeads(fields: FieldLike[]): boolean {
+  return headedFields(fields).some((f) => (f.options ?? []).some((o) => (o.heads?.length ?? 0) > 0));
+}
+
+/**
+ * The sections a person heads, as their headings print ("Engineering",
+ * "Design"), over every field that can section the directory, in field
+ * order then option order. What the CSV's "Section head of" column lists.
+ */
+export function sectionsHeadedBy(p: Pick<PersonLike, "id">, fields: FieldLike[]): string[] {
+  const out: string[] = [];
+  for (const f of headedFields(fields)) {
+    for (const o of f.options ?? []) {
+      if (o.heads?.includes(p.id)) out.push(formatValue(f, o.value));
+    }
+  }
   return out;
 }
 

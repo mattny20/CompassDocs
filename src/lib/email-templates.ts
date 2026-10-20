@@ -105,16 +105,101 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
       T("change_note", "What changed (blank unless the document changed)"),
       T("reason", "Why you are asked again (blank unless someone gave a reason)"),
       T("due_date", "Confirm-by date (blank when there is none)"),
+      T("due_line", 'The sentence "Please confirm by 29 Oct 2026." (blank when there is no due date)'),
+      T("due_suffix", 'Subject ending " by 29 Oct 2026" (blank when there is no due date)'),
       T("days_left", "Days until the due date (blank when there is none)"),
       T("org_name", "Workspace name"),
     ],
+    // 1.13.0 (E1): the due tags come from each recipient's own assignment row,
+    // so one fan-out may render as several mails when people's dates differ.
     text: ["requester_name", "doc_title", "change_note", "reason"],
-    subject: '[{{org_name}}] {{request_label}}: confirm "{{doc_title}}"',
+    subject: '[{{org_name}}] {{request_label}}: confirm "{{doc_title}}"{{due_suffix}}',
     body:
       "**{{requester_name}}** {{request_type}} that you read and confirm:\n\n" +
       "> **{{doc_title}}**\n\n" +
       "{{change_note}}{{reason}}\n\n" +
+      "{{due_line}}\n\n" +
       "[Open the document]({{doc_url}}) and confirm at the end that you have read and understood it.",
+  },
+  // 1.13.0 (E2): the hourly sweep's own notices. Like ack_request they go
+  // out regardless of the personal master switch; the per-event email
+  // choice (Policy reminders, Compliance escalations) is honoured.
+  {
+    key: "ack_due",
+    label: "Read confirmation due reminder",
+    description:
+      "Sent automatically when a policy someone must confirm is due soon or overdue (per the policy's reminder cadence). Sent regardless of personal notification settings.",
+    tags: [
+      T("doc_title", "Policy title"),
+      T("doc_url", "Link to the policy (lands on the confirmation card)"),
+      T("due_date", "Due date (blank when the policy has no deadline)"),
+      T("due_line", 'The sentence "Please confirm by 29 Oct 2026." (blank when there is no due date)'),
+      T("status_label", "Due soon / Overdue / Reminder"),
+      T("org_name", "Workspace name"),
+    ],
+    text: ["doc_title"],
+    subject: '[{{org_name}}] {{status_label}}: confirm "{{doc_title}}"',
+    body:
+      "**{{status_label}}**: you still need to read and confirm **{{doc_title}}**.\n\n" +
+      "{{due_line}}\n\n" +
+      "[Open the document]({{doc_url}}) and confirm at the end that you have read and understood it.",
+  },
+  {
+    key: "ack_due_bundle",
+    label: "Read confirmation reminders, bundled",
+    description:
+      "Sent instead of several due reminders when one person has more than three policies to confirm in the same hour. Sent regardless of personal notification settings.",
+    tags: [
+      T("count", "How many policies"),
+      T("policy_list", "The policies, one per line, with their due dates"),
+      T("portal_url", "Link to My policies"),
+      T("org_name", "Workspace name"),
+    ],
+    text: ["policy_list"],
+    subject: "[{{org_name}}] You have {{count}} policies to confirm",
+    body:
+      "You have **{{count}}** policies to read and confirm:\n\n" +
+      "{{policy_list}}\n\n" +
+      "[Open My policies]({{portal_url}}) to see where you stand and confirm each one at the end of the document.",
+  },
+  {
+    key: "ack_escalation",
+    label: "Overdue read confirmations, escalation",
+    description:
+      "Sent to a policy's owner (or whoever switched the requirement on, or the space's approvers) and to the overdue people's group leads once someone is past the escalation threshold. Sent regardless of personal notification settings.",
+    tags: [
+      T("policy_title", "Policy title"),
+      T("overdue_count", "How many people are overdue"),
+      T("overdue_list", "The overdue people, one per line, with their due dates"),
+      T("portal_url", "Link to the policy: its row in the compliance portal for an owner or approver who holds the Compliance section, else its Record tab; the document itself for a group lead"),
+      T("org_name", "Workspace name"),
+    ],
+    text: ["policy_title", "overdue_list"],
+    subject: '[{{org_name}}] {{overdue_count}} overdue on "{{policy_title}}"',
+    body:
+      "**{{overdue_count}}** overdue on **{{policy_title}}**:\n\n" +
+      "{{overdue_list}}\n\n" +
+      "[Open the compliance portal]({{portal_url}}) to remind them, extend a due date or record an exemption.",
+  },
+  {
+    key: "ack_welcome",
+    label: "Welcome: policies to read",
+    description:
+      "Sent once to a new account that is enrolled in more than one policy, listing every policy they must read and confirm with its due date, instead of one request per policy. Sent regardless of personal notification settings.",
+    // 1.13.0 (D1): the list is a text tag, one policy per line, so a title
+    // is never read as markdown.
+    tags: [
+      T("count", "How many policies"),
+      T("policy_list", "The policies, one per line, with their due dates"),
+      T("portal_url", "Link to My policies"),
+      T("org_name", "Workspace name"),
+    ],
+    text: ["policy_list"],
+    subject: "[{{org_name}}] Welcome: {{count}} policies to read",
+    body:
+      "Welcome. You have **{{count}}** policies to read and confirm:\n\n" +
+      "{{policy_list}}\n\n" +
+      "[Open My policies]({{portal_url}}) to read each one and confirm at the end that you have read and understood it.",
   },
   {
     key: "training_assigned",
@@ -273,8 +358,34 @@ export const SAMPLE_VARS: Record<string, Record<string, string>> = {
     request_label: "Updated",
     change_note: "Section 4 now covers contractors as well as employees.",
     reason: "",
-    due_date: "",
-    days_left: "",
+    due_date: "29 Oct 2026",
+    due_line: "Please confirm by 29 Oct 2026.",
+    due_suffix: " by 29 Oct 2026",
+    days_left: "9",
+  },
+  ack_due: {
+    doc_title: "Acceptable Use Policy",
+    doc_url: "/doc/42#confirm-reading",
+    due_date: "29 Oct 2026",
+    due_line: "Please confirm by 29 Oct 2026.",
+    status_label: "Due soon",
+  },
+  ack_due_bundle: {
+    count: "5",
+    policy_list:
+      "- Acceptable Use Policy (due 29 Oct 2026)\n- Code of Conduct (overdue)\n- Expense policy (due 3 Nov 2026)\n- Remote Work Policy (due 3 Nov 2026)\n- Travel policy (due 10 Nov 2026)",
+    portal_url: "/compliance",
+  },
+  ack_escalation: {
+    policy_title: "Acceptable Use Policy",
+    overdue_count: "7",
+    overdue_list: "- Ana Ruiz (due 1 Oct 2026)\n- Ben Lo (due 1 Oct 2026)\n- Chloe Park (due 3 Oct 2026)",
+    portal_url: "/compliance/policies?policy=42",
+  },
+  ack_welcome: {
+    count: "3",
+    policy_list: "- Code of Conduct (due 3 Nov 2026)\n- Acceptable Use Policy (due 3 Nov 2026)\n- Remote Work Policy (due 3 Nov 2026)",
+    portal_url: "/compliance",
   },
   workflow_event: {
     event: "Change approved",

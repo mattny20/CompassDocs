@@ -14,7 +14,13 @@
 // Pure module, unit-tested; the renderer only turns the plan into pages.
 
 export type ExportLine<R> =
-  | { kind: "section"; label: string; count: number }
+  | {
+      kind: "section";
+      label: string;
+      count: number;
+      /** Text after the count, in the heading's own style (" · Head: Jane Smith"); absent for none. */
+      meta?: string;
+    }
   | {
       kind: "row";
       row: R;

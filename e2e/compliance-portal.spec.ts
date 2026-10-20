@@ -25,6 +25,14 @@ import { ADMIN, login, api } from "./helpers";
 // 1.12.0 (G1): the Overview's fifth tile counts policies whose next
 // re-confirmation falls within 30 days; a policy with an interval shows
 // "Next re-confirmation {date}" on its row.
+// 1.13.0 (D1, E1, E2): a live row carries an icon button to the policy's
+// Settings tab, "+n enrolled this week" once someone joins the audience,
+// the deadline rule ("Due 14 days after assignment", "· 12 overdue" once
+// anyone is past it) and the reminder cadence ("never reminded · next
+// automatic reminder {date}", "last reminded today · …" after Remind); the
+// Overview gains an Overdue confirmations tile; the People page an Overdue
+// column. An overdue row needs a backdated deadline, which no API offers,
+// so that path is proved in test/ack-portal.test.ts against the database.
 //
 // Read confirmation is entitlement-gated (policy_ack). CI runs the community
 // build, so each test skips itself when the portal answers 402 and runs in
@@ -35,9 +43,10 @@ const stamp = () => `${Date.now()}${Math.floor(Math.random() * 1000)}`;
 const BODY = "## Policy\n\nShort policy text for the portal smoke. Read it and confirm at the end.";
 
 // The 1.10.1 columns in place, the six attestation and re-confirmation
-// columns appended (1.12.0, C4): MATRIX_CSV_HEADER in src/lib/read-evidence.ts.
+// columns (1.12.0, C4) and the five exemption and deadline columns (1.13.0,
+// D2) appended: MATRIX_CSV_HEADER in src/lib/read-evidence.ts.
 const MATRIX_HEADER =
-  "document,space,revision_as_of,name,username,email,role,acknowledged_at,version,version_id,content_sha256,version_source,former_staff,asked_at,asked_by,reason,kept_since_asked,version_published_by,version_approved_by,statement,signed_name,identity_proof,recert_months,effective_at,next_recert_at";
+  "document,space,revision_as_of,name,username,email,role,acknowledged_at,version,version_id,content_sha256,version_source,former_staff,asked_at,asked_by,reason,kept_since_asked,version_published_by,version_approved_by,statement,signed_name,identity_proof,recert_months,effective_at,next_recert_at,exempt_reason,exempt_by,exempt_until,snoozed_until,due_at";
 
 /** One CSV line into cells: quoted fields may hold commas and doubled quotes. */
 function cells(line: string): string[] {
@@ -374,7 +383,8 @@ test("the row's re-ask opens the question, refuses a short reason, resets the ro
     await expect(row.getByRole("button", { name: "Ask everyone to re-confirm…" })).toBeDisabled();
 
     // The API's own rules: the hour guard, the reason rule, and the
-    // per-person list that arrives with audiences (D4).
+    // per-person list (D4): a list that is not a list, and a person with no
+    // open row, are refused and write nothing.
     const again = await api(page, `/api/documents/${docId}/ack/reconfirm`, {
       method: "POST",
       body: { reason: "Asking again straight away, for the test" },
@@ -384,12 +394,19 @@ test("the row's re-ask opens the question, refuses a short reason, resets the ro
     const short = await api(page, `/api/documents/${docId}/ack/reconfirm`, { method: "POST", body: { reason: "short" } });
     expect(short.status).toBe(400);
     expect(short.body?.error).toBe("A reason of at least 10 characters is required.");
-    const perPerson = await api(page, `/api/documents/${docId}/ack/reconfirm`, {
+    const notAList = await api(page, `/api/documents/${docId}/ack/reconfirm`, {
       method: "POST",
-      body: { reason: "One person, which D4 brings later", user_ids: [1] },
+      body: { reason: "One person, named badly, for the test", user_ids: "1" },
     });
-    expect(perPerson.status).toBe(400);
-    expect(perPerson.body?.error).toBe("Per-person re-asks arrive with audiences.");
+    expect(notAList.status).toBe(400);
+    expect(notAList.body?.error).toBe("user_ids must be a list of user ids.");
+    const nobody = await api(page, `/api/documents/${docId}/ack/reconfirm`, {
+      method: "POST",
+      body: { reason: "One person nobody enrolled, for the test", user_ids: [2147483647] },
+    });
+    expect(nobody.status, "a per-person ask of someone with no open row is 400").toBe(400);
+    expect(nobody.body?.error).toBe("This person isn't asked to confirm this document.");
+    expect(nobody.body?.skipped).toEqual([2147483647]);
     expect((await auditRows(page, "ack.reconfirmation_requested", docId)).length, "none of the refusals is on the record").toBe(1);
   } finally {
     if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
@@ -590,7 +607,8 @@ test("My policies: the standing line, the two groups, the row's link to the conf
     const row = toConfirm.locator("li", { hasText: title });
     await expect(row).toBeVisible();
     await expect(row.getByRole("link", { name: title })).toHaveAttribute("href", `/doc/${docId}#confirm-reading`);
-    await expect(row.getByText("To confirm", { exact: true })).toBeVisible();
+    // The chip carries the deadline since 1.13.0 (E1): "To confirm · due {date}".
+    await expect(row.getByText(/To confirm( · due .+)?$/)).toBeVisible();
     await expect(row.getByText(/^.+ · Updated /)).toBeVisible();
     // No history, print or CSV here (those wait for the person record).
     await expect(page.getByRole("link", { name: /Export CSV/ })).toHaveCount(0);
@@ -690,7 +708,7 @@ test("a viewer with a policy in scope sees the Compliance row with its badge and
       const row = vpage.getByRole("region", { name: "To confirm" }).locator("li", { hasText: title });
       await expect(row).toBeVisible();
       await expect(row.getByRole("link", { name: title })).toHaveAttribute("href", `/doc/${docId}#confirm-reading`);
-      await expect(row.getByText("To confirm", { exact: true })).toBeVisible();
+      await expect(row.getByText(/To confirm( · due .+)?$/)).toBeVisible();
 
       // The person's own API opens; the portal's does not, and its pages
       // answer the shell's not-found page, as /training/person does.
@@ -938,5 +956,168 @@ test("the Overview's fifth tile counts re-confirmations due in 30 days, and a po
     expect(afterRetire.kpis.recert_due_30).toBe(dueSoon.kpis.recert_due_30 - 1);
   } finally {
     if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
+  }
+});
+
+test("a live row links to the policy's Settings tab, counts the people enrolled this week, reads its deadline rule and its reminder cadence; the Overview's Overdue tile and the People page's Overdue column carry the server's numbers", async ({ page }) => {
+  test.setTimeout(120_000);
+  await login(page, ADMIN);
+  const suffix = stamp();
+  const title = `E2E portal due ${suffix}`;
+  const joiner = { username: `e2e_joiner_${suffix}`, password: "E2eJoin!12345" };
+  let docId: number | undefined;
+  let joinerId: number | undefined;
+  try {
+    docId = await makePolicy(page, title);
+    test.skip(!(await portalLicensed(page)), "policy_ack is not licensed in this build; the EE rig runs the flow");
+    // Required quietly: no notice and no reminder stamp, so the cadence
+    // line starts from "never reminded" and Remind is allowed below.
+    const on = await api(page, "/api/admin/compliance", {
+      method: "POST",
+      body: { docId, action: "request", notify: false },
+    });
+    expect(on.status, "requested quietly").toBe(200);
+
+    type Row = {
+      id: number;
+      status: string;
+      ack_retired_at: string | null;
+      required: number;
+      overdue: number;
+      enrolled_week: number;
+      due_rule: { due_days: number | null; due_at: string | null; resolved_days: number } | null;
+      reminder: { last_reminded_at: string | null; next_reminder_at: string | null } | null;
+    };
+    const portal = async () => {
+      const res = await api(page, "/api/admin/compliance");
+      expect(res.status).toBe(200);
+      const docs: Row[] = res.body?.docs ?? [];
+      const live = docs.filter((d) => d.status === "published" && d.ack_retired_at === null);
+      return { kpis: res.body?.kpis, users: res.body?.users ?? [], mine: docs.find((d) => d.id === docId)!, live };
+    };
+
+    // The payload: the four new row fields with their shapes, the overdue
+    // sum over the live rows, and a per-person overdue count. A policy
+    // switched on a moment ago has nobody overdue and everyone it asks
+    // enrolled this week.
+    const first = await portal();
+    expect(first.mine, "the policy is in the payload").toBeTruthy();
+    expect(first.mine.overdue, "nobody is past a deadline set a moment ago").toBe(0);
+    expect(first.mine.enrolled_week, "everyone the switch-on enrolled joined this week").toBe(first.mine.required);
+    expect(first.mine.due_rule).toMatchObject({ due_days: null, due_at: null });
+    expect(first.mine.due_rule!.resolved_days, "the cascade settles on a number of days").toBeGreaterThanOrEqual(1);
+    expect(first.mine.reminder?.last_reminded_at, "a quiet request reminds nobody").toBeNull();
+    expect(first.mine.reminder?.next_reminder_at, "the sweep has a date for the first reminder").toBeTruthy();
+    expect(typeof first.kpis?.overdue, "the Overdue tile's number is in the payload").toBe("number");
+    expect(first.kpis.overdue).toBe(first.live.reduce((n, d) => n + d.overdue, 0));
+    const me = first.users.find((u: { username: string }) => u.username === ADMIN.username);
+    expect(typeof me?.overdue, "every person carries an overdue count").toBe("number");
+
+    // The row: the icon button to the Settings tab, the audience line with
+    // the deadline rule (no overdue suffix), the cadence line.
+    await page.goto("/compliance/policies");
+    const row = page.locator("li", { hasText: title });
+    await expect(row).toBeVisible();
+    const settings = row.getByRole("link", { name: "Read confirmation settings" });
+    await expect(settings).toHaveAttribute("href", `/doc/${docId}/acknowledgements/settings`);
+    await expect(row.locator('[data-tt="Read confirmation settings"]')).toHaveCount(1);
+    await expect(row.getByText(/· Due \d+ days after assignment$/)).toBeVisible();
+    await expect(row.getByText(/\d+ overdue/)).toHaveCount(0);
+    await expect(row.getByText(/^never reminded · next automatic reminder \S/)).toBeVisible();
+    await settings.click();
+    await page.waitForURL(`**/doc/${docId}/acknowledgements/settings`);
+    await expect(page.getByRole("heading", { name: "Confirmation statement" })).toBeVisible();
+
+    // A new account joins the audience (D1 enrols it on arrival): the row's
+    // count rises by one and the line says so.
+    const created = await api(page, "/api/admin/users", {
+      method: "POST",
+      body: { ...joiner, role: "viewer", name: "E2E Portal Joiner" },
+    });
+    expect(created.status, "joiner created").toBe(201);
+    joinerId = created.body?.user?.id;
+    expect(joinerId).toBeTruthy();
+    const joined = await portal();
+    expect(joined.mine.enrolled_week, "one more person enrolled this week").toBe(first.mine.enrolled_week + 1);
+    expect(joined.mine.required).toBe(first.mine.required + 1);
+    await page.goto("/compliance/policies");
+    await expect(row.getByText(`+${joined.mine.enrolled_week} enrolled this week`)).toBeVisible();
+
+    // The policy's own rule through the Settings tab's route (E1): the row
+    // reads the new number of days; the payload carries it as the policy's
+    // own, and nobody is overdue on a deadline still ahead.
+    const days = await api(page, `/api/documents/${docId}/ack-settings`, { method: "PATCH", body: { due_days: 5 } });
+    expect(days.status, "the deadline rule is set").toBe(200);
+    const ruled = await portal();
+    expect(ruled.mine.due_rule).toMatchObject({ due_days: 5, due_at: null, resolved_days: 5 });
+    expect(ruled.mine.overdue).toBe(0);
+    await page.goto("/compliance/policies");
+    await expect(row.getByText(/· Due 5 days after assignment$/)).toBeVisible();
+
+    // Remind: the question, the toast, and the cadence line now dated from
+    // the reminder the people just got (the manual Remind stamps the rows).
+    await row.getByRole("button", { name: "Remind", exact: true }).click();
+    const remind = page.getByRole("dialog", { name: /^Remind \d+ (person|people)\?$/ });
+    await expect(remind).toBeVisible();
+    await remind.getByRole("button", { name: "Send reminders" }).click();
+    await expect(page.locator('[role="status"]').getByText(/^Reminders queued for \d+ (person|people)\.$/)).toBeVisible();
+    await expect(row.getByText(/^last reminded today · next automatic reminder \S/)).toBeVisible();
+    const reminded = await portal();
+    expect(reminded.mine.reminder?.last_reminded_at, "the summary carries the stamp").toBeTruthy();
+
+    // The Overview's Overdue tile is the server's number, and the People
+    // page's Overdue column reads 0 for the admin on a quiet rig (the
+    // chip appears only past a deadline, which test/ack-portal.test.ts
+    // proves against the database).
+    await page.goto("/compliance/overview");
+    await expect(subnav(page).getByRole("link", { name: "Overview", exact: true })).toHaveAttribute("aria-current", "page");
+    const tile = page.getByRole("term").filter({ hasText: "Overdue confirmations" }).locator("..");
+    await expect(tile.getByRole("definition")).toHaveText(String((await portal()).kpis.overdue));
+    await page.goto("/compliance/people");
+    await expect(page.getByRole("columnheader", { name: "Overdue" })).toBeVisible();
+    const adminRow = page.getByRole("row").filter({ hasText: me?.name || ADMIN.username }).first();
+    if ((me?.overdue ?? 0) === 0 && (await adminRow.count()) > 0) {
+      await expect(adminRow.getByText(/\d+ overdue/)).toHaveCount(0);
+    }
+  } finally {
+    if (joinerId) await api(page, `/api/admin/users/${joinerId}`, { method: "DELETE" });
+    if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
+  }
+});
+
+// 1.13.0 (D2): the roster inside the portal's expand row on a phone. Its
+// Show control grew to five choices (All / Pending / Overdue / Confirmed /
+// Exempt), which a Segmented cannot wrap, so the toolbar above the table
+// (View / Show / Filter people) must fit inside the card at the tightest
+// common width; the table itself scrolls inside its own wrapper, by design.
+test("at 375px the expanded policy row's roster toolbar fits without sideways scroll", async ({ browser }) => {
+  test.setTimeout(90_000);
+  const ctx = await browser.newContext({ viewport: { width: 375, height: 740 }, isMobile: true, hasTouch: true });
+  const page = await ctx.newPage();
+  await login(page, ADMIN);
+  const title = `E2E portal phone ${stamp()}`;
+  let docId: number | undefined;
+  try {
+    docId = await makePolicy(page, title);
+    test.skip(!(await portalLicensed(page)), "policy_ack is not licensed in this build; the EE rig runs the flow");
+    const on = await api(page, "/api/admin/compliance", { method: "POST", body: { docId, action: "request", notify: false } });
+    expect(on.status, "requested quietly").toBe(200);
+
+    await page.goto("/compliance/policies");
+    const row = page.locator("li", { hasText: title });
+    await expect(row).toBeVisible();
+    await row.locator("button[aria-expanded]").click();
+    const roster = page.locator(`[data-roster="${docId}"]`);
+    await expect(roster).toBeVisible();
+    const show = roster.getByRole("radiogroup", { name: "Show" });
+    await expect(show.getByRole("radio", { name: "Exempt", exact: true })).toBeVisible();
+    const toolbar = show.locator("..");
+    const overflow = await toolbar.evaluate((el) => el.scrollWidth - el.clientWidth);
+    expect(overflow, "the roster toolbar does not scroll sideways").toBeLessThanOrEqual(0);
+    const spill = await show.evaluate((el) => el.getBoundingClientRect().right - el.closest("[data-roster]")!.getBoundingClientRect().right);
+    expect(spill, "the Show control stays inside the roster's box").toBeLessThanOrEqual(0);
+  } finally {
+    if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
+    await ctx.close();
   }
 });

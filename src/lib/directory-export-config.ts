@@ -32,6 +32,15 @@ export interface ExportPreset {
   columns: string[];
   /** A group_by field key, or "" for one flat list. */
   group_by: string;
+  /** The group_by field's values (an option's value, else the raw value) in
+   *  the order their sections print; values not listed follow in the field's
+   *  own order. Empty, the sections print in the field's order, as every
+   *  preset before 1.13.0 did. Always empty when group_by is "". */
+  section_order: string[];
+  /** Print each section's heads (the option's `heads`) at its top, marked
+   *  Head, whatever their own value; off, a head prints only where their
+   *  value puts them. True for every preset before 1.13.0. */
+  section_heads: boolean;
   sort: string;
   sort_dir: "asc" | "desc";
   /** A second key the sort falls through to — "Office, then Title". "" for none. */
@@ -94,6 +103,8 @@ export const PRESET_DEFAULTS: Omit<ExportPreset, "id" | "name"> = {
   logo: true,
   columns: ["name", "title", "department", "phone", "email"],
   group_by: "",
+  section_order: [],
+  section_heads: true,
   sort: "name",
   sort_dir: "asc",
   sort2: "",
@@ -124,6 +135,9 @@ export const PRESET_DEFAULTS: Omit<ExportPreset, "id" | "name"> = {
 
 const SETTING = "directory_export_presets";
 const MAX_PRESETS = 20;
+/** A section order lists at most this many values, each at most SECTION_VALUE_MAX characters (an option's length). */
+export const SECTION_ORDER_LIMIT = 200;
+const SECTION_VALUE_MAX = 120;
 
 function slug(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
@@ -142,6 +156,28 @@ function sanitizeColumnLimits(raw: unknown, valid: Set<string>): Record<string, 
     const n = Number(v);
     if (!Number.isFinite(n) || n <= 0) continue;
     out[key] = Math.min(COLUMN_LIMIT.max, Math.max(COLUMN_LIMIT.min, Math.round(n)));
+  }
+  return out;
+}
+
+/**
+ * A section order: group values as strings, trimmed, blanks dropped, cut to
+ * 120 characters, each once (case-insensitively, as groupPeople files a
+ * value), at most 200. A value no section has is kept: it is harmless and
+ * the editor shows only the sections that exist.
+ */
+function sanitizeSectionOrder(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const v of raw) {
+    if (typeof v !== "string" && typeof v !== "number") continue;
+    const s = String(v).trim().slice(0, SECTION_VALUE_MAX);
+    const k = s.toLowerCase();
+    if (!s || seen.has(k)) continue;
+    seen.add(k);
+    out.push(s);
+    if (out.length >= SECTION_ORDER_LIMIT) break;
   }
   return out;
 }
@@ -172,7 +208,8 @@ export function sanitizePreset(raw: unknown, fields: DirectoryField[], fallbackI
   const columns = Array.isArray(o.columns)
     ? o.columns.map(String).filter((k, i, a) => valid.has(k) && a.indexOf(k) === i)
     : [...PRESET_DEFAULTS.columns].filter((k) => valid.has(k));
-  const groupBy = String(o.group_by ?? "").trim();
+  const groupByRaw = String(o.group_by ?? "").trim();
+  const groupBy = groupByRaw && fields.some((f) => f.key === groupByRaw && f.group_by) ? groupByRaw : "";
   const sortKey = String(o.sort ?? "").trim();
   const sort2Key = String(o.sort2 ?? "").trim();
   const filterRaw = o.filter && typeof o.filter === "object" ? (o.filter as Record<string, unknown>) : null;
@@ -189,7 +226,13 @@ export function sanitizePreset(raw: unknown, fields: DirectoryField[], fallbackI
     density: oneOf(DENSITIES, o.density, PRESET_DEFAULTS.density),
     logo: o.logo === undefined ? PRESET_DEFAULTS.logo : Boolean(o.logo),
     columns: columns.length ? columns : ["name"],
-    group_by: groupBy && fields.some((f) => f.key === groupBy && f.group_by) ? groupBy : "",
+    group_by: groupBy,
+    // An order belongs to its field: with no sections there is nothing to
+    // order (the editor clears it when the field changes).
+    section_order: groupBy ? sanitizeSectionOrder(o.section_order) : [],
+    // On unless switched off: a preset stored before 1.13.0 prints its heads
+    // first the moment a field gets any.
+    section_heads: o.section_heads === undefined ? true : Boolean(o.section_heads),
     sort: sortKey && sortable.has(sortKey) ? sortKey : "name",
     sort_dir: o.sort_dir === "desc" ? "desc" : "asc",
     sort2: sort2Key && sortable.has(sort2Key) && sort2Key !== sortKey ? sort2Key : "",

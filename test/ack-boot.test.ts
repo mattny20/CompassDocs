@@ -34,10 +34,20 @@ function urlFor(db: string): string {
   return u.toString();
 }
 
+/** The init chain (test/support/boot.ts) in a child process against `db`. */
 function boot(db: string): { ok: boolean; out: string } {
+  return run("test/support/boot.ts", db);
+}
+
+/** The hourly audience safety net (reconcileAllPolicies, test/support/reconcile.ts) in a child process against `db`: what the first tick after an upgrade does. */
+function reconcile(db: string): { ok: boolean; out: string } {
+  return run("test/support/reconcile.ts", db);
+}
+
+function run(script: string, db: string): { ok: boolean; out: string } {
   const r = spawnSync(
     process.execPath,
-    [path.join(process.cwd(), "node_modules", "tsx", "dist", "cli.mjs"), "--tsconfig", "tsconfig.test.json", "test/support/boot.ts"],
+    [path.join(process.cwd(), "node_modules", "tsx", "dist", "cli.mjs"), "--tsconfig", "tsconfig.test.json", script],
     {
       env: {
         ...process.env,
@@ -81,6 +91,11 @@ const DOWNGRADE_1101_SQL = `
     DROP COLUMN IF EXISTS approved_by, DROP COLUMN IF EXISTS approved_by_name,
     DROP COLUMN IF EXISTS change_request_id;
   DELETE FROM settings WHERE key = 'migrated_version_provenance';
+  -- 1.13.0 (D1): the audience tables and their one-shot flag, so every upgrade path below materialises the rows.
+  DROP TABLE IF EXISTS policy_assignments;
+  DROP TABLE IF EXISTS policy_audience_rules;
+  DROP TABLE IF EXISTS policy_settings;
+  DELETE FROM settings WHERE key = 'policy_assignments_migrated';
 `;
 
 // Then strip the 1.10.0 additions so it looks the way 1.9.4 left it.
@@ -110,6 +125,7 @@ const FLAG_KEYS = [
   "migrated_ack_retention",
   "ack_retention_schema",
   "migrated_version_provenance",
+  "policy_assignments_migrated",
 ];
 const ALL_FLAGS = [
   "ack_marker_schema=1",
@@ -117,6 +133,7 @@ const ALL_FLAGS = [
   "migrated_ack_retention=1",
   "migrated_ack_revisions=1",
   "migrated_version_provenance=1",
+  "policy_assignments_migrated=1",
 ];
 
 interface Snapshot {
@@ -191,6 +208,11 @@ async function assertSchema1101(db: Client, label: string) {
         // 1.12.0 (G3): the partial indexes under the two SET NULL references.
         "idx_documents_ack_retired_by",
         "idx_documents_ack_superseded_by",
+        // 1.13.0 (D1): the audience tables' indexes (the third is partial).
+        "idx_policy_rules_doc",
+        "idx_policy_assign_user",
+        "idx_policy_assign_doc_exempt",
+        "idx_policy_assign_due",
       ],
     ]
   );
@@ -209,6 +231,10 @@ async function assertSchema1101(db: Client, label: string) {
       "idx_documents_ack_superseded_by",
       "idx_documents_search",
       "idx_documents_space",
+      "idx_policy_assign_doc_exempt",
+      "idx_policy_assign_due",
+      "idx_policy_assign_user",
+      "idx_policy_rules_doc",
       "idx_ra_user_space",
     ],
     `${label}: the indexes exist`
@@ -218,10 +244,13 @@ async function assertSchema1101(db: Client, label: string) {
   const dates = await db.query<{ c: string }>(
     "SELECT table_name || '.' || column_name AS c FROM information_schema.columns WHERE table_schema = current_schema() AND data_type = 'date' ORDER BY 1"
   );
+  // 1.13.0 (E1) adds policy_settings.due_at, a fixed deadline read as its
+  // 'YYYY-MM-DD' text on purpose (lib/ack-due endOfDayIn turns the day into
+  // the person's due instant).
   assert.deepEqual(
-    dates.rows.map((r) => r.c),
-    ["documents.ack_effective_at"],
-    `${label}: the OID 1082 text parser reaches exactly one column; a new date column must be read as text on purpose`
+    dates.rows.map((r) => r.c).sort(),
+    ["documents.ack_effective_at", "policy_settings.due_at"],
+    `${label}: the OID 1082 text parser reaches exactly these columns; a new date column must be read as text on purpose`
   );
   const trigger = await db.query(
     "SELECT 1 FROM pg_trigger WHERE tgrelid = 'users'::regclass AND tgname = 'compass_users_ladder_sync' AND NOT tgisinternal"
@@ -834,5 +863,279 @@ describe("the 1.10.1 additions against a 1.10.0 database, booted twice", () => {
     );
     assert.deepEqual(keptRow.rows[0], { statement_text: "I will comply.", signed_name: "Boot Reader", identity_proof: "password", user_agent: "BootTest/1" });
     await assertSchema1101(db, "1.12.0 (C2) second boot");
+  });
+
+  test("1.13.0 (E1): spaces.policy_defaults comes back on an upgrade boot as jsonb NOT NULL DEFAULT '{}', every existing space inherits everything, a 1.12.0-shaped INSERT takes the default, a value set between boots survives, and a second boot moves nothing", async () => {
+    // A database shaped like 1.12.0: the column gone.
+    await db.query("ALTER TABLE spaces DROP COLUMN IF EXISTS policy_defaults");
+    const upgrade = boot(DB);
+    assert.ok(upgrade.ok, `the upgrade boot succeeds:\n${upgrade.out}`);
+
+    const column = async () =>
+      (
+        await db.query<{ data_type: string; is_nullable: string; column_default: string | null }>(
+          `SELECT data_type, is_nullable, column_default FROM information_schema.columns
+           WHERE table_schema = current_schema() AND table_name = 'spaces' AND column_name = 'policy_defaults'`
+        )
+      ).rows;
+    const expected = [{ data_type: "jsonb", is_nullable: "NO", column_default: "'{}'::jsonb" }];
+    assert.deepEqual(await column(), expected, "the column with its constant default (metadata-only: no backfill)");
+    // The upgrade changes no space's behaviour: every space inherits the
+    // workspace defaults until an admin sets something on it.
+    const spaces = await db.query<{ n: number; empty: number }>(
+      "SELECT COUNT(*)::int AS n, COUNT(*) FILTER (WHERE policy_defaults = '{}'::jsonb)::int AS empty FROM spaces"
+    );
+    assert.ok(spaces.rows[0].n >= 1, "the fixture space is there");
+    assert.equal(spaces.rows[0].empty, spaces.rows[0].n, "every existing space reads as inheriting everything");
+
+    // A 1.12.0-shaped INSERT (what a rolled-back binary writes) takes the default.
+    const legacy = await db.query<{ id: number; policy_defaults: unknown }>(
+      "INSERT INTO spaces (name, slug, icon, description, visibility) VALUES ('Boot 1.13 legacy', 'boot-113-legacy', '📁', '', 'internal') RETURNING id, policy_defaults"
+    );
+    assert.deepEqual(legacy.rows[0].policy_defaults, {});
+
+    // A layer set between boots (what PATCH /api/admin/spaces/[id] writes,
+    // done by hand so the boot is the only code under test) survives.
+    const spaceId = (await db.query<{ id: number }>("SELECT id FROM spaces ORDER BY id LIMIT 1")).rows[0].id;
+    await db.query(`UPDATE spaces SET policy_defaults = '{"due_days": 30, "remind_every_days": 3, "owner_user_id": 1}' WHERE id = $1`, [spaceId]);
+    const second = boot(DB);
+    assert.ok(second.ok, `the second boot succeeds:\n${second.out}`);
+    assert.deepEqual(await column(), expected, "the second boot leaves the shape alone");
+    assert.deepEqual(
+      (await db.query<{ policy_defaults: unknown }>("SELECT policy_defaults FROM spaces WHERE id = $1", [spaceId])).rows[0].policy_defaults,
+      { due_days: 30, remind_every_days: 3, owner_user_id: 1 },
+      "the layer is as written"
+    );
+    assert.deepEqual(
+      (await db.query<{ policy_defaults: unknown }>("SELECT policy_defaults FROM spaces WHERE id = $1", [legacy.rows[0].id])).rows[0].policy_defaults,
+      {},
+      "the legacy insert still inherits"
+    );
+    await assertSchema1101(db, "1.13.0 (E1) second boot");
+  });
+
+  test("1.13.0 (E2): the ack_outbox payload column comes back on an upgrade boot, nullable with no default, a 1.12.0-shaped queue row still inserts, a payload set between boots survives, and a second boot moves nothing", async () => {
+    // A database shaped like 1.12.0: the column gone.
+    await db.query("ALTER TABLE ack_outbox DROP COLUMN IF EXISTS payload");
+    const upgrade = boot(DB);
+    assert.ok(upgrade.ok, `the upgrade boot succeeds:\n${upgrade.out}`);
+    const column = async () =>
+      (
+        await db.query<{ data_type: string; is_nullable: string; column_default: string | null }>(
+          "SELECT data_type, is_nullable, column_default FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'ack_outbox' AND column_name = 'payload'"
+        )
+      ).rows;
+    const expected = [{ data_type: "jsonb", is_nullable: "YES", column_default: null }];
+    assert.deepEqual(await column(), expected, "payload jsonb, nullable, no default (metadata-only)");
+
+    // What a 1.12.0 binary writes (no payload) still inserts and reads as NULL.
+    const policy = (await db.query<{ id: number }>("SELECT id FROM documents WHERE ack_required = 1 ORDER BY id LIMIT 1")).rows[0].id;
+    const legacy = await db.query<{ id: number; payload: unknown }>(
+      "INSERT INTO ack_outbox (document_id, mode, source, actor_name) VALUES ($1, 'reminder', 'manual', 'Boot') RETURNING id, payload",
+      [policy]
+    );
+    assert.equal(legacy.rows[0].payload, null);
+    // A sweep row set between boots survives the next one untouched.
+    await db.query(`UPDATE ack_outbox SET payload = '{"rows": [{"user_id": 1, "due_at": null, "overdue": false}]}' WHERE id = $1`, [legacy.rows[0].id]);
+    const second = boot(DB);
+    assert.ok(second.ok, `the second boot succeeds:\n${second.out}`);
+    assert.deepEqual(await column(), expected, "the second boot leaves the shape alone");
+    assert.deepEqual(
+      (await db.query<{ payload: unknown }>("SELECT payload FROM ack_outbox WHERE id = $1", [legacy.rows[0].id])).rows[0].payload,
+      { rows: [{ user_id: 1, due_at: null, overdue: false }] },
+      "the payload is as written"
+    );
+    await db.query("DELETE FROM ack_outbox WHERE id = $1", [legacy.rows[0].id]);
+    await assertSchema1101(db, "1.13.0 (E2) second boot");
+  });
+
+  test("1.13.0 (D1): the three audience tables, their indexes and the UNIQUE come back on an upgrade boot; every person who owed a policy under 1.12.0 gets one open row dated from the marker, so the KPI sums and every roster are identical before and after; the flag is set; and a second boot moves nothing", async () => {
+    // A database shaped like 1.12.0: the three tables and the one-shot flag gone.
+    await db.query(`
+      DROP TABLE IF EXISTS policy_assignments;
+      DROP TABLE IF EXISTS policy_audience_rules;
+      DROP TABLE IF EXISTS policy_settings;
+      DELETE FROM settings WHERE key = 'policy_assignments_migrated';
+    `);
+    // More shape: a second active reader, a disabled one (never in the
+    // denominator), and a second policy nobody confirmed, all as 1.12.0
+    // wrote them.
+    const spaceId = (await db.query<{ space_id: number }>("SELECT space_id FROM documents WHERE ack_required = 1 ORDER BY id LIMIT 1")).rows[0].space_id;
+    await db.query(
+      `INSERT INTO users (username, name, email, role, status) VALUES
+         ('boot110_second', 'Second Reader', 'second@boot110.test', 'viewer', 'active'),
+         ('boot110_gone', 'Gone Reader', 'gone@boot110.test', 'viewer', 'disabled')`
+    );
+    const quiet = (
+      await db.query<{ id: number }>(
+        `INSERT INTO documents (space_id, title, slug, type, status, content, author, ack_required)
+         VALUES ($1, 'Boot 1.13 quiet policy', 'boot-113-quiet', 'policy', 'published', 'quiet text', 'boot', 1) RETURNING id`,
+        [spaceId]
+      )
+    ).rows[0].id;
+    await db.query("INSERT INTO doc_versions (document_id, title, content, author, note) VALUES ($1, 'Boot 1.13 quiet policy', 'quiet text', 'boot', 'Created')", [quiet]);
+    // What 1.12.0 showed, per policy: everyone active who can see the space
+    // (the fixture spaces are internal, so every active account) and who is
+    // current against the marker.
+    const LEGACY = `SELECT d.id AS document_id, u.id AS user_id,
+                           EXISTS (SELECT 1 FROM acknowledgements a WHERE a.document_id = d.id AND a.user_id = u.id
+                                     AND a.acknowledged_at >= d.ack_revision_at) AS current
+                    FROM documents d JOIN spaces s ON s.id = d.space_id JOIN users u ON u.status = 'active'
+                    WHERE (d.ack_required = 1 OR d.ack_retired_at IS NOT NULL) AND s.visibility IN ('public', 'internal')
+                    ORDER BY 1, 2`;
+    const before = (await db.query(LEGACY)).rows;
+    assert.ok(before.length >= 6, `the fixture has policies and people (${before.length})`);
+    assert.ok(before.some((r) => r.current), "and at least one current confirmation");
+    const privateSpaces = await db.query("SELECT COUNT(*)::int AS n FROM documents d JOIN spaces s ON s.id = d.space_id WHERE d.ack_required = 1 AND s.visibility = 'private'");
+    assert.equal(privateSpaces.rows[0].n, 0, "the legacy rule above is the whole audience: no private-space policy in this database");
+
+    const upgrade = boot(DB);
+    assert.ok(upgrade.ok, `the upgrade boot succeeds:\n${upgrade.out}`);
+    assert.match(upgrade.out, /\[ack\] policy audiences materialised: \d+ policy setting row\(s\) and \d+ assignment\(s\)/, "the migration ran and logged its counts");
+    await assertSchema1101(db, "1.13.0 (D1) upgrade boot");
+
+    const tables = await db.query<{ t: string }>(
+      "SELECT to_regclass('policy_settings')::text AS t UNION ALL SELECT to_regclass('policy_audience_rules')::text UNION ALL SELECT to_regclass('policy_assignments')::text"
+    );
+    assert.deepEqual(tables.rows.map((r) => r.t), ["policy_settings", "policy_audience_rules", "policy_assignments"], "the three tables exist");
+    const unique = await db.query<{ def: string }>(
+      "SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conrelid = 'policy_assignments'::regclass AND contype = 'u'"
+    );
+    assert.deepEqual(unique.rows.map((r) => r.def), ["UNIQUE (document_id, user_id)"], "one row per person and policy");
+    const rulesUnique = await db.query<{ def: string }>(
+      "SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conrelid = 'policy_audience_rules'::regclass AND contype = 'u'"
+    );
+    assert.deepEqual(rulesUnique.rows.map((r) => r.def), ["UNIQUE (document_id, kind, ref, effect)"]);
+    // The FK ON DELETE rules: what keeps a 1.12.0 binary's deleteUser and
+    // document purge from failing on the new tables during a rollback
+    // (cascade), and a deleted owner or requester reading as nobody.
+    const fks = await db.query<{ t: string; conname: string; confdeltype: string }>(
+      `SELECT conrelid::regclass::text AS t, conname, confdeltype FROM pg_constraint
+       WHERE contype = 'f' AND conrelid IN ('policy_settings'::regclass, 'policy_audience_rules'::regclass, 'policy_assignments'::regclass)
+       ORDER BY 1, 2`
+    );
+    assert.deepEqual(
+      fks.rows.map((r) => [r.t, r.conname, r.confdeltype]),
+      [
+        ["policy_assignments", "policy_assignments_document_id_fkey", "c"],
+        ["policy_assignments", "policy_assignments_user_id_fkey", "c"],
+        ["policy_audience_rules", "policy_audience_rules_document_id_fkey", "c"],
+        ["policy_settings", "policy_settings_document_id_fkey", "c"],
+        ["policy_settings", "policy_settings_owner_user_id_fkey", "n"],
+        ["policy_settings", "policy_settings_requested_by_fkey", "n"],
+      ],
+      "the six FKs: CASCADE for the three document_id and the user_id, SET NULL for the owner and the requester"
+    );
+    const partial = await db.query<{ indexdef: string }>(
+      "SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'idx_policy_assign_due'"
+    );
+    assert.match(partial.rows[0].indexdef, /USING btree \(due_at\) WHERE \(\(exempt_at IS NULL\) AND \(removed_at IS NULL\)\)/, "the due index covers the open rows only");
+    assert.equal(
+      (await db.query("SELECT value FROM settings WHERE key = 'policy_assignments_migrated'")).rows[0]?.value,
+      "1",
+      "the one-shot flag is set"
+    );
+
+    // The rows: the same people, the same currency, every row open, source
+    // 'space', the cycle dated from the marker (not the upgrade), one
+    // settings row per policy in space mode.
+    const AFTER = `SELECT pa.document_id, pa.user_id,
+                          EXISTS (SELECT 1 FROM acknowledgements a WHERE a.document_id = d.id AND a.user_id = u.id
+                                    AND a.acknowledged_at >= GREATEST(d.ack_revision_at, pa.cycle_started_at)) AS current
+                   FROM policy_assignments pa
+                   JOIN documents d ON d.id = pa.document_id
+                   JOIN users u ON u.id = pa.user_id AND u.status = 'active'
+                   WHERE pa.removed_at IS NULL AND pa.exempt_at IS NULL
+                   ORDER BY 1, 2`;
+    const after = (await db.query(AFTER)).rows;
+    assert.deepEqual(after, before, "every roster is identical, confirmation by confirmation");
+    const sums = (q: typeof before) => ({
+      eligible: q.length,
+      current: q.filter((r) => r.current).length,
+    });
+    assert.deepEqual(sums(after), sums(before), "so the KPI sums are identical");
+    const shape = (
+      await db.query<{ n: number; open: boolean; space: boolean; from_marker: boolean }>(
+        `SELECT COUNT(*)::int AS n, bool_and(removed_at IS NULL AND exempt_at IS NULL) AS open, bool_and(source = 'space') AS space,
+                bool_and(pa.cycle_started_at = d.ack_revision_at) AS from_marker
+         FROM policy_assignments pa JOIN documents d ON d.id = pa.document_id`
+      )
+    ).rows[0];
+    assert.equal(shape.n, before.length, "no row for a disabled account");
+    assert.deepEqual({ open: shape.open, space: shape.space, from_marker: shape.from_marker }, { open: true, space: true, from_marker: true });
+    const gone = (await db.query("SELECT id FROM users WHERE username = 'boot110_gone'")).rows[0].id;
+    assert.equal((await db.query("SELECT COUNT(*)::int AS n FROM policy_assignments WHERE user_id = $1", [gone])).rows[0].n, 0);
+    const settings = await db.query<{ n: number; space: boolean; auto: boolean }>(
+      "SELECT COUNT(*)::int AS n, bool_and(audience_mode = 'space') AS space, bool_and(assign_new_members = 1 AND exclude_stewards = 0) AS auto FROM policy_settings"
+    );
+    const policies = (await db.query("SELECT COUNT(*)::int AS n FROM documents WHERE ack_required = 1 OR ack_retired_at IS NOT NULL")).rows[0].n;
+    assert.deepEqual(settings.rows[0], { n: policies, space: true, auto: true }, "one settings row per policy, space mode, new joiners enrolled");
+
+    // Something a tenant does between boots that a re-run would undo: a row
+    // closed by hand (the way a manager's narrowing leaves it). A second
+    // boot must leave it closed: the materialisation is one-shot.
+    const second = (await db.query("SELECT id FROM users WHERE username = 'boot110_second'")).rows[0].id;
+    await db.query("UPDATE policy_assignments SET removed_at = now(), removed_reason = 'audience_narrowed' WHERE document_id = $1 AND user_id = $2", [quiet, second]);
+    // And a rollback (invariant 12): a 1.12.0 binary running on this
+    // database between the boots creates an account, switches a policy on
+    // (no settings row, no rows: it knows none of the tables) and records
+    // a confirmation under it. The second boot's migration is flag-guarded,
+    // so the hourly sweep heals these after the re-upgrade.
+    const rolledUser = (
+      await db.query<{ id: number }>(
+        "INSERT INTO users (username, name, email, role, status) VALUES ('boot110_rolled', 'Rolled Reader', 'rolled@boot110.test', 'viewer', 'active') RETURNING id"
+      )
+    ).rows[0].id;
+    const rolled = (
+      await db.query<{ id: number }>(
+        `INSERT INTO documents (space_id, title, slug, type, status, content, author, ack_required, ack_revision_at)
+         VALUES ($1, 'Boot 1.13 rolled-back policy', 'boot-113-rolled', 'policy', 'published', 'rolled text', 'boot', 1, now() - interval '1 day') RETURNING id`,
+        [spaceId]
+      )
+    ).rows[0].id;
+    await db.query("INSERT INTO doc_versions (document_id, title, content, author, note) VALUES ($1, 'Boot 1.13 rolled-back policy', 'rolled text', 'boot', 'Created')", [rolled]);
+    await db.query(
+      `INSERT INTO acknowledgements (document_id, user_id, acknowledged_at, ip, user_name, user_email, document_title)
+       VALUES ($1, $2, now() - interval '1 hour', '10.0.0.5', 'Rolled Reader', 'rolled@boot110.test', 'Boot 1.13 rolled-back policy')`,
+      [rolled, rolledUser]
+    );
+    const rolledLegacy = (await db.query(LEGACY)).rows.filter((r) => r.document_id === rolled);
+    assert.ok(rolledLegacy.length >= 2, "1.12.0 asked everyone active in the internal space");
+    assert.ok(rolledLegacy.some((r) => r.user_id === rolledUser && r.current), "and showed the rolled-back confirmation as current");
+    assert.equal((await db.query("SELECT 1 FROM policy_assignments WHERE document_id = $1", [rolled])).rowCount, 0, "no row yet: 1.12.0 wrote none");
+    const between = (await db.query(AFTER)).rows;
+    const reboot = boot(DB);
+    assert.ok(reboot.ok, `the second boot succeeds:\n${reboot.out}`);
+    assert.doesNotMatch(reboot.out, /policy audiences materialised/, "the migration did not run again");
+    assert.deepEqual((await db.query(AFTER)).rows, between, "nothing moved on the second boot");
+    assert.equal(
+      (await db.query("SELECT removed_reason FROM policy_assignments WHERE document_id = $1 AND user_id = $2", [quiet, second])).rows[0].removed_reason,
+      "audience_narrowed",
+      "the closed row stays closed"
+    );
+
+    // The re-upgraded binary's first hourly tick: the rolled-back policy
+    // gets its settings row and its rows, each dated from the marker (the
+    // policy's cycle, not the heal), so the roster 1.12.0 showed and the
+    // currency of every confirmation made under it are what 1.13.0 shows.
+    const healed = reconcile(DB);
+    assert.ok(healed.ok, `the sweep runs:\n${healed.out}`);
+    const rolledAfter = (await db.query(AFTER)).rows.filter((r) => r.document_id === rolled);
+    assert.deepEqual(rolledAfter, rolledLegacy, "the rolled-back policy's roster is identical, confirmation by confirmation");
+    assert.ok(rolledAfter.some((r) => r.user_id === rolledUser && r.current), "the confirmation recorded under 1.12.0 is still current");
+    const healedShape = (
+      await db.query<{ n: number; from_marker: boolean; open: boolean }>(
+        `SELECT COUNT(*)::int AS n, bool_and(pa.cycle_started_at = d.ack_revision_at) AS from_marker, bool_and(pa.removed_at IS NULL) AS open
+         FROM policy_assignments pa JOIN documents d ON d.id = pa.document_id WHERE pa.document_id = $1`,
+        [rolled]
+      )
+    ).rows[0];
+    assert.deepEqual(healedShape, { n: rolledLegacy.length, from_marker: true, open: true }, "every healed row takes the policy's cycle");
+    assert.equal(
+      (await db.query("SELECT audience_mode FROM policy_settings WHERE document_id = $1", [rolled])).rows[0]?.audience_mode,
+      "space",
+      "and the settings row is back, in space mode"
+    );
+    await assertSchema1101(db, "1.13.0 (D1) second boot");
   });
 });

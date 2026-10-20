@@ -8,7 +8,7 @@ import "server-only";
 import JSZip from "jszip";
 import { getSetting } from "./db";
 import { personPhotoLargeMap, type DirectoryField, type DirectoryPerson } from "./directory";
-import { groupPeople } from "./directory-display";
+import { groupPeople, orderGroups } from "./directory-display";
 import type { ExportPreset } from "./directory-export-config";
 import { exportFilename, renderDirectoryCsv, renderDirectoryPdf } from "./directory-export";
 import { listMarkers, type ExportMarker } from "./directory-markers";
@@ -70,10 +70,10 @@ export async function renderExportFile(opts: {
     format === "pdf" && preset.layout === "cards" && preset.photos ? personPhotoLargeMap(people.map((p) => p.id)) : Promise.resolve(undefined),
     opts.markers ?? (preset.markers?.length ? listMarkers(fields) : Promise.resolve([])),
   ]);
-  const one = async (p: ExportPreset, subset: DirectoryPerson[]): Promise<Buffer> =>
+  const one = async (p: ExportPreset, subset: DirectoryPerson[], only?: (x: DirectoryPerson) => boolean): Promise<Buffer> =>
     format === "csv"
-      ? Buffer.from(renderDirectoryCsv({ preset: p, people: subset, lookup, fields, company, markers }), "utf8")
-      : renderDirectoryPdf({ preset: p, people: subset, lookup, fields, company, logo, printedOn, offices, photosLarge, markers });
+      ? Buffer.from(renderDirectoryCsv({ preset: p, people: subset, only, lookup, fields, company, markers }), "utf8")
+      : renderDirectoryPdf({ preset: p, people: subset, only, lookup, fields, company, logo, printedOn, offices, photosLarge, markers });
 
   const splitField = (opts.split ?? true) && preset.split_by ? fields.find((f) => f.key === preset.split_by && f.group_by) : undefined;
   if (!splitField) {
@@ -85,7 +85,12 @@ export async function renderExportFile(opts: {
   // so the groups come from everyone the preset covers.
   const zip = new JSZip();
   const base = exportFilename(preset, company, format).replace(/\.(pdf|csv)$/, "");
-  const groups = groupPeople(people.filter((p) => p.hidden !== 1), splitField);
+  // Split by the sections field, the files come out in the preset's section
+  // order too (each file's own sections follow it through prepareExport).
+  const groups = orderGroups(
+    groupPeople(people.filter((p) => p.hidden !== 1), splitField),
+    splitField.key === preset.group_by ? preset.section_order ?? [] : []
+  );
   const used = new Set<string>();
   let parts = 0;
   for (const g of groups) {
@@ -95,7 +100,12 @@ export async function renderExportFile(opts: {
     while (used.has(name)) name = `${name}-${parts + 1}`;
     used.add(name);
     const title = `${preset.title || `${company} directory`} — ${label}`;
-    const body = await one({ ...preset, title, filter: null, split_by: "" }, g.members);
+    // The whole population goes in, with the section's members as the rows
+    // to print, so the file's section heads are drawn from everyone the
+    // export covers, as the single-file export draws them: a head whose own
+    // value is another section still leads this one.
+    const members = new Set(g.members.map((p) => p.id));
+    const body = await one({ ...preset, title, filter: null, split_by: "" }, people, (p) => members.has(p.id));
     zip.file(`${base}-${name}.${format}`, body);
     parts++;
   }

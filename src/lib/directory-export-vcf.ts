@@ -24,8 +24,16 @@ export async function renderDirectoryVcf(input: {
   const officeField = input.fields.find((f) => f.key === "office");
   const blocks = new Map<string, ReturnType<typeof officeBlock>>();
   const cards: string[] = [];
+  // One card per person, where their own value puts them: a section's head
+  // rows (the first `heads` of its rows) are skipped when the person also
+  // prints as an ordinary row elsewhere, so the file is the one it was
+  // before sections had heads. A head who sits in the section they head
+  // prints only as its head row, and keeps that one.
+  const own = new Set<number>();
+  for (const s of prepared.sections) s.rows.slice(s.heads.length).forEach((p) => own.add(p.id));
   for (const s of prepared.sections) {
-    for (const p of s.rows) {
+    for (const [i, p] of s.rows.entries()) {
+      if (i < s.heads.length && own.has(p.id)) continue;
       const key = officeKeyOf(p.office, officeField).toLowerCase();
       let block = blocks.get(key);
       if (block === undefined && key) {

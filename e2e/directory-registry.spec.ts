@@ -189,6 +189,91 @@ test("fields carry options in the admin's order; grouped views and exports follo
   }
 });
 
+// 1.13.0: an option's heads. Saved through the field route and read back in
+// order; refused by name when an id is not a whole number, there are more
+// than five, or someone is not in the directory; pruned on read once the
+// person is hidden; picked on the Fields page with their own value shown.
+test("an option saved with heads round-trips, a bad head is refused, a hidden head drops out on read, and the Fields page picks them", async ({ page }) => {
+  await login(page, ADMIN);
+  const stamp = Date.now();
+  // Its own key prefix and names: the first test's cleanup must not reach these rows.
+  const key = `e2e_heads_${stamp}`;
+  const fieldsOf = async () => (await api(page, "/api/admin/directory/fields")).body.fields.find((f: any) => f.key === key);
+  const made: { id: number }[] = [];
+  let fieldId: number | undefined;
+  try {
+    const field = (await api(page, "/api/admin/directory/fields", {
+      method: "POST",
+      body: { label: `E2E Dept ${stamp}`, key, kind: "choice", group_by: true, value_format: "label", options: [{ value: "ENG", label: "Engineering" }, { value: "EXEC", label: "Executive" }] },
+    })).body.field as { id: number };
+    fieldId = field.id;
+    const mk = async (name: string, value: string) => {
+      const p = (await api(page, "/api/admin/directory/people", { method: "POST", body: { name, custom: { [key]: value } } })).body.person;
+      made.push(p);
+      return p;
+    };
+    const jane = await mk(`E2E Heads Jane ${stamp}`, "EXEC");
+    const bob = await mk(`E2E Heads Bob ${stamp}`, "ENG");
+
+    // Saved in the order given, once each; an option without heads carries no key.
+    const saved = await api(page, `/api/admin/directory/fields/${field.id}`, {
+      method: "PATCH",
+      body: { options: [{ value: "ENG", label: "Engineering", heads: [bob.id, jane.id, bob.id] }, { value: "EXEC", label: "Executive" }] },
+    });
+    expect(saved.status).toBe(200);
+    expect(saved.body.field.options[0].heads).toEqual([bob.id, jane.id]);
+    expect(saved.body.field.options[1].heads).toBeUndefined();
+    expect((await fieldsOf()).options[0].heads).toEqual([bob.id, jane.id]);
+
+    // Refused, and nothing changes: a non-integer id, more than five, someone not in the directory.
+    const refusals: [unknown[], RegExp][] = [
+      [["x"], /not a person's id/],
+      [[1, 2, 3, 4, 5, 6], /up to 5 heads/],
+      [[jane.id, 99999999], /person in the directory/],
+    ];
+    for (const [heads, re] of refusals) {
+      const r = await api(page, `/api/admin/directory/fields/${field.id}`, { method: "PATCH", body: { options: [{ value: "ENG", label: "Engineering", heads }, { value: "EXEC" }] } });
+      expect(r.status, `refuses ${JSON.stringify(heads)}`).toBe(400);
+      expect(r.body.error).toMatch(re);
+    }
+    expect((await fieldsOf()).options[0].heads).toEqual([bob.id, jane.id]);
+
+    // A hidden head drops out on read; shown again, they are back.
+    await api(page, `/api/admin/directory/people/${bob.id}`, { method: "PATCH", body: { hidden: true } });
+    expect((await fieldsOf()).options[0].heads).toEqual([jane.id]);
+    await api(page, `/api/admin/directory/people/${bob.id}`, { method: "PATCH", body: { hidden: false } });
+    expect((await fieldsOf()).options[0].heads).toEqual([bob.id, jane.id]);
+
+    // The Fields page: the Heads list under the options, one picker per
+    // option naming the row, the saved heads as chips, the help once; pick
+    // Jane as Executive's head (her own value shows beside her name) and
+    // Save options.
+    await page.goto("/admin/directory/fields");
+    // The row's label is an input's value; its key is text.
+    const row = page.locator("tr", { hasText: key });
+    await row.getByRole("button", { name: "2 options" }).click();
+    const heads = page.getByRole("group", { name: "Heads" });
+    await expect(heads).toBeVisible();
+    await expect(heads.getByText("The people who head this section. They print at the top of its section on exports and in the Groups view, even when their own value is another section.")).toBeVisible();
+    await expect(heads.getByRole("button", { name: `Remove ${bob.name}` })).toBeVisible();
+    await expect(heads.getByRole("button", { name: `Remove ${jane.name}` })).toBeVisible();
+    const execPicker = heads.getByRole("combobox", { name: "Heads of Executive" });
+    await execPicker.fill(jane.name);
+    const choice = page.getByRole("option", { name: new RegExp(jane.name) });
+    await expect(choice).toContainText("Executive");
+    await choice.click();
+    await expect(heads.getByRole("button", { name: `Remove ${jane.name}` })).toHaveCount(2);
+    await page.getByRole("button", { name: "Save options" }).click();
+    await expect(page.getByText("Options saved.")).toBeVisible();
+    const after = await fieldsOf();
+    expect(after.options[0].heads).toEqual([bob.id, jane.id]);
+    expect(after.options[1].heads).toEqual([jane.id]);
+  } finally {
+    for (const p of made) await api(page, `/api/admin/directory/people/${p.id}`, { method: "DELETE" });
+    if (fieldId !== undefined) await api(page, `/api/admin/directory/fields/${fieldId}`, { method: "DELETE" });
+  }
+});
+
 test("the mapping preview runs without records and rejects a broken mapping", async ({ page }) => {
   await login(page, ADMIN);
   const bad = await api(page, "/api/admin/directory/fields/preview", {

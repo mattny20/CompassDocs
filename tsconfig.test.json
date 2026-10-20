@@ -6,7 +6,11 @@
   "compilerOptions": {
     "paths": {
       "@/*": ["./src/*"],
-      "server-only": ["./test/stubs/server-only.ts"]
+      "server-only": ["./test/stubs/server-only.ts"],
+      // `@ee` is next.config.js's build alias; tests see the community stub,
+      // the way an open-source build does (lib/compliance gates its hourly
+      // sweep on featureEnabled since 1.13.0).
+      "@ee": ["./src/ee-stub/index.ts"]
     }
   }
 }

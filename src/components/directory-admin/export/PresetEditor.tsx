@@ -19,10 +19,11 @@ import { CardTitle } from "@/components/Heading";
 import { chipClass } from "@/components/Chip";
 import { Button, buttonClass } from "@/components/Button";
 import { SettingsLink } from "@/components/SettingsLink";
+import { LoadingRow } from "@/components/Spinner";
 import { Tooltip } from "@/components/Tooltip";
-import { Field, Select, TextInput, Toggle, rangeError } from "@/components/form";
+import { Field, SectionEmpty, Select, TextInput, Toggle, rangeError } from "@/components/form";
 import type { DirectoryField } from "@/lib/directory";
-import { NAME_FORMATS, isNameFormat } from "@/lib/directory-display";
+import { NAME_FORMATS, headsLabel, isNameFormat, orderGroups, type SectionSummary } from "@/lib/directory-display";
 import type { ExportPreset } from "@/lib/directory-export-config";
 import type { ExportMarker } from "@/lib/directory-marker-rules";
 import { describeSchedule, WEEKDAYS, type ExportSchedule } from "@/lib/directory-export-schedule-rules";
@@ -42,6 +43,10 @@ export interface PresetEditorModel {
   /** The workspace's markers as saved (the Markers card's): what "Mark people with" offers. */
   markers: ExportMarker[];
   toggleMarker: (id: string, on: boolean) => void;
+  /** The sections "Sections by" makes of the people the preset prints (the
+   *  sections route), in the field's own order; undefined while they load,
+   *  "error" when the route failed. Absent when no field is chosen. */
+  sections?: SectionSummary[] | "error";
   /** "Wrap after", per column key, as typed. */
   limits: Record<string, number>;
   setLimit: (key: string, raw: string) => void;
@@ -379,11 +384,25 @@ function ColumnsCard({ m }: { m: PresetEditorModel }) {
 
 function OrderCard({ m }: { m: PresetEditorModel }) {
   const { cur, update } = m;
+  const sectionsHelpId = useId();
+  const order = cur.section_order ?? [];
+  // The rows: the preset's order first, then every other section in the
+  // field's own order, so a value that arrived after the order was set shows
+  // at the end rather than nowhere. Moving a row writes the whole list.
+  const rows = Array.isArray(m.sections) ? orderGroups(m.sections.map((s) => ({ key: s.value, ...s })), order) : [];
+  const rowOf = new Map(rows.map((r) => [r.value, r]));
+  // The toggle shows only once the sections field has a head to print.
+  const sectionsField = m.groupFields.find((f) => f.key === cur.group_by);
+  const fieldHasHeads = Boolean(sectionsField?.options.some((o) => (o.heads?.length ?? 0) > 0));
+  const headsFirst = cur.section_heads ?? true;
   return (
     <Card id="order" className="scroll-mt-6" title="Order and filter" description="Who is in the file, in which sections, and in what order.">
+      {/* Two grids with one gap between them, so the Section order list
+          can take the full width right under the first row. */}
       <div className="grid gap-3 @md:grid-cols-2">
         <Field label="Sections by">
-          <Select value={cur.group_by} onChange={(e) => update({ group_by: e.target.value })} className="w-full">
+          {/* A new field, a new set of sections: the order starts over. */}
+          <Select value={cur.group_by} onChange={(e) => update({ group_by: e.target.value, section_order: [] })} className="w-full">
             <option value="">— one list —</option>
             {m.groupFields.map((f) => (
               <option key={f.key} value={f.key}>{f.label}</option>
@@ -407,6 +426,61 @@ function OrderCard({ m }: { m: PresetEditorModel }) {
             </Select>
           </div>
         </Field>
+      </div>
+      {cur.group_by && fieldHasHeads && (
+        <div className="mt-3">
+          <Toggle
+            label="Section heads first"
+            help="Heads print at the top of their section, marked Head, even when their own value is another section."
+            checked={headsFirst}
+            onChange={(v) => update({ section_heads: v })}
+          />
+        </div>
+      )}
+      {cur.group_by && (
+        // A fieldset, not a Field, as the columns list is: a Field's label
+        // would hand a click on any row's text to the first button.
+        <fieldset aria-describedby={sectionsHelpId} className="mt-3">
+          <legend className="mb-1 block text-xs font-medium text-slate-500">Section order</legend>
+          {m.sections === undefined ? (
+            <LoadingRow className="py-3">Loading sections…</LoadingRow>
+          ) : m.sections === "error" ? (
+            <p role="alert" className="text-xs text-red-600">Could not load the sections. Reload the page to try again.</p>
+          ) : rows.length === 0 ? (
+            <SectionEmpty>No sections yet: nobody has a value for this field.</SectionEmpty>
+          ) : (
+            <OrderedKeyList
+              value={rows.map((r) => r.value)}
+              onChange={(section_order) => update({ section_order })}
+              available={rows.map((r) => ({ key: r.value, label: r.label }))}
+              removable={false}
+              extra={(key) => {
+                const s = rowOf.get(key);
+                const n = s?.count ?? 0;
+                // The section's heads, as the file will print them, under the count.
+                const line = headsFirst ? headsLabel((s?.heads ?? []).map((h) => h.name)) : "";
+                return (
+                  <span className="flex flex-col items-end text-2xs text-slate-500">
+                    <span>
+                      {n} {n === 1 ? "person" : "people"}
+                    </span>
+                    {line && <span>{line}</span>}
+                  </span>
+                );
+              }}
+            />
+          )}
+          <p id={sectionsHelpId} className="mt-1 text-xs text-slate-500">
+            Sections print in this order. A value that is not listed prints after these, in the field&apos;s own order.
+          </p>
+          <div className="mt-2">
+            <Button variant="secondary" onClick={() => update({ section_order: [] })} disabled={order.length === 0}>
+              Reset to field order
+            </Button>
+          </div>
+        </fieldset>
+      )}
+      <div className="mt-3 grid gap-3 @md:grid-cols-2">
         <Field label="Then by" help="Breaks ties in the first sort — Office, then Title. Name always comes last.">
           <div className="flex gap-1">
             <Select value={cur.sort2} onChange={(e) => update({ sort2: e.target.value })} className="w-full">

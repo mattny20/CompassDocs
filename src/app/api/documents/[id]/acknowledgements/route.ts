@@ -12,6 +12,7 @@ import {
 import { apiGuard } from "@/lib/api-auth";
 import { spaceScopeFor, scopeAllows, canSeeDrafts, userHolds } from "@/lib/access";
 import { featureEnabled } from "@/lib/ee";
+import { resolvePolicyDefaults } from "@/lib/compliance";
 import { auditAck, actorFrom, ipFrom } from "@/lib/audit";
 import type { SessionUser } from "@/lib/types";
 import { versionProvenance, provenanceCells } from "@/lib/version-provenance";
@@ -25,6 +26,8 @@ import {
   personalDataCells,
   personalDataForViewer,
   ledgerCsvCells,
+  rosterStatus,
+  exemptionCsvCells,
 } from "@/lib/read-evidence";
 
 export const dynamic = "force-dynamic";
@@ -54,10 +57,21 @@ export const dynamic = "force-dynamic";
 // reached_end_self_reported. Closing the line (1.12.0, C4): statement (the
 // confirmation statement the person saw), signed_name and identity_proof
 // (C2), then recert_months, effective_at and next_recert_at from the
-// documents row (G1). The headers live in src/lib/read-evidence.ts beside
-// the cell rules. Every cell goes through csvCell (quotes doubled, a
+// documents row (G1). After those (1.13.0, D2) the assignment's exemption
+// and deadline: exempt_reason, exempt_by, exempt_until (filled on a row
+// whose status is 'exempt'; such a row is in no count), snoozed_until and
+// due_at. The headers live in src/lib/read-evidence.ts beside the cell
+// rules. Every cell goes through csvCell (quotes doubled, a
 // formula-leading value prefixed with a quote), so a name or a note that
 // starts with = never runs when the sheet opens.
+//
+// The JSON rows (the Record tab and the portal's expand row, AckRoster) are
+// AckStatusRow as is: with 1.13.0 each carries its assignment (D2:
+// assignment_id, due_at, exempt, exempt_reason, exempt_by_name, exempt_at,
+// exempt_until, snoozed_until) and the per-person re-ask (D4:
+// asked_again_at, asked_again_reason, asked_again_by); `defaults` beside
+// them carries the policy's resolved overdue_grace_days (E1), which the
+// roster's Overdue chip needs and the portal cannot resolve on its own.
 //
 // Guards: apiGuard admits a holder of the space-scoped key anywhere, so the
 // key is checked again on the document's own space (403); a draft the
@@ -170,12 +184,13 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     });
   }
 
-  const [rows, former, lastDecision, lastReset, kept] = await Promise.all([
+  const [rows, former, lastDecision, lastReset, kept, defaults] = await Promise.all([
     ackStatusForDocument(doc.id),
     ackFormerStaffRows(doc.id),
     lastAckDecision(doc.id),
     lastAckDecision(doc.id, { outcome: "reset" }),
     keptSinceLastReset(doc.id),
+    resolvePolicyDefaults(doc.id),
   ]);
   const access = canExport ? await recordedAccess(doc.id) : null;
   const accessOfRow = (r: { id: number; acknowledged_at: string | null }): RecordedAccess | null =>
@@ -200,7 +215,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
           esc(r.username),
           esc(r.email),
           esc(r.role),
-          esc(r.acknowledged_at ? "acknowledged" : "pending"),
+          esc(rosterStatus(r)),
           esc(r.acknowledged_at ?? ""),
           esc(doc.title),
           esc(doc.ack_revision_at),
@@ -215,6 +230,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
           ...evidenceCsvCells(r).map(esc),
           ...attestationCsvCells(r).map(esc),
           ...recert,
+          ...exemptionCsvCells(r).map(esc),
         ].join(",")
       ),
       ...former.map((r) =>
@@ -238,6 +254,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
           ...evidenceCsvCells(r).map(esc),
           ...attestationCsvCells(r).map(esc),
           ...recert,
+          // No assignment row travels with a former staff member: five blanks.
+          ...exemptionCsvCells({}).map(esc),
         ].join(",")
       ),
     ].join("\n");
@@ -262,6 +280,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     // The IP and user agent travel with the JSON row only for an exporter,
     // as in the CSV.
     rows: canExport ? rows.map((r) => ({ ...r, ...(accessOfRow(r) ?? { ip: "", user_agent: "" }) })) : rows,
+    // The policy's resolved grace (E1): the roster's Overdue chip and filter.
+    defaults: { overdue_grace_days: defaults.values.overdue_grace_days },
     former_staff: canExport
       ? former.map((r) => ({ ...r, ...(accessOfFormer(r) ?? { ip: "", user_agent: "" }) }))
       : former,

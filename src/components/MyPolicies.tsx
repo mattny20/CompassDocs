@@ -2,17 +2,20 @@
 
 // My policies (B4, 1.12.0): one person's standing on every policy they can
 // be asked to confirm. A standing line and the progress bar the Record tab
-// draws, then two groups: To confirm (most recently changed first) and Confirmed. Each
-// row is the space icon, the title as a link to the confirmation card at the
-// end of the document, when it was last saved, and one chip from a closed
-// set: "To confirm" (warn), "Changed since you confirmed {date}" (warn) or
-// "Confirmed {date} · v12" (ok). A filter box appears once there are more
-// than ten rows (STYLEGUIDE §Tables). No history, print or CSV here: the
-// person record (F3) holds those. "Overdue" and due dates arrive with E1.
+// draws, then two groups: To confirm and Confirmed. The server orders the
+// first group in the person's priority (E1, 1.13.0): overdue first, then
+// the soonest deadline, then the most recently changed; the second most
+// recently changed first. Each row is the space icon, the title as a link
+// to the confirmation card at the end of the document, when it was last
+// saved, and one chip from a closed set: "Overdue · due {date}" (error),
+// "To confirm · due {date}" or "To confirm" (warn), "Changed since you
+// confirmed {date}" (warn) or "Confirmed {date} · v12" (ok). A filter box
+// appears once there are more than ten rows (STYLEGUIDE §Tables). No
+// history, print or CSV here: the person record (F3) holds those.
 
 import { useState } from "react";
 import Link from "next/link";
-import { Check, CircleDashed, ShieldCheck } from "lucide-react";
+import { Check, CircleAlert, CircleDashed, ShieldCheck } from "lucide-react";
 import { Card } from "@/components/Card";
 import { chipClass } from "@/components/Chip";
 import { Eyebrow } from "@/components/Heading";
@@ -41,7 +44,7 @@ export function MyPolicies({ rows }: { rows: MyPolicyRow[] }) {
       <EmptyState
         icon={<ShieldCheck />}
         title="Nothing to confirm"
-        body="Policies you're asked to read and confirm will appear here."
+        body="Policies you're asked to read and confirm will appear here with their due dates."
       />
     );
   }
@@ -145,6 +148,14 @@ function StateChip({ row: r, date }: { row: MyPolicyRow; date: (iso: string | nu
       </span>
     );
   }
+  // Overdue (E1) outranks the other two: the deadline is the fact to act on.
+  if (r.state === "overdue") {
+    return (
+      <span className={chipClass("error")}>
+        <CircleAlert className="h-3 w-3" aria-hidden /> Overdue · due {date(r.due_at)}
+      </span>
+    );
+  }
   if (r.state === "reconfirm") {
     return (
       <span className={chipClass("warn")}>
@@ -154,7 +165,7 @@ function StateChip({ row: r, date }: { row: MyPolicyRow; date: (iso: string | nu
   }
   return (
     <span className={chipClass("warn")}>
-      <CircleDashed className="h-3 w-3" aria-hidden /> To confirm
+      <CircleDashed className="h-3 w-3" aria-hidden /> To confirm{r.due_at ? ` · due ${date(r.due_at)}` : ""}
     </span>
   );
 }

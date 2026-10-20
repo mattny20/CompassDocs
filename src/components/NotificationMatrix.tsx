@@ -19,6 +19,8 @@ const ROWS: { kind: string; label: string; hint: string; email: boolean }[] = [
   { kind: "cr_resolved", label: "Review decisions", hint: "Your change request is approved or rejected", email: false },
   { kind: "review_due", label: "Review reminders", hint: "A document you steward is due for review", email: true },
   { kind: "ack_requested", label: "Read confirmations", hint: "You're asked to read and confirm a document", email: true },
+  { kind: "ack_due", label: "Policy reminders", hint: "A policy you must confirm is due soon or overdue", email: true },
+  { kind: "ack_escalation", label: "Compliance escalations", hint: "People you own or lead are overdue on a policy", email: true },
   { kind: "training_assigned", label: "Training assigned", hint: "A training deck is assigned to you", email: true },
   { kind: "training_due", label: "Training due", hint: "An assigned training is due soon or overdue", email: true },
   { kind: "service_status", label: "Service status", hint: "A tracked SaaS tool goes down or recovers", email: false },

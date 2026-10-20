@@ -11,8 +11,11 @@ export const dynamic = "force-dynamic";
 // policy in their scope, as the page shows it. Any role: a policy is asked
 // of people, not of managers. The licence answers 402 like the rest of the
 // read-confirmation API. Nothing here names anyone else; the per-person
-// CSV and the history wait for the person record (F3). 'overdue' joins the
-// state union with due dates (E1, 1.13.0).
+// CSV and the history wait for the person record (F3). Since 1.13.0 (E1)
+// each row carries the person's deadline (`due_at`, null without one) and
+// the state union has 'overdue' (the deadline plus the policy's grace has
+// passed), and the rows arrive in the page's order: overdue first, then the
+// soonest deadline, then the most recently changed.
 export async function GET() {
   const gate = await apiGuard("viewer");
   if (gate instanceof NextResponse) return gate;

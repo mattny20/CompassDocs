@@ -64,7 +64,9 @@ keep their own titles.
   and a copy of `DocActions` without the `ack` prop (the shield toggle
   keeps its state locally, so two copies would disagree after a click; A5
   moves it into a popover). Under `sm` the bar shows the **control and the
-  title only**: the `DocActions` wrapper is `hidden sm:flex`, the control
+  title only**, plus, from 1.13.0, the `sm` `error` chip **Overdue** from
+  the reader's deadline (the neutral and warn due chips are `hidden
+  sm:contents`): the `DocActions` wrapper is `hidden sm:flex`, the control
   collapses to its icon plus "Pending" / "Confirmed" (`text-2xs`), and the
   bar itself never scrolls sideways (`e2e/acknowledgements.spec.ts` asserts
   it at 375px). Nine 36px icon buttons do not fit beside a title on a phone,
@@ -382,8 +384,15 @@ focus):
   stacked and sharing one `{ s, set, errors }` model, with one `SaveRow`
   "Save settings" (`useUnsavedChanges`) as the page's only primary action.
   A card's own action (Retire policy…, Un-retire) is a `secondary` or
-  `danger` button that opens `formDialog` / `confirmDialog`, never a second
-  Save. `PolicySettingsPanel` is the worked example.
+  `danger` button that opens `formDialog` / `confirmDialog`, or (1.13.0) a
+  `secondary` button that tells with Undo ("Also move existing
+  deadlines"), never a second Save. The cards are six (1.13.0):
+  Confirmation statement, Who must confirm, Deadline, Reminders,
+  Re-confirmation, Lifecycle. `PolicySettingsPanel` is the worked example.
+- **An optional group of fields a form rarely needs** ("Policy defaults"
+  on a space, 1.13.0) is a native `<details>` with a `summary` in `text-sm
+  font-semibold` (the DocBlocksStatic accordion recipe), closed by
+  default.
 - **A settings list with one editable item at a time (export presets) is a
   two-pane layout** (1.11.2): a rail-row list on the left (chips for state),
   the selected item's editor on the right in grouped cards with one Save row
@@ -416,7 +425,17 @@ focus):
   `@md:` / `@2xl:` variants, because the pane, 18rem narrower than the
   column, is the width they share (§Scaling). `PresetList` /
   `PresetEditor` (`components/directory-admin/export/`) are the worked
-  example.
+  example. A set inside a card that is only put in order, never added to
+  or taken from (the Order and filter card's **Section order**, 1.13.0),
+  is the same `OrderedKeyList` with `removable={false}` in a fieldset with
+  a legend, one row per item with a `text-2xs text-slate-500` count as its
+  `extra` (a second `text-2xs` line under the count for a fact about the
+  row, such as "Head: Jane Smith"), a `LoadingRow` while its route answers,
+  a `SectionEmpty` when it has no rows, and one secondary **Reset …**
+  button under the help. A `Toggle` that only means something once the
+  data allows it (the card's **Section heads first**, 1.13.0, shown only
+  when the chosen Sections by field has a head) sits under the control it
+  qualifies and is left out, not disabled, until then.
 - **A short table of definitions edited in place** (export markers, 1.11.2)
   is a `padding="none"` `Card` holding a `Table` whose rows are dense
   controls (`TextInput` / `Select` with `dense` and an `aria-label` naming
@@ -502,11 +521,29 @@ One field recipe, one input recipe, one width scale. Everything lives in
 - Checkbox *lists*, radio groups and composite pickers (EntityPicker,
   SpaceIconPicker) keep their own markup; their text inputs still use the
   recipe.
+- **A stacked radio group in a card** (1.13.0) reuses the choice dialog's
+  radio-card recipe (§Overlays): `role="radiogroup"` with `aria-label`, a
+  label and one description sentence per card, the chosen card
+  `border-compass-300 bg-compass-50/60`, with the card's own control (a
+  number, a date) as a `Field` under the description while chosen, a
+  sibling of the radio, never nested in its label. `RadioCards` in
+  `PolicySettingsPanel` is the worked example.
+- **A live count line under a picker** ("Applies to 412 people · 3 without
+  access", 1.13.0) is `text-xs text-slate-500` with `aria-live="polite"`,
+  debounced, never a spinner.
 - A control inside a list row (OrderedKeyList `extra`) is a dense
   `TextInput`/`Select` with a visible caption and an `aria-label` that
   names the row ('Wrap Name after'); the shared help and the first error
   live on the list's own label, and only the offending row's control takes
   `hasError`.
+- A composite picker that belongs to each row of a definitions table (the
+  Fields page's per-option **Heads** EntityPicker, 1.13.0) is not put in
+  the table, whose sideways scroll would clip its list, but in a fieldset
+  with a legend right under it, one captioned picker per row in a
+  two-column grid, each with an `aria-label` naming the row ("Heads of
+  Engineering") and a sublabel per choice that says what tells them apart
+  (the person's own value for the field); the shared help is one line
+  under the grid and a refusal is a `FormError` under it, not a toast.
 - **The Save row.** A page or card with a Save button uses `<SaveRow dirty
   busy onSave label disabled allowPristine>` from `components/SaveRow`
   with `useUnsavedChanges(snapshot)` and `useLeaveGuard(dirty,
@@ -548,6 +585,13 @@ is a `Segmented` (1.9.3) — a radiogroup, so specs find it with
   move the choice, the current option is `bg-compass-50 text-compass-700`.
   `size="sm"` for toolbars. Options may carry an icon and a `hint`
   (tooltip). Never write a second recipe, filled or tinted.
+- A group in a toolbar that must fit a phone passes `className="flex-wrap"`,
+  so its options wrap inside the border instead of pushing the toolbar
+  sideways (1.13.0: the roster's five-option Show control, which the
+  portal's expand row shows in a box about 213px wide at 375px;
+  `e2e/compliance-portal.spec.ts` asserts it). It changes nothing where the
+  options fit on one line. Never shorten the labels or swap in a select to
+  make room.
 
 ## Account pages
 
@@ -742,8 +786,11 @@ text-slate-500` before them ("Notary · Phoenix").
 
 - **Filtering a list already on the page is `<ListFilter value onChange
   label shown total noun>`** (`components/ListFilter`): a filter box with
-  a live "3 of 89 users" count, Escape clears. Lookups that fetch keep
-  "Search …" (EntityPicker, people search, settings search).
+  a live "3 of 89 users" count, Escape clears. The box keeps a floor of
+  12rem under `sm` and 14rem from `sm`, so it fits a 375px phone's card
+  (about 213px wide with the rail and the gutters) and never shrinks to
+  nothing beside the count. Lookups that fetch keep "Search …"
+  (EntityPicker, people search, settings search).
 - **Paging is `<Pager page limit total onPage busy>`** (`components/Pager`):
   "Showing 1–50 of 4,333" with Previous / Next, rendered above and below a
   long table. A list that can grow without bound (the Trash, the audit
@@ -779,6 +826,25 @@ text-slate-500` before them ("Notary · Phoenix").
   card the bubble can clip (§Tooltips), so the rule is also spelled out in
   a footnote under the table (`text-xs text-slate-500`, the Record tab's
   `EVIDENCE_NOTE`), shown whenever a row carries such a value.
+- **A bulk bar** (1.13.0, `AckRoster` is the worked example; `SpaceViews`'
+  `BulkBar` is the older hand-rolled one). A table with a leading checkbox
+  column (`<Th fit>` holding a header checkbox `aria-label="Select all
+  people on this page"`, `<Td fit>` row checkboxes `aria-label="Select
+  {name}"`, both inheriting the accent) shows, only while something is
+  selected, one bar above the table: `rounded-lg border border-compass-200
+  bg-compass-50/70 px-3 py-2`, "{n} selected" in `text-sm font-semibold
+  text-compass-800`, a ghost `sm` **Clear selection**, a hairline, then the
+  same actions the rows offer as `secondary` `sm` `Button`s with their
+  lucide icons, disabled with `busy` while a request is in flight. One
+  label per action on both surfaces (`AckRoster`: "Extend due date…",
+  "Exempt…", "Remove exemption", "Snooze", "Unsnooze", "Ask to
+  re-confirm…"); a row's icon button has the same words as its `data-tt`
+  and `aria-label`, and a date the action sets (a snooze's end) goes in
+  the toast and the row's own column, never in the label. The bar
+  is `print:hidden`. A bulk action over more than the server's cap (200) is
+  disabled inside `Tooltip("Up to 200 people at a time.")`. Selection is
+  per page: the header checkbox selects the rows on the page, and a
+  successful action clears it.
 
 ## Loading
 
@@ -992,7 +1058,8 @@ per-route variants:
   (`AckSettings`, A5) holds **four controls** under its heading — the
   "Require readers to confirm" Toggle, the status line with its "View
   record" link, the "When the text changes" Select, and the "Ask everyone
-  to re-confirm…" button — and nothing else is ever added to it. Further
+  to re-confirm…" button — plus one link, **All settings**, to that page
+  (1.13.0), and nothing else is ever added to it. Further
   per-policy settings (audience, deadline, reminders, the re-confirmation
   interval, the statement, signature) go to the document's Read
   confirmation **Settings** page (`/doc/[id]/acknowledgements/settings`,

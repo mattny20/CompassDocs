@@ -6,17 +6,21 @@
 // data), and the row itself — are what turn "data mapping to custom fields"
 // into something an office manager can drive.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { buttonClass } from "@/components/Button";
 import { confirmDialog } from "@/components/Dialog";
+import { EntityPicker } from "@/components/EntityPicker";
 import { Plus, Sparkles, Trash2 } from "lucide-react";
-import type { DirectoryField } from "@/lib/directory";
+import type { DirectoryField, DirectoryPerson } from "@/lib/directory";
 import { describeMapping, parseMapping, type Mapping } from "@/lib/directory-mapping";
-import { CHIP_COLORS, matchOption, type FieldOption } from "@/lib/directory-display";
-import { Field, SectionEmpty, Select, TextInput, Toggle } from "@/components/form";
+import { CHIP_COLORS, OPTION_HEADS_LIMIT, displayValue, matchOption, rawValue, type FieldOption } from "@/lib/directory-display";
+import { Field, FormError, SectionEmpty, Select, TextInput, Toggle } from "@/components/form";
 import { toast } from "@/components/Toasts";
 import type { ProviderKey } from "@/lib/identity-provider";
 import { Disclosure, jsonFetch } from "./shared";
+
+/** A person an option's Heads picker may name: enough to show where they sit, never a photo. */
+export type HeadCandidate = Pick<DirectoryPerson, "id" | "name" | "title" | "department" | "office" | "custom">;
 
 // Suggestions, not a whitelist: the mapping input is free text.
 const MICROSOFT_PATHS = [
@@ -334,11 +338,25 @@ function MappingEditor({
   );
 }
 
-function OptionsEditor({ field, onSaved }: { field: DirectoryField; onSaved: (f: DirectoryField) => void }) {
+function OptionsEditor({ field, people, onSaved }: { field: DirectoryField; people: HeadCandidate[]; onSaved: (f: DirectoryField) => void }) {
   const [options, setOptions] = useState<FieldOption[]>(field.options);
   const [format, setFormat] = useState(field.value_format);
   const [seen, setSeen] = useState<{ value: string; count: number }[] | null>(null);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const headsHelpId = useId();
+  // Heads belong to a field that can section the directory (what "Sections
+  // by" offers); the picker names each person with their own value for the
+  // field, so "Jane Smith · Executive" reads as the point of the feature.
+  const headed = field.group_by === 1;
+  const candidates = useMemo(
+    () =>
+      people.map((p) => {
+        const own = displayValue(field, rawValue({ ...p, email: "", phone: "", mobile: "" }, field.key));
+        return { id: p.id, label: p.name, ...(own ? { sublabel: own } : {}) };
+      }),
+    [people, field]
+  );
 
   const unmatched = useMemo(
     () => (seen ?? []).filter((v) => !matchOption({ options }, v.value).option),
@@ -371,13 +389,21 @@ function OptionsEditor({ field, onSaved }: { field: DirectoryField; onSaved: (f:
     update(i, { matches: [...cur, alias] });
   }
   async function save() {
+    // The server's rule, checked here first so the refusal names the option
+    // without a round trip; the server refuses the same way.
+    const over = options.find((o) => (o.heads?.length ?? 0) > OPTION_HEADS_LIMIT);
+    if (over) {
+      setError(`Heads of ${over.label || over.value}: up to ${OPTION_HEADS_LIMIT} heads per option.`);
+      return;
+    }
     setBusy(true);
     const r = await jsonFetch(`/api/admin/directory/fields/${field.id}`, { method: "PATCH", body: JSON.stringify({ options, value_format: format }) });
     setBusy(false);
     if (!r.ok) {
-      toast("error", r.data?.error || "Could not save the options.");
+      setError(r.data?.error || "Could not save the options.");
       return;
     }
+    setError("");
     toast("ok", "Options saved.");
     onSaved(r.data.field);
   }
@@ -427,6 +453,31 @@ function OptionsEditor({ field, onSaved }: { field: DirectoryField; onSaved: (f:
           </table>
         </div>
       )}
+      {headed && options.length > 0 && (
+        // Under the table, not in its rows: the table scrolls sideways, and
+        // a picker's list opening inside it would be cut off at its edge.
+        <fieldset aria-describedby={headsHelpId} className="max-w-3xl">
+          <legend className="mb-1 block text-xs font-medium text-slate-500">Heads</legend>
+          <div className="grid gap-3 md:grid-cols-2">
+            {options.map((o, i) => (
+              <div key={i}>
+                <span className="mb-1 block text-xs font-medium text-slate-700">{o.label || o.value}</span>
+                <EntityPicker
+                  options={candidates}
+                  value={o.heads ?? []}
+                  onChange={(heads) => update(i, { heads: heads.length ? heads : undefined })}
+                  label={`Heads of ${o.label || o.value}`}
+                  placeholder="Search people…"
+                />
+              </div>
+            ))}
+          </div>
+          <p id={headsHelpId} className="mt-1 text-xs text-slate-500">
+            The people who head this section. They print at the top of its section on exports and in the Groups view, even when their own value is another section.
+          </p>
+        </fieldset>
+      )}
+      <FormError>{error}</FormError>
       <div className="flex flex-wrap items-center gap-2">
         <form
           onSubmit={(e) => {
@@ -498,10 +549,13 @@ function OptionsEditor({ field, onSaved }: { field: DirectoryField; onSaved: (f:
 export function DirectoryFieldsPanel({
   initialFields,
   providers,
+  people = [],
 }: {
   initialFields: DirectoryField[];
   /** Providers whose mapping editor to show (the bundled ones). */
   providers: ProviderKey[];
+  /** The visible people, for an option's Heads picker. */
+  people?: HeadCandidate[];
 }) {
   const [fields, setFields] = useState(initialFields);
   const onChange = (f: DirectoryField[]) => setFields(f);
@@ -592,6 +646,7 @@ export function DirectoryFieldsPanel({
                 removeField={removeField}
                 replace={replace}
                 showWithOptions={showWithOptions}
+                people={people}
               />
             ))}
           </tbody>
@@ -637,6 +692,7 @@ function FieldRow({
   removeField,
   replace,
   showWithOptions,
+  people,
 }: {
   f: DirectoryField;
   providers: ProviderKey[];
@@ -647,6 +703,7 @@ function FieldRow({
   removeField: (f: DirectoryField) => Promise<void>;
   replace: (f: DirectoryField) => void;
   showWithOptions: DirectoryField[];
+  people: HeadCandidate[];
 }) {
   const [labelDraft, setLabelDraft] = useState(f.label);
   useEffect(() => setLabelDraft(f.label), [f.label]);
@@ -719,7 +776,7 @@ function FieldRow({
                 <MappingEditor key={`${f.id}-${open.provider}`} field={f} provider={open.provider} onSaved={(nf) => { replace(nf); setOpen(null); }} />
               </div>
             )}
-            {open.panel === "options" && <OptionsEditor key={f.id} field={f} onSaved={(nf) => { replace(nf); setOpen(null); }} />}
+            {open.panel === "options" && <OptionsEditor key={f.id} field={f} people={people} onSaved={(nf) => { replace(nf); setOpen(null); }} />}
             {open.panel === "settings" && (
               <div className="flex flex-wrap items-center gap-x-6 gap-y-3 text-sm">
                 {!f.builtin && f.kind !== "people" && (

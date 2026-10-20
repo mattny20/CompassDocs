@@ -34,6 +34,10 @@ import { enqueueAckNotice, deliverAckNotices, noticeCopy, recordNotices } from "
 import type { Mailer } from "../src/lib/compliance";
 import { notify } from "../src/lib/notifications";
 import { fixtureQuery } from "./support/retry";
+import { assignEveryone } from "./support/assign";
+// E2 (1.13.0): the sweep's deliveries.
+import { listAckNotices as listNoticesE2 } from "../src/lib/db";
+import { DUE_BUNDLE_OVER } from "../src/lib/compliance";
 
 const STAMP = `ackout-${Date.now()}`;
 const ORIGIN = "https://docs.example.test";
@@ -213,8 +217,10 @@ describe("the notice outbox", () => {
     assert.equal(only[0].kind, "reminder");
     const last = (await lastAckNoticeByDocument([id])).get(id)!;
     assert.equal(last.kind, "reminder", "the roster's 'last notified' is the newest row");
+    // The body may end "by {date}" (E1, 1.13.0): the person's own due date,
+    // from their assignment row; this test is about who is told, not when.
     assert.deepEqual(
-      (await inboxRows(readerB, `Reminder: confirm "${title}"`)).map((r) => [r.body, r.link]),
+      (await inboxRows(readerB, `Reminder: confirm "${title}"`)).map((r) => [r.body.replace(/ by [^"]+\.$/, "."), r.link]),
       [[`You still need to read and confirm "${title}".`, `/doc/${id}#confirm-reading`]]
     );
   });
@@ -233,7 +239,8 @@ describe("the notice outbox", () => {
     assert.equal(await noticesFor(id, readerA, "updated"), 1);
     assert.equal(await noticesFor(id, readerB, "updated"), 1);
     assert.deepEqual(
-      (await inboxRows(readerA, `Changed. Please re-confirm "${title}"`)).map((r) => [r.body, r.link]),
+      // Minus the "by {date}" the person's assignment row adds (E1, 1.13.0).
+      (await inboxRows(readerA, `Changed. Please re-confirm "${title}"`)).map((r) => [r.body.replace(/ by [^"]+\.$/, "."), r.link]),
       [[`Out Actor changed "${title}": Section 4 now covers contractors. Please read the changes and confirm again.`, `/doc/${id}#confirm-reading`]],
       "the in-app copy names who changed what"
     );
@@ -265,8 +272,12 @@ describe("the notice outbox", () => {
     assert.ok((audit2.details.skipped_recent as number) >= 2, `the people skipped are counted: ${audit2.details.skipped_recent}`);
     assert.equal(audit2.details.reason, "Clause 2 reworded");
 
-    // Someone who has not heard yet (a new account) still does.
+    // Someone who has not heard yet (a new account) still does. Who is
+    // pending is read off policy_assignments since 1.13.0 (D1): the account
+    // created by a raw INSERT (no provisioning hook) gets its row the way
+    // the hourly sweep would give it, through the policy's reconcile.
     const readerC = await newUser("Reader C");
+    await assignEveryone(id);
     const third = await enqueueAckNotice(null, {
       document_id: id,
       mode: "updated",
@@ -636,5 +647,280 @@ describe("the notice outbox", () => {
         assert.doesNotMatch(s, /acknowledg/i, `glossary: "${s}"`);
       }
     }
+  });
+});
+
+// --- E2 (1.13.0): the sweep's deliveries --------------------------------------------
+//
+// 'due' rows (one per policy, the claimed people and their dates in the
+// payload) and 'escalation' rows (the recipients and the overdue names) are
+// what remindDueAcks / escalateOverdueAcks queue; the drain words each
+// person's own notice, bundles a person named on more than three 'due' rows
+// of a batch into one, and records every delivery per person and policy.
+
+describe("the sweep's deliveries (E2)", () => {
+  const system = { id: null, name: "system" };
+  const daysFromNow = (d: number) => new Date(Date.now() + d * 86_400_000).toISOString();
+  const inboxOf = async (userId: number, kind: string) =>
+    (
+      await pool().query<{ title: string; body: string; link: string }>(
+        "SELECT title, body, link FROM notifications WHERE user_id = $1 AND kind = $2 ORDER BY id",
+        [userId, kind]
+      )
+    ).rows;
+  const allDone = async (ids: number[]) => (await Promise.all(ids.map((id) => done(id)()))).every(Boolean);
+
+  test("a person named on more than three 'due' rows is told once, with one record per policy; everyone else gets their own notice worded from their date; the per-kind email choice is honoured", async () => {
+    // C turned the policy-reminder email off; A and B did not.
+    const readerC = await newUser("Reader C due");
+    await pool().query("UPDATE users SET notify_prefs = $2 WHERE id = $1", [readerC, JSON.stringify({ ack_due: { email: false } })]);
+    const policies = [];
+    for (let i = 1; i <= DUE_BUNDLE_OVER + 1; i++) policies.push(await newPolicy(`due ${i}`));
+    const [p1, p2, p3, p4] = policies;
+    const soon = daysFromNow(2);
+    const past = daysFromNow(-2);
+    const due = (p: { id: number }, rows: { user_id: number; due_at: string | null; overdue: boolean }[]) =>
+      enqueueAckNotice(null, {
+        document_id: p.id,
+        mode: "due",
+        source: "",
+        actor: system,
+        user_ids: rows.map((r) => r.user_id),
+        payload: { rows },
+        delay_minutes: 0,
+      });
+    const ids = [
+      await due(p1, [
+        { user_id: readerA, due_at: soon, overdue: false },
+        { user_id: readerB, due_at: soon, overdue: false },
+        { user_id: readerC, due_at: soon, overdue: false },
+      ]),
+      await due(p2, [
+        { user_id: readerA, due_at: past, overdue: true },
+        { user_id: readerB, due_at: past, overdue: true },
+      ]),
+      await due(p3, [{ user_id: readerA, due_at: null, overdue: false }]),
+      await due(p4, [{ user_id: readerA, due_at: daysFromNow(9), overdue: false }]),
+    ];
+    const sent: { to: string; subject: string; text: string }[] = [];
+    const mailer: Mailer = async (to, subject, text) => {
+      for (const t of to) sent.push({ to: t, subject, text });
+    };
+    for (let i = 0; i < 12 && !(await allDone(ids)); i++) await deliverAckNotices({ origin: ORIGIN, mailer, limit: 50, documentIds: docIds });
+    assert.ok(await allDone(ids), "every row was delivered");
+    for (const id of ids) {
+      const row = (await getAckOutboxRow(id))!;
+      assert.equal(row.error, null, `row ${id} completed without error`);
+      assert.equal(row.attempts, 1);
+    }
+
+    // A: one inbox row for the four policies, linking My policies.
+    const bundle = await inboxOf(readerA, "ack_due");
+    assert.equal(bundle.length, 1, `A hears once about the four: ${JSON.stringify(bundle)}`);
+    assert.equal(bundle[0].title, "You have 4 policies to confirm");
+    assert.equal(bundle[0].link, "/compliance");
+    assert.ok(bundle[0].body.includes(`${p1.title} (due`), "the body lists the titles with their dates");
+    assert.ok(bundle[0].body.includes(`${p2.title} (overdue)`), "and which are overdue");
+    assert.ok(bundle[0].body.includes(`${p3.title} (no deadline)`), "and which have none");
+    // ... with one record per policy, each under its own outbox row.
+    const aRows = (await listNoticesE2({ userId: readerA })).filter((n) => ids.includes(n.outbox_id ?? -1));
+    assert.equal(aRows.length, 4, "four ack_notices rows for A");
+    assert.deepEqual(aRows.map((n) => n.outbox_id).sort(), [...ids].sort(), "one per outbox row");
+    assert.ok(aRows.every((n) => n.kind === "due" && n.by_name === "system" && n.by_user_id === null), "kind 'due', by the system");
+    assert.ok(aRows.every((n) => n.channels.includes("inapp") && n.channels.includes("email")), `every record shows the bundle's channels: ${JSON.stringify(aRows.map((n) => n.channels))}`);
+    const aMail = sent.filter((m) => m.to === `${STAMP}-Reader A@example.test`);
+    assert.equal(aMail.length, 1, "A was emailed once");
+    assert.match(aMail[0].subject, /You have 4 policies to confirm$/);
+    for (const p of policies) assert.ok(aMail[0].text.includes(p.title), `the mail lists ${p.title}`);
+    assert.ok(aMail[0].text.includes(`${ORIGIN}/compliance`), "and links My policies");
+
+    // B: two policies, two notices, each worded from B's own date.
+    const own = await inboxOf(readerB, "ack_due");
+    assert.deepEqual(
+      own.map((n) => [n.title, n.link]).sort(),
+      [
+        [`Due in 2 days: confirm "${p1.title}"`, `/doc/${p1.id}#confirm-reading`],
+        [`Overdue: confirm "${p2.title}"`, `/doc/${p2.id}#confirm-reading`],
+      ].sort()
+    );
+    assert.match(own.find((n) => n.title.startsWith("Due in"))!.body, /^Due .+\.$/);
+    const bMail = sent.filter((m) => m.to === `${STAMP}-Reader B@example.test`);
+    assert.deepEqual(
+      bMail.map((m) => m.subject).sort(),
+      [`[CompassDocs] Due soon: confirm "${p1.title}"`, `[CompassDocs] Overdue: confirm "${p2.title}"`].sort().map((s) => s.replace(/^\[CompassDocs\]/, bMail[0].subject.split("]")[0] + "]"))
+    );
+    assert.ok(bMail.every((m) => /Please confirm by /.test(m.text)), "the due line is in the mail");
+    assert.ok(bMail.every((m) => m.text.includes("#confirm-reading")), "the link lands on the card");
+    const bRows = (await listNoticesE2({ userId: readerB })).filter((n) => ids.includes(n.outbox_id ?? -1));
+    assert.equal(bRows.length, 2);
+    assert.ok(bRows.every((n) => n.kind === "due" && n.channels.includes("email")));
+
+    // C: in-app only, by choice; the record says so.
+    const cRows = (await listNoticesE2({ userId: readerC })).filter((n) => ids.includes(n.outbox_id ?? -1));
+    assert.equal(cRows.length, 1);
+    assert.deepEqual(cRows[0].channels, ["inapp"], "the Policy reminders email is off for C");
+    assert.equal(sent.filter((m) => m.to === `${STAMP}-Reader C due@example.test`).length, 0);
+    assert.equal((await inboxOf(readerC, "ack_due")).length, 1);
+
+    // The drain's audit row per 'due' row: ack.reminder_auto with the counts and who was bundled.
+    const audit = (await auditRows("ack.reminder_auto", p1.id)).find((r) => r.details.outbox_id === ids[0])!;
+    assert.ok(audit, "ack.reminder_auto by the drain");
+    assert.equal(audit.actor_name, "system");
+    assert.equal(audit.details.mode, "due");
+    assert.equal(audit.details.pending, 3);
+    assert.equal(audit.details.bundled, 1, "A was bundled");
+    assert.equal(audit.details.noticed, 3, "three records under this row (A's from the bundle, B's and C's from the row)");
+    assert.equal(audit.details.emailed, 2, "A (the bundle) and B; not C");
+    assert.equal((await getAckOutboxRow(ids[0]))!.noticed, 3);
+  });
+
+  test("a bundle whose mail fails keeps every row of it for a retry that emails once and repeats no inbox row", async () => {
+    const readerD = await newUser("Reader D due");
+    const policies = [];
+    for (let i = 1; i <= DUE_BUNDLE_OVER + 1; i++) policies.push(await newPolicy(`retry due ${i}`));
+    const ids: number[] = [];
+    for (const p of policies) {
+      ids.push(
+        await enqueueAckNotice(null, {
+          document_id: p.id,
+          mode: "due",
+          source: "",
+          actor: system,
+          user_ids: [readerD],
+          payload: { rows: [{ user_id: readerD, due_at: daysFromNow(1), overdue: false }] },
+          delay_minutes: 0,
+        })
+      );
+    }
+    const failing: Mailer = async () => {
+      throw new Error("SMTP down");
+    };
+    for (let i = 0; i < 12 && !(await Promise.all(ids.map((id) => claimed(id)()))).every(Boolean); i++) {
+      await deliverAckNotices({ origin: ORIGIN, mailer: failing, limit: 50, documentIds: docIds });
+    }
+    for (const id of ids) {
+      const row = (await getAckOutboxRow(id))!;
+      assert.equal(row.done_at, null, `row ${id} is kept: the bundle's failure is charged to every row of it`);
+      assert.match(row.error ?? "", /SMTP down/);
+      assert.equal(row.attempts, 1);
+    }
+    assert.equal((await inboxOf(readerD, "ack_due")).length, 1, "the bundle reached the inbox once");
+    let rows = (await listNoticesE2({ userId: readerD })).filter((n) => ids.includes(n.outbox_id ?? -1));
+    assert.equal(rows.length, 4, "the record is written before the mail");
+    assert.ok(rows.every((n) => n.channels.length === 1 && n.channels[0] === "inapp"), "without the email");
+
+    // Ten minutes later another instance takes the rows; mail works now.
+    await pool().query("UPDATE ack_outbox SET claimed_at = now() - interval '11 minutes' WHERE id = ANY($1)", [ids]);
+    const sent: string[] = [];
+    const working: Mailer = async (to, subject) => {
+      for (const t of to) sent.push(`${t} ${subject}`);
+    };
+    for (let i = 0; i < 12 && !(await allDone(ids)); i++) await deliverAckNotices({ origin: ORIGIN, mailer: working, limit: 50, documentIds: docIds });
+    assert.ok(await allDone(ids), "delivered on the retry");
+    assert.equal(sent.filter((s) => s.startsWith(`${STAMP}-Reader D due@example.test`)).length, 1, "one mail, the bundle's");
+    assert.match(sent[0], /You have 4 policies to confirm/);
+    assert.equal((await inboxOf(readerD, "ack_due")).length, 1, "no second inbox row");
+    rows = (await listNoticesE2({ userId: readerD })).filter((n) => ids.includes(n.outbox_id ?? -1));
+    assert.equal(rows.length, 4, "the same four rows");
+    assert.ok(rows.every((n) => n.channels.includes("inapp") && n.channels.includes("email")), "now with the email");
+    for (const id of ids) {
+      const row = (await getAckOutboxRow(id))!;
+      assert.equal(row.attempts, 2);
+      assert.equal(row.error, null);
+      assert.equal(row.emailed, 1);
+    }
+  });
+
+  test("an escalation row tells the owner, the approver and the lead about the overdue people, each linked to a page they can open, recorded under kind 'escalation'", async () => {
+    const { id, title } = await newPolicy("escalation");
+    // The actor plays the owner (a viewer: no Compliance section), an admin
+    // the space's approver (the section, through the ladder), A the lead; B
+    // and a third person are overdue.
+    const readerE = await newUser("Reader E overdue");
+    const manager = (
+      await fixtureQuery(
+        `INSERT INTO users (username, name, email, role, status) VALUES ($1, $2, $3, 'admin', 'active') RETURNING id`,
+        [`${STAMP}-Manager`, "Out Manager", `${STAMP}-Manager@example.test`]
+      )
+    ).rows[0].id as number;
+    userIds.push(manager);
+    const outboxId = await enqueueAckNotice(null, {
+      document_id: id,
+      mode: "escalation",
+      source: "",
+      actor: system,
+      user_ids: [actorId, readerA, manager],
+      payload: {
+        days: 7,
+        overdue: [
+          { user_id: readerB, name: "Out Reader B", due_at: daysFromNow(-10) },
+          { user_id: readerE, name: "Out Reader E overdue", due_at: daysFromNow(-9) },
+        ],
+        recipients: [
+          { id: actorId, via: "owner" },
+          { id: readerA, via: "lead" },
+          { id: manager, via: "approver" },
+        ],
+      },
+      delay_minutes: 0,
+    });
+    const sent: { to: string; subject: string; text: string }[] = [];
+    const mailer: Mailer = async (to, subject, text) => {
+      for (const t of to) sent.push({ to: t, subject, text });
+    };
+    await drainUntil(mailer, done(outboxId), `row ${outboxId} delivered`);
+
+    // Every link is a page the recipient can open: the portal's pages need
+    // the Compliance section, the team view is not in this release.
+    const owner = await inboxOf(actorId, "ack_escalation");
+    assert.equal(owner.length, 1);
+    assert.equal(owner[0].title, `Overdue: 2 people on "${title}"`);
+    assert.equal(owner[0].body, "More than 7 days overdue: Out Reader B, Out Reader E overdue");
+    assert.equal(owner[0].link, `/doc/${id}/acknowledgements`, "an owner without the Compliance section opens the policy's Record tab");
+    const lead = await inboxOf(readerA, "ack_escalation");
+    assert.equal(lead.length, 1);
+    assert.equal(lead[0].link, `/doc/${id}`, "a lead opens the policy itself");
+    const approver = await inboxOf(manager, "ack_escalation");
+    assert.equal(approver.length, 1);
+    assert.equal(approver[0].link, `/compliance/policies?policy=${id}`, "a holder of the Compliance section opens the policy's row in the portal");
+    assert.equal((await inboxOf(readerB, "ack_escalation")).length, 0, "the overdue people are not told they were escalated");
+
+    const rows = (await listNoticesE2({ documentId: id })).filter((n) => n.outbox_id === outboxId);
+    assert.deepEqual(rows.map((n) => n.user_id).sort(), [actorId, readerA, manager].sort(), "one record per recipient");
+    assert.ok(rows.every((n) => n.kind === "escalation" && n.by_name === "system"));
+    assert.ok(rows.every((n) => n.channels.includes("inapp") && n.channels.includes("email")));
+    assert.equal(sent.length, 3, "the owner, the approver and the lead were emailed");
+    for (const m of sent) {
+      assert.ok(m.subject.endsWith(`2 overdue on "${title}"`), m.subject);
+      assert.ok(m.text.includes("Out Reader B (due"), "the mail lists the people with their dates");
+      // The glossary rule is about the words, not the Record tab's route path.
+      assert.doesNotMatch(m.text.replace(/https?:\/\/\S+/g, ""), /acknowledg|—/i);
+    }
+    assert.ok(sent.find((m) => m.to === `${STAMP}-Reader A@example.test`)!.text.includes(`${ORIGIN}/doc/${id}`), "the lead's link");
+    assert.ok(sent.find((m) => m.to === `${STAMP}-Actor@example.test`)!.text.includes(`${ORIGIN}/doc/${id}/acknowledgements`), "the owner's link");
+    assert.ok(sent.find((m) => m.to === `${STAMP}-Manager@example.test`)!.text.includes(`${ORIGIN}/compliance/policies?policy=${id}`), "the approver's link");
+
+    const audit = (await auditRows("ack.escalated", id)).find((r) => r.details.outbox_id === outboxId)!;
+    assert.ok(audit, "ack.escalated by the drain with the delivery counts");
+    assert.equal(audit.details.mode, "escalation");
+    assert.equal(audit.details.pending, 3);
+    assert.equal(audit.details.noticed, 3);
+    assert.equal(audit.details.emailed, 3);
+
+    // A policy that stopped requiring confirmation escalates to nobody.
+    const stopped = await newPolicy("escalation stopped");
+    const quietId = await enqueueAckNotice(null, {
+      document_id: stopped.id,
+      mode: "escalation",
+      source: "",
+      actor: system,
+      user_ids: [actorId],
+      payload: { days: 7, overdue: [{ user_id: readerB, name: "Out Reader B", due_at: null }], recipients: [{ id: actorId, via: "owner" }] },
+      delay_minutes: 0,
+    });
+    await setAckRequired(stopped.id, false);
+    await drainUntil(mailer, done(quietId), `row ${quietId} closed`);
+    assert.equal((await listNoticesE2({ documentId: stopped.id })).length, 0, "nobody was told");
+    assert.equal((await inboxOf(actorId, "ack_escalation")).length, 1, "still the one from before");
   });
 });

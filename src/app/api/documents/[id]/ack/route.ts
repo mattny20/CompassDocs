@@ -6,6 +6,7 @@ import {
   setAckRequired,
   setAckEditDefault,
   isAckEditDefault,
+  hasOpenAssignment,
 } from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
 import { spaceScopeFor, scopeAllows, canSeeDrafts, userHolds } from "@/lib/access";
@@ -123,6 +124,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   }
   if (doc.status !== "published" || doc.ack_required !== 1) {
     return NextResponse.json({ error: "This document doesn't ask for a read confirmation." }, { status: 400 });
+  }
+  // The audience (D1, 1.13.0): only a person the policy asks (an open
+  // assignment row: not removed, not exempt) may confirm. Someone outside
+  // the audience, or excused from it, sees no card and is answered here if
+  // they post anyway; nothing is written.
+  if (!(await hasOpenAssignment(doc.id, user.id))) {
+    return NextResponse.json({ error: "This document doesn't ask you for a read confirmation." }, { status: 400 });
   }
 
   const raw: unknown = await req.json().catch(() => null);

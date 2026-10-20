@@ -2,17 +2,19 @@
 
 import { useState } from "react";
 import { chipClass } from "@/components/Chip";
-import { buttonClass } from "@/components/Button";
+import { buttonClass, iconButtonClass } from "@/components/Button";
 import { SettingsLink } from "@/components/SettingsLink";
 import { useRouter } from "next/navigation";
 import { Lock, Globe, Building2, PencilRuler, ChevronUp, ChevronDown, Pencil, Plus, Trash2, X } from "lucide-react";
 import { EntityPicker } from "@/components/EntityPicker";
-import { Field, SectionEmpty, Select, TextInput, Toggle } from "@/components/form";
+import { Field, SectionEmpty, Select, TextInput, Toggle, rangeError } from "@/components/form";
 import { ListFilter } from "@/components/ListFilter";
 import { toast } from "@/components/Toasts";
 import { confirmDialog, promptDialog } from "@/components/Dialog";
 import { SpaceIconPicker } from "./SpaceIconPicker";
 import { useAction } from "@/lib/use-action";
+import { DUE_FIELDS, DUE_NUMBER_KEYS, DUE_RANGES, sanitizeLayer } from "@/lib/ack-due";
+import type { DueNumberKey, PolicyDefaults } from "@/lib/ack-due";
 import type { Space } from "@/lib/types";
 
 type SpaceRow = Space & { doc_count: number };
@@ -32,6 +34,7 @@ export function SpacesManager({
   initialEditorGrants,
   initialEditorsEditAll,
   initialCategories,
+  policyInherit,
 }: {
   initial: SpaceRow[];
   groups: GroupOption[];
@@ -42,6 +45,8 @@ export function SpacesManager({
   initialEditorGrants: EditorGrants;
   initialEditorsEditAll: boolean;
   initialCategories: Record<number, CategoryOption[]>;
+  /** The workspace layer of the policy deadline cascade over the built-ins (E1): the "Inherit (14)" placeholders. */
+  policyInherit: PolicyDefaults;
 }) {
   const router = useRouter();
   const [spaces, setSpaces] = useState<SpaceRow[]>(initial);
@@ -159,6 +164,7 @@ export function SpacesManager({
           editorGroupIds={[]}
           initialCategories={[]}
           editAllActive={editAll}
+          policyInherit={policyInherit}
           onCancel={() => setCreating(false)}
           onSaved={async () => {
             setCreating(false);
@@ -193,6 +199,7 @@ export function SpacesManager({
               editorGroupIds={editorGrants.groups[s.id] ?? []}
               initialCategories={initialCategories[s.id] ?? []}
               editAllActive={editAll}
+              policyInherit={policyInherit}
               onCancel={() => setEditing(null)}
               onSaved={async () => {
                 setEditing(null);
@@ -291,6 +298,7 @@ function SpaceForm({
   editorGroupIds,
   initialCategories,
   editAllActive,
+  policyInherit,
   onCancel,
   onSaved,
 }: {
@@ -305,6 +313,7 @@ function SpaceForm({
   initialCategories: CategoryOption[];
   /** True while the org-wide "all editors edit all spaces" switch is on. */
   editAllActive: boolean;
+  policyInherit: PolicyDefaults;
   onCancel: () => void;
   onSaved: () => void;
 }) {
@@ -326,6 +335,24 @@ function SpaceForm({
     space?.default_template_id ?? null
   );
   const [defaultView, setDefaultView] = useState<string>(space?.default_view ?? "cards");
+  // Policy defaults (E1, 1.13.0): the space layer of the deadline cascade,
+  // seven numbers as typed ('' = inherit from the workspace) and the owner.
+  // Saved through PATCH policy_defaults on an existing space only (POST
+  // does not take them: set them after creating the space).
+  const storedDefaults = sanitizeLayer(space?.policy_defaults);
+  const [policyDefaults, setPolicyDefaults] = useState<Record<DueNumberKey, string>>(
+    () =>
+      Object.fromEntries(
+        DUE_NUMBER_KEYS.map((k) => [k, storedDefaults[k] == null ? "" : String(storedDefaults[k])])
+      ) as Record<DueNumberKey, string>
+  );
+  const [policyOwnerId, setPolicyOwnerId] = useState<number | null>(storedDefaults.owner_user_id ?? null);
+  const defaultsErrors = Object.fromEntries(
+    DUE_NUMBER_KEYS.map((k) => [
+      k,
+      policyDefaults[k] === "" ? undefined : rangeError(policyDefaults[k], DUE_RANGES[k].min, DUE_RANGES[k].max),
+    ])
+  ) as Record<DueNumberKey, string | undefined>;
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -333,6 +360,10 @@ function SpaceForm({
   async function save() {
     if (name.trim().length < 2) {
       setError("Give the space a name (at least 2 characters).");
+      return;
+    }
+    if (space && Object.values(defaultsErrors).some(Boolean)) {
+      toast("error", "Fix the highlighted policy defaults first.");
       return;
     }
     if (visibility === "public" && space?.visibility !== "public") {
@@ -363,6 +394,15 @@ function SpaceForm({
         editorGroupIds: restrictEditing ? edGroupIds : [],
         default_template_id: defaultTemplateId,
         default_view: defaultView,
+        // Blank = null = inherit; the route refuses anything out of range.
+        ...(space
+          ? {
+              policy_defaults: {
+                ...Object.fromEntries(DUE_NUMBER_KEYS.map((k) => [k, policyDefaults[k] === "" ? null : Number(policyDefaults[k])])),
+                owner_user_id: policyOwnerId,
+              },
+            }
+          : {}),
       }),
     });
     setSaving(false);
@@ -678,6 +718,67 @@ function SpaceForm({
           />
         )}
       </div>
+
+      {/* Policy defaults (E1, 1.13.0): a disclosure (the DocBlocksStatic
+          accordion recipe), closed by default, so the eight fields do not
+          lengthen a form most spaces never need. */}
+      {space && (
+        <details className="mt-4 rounded-lg border border-slate-200 bg-surface">
+          <summary className="cursor-pointer px-3 py-2 text-sm font-semibold text-slate-800">Policy defaults</summary>
+          <div className="border-t border-slate-100 px-3 py-3">
+            <p className="mb-3 text-xs text-slate-500">
+              How long people have to confirm a policy in this space, and when they are reminded and
+              escalated. A blank field inherits the workspace&apos;s number from the compliance Program
+              settings; a policy can set its own on its Settings tab.
+            </p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {DUE_FIELDS.map((f) => (
+                <Field key={f.key} label={f.label} help={f.help} error={defaultsErrors[f.key]}>
+                  <TextInput
+                    type="number"
+                    inputMode="numeric"
+                    min={DUE_RANGES[f.key].min}
+                    max={DUE_RANGES[f.key].max}
+                    step={1}
+                    placeholder={`Inherit (${policyInherit[f.key]})`}
+                    value={policyDefaults[f.key]}
+                    onChange={(e) => setPolicyDefaults((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                  />
+                </Field>
+              ))}
+            </div>
+            <div className="mt-4 max-w-md">
+              <span className="mb-1 block text-xs font-medium text-slate-500">Policy owner</span>
+              {policyOwnerId !== null ? (
+                <span className="inline-flex items-center gap-1.5 rounded-lg border border-compass-200 bg-compass-50 px-3 py-1.5 text-sm font-medium text-compass-800">
+                  {users.find((u) => u.id === policyOwnerId)?.name ?? `User #${policyOwnerId}`}
+                  <button
+                    type="button"
+                    onClick={() => setPolicyOwnerId(null)}
+                    data-tt="Clear owner"
+                    aria-label="Clear owner"
+                    className={iconButtonClass("quiet", "sm", "-mr-1")}
+                  >
+                    <X />
+                  </button>
+                </span>
+              ) : (
+                <EntityPicker
+                  options={users.map((u) => ({ id: u.id, label: u.name, sublabel: u.role }))}
+                  onPick={(id) => setPolicyOwnerId(id)}
+                  label="Policy owner"
+                  placeholder="Search people…"
+                  emptyText="No people match."
+                  maxVisible={10}
+                />
+              )}
+              <span className="mt-1 block text-xs text-slate-500">
+                Hears when people are overdue on a policy in this space that names no owner of its own.
+              </span>
+            </div>
+          </div>
+        </details>
+      )}
 
       <div className="mt-4 flex items-center gap-2">
         <button
