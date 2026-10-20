@@ -246,11 +246,12 @@ snooze on the roster, and asking one person to re-confirm (Enterprise, `policy_a
   the same body for a holder of `document.ack_require` on the policy's space
   (or a program manager), whose every write is bound to that document, so
   ids from another policy's roster are never touched and come back in
-  `skipped`. A paused or retired policy takes no lever: the twin answers 400
-  "This document doesn't ask for a read confirmation.", the admin route
-  reports the ids as skipped. Both answer `{ ok, action, changed, skipped }`
-  (`until` on a snooze) and 400 with the first problem named; 402 without
-  the licence.
+  `skipped`. A retired or switched-off policy takes no lever (the twin
+  answers 400 "This document doesn't ask for a read confirmation.", the
+  admin route reports the ids as skipped); a paused policy keeps its rows
+  and takes them, so an exemption can be recorded ahead of its resumption.
+  Both answer `{ ok, action, changed, skipped }` (`until` on a snooze) and
+  400 with the first problem named; 402 without the licence.
 - **The record and the exports carry it.** The JSON record (`GET
   /api/documents/{id}/acknowledgements`) rows gain `assignment_id`,
   `due_at`, `exempt`, `exempt_reason`, `exempt_by_name`, `exempt_at`,
