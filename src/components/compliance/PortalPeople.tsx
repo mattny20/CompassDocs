@@ -10,7 +10,7 @@
 // Segmented Show (All / Outstanding / Overdue / Compliant), the list filter
 // with its live count, and the Pager past 50 rows.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Users, Check, CircleAlert, CalendarX2 } from "lucide-react";
 import { chipClass } from "@/components/Chip";
@@ -21,8 +21,9 @@ import { SectionEmpty } from "@/components/form";
 import { Table, Th, Td, TABLE_HEAD_ROW, TR } from "@/components/Table";
 import { Pager } from "@/components/Pager";
 import { standingOf } from "@/components/compliance/copy";
-import { pageOf, usePortal, type PersonRow, type PortalPageProps } from "./use-portal";
+import { pageOf, useBulkSelection, usePortal, type PersonRow, type PortalPageProps } from "./use-portal";
 import { PortalFallback } from "./PortalFallback";
+import { PeopleBulkBar } from "./PortalBulk";
 
 const PEOPLE_PAGE = 50;
 
@@ -73,7 +74,25 @@ export function PortalPeople({ licensed, canManageLicense = false }: PortalPageP
     [base, needle]
   );
 
+  // The bulk selection (F5, 1.14.0): a checkbox per person, the header's
+  // "Select all shown" over what the Show control and the filter leave,
+  // shift-click ranges in that order, and the bar while anyone is checked.
+  // Pruned on reload; cleared after an action (the bar does both).
+  const visibleIds = useMemo(() => visible.map((u) => u.id), [visible]);
+  const allIds = useMemo(() => (users ?? []).filter((u) => u.required > 0).map((u) => u.id), [users]);
+  const selection = useBulkSelection(allIds);
+  const headCheck = useRef<HTMLInputElement>(null);
+  const allShown = selection.allOf(visibleIds);
+  const someShown = !allShown && selection.someOf(visibleIds);
+  useEffect(() => {
+    if (headCheck.current) headCheck.current.indeterminate = someShown;
+  }, [someShown]);
+  const { selected: selectedIds } = selection;
+  const selectedPeople = useMemo(() => (users ?? []).filter((u) => u.required > 0 && selectedIds.has(u.id)), [users, selectedIds]);
+
   if (!portal.data) return <PortalFallback licensed={licensed} canManageLicense={canManageLicense} portal={portal} />;
+  const { can } = portal.data;
+  const busy = portal.busy;
   const anyone = portal.data.users.some((u) => u.required > 0);
   const pages = Math.max(1, Math.ceil(visible.length / PEOPLE_PAGE));
   const current = Math.min(page, pages - 1);
@@ -111,6 +130,13 @@ export function PortalPeople({ licensed, canManageLicense = false }: PortalPageP
               className="min-w-0 flex-1"
             />
           </div>
+          {can.manage && selection.size > 0 && (
+            // The bulk bar (F5): the actions over the checked people; a
+            // successful action clears the selection and reloads.
+            <div className="border-b border-slate-100 px-4 py-3">
+              <PeopleBulkBar selected={selectedPeople} onClear={selection.clear} onDone={() => portal.load()} />
+            </div>
+          )}
           {pager && <div className="border-b border-slate-100 px-4 py-2">{pager}</div>}
           {visible.length === 0 ? (
             <SectionEmpty className="px-4 py-6">{needle ? "No people match your filter." : EMPTY_BY_SHOW[show]}</SectionEmpty>
@@ -118,6 +144,22 @@ export function PortalPeople({ licensed, canManageLicense = false }: PortalPageP
             <Table scroll>
               <thead className={TABLE_HEAD_ROW}>
                 <tr>
+                  {can.manage && (
+                    // "Select all shown": everyone the Show control and the
+                    // filter leave, across the pages (STYLEGUIDE §Tables'
+                    // bulk bar).
+                    <Th fit className="print:hidden">
+                      <input
+                        ref={headCheck}
+                        type="checkbox"
+                        aria-label="Select all shown"
+                        checked={allShown}
+                        disabled={busy || visibleIds.length === 0}
+                        onChange={() => selection.toggleAll(visibleIds)}
+                        className="h-4 w-4 align-middle"
+                      />
+                    </Th>
+                  )}
                   <Th>Person</Th>
                   <Th fit align="right">
                     Required
@@ -137,7 +179,20 @@ export function PortalPeople({ licensed, canManageLicense = false }: PortalPageP
                 {pageOf(visible, current, PEOPLE_PAGE).map((u) => {
                   const standing = standingOf(u);
                   return (
-                    <tr key={u.id} className={TR}>
+                    <tr key={u.id} className={TR} aria-selected={can.manage ? selection.has(u.id) : undefined}>
+                      {can.manage && (
+                        <Td fit className="print:hidden">
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${u.name || u.username}`}
+                            checked={selection.has(u.id)}
+                            disabled={busy}
+                            onClick={selection.markShift}
+                            onChange={() => selection.toggle(u.id, visibleIds)}
+                            className="h-4 w-4 align-middle"
+                          />
+                        </Td>
+                      )}
                       <Td className="font-medium text-slate-700">
                         {/* The person's compliance record (F3): every policy
                             they must confirm, with the evidence and prior

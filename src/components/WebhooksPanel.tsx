@@ -31,6 +31,19 @@ const EVENTS = [
   { value: "announcement.posted", label: "Announcement posted" },
 ];
 
+// Read-confirmation events (H3, 1.14.0), offered under a "Compliance" heading
+// only while policy_ack is licensed (the page passes `licensed`); a hook that
+// already carries one still shows its label. Counts and titles only.
+const POLICY_EVENTS = [
+  { value: "policy.requested", label: "Read confirmation requested" },
+  { value: "policy.deadline_approaching", label: "Confirmation deadline approaching" },
+  { value: "policy.escalated", label: "Confirmations overdue" },
+  { value: "policy.weekly_summary", label: "Compliance summary" },
+  { value: "policy.retired", label: "Policy retired" },
+];
+
+const ALL_EVENTS = [...EVENTS, ...POLICY_EVENTS];
+
 interface HookView {
   id: number;
   name: string;
@@ -51,9 +64,12 @@ interface SpaceLite {
 export function WebhooksPanel({
   initial,
   spaces = [],
+  licensed = false,
 }: {
   initial: HookView[];
   spaces?: SpaceLite[];
+  /** policy_ack licensed: the five compliance events are offered. */
+  licensed?: boolean;
 }) {
   const fmt = useFormatDate();
   const [hooks, setHooks] = useState(initial);
@@ -117,6 +133,17 @@ export function WebhooksPanel({
     setHooks(hooks.filter((h) => h.id !== id));
   }
 
+  const eventCheck = (ev: { value: string; label: string }) => (
+    <label key={ev.value} className="flex items-center gap-2">
+      <input
+        type="checkbox"
+        checked={events.includes(ev.value)}
+        onChange={(e) => setEvents(e.target.checked ? [...events, ev.value] : events.filter((x) => x !== ev.value))}
+      />
+      {ev.label}
+    </label>
+  );
+
   return (
     <div id="webhooks" className="max-w-3xl scroll-mt-6">
       <h2 className="text-lg font-semibold text-slate-900">Webhooks</h2>
@@ -158,19 +185,18 @@ export function WebhooksPanel({
           </Field>
         </div>
         <div className="mt-3 flex flex-wrap gap-4 text-sm text-slate-600">
-          {EVENTS.map((ev) => (
-            <label key={ev.value} className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={events.includes(ev.value)}
-                onChange={(e) =>
-                  setEvents(e.target.checked ? [...events, ev.value] : events.filter((x) => x !== ev.value))
-                }
-              />
-              {ev.label}
-            </label>
-          ))}
+          {EVENTS.map(eventCheck)}
         </div>
+        {licensed && (
+          <div className="mt-3">
+            <span className="mb-1 block text-xs font-medium text-slate-500">Compliance</span>
+            <div className="flex flex-wrap gap-4 text-sm text-slate-600">{POLICY_EVENTS.map(eventCheck)}</div>
+            <span className="mt-1 block text-xs text-slate-500">
+              Counts and policy titles only, never the names of people. Scope the hook to a space to keep private
+              policies out of a shared channel.
+            </span>
+          </div>
+        )}
         {spaces.length > 0 && (
           // The Field recipe without its <label>: a picker holds several
           // controls, so the caption is a span and the picker names itself.
@@ -221,7 +247,7 @@ export function WebhooksPanel({
               </button>
             </div>
             <div className="mt-1 text-xs text-slate-500">
-              {h.events.map((ev) => EVENTS.find((x) => x.value === ev)?.label || ev).join(" · ")}
+              {h.events.map((ev) => ALL_EVENTS.find((x) => x.value === ev)?.label || ev).join(" · ")}
               {h.space_ids.length > 0 && (
                 <>
                   {" — spaces: "}

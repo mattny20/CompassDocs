@@ -7471,6 +7471,18 @@ export async function policySetNames(docIds: number[]): Promise<Map<number, stri
 type SetPolicyOutcome = "switched_on" | "not_narrowed" | "reconciled" | "unchanged" | "skipped";
 
 /**
+ * The channel event for a policy that started asking people (H3, 1.14.0):
+ * fired after the outbox row, never awaited. lib/compliance-webhooks is
+ * server-only and imports this module, so it is loaded lazily, as
+ * retirePolicy loads lib/compliance-audit; a failure only logs.
+ */
+function emitPolicyRequestedLater(docId: number, opts: { actor: string; people?: number; origin?: string }): void {
+  void import("./compliance-webhooks")
+    .then((m) => m.emitPolicyRequested(docId, opts))
+    .catch((e) => console.error("[ack] policy.requested channel event:", e));
+}
+
+/**
  * Assign the set to one member policy, in its own transaction, the way a
  * save of the policy's audience runs (saveAudienceRules): the settings row
  * is the lock, the rules are written, the reconcile runs on the same client
@@ -7539,15 +7551,20 @@ async function assignSetToPolicy(
       if (!on.switched_on) return { title: h.title, outcome: "reconciled", added: 0 };
       await insertAckOutbox(null, { document_id: docId, mode: "request", source: "manual", actor, user_ids: null, origin: opts.origin });
       await setAckLastReminded(docId);
-      // H3: policy.requested
+      // H3: policy.requested (1.14.0), once per policy after the outbox row;
+      // the row names nobody, so the helper counts everyone pending now.
+      emitPolicyRequestedLater(docId, { actor: actor.name, origin: opts.origin });
       return { title: h.title, outcome: "switched_on", added: 0 };
     }
     const { told, ...counts } = await reconcilePolicyOn(client, docId, { defaults: opts.defaults, auto: false });
     if (told.length > 0) {
       await insertAckOutbox(client, { document_id: docId, mode: "request", source: "manual", actor, user_ids: told, origin: opts.origin });
-      // H3: policy.requested
     }
     await client.query("COMMIT");
+    // H3: policy.requested (1.14.0), after the commit so the event reads the
+    // rows, for the people the reconcile started asking; nothing when it
+    // added nobody.
+    if (told.length > 0) emitPolicyRequestedLater(docId, { actor: actor.name, people: told.length, origin: opts.origin });
     return { title: h.title, outcome: "reconciled", added: counts.added + counts.reopened };
   } catch (e) {
     await client.query("ROLLBACK").catch(() => {});
@@ -7715,6 +7732,12 @@ export async function retirePolicy(docId: number, actor: AckActor, reason: strin
     await import("./compliance-audit")
       .then((m) => m.retirementSnapshot(docId, actor))
       .catch((e) => console.error("[ack] retirement snapshot:", e));
+    // The channel notice (H3, 1.14.0): "retired by …; replaced by …" with the
+    // counts frozen above, loaded lazily for the same reason and never
+    // awaited: a slow channel never slows the retire.
+    void import("./compliance-webhooks")
+      .then((m) => m.emitPolicyRetired(docId, actor, row.ack_superseded_by, { counts: { acked: counts.current, required: counts.eligible } }))
+      .catch((e) => console.error("[ack] policy.retired channel event:", e));
     return {
       title: row.title,
       retired_at: row.retired_at,

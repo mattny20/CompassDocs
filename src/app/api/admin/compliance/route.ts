@@ -64,6 +64,16 @@ async function gated(key: ComplianceKey): Promise<{ denied: NextResponse } | { u
   return { user: gate };
 }
 
+/** The matrix's `?doc_ids=` filter: a comma-separated list of positive integers as a set; null when absent or unusable (then every live policy). */
+function csvDocIds(raw: string | null): Set<number> | null {
+  if (!raw) return null;
+  const ids = raw
+    .split(",")
+    .map((s) => Number(s.trim()))
+    .filter((n) => Number.isSafeInteger(n) && n > 0);
+  return ids.length > 0 ? new Set(ids) : null;
+}
+
 /** A published document by id, or undefined (a NaN id never reaches the database). */
 async function publishedDoc(raw: unknown) {
   const id = Number(raw);
@@ -155,7 +165,12 @@ export async function GET(req: Request) {
     // retired policy (G3, 1.12.0) is out for the same reason as it is out
     // of the tiles: nobody owes it; its evidence stays exportable through
     // its own roster and ledger CSVs.
-    const docs = (await complianceDocs()).filter((d) => d.status === "published" && d.ack_retired_at === null);
+    // ?doc_ids=1,2,3 (F5, 1.14.0: the Policies bar's "Export CSV (selected)")
+    // narrows the matrix to those policies; the audit row names them.
+    const only = csvDocIds(url.searchParams.get("doc_ids"));
+    const docs = (await complianceDocs()).filter(
+      (d) => d.status === "published" && d.ack_retired_at === null && (only === null || only.has(d.id))
+    );
     const esc = csvCell;
     const lines = [MATRIX_CSV_HEADER];
     for (const d of docs) {
@@ -235,7 +250,7 @@ export async function GET(req: Request) {
       targetType: "compliance",
       targetId: null,
       targetLabel: "All policies",
-      details: { format: "matrix", doc_id: "all", rows: lines.length - 1, with_ip: false },
+      details: { format: "matrix", doc_id: only ? [...only] : "all", rows: lines.length - 1, with_ip: false },
       ip: ipFrom(req),
     });
     return new Response(lines.join("\n") + "\n", {

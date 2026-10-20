@@ -34,7 +34,11 @@ import {
   getUserById,
   listOwedPoliciesFor,
   ackNoticeIdsFor,
+  RECERT_ACTOR,
 } from "./db";
+// Channel notices (H3, 1.14.0): one webhook event per policy, after the
+// outbox row, never awaited on a request path (lib/compliance-webhooks).
+import { emitPolicyRequested, emitPolicyEscalated, emitPolicyDeadlines } from "./compliance-webhooks";
 import type { AckOutboxInput, AckNoticeInput, AckActor, Queryable, ClaimedAckOutboxRow, AckSweepDefaults, EscalationVia } from "./db";
 // Reminders and escalation (E2): the cadence words and the notices' copy.
 import { featureEnabled } from "./ee";
@@ -180,6 +184,11 @@ export async function requestAcknowledgement(
       origin,
     });
     await setAckLastReminded(doc.id);
+    // The channel notice (H3, 1.14.0): one policy.requested event for the
+    // portal's and the shield's Request alike (both come through here),
+    // after the outbox row, with the count the request names; a quiet
+    // switch-on (notify off) returned above and tells no channel either.
+    void emitPolicyRequested(doc.id, { actor: actor.name, people: pending.length, origin });
     return { queued: pending.length, outbox_id: outboxId, switched_on: true };
   } finally {
     await lock.query("COMMIT").catch(() => {});
@@ -992,6 +1001,10 @@ export async function recertifyDueAcks(
         rearmed: c.rearmed,
       },
     });
+    // The channel notice (H3, 1.14.0): "Annual re-confirmation of … started:
+    // n people to confirm", once per cycle, after the claim queued the
+    // outbox row; the people are the audience the cycle re-asked.
+    void emitPolicyRequested(c.document_id, { actor: RECERT_ACTOR.name, people: c.eligible, cycle: "annual" });
   }
   return { cycles: cycles.length };
 }
@@ -1700,6 +1713,12 @@ export async function escalateOverdueAcks(
         outbox_id: outboxId,
       },
     });
+    // The channel notice (H3, 1.14.0): once per policy per sweep that
+    // escalated someone, with the count and the days, never the names
+    // (those go to the owner and the leads on the outbox row above). A
+    // policy nobody could be told about still escalated, so the channel
+    // still hears it.
+    void emitPolicyEscalated(docId, claimed.length, { days: claimed[0].days });
   }
   return { claimed: rows.length, policies: byDoc.size, recipients: told, outbox_ids: outboxIds };
 }
@@ -1740,6 +1759,10 @@ export async function complianceHourly(opts: { documentIds?: number[] } = {}): P
     }
   });
   await step("reminders", () => remindDueAcks({ defaults, documentIds }));
+  // The channel's deadline notice (H3, 1.14.0): after the people's own
+  // reminders, once per policy per due date (lib/compliance-webhooks claims
+  // ack_deadline_hook_{docId} on the deadline's day).
+  await step("deadline notices", () => emitPolicyDeadlines({ defaults, documentIds }));
   await step("escalation", () => escalateOverdueAcks({ defaults, documentIds }));
   await step("re-confirmation", () => recertifyDueAcks({ defaults: layer, documentIds }));
 }

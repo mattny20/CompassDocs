@@ -107,6 +107,17 @@ keep their own titles.
 - Subtitles: `mt-1 text-sm text-slate-500` (plus `mb-6` when the next block
   needs the gap). Card/section sub-descriptions use the smaller tier:
   `mt-0.5 text-xs text-slate-500`.
+- **A page under a section layout that owns the h1** (the Compliance
+  section's pages, 1.14.0) titles itself with a `SectionHeading` (h2, its
+  lucide icon) and one `text-sm text-slate-500` sentence under it, never a
+  second `PageHeader`: the layout's h1 is the page title, and a second one
+  breaks the heading ladder. `TeamPolicies` ("Your team's policies") is
+  the worked example.
+- **A sub-page that must not inherit its section's header** lives in its
+  own route group, as `(home)` does: the person record is
+  `(record)/compliance/person/[id]` (1.14.0), so it renders its own
+  `PageHeader` with a back link instead of the Compliance section's header
+  and tab row.
 
 ### Standalone link pages (the one exception)
 
@@ -181,10 +192,10 @@ a top-level page and uses `PageContainer`, however standalone it feels.
   and "You confirmed version 12 on {date}" (", signed as {name}" on a
   signed confirmation) — never a second card or an
   inline flash; the toast is the announcement, and focus moves to the
-  section after success. The card links nowhere yet (My policies, 1.12.0,
-  is a page every reader can open and links the other way, from its rows
-  to this card; the card's "View your record" link waits for the person
-  record, 1.14.0). The strip at the top keeps **one
+  section after success. The done state carries one `link`, **View your
+  record** (1.14.0, `/compliance/person/me`), beside the confirmed line;
+  My policies (1.12.0) links the other way, from its rows to this card,
+  and to the same record as **Your record**. The strip at the top keeps **one
   sentence and one action**: a `secondary` `sm` `<Button
   href="#confirm-reading">` (a real anchor so it works without JS;
   `onClick` adds `scrollIntoView` unless reduced motion, then focuses the
@@ -192,6 +203,21 @@ a top-level page and uses `PageContainer`, however standalone it feels.
   strip. A `hidden print:block text-xs` line after the article states the
   reader's standing, so a printed policy carries it. `AckCard`
   (`#confirm-reading`) is the first.
+- **A triage queue** (1.14.0; the compliance Overview's Needs attention in
+  `PortalOverview` is the worked example; the training Overview's is the
+  older hand-rolled one): a `padding="none"` `Card` whose description is
+  the count line ("showing 12 of 19 · 7 snoozed"), rows in a `divide-y`
+  list: the person (a link to their record), the subject (a link), one
+  `sm` chip for the reason (tone by severity: `error`, `warn`, `neutral`)
+  and the actions as `secondary` `sm` Buttons with `data-tt`; policy-level
+  rows lead; a `SectionEmpty` "Nothing needs attention."; after an action
+  removes a row, focus moves to the neighbouring row, else the card.
+- **An invitation strip** (1.14.0, the lead's banner on My policies): one
+  sentence and one `link` in the bulk bar's tint (`rounded-lg border
+  border-compass-200 bg-compass-50/70 px-3 py-2 text-sm text-slate-700`),
+  `print:hidden`, above the page's content; never a `notice-*` class
+  (those are state, not an invitation) and never a second card.
+  `TeamLeadBanner` is the first.
 
 ## Empty states
 
@@ -389,6 +415,12 @@ focus):
   deadlines"), never a second Save. The cards are six (1.13.0):
   Confirmation statement, Who must confirm, Deadline, Reminders,
   Re-confirmation, Lifecycle. `PolicySettingsPanel` is the worked example.
+- **A card whose values live behind a second route** (the Program settings
+  page's Compliance report card, 1.14.0) still saves through the page's
+  one Save: the Save sends the page's PUT, then the card's PUT only when
+  that block changed, and a refusal of the second is toasted with the
+  server's sentence and leaves the page dirty. `ProgramSettingsPanel` is
+  the worked example.
 - **An optional group of fields a form rarely needs** ("Policy defaults"
   on a space, 1.13.0) is a native `<details>` with a `summary` in `text-sm
   font-semibold` (the DocBlocksStatic accordion recipe), closed by
@@ -436,6 +468,12 @@ focus):
   data allows it (the card's **Section heads first**, 1.13.0, shown only
   when the chosen Sections by field has a head) sits under the control it
   qualifies and is left out, not disabled, until then.
+- **An ordered pick from a large pool** (a policy set's members, 1.14.0)
+  is a single-mode `EntityPicker` that appends ("Add policies in order…")
+  over the same `OrderedKeyList`, labels numbered from the current order
+  ("1. Acceptable Use"), `minimum={0}`, `available` = the chosen items so
+  no add menu renders, and the item's facts as the row's `text-2xs
+  text-slate-500` `extra`. `PolicySets` is the worked example.
 - **A short table of definitions edited in place** (export markers, 1.11.2)
   is a `padding="none"` `Card` holding a `Table` whose rows are dense
   controls (`TextInput` / `Select` with `dense` and an `aria-label` naming
@@ -544,6 +582,11 @@ One field recipe, one input recipe, one width scale. Everything lives in
   Engineering") and a sublabel per choice that says what tells them apart
   (the person's own value for the field); the shared help is one line
   under the grid and a refusal is a `FormError` under it, not a toast.
+- **A captioned Select in a toolbar** (the Policies page's Sort, 1.14.0)
+  is a `dense` `Select` with `className="w-auto"` whose visible caption is
+  a span the control names through `aria-labelledby` (a wrapping `<label>`
+  would fold the chosen option into the accessible name), so a spec finds
+  `getByRole("combobox", { name: "Sort" })`.
 - **The Save row.** A page or card with a Save button uses `<SaveRow dirty
   busy onSave label disabled allowPristine>` from `components/SaveRow`
   with `useUnsavedChanges(snapshot)` and `useLeaveGuard(dirty,
@@ -743,8 +786,8 @@ confirmation is pending the control is a `secondary` `sm` `<Button href>`
 that jumps to the card at the end of the article, and once confirmed it
 becomes `chipClass("ok", "sm")` with `CircleCheckBig` and "Confirmed
 {date}" — a status, not a link (My policies, 1.12.0, links from its rows
-to the card; the card's "View your record" link waits for the person
-record, 1.14.0, and lives in the card, never on the chip).
+to the card; the card's **View your record** link, 1.14.0, lives in the
+card, never on the chip).
 The read-confirmation chips are a closed set — **Confirmed** (`ok`),
 **Pending** (`warn`), **Overdue** (`error`), **Exempt** (`neutral`) — and
 nothing else for a confirmation's state (never "Acknowledged").
@@ -845,6 +888,28 @@ text-slate-500` before them ("Notary · Phoenix").
   disabled inside `Tooltip("Up to 200 people at a time.")`. Selection is
   per page: the header checkbox selects the rows on the page, and a
   successful action clears it.
+- **A stacked progress bar** (1.14.0, `PortalPolicies` is the worked
+  example): a `role="img"` `div` carrying the numbers as its `aria-label`
+  ("312 confirmed, 88 pending, 12 overdue, 4 exempt"), `flex h-1.5
+  overflow-hidden rounded-full bg-slate-100`, segments as spans with
+  percentage widths of the total of every segment (the accent
+  `bg-compass-600` for done, `bg-slate-200` for open, `bg-red-500` for
+  late), and a category outside the denominator hatched with an inline
+  `repeating-linear-gradient(45deg, rgb(var(--slate-300)) 0 0.25rem,
+  transparent 0.25rem 0.5rem)` so it reads in dark mode and on paper; the
+  legend under it in `text-2xs text-slate-500` repeats the numbers for
+  anyone who cannot read the colours. Never a hue for the exempt segment.
+- **A hash in a cell** (1.14.0, `Evidence` is the worked example) is a
+  12-character `code` prefix with an icon-only `CopyButton` ("Copy
+  SHA-256") beside it, never the whole hash and never a tooltip holding it
+  (the table scrolls); a server-side check of it (**Verify**) is a
+  `secondary` `sm` button that toasts; the download is an
+  `iconButtonClass("quiet")` anchor named for the row ("Download snapshot
+  2026-09").
+- **A row that stands for a member with nothing in the list** (the team
+  page's "No policies to confirm", 1.14.0) keeps its Person cell and puts
+  a `SectionEmpty` in one `Td` spanning the rest, so the member is still
+  counted and found.
 
 ## Loading
 
@@ -891,6 +956,9 @@ text-slate-500` before them ("Notary · Phoenix").
   (`components/RequireAckDialog`), a `confirmDialog` with a `secondary`
   "Require quietly" button, so the document shield and the portal cannot
   drift. **Stop requiring** is reversible, so it tells and offers Undo.
+- A toast constant written "Sentence · Undo" (`SET_DEACTIVATED_TOAST`,
+  1.14.0) is rendered as the sentence and the Undo action, never as one
+  string: the middle dot marks where the action goes.
 - **An attestation whose statement is printed beside the button is the
   question; it does not open a dialog** (1.10.0). "I confirm that I have
   read and understood this document." next to **I've read and understood
@@ -962,6 +1030,10 @@ identifiers (`docs`, `doc_count`) keep their names.
     label — the reset is what happens, not what the person asks for.
   - The evidence row is the **attestation record**; the page that lists
     them is "the record" ("View record", "View your record").
+  - One person's everything is their **compliance record** (1.14.0): the
+    page title, the Users page's button ("Compliance record"), the
+    erasure ("Anonymise compliance record…"); the reader's own links are
+    "View your record" and "Your record".
   - Status chips read **Confirmed**, **Pending**, **Overdue** or
     **Exempt**, and nothing else (§Status chips has the tones).
   - The erasure action is "Anonymise compliance record…" (C5). The cycle
@@ -1066,6 +1138,11 @@ per-route variants:
   with the house `SubNav`: Record · History · Settings), reached from the
   record. A popover wanting a fifth control is the signal to make the
   page.
+- **An action over one of several rows on a page without a table of its
+  own** (the person record's Exempt from…, 1.14.0) is a `secondary` menu
+  button opening a `Popover role="menu"` of the rows it applies to,
+  disabled inside a `Tooltip` saying why when there is nothing to pick;
+  the question that follows is the roster's dialog.
 - **Questions are dialogs**: `confirmDialog({ title, body, confirmLabel,
   danger, typeToConfirm, secondary })` and `promptDialog({ title, label,
   type, initial, validate, min, max })` from `components/Dialog`, one
@@ -1290,7 +1367,14 @@ preset, behind an **Export ▾** menu that lists the presets, "What I see"
 browser print path can't honour paper size, logos or footers reliably across
 machines; a server-rendered file can. Route the values through the same
 display helpers the screen uses so a code that shows as a label on screen is
-a label on paper.
+a label on paper. The compliance portal's menu (Matrix CSV, Ledger CSV,
+Audit package (ZIP), Print…; 1.14.0) and the record page's (Export CSV,
+Ledger CSV (all confirmations), Print…) follow the same shape, "Print…"
+last.
+
+**A record page carries a `hidden print:block` footer**, "Generated {date}
+by {viewer} · CompassDocs {version}" (the person record, 1.14.0), so a
+printed page names who produced it and from which build.
 
 ## Accessibility
 

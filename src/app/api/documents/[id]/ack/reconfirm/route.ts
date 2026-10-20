@@ -6,6 +6,7 @@ import { featureEnabled } from "@/lib/ee";
 import { auditAck, actorFrom, ipFrom } from "@/lib/audit";
 import { requestOrigin } from "@/lib/oauth";
 import { askedAgainError, minutesSince } from "@/lib/ack-assignment-actions";
+import { emitPolicyRequested } from "@/lib/compliance-webhooks";
 import type { SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -184,6 +185,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (personal) {
     // The people re-asked are the people notified; the rest of the list had
     // no open row (exempt, removed, never assigned) and is reported as such.
+    // No channel notice (H3): a per-person re-ask is about named people, and
+    // a channel hears counts only.
     return NextResponse.json({
       ok: true,
       reset: claim.confirmations_reset,
@@ -192,6 +195,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       skipped: claim.skipped,
     });
   }
+  // The channel notice (H3, 1.14.0): the whole-audience ask, once, after the
+  // claim queued the outbox row; never awaited here.
+  void emitPolicyRequested(doc.id, { actor: user.name || user.username, people: claim.eligible, origin: requestOrigin(req) });
   // `queued` is everyone pending now, which after the reset is the whole
   // audience; the drain resolves the list again at delivery.
   return NextResponse.json({ ok: true, reset: claim.confirmations_reset, queued: claim.eligible });

@@ -70,8 +70,9 @@ import { reminderSubtitle } from "@/lib/ack-remind";
 import { RESET_MIN_PCT } from "@/lib/diff";
 import { timeAgo } from "@/lib/ui";
 import { useFormatDate } from "@/components/SettingsProvider";
-import { usePortal, type DecisionBrief, type DocRow, type Portal, type PortalPageProps } from "./use-portal";
+import { useBulkSelection, usePortal, type DecisionBrief, type DocRow, type Portal, type PortalPageProps } from "./use-portal";
 import { PortalFallback } from "./PortalFallback";
+import { PolicyBulkBar } from "./PortalBulk";
 
 /** The row behind the marker: the newest reset, or the newest decision when it is one. */
 function lastAsk(d: DocRow): DecisionBrief | null {
@@ -224,6 +225,23 @@ export function PortalPolicies({ licensed, canManageLicense = false }: PortalPag
     [inSetRows, needle, sort]
   );
 
+  // The bulk selection (F5, 1.14.0): a checkbox per live row, the header's
+  // "Select all shown" over what the filter and the sort leave, shift-click
+  // ranges in that order, and the bar while anything is checked. The
+  // selection names live rows only, is pruned on reload and cleared after
+  // an action (the bar does both).
+  const shownIds = useMemo(() => shownRows.map((d) => d.id), [shownRows]);
+  const liveIds = useMemo(() => liveRows.map((d) => d.id), [liveRows]);
+  const selection = useBulkSelection(liveIds);
+  const headCheck = useRef<HTMLInputElement>(null);
+  const allShown = selection.allOf(shownIds);
+  const someShown = !allShown && selection.someOf(shownIds);
+  useEffect(() => {
+    if (headCheck.current) headCheck.current.indeterminate = someShown;
+  }, [someShown]);
+  const { selected: selectedIds } = selection;
+  const selectedRows = useMemo(() => liveRows.filter((d) => selectedIds.has(d.id)), [liveRows, selectedIds]);
+
   // Focus after Retire policy… / Un-retire (STYLEGUIDE §Settings pages:
   // focus never falls to <body>). The dialog hands focus back to the button
   // that opened it, and that button unmounts when the reload moves the row
@@ -372,6 +390,20 @@ export function PortalPolicies({ licensed, canManageLicense = false }: PortalPag
                 (its visible caption is its name), then the list filter with
                 its live count. Off the paper, like every control here. */}
             <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 px-4 py-3 print:hidden">
+              {can.manage && (
+                // "Select all shown": the rows the filter and the sort leave
+                // (STYLEGUIDE §Tables' bulk bar; the list has no table head,
+                // so the header checkbox leads the toolbar).
+                <input
+                  ref={headCheck}
+                  type="checkbox"
+                  aria-label="Select all shown"
+                  checked={allShown}
+                  disabled={busy || shownIds.length === 0}
+                  onChange={() => selection.toggleAll(shownIds)}
+                  className="h-4 w-4 align-middle"
+                />
+              )}
               <span className="flex items-center gap-1.5 text-xs text-slate-500">
                 <span id={sortId}>Sort</span>
                 <Select dense className="w-auto" aria-labelledby={sortId} value={sort} onChange={(e) => setSort(e.target.value as PolicySort)}>
@@ -405,6 +437,23 @@ export function PortalPolicies({ licensed, canManageLicense = false }: PortalPag
                 className="min-w-0 flex-1"
               />
             </div>
+            {can.manage && selection.size > 0 && (
+              // The bulk bar (F5): the actions over the checked policies;
+              // a successful action clears the selection, forgets the
+              // cached rosters of the policies it touched and reloads.
+              <div className="border-b border-slate-100 px-4 py-3">
+                <PolicyBulkBar
+                  selected={selectedRows}
+                  users={data.users}
+                  canExport={can.export}
+                  onClear={selection.clear}
+                  onDone={async () => {
+                    for (const d of selectedRows) portal.dropRoster(d.id);
+                    await portal.load();
+                  }}
+                />
+              </div>
+            )}
             {shownRows.length === 0 ? (
               <SectionEmpty className="px-4 py-6">
                 {needle ? "No policies match your filter." : `No policies in the set "${inSet}" right now.`}
@@ -419,8 +468,23 @@ export function PortalPolicies({ licensed, canManageLicense = false }: PortalPag
               const drift = driftChip(d);
               const editDefault = d.ack_edit_default ?? d.edit_default;
               return (
-                <li key={d.id}>
+                <li key={d.id} aria-selected={can.manage ? selection.has(d.id) : undefined}>
                   <div className="flex flex-wrap items-center gap-3 px-4 py-3">
+                    {can.manage && (
+                      // The row's checkbox (F5): the click notes Shift
+                      // before the change toggles, so a shift-click selects
+                      // the range from the last row clicked, in the list's
+                      // current order.
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${d.title}`}
+                        checked={selection.has(d.id)}
+                        disabled={busy}
+                        onClick={selection.markShift}
+                        onChange={() => selection.toggle(d.id, shownIds)}
+                        className="h-4 w-4 shrink-0 print:hidden"
+                      />
+                    )}
                     <div className="min-w-0 flex-1">
                       <button
                         ref={registerFocus(d.id)}

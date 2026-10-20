@@ -27,7 +27,8 @@
 // row's Remind reaches everyone still pending on that policy, this person
 // among them.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { MouseEvent as ReactMouseEvent } from "react";
 import { confirmDialog, formDialog } from "@/components/Dialog";
 import { toast } from "@/components/Toasts";
 import { requireAckDialog } from "@/components/RequireAckDialog";
@@ -244,6 +245,94 @@ export interface PortalPageProps {
 export function pageOf<T>(rows: T[], page: number, size: number): T[] {
   return rows.slice(page * size, (page + 1) * size);
 }
+
+/**
+ * The checkbox columns' selection behind the Policies and People bulk bars
+ * (F5, 1.14.0): a set of ids, a row toggle with shift-click range selection
+ * (the range runs between the last row clicked and this one in the list's
+ * current order, so it respects the filter and the sort), a header toggle
+ * over the rows shown, and Clear. The selection only ever names rows that
+ * are still on the page: a reload prunes it (a successful action clears it
+ * explicitly). `existing` is every selectable id the page holds right now.
+ */
+export function useBulkSelection(existing: number[]) {
+  const [selected, setSelected] = useState<Set<number>>(() => new Set());
+  const anchor = useRef<number | null>(null);
+  const shift = useRef(false);
+  const existingKey = existing.join(",");
+  useEffect(() => {
+    const keep = new Set(existingKey ? existingKey.split(",").map(Number) : []);
+    setSelected((s) => {
+      let dropped = false;
+      const next = new Set<number>();
+      for (const id of s) {
+        if (keep.has(id)) next.add(id);
+        else dropped = true;
+      }
+      return dropped ? next : s;
+    });
+  }, [existingKey]);
+
+  /** On the checkbox's click, before its change: whether Shift was held. */
+  const markShift = useCallback((e: ReactMouseEvent) => {
+    shift.current = e.shiftKey;
+  }, []);
+
+  /** Toggle one row; with Shift held, every row between the last one clicked and this one (in `ordered`) takes this row's new state. */
+  const toggle = useCallback((id: number, ordered: number[]) => {
+    setSelected((s) => {
+      const next = new Set(s);
+      const on = !s.has(id);
+      let range = [id];
+      const from = anchor.current;
+      if (shift.current && from != null && from !== id) {
+        const a = ordered.indexOf(from);
+        const b = ordered.indexOf(id);
+        if (a >= 0 && b >= 0) range = ordered.slice(Math.min(a, b), Math.max(a, b) + 1);
+      }
+      for (const x of range) {
+        if (on) next.add(x);
+        else next.delete(x);
+      }
+      return next;
+    });
+    anchor.current = id;
+    shift.current = false;
+  }, []);
+
+  /** The header checkbox: select every id shown, or clear them when they all are. */
+  const toggleAll = useCallback((ids: number[]) => {
+    setSelected((s) => {
+      const next = new Set(s);
+      const all = ids.length > 0 && ids.every((id) => s.has(id));
+      for (const id of ids) {
+        if (all) next.delete(id);
+        else next.add(id);
+      }
+      return next;
+    });
+    anchor.current = null;
+  }, []);
+
+  const clear = useCallback(() => {
+    setSelected(new Set());
+    anchor.current = null;
+  }, []);
+
+  return {
+    selected,
+    size: selected.size,
+    has: (id: number) => selected.has(id),
+    allOf: (ids: number[]) => ids.length > 0 && ids.every((id) => selected.has(id)),
+    someOf: (ids: number[]) => ids.some((id) => selected.has(id)),
+    markShift,
+    toggle,
+    toggleAll,
+    clear,
+  };
+}
+
+export type BulkSelection = ReturnType<typeof useBulkSelection>;
 
 export function usePortal(licensed: boolean) {
   const { run, isBusy, busy } = useAction();

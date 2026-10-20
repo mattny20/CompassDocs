@@ -119,6 +119,17 @@ export const AUDIT_LABELS: Record<string, string> = {
   "ack.set_deactivated": "Deactivated policy set",
   "ack.set_deleted": "Deleted policy set",
   "ack.set_assigned": "Assigned policy set",
+  // Bulk actions across policies and people (F5, 1.14.0): one summary row
+  // per call beside the per-policy and per-row rows the writes emit
+  // (ack.bulk_extended, above, is the dispatcher's since 1.13.0).
+  "ack.bulk_remind": "Sent read confirmation reminders in bulk",
+  "ack.bulk_due_set": "Set read confirmation deadlines in bulk",
+  "ack.bulk_owner_set": "Set policy owners in bulk",
+  "ack.bulk_reminders_set": "Set policy reminders in bulk",
+  "ack.bulk_reasked": "Asked to re-confirm in bulk",
+  "ack.bulk_added_to_set": "Added policies to a set",
+  "ack.bulk_people_reminded": "Reminded people about everything outstanding",
+  "ack.bulk_exempted": "Exempted people from read confirmation in bulk",
 
   // Spaces and categories
   "space.create": "Created space",

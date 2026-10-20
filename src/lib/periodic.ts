@@ -15,8 +15,8 @@
 //                                                   claims 'ack_weekly_hook'
 //
 // Each module is loaded behind `await import()` inside its step's catch, so
-// a module or an export that has not landed yet only logs ("[periodic]
-// <name>: …") instead of taking the tick down. The training sweeps stay in
+// a module that fails to load only logs ("[periodic] <name>: …") instead of
+// taking the tick down. The training sweeps stay in
 // trainingHourly (lib/training), which returns before anything when training
 // is not licensed; the digest left it in 1.14.0 precisely because a
 // policy_ack-only workspace must still get its weekly summary.
@@ -97,18 +97,10 @@ export async function runPeriodic(opts: PeriodicOptions = {}): Promise<PeriodicR
     await mod.weeklyComplianceReport();
   });
   await step("policy_channel_summary", async () => {
-    // H3 (wave 3): src/lib/compliance-webhooks.ts does not exist yet. The
-    // specifier is a variable so neither tsc nor the bundler resolves it
-    // now; the channel agent turns this into a literal
-    // `await import("./compliance-webhooks")` when the module lands, so the
-    // production bundle carries it. Until then this step only logs.
-    const specifier = "./compliance-webhooks";
-    const mod = (await import(/* webpackIgnore: true */ specifier)) as {
-      weeklyPolicyChannelSummary?: () => Promise<unknown>;
-    };
-    if (typeof mod.weeklyPolicyChannelSummary !== "function") {
-      throw new Error("weeklyPolicyChannelSummary is not exported from lib/compliance-webhooks");
-    }
+    // H3 (1.14.0): the weekly channel summary checks its hooks and the
+    // licence before claiming 'ack_weekly_hook', so a week nobody listens
+    // to is not burned.
+    const mod = await import("./compliance-webhooks");
     await mod.weeklyPolicyChannelSummary();
   });
   return result;
