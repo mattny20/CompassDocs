@@ -70,15 +70,6 @@ export function sanitizeRules(raw: unknown): AudienceRule[] {
 export const PA_OPEN = `pa.removed_at IS NULL AND pa.exempt_at IS NULL`;
 
 /**
- * The numbers the audience code falls back to when no policy, space or
- * workspace value is set: the same figures as lib/ack-due's BUILT_IN (E1),
- * repeated here so this module stays free of that one. The SQL spells them
- * as the last COALESCE arm; the resolved workspace values travel as
- * parameters.
- */
-export const AUDIENCE_BUILT_IN = { due_days: 14, new_joiner_days: 14 } as const;
-
-/**
  * The aliases and expressions the audience predicates are written over.
  * `rules` is a relation of (kind text, ref text, effect text): the saved
  * rows (audienceRulesFromTable) or a jsonb parameter (audienceRulesFromJson,

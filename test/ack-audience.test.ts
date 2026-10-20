@@ -593,7 +593,7 @@ describe("new accounts and the welcome notice", () => {
     assert.match(sent[0].subject, new RegExp(`Welcome: ${owed.length} policies to read`));
     assert.ok(sent[0].text.includes(w1.title) && sent[0].text.includes(w2.title), "the list names the policies");
     assert.ok(!sent[0].text.includes(w3.title));
-    assert.match(sent[0].text, /\(due \d/, "with their due dates");
+    assert.match(sent[0].text, /\(due [A-Za-z0-9][^)]*\)/, `with their due dates, formatted the workspace's way:\n${sent[0].text}`);
     assert.ok(sent[0].text.includes("https://docs.example.test/compliance"), "linking My policies");
     const notices = (
       await pool().query("SELECT document_id, kind, channels FROM ack_notices WHERE outbox_id = $1 AND user_id = $2 ORDER BY document_id", [
