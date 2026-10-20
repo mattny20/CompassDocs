@@ -35,6 +35,7 @@ import {
   type ProviderRecord,
 } from "./directory-mapping";
 import {
+  OPTION_HEADS_LIMIT,
   splitMulti,
   type FieldDisplay,
   type FieldKind,
@@ -371,14 +372,32 @@ export function slugifyFieldKey(label: string): string {
 
 const MAX_OPTIONS = 500;
 
-/** Turn untrusted JSON into an options list: ordered, trimmed, deduplicated. */
+/** An option's heads as stored: whole positive ids, each once, at most OPTION_HEADS_LIMIT; anything else is dropped. */
+function sanitizeHeads(raw: unknown): number[] {
+  if (!Array.isArray(raw)) return [];
+  const out: number[] = [];
+  for (const v of raw) {
+    const n = typeof v === "number" ? v : typeof v === "string" && v.trim() ? Number(v) : Number.NaN;
+    if (!Number.isInteger(n) || n <= 0 || out.includes(n)) continue;
+    out.push(n);
+    if (out.length >= OPTION_HEADS_LIMIT) break;
+  }
+  return out;
+}
+
+/**
+ * Turn untrusted JSON into an options list: ordered, trimmed, deduplicated.
+ * An option is `{ value, label?, matches?, color?, hidden?, heads? }`; a
+ * bare string is an option with that value (1.13.0, so an older list of
+ * strings still parses).
+ */
 export function sanitizeOptions(raw: unknown): FieldOption[] {
   if (!Array.isArray(raw)) return [];
   const out: FieldOption[] = [];
   const seen = new Set<string>();
   for (const item of raw) {
-    if (!item || typeof item !== "object") continue;
-    const o = item as Record<string, unknown>;
+    const o: Record<string, unknown> =
+      typeof item === "string" ? { value: item } : item && typeof item === "object" ? (item as Record<string, unknown>) : {};
     const value = String(o.value ?? "").trim().slice(0, 120);
     if (!value || seen.has(value.toLowerCase())) continue;
     seen.add(value.toLowerCase());
@@ -387,16 +406,95 @@ export function sanitizeOptions(raw: unknown): FieldOption[] {
       ? [...new Set(o.matches.map((m) => String(m ?? "").trim().slice(0, 120)).filter(Boolean))].slice(0, 50)
       : [];
     const color = String(o.color ?? "").trim().toLowerCase();
+    const heads = sanitizeHeads(o.heads);
     out.push({
       value,
       ...(label && label !== value ? { label } : {}),
       ...(matches.length ? { matches } : {}),
       ...(/^[a-z]{1,12}$/.test(color) ? { color } : {}),
       ...(o.hidden ? { hidden: true } : {}),
+      ...(heads.length ? { heads } : {}),
     });
     if (out.length >= MAX_OPTIONS) break;
   }
   return out;
+}
+
+/**
+ * The first thing wrong with the heads in an options list as sent, or
+ * nothing: what a save refuses with, rather than quietly dropping an id
+ * (the sanitiser's job on read). A head must be a whole positive id and an
+ * option may name at most OPTION_HEADS_LIMIT. The ids are checked against
+ * the directory by the save itself (headsNotInDirectory).
+ */
+export function optionHeadsProblem(raw: unknown): string | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const o = item as Record<string, unknown>;
+    if (o.heads === undefined || o.heads === null) continue;
+    const who = String(o.value ?? "").trim() || "an option";
+    if (!Array.isArray(o.heads)) return `Heads of ${who}: send a list of people's ids.`;
+    for (const v of o.heads) {
+      const n = typeof v === "number" ? v : typeof v === "string" && v.trim() ? Number(v) : Number.NaN;
+      if (!Number.isInteger(n) || n <= 0) return `Heads of ${who}: "${String(v)}" is not a person's id.`;
+    }
+    if (new Set(o.heads.map(Number)).size > OPTION_HEADS_LIMIT) return `Heads of ${who}: up to ${OPTION_HEADS_LIMIT} heads per option.`;
+  }
+  return undefined;
+}
+
+/** Every head id an options list names, once each. */
+function headIdsOf(options: FieldOption[]): number[] {
+  return [...new Set(options.flatMap((o) => o.heads ?? []))];
+}
+
+/** The head ids among `ids` that name nobody in the directory (any row, hidden or not). */
+async function headsNotInDirectory(ids: number[]): Promise<number[]> {
+  if (!ids.length) return [];
+  const res = await pool().query<{ id: number }>("SELECT id FROM directory_people WHERE id = ANY($1::int[])", [ids]);
+  const known = new Set(res.rows.map((r) => r.id));
+  return ids.filter((id) => !known.has(id));
+}
+
+/**
+ * Refuse an options list whose heads are malformed, too many, or name
+ * people the directory does not have; what createField and updateField
+ * throw, and the field routes answer 400 with.
+ */
+async function assertHeadsSaveable(raw: unknown): Promise<FieldOption[]> {
+  const problem = optionHeadsProblem(raw);
+  if (problem) throw new Error(problem);
+  const options = sanitizeOptions(raw);
+  const missing = await headsNotInDirectory(headIdsOf(options));
+  if (missing.length) throw new Error("A head must be a person in the directory.");
+  return options;
+}
+
+/**
+ * Options with the heads the directory no longer has, or hides, taken out:
+ * read-time pruning, so a person who left or was hidden stops heading a
+ * section without an admin visiting the field. The stored list is kept as
+ * it is; the next save writes what the admin sees.
+ */
+async function pruneHeads(fields: DirectoryField[]): Promise<DirectoryField[]> {
+  const ids = [...new Set(fields.flatMap((f) => headIdsOf(f.options)))];
+  if (!ids.length) return fields;
+  const res = await pool().query<{ id: number }>("SELECT id FROM directory_people WHERE id = ANY($1::int[]) AND hidden = 0", [ids]);
+  const live = new Set(res.rows.map((r) => r.id));
+  if (live.size === ids.length) return fields;
+  return fields.map((f) => {
+    if (!f.options.some((o) => o.heads?.some((id) => !live.has(id)))) return f;
+    return {
+      ...f,
+      options: f.options.map((o) => {
+        if (!o.heads) return o;
+        const heads = o.heads.filter((id) => live.has(id));
+        const { heads: _dropped, ...rest } = o;
+        return heads.length ? { ...rest, heads } : rest;
+      }),
+    };
+  });
 }
 
 function parseField(r: FieldRow): DirectoryField {
@@ -428,7 +526,7 @@ function parseField(r: FieldRow): DirectoryField {
 
 export async function listFields(): Promise<DirectoryField[]> {
   const rows = await pool().query<FieldRow>(`SELECT ${FIELD_COLS} FROM directory_fields ORDER BY sort, id`);
-  return rows.rows.map(parseField);
+  return pruneHeads(rows.rows.map(parseField));
 }
 
 /** Fields whose values live in the custom/synced jsonb — i.e. not columns, not links. */
@@ -491,6 +589,7 @@ export async function createField(input: FieldInput & { label: string }): Promis
   if (!mappings.microsoft && input.graph_path?.trim()) mappings.microsoft = { kind: "path", path: input.graph_path.trim() };
   if (!mappings.google && input.google_path?.trim()) mappings.google = { kind: "path", path: input.google_path.trim() };
   const legacy = legacyColumnsFor(mappings);
+  const options = await assertHeadsSaveable(input.options);
   const res = await pool().query<FieldRow>(
     `INSERT INTO directory_fields
        (key, label, graph_path, google_path, show_in_card, sort, display, kind, multi, group_by, builtin,
@@ -508,7 +607,7 @@ export async function createField(input: FieldInput & { label: string }): Promis
       kind,
       input.multi ? 1 : 0,
       input.group_by ? 1 : 0,
-      JSON.stringify(sanitizeOptions(input.options)),
+      JSON.stringify(options),
       input.value_format && VALUE_FORMATS.includes(input.value_format) ? input.value_format : "raw",
       String(input.show_with ?? "").trim().slice(0, 40),
       input.highlight ? 1 : 0,
@@ -548,6 +647,7 @@ export async function updateField(id: number, fields: FieldInput): Promise<Direc
     }
   }
   const legacy = legacyColumnsFor(mappings);
+  const options = fields.options === undefined ? cur.options : await assertHeadsSaveable(fields.options);
   const res = await pool().query<FieldRow>(
     `UPDATE directory_fields SET
        label = $1, graph_path = $2, google_path = $3, show_in_card = $4, sort = $5, display = $6,
@@ -564,7 +664,7 @@ export async function updateField(id: number, fields: FieldInput): Promise<Direc
       kind,
       fields.multi === undefined ? cur.multi : fields.multi ? 1 : 0,
       fields.group_by === undefined ? cur.group_by : fields.group_by ? 1 : 0,
-      JSON.stringify(fields.options === undefined ? cur.options : sanitizeOptions(fields.options)),
+      JSON.stringify(options),
       fields.value_format && VALUE_FORMATS.includes(fields.value_format) ? fields.value_format : cur.value_format,
       fields.show_with === undefined ? cur.show_with : String(fields.show_with).trim().slice(0, 40),
       fields.highlight === undefined ? cur.highlight : fields.highlight ? 1 : 0,

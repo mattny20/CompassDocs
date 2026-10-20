@@ -23,7 +23,7 @@ import { LoadingRow } from "@/components/Spinner";
 import { Tooltip } from "@/components/Tooltip";
 import { Field, SectionEmpty, Select, TextInput, Toggle, rangeError } from "@/components/form";
 import type { DirectoryField } from "@/lib/directory";
-import { NAME_FORMATS, isNameFormat, orderGroups, type SectionSummary } from "@/lib/directory-display";
+import { NAME_FORMATS, headsLabel, isNameFormat, orderGroups, type SectionSummary } from "@/lib/directory-display";
 import type { ExportPreset } from "@/lib/directory-export-config";
 import type { ExportMarker } from "@/lib/directory-marker-rules";
 import { describeSchedule, WEEKDAYS, type ExportSchedule } from "@/lib/directory-export-schedule-rules";
@@ -390,7 +390,11 @@ function OrderCard({ m }: { m: PresetEditorModel }) {
   // field's own order, so a value that arrived after the order was set shows
   // at the end rather than nowhere. Moving a row writes the whole list.
   const rows = Array.isArray(m.sections) ? orderGroups(m.sections.map((s) => ({ key: s.value, ...s })), order) : [];
-  const countOf = new Map(rows.map((r) => [r.value, r.count]));
+  const rowOf = new Map(rows.map((r) => [r.value, r]));
+  // The toggle shows only once the sections field has a head to print.
+  const sectionsField = m.groupFields.find((f) => f.key === cur.group_by);
+  const fieldHasHeads = Boolean(sectionsField?.options.some((o) => (o.heads?.length ?? 0) > 0));
+  const headsFirst = cur.section_heads ?? true;
   return (
     <Card id="order" className="scroll-mt-6" title="Order and filter" description="Who is in the file, in which sections, and in what order.">
       {/* Two grids with one gap between them, so the Section order list
@@ -423,6 +427,16 @@ function OrderCard({ m }: { m: PresetEditorModel }) {
           </div>
         </Field>
       </div>
+      {cur.group_by && fieldHasHeads && (
+        <div className="mt-3">
+          <Toggle
+            label="Section heads first"
+            help="Heads print at the top of their section, marked Head, even when their own value is another section."
+            checked={headsFirst}
+            onChange={(v) => update({ section_heads: v })}
+          />
+        </div>
+      )}
       {cur.group_by && (
         // A fieldset, not a Field, as the columns list is: a Field's label
         // would hand a click on any row's text to the first button.
@@ -441,10 +455,16 @@ function OrderCard({ m }: { m: PresetEditorModel }) {
               available={rows.map((r) => ({ key: r.value, label: r.label }))}
               removable={false}
               extra={(key) => {
-                const n = countOf.get(key) ?? 0;
+                const s = rowOf.get(key);
+                const n = s?.count ?? 0;
+                // The section's heads, as the file will print them, under the count.
+                const line = headsFirst ? headsLabel((s?.heads ?? []).map((h) => h.name)) : "";
                 return (
-                  <span className="text-2xs text-slate-500">
-                    {n} {n === 1 ? "person" : "people"}
+                  <span className="flex flex-col items-end text-2xs text-slate-500">
+                    <span>
+                      {n} {n === 1 ? "person" : "people"}
+                    </span>
+                    {line && <span>{line}</span>}
                   </span>
                 );
               }}

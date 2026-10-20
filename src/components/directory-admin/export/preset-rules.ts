@@ -34,6 +34,7 @@ export const PRESET_BLANK: Omit<ExportPreset, "id" | "name"> = {
   columns: ["name", "title", "department", "phone", "email"],
   group_by: "",
   section_order: [],
+  section_heads: true,
   sort: "name",
   sort_dir: "asc",
   sort2: "",

@@ -38,13 +38,17 @@ import {
   columnLabel,
   comparePeople,
   displayValue,
+  groupHeads,
   groupPeople,
+  headsLabel,
   initialsOf,
+  leadWithHeads,
   pinnedFirst,
   rawValue,
   resolveValues,
   milestonesFor,
 } from "@/lib/directory-display";
+import { chipClass } from "./Chip";
 import { EmptyState, controlClass } from "./form";
 import { Popover, MenuItem, MenuSeparator } from "./Popover";
 import { Table, Th, Td, TABLE_HEAD_ROW, TR } from "./Table";
@@ -328,6 +332,9 @@ export function DirectoryClient({
 
   const { pinned } = useMemo(() => pinnedFirst(people), [people]);
   const mine = useMemo(() => people.filter((p) => myPins.includes(p.id)), [people, myPins]);
+  // The Groups view's heads are drawn from the people on screen: a head the
+  // search or the filter leaves out leads no group.
+  const peopleById = useMemo(() => new Map(people.map((p) => [p.id, p])), [people]);
 
   function clickSort(id: string) {
     if (sortBy === id) setSortDir((d) => (d === 1 ? -1 : 1));
@@ -557,7 +564,7 @@ export function DirectoryClient({
     );
   };
 
-  const Tile = ({ p }: { p: DirectoryPerson }) => {
+  const Tile = ({ p, head = false }: { p: DirectoryPerson; head?: boolean }) => {
     const assistants = p.links.assistant ?? [];
     return (
       <Link
@@ -566,7 +573,10 @@ export function DirectoryClient({
       >
         <Avatar p={p} size={10} presence={presenceMap[p.id]} />
         <div className="min-w-0">
-          <p className="truncate text-sm font-medium text-slate-900">{p.name}</p>
+          <p className="flex items-center gap-1.5 text-sm font-medium text-slate-900">
+            <span className="truncate">{p.name}</span>
+            {head && <span className={`${chipClass("info", "sm")} shrink-0`}>Head</span>}
+          </p>
           <p className="truncate text-xs text-slate-500">
             {p.title}
             {p.title && (p.phone || p.mobile) ? " · " : ""}
@@ -582,11 +592,12 @@ export function DirectoryClient({
     );
   };
 
-  const SectionHeader = ({ label, count, icon, fixHref }: { label: string; count: number; icon?: React.ReactNode; fixHref?: string }) => (
+  const SectionHeader = ({ label, count, meta, icon, fixHref }: { label: string; count: number; meta?: string; icon?: React.ReactNode; fixHref?: string }) => (
     <h2 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
       {icon}
       {label}
       <span className="text-xs font-normal text-slate-500">({count})</span>
+      {meta && <span className="text-xs font-normal normal-case tracking-normal text-slate-500">· {meta}</span>}
       {fixHref && (
         <Link href={fixHref} className="ml-1 text-xs font-medium normal-case tracking-normal text-compass-600 hover:underline">
           Fill these in
@@ -876,12 +887,19 @@ export function DirectoryClient({
         /* ------------------------------ GROUPS ---------------------------- */
         <div className="space-y-6">
           {pinnedSections(Tile, tileGrid)}
-          {(grouped ?? []).map((g) => (
-            <div key={g.key || "__none"}>
-              <SectionHeader label={g.label} count={g.members.length} fixHref={fixLink(g, groupField)} />
-              <div className={tileGrid}>{g.members.map((p) => <Tile key={p.id} p={p} />)}</div>
-            </div>
-          ))}
+          {(grouped ?? []).map((g) => {
+            // A group's heads lead it, marked, whatever their own value; a
+            // head sitting in another group is an ordinary tile there too.
+            const heads = groupField ? groupHeads(groupField, g.key, peopleById) : [];
+            const rows = leadWithHeads(g.members, heads);
+            const headIds = new Set(heads.map((h) => h.id));
+            return (
+              <div key={g.key || "__none"}>
+                <SectionHeader label={g.label} count={rows.length} meta={headsLabel(heads.map((h) => h.name)) || undefined} fixHref={fixLink(g, groupField)} />
+                <div className={tileGrid}>{rows.map((p) => <Tile key={p.id} p={p} head={headIds.has(p.id)} />)}</div>
+              </div>
+            );
+          })}
         </div>
       ) : grouped ? (
         /* --------------------------- CARDS, IN SECTIONS ------------------- */

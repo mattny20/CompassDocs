@@ -37,6 +37,10 @@ export interface ExportPreset {
    *  own order. Empty, the sections print in the field's order, as every
    *  preset before 1.13.0 did. Always empty when group_by is "". */
   section_order: string[];
+  /** Print each section's heads (the option's `heads`) at its top, marked
+   *  Head, whatever their own value; off, a head prints only where their
+   *  value puts them. True for every preset before 1.13.0. */
+  section_heads: boolean;
   sort: string;
   sort_dir: "asc" | "desc";
   /** A second key the sort falls through to — "Office, then Title". "" for none. */
@@ -100,6 +104,7 @@ export const PRESET_DEFAULTS: Omit<ExportPreset, "id" | "name"> = {
   columns: ["name", "title", "department", "phone", "email"],
   group_by: "",
   section_order: [],
+  section_heads: true,
   sort: "name",
   sort_dir: "asc",
   sort2: "",
@@ -225,6 +230,9 @@ export function sanitizePreset(raw: unknown, fields: DirectoryField[], fallbackI
     // An order belongs to its field: with no sections there is nothing to
     // order (the editor clears it when the field changes).
     section_order: groupBy ? sanitizeSectionOrder(o.section_order) : [],
+    // On unless switched off: a preset stored before 1.13.0 prints its heads
+    // first the moment a field gets any.
+    section_heads: o.section_heads === undefined ? true : Boolean(o.section_heads),
     sort: sortKey && sortable.has(sortKey) ? sortKey : "name",
     sort_dir: o.sort_dir === "desc" ? "desc" : "asc",
     sort2: sort2Key && sortable.has(sort2Key) && sort2Key !== sortKey ? sort2Key : "",

@@ -55,7 +55,7 @@ async function run(user: SessionUser, req: Request, params: Record<string, unkno
     "columns", "group_by", "sort", "sort_dir", "sort2", "sort2_dir", "paper", "orientation", "density", "page_columns",
     "logo", "photos", "pinned_first", "page_numbers", "printed_date", "office_info", "office_columns", "zebra", "title", "subtitle", "footer_note",
     "layout", "cards_per_row", "split_by", "column_limits", "assistant_fields", "margins", "margin_custom", "markers", "name_format",
-    "section_order",
+    "section_order", "section_heads",
   ]) {
     if (params[k] !== undefined) overrides[k] = params[k];
   }
@@ -85,7 +85,7 @@ async function run(user: SessionUser, req: Request, params: Record<string, unkno
   // picks its own sections ("what I see", an ad hoc group_by) starts from
   // the field's own order unless it brings an order of its own.
   if (overrides.group_by !== undefined && overrides.section_order === undefined) overrides.section_order = [];
-  for (const k of ["logo", "photos", "pinned_first", "page_numbers", "printed_date", "office_info", "zebra"]) {
+  for (const k of ["logo", "photos", "pinned_first", "page_numbers", "printed_date", "office_info", "zebra", "section_heads"]) {
     if (typeof overrides[k] === "string") overrides[k] = overrides[k] === "1" || overrides[k] === "true";
   }
   if (params.filter_key !== undefined || params.filter_value !== undefined) {

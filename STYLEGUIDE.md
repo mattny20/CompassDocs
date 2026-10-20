@@ -382,8 +382,15 @@ focus):
   stacked and sharing one `{ s, set, errors }` model, with one `SaveRow`
   "Save settings" (`useUnsavedChanges`) as the page's only primary action.
   A card's own action (Retire policy…, Un-retire) is a `secondary` or
-  `danger` button that opens `formDialog` / `confirmDialog`, never a second
-  Save. `PolicySettingsPanel` is the worked example.
+  `danger` button that opens `formDialog` / `confirmDialog`, or (1.13.0) a
+  `secondary` button that tells with Undo ("Also move existing
+  deadlines"), never a second Save. The cards are six (1.13.0):
+  Confirmation statement, Who must confirm, Deadline, Reminders,
+  Re-confirmation, Lifecycle. `PolicySettingsPanel` is the worked example.
+- **An optional group of fields a form rarely needs** ("Policy defaults"
+  on a space, 1.13.0) is a native `<details>` with a `summary` in `text-sm
+  font-semibold` (the DocBlocksStatic accordion recipe), closed by
+  default.
 - **A settings list with one editable item at a time (export presets) is a
   two-pane layout** (1.11.2): a rail-row list on the left (chips for state),
   the selected item's editor on the right in grouped cards with one Save row
@@ -507,6 +514,16 @@ One field recipe, one input recipe, one width scale. Everything lives in
 - Checkbox *lists*, radio groups and composite pickers (EntityPicker,
   SpaceIconPicker) keep their own markup; their text inputs still use the
   recipe.
+- **A stacked radio group in a card** (1.13.0) reuses the choice dialog's
+  radio-card recipe (§Overlays): `role="radiogroup"` with `aria-label`, a
+  label and one description sentence per card, the chosen card
+  `border-compass-300 bg-compass-50/60`, with the card's own control (a
+  number, a date) as a `Field` under the description while chosen, a
+  sibling of the radio, never nested in its label. `RadioCards` in
+  `PolicySettingsPanel` is the worked example.
+- **A live count line under a picker** ("Applies to 412 people · 3 without
+  access", 1.13.0) is `text-xs text-slate-500` with `aria-live="polite"`,
+  debounced, never a spinner.
 - A control inside a list row (OrderedKeyList `extra`) is a dense
   `TextInput`/`Select` with a visible caption and an `aria-label` that
   names the row ('Wrap Name after'); the shared help and the first error
@@ -1011,7 +1028,8 @@ per-route variants:
   (`AckSettings`, A5) holds **four controls** under its heading — the
   "Require readers to confirm" Toggle, the status line with its "View
   record" link, the "When the text changes" Select, and the "Ask everyone
-  to re-confirm…" button — and nothing else is ever added to it. Further
+  to re-confirm…" button — plus one link, **All settings**, to that page
+  (1.13.0), and nothing else is ever added to it. Further
   per-policy settings (audience, deadline, reminders, the re-confirmation
   interval, the statement, signature) go to the document's Read
   confirmation **Settings** page (`/doc/[id]/acknowledgements/settings`,
