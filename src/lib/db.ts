@@ -1192,6 +1192,59 @@ const SCHEMA_SQL = `
   -- (lib/ack-due). Metadata-only: a 1.12.0 binary never reads it.
   ALTER TABLE spaces ADD COLUMN IF NOT EXISTS policy_defaults jsonb NOT NULL DEFAULT '{}';
 
+  -- 1.14.0 evidence (F2): tamper-evident snapshots of the read confirmation
+  -- programme. `data` is the canonical JSON TEXT the sha256 was computed
+  -- over (text, not jsonb, so the download re-hashes byte for byte);
+  -- kind 'manual' (Take snapshot now), 'monthly' (the orchestrator, one per
+  -- 'YYYY-MM' through the partial unique index, which is the claim) or
+  -- 'retirement' (one per policy, written by retirePolicy, document_id set).
+  -- The two SET NULL references are indexed where they are filled so
+  -- purging a policy or deleting an account is not a scan of the snapshots.
+  -- Metadata-only and rollback-safe: a 1.13.0 binary never reads it.
+  CREATE TABLE IF NOT EXISTS compliance_snapshots (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    taken_at timestamptz NOT NULL DEFAULT now(),
+    kind text NOT NULL DEFAULT 'manual',
+    period text NOT NULL DEFAULT '',
+    document_id integer REFERENCES documents(id) ON DELETE SET NULL,
+    taken_by integer REFERENCES users(id) ON DELETE SET NULL,
+    taken_by_name text NOT NULL DEFAULT 'system',
+    sha256 text NOT NULL,
+    data text NOT NULL
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_compliance_snapshots_monthly ON compliance_snapshots(period) WHERE kind = 'monthly';
+  CREATE INDEX IF NOT EXISTS idx_compliance_snapshots_doc ON compliance_snapshots(document_id) WHERE document_id IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS idx_compliance_snapshots_taken_by ON compliance_snapshots(taken_by) WHERE taken_by IS NOT NULL;
+
+  -- 1.14.0 policy sets (D3): a named, ordered bundle of policies assigned
+  -- to people, groups or everyone as one unit and, when assign_new_members
+  -- is on, to every new account on day one. Assigning a set writes the same
+  -- include rules onto every member policy (policy_audience_rules.set_id
+  -- names the set that wrote a rule, so the row's source reads 'set' and a
+  -- deleted set leaves its rules behind untagged: ON DELETE SET NULL); the
+  -- rows of policy_assignments stay the audience's materialisation. A
+  -- deactivated set (active = 0, deactivated_at) stops auto-assigning and
+  -- changes no row. Metadata-only and rollback-safe: a 1.13.0 binary ignores
+  -- both tables and the column, and its UNIQUE on the rules still holds.
+  CREATE TABLE IF NOT EXISTS policy_sets (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    name text NOT NULL,
+    description text NOT NULL DEFAULT '',
+    active integer NOT NULL DEFAULT 1,
+    assign_new_members integer NOT NULL DEFAULT 1,
+    created_by integer REFERENCES users(id) ON DELETE SET NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    deactivated_at timestamptz
+  );
+  CREATE TABLE IF NOT EXISTS policy_set_docs (
+    set_id integer NOT NULL REFERENCES policy_sets(id) ON DELETE CASCADE,
+    document_id integer NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    position integer NOT NULL DEFAULT 0,
+    PRIMARY KEY (set_id, document_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_policy_set_docs_doc ON policy_set_docs(document_id);
+  ALTER TABLE policy_audience_rules ADD COLUMN IF NOT EXISTS set_id integer REFERENCES policy_sets(id) ON DELETE SET NULL;
+
   -- Training decks (enterprise "training" entitlement): a published document
   -- becomes a slide deck (split on ---) that can be assigned to users with a
   -- due date and a final compliance confirmation. Completion records the doc
