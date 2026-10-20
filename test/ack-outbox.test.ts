@@ -893,7 +893,8 @@ describe("the sweep's deliveries (E2)", () => {
     for (const m of sent) {
       assert.ok(m.subject.endsWith(`2 overdue on "${title}"`), m.subject);
       assert.ok(m.text.includes("Out Reader B (due"), "the mail lists the people with their dates");
-      assert.doesNotMatch(m.text, /acknowledg|—/i);
+      // The glossary rule is about the words, not the Record tab's route path.
+      assert.doesNotMatch(m.text.replace(/https?:\/\/\S+/g, ""), /acknowledg|—/i);
     }
     assert.ok(sent.find((m) => m.to === `${STAMP}-Reader A@example.test`)!.text.includes(`${ORIGIN}/doc/${id}`), "the lead's link");
     assert.ok(sent.find((m) => m.to === `${STAMP}-Actor@example.test`)!.text.includes(`${ORIGIN}/doc/${id}/acknowledgements`), "the owner's link");
