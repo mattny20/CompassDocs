@@ -119,6 +119,8 @@ export default async function HistoryPage({
           decided_by_name: d.decided_by_name,
           submitted_by_name: d.submitted_by_name,
           submitted_policy: d.submitted_policy,
+          scope: d.scope,
+          confirmations_affected: d.confirmations_affected,
         }))}
         initialOld={initialOld}
         initialNew={initialNew}

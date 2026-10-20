@@ -508,7 +508,12 @@ test("1.13.0: the Deadline radio round-trips and moves deadlines, the Reminders 
     const record = await api(page, `/api/documents/${docId}/acknowledgements`);
     expect(record.status).toBe(200);
     const mine = (record.body?.rows ?? []).find((r: { username?: string }) => r.username === ADMIN.username);
-    expect(mine?.due_at, "the admin's own row carries the fixed date").toContain(day);
+    expect(mine?.due_at, "the admin's own row carries a due date").toBeTruthy();
+    // The row is due at the end of that day in the workspace's zone (at most 14 hours off UTC's).
+    const [y, m, d] = day.split("-").map(Number);
+    expect(Math.abs(new Date(mine.due_at).getTime() - Date.UTC(y, m - 1, d, 23, 59, 59, 999)), "the fixed date, as the row holds it").toBeLessThanOrEqual(
+      14 * 3_600_000
+    );
 
     // The Reminders card: a blank field says what it inherits; a typed one saves.
     await expect(page.getByText(/^(Inherited from (workspace|.+ space)|Built-in) \(\d+\)$/).first()).toBeVisible();
