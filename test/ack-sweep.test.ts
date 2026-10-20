@@ -1176,7 +1176,10 @@ describe("the reminder sweep (E2)", () => {
   });
 
   test("the manual Remind stamps the open, unconfirmed rows it reaches; the per-policy summary says when people were last reminded and when the sweep next will", async () => {
-    const id = await policy("stamp");
+    // The internal space: the stamp reaches only people who can see the
+    // policy's space (the drain's recipients), and the four here are
+    // viewers with no grant on the private one.
+    const id = await policy("stamp", spaceId);
     await assign(id, people.ana, { dueAt: daysFromNow(10) });
     await assign(id, people.ben, { dueAt: daysFromNow(2), remindedAt: daysFromNow(-1) });
     await assign(id, people.cal, { dueAt: daysFromNow(2), exempt: true });

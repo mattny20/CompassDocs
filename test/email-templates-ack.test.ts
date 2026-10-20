@@ -22,16 +22,23 @@ before(async () => {
 
 describe("the read-confirmation templates (D1, E2)", () => {
   for (const key of KEYS) {
-    test(`${key}: every documented tag is in the template and in the sample; the sample renders with none left showing`, async () => {
+    test(`${key}: every tag the template uses is documented, every documented tag is in the sample, and the sample renders with none left showing`, async () => {
       const def = templateDef(key);
       assert.ok(def, `${key} is a template`);
       const vars = SAMPLE_VARS[key];
       assert.ok(vars, `${key} has sample values`);
       const source = `${def!.subject}\n${def!.body}`;
+      // Every documented tag is offered to the admin's override and has a
+      // sample value (a documented tag the default body does not use, like
+      // ack_due's due_date or ack_request's days_left, is the house pattern).
       for (const { tag } of def!.tags) {
-        assert.ok(source.includes(`{{${tag}}}`), `${key}: the documented tag {{${tag}}} appears in the template`);
         // org_name is filled in by renderEmail from the workspace settings.
         if (tag !== "org_name") assert.ok(tag in vars, `${key}: the sample carries ${tag}`);
+      }
+      // Nothing the template uses is undocumented, and the sample names no stray key.
+      for (const used of source.match(/\{\{(\w+)\}\}/g) ?? []) {
+        const name = used.slice(2, -2);
+        assert.ok(def!.tags.some((t) => t.tag === name), `${key}: the template's {{${name}}} is a documented tag`);
       }
       for (const name of Object.keys(vars)) {
         assert.ok(def!.tags.some((t) => t.tag === name), `${key}: the sample's ${name} is a documented tag`);
