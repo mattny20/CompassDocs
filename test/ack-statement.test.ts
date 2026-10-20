@@ -670,8 +670,8 @@ describe("GET and PATCH /api/documents/[id]/ack-settings", () => {
       assert.match(r.body.error, fragment, `${JSON.stringify(body)}: ${r.body.error}`);
     };
     const dueRow = async (userId: number) => {
-      const r = await pool().query<{ cycle_started_at: string; due_at: string | null }>(
-        "SELECT cycle_started_at, due_at FROM policy_assignments WHERE document_id = $1 AND user_id = $2",
+      const r = await pool().query<{ cycle_started_at: string; assigned_at: string; due_at: string | null }>(
+        "SELECT cycle_started_at, assigned_at, due_at FROM policy_assignments WHERE document_id = $1 AND user_id = $2",
         [id, userId]
       );
       return r.rows[0];
@@ -760,11 +760,15 @@ describe("GET and PATCH /api/documents/[id]/ack-settings", () => {
     const moved = await patch({ move_existing: true });
     assert.equal(moved.status, 200, JSON.stringify(moved.body));
     assert.ok(moved.body.moved >= 1, `every open row moved: ${moved.body.moved}`);
+    // The move anchors on the later of the row's cycle start and its
+    // assignment: a row from the switch-on carries the policy's cycle (the
+    // marker, a moment before the row was written), so the anchor is the
+    // assignment; a re-asked row's fresh cycle is later than that.
     const movedRow = await dueRow(viewerId);
     assert.equal(
       new Date(movedRow.due_at!).getTime(),
-      new Date(movedRow.cycle_started_at).getTime() + 30 * 86_400_000,
-      "the row's cycle start plus the days"
+      Math.max(new Date(movedRow.cycle_started_at).getTime(), new Date(movedRow.assigned_at).getTime()) + 30 * 86_400_000,
+      "the later of the row's cycle start and its assignment, plus the days"
     );
     dueAudits = await auditRows("ack.due_set", id);
     assert.equal(dueAudits.length, 2);
