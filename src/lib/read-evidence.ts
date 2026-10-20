@@ -13,6 +13,7 @@
 // the labels and the body parsing.
 
 import { isOverdue } from "./ack-due";
+import { POLICY_SET_CSV_COLUMN } from "./policy-sets";
 
 /** Reading speed the "typical read" of a document is measured at. */
 export const WORDS_PER_MINUTE = 200;
@@ -50,10 +51,12 @@ export const EXEMPTION_CSV_COLUMNS = "exempt_reason,exempt_by,exempt_until,snooz
  * The roster CSV header (GET /api/documents/[id]/acknowledgements?format=csv).
  * Existing columns stay in place and new ones are appended, never renamed:
  * the two evidence columns follow the provenance pair, the six attestation
- * and re-confirmation columns (1.12.0) follow those, and the five exemption
- * and deadline columns (1.13.0) close the line.
+ * and re-confirmation columns (1.12.0) follow those, the five exemption
+ * and deadline columns (1.13.0) follow, and the policy's sets (1.14.0, D3:
+ * the names joined with "; ", the same on every row, blank when none) close
+ * the line.
  */
-export const ROSTER_CSV_HEADER = `${ROSTER_CSV_HEADER_1110},${ATTESTATION_CSV_COLUMNS},${EXEMPTION_CSV_COLUMNS}`;
+export const ROSTER_CSV_HEADER = `${ROSTER_CSV_HEADER_1110},${ATTESTATION_CSV_COLUMNS},${EXEMPTION_CSV_COLUMNS},${POLICY_SET_CSV_COLUMN}`;
 
 /** The matrix header as 1.10.1 shipped it (GET /api/admin/compliance?format=csv). */
 const MATRIX_CSV_HEADER_1101 =

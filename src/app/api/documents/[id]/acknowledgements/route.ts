@@ -17,6 +17,8 @@ import { auditAck, actorFrom, ipFrom } from "@/lib/audit";
 import type { SessionUser } from "@/lib/types";
 import { versionProvenance, provenanceCells } from "@/lib/version-provenance";
 import { csvCell } from "@/lib/csv";
+import { policySetNames } from "@/lib/db";
+import { policySetCsvCell } from "@/lib/policy-sets";
 import {
   ROSTER_CSV_HEADER,
   LEDGER_CSV_HEADER,
@@ -237,6 +239,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 
   if (format === "csv") {
     const provenance = await versionProvenance(doc.id);
+    // The policy's sets (D3, 1.14.0): the last column, the same on every row.
+    const setCell = esc(policySetCsvCell((await policySetNames([doc.id])).get(doc.id) ?? []));
     const asked = [
       esc(doc.ack_revision_at),
       esc(lastReset?.decided_by_name ?? ""),
@@ -269,6 +273,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
           ...attestationCsvCells(r).map(esc),
           ...recert,
           ...exemptionCsvCells(r).map(esc),
+          setCell,
         ].join(",")
       ),
       ...former.map((r) =>
@@ -294,6 +299,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
           ...recert,
           // No assignment row travels with a former staff member: five blanks.
           ...exemptionCsvCells({}).map(esc),
+          setCell,
         ].join(",")
       ),
     ].join("\n");

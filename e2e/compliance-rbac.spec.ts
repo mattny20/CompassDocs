@@ -28,10 +28,11 @@ const stamp = () => `${Date.now()}${Math.floor(Math.random() * 1000)}`;
 const BODY = "## Policy\n\nShort policy text for the access-control check. Read it and confirm at the end.";
 
 // The 1.11.0 columns in place, the six attestation and re-confirmation
-// columns (1.12.0, C4) and the five exemption and deadline columns (1.13.0,
-// D2) appended: ROSTER_CSV_HEADER in src/lib/read-evidence.ts.
+// columns (1.12.0, C4), the five exemption and deadline columns (1.13.0,
+// D2) and the policy's sets (1.14.0, D3) appended: ROSTER_CSV_HEADER in
+// src/lib/read-evidence.ts.
 const ROSTER_HEADER =
-  "name,username,email,role,status,acknowledged_at,document,revision_as_of,version,version_id,content_sha256,version_source,former_staff,asked_at,asked_by,reason,kept_since_asked,ip,user_agent,version_published_by,version_approved_by,read_seconds,reached_end_self_reported,statement,signed_name,identity_proof,recert_months,effective_at,next_recert_at,exempt_reason,exempt_by,exempt_until,snoozed_until,due_at";
+  "name,username,email,role,status,acknowledged_at,document,revision_as_of,version,version_id,content_sha256,version_source,former_staff,asked_at,asked_by,reason,kept_since_asked,ip,user_agent,version_published_by,version_approved_by,read_seconds,reached_end_self_reported,statement,signed_name,identity_proof,recert_months,effective_at,next_recert_at,exempt_reason,exempt_by,exempt_until,snoozed_until,due_at,set";
 
 /** The ledger (C4, 1.12.0): every confirmation ever recorded; compliance.export only. */
 const LEDGER_HEADER =

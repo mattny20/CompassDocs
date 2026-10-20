@@ -39,6 +39,9 @@ import {
   claimReconfirmation,
   reopenAssignmentsFor,
   createSession,
+  createGroup,
+  setGroupMembers,
+  setSpaceGroups,
 } from "../src/lib/db";
 import { newToken } from "../src/lib/password";
 import { endOfDayIn } from "../src/lib/ack-due";
@@ -146,6 +149,7 @@ let readerB = 0;
 let exemptC = 0;
 let removedD = 0;
 let outsiderE = 0;
+let groupId = 0;
 let managerId = 0;
 let managerSession = "";
 const userIds: number[] = [];
@@ -301,7 +305,7 @@ async function drainUntil(pred: () => Promise<boolean>, what: string): Promise<v
 before(async () => {
   await getSetting("__schema_bootstrap__");
   const sp = await fixtureQuery(
-    `INSERT INTO spaces (name, slug, icon, description, visibility) VALUES ($1, $2, '📁', '', 'internal') RETURNING id`,
+    `INSERT INTO spaces (name, slug, icon, description, visibility) VALUES ($1, $2, '📁', '', 'private') RETURNING id`,
     [`Ack Reask ${STAMP}`, STAMP]
   );
   spaceId = sp.rows[0].id;
@@ -315,6 +319,13 @@ before(async () => {
   managerId = await newUser("manager", "admin");
   managerSession = newToken();
   await createSession(managerSession, managerId, new Date(Date.now() + 3_600_000).toISOString());
+  // A private space granted to a group of this file's own people, so the
+  // switch-on's reconcile enrols only them: the test files share one
+  // database and run in parallel, and an 'internal' space would enrol every
+  // account another file is creating and tearing down.
+  groupId = (await createGroup({ name: `Ack Reask ${STAMP}` })).id;
+  await setGroupMembers(groupId, [readerA, readerB, exemptC, removedD, outsiderE, managerId]);
+  await setSpaceGroups(spaceId, [groupId]);
 });
 
 after(async () => {
@@ -333,6 +344,7 @@ after(async () => {
   // policy_settings and policy_assignments cascade with the documents.
   await pool().query("DELETE FROM documents WHERE id = ANY($1)", [docIds]);
   await pool().query("DELETE FROM users WHERE id = ANY($1)", [userIds]);
+  await pool().query("DELETE FROM groups WHERE id = $1", [groupId]);
   await pool().query("DELETE FROM spaces WHERE id = $1", [spaceId]);
 });
 

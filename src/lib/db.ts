@@ -7026,9 +7026,21 @@ export async function saveAudienceRules(
         patch.assign_new_members === undefined ? null : patch.assign_new_members ? 1 : 0,
       ]
     );
-    const rules = saved.rows[0]?.audience_mode === "space" ? [] : patch.rules;
+    const spaceMode = saved.rows[0]?.audience_mode === "space";
+    const rules = spaceMode ? [] : patch.rules;
     if (rules) {
-      await client.query("DELETE FROM policy_audience_rules WHERE document_id = $1", [docId]);
+      // Space mode clears every rule (1.13.0, decision 3). Targeted mode
+      // replaces the rules the Settings tab owns and keeps the ones a policy
+      // set wrote (D3, set_id): a set's membership is the set's to change,
+      // through its own assignment, and a card save must not untag or drop
+      // it. A rule the card re-sends that a set already holds conflicts and
+      // stays the set's (ON CONFLICT DO NOTHING below).
+      await client.query(
+        spaceMode
+          ? "DELETE FROM policy_audience_rules WHERE document_id = $1"
+          : "DELETE FROM policy_audience_rules WHERE document_id = $1 AND set_id IS NULL",
+        [docId]
+      );
       if (rules.length > 0) {
         await client.query(
           `INSERT INTO policy_audience_rules (document_id, kind, ref, effect)
