@@ -345,6 +345,7 @@ snooze on the roster, and asking one person to re-confirm. (Enterprise,
   `test/compliance-settings.test.ts` (`due_days` a known key). The e2e specs
   gain the per-person re-ask's two 400s (`e2e/compliance-portal.spec.ts`)
   and the eleven trailing CSV columns (`e2e/compliance-rbac.spec.ts`).
+- **Export presets: a preview of the sections, and their order.** In a preset's **Order and filter** card, choosing a **Sections by** field now opens a **Section order** list right under it: one row per section the field makes of the people the preset prints (its **Only people where** filter applied), labelled as the PDF prints them, with a count ("Phoenix · 12 people"), in the field's own order (a field with options in their order, other values alphabetically). Move up and Move down put the sections in the order the file should print them; **Reset to field order** goes back to the field's own. A value that is not in the list (a new office, a value nobody had when the order was set) prints after the listed ones, in the field's order, and "No <field>" stays last. The PDF (the table, the two- and three-column layouts and the photo cards), the CSV's Group column and the contacts export follow the order; a **One file per** zip split by the same field names its files in it too. The Directory page's Groups view is unchanged. In the API: a preset's `section_order` (the group values, up to 200, each once; dropped when the preset has no Sections by field, and cleared when the field changes), `GET /api/admin/directory/export-presets/sections?field=<key>&filter=<JSON>` (`{ sections: [{ value, label, count }] }`; 400 for a field the export cannot section by), and `section_order` as an export override (a JSON array; a request that overrides `group_by` without one, "What I see" included, starts from the field's order).
 <!-- wave 2: settings-ui, roster-ui, reader-ui, portal-ui -->
 
 ### Changed
@@ -445,6 +446,7 @@ snooze on the roster, and asking one person to re-confirm. (Enterprise,
   reminder numbers under Program settings audit as `ack.defaults_set`
   (scope `workspace`) rather than `settings.compliance`; the other program
   settings are unchanged.
+- Nothing to migrate. A preset saved before 1.13.0 has no section order and prints its sections in the field's order, as it did.
 
 ## [1.12.0] - 2026-10-19
 

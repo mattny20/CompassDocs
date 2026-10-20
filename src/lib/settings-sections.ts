@@ -155,7 +155,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
           { href: "/admin/directory/export#document", label: "Export › Document", keywords: "preset name document title subtitle footer note file name workspace logo name format first last initial" },
           { href: "/admin/directory/export#page", label: "Export › Page", keywords: "paper orientation density margins layout photo cards page layout shade rows page numbers printed date office information blocks per row" },
           { href: "/admin/directory/export#columns", label: "Export › Columns", keywords: "columns in order wrap after assistant details mark people with markers photos" },
-          { href: "/admin/directory/export#order", label: "Export › Order and filter", keywords: "sections by sort by then by pinned people first only people where filter one file per zip" },
+          { href: "/admin/directory/export#order", label: "Export › Order and filter", keywords: "sections by section order sort by then by pinned people first only people where filter one file per zip" },
           { href: "/admin/directory/export#schedule", label: "Export › Schedule", keywords: "email schedule weekly monthly recipients smtp attachment" },
         ] },
     ],
