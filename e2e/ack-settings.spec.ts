@@ -18,6 +18,9 @@ const BODY = "## Policy\n\nShort policy text for the settings tab. Read it and c
 
 const NEXT_DATE_PAST = "The next re-confirmation date cannot be in the past.";
 const REASON_TOO_SHORT = "Give a reason of at least 10 characters.";
+/** The rule line under the People picker (1.13.0), word for word (PolicySettingsPanel.PEOPLE_ACCESS_RULE). */
+const PEOPLE_ACCESS_RULE =
+  'People must be able to see this document\'s space. Someone who cannot is shown as "No access" in the preview and is not required until access is granted in Space settings.';
 
 async function makeDoc(page: Page, title: string): Promise<number> {
   const made = await api(page, "/api/documents", {
@@ -571,14 +574,12 @@ test("1.13.0: the Deadline radio round-trips and moves deadlines, the Reminders 
   } finally {
     await restoreRecertDefault(page, recertDefaultBefore);
     if (viewerId) await api(page, `/api/admin/users/${viewerId}`, { method: "DELETE" });
-    if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
-    // A trashed document still counts against the space (deleteSpace counts
-    // every row), so the space is deleted once the Trash is purged; the
-    // attempt is harmless when it answers 409.
+    // A trashed document still counts against its space (deleteSpace counts
+    // every row), so the document is purged from the Trash before the space goes.
+    if (docId) {
+      await api(page, `/api/documents/${docId}`, { method: "DELETE" });
+      await api(page, `/api/trash/${docId}`, { method: "DELETE" });
+    }
     if (spaceId) await api(page, `/api/admin/spaces/${spaceId}`, { method: "DELETE" });
   }
 });
-
-/** The rule line under the People picker, word for word (PolicySettingsPanel.PEOPLE_ACCESS_RULE). */
-const PEOPLE_ACCESS_RULE =
-  'People must be able to see this document\'s space. Someone who cannot is shown as "No access" in the preview and is not required until access is granted in Space settings.';

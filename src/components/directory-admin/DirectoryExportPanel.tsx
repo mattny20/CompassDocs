@@ -11,13 +11,13 @@
 // definitions the presets refer to by id, so a preset can only tick a
 // marker that is saved.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { SaveRow } from "@/components/SaveRow";
 import { useLeaveGuard } from "@/lib/use-unsaved";
 import { confirmDialog } from "@/components/Dialog";
 import type { DirectoryField } from "@/lib/directory";
 import type { ExportPreset } from "@/lib/directory-export-config";
-import { assistantDetailKeys, availableColumns, sortableKeys } from "@/lib/directory-display";
+import { assistantDetailKeys, availableColumns, sortableKeys, type SectionSummary } from "@/lib/directory-display";
 import { markerFields, type ExportMarker } from "@/lib/directory-marker-rules";
 import { FormError, rangeError } from "@/components/form";
 import type { ExportSchedule } from "@/lib/directory-export-schedule-rules";
@@ -132,6 +132,30 @@ export function DirectoryExportPanel({
     update({ markers: markers.filter((m) => chosen.has(m.id)).map((m) => m.id) });
   }
 
+  // The Section order list's rows come from the sections route, per field
+  // and filter (the counts follow "only people where"), kept once fetched
+  // so switching between presets or back to a field is instant. The fetch
+  // waits a beat, since the filter value arrives a keystroke at a time.
+  const sectionsFilter = cur.filter?.key && cur.filter.value.trim() ? JSON.stringify({ key: cur.filter.key, value: cur.filter.value.trim() }) : "";
+  const sectionsKey = cur.group_by ? `${cur.group_by}\n${sectionsFilter}` : "";
+  const [sectionsCache, setSectionsCache] = useState<Record<string, SectionSummary[] | "error">>({});
+  const sections = sectionsKey ? sectionsCache[sectionsKey] : undefined;
+  useEffect(() => {
+    if (!sectionsKey || sections !== undefined) return;
+    const [field, filter] = sectionsKey.split("\n");
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      const url = `/api/admin/directory/export-presets/sections?field=${encodeURIComponent(field)}${filter ? `&filter=${encodeURIComponent(filter)}` : ""}`;
+      const r = await jsonFetch<{ sections?: SectionSummary[] }>(url);
+      if (cancelled) return;
+      setSectionsCache((c) => ({ ...c, [sectionsKey]: r.ok && Array.isArray(r.data?.sections) ? r.data.sections : "error" }));
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [sectionsKey, sections]);
+
   // Custom margins: the text as typed, per preset and side, so a half-typed
   // "0." is not clamped under the admin's fingers. Only a valid number
   // reaches the preset; Save waits while any side is invalid.
@@ -218,6 +242,7 @@ export function DirectoryExportPanel({
     toggleAssistantField,
     markers,
     toggleMarker,
+    sections,
     limits,
     setLimit,
     touchLimit,
