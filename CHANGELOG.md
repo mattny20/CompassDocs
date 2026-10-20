@@ -81,9 +81,19 @@ re-confirmation on an interval, and retirement. (Enterprise, `policy_ack`.)
   with 400 (an unknown key included, so a field from a later release never
   saves silently) and writes one `ack.settings_changed` audit row `{
   statement_changed, signature, signature_changed }` when something
-  changed, none for a no-op. The route needs `document.ack_require` on the
-  document's own space or `compliance.program_manage` (403), the document in
-  scope (404) and the licence (402).
+  changed, none for a no-op. The route takes the guards of its sibling
+  routes, in their order: the document in the caller's scope (404, a draft
+  the caller may not read included), the licence (402), then
+  `document.ack_require` on the document's own space or
+  `compliance.program_manage` (403), so the shipped Compliance manager
+  preset, which the Settings tab admits, saves from the tab too.
+  `superseded_by_title` is answered only when the replacement is in the
+  caller's own scope (the id always is, so the chip falls back to
+  "Document #id"). Everything a PATCH can be refused for is judged before
+  anything is written, the replacement first, and `next_recert_at` on a
+  policy with no interval (and none in the same call) answers 400 "Set an
+  interval before a next re-confirmation date.", so a 400 means nothing
+  changed and no audit row was written.
 - **Optional typed signature per policy.** The same card's switch, **Require
   typed signature** ("The reader types their full name; local accounts also
   re-enter their password. SSO accounts are identified by their sign-in
@@ -109,11 +119,17 @@ re-confirmation on an interval, and retirement. (Enterprise, `policy_ack`.)
   409 "Type your full name exactly as it appears on your account (Dana
   Whitfield)." or "Password check failed. Re-enter your account password to
   sign." without recording anything, and its 200 body gains `signed_name`.
-  The password check sits behind the sign-in throttle (the same
-  username-and-address counters as the sign-in form: five wrong passwords
-  lock the pair for fifteen minutes and the route answers 429 "Too many
-  failed attempts. Try again in 15 minutes."), so a signed-in session is not
-  an unthrottled way to guess the account's password. The audit row
+  The password check sits behind the sign-in throttle, counted against
+  the username-and-address pair only: five wrong passwords lock that pair
+  for fifteen minutes, for signing and for the sign-in form alike, and the
+  route answers 429 "Too many failed attempts. Try again in 15 minutes.";
+  the sign-in form's per-address spray counter is not fed, so an office
+  signing a policy from one address cannot lock its own sign-in. A
+  signed-in session is therefore not an unthrottled way to guess the
+  account's password, and a wrong password is on the record as a failed
+  sign-in is: `auth.login_failed` with `via: "attestation"` against the
+  policy, and `auth.lockout` (`minutes: 15`) when that miss engaged the
+  lock. The password itself reaches no row. The audit row
   `document.acknowledge` gains `signed_name` and `identity_proof` beside
   `user_agent`.
 - **The Record tab is a real table.** The per-document Read confirmation
@@ -235,7 +251,9 @@ re-confirmation on an interval, and retirement. (Enterprise, `policy_ack`.)
   statement, so nobody is asked again the day a policy comes back. An
   unpublished document resumes as Paused. 409 "This policy is not retired."
   otherwise; the answer is `{ ok, current, eligible }`. Audit:
-  `ack.unretired` ("Resumed retired policy") with the standing. The
+  `ack.unretired` ("Resumed retired policy") with the standing and
+  `superseded_by_cleared`, the replacement the un-retire removed (`null`
+  when there was none), as `ack.retired` names the one that was set. The
   "Policy resumed: 42 of 50 confirmations still current" toast offers
   **Ask everyone to re-confirm…** while anyone's confirmation is still
   current, on the Settings tab and in the portal: the same question and
@@ -263,15 +281,28 @@ re-confirmation on an interval, and retirement. (Enterprise, `policy_ack`.)
   text first as before. Trashing a retired policy is allowed.
 - New tests: `test/attestation.test.ts` (the name rule and its username
   fallback, local versus SSO versus hash-less accounts, a wrong password,
-  the throttle engaging on the fifth failure and refusing the right password
-  until it lifts, and that the result never carries the password or the
-  typed name); `test/ack-statement.test.ts` (the stored statement is the
-  served one, workspace default or the policy's own, never the client's; the
-  User-Agent cut at 300; a 1.11.x-shaped call takes the defaults; a
-  signature policy's 409s, the signed row, the roster and `getCurrentAck`
-  carrying the name, and the audit row without the password; the settings
-  route's GET, every 400, the trim, the no-op, the subset, the clear, a
-  viewer's 403 and an anonymous 401); `test/ack-ledger-view.test.ts` (the
+  the throttle engaging on the fifth failure, which says so, and refusing
+  the right password until it lifts, the pair-only rule: another account
+  on the same address still signs after one account's five failures and
+  the address is not locked for sign-in, and that the result never carries
+  the password or the typed name); `test/ack-statement.test.ts` (the stored
+  statement is the served one, workspace default or the policy's own,
+  never the client's; the User-Agent cut at 300; a 1.11.x-shaped call takes
+  the defaults; a signature policy's 409s, the signed row, the roster and
+  `getCurrentAck` carrying the name, and the audit row without the
+  password; a wrong password audited as `auth.login_failed`, the fifth as
+  `auth.lockout`, the right one then 429; a console spy proving the
+  password reaches no log line; the settings route's GET, every 400, the
+  trim, the no-op, the subset, the clear, a viewer's 403 and an anonymous
+  401; a refused replacement beside other fields changes nothing and
+  writes no row; a next date without an interval refused by name);
+  `test/training-signature.test.ts` (the training route's signature branch
+  driven directly: wrong name 409 and wrong password 409 in the route's
+  own words, the sixth attempt 429, the right pair 200 with the name
+  recorded, a miss audited without the password);
+  `test/markdown-inline.test.ts` (the inline schema keeps emphasis, code
+  and a link and drops an embed, a video, an image, a task list, a
+  heading, raw HTML and styles); `test/ack-ledger-view.test.ts` (the
   ledger's ordering, superseded rule, removed-account snapshot and
   purged-document rows) and the CSV headers' legacy prefixes, the ledger
   header and the personal-data rule (ip and user agent blank without
@@ -437,12 +468,17 @@ re-confirmation on an interval, and retirement. (Enterprise, `policy_ack`.)
 - The training deck's e-signature gate runs through the same check as the
   policy signature (`lib/attestation`, extracted from the training route):
   its two sentences are unchanged, and its password branch is now throttled
-  like a sign-in, as above.
+  like a sign-in, as above: the sixth wrong password answers 429, the lock
+  holds for the sign-in form too, and a wrong password is audited as
+  `auth.login_failed` (`via: "attestation"`) and `auth.lockout` against
+  the deck's document.
 - The card's confirmed sentence and the printed standing line read
   "signed as {name}" on a signed confirmation; unsigned confirmations read
-  as before. The card's confirmation statement is rendered as Markdown (one
-  sentence at the card's own size), so a clause may carry emphasis or a
-  link; the default statement renders exactly as it did.
+  as before. The card's confirmation statement is rendered as inline Markdown (one
+  sentence at the card's own size): a clause may carry emphasis, code or a
+  link, and nothing else; a directive, an image, an embed, a task list or
+  raw HTML in a statement is dropped on the card rather than rendered; the
+  default statement renders exactly as it did.
 - The dashboard's attention row reads "3 policies need your read
   confirmation" (it said "3 documents need…"), counts every pending
   policy rather than the first twenty, and opens the one policy's
