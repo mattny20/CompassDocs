@@ -55,6 +55,7 @@ async function run(user: SessionUser, req: Request, params: Record<string, unkno
     "columns", "group_by", "sort", "sort_dir", "sort2", "sort2_dir", "paper", "orientation", "density", "page_columns",
     "logo", "photos", "pinned_first", "page_numbers", "printed_date", "office_info", "office_columns", "zebra", "title", "subtitle", "footer_note",
     "layout", "cards_per_row", "split_by", "column_limits", "assistant_fields", "margins", "margin_custom", "markers", "name_format",
+    "section_order",
   ]) {
     if (params[k] !== undefined) overrides[k] = params[k];
   }
@@ -69,9 +70,10 @@ async function run(user: SessionUser, req: Request, params: Record<string, unkno
     const listed = new Set(base.markers);
     overrides.markers = Array.isArray(overrides.markers) ? overrides.markers.filter((id) => listed.has(String(id).trim())) : [];
   }
-  // The two object-valued options arrive as JSON objects in a POST body; a
-  // GET may carry them JSON-encoded. Anything unparseable is ignored.
-  for (const k of ["column_limits", "margin_custom"]) {
+  // The object- and array-valued options arrive as JSON in a POST body; a
+  // GET may carry them JSON-encoded (a section value may hold a comma, so
+  // the order is never a comma list). Anything unparseable is ignored.
+  for (const k of ["column_limits", "margin_custom", "section_order"]) {
     if (typeof overrides[k] !== "string") continue;
     try {
       overrides[k] = JSON.parse(overrides[k] as string);
@@ -79,6 +81,10 @@ async function run(user: SessionUser, req: Request, params: Record<string, unkno
       delete overrides[k];
     }
   }
+  // A section order belongs to the field it was made for: a request that
+  // picks its own sections ("what I see", an ad hoc group_by) starts from
+  // the field's own order unless it brings an order of its own.
+  if (overrides.group_by !== undefined && overrides.section_order === undefined) overrides.section_order = [];
   for (const k of ["logo", "photos", "pinned_first", "page_numbers", "printed_date", "office_info", "zebra"]) {
     if (typeof overrides[k] === "string") overrides[k] = overrides[k] === "1" || overrides[k] === "true";
   }

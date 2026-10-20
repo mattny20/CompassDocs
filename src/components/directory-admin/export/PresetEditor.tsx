@@ -19,10 +19,11 @@ import { CardTitle } from "@/components/Heading";
 import { chipClass } from "@/components/Chip";
 import { Button, buttonClass } from "@/components/Button";
 import { SettingsLink } from "@/components/SettingsLink";
+import { LoadingRow } from "@/components/Spinner";
 import { Tooltip } from "@/components/Tooltip";
-import { Field, Select, TextInput, Toggle, rangeError } from "@/components/form";
+import { Field, SectionEmpty, Select, TextInput, Toggle, rangeError } from "@/components/form";
 import type { DirectoryField } from "@/lib/directory";
-import { NAME_FORMATS, isNameFormat } from "@/lib/directory-display";
+import { NAME_FORMATS, isNameFormat, orderGroups, type SectionSummary } from "@/lib/directory-display";
 import type { ExportPreset } from "@/lib/directory-export-config";
 import type { ExportMarker } from "@/lib/directory-marker-rules";
 import { describeSchedule, WEEKDAYS, type ExportSchedule } from "@/lib/directory-export-schedule-rules";
@@ -42,6 +43,10 @@ export interface PresetEditorModel {
   /** The workspace's markers as saved (the Markers card's): what "Mark people with" offers. */
   markers: ExportMarker[];
   toggleMarker: (id: string, on: boolean) => void;
+  /** The sections "Sections by" makes of the people the preset prints (the
+   *  sections route), in the field's own order; undefined while they load,
+   *  "error" when the route failed. Absent when no field is chosen. */
+  sections?: SectionSummary[] | "error";
   /** "Wrap after", per column key, as typed. */
   limits: Record<string, number>;
   setLimit: (key: string, raw: string) => void;

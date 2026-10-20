@@ -189,11 +189,14 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
   // policy, deciding that one must be read, recording that you have read it,
   // and minting a template. The reader check mirrors the POST /ack guard, so
   // a role without it sees an explanation instead of a 403.
-  const [canReadAckRoster, canRequireAck, canSubmitAck, canSaveAsTemplate] = await Promise.all([
+  const [canReadAckRoster, canRequireAck, canSubmitAck, canSaveAsTemplate, canManageProgram] = await Promise.all([
     userHolds(user, "document.ack_roster_read", { spaceId: doc.space_id, legacyMin: "approver" }),
     userHolds(user, "document.ack_require", { spaceId: doc.space_id, legacyMin: "approver" }),
     userHolds(user, "document.ack_submit", { spaceId: doc.space_id, legacyMin: "viewer" }),
     userHolds(user, "template.manage", { legacyMin: "admin" }),
+    // The Settings tab's own gate (with document.ack_require): the popover's
+    // "All settings" link (D1, 1.13.0) shows on the same condition.
+    userHolds(user, "compliance.program_manage", { legacyMin: "admin" }),
   ]);
   // Read confirmation applies to a published, required, non-branch document
   // when the feature is licensed, and never to a retired one (G3): retiring
@@ -336,6 +339,9 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
           // Whoever sees the popover holds document.ack_require on the
           // space, which is the tab's own gate.
           retired: doc.ack_retired_at ? { at: doc.ack_retired_at, canOpenSettings: canRequireAck } : null,
+          // "All settings" (D1, 1.13.0): the tab's gate, document.ack_require
+          // on the space or compliance.program_manage.
+          canOpenSettings: canRequireAck || canManageProgram,
         }
       : undefined;
   // The reader confirms the text on screen, which is the newest version:

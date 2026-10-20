@@ -6,9 +6,13 @@
 // row nor the audit entry; and the per-policy settings route validates
 // what it is sent, answers what the document now holds and writes one
 // ack.settings_changed row per real change. Wave 2 (G1 + G3 UI) added the
-// re-confirmation fields and the replacement to the same route: the last
+// re-confirmation fields and the replacement to the same route: the G1/G3
 // test covers their validation, the next date scheduled from the marker,
-// the replacement's rules and the audit details.
+// the replacement's rules and the audit details. 1.13.0 (settings-ui) added
+// the audience (D1), the deadline rule with "Also move existing deadlines"
+// (E1) and the reminder cadence with the owner (E2): the last test covers
+// their validation, the preview, the rows a save opens and closes, the
+// moves and the per-key audit rows.
 //
 // The route handlers are called directly, the way test/ack-tokens.test.ts
 // does it: next/headers resolves to a stub that serves the request under
@@ -420,7 +424,28 @@ describe("GET and PATCH /api/documents/[id]/ack-settings", () => {
 
     const initial = await call(route.GET as Handler, sessionRequest(url, adminSession, undefined, "GET"), id);
     assert.equal(initial.status, 200);
-    const { marker, recert_default, effective_at, ...rest } = initial.body;
+    const {
+      marker,
+      recert_default,
+      effective_at,
+      // 1.13.0's keys are covered by the last test; here only their presence.
+      audience_mode,
+      rules,
+      exclude_stewards,
+      assign_new_members,
+      due_days,
+      due_at,
+      remind_before_days,
+      remind_every_days,
+      escalate_after_days,
+      nudge_every_days,
+      owner_user_id,
+      owner_name,
+      requested_by,
+      defaults,
+      inherited,
+      ...rest
+    } = initial.body;
     assert.deepEqual(rest, {
       statement: null,
       statement_default: defaultStatement,
@@ -430,6 +455,17 @@ describe("GET and PATCH /api/documents/[id]/ack-settings", () => {
       superseded_by: null,
       superseded_by_title: null,
     });
+    assert.deepEqual(
+      [audience_mode, rules, exclude_stewards, assign_new_members, due_days, due_at],
+      ["space", [], false, true, null, null],
+      "a fresh policy: space mode, no rule"
+    );
+    assert.deepEqual(
+      [remind_before_days, remind_every_days, escalate_after_days, nudge_every_days, owner_user_id, owner_name, requested_by],
+      [null, null, null, null, null, null, null]
+    );
+    assert.equal(defaults.space.id, spaceId);
+    assert.equal(typeof inherited.values.due_days, "number");
     assert.match(String(effective_at), /^\d{4}-\d{2}-\d{2}$/, "the switch-on dated the policy (G1)");
     assert.ok(!Number.isNaN(new Date(marker).getTime()), "the marker travels for the first-cycle date");
     assert.ok([null, 6, 12, 24].includes(recert_default), `the workspace default is one of the options: ${recert_default}`);
@@ -443,7 +479,10 @@ describe("GET and PATCH /api/documents/[id]/ack-settings", () => {
     await refused({ statement: 42 }, /'statement' must be text\./);
     await refused({ statement: "x".repeat(501) }, /Keep the statement under 500 characters\./);
     await refused({ statement: "ok", frobnicate: 12 }, /Unknown setting "frobnicate"\./);
-    await refused({}, /^Send one of: statement, signature, recert_months, next_recert_at, effective_at, superseded_by\.$/);
+    await refused(
+      {},
+      /^Send one of: statement, signature, recert_months, next_recert_at, effective_at, superseded_by, audience_mode, rules, exclude_stewards, assign_new_members, due_days, due_at, move_existing, remind_before_days, remind_every_days, escalate_after_days, nudge_every_days, owner_user_id\.$/
+    );
     await refused([], /Invalid request\./);
     assert.deepEqual(await getAckSettings(id), { statement: null, signature: false }, "a refused body changes nothing");
     assert.equal((await auditRows("ack.settings_changed", id)).length, 0);
@@ -617,5 +656,188 @@ describe("GET and PATCH /api/documents/[id]/ack-settings", () => {
     );
     assert.equal(new Date(got.body.next_recert_at).getTime(), addMonths(marker, 12).getTime());
     assert.equal((await audits()).length, 8, "one row for the one PATCH, however many fields it moved");
+  });
+
+  test("1.13.0: the audience (D1), the deadline (E1) and the reminders (E2) ride on the same route: validated per field, the audience previewed and saved with its rows, a fixed date moving every open deadline, the cadence audited per key", async () => {
+    const route = await import("../src/app/api/documents/[id]/ack-settings/route");
+    const { id } = await newPolicy(`${STAMP} audience deadline reminders`);
+    const url = `http://localhost/api/documents/${id}/ack-settings`;
+    const get = (qs = "") => call(route.GET as Handler, sessionRequest(`${url}${qs}`, adminSession, undefined, "GET"), id);
+    const patch = (body: unknown) => call(route.PATCH as Handler, sessionRequest(url, adminSession, body, "PATCH"), id);
+    const refused = async (body: unknown, fragment: RegExp) => {
+      const r = await patch(body);
+      assert.equal(r.status, 400, `${JSON.stringify(body)} is refused`);
+      assert.match(r.body.error, fragment, `${JSON.stringify(body)}: ${r.body.error}`);
+    };
+    const dueRow = async (userId: number) => {
+      const r = await pool().query<{ cycle_started_at: string; due_at: string | null }>(
+        "SELECT cycle_started_at, due_at FROM policy_assignments WHERE document_id = $1 AND user_id = $2",
+        [id, userId]
+      );
+      return r.rows[0];
+    };
+
+    // GET: the cascade twice, with and without the policy's own layer; a
+    // fresh policy has nothing of its own, so the two agree.
+    const initial = await get();
+    assert.equal(initial.status, 200);
+    assert.deepEqual(initial.body.defaults.values, initial.body.inherited.values);
+    assert.ok(["built-in", "workspace"].includes(initial.body.inherited.origin.due_days), "no space or policy layer yet");
+
+    // The preview: counted, never written. Space mode holds everyone active
+    // who can see the internal space (this file's two people among the
+    // accounts the other files insert); a user rule names one person.
+    const everyone = await get("?preview=1");
+    assert.equal(everyone.status, 200);
+    assert.ok(everyone.body.count >= 2, `space mode counts this file's two people: ${everyone.body.count}`);
+    assert.equal(everyone.body.no_access, 0);
+    const one = await get(
+      `?preview=1&audience_mode=targeted&rules=${encodeURIComponent(JSON.stringify([{ kind: "user", ref: viewerId }]))}`
+    );
+    assert.equal(one.status, 200);
+    assert.deepEqual([one.body.count, one.body.no_access, one.body.sample], [1, 0, ["Stmt Viewer"]]);
+    assert.equal((await get("?preview=1&audience_mode=nope")).status, 400);
+    assert.equal((await get("?preview=1&rules=%7B")).status, 400);
+    assert.equal(await hasOpenAssignment(id, adminId), true, "the preview wrote nothing");
+    assert.equal((await get()).body.audience_mode, "space");
+
+    // The audience: refusals before any write; a targeted save closes the
+    // rows the rules do not name; back to space mode re-opens them.
+    await refused({ audience_mode: "both" }, /^'audience_mode' must be space or targeted\.$/);
+    await refused({ rules: "x" }, /^'rules' must be a list of rules\.$/);
+    await refused({ exclude_stewards: "yes" }, /^'exclude_stewards' must be true or false\.$/);
+    await refused({ audience_mode: "targeted", rules: [] }, /^Name at least one group, person or role\.$/);
+    await refused(
+      { audience_mode: "targeted", rules: [{ kind: "user", ref: viewerId, effect: "exclude" }] },
+      /^Name at least one group, person or role\.$/
+    );
+    assert.equal((await auditRows("ack.audience_set", id)).length, 0, "nothing refused is on the record");
+    const targeted = await patch({ audience_mode: "targeted", rules: [{ kind: "user", ref: viewerId }], assign_new_members: false });
+    assert.equal(targeted.status, 200, JSON.stringify(targeted.body));
+    assert.deepEqual(
+      [targeted.body.audience_mode, targeted.body.rules, targeted.body.exclude_stewards, targeted.body.assign_new_members],
+      ["targeted", [{ kind: "user", ref: String(viewerId), effect: "include" }], false, false]
+    );
+    assert.equal(targeted.body.added, 0);
+    assert.ok(targeted.body.closed >= 1, `everyone the rule does not name is closed: ${targeted.body.closed}`);
+    assert.equal(await hasOpenAssignment(id, viewerId), true);
+    assert.equal(await hasOpenAssignment(id, adminId), false);
+    let audienceAudits = await auditRows("ack.audience_set", id);
+    assert.equal(audienceAudits.length, 1);
+    assert.deepEqual(
+      [audienceAudits[0].details.mode, audienceAudits[0].details.added, audienceAudits[0].details.closed],
+      ["targeted", 0, targeted.body.closed]
+    );
+    const back = await patch({ audience_mode: "space" });
+    assert.equal(back.status, 200);
+    assert.ok(back.body.reopened >= 1, "back to space mode: the closed rows re-open");
+    assert.equal(await hasOpenAssignment(id, adminId), true);
+    audienceAudits = await auditRows("ack.audience_set", id);
+    assert.equal(audienceAudits.length, 2);
+
+    // The deadline: the numbers judged; a change to the days applies to
+    // future assignments unless asked; a fixed date moves every open row
+    // by itself; the same rule again moves nothing and writes nothing.
+    await refused({ due_days: 0 }, /^'due_days' must be a whole number from 1 to 365, or null to inherit\.$/);
+    await refused({ due_at: "2020-01-01" }, /^The deadline cannot be in the past\.$/);
+    await refused({ due_at: "soon" }, /^'due_at' must be a date \(YYYY-MM-DD\), or null\.$/);
+    await refused({ move_existing: "yes" }, /^'move_existing' must be true or false\.$/);
+    const before = (await assignmentDueDates(id, [viewerId])).get(viewerId);
+    assert.ok(before, "the switch-on dated the row");
+    const thirty = await patch({ due_days: 30 });
+    assert.equal(thirty.status, 200, JSON.stringify(thirty.body));
+    assert.deepEqual([thirty.body.due_days, thirty.body.due_at, thirty.body.moved], [30, null, 0]);
+    assert.deepEqual([thirty.body.defaults.origin.due_days, thirty.body.defaults.values.due_days], ["policy", 30]);
+    assert.notEqual(thirty.body.inherited.origin.due_days, "policy", "the inherited resolution leaves the policy's layer out");
+    assert.equal((await assignmentDueDates(id, [viewerId])).get(viewerId), before, "the days apply to future assignments");
+    let dueAudits = await auditRows("ack.due_set", id);
+    assert.equal(dueAudits.length, 1);
+    assert.deepEqual(
+      [dueAudits[0].details.due_days, dueAudits[0].details.due_at, dueAudits[0].details.moved_existing, dueAudits[0].details.moved],
+      [30, null, false, 0]
+    );
+    assert.equal((await auditRows("ack.due_moved", id)).length, 0);
+    const moved = await patch({ move_existing: true });
+    assert.equal(moved.status, 200, JSON.stringify(moved.body));
+    assert.ok(moved.body.moved >= 1, `every open row moved: ${moved.body.moved}`);
+    const movedRow = await dueRow(viewerId);
+    assert.equal(
+      new Date(movedRow.due_at!).getTime(),
+      new Date(movedRow.cycle_started_at).getTime() + 30 * 86_400_000,
+      "the row's cycle start plus the days"
+    );
+    dueAudits = await auditRows("ack.due_set", id);
+    assert.equal(dueAudits.length, 2);
+    assert.deepEqual([dueAudits[1].details.moved_existing, dueAudits[1].details.moved], [true, moved.body.moved]);
+    assert.equal((await auditRows("ack.due_moved", id)).length, 1, "the move itself is ack.due_moved");
+    const day = new Date(Date.now() + 45 * 86_400_000).toISOString().slice(0, 10);
+    const fixed = await patch({ due_at: day, due_days: null });
+    assert.equal(fixed.status, 200, JSON.stringify(fixed.body));
+    assert.deepEqual([fixed.body.due_days, fixed.body.due_at], [null, day]);
+    assert.ok(fixed.body.moved >= 1, "a fixed date moves every open deadline without being asked");
+    const [y, m, d] = day.split("-").map(Number);
+    const fixedRow = await dueRow(viewerId);
+    assert.ok(
+      Math.abs(new Date(fixedRow.due_at!).getTime() - Date.UTC(y, m - 1, d, 23, 59, 59, 999)) <= 14 * 3_600_000,
+      `the row is due at the end of that day in the workspace's zone: ${fixedRow.due_at}`
+    );
+    assert.equal((await auditRows("ack.due_moved", id)).length, 2);
+    assert.equal((await auditRows("ack.due_set", id)).length, 3);
+    const same = await patch({ due_at: day });
+    assert.deepEqual([same.status, same.body.moved], [200, 0], "the same date again moves nothing");
+    assert.equal((await auditRows("ack.due_set", id)).length, 3, "and writes no row");
+
+    // The cadence and the owner: per key, audited as ack.defaults_set at
+    // the policy layer (as the space and the workspace layers are); the
+    // inherited resolution keeps the number a blank field shows.
+    await refused({ remind_every_days: 0 }, /^'remind_every_days' must be a whole number from 1 to 365, or null to inherit\.$/);
+    await refused({ nudge_every_days: 366 }, /^'nudge_every_days' must be a whole number from 0 to 365, or null to inherit\.$/);
+    await refused({ owner_user_id: "me" }, /^'owner_user_id' must be a user id, or null for nobody\.$/);
+    await refused({ owner_user_id: 2_000_000_000 }, /^Owner not found\.$/);
+    assert.equal((await auditRows("ack.defaults_set", id)).length, 0);
+    const cadence = await patch({ remind_before_days: 5, nudge_every_days: 0, owner_user_id: viewerId });
+    assert.equal(cadence.status, 200, JSON.stringify(cadence.body));
+    assert.deepEqual(
+      [
+        cadence.body.remind_before_days,
+        cadence.body.remind_every_days,
+        cadence.body.nudge_every_days,
+        cadence.body.owner_user_id,
+        cadence.body.owner_name,
+      ],
+      [5, null, 0, viewerId, "Stmt Viewer"]
+    );
+    assert.deepEqual(
+      [cadence.body.defaults.origin.remind_before_days, cadence.body.defaults.values.remind_before_days, cadence.body.defaults.origin.owner_user_id],
+      ["policy", 5, "policy"]
+    );
+    assert.notEqual(cadence.body.inherited.origin.remind_before_days, "policy");
+    assert.equal(cadence.body.defaults.origin.remind_every_days, cadence.body.inherited.origin.remind_every_days, "a blank key resolves the same both ways");
+    const keyAudits = await auditRows("ack.defaults_set", id);
+    assert.deepEqual(
+      keyAudits.map((r) => [r.details.scope, r.details.space_id, r.details.key, r.details.from, r.details.to]),
+      [
+        ["policy", spaceId, "remind_before_days", null, 5],
+        ["policy", spaceId, "nudge_every_days", null, 0],
+        ["policy", spaceId, "owner_user_id", null, viewerId],
+      ],
+      "one row per key that moved"
+    );
+    assert.equal((await patch({ remind_before_days: 5, owner_user_id: viewerId })).status, 200);
+    assert.equal((await auditRows("ack.defaults_set", id)).length, 3, "the same values again: no row");
+    const cleared = await patch({ remind_before_days: null, owner_user_id: null });
+    assert.equal(cleared.status, 200);
+    assert.deepEqual(
+      [cleared.body.remind_before_days, cleared.body.owner_user_id, cleared.body.owner_name, cleared.body.defaults.origin.remind_before_days],
+      [null, null, null, cleared.body.inherited.origin.remind_before_days]
+    );
+    assert.equal((await auditRows("ack.defaults_set", id)).length, 5);
+
+    // The settings row holds what the route answered; the C2/G1/G3 audit
+    // row was never written by any of this (no statement, signature,
+    // interval or replacement moved).
+    const stored = await getPolicySettings(id);
+    assert.deepEqual([stored?.due_days, stored?.due_at, stored?.nudge_every_days, stored?.owner_user_id], [null, day, 0, null]);
+    assert.equal((await auditRows("ack.settings_changed", id)).length, 0);
   });
 });

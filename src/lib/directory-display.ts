@@ -269,6 +269,60 @@ export function groupPeople<P extends PersonLike>(people: P[], field: FieldLike)
 }
 
 /**
+ * Groups in an admin's order (an export preset's `section_order`): the
+ * groups whose key is listed come first, in the list's order; the rest
+ * follow in the order given, the field's own. An empty list hands the
+ * groups back as they are, so a preset without an order prints as it always
+ * did. Keys match case-insensitively, as groupPeople files them; a listed
+ * key no group has is skipped.
+ */
+export function orderGroups<G extends { key: string }>(groups: G[], order: readonly string[]): G[] {
+  if (order.length === 0) return groups;
+  const rank = new Map<string, number>();
+  order.forEach((v, i) => {
+    const k = String(v ?? "").trim().toLowerCase();
+    if (k && !rank.has(k)) rank.set(k, i);
+  });
+  const listed: { g: G; at: number }[] = [];
+  const rest: G[] = [];
+  for (const g of groups) {
+    const at = rank.get(g.key.toLowerCase());
+    if (at === undefined) rest.push(g);
+    else listed.push({ g, at });
+  }
+  listed.sort((a, b) => a.at - b.at);
+  return [...listed.map((x) => x.g), ...rest];
+}
+
+/** One section an export's "Sections by" field makes, as the preset editor previews it. */
+export interface SectionSummary {
+  /** The group's key, what `section_order` stores: the option's value, else the raw value. */
+  value: string;
+  /** The heading the export prints. */
+  label: string;
+  count: number;
+}
+
+/**
+ * The sections a field makes of a list of people, in the field's own order
+ * (groupPeople's: options first, unmatched values alphabetically), each
+ * with its count. A filter (the preset's "only people where") narrows the
+ * people first. People with no value are left out: their "No <field>"
+ * section has no value to list in an order and always prints last.
+ */
+export function sectionSummaries<P extends PersonLike>(
+  people: P[],
+  field: FieldLike,
+  fields: FieldLike[],
+  filter?: { key: string; value: string } | null
+): SectionSummary[] {
+  const kept = filter ? people.filter((p) => matchesValue(p, filter.key, filter.value, fields)) : people;
+  return groupPeople(kept, field)
+    .filter((g) => g.key !== "")
+    .map((g) => ({ value: g.key, label: g.label, count: g.members.length }));
+}
+
+/**
  * Order people by a field: option order first when the field has options,
  * then the display value, then name — so "Attorney" precedes "Paralegal"
  * because the admin said so, not because of the alphabet.

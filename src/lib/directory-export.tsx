@@ -23,6 +23,7 @@ import {
   groupPeople,
   initialsOf,
   matchesValue,
+  orderGroups,
   pinnedFirst,
   type NameFormat,
   type PersonLike,
@@ -130,7 +131,12 @@ export function prepareExport(input: Omit<ExportInput, "logo" | "printedOn">): P
   if (pinned.length) sections.push({ label: "Key contacts", rows: pinned });
   const groupField = preset.group_by ? fields.find((f) => f.key === preset.group_by && f.group_by) : undefined;
   if (groupField) {
-    for (const g of groupPeople(rest, groupField)) sections.push({ label: `${g.label}`, rows: g.members });
+    // The field's own order (options first, then the rest alphabetically,
+    // "No <field>" last), with the preset's section order moved to the
+    // front; an empty order leaves it as it is.
+    for (const g of orderGroups(groupPeople(rest, groupField), preset.section_order ?? [])) {
+      sections.push({ label: `${g.label}`, rows: g.members });
+    }
   } else {
     sections.push({ label: null, rows: rest });
   }

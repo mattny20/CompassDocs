@@ -415,3 +415,170 @@ test("the Settings tab's gate: a holder of document.ack_require on the space ope
     if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
   }
 });
+
+// 1.13.0 (settings-ui): the three cards wave 2 added under the same Save
+// row (Who must confirm, Deadline, Reminders), the space's Policy defaults
+// disclosure feeding the policy's inherit label and help, and the shield
+// popover's "All settings" link. The policy lives in a private space with
+// no group grants, so a viewer named under People cannot see it (the live
+// line counts them as "without access") and only admins hold rows (the
+// move toasts count those).
+
+/** A private space with no grants: admins see it, nobody else. Answers the id. */
+async function makePrivateSpace(page: Page, name: string): Promise<number> {
+  const made = await api(page, "/api/admin/spaces", { method: "POST", body: { name, visibility: "private", groupIds: [] } });
+  expect(made.status, "private space created").toBe(201);
+  const id = made.body?.space?.id;
+  expect(id, "space id").toBeTruthy();
+  return id;
+}
+
+/** 'YYYY-MM-DD' n days from now, in UTC (what the date input holds). */
+const daysOut = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
+
+test("1.13.0: the Deadline radio round-trips and moves deadlines, the Reminders card saves and shows inherited help, a targeted audience is previewed and saved with a listed person counted as no-access, the space's Policy defaults disclosure saves and the policy inherits from it, the popover links All settings", async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  await login(page, ADMIN);
+  const suffix = stamp();
+  const spaceName = `E2E ack settings space ${suffix}`;
+  const title = `E2E ack settings audience ${suffix}`;
+  const viewer = { username: `e2e_ackaud_${suffix}`, password: "E2eAud!12345" };
+  const viewerName = "E2E Settings Viewer";
+  let spaceId: number | undefined;
+  let docId: number | undefined;
+  let viewerId: number | undefined;
+  let recertDefaultBefore: number | null | undefined;
+  try {
+    spaceId = await makePrivateSpace(page, spaceName);
+    const made = await api(page, "/api/documents", {
+      method: "POST",
+      body: { space_id: spaceId, title, type: "policy", status: "published", content: BODY, tags: [] },
+    });
+    expect(made.status, "document created in the private space").toBe(201);
+    docId = made.body?.doc?.id;
+    expect(docId).toBeTruthy();
+    test.skip(!(await portalLicensed(page)), "policy_ack is not licensed in this build; the EE rig runs the flow");
+    recertDefaultBefore = await neutraliseRecertDefault(page);
+    await requireQuietly(page, docId!);
+    viewerId = await makeUser(page, viewer, viewerName);
+
+    await page.goto(`/doc/${docId}/acknowledgements/settings`);
+    const save = page.getByRole("button", { name: "Save settings" });
+    await expect(save, "nothing to save yet").toBeDisabled();
+    const toasts = page.locator('[role="status"]');
+
+    // The Deadline card: inherit by default, the label naming where the
+    // number comes from; "Days after assignment" saves the days (future
+    // assignments only: nothing moved); the secondary button moves the open
+    // rows and tells; a fixed date moves them by itself and the toast says so.
+    const deadline = page.getByRole("radiogroup", { name: "Deadline" });
+    await expect(deadline.getByRole("radio", { name: /^Inherit \(\d+ days?, / })).toBeChecked();
+    await deadline.getByRole("radio", { name: "Days after assignment" }).check();
+    const days = page.getByLabel("Days", { exact: true });
+    await days.fill("400");
+    await expect(page.getByRole("alert").filter({ hasText: "Must be between 1 and 365." })).toBeVisible();
+    await expect(save).toBeDisabled();
+    await days.fill("30");
+    await expect(save).toBeEnabled();
+    await save.click();
+    await expect(toasts.getByText("Settings saved.")).toBeVisible();
+    let settings = await api(page, `/api/documents/${docId}/ack-settings`);
+    expect(settings.body?.due_days).toBe(30);
+    expect(settings.body?.due_at).toBeNull();
+    await page.reload();
+    await expect(page.getByRole("radiogroup", { name: "Deadline" }).getByRole("radio", { name: "Days after assignment" })).toBeChecked();
+    await expect(page.getByLabel("Days", { exact: true })).toHaveValue("30");
+    await expect(page.getByText(/^Current audience: due 30 days after assignment · new joiners: \d+ days after they join$/)).toBeVisible();
+    await page.getByRole("button", { name: "Also move existing deadlines" }).click();
+    await expect(toasts.getByText(/^Moved \d+ deadlines?$/)).toBeVisible();
+    const day = daysOut(45);
+    await page.getByRole("radiogroup", { name: "Deadline" }).getByRole("radio", { name: "Fixed date" }).check();
+    await page.getByLabel("Due date").fill(day);
+    await page.getByRole("button", { name: "Save settings" }).click();
+    await expect(toasts.getByText("Settings saved.").last()).toBeVisible();
+    await expect(toasts.getByText(/^Moved \d+ deadlines?$/).last()).toBeVisible();
+    settings = await api(page, `/api/documents/${docId}/ack-settings`);
+    expect(settings.body?.due_at).toBe(day);
+    expect(settings.body?.due_days).toBeNull();
+    const record = await api(page, `/api/documents/${docId}/acknowledgements`);
+    expect(record.status).toBe(200);
+    const mine = (record.body?.rows ?? []).find((r: { username?: string }) => r.username === ADMIN.username);
+    expect(mine?.due_at, "the admin's own row carries the fixed date").toContain(day);
+
+    // The Reminders card: a blank field says what it inherits; a typed one saves.
+    await expect(page.getByText(/^(Inherited from (workspace|.+ space)|Built-in) \(\d+\)$/).first()).toBeVisible();
+    await page.getByLabel("Remind before due").fill("5");
+    await page.getByRole("button", { name: "Save settings" }).click();
+    await expect(toasts.getByText("Settings saved.").last()).toBeVisible();
+    settings = await api(page, `/api/documents/${docId}/ack-settings`);
+    expect(settings.body?.remind_before_days).toBe(5);
+    expect(settings.body?.remind_every_days).toBeNull();
+
+    // Who must confirm: targeted mode naming the viewer, who cannot see the
+    // private space: the live line counts them as without access; the save
+    // closes the admins' rows and the toast says so; the route holds the rule.
+    const audience = page.getByRole("radiogroup", { name: "Who must confirm" });
+    await expect(audience.getByRole("radio", { name: "Everyone who can see this space" })).toBeChecked();
+    await expect(page.getByText(/^Applies to \d+ (person|people)$/)).toBeVisible();
+    await audience.getByRole("radio", { name: "Specific groups, people and roles" }).check();
+    await expect(page.getByRole("alert").filter({ hasText: "Name at least one group, person or role." })).toBeVisible();
+    await expect(page.getByText(PEOPLE_ACCESS_RULE)).toBeVisible();
+    await page.getByRole("combobox", { name: "People" }).fill(viewerName);
+    await page.getByRole("option", { name: new RegExp(viewerName) }).click();
+    await expect(page.getByText(/^Applies to 0 people · 1 without access$/)).toBeVisible();
+    await page.getByRole("button", { name: "Save settings" }).click();
+    await expect(toasts.getByText(/^Audience saved: \d+ (person|people) removed from the audience$/)).toBeVisible();
+    settings = await api(page, `/api/documents/${docId}/ack-settings`);
+    expect(settings.body?.audience_mode).toBe("targeted");
+    expect(settings.body?.rules).toEqual([{ kind: "user", ref: String(viewerId), effect: "include" }]);
+    const after = await api(page, `/api/documents/${docId}/acknowledgements`);
+    expect((after.body?.rows ?? []).some((r: { username?: string }) => r.username === viewer.username), "no row until access is granted").toBe(false);
+
+    // The space's Policy defaults: the disclosure in the space's edit form
+    // saves through PATCH policy_defaults, and the policy inherits from it.
+    await page.goto("/admin/spaces");
+    await page.getByLabel("Filter spaces").fill(spaceName);
+    await page.getByRole("button", { name: "Edit" }).click();
+    await page.locator("summary", { hasText: "Policy defaults" }).click();
+    await expect(page.getByLabel("Days to confirm")).toHaveAttribute("placeholder", /^Inherit \(\d+\)$/);
+    await page.getByLabel("Days to confirm").fill("21");
+    await page.getByLabel("Days between reminders").fill("3");
+    await page.getByRole("button", { name: "Save changes" }).click();
+    await expect(toasts.getByText("Space saved.")).toBeVisible();
+    const spaces = await api(page, "/api/admin/spaces");
+    const stored = (spaces.body?.spaces ?? []).find((s: { id: number }) => s.id === spaceId);
+    expect(stored?.policy_defaults).toEqual({ due_days: 21, remind_every_days: 3 });
+    await page.goto(`/doc/${docId}/acknowledgements/settings`);
+    await expect(
+      page.getByRole("radiogroup", { name: "Deadline" }).getByRole("radio", { name: `Inherit (21 days, from ${spaceName})` })
+    ).toBeVisible();
+    await expect(page.getByText(`Inherited from ${spaceName} space (3)`)).toBeVisible();
+    settings = await api(page, `/api/documents/${docId}/ack-settings`);
+    expect(settings.body?.inherited?.values?.due_days).toBe(21);
+    expect(settings.body?.inherited?.origin?.due_days).toBe("space");
+    expect(settings.body?.defaults?.origin?.due_days, "the policy's fixed date is its own rule; the days inherit").toBe("space");
+
+    // The popover keeps its four controls and links the tab.
+    await page.goto(`/doc/${docId}`);
+    await page.getByRole("button", { name: "Read confirmation settings" }).first().click();
+    const panel = page.getByRole("dialog", { name: "Read confirmation" });
+    await expect(panel).toBeVisible();
+    await expect(panel.getByRole("link", { name: "All settings" })).toHaveAttribute("href", `/doc/${docId}/acknowledgements/settings`);
+    await expect(panel.getByRole("switch", { name: "Require readers to confirm" })).toBeVisible();
+    await page.keyboard.press("Escape");
+  } finally {
+    await restoreRecertDefault(page, recertDefaultBefore);
+    if (viewerId) await api(page, `/api/admin/users/${viewerId}`, { method: "DELETE" });
+    if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
+    // A trashed document still counts against the space (deleteSpace counts
+    // every row), so the space is deleted once the Trash is purged; the
+    // attempt is harmless when it answers 409.
+    if (spaceId) await api(page, `/api/admin/spaces/${spaceId}`, { method: "DELETE" });
+  }
+});
+
+/** The rule line under the People picker, word for word (PolicySettingsPanel.PEOPLE_ACCESS_RULE). */
+const PEOPLE_ACCESS_RULE =
+  'People must be able to see this document\'s space. Someone who cannot is shown as "No access" in the preview and is not required until access is granted in Space settings.';

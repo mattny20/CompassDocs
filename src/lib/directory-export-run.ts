@@ -8,7 +8,7 @@ import "server-only";
 import JSZip from "jszip";
 import { getSetting } from "./db";
 import { personPhotoLargeMap, type DirectoryField, type DirectoryPerson } from "./directory";
-import { groupPeople } from "./directory-display";
+import { groupPeople, orderGroups } from "./directory-display";
 import type { ExportPreset } from "./directory-export-config";
 import { exportFilename, renderDirectoryCsv, renderDirectoryPdf } from "./directory-export";
 import { listMarkers, type ExportMarker } from "./directory-markers";
@@ -85,7 +85,12 @@ export async function renderExportFile(opts: {
   // so the groups come from everyone the preset covers.
   const zip = new JSZip();
   const base = exportFilename(preset, company, format).replace(/\.(pdf|csv)$/, "");
-  const groups = groupPeople(people.filter((p) => p.hidden !== 1), splitField);
+  // Split by the sections field, the files come out in the preset's section
+  // order too (each file's own sections follow it through prepareExport).
+  const groups = orderGroups(
+    groupPeople(people.filter((p) => p.hidden !== 1), splitField),
+    splitField.key === preset.group_by ? preset.section_order ?? [] : []
+  );
   const used = new Set<string>();
   let parts = 0;
   for (const g of groups) {
