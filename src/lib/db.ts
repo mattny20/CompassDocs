@@ -30,7 +30,7 @@ import type {
   AckNoticeChannel,
   AckOutboxRow,
 } from "./types";
-import { changeSummary, suggestReconfirm } from "./diff";
+import { changeSummary, suggestReconfirm, RESET_MIN_PCT } from "./diff";
 import type { ChangeSummary } from "./diff";
 import type { EditDefault } from "./compliance-settings";
 import { storedReadSeconds } from "./read-evidence";
@@ -43,6 +43,7 @@ import type { DueRule, PolicyDefaultsLayer } from "./ack-due";
 import {
   PA_OPEN,
   audienceAdmitsSql,
+  audienceJoinerSourceSql,
   audienceRemovedReasonSql,
   audienceRulesFromJson,
   audienceRulesFromTable,
@@ -50,6 +51,10 @@ import {
 } from "./audience";
 import type { AudienceSqlAliases, AudienceNarrowing } from "./audience";
 import type { AudienceMode, AudienceRule, PolicySettings } from "./types";
+import type { PolicyAttentionReason, PolicyAttentionRow } from "./types";
+export type { PolicyAttentionReason, PolicyAttentionRow } from "./types";
+import type { PolicySetAssignResult, PolicySetInput, PolicySetPatch, PolicySetRow, PolicySetTarget } from "./types";
+import { SET_DEACTIVATED, SET_DOCS_INVALID, SET_NAME_TAKEN, SET_NOT_FOUND, SET_TARGET_EMPTY } from "./policy-sets";
 
 export type { AckPolicy, AckSource, AckOutcome, AckDecision, AckOutcomeInfo } from "./types";
 export type { AckNotice, AckNoticeMode, AckNoticeKind, AckNoticeChannel, AckOutboxRow } from "./types";
@@ -5815,6 +5820,32 @@ export interface ComplianceDocRow {
    * return is not an enrolment.
    */
   enrolled_week: number;
+  /**
+   * The stacked bar's four numbers (F1, 1.14.0): `confirmed` (= acked) and
+   * `pending` (= required - acked, overdue rows included) partition
+   * `required`; `overdue` is the late part of `pending`; `exempt` counts
+   * the policy's exempt rows of active accounts, outside the denominator.
+   * A retired row's `confirmed` / `pending` follow its frozen counts.
+   */
+  confirmed: number;
+  pending: number;
+  exempt: number;
+  /** When the policy's people were last reminded: the manual Remind or the sweep's newest stamp over the open rows, whichever is later. */
+  last_reminded_at: string | null;
+  /**
+   * The policy's owner for the row subtitle ("owner Priya Shah"): the
+   * policy's own owner_user_id, else the space's Policy owner
+   * (policy_defaults), else whoever switched the requirement on; null when
+   * none of them is an active account.
+   */
+  owner_user_id: number | null;
+  owner_name: string | null;
+  /** The policy's answer to a text edit (documents.ack_edit_default, resolved): the "Asks editor" / "Asks when material" / "Always re-asks" chip. */
+  edit_default: AckEditDefault;
+  /** The grace after the due date the overdue count applies (the space's policy_defaults, else the workspace's, else 0): the CSV's status cell uses the same number. */
+  overdue_grace_days: number;
+  /** The policy sets this policy belongs to (D3, policySetNames), by name; empty when none. */
+  set_names: string[];
 }
 
 // The workspace's grace after a due date (ack_defaults.overdue_grace_days,
@@ -6297,14 +6328,20 @@ async function reconcileUserOn(
     closed = c.rowCount ?? 0;
   }
   const joiner = opts.source === "new_member";
-  const source = joiner ? "'new_member'" : audienceSourceSql(SAVED_AUDIENCE);
+  // A new account's row reads 'set' when an onboarding set's rule names them
+  // (D3: autoAssignPolicies writes it just before this), else 'new_member'.
+  const source = joiner ? audienceJoinerSourceSql(SAVED_AUDIENCE) : audienceSourceSql(SAVED_AUDIENCE);
+  // The policy's own "Enrol new joiners automatically" gates the automatic
+  // paths; for a new account an active set that auto-assigns the policy is
+  // the explicit onboarding instruction and admits them past it (D3).
+  const gate = joiner ? `(COALESCE(ps.assign_new_members, 1) = 1 OR ${SET_AUTO_ASSIGNS})` : "COALESCE(ps.assign_new_members, 1) = 1";
   const due = dueAtSql({ from: "now()", workspace: "$2", timeZone: "$3", key: "new_joiner_days" });
   const opened = await client.query<{ document_id: number; due_at: string | null; inserted: boolean }>(
     `INSERT INTO policy_assignments (document_id, user_id, source, due_at, cycle_started_at)
      SELECT d.id, u.id, ${source}, ${due}, d.ack_revision_at
      FROM ${AUDIENCE_FROM}, users u
      WHERE u.id = $1 AND ${AUDIENCE_POLICY}
-       AND ($4::boolean = false OR COALESCE(ps.assign_new_members, 1) = 1)
+       AND ($4::boolean = false OR ${gate})
        AND ${IN_AUDIENCE}
      ${AUDIENCE_REOPEN}
      RETURNING document_id, due_at, (xmax = 0) AS inserted`,
@@ -6493,6 +6530,27 @@ export async function autoAssignPolicies(
 ): Promise<{ policies: EnrolledPolicy[]; outbox_id: number | null }> {
   await ready();
   const defaults = await workspaceAudienceDefaults();
+  // The onboarding sets (D3, 1.14.0): every live, targeted member policy of
+  // an active set with "Auto-assign to new joiners" on gets a user rule
+  // naming the joiner, tagged with the set, exactly as assigning the set to
+  // them would write it. The reconcile below then admits them with source
+  // 'set' (and the new-joiner days), and the hourly sweep keeps the row,
+  // because the rule names them. A space-mode member needs no rule: the
+  // joiner is admitted as everyone is, within the space's visibility; a
+  // member in a private space they cannot see is not reached (the ceiling).
+  // One rule per policy (the lowest set id when two sets share a policy).
+  await pool().query(
+    `INSERT INTO policy_audience_rules (document_id, kind, ref, effect, set_id)
+     SELECT DISTINCT ON (sd.document_id) sd.document_id, 'user', $1::text, 'include', sd.set_id
+     FROM policy_set_docs sd
+     JOIN policy_sets ps_set ON ps_set.id = sd.set_id AND ps_set.active = 1 AND ps_set.assign_new_members = 1
+     JOIN documents d ON d.id = sd.document_id
+     JOIN policy_settings ps ON ps.document_id = d.id AND ps.audience_mode = 'targeted'
+     WHERE ${AUDIENCE_POLICY}
+     ORDER BY sd.document_id, sd.set_id
+     ON CONFLICT (document_id, kind, ref, effect) DO UPDATE SET set_id = EXCLUDED.set_id`,
+    [String(userId)]
+  );
   const r = await reconcileUserOn(pool(), userId, { defaults, source: "new_member", auto: true, close: false });
   if (r.opened.length === 0) return { policies: [], outbox_id: null };
   try {
@@ -8160,6 +8218,10 @@ export interface MyPolicyRow {
   /** The person's deadline on this policy (their open row, E1); null without one. */
   due_at: string | null;
   updated_at: string;
+  /** The active policy sets this policy belongs to (D3, 1.14.0), by name; [] when none. The page groups rows by the first. */
+  set_names: string[];
+  /** The policy's position (0-based) in the first of those sets, the group's order; null when in none. */
+  set_position: number | null;
 }
 
 /**
@@ -8183,7 +8245,9 @@ export async function listMyPolicies(userId: number, scope: SpaceScope): Promise
             prior.acknowledged_at AS prior_acknowledged_at,
             ${VERSION_REV("cur.version_id")} AS rev,
             pa.due_at,
-            d.updated_at
+            d.updated_at,
+            sets.names AS set_names,
+            sets.position AS set_position
      FROM policy_assignments pa
      JOIN documents d ON d.id = pa.document_id
      JOIN spaces s ON s.id = d.space_id
@@ -8199,6 +8263,7 @@ export async function listMyPolicies(userId: number, scope: SpaceScope): Promise
        ORDER BY a.acknowledged_at DESC, a.id DESC LIMIT 1
      ) prior ON true
      CROSS JOIN LATERAL (SELECT (${paOverdueSql(graceParam)}) AS overdue) ov
+     CROSS JOIN LATERAL (${POLICY_SET_MEMBERSHIP_SQL}) sets
      WHERE pa.user_id = $1 AND ${PA_OPEN} AND ${MY_POLICY_DOC}${myPolicyScope(scope, 2)}
      ORDER BY (cur.acknowledged_at IS NOT NULL),
               CASE WHEN cur.acknowledged_at IS NULL THEN ov.overdue END DESC NULLS LAST,
@@ -11480,10 +11545,17 @@ export async function listTrainingHistory(): Promise<TrainingHistoryRow[]> {
 }
 
 /**
- * Atomic once-per-period claim backed by the settings table (weekly team
- * digests). True exactly once per distinct value, across instances.
+ * Atomic once-per-period claim backed by the settings table: one INSERT …
+ * ON CONFLICT that only wins when the stored value differs, so it is true
+ * exactly once per distinct `period` per `key`, across instances. The
+ * neutral orchestrator (lib/periodic, 1.14.0) keys the weekly team digest
+ * ('team_digest_week'), the weekly compliance report ('ack_report_week')
+ * and the weekly channel summary ('ack_weekly_hook') on it with
+ * isoWeekId(); the monthly evidence claims its month through the snapshots'
+ * unique index instead. Callers check what they need (SMTP, a licence)
+ * BEFORE claiming, so a tick that can send nothing does not burn the period.
  */
-export async function claimTrainingPeriod(key: string, period: string): Promise<boolean> {
+export async function claimPeriod(key: string, period: string): Promise<boolean> {
   const r = await q<{ key: string }>(
     `INSERT INTO settings (key, value) VALUES ($1, $2)
      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
@@ -11493,6 +11565,9 @@ export async function claimTrainingPeriod(key: string, period: string): Promise<
   );
   return r.length > 0;
 }
+
+/** The 1.13.0 name of claimPeriod, kept for one release. */
+export const claimTrainingPeriod = claimPeriod;
 
 export interface GroupLeadRow {
   group_id: number;
@@ -11584,6 +11659,155 @@ export async function listTrainingDigestLeads(): Promise<
      GROUP BY u.id, u.name, u.email
      ORDER BY u.name`
   );
+}
+
+// --- Team policies for group leads (F4, 1.14.0) ---------------------------------
+//
+// The policy counterpart of teamTrainingRows: where the members of the
+// groups a lead leads stand on the policies that ask them, scoped twice.
+// First to what the member owes (an open or exempt row of a live policy,
+// for an active account who can still see the space: the roster's rows);
+// then to what the VIEWER may read (readableSpaceIdsSql: the same predicate
+// the weekly digest and the app use for a private space), applied in SQL so
+// a hidden policy's title, dates and status never leave the database. A
+// policy the member owes in a space the viewer cannot read counts once in
+// `hidden_count`, repeated on each of that member's rows, so a page can say
+// "and 2 policies you can't view" beside the name. Members with nothing to
+// confirm still appear once, with assignment_id null.
+
+export type TeamPolicyStatus = "confirmed" | "pending" | "overdue" | "exempt";
+
+export interface TeamPolicyRow {
+  group_id: number;
+  group_name: string;
+  user_id: number;
+  user_name: string;
+  username: string;
+  /** Null for a member with no policy to confirm (one row, the other policy fields null). */
+  assignment_id: number | null;
+  document_id: number | null;
+  title: string | null;
+  space_id: number | null;
+  status: TeamPolicyStatus | null;
+  due_at: string | null;
+  acknowledged_at: string | null;
+  reminded_at: string | null;
+  /** Policies this member owes in spaces the viewer cannot read (a count, never a title). */
+  hidden_count: number;
+}
+
+/**
+ * Every member of the given groups × the policies that ask them which the
+ * viewer may read (the group header's counts and the team page's rows).
+ * `viewerId` is the lead or permission holder whose space scope filters
+ * the rows. Ordered by group, then member, then the rows that need a hand
+ * first (overdue, pending, exempt, confirmed; the soonest deadline first).
+ */
+export async function teamPolicyRows(groupIds: number[], viewerId: number): Promise<TeamPolicyRow[]> {
+  if (!groupIds.length) return [];
+  const readable = readableSpaceIdsSql("$2");
+  const grace = "$3";
+  return q<TeamPolicyRow>(
+    `SELECT g.id AS group_id, g.name AS group_name, u.id AS user_id, u.name AS user_name, u.username,
+            x.assignment_id, x.document_id, x.title, x.space_id, x.status, x.due_at, x.acknowledged_at, x.reminded_at,
+            h.n AS hidden_count
+     FROM groups g
+     JOIN group_members gm ON gm.group_id = g.id
+     JOIN users u ON u.id = gm.user_id AND u.status = 'active'
+     CROSS JOIN LATERAL (
+       SELECT COUNT(*)::int AS n
+       FROM policy_assignments pa
+       JOIN documents d ON d.id = pa.document_id
+       JOIN spaces s ON s.id = d.space_id
+       WHERE pa.user_id = u.id AND pa.removed_at IS NULL AND ${MY_POLICY_DOC} AND ${ACK_VISIBILITY}
+         AND d.space_id NOT IN (${readable})
+     ) h
+     LEFT JOIN LATERAL (
+       SELECT pa.id AS assignment_id, d.id AS document_id, d.title, d.space_id,
+              pa.due_at, pa.reminded_at, cur.acknowledged_at,
+              CASE WHEN pa.exempt_at IS NOT NULL THEN 'exempt'
+                   WHEN cur.acknowledged_at IS NOT NULL THEN 'confirmed'
+                   WHEN ${paOverdueSql(grace)} THEN 'overdue'
+                   ELSE 'pending' END AS status
+       FROM policy_assignments pa
+       JOIN documents d ON d.id = pa.document_id
+       JOIN spaces s ON s.id = d.space_id
+       LEFT JOIN LATERAL (
+         SELECT a.acknowledged_at FROM acknowledgements a
+         WHERE a.document_id = d.id AND a.user_id = u.id AND ${ACK_CURRENT_PA}
+         ORDER BY a.acknowledged_at DESC, a.id DESC LIMIT 1
+       ) cur ON true
+       WHERE pa.user_id = u.id AND pa.removed_at IS NULL AND ${MY_POLICY_DOC} AND ${ACK_VISIBILITY}
+         AND d.space_id IN (${readable})
+     ) x ON true
+     WHERE g.id = ANY($1::int[])
+     ORDER BY g.name, g.id, u.name, u.id,
+              CASE x.status WHEN 'overdue' THEN 0 WHEN 'pending' THEN 1 WHEN 'exempt' THEN 2 WHEN 'confirmed' THEN 3 ELSE 4 END,
+              x.due_at ASC NULLS LAST, x.title, x.document_id`,
+    [groupIds, viewerId, await workspaceOverdueGraceDays()]
+  );
+}
+
+/** One open requirement a lead asked to remind, with everything the route decides on. */
+export interface LeadRemindRow {
+  assignment_id: number;
+  user_id: number;
+  user_name: string;
+  document_id: number;
+  title: string;
+  space_id: number;
+  due_at: string | null;
+  reminded_at: string | null;
+  /** The policy's remind_every_days as the cascade resolves it (policy, space, then the parameter). */
+  remind_every_days: number;
+  /** The member belongs to a group the leader leads. */
+  leads: boolean;
+  /** A confirmation stands against the current ask (nothing to remind). */
+  confirmed: boolean;
+  /** The row is exempt (nothing to remind). */
+  exempt: boolean;
+}
+
+/**
+ * The row behind POST /api/compliance/team { assignment_id } for one
+ * leader: the open or exempt row of a live policy for an active account who
+ * can see the space, in a space the LEADER can read (a hidden policy reads
+ * as absent: null, the route's 404), with whether the leader leads one of
+ * the member's groups (else 403), whether there is anything left to remind
+ * (confirmed / exempt: 400), when the person was last reminded and the
+ * policy's cadence (remind_every_days resolved as the sweep resolves it;
+ * `workspaceRemindEveryDays` is the workspace layer the caller read), so the
+ * route's 429 is the per-row cadence and not the per-document hour.
+ */
+export async function leadMayRemind(
+  assignmentId: number,
+  leaderId: number,
+  workspaceRemindEveryDays: number
+): Promise<LeadRemindRow | null> {
+  const rows = await q<LeadRemindRow>(
+    `SELECT pa.id AS assignment_id, u.id AS user_id, u.name AS user_name, d.id AS document_id, d.title, d.space_id,
+            pa.due_at, pa.reminded_at,
+            ${CADENCE("remind_every_days", "$3")} AS remind_every_days,
+            EXISTS (
+              SELECT 1 FROM group_leads gl
+              JOIN group_members gm ON gm.group_id = gl.group_id AND gm.user_id = u.id
+              WHERE gl.user_id = $2
+            ) AS leads,
+            EXISTS (
+              SELECT 1 FROM acknowledgements a
+              WHERE a.document_id = d.id AND a.user_id = u.id AND ${ACK_CURRENT_PA}
+            ) AS confirmed,
+            (pa.exempt_at IS NOT NULL) AS exempt
+     FROM policy_assignments pa
+     JOIN documents d ON d.id = pa.document_id
+     JOIN spaces s ON s.id = d.space_id
+     JOIN users u ON u.id = pa.user_id AND u.status = 'active'
+     LEFT JOIN policy_settings ps ON ps.document_id = d.id
+     WHERE pa.id = $1 AND pa.removed_at IS NULL AND ${MY_POLICY_DOC} AND ${ACK_VISIBILITY}
+       AND d.space_id IN (${readableSpaceIdsSql("$2")})`,
+    [assignmentId, leaderId, workspaceRemindEveryDays]
+  );
+  return rows[0] ?? null;
 }
 
 // --- Quick links (external shortcuts launchpad) ----------------------------------

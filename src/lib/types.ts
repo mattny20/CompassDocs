@@ -439,6 +439,8 @@ export interface AudienceRule {
   kind: AudienceRuleKind;
   ref: string;
   effect: AudienceRuleEffect;
+  /** The policy set that wrote the rule (D3, 1.14.0); null or absent for a rule written on the Settings tab. */
+  set_id?: number | null;
 }
 
 /** How a person came to owe a policy (policy_assignments.source). 'set' and 'recert' are reserved for D3 and later cycles. */
@@ -489,6 +491,129 @@ export interface PolicyAssignment {
   exempt_until: string | null;
   removed_at: string | null;
   removed_reason: PolicyRemovedReason;
+}
+
+// --- Needs attention (1.14.0, F1) -------------------------------------------
+
+/**
+ * Why a row is in the Overview's "Needs attention" queue (lib/db
+ * policyNeedsAttention), one reason per row, decided in this priority order.
+ * The first four and 'standing_exemption' are per-person rows (one
+ * assignment each); 'drifted' and 'kept_n' are policy-level rows, with
+ * assignment_id and user_id null, that ask the compliance manager, not the
+ * editor, to close the loop ("Ask everyone to re-confirm…").
+ */
+export type PolicyAttentionReason =
+  | "overdue"
+  | "escalated"
+  | "never_opened"
+  | "opened_not_confirmed"
+  | "standing_exemption"
+  | "drifted"
+  | "kept_n";
+
+/** One row of `attention.rows` on GET /api/admin/compliance (F1, 1.14.0). */
+export interface PolicyAttentionRow {
+  /** The policy_assignments row the per-row actions act on; null on a policy-level row. */
+  assignment_id: number | null;
+  user_id: number | null;
+  /** The person's name; null on a policy-level row. */
+  user_name: string | null;
+  document_id: number;
+  title: string;
+  space_id: number;
+  reason: PolicyAttentionReason;
+  /**
+   * 'overdue': the due date (ISO; format it with the workspace's date
+   * format); 'standing_exemption': the exemption's reason; 'drifted':
+   * "7.8% since v12"; 'kept_n': "Kept against the suggestion 3 times";
+   * null otherwise.
+   */
+  detail: string | null;
+  /** The person's deadline (ISO) when the row has one; null on a policy-level row. */
+  due_at: string | null;
+  /**
+   * When the reason began (ISO): the due date plus the grace ('overdue'),
+   * the escalation, the ask ('never_opened'), the last view
+   * ('opened_not_confirmed'), the exemption, or the confirmation marker
+   * (the policy-level rows). Null only when unknown.
+   */
+  since: string | null;
+}
+
+// --- Policy sets (1.14.0, D3) ------------------------------------------------
+
+/** One member policy of a set, in the set's order (policy_set_docs.position, 0-based). */
+export interface PolicySetDoc {
+  id: number;
+  title: string;
+  space_name: string;
+  space_icon: string;
+  position: number;
+  /** 1 while the policy requires confirmation; 0 for a member not yet switched on (or paused), which assigning the set switches on. */
+  ack_required: number;
+}
+
+/** Where the set's member policies stand, over their open rows of active accounts: how many are asked, confirmed, overdue, and the percentage. */
+export interface PolicySetProgress {
+  required: number;
+  confirmed: number;
+  overdue: number;
+  pct: number;
+}
+
+/** One row of policy_sets with its ordered members and its progress (listPolicySets, GET /api/admin/compliance/sets). */
+export interface PolicySetRow {
+  id: number;
+  name: string;
+  description: string;
+  /** 1 while the set can be assigned and auto-assigns; 0 once deactivated (reversible). */
+  active: number;
+  /** 1 when every new account lands on the set's policies on day one. */
+  assign_new_members: number;
+  created_at: string;
+  deactivated_at: string | null;
+  docs: PolicySetDoc[];
+  progress: PolicySetProgress;
+}
+
+/** What POST /api/admin/compliance/sets takes (lib/policy-sets parseSetInput shapes it). */
+export interface PolicySetInput {
+  name: string;
+  description: string;
+  /** Ordered, deduped, 1..SET_DOCS_MAX published non-branch document ids. */
+  doc_ids: number[];
+  assign_new_members: boolean;
+}
+
+/** What PATCH /api/admin/compliance/sets/[id] takes: any subset; `doc_ids` replaces the whole list in its order. */
+export interface PolicySetPatch {
+  name?: string;
+  description?: string;
+  doc_ids?: number[];
+  assign_new_members?: boolean;
+  active?: boolean;
+}
+
+/** Who a set is assigned to (POST /api/admin/compliance/sets/[id]): named people and groups, or everyone who can see each policy's space. */
+export interface PolicySetTarget {
+  user_ids: number[];
+  group_ids: number[];
+  everyone: boolean;
+}
+
+/** What assigning a set did (assignPolicySet). */
+export interface PolicySetAssignResult {
+  /** Member policies the assignment reached (a retired or trashed member is skipped). */
+  policies: number;
+  /** Distinct active accounts the target names (every active account for `everyone`). */
+  people: number;
+  /** Rows the reconciles opened or re-opened on the policies that were already asking; the switched-on ones count theirs at delivery. */
+  added: number;
+  /** Titles of the members that did not yet require confirmation and were switched on with the defaults. */
+  switched_on: string[];
+  /** Titles of the members already asking everyone who can see their space, left in space mode (a set never narrows). */
+  not_narrowed: string[];
 }
 
 export interface SearchHit {
