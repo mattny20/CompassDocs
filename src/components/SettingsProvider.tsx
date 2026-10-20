@@ -20,7 +20,7 @@
 
 import { createContext, useContext, useMemo } from "react";
 import { SETTINGS_DEFAULTS, type AppSettings } from "@/lib/settings";
-import { formatDate, formatDateTime, formatDayShort } from "@/lib/format";
+import { formatDate, formatDateTime, formatDay, formatDayShort } from "@/lib/format";
 
 const SettingsContext = createContext<AppSettings>(SETTINGS_DEFAULTS);
 
@@ -47,10 +47,13 @@ export function useAppSettings(): AppSettings {
  *   const fmt = useFormatDate();
  *   fmt.date(iso)      → "2026-08-02"            (date only)
  *   fmt.dateTime(iso)  → "2026-08-02, 01:08"     (date + time)
+ *   fmt.day(ymd)       → "2026-08-02"            (calendar day: a `date` column or a chosen date, never shifted by the zone)
  *   fmt.dayShort(ymd)  → "08-02"                 (calendar bucket, no year)
  *
- * All three accept null/undefined and return "" — call sites keep their own
- * "never" / "—" fallbacks.
+ * All four accept null/undefined and return "" — call sites keep their own
+ * "never" / "—" fallbacks. An instant (when something happened) takes `date`
+ * / `dateTime`; a calendar day (an effective date, a next re-confirmation
+ * date) takes `day` (STYLEGUIDE §Forms).
  */
 export function useFormatDate() {
   const settings = useContext(SettingsContext);
@@ -59,6 +62,7 @@ export function useFormatDate() {
       settings,
       date: (iso: string | null | undefined) => formatDate(iso, settings),
       dateTime: (iso: string | null | undefined) => formatDateTime(iso, settings),
+      day: (value: string | null | undefined) => formatDay(value, settings),
       dayShort: (ymd: string | null | undefined) => formatDayShort(ymd, settings),
     }),
     [settings]

@@ -37,6 +37,19 @@ export async function register() {
     } catch (e) {
       console.error("[training] scheduler error:", e);
     }
+    // Read-confirmation cycles (Enterprise, policy_ack): every policy whose
+    // next re-confirmation date has passed is asked again. One UPDATE moves
+    // the date its WHERE tests, so every instance may run this and a cycle
+    // fires once; the notices go through the outbox the minute tick drains.
+    try {
+      const { featureEnabled } = await import("./lib/ee");
+      if (await featureEnabled("policy_ack")) {
+        const { recertifyDueAcks } = await import("./lib/compliance");
+        await recertifyDueAcks();
+      }
+    } catch (e) {
+      console.error("[ack] re-confirmation sweep error:", e);
+    }
     // Scheduled directory syncs (Enterprise): each provider on its own
     // schedule, one instance at a time, with an emailed report.
     try {

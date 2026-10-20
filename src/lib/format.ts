@@ -82,6 +82,21 @@ export function formatDayShort(ymd: string | null | undefined, settings: AppSett
   return build(`${ymd}T00:00:00Z`, opts, fmt);
 }
 
+/** Format a calendar *day* with the workspace date format and its year, e.g.
+ * "Jan 1, 2026": a "YYYY-MM-DD" (a `date` column such as
+ * documents.ack_effective_at) or an ISO instant standing for a day (the
+ * midnight UTC a date input is stored as: a next re-confirmation date).
+ *
+ * A day is not an instant: projected into a time zone west of UTC,
+ * "2026-01-01" would read as 31 Dec 2025, one day before the day the manager
+ * chose. Pinned to UTC like formatDayShort, so the card, the popover, the
+ * portal and the Settings tab's date inputs name the same day. */
+export function formatDay(value: string | null | undefined, settings: AppSettings): string {
+  if (!value) return "";
+  const iso = /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T00:00:00Z` : value;
+  return build(iso, { ...dateOptions(settings.date_format), timeZone: "UTC" }, settings.date_format);
+}
+
 /** Format date + time, e.g. "Jul 12, 2026, 14:05" (per the workspace settings). */
 export function formatDateTime(iso: string | null | undefined, settings: AppSettings): string {
   return build(

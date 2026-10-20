@@ -184,10 +184,13 @@ export default async function DashboardPage() {
               />
             )}
             {pendingAcks.length > 0 && (
+              // One policy: straight to its confirmation card. More: My
+              // policies, which lists them all (B4). The count is the whole
+              // list, no longer the first twenty.
               <AttentionRow
-                href={`/doc/${pendingAcks[0].id}`}
+                href={pendingAcks.length === 1 ? `/doc/${pendingAcks[0].id}#confirm-reading` : "/compliance"}
                 icon={<ClipboardCheck className="h-4 w-4" aria-hidden />}
-                label={`${pendingAcks.length} document${pendingAcks.length === 1 ? " needs" : "s need"} your read confirmation`}
+                label={`${pendingAcks.length} ${pendingAcks.length === 1 ? "policy needs" : "policies need"} your read confirmation`}
                 detail={pendingAcks
                   .slice(0, 3)
                   .map((d) => `${d.space_icon} ${d.title}`)

@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Locator, type Page } from "@playwright/test";
 import JSZip from "jszip";
 import { ADMIN, login, api } from "./helpers";
 
@@ -66,6 +66,25 @@ test("read confirmation: the entitlement gate holds in the community build", asy
       expect(reconfirm.status, "POST /ack/reconfirm").toBe(402);
       expect((await api(page, "/api/admin/compliance")).status, "GET /api/admin/compliance").toBe(402);
       expect((await api(page, "/api/admin/compliance/settings")).status, "GET /api/admin/compliance/settings").toBe(402);
+      // The 1.12.0 routes answer the same 402 before any shape, permission
+      // or state check, so the admin session is enough: the policy's
+      // settings, retire and un-retire, and the person's own list.
+      expect((await api(page, `/api/documents/${docId}/ack-settings`)).status, "GET /ack-settings").toBe(402);
+      expect(
+        (await api(page, `/api/documents/${docId}/ack-settings`, { method: "PATCH", body: { signature: true } })).status,
+        "PATCH /ack-settings"
+      ).toBe(402);
+      expect(
+        (
+          await api(page, `/api/documents/${docId}/ack/retire`, {
+            method: "POST",
+            body: { reason: "Superseded by the new expense policy" },
+          })
+        ).status,
+        "POST /ack/retire"
+      ).toBe(402);
+      expect((await api(page, `/api/documents/${docId}/ack/unretire`, { method: "POST", body: {} })).status, "POST /ack/unretire").toBe(402);
+      expect((await api(page, "/api/compliance/mine")).status, "GET /api/compliance/mine").toBe(402);
       // The erasure endpoint is gated the same way, so the API and the Users
       // page (which hides the button unlicensed) agree.
       const throwaway = { username: `e2e_ackgate_${stamp()}`, password: "E2eGate!12345" };
@@ -308,6 +327,33 @@ async function openEditor(page: Page, docId: number) {
   await editor.waitFor({ state: "visible", timeout: 15000 });
   await page.waitForTimeout(1500);
   return editor;
+}
+
+/**
+ * Click into the editor and put the caret at the very end of the document.
+ * ProseMirror re-asserts its own selection 20 ms after the editor takes
+ * focus (prosemirror-view's focus handler), which undoes a Control+End
+ * pressed in that window and leaves the caret where the click landed; so
+ * the key is pressed until no text follows the caret.
+ */
+async function caretToEnd(page: Page, editor: Locator) {
+  await editor.click();
+  await expect
+    .poll(
+      async () => {
+        await page.keyboard.press("Control+End");
+        return editor.evaluate((el) => {
+          const sel = el.ownerDocument.getSelection();
+          if (!sel || !sel.isCollapsed || !sel.focusNode || !el.contains(sel.focusNode)) return false;
+          const after = el.ownerDocument.createRange();
+          after.setStart(sel.focusNode, sel.focusOffset);
+          after.setEnd(el, el.childNodes.length);
+          return after.toString() === "";
+        });
+      },
+      { message: "the caret is at the end of the document" }
+    )
+    .toBe(true);
 }
 
 async function openEditorAndType(page: Page, docId: number, text: string) {
@@ -1251,11 +1297,10 @@ test("the schedule hint says what publishing on schedule will do to confirmation
     expect(down.body?.doc?.status).toBe("draft");
 
     // A change plus a time: the ask variant, naming the people and the version.
-    // Typed at the very end of the document (Control+End), so the same keys
+    // Typed at the very end of the document (caretToEnd), so the same keys
     // can take it out again: End alone stops at the end of a wrapped line.
     const editor = await openEditor(page, docId);
-    await editor.click();
-    await page.keyboard.press("Control+End");
+    await caretToEnd(page, editor);
     await page.keyboard.type(" Done.");
     await page.getByLabel(SCHEDULE_FIELD).fill(PUBLISH_AT);
     await expect(
@@ -1264,8 +1309,7 @@ test("the schedule hint says what publishing on schedule will do to confirmation
 
     // The change undone: the text equals the confirmed version again, and
     // the hint goes (the time is still set).
-    await editor.click();
-    await page.keyboard.press("Control+End");
+    await caretToEnd(page, editor);
     for (let i = 0; i < " Done.".length; i++) await page.keyboard.press("Backspace");
     await expect(page.getByText(/^Publishing on schedule/)).toHaveCount(0);
     await expect(page.getByLabel(SCHEDULE_FIELD)).toHaveValue(PUBLISH_AT);
@@ -1361,6 +1405,124 @@ test("importing a zip leaves a confirmed policy unchanged unless the box is tick
     expect(summary.body?.last_decision?.source).toBe("import");
   } finally {
     if (plainId) await api(page, `/api/documents/${plainId}`, { method: "DELETE" });
+    if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
+  }
+});
+
+// 1.12.0 (C2): a policy's own confirmation statement and the typed
+// signature. The settings route validates and answers what the document
+// holds; the card renders the statement and, when a signature is required,
+// the Sign to confirm block gates the button until the typed name matches;
+// the record keeps the name and how the signer was identified; the
+// Settings tab shows the same two settings.
+test("a policy with a typed signature: the button waits for the name, the record keeps it, and a per-document statement shows on the card and the Settings tab", async ({ page }) => {
+  test.setTimeout(120_000);
+  await login(page, ADMIN);
+  const title = `E2E ack signature ${stamp()}`;
+  const custom = "I have read this document and will comply with it.";
+  let docId: number | undefined;
+  try {
+    docId = await makePolicy(page, title);
+    test.skip(
+      (await requireConfirmation(page, docId)) === "unlicensed",
+      "policy_ack is not licensed in this build; the EE rig runs the flow"
+    );
+
+    // The settings route: the defaults, then the validation, then the two
+    // settings set through PATCH.
+    const before = await api(page, `/api/documents/${docId}/ack-settings`);
+    expect(before.status).toBe(200);
+    expect(before.body?.statement).toBeNull();
+    expect(before.body?.signature).toBe(false);
+    expect(before.body?.statement_default).toBe(STATEMENT);
+    expect((await api(page, `/api/documents/${docId}/ack-settings`, { method: "PATCH", body: { signature: "yes" } })).status).toBe(400);
+    expect((await api(page, `/api/documents/${docId}/ack-settings`, { method: "PATCH", body: { statement: "x".repeat(501) } })).status).toBe(400);
+    const set = await api(page, `/api/documents/${docId}/ack-settings`, {
+      method: "PATCH",
+      body: { statement: custom, signature: true },
+    });
+    expect(set.status, "statement and signature saved").toBe(200);
+    expect(set.body?.statement).toBe(custom);
+    expect(set.body?.signature).toBe(true);
+
+    // The card: the policy's own statement (not the workspace default), the
+    // Sign to confirm block, and a button that waits for the name.
+    await page.goto(`/doc/${docId}`);
+    await expect(page.locator("h1")).toContainText(title);
+    const card = page.locator("#confirm-reading");
+    await expect(card.getByText(custom)).toBeVisible();
+    await expect(card.getByText(STATEMENT)).toHaveCount(0);
+    await expect(card.getByRole("heading", { name: "Sign to confirm" })).toBeVisible();
+    const button = card.getByRole("button", { name: CONFIRM });
+    await expect(button).toHaveAttribute("aria-disabled", "true");
+    await expect(card.getByText("Sign above to confirm")).toBeVisible();
+    // The help names the account's own name: the name the signature must match.
+    const help = (await card.getByText(/^Exactly as it appears on your account: /).textContent()) ?? "";
+    const expected = help.replace(/^Exactly as it appears on your account: /, "").trim();
+    expect(expected, "the account name on the help line").toBeTruthy();
+
+    const name = card.getByLabel("Type your full name to sign");
+    await name.fill("Somebody Else");
+    await expect(button).toHaveAttribute("aria-disabled", "true");
+    // A click while gated records nothing and sends nothing. The click is
+    // forced: Playwright's actionability treats aria-disabled as disabled
+    // and would wait for the gate to lift, which is the opposite of the point.
+    let posted = 0;
+    page.on("request", (r) => {
+      if (r.method() === "POST" && r.url().includes(`/api/documents/${docId}/ack`)) posted += 1;
+    });
+    await button.click({ force: true });
+    await page.waitForTimeout(300);
+    expect(posted, "no POST while the name does not match").toBe(0);
+
+    await name.fill(expected.toUpperCase());
+    await expect(button).not.toHaveAttribute("aria-disabled", "true");
+    await expect(card.getByText("Sign above to confirm")).toHaveCount(0);
+
+    // The admin is a local account: the password is re-checked. One wrong
+    // password (the sign-in throttle counts it; the right one clears it).
+    const password = card.getByLabel("Re-enter your account password");
+    await password.fill("not-the-password");
+    await button.click();
+    await expect(page.locator('[role="alert"]').getByText(/Password check failed/)).toBeVisible();
+    await expect(card.getByRole("button", { name: CONFIRM })).toHaveCount(1);
+
+    await password.fill(ADMIN.password);
+    const [confirmPost] = await Promise.all([
+      page.waitForRequest((r) => r.method() === "POST" && r.url().includes(`/api/documents/${docId}/ack`) && !r.url().includes("ack-settings")),
+      button.click(),
+    ]);
+    const confirmBody = confirmPost.postDataJSON() as Record<string, unknown>;
+    expect(confirmBody.signed_name).toBe(expected.toUpperCase());
+    expect(typeof confirmBody.password).toBe("string");
+    await expect(page.locator('[role="status"]').getByText("Confirmation recorded.")).toBeVisible();
+    await expect(card.getByRole("heading", { name: "Confirmation recorded" })).toBeVisible();
+    await expect(card.getByText(/signed as /)).toBeVisible();
+
+    // The record keeps the name as typed and how the signer was identified;
+    // the statement stored is the one served.
+    const roster = await api(page, `/api/documents/${docId}/acknowledgements`);
+    expect(roster.status).toBe(200);
+    const mine = (roster.body?.rows ?? []).find((r: { username: string }) => r.username === ADMIN.username);
+    expect(mine?.signed_name).toBe(expected.toUpperCase());
+    expect(mine?.identity_proof).toBe("password");
+    expect(mine?.statement_text).toBe(custom);
+
+    // A fresh load shows the record's name, not a remembered click.
+    await page.goto(`/doc/${docId}`);
+    await expect(page.locator("#confirm-reading").getByText(/signed as /)).toBeVisible();
+
+    // The Settings tab holds the same two settings, under the shared header.
+    await page.goto(`/doc/${docId}/acknowledgements/settings`);
+    await expect(page.getByRole("heading", { name: "Read confirmation" })).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "Read confirmation" }).getByRole("link", { name: "Settings" })).toHaveAttribute(
+      "aria-current",
+      "page"
+    );
+    await expect(page.getByLabel("Confirmation statement")).toHaveValue(custom);
+    await expect(page.getByRole("switch", { name: "Require typed signature" })).toHaveAttribute("aria-checked", "true");
+    await expect(page.getByRole("button", { name: "Save settings" })).toBeDisabled();
+  } finally {
     if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
   }
 });

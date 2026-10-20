@@ -162,14 +162,27 @@ a top-level page and uses `PageContainer`, however standalone it feels.
   above `DocDiff` with a "+{added} / −{removed} lines" header and an
   "Open in version history" link; a re-ask that changed no text shows the
   reason line and no disclosure. The sticky control reads **Re-confirm
-  needed** when an earlier confirmation lapsed. The done
+  needed** when an earlier confirmation lapsed. A policy that requires a
+  typed signature (1.12.0) adds, between the statement and the button, the
+  **Sign to confirm** block (the training player's recipe: a `max-w-md
+  rounded-lg border bg-canvas p-4` panel, a `SubHeading` with `PenLine`,
+  `<Field label="Type your full name to sign" help="Exactly as it appears
+  on your account: {name}"><TextInput autoComplete="name"/>` and, for a
+  local account, `<Field label="Re-enter your account password"><TextInput
+  type="password" autoComplete="current-password"/>`). The button is
+  `aria-disabled` (never `disabled`, so it stays focusable) with
+  `aria-describedby` pointing at a visible `text-xs text-slate-500` line
+  "Sign above to confirm" until the typed name matches under `nameKey`;
+  the click is ignored until then. The statement itself renders through
+  `MarkdownView` at the card's size. The done
   state is plain text inside the same card — the emerald `CircleCheckBig`
-  and "You confirmed version 12 on {date}" — never a second card or an
+  and "You confirmed version 12 on {date}" (", signed as {name}" on a
+  signed confirmation) — never a second card or an
   inline flash; the toast is the announcement, and focus moves to the
-  section after success. The card links nowhere until a page every reader
-  can open exists (My policies, 1.11.1): `/compliance` is gated on
-  `compliance.program_read`, so "View your record" there would bounce most
-  readers to the dashboard. The strip at the top keeps **one
+  section after success. The card links nowhere yet (My policies, 1.12.0,
+  is a page every reader can open and links the other way, from its rows
+  to this card; the card's "View your record" link waits for the person
+  record, 1.14.0). The strip at the top keeps **one
   sentence and one action**: a `secondary` `sm` `<Button
   href="#confirm-reading">` (a real anchor so it works without JS;
   `onClick` adds `scrollIntoView` unless reduced motion, then focuses the
@@ -363,6 +376,14 @@ focus):
   `text-xs text-amber-600`, or `Saved` in `text-xs text-slate-500`). A page
   whose cards are one document (office fields + office values) has one Save
   below the cards, not one per card.
+- **A per-document settings tab** (1.12.0): the Read confirmation page's
+  Settings tab is a routed page under the record's layout
+  (`doc/[id]/acknowledgements/settings`, guarded like the record), its cards
+  stacked and sharing one `{ s, set, errors }` model, with one `SaveRow`
+  "Save settings" (`useUnsavedChanges`) as the page's only primary action.
+  A card's own action (Retire policy…, Un-retire) is a `secondary` or
+  `danger` button that opens `formDialog` / `confirmDialog`, never a second
+  Save. `PolicySettingsPanel` is the worked example.
 - **A settings list with one editable item at a time (export presets) is a
   two-pane layout** (1.11.2): a rail-row list on the left (chips for state),
   the selected item's editor on the right in grouped cards with one Save row
@@ -469,6 +490,15 @@ One field recipe, one input recipe, one width scale. Everything lives in
   an optional field says so in the label (`(optional)`) rather than with a
   placeholder. Placeholders are examples, never the label: a control with
   no visible label needs `aria-label`.
+- **Dates.** An instant (a `timestamptz`: when something happened) prints
+  through `useFormatDate().date` / `.dateTime` (`formatDate` /
+  `formatDateTime` in a server component), in the workspace's or the
+  person's time zone. A calendar day (a `date` column, a chosen date on a
+  `type="date"` input: an effective date, a next re-confirmation date)
+  prints through `formatDay` / `useFormatDate().day`, never through the
+  instant formatter — projected into a zone west of UTC, "2026-01-01"
+  reads as the day before the one the person chose. Chart buckets keep
+  `.dayShort`.
 - Checkbox *lists*, radio groups and composite pickers (EntityPicker,
   SpaceIconPicker) keep their own markup; their text inputs still use the
   recipe.
@@ -548,6 +578,11 @@ and `py-1.5` (`dense`) in the settings and account rails. Group labels
   `w-sidebar-rail`, `w-rail`, or `var(--container-rail)` in a grid template),
   so the sidebar and the rails grow together with the interface scale. The
   collapsed rail's right-placed tooltip offset assumes the 4rem token.
+- A destination behind the sidebar's More fold that carries a badge is
+  rendered with the fold open and the toggle hidden, exactly as the current
+  page is: the accent pill means work waiting for you, and it is never
+  behind a fold (1.12.0; the Compliance entry's "policies to confirm" badge
+  is the first).
 
 ## Color and theming
 
@@ -663,8 +698,9 @@ a menu. The document sticky bar is the worked example (B2): while a read
 confirmation is pending the control is a `secondary` `sm` `<Button href>`
 that jumps to the card at the end of the article, and once confirmed it
 becomes `chipClass("ok", "sm")` with `CircleCheckBig` and "Confirmed
-{date}" — a status, not a link ("View your record" arrives with My
-policies in 1.11.1, in the card, never on the chip).
+{date}" — a status, not a link (My policies, 1.12.0, links from its rows
+to the card; the card's "View your record" link waits for the person
+record, 1.14.0, and lives in the card, never on the chip).
 The read-confirmation chips are a closed set — **Confirmed** (`ok`),
 **Pending** (`warn`), **Overdue** (`error`), **Exempt** (`neutral`) — and
 nothing else for a confirmation's state (never "Acknowledged").
@@ -687,7 +723,11 @@ nothing else for a confirmation's state (never "Acknowledged").
   **Paused (unpublished) · 3** `<details>` group at the foot of the Policy
   progress card. The row offers no action (every row action needs a
   published document) and the tiles above leave the group out. The group's
-  count follows the summary with a middle dot, not a second bracket.
+  count follows the summary with a middle dot, not a second bracket. A
+  retired policy (1.12.0, `PortalPolicies`) is a neutral **Retired {date}**
+  chip with `Archive` and the retirer as its tooltip, in the collapsed
+  **Retired · 3** group below Paused; its row keeps the record link and the
+  CSV and offers Un-retire only.
 
 **Attribute chips** (a directory field shown as chips, a tag list) are not
 status: render them with `FieldChips`, which shows the option's **label**
@@ -956,9 +996,9 @@ per-route variants:
   per-policy settings (audience, deadline, reminders, the re-confirmation
   interval, the statement, signature) go to the document's Read
   confirmation **Settings** page (`/doc/[id]/acknowledgements/settings`,
-  with the house `SubNav`: Record · Settings · History), and the popover
-  gains one "All settings" link. A popover wanting a fifth control is the
-  signal to make the page.
+  with the house `SubNav`: Record · History · Settings), reached from the
+  record. A popover wanting a fifth control is the signal to make the
+  page.
 - **Questions are dialogs**: `confirmDialog({ title, body, confirmLabel,
   danger, typeToConfirm, secondary })` and `promptDialog({ title, label,
   type, initial, validate, min, max })` from `components/Dialog`, one

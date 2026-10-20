@@ -8,6 +8,7 @@ import {
   unreadNotificationCount,
   listStatusProblems,
   countMyOpenTraining,
+  countPendingAcksFor,
 } from "@/lib/db";
 import { spaceScopeFor } from "@/lib/access";
 import { featureEnabled } from "@/lib/ee";
@@ -57,6 +58,9 @@ export async function Sidebar({
       showCompliance={caps.showCompliance}
       showTraining={caps.showTraining}
       trainingCount={caps.showTraining ? await countMyOpenTraining(user.id) : 0}
+      // The policies to confirm (B4): counted only when the item shows, the
+      // way the training badge follows its capability.
+      pendingAckCount={caps.showCompliance ? await countPendingAcksFor(user.id, scope) : 0}
       isEditor={caps.isEditor}
       isApprover={caps.isApprover}
       isAdmin={caps.isAdmin}

@@ -1,10 +1,11 @@
 "use client";
 
 import { buttonClass } from "@/components/Button";
+import { chipClass } from "@/components/Chip";
 import { confirmDialog } from "@/components/Dialog";
 import { Table, Th, Td, TABLE_HEAD_ROW, TR } from "@/components/Table";
 import { useAction } from "@/lib/use-action";
-import { Search, Trash2 } from "lucide-react";
+import { Search, ShieldCheck, Trash2 } from "lucide-react";
 import { TypeBadge } from "./Badges";
 import { EmptyState, SectionEmpty } from "./form";
 import { ListFilter } from "./ListFilter";
@@ -23,6 +24,10 @@ interface TrashedDoc {
   space_name: string;
   space_icon: string;
   deleted_at: string | null;
+  /** Confirmations on record (G3, 1.12.0): a row with any is never auto-purged and says so. */
+  ack_count: number;
+  /** Set when the policy was retired before it was trashed. */
+  ack_retired_at: string | null;
 }
 
 export function TrashClient({
@@ -130,9 +135,18 @@ export function TrashClient({
           {docs.map((d) => (
             <tr key={d.id} className={`${TR} ${isBusy(d.id) ? "opacity-50" : ""}`.trim()}>
               <Td>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <TypeBadge type={d.type} />
                   <span className="font-medium text-slate-800">{d.title}</span>
+                  {/* Evidence on record (G3): the retention sweep leaves this
+                      row alone; only "Delete forever" removes it. */}
+                  {d.ack_count > 0 && (
+                    <span className={chipClass("neutral", "sm")}>
+                      <ShieldCheck className="h-3 w-3" aria-hidden />
+                      {d.ack_retired_at ? "Retired policy" : "Policy"} · {d.ack_count} confirmation
+                      {d.ack_count === 1 ? "" : "s"} on record
+                    </span>
+                  )}
                 </div>
                 <div className="mt-0.5 text-xs text-slate-500">
                   {d.space_icon} {d.space_name}
@@ -144,7 +158,9 @@ export function TrashClient({
                   {d.deleted_at ? formatDate(d.deleted_at, settings) : "—"}
                 </div>
                 {retentionDays > 0 && d.deleted_at && (
-                  <div className="text-xs text-slate-500">purges {purgeOn(d.deleted_at)}</div>
+                  <div className="text-xs text-slate-500">
+                    {d.ack_count > 0 ? "kept until deleted forever" : `purges ${purgeOn(d.deleted_at)}`}
+                  </div>
                 )}
               </Td>
               <Td fit>

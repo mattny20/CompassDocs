@@ -1,7 +1,7 @@
 // Shared compliance copy (1.10.1): the three edit-default options, the
 // portal's chip labels for them and the people() count, in one small
 // client-safe module. The shield popover (AckSettings), the portal
-// (CompliancePanel), the re-ask control (ReconfirmButton), the editor's
+// (PortalPolicies), the re-ask control (ReconfirmButton), the editor's
 // question (ReconfirmModal), the shared "Require read confirmation?" dialog
 // (RequireAckDialog) and the Program settings form all read it here, so no
 // surface keeps a private copy of a sentence another one shows, and the
@@ -40,7 +40,7 @@ export const EDIT_DEFAULT_OPTIONS: { value: EditDefault; label: string; help: st
 ];
 
 /** The per-policy edit-default chip on the portal row (A5): a short state;
- *  the full option sentence is its tooltip (CompliancePanel's editDefaultTip). */
+ *  the full option sentence is its tooltip (PortalPolicies' editDefaultTip). */
 export const EDIT_DEFAULT_CHIP: Record<EditDefault, string> = {
   ask: "Asks editor",
   material: "Asks when material",

@@ -52,7 +52,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/training", label: "Training", icon: GraduationCap, keywords: "courses decks compliance learning", cap: "showTraining", chord: "t" },
   { href: "/review", label: "Review queue", icon: ClipboardList, keywords: "approve suggestions change requests pending", cap: "isApprover", chord: "r" },
   { href: "/announcements", label: "Announcements", icon: Megaphone, keywords: "news posts broadcast", cap: "showAnnouncements", chord: "n" },
-  { href: "/compliance", label: "Compliance", icon: ShieldCheck, keywords: "policy acknowledgements attestation", cap: "showCompliance", chord: "c" },
+  { href: "/compliance", label: "Compliance", icon: ShieldCheck, keywords: "my policies policy read confirmation confirm acknowledgements", cap: "showCompliance", chord: "c" },
   { href: "/newsletter", label: "Newsletter", icon: Mail, keywords: "email campaign digest issue", cap: "showNewsletter" },
   { href: "/analytics", label: "Analytics", icon: ChartColumn, keywords: "usage views reports metrics", cap: "isApprover" },
   { href: "/trash", label: "Trash", icon: Trash2, keywords: "deleted removed restore recycle", cap: "isEditor" },

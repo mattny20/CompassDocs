@@ -25,9 +25,11 @@ import {
   getAttestedVersion,
   ackSummary,
   lastAckDecision,
+  getUserByUsername,
 } from "@/lib/db";
 import { getComplianceSettings } from "@/lib/compliance-settings";
 import { askedClause } from "./acknowledgements/ack-sentence";
+import { recertStatusLine } from "@/lib/ack-recert";
 import { DocNotices } from "@/components/DocNotices";
 import { StickyDocBar } from "@/components/StickyDocBar";
 import { AckProvider } from "@/components/AckState";
@@ -36,7 +38,7 @@ import { AckCard } from "@/components/AckCard";
 import { AckStickyControl } from "@/components/AckStickyControl";
 import { RelativeTime } from "@/components/RelativeTime";
 import { getAppSettings } from "@/lib/settings-store";
-import { formatDate, settingsForUser } from "@/lib/format";
+import { formatDate, formatDay, settingsForUser } from "@/lib/format";
 import { MarkdownView } from "@/components/MarkdownView";
 import { DocToc } from "@/components/DocToc";
 import { DocLayout } from "@/components/DocLayout";
@@ -138,6 +140,24 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
   // Draft-branch context: the source doc for the banner, live branches for the note.
   const branchSource = doc.branch_of !== null ? await getDocument(doc.branch_of) : undefined;
   const branchCount = isStaff && doc.branch_of === null ? (await listBranches(doc.id)).length : 0;
+  // A retired policy (G3, 1.12.0): the notices strip shows one neutral row
+  // for everyone, with the replacement as a link when this reader may open
+  // it (its space scope, and the draft rule); the card and the sticky chip
+  // are gone on their own, since the requirement is off.
+  const replacement =
+    ackEnabled && doc.ack_retired_at && doc.ack_superseded_by ? await getDocument(doc.ack_superseded_by) : undefined;
+  const retired =
+    ackEnabled && doc.ack_retired_at
+      ? {
+          at: doc.ack_retired_at,
+          replacedBy:
+            replacement &&
+            scopeAllows(scope, replacement.space_id) &&
+            (replacement.status === "published" || seeDraftsAnywhere)
+              ? { id: replacement.id, title: replacement.title }
+              : null,
+        }
+      : null;
   const mergeNeedsReview =
     branchSource?.status === "published" && !(await canPublishDirectly(user, doc.space_id));
   // The toolbar's two main decisions, resolved here rather than in the client
@@ -164,10 +184,17 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
     userHolds(user, "template.manage", { legacyMin: "admin" }),
   ]);
   // Read confirmation applies to a published, required, non-branch document
-  // when the feature is licensed. The reader's own record and the version
-  // they are asked to confirm (A1) seed the shared AckState.
+  // when the feature is licensed, and never to a retired one (G3): retiring
+  // switches the requirement off in the same UPDATE, but a row re-required
+  // by a 1.11.2 binary while rolled back comes back as both, and the card
+  // must not sit under the "Retired …" notice. The reader's own record and
+  // the version they are asked to confirm (A1) seed the shared AckState.
   const ackActive =
-    ackEnabled && doc.ack_required === 1 && doc.status === "published" && doc.branch_of === null;
+    ackEnabled &&
+    doc.ack_required === 1 &&
+    doc.status === "published" &&
+    doc.branch_of === null &&
+    doc.ack_retired_at === null;
   const [myAck, ackVersion] = ackActive
     ? await Promise.all([getCurrentAck(doc.id, user.id), getAckVersionInfo(doc.id)])
     : [undefined, null];
@@ -263,8 +290,17 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
           workspaceDefault: complianceSettings.ack_defaults.edit_default,
           summary: { eligible: ackSum.eligible, current: ackSum.current, rev: ackSum.rev },
           statusLine: ackStatusLine,
+          // The cycle (G1): "Re-confirm yearly · next 1 Jan 2027", or nothing.
+          // The next date is the day the manager chose (midnight UTC), so
+          // the day formatter, never the zone-shifting instant one.
+          recertLine: recertStatusLine(ackSum, (iso) => formatDay(iso, fmtSettings)),
           canViewRecord: canReadAckRoster,
           viewerName: user.name || user.username,
+          // A retired policy (G3): the popover points at the Settings tab
+          // instead of offering a switch PATCH /ack would refuse with 409.
+          // Whoever sees the popover holds document.ack_require on the
+          // space, which is the tab's own gate.
+          retired: doc.ack_retired_at ? { at: doc.ack_retired_at, canOpenSettings: canRequireAck } : null,
         }
       : undefined;
   // The reader confirms the text on screen, which is the newest version:
@@ -284,6 +320,13 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
   const ackPublishedLabel = ackActive
     ? formatDate(ackVersion?.latest_created_at ?? ackVersion?.created_at ?? doc.updated_at, fmtSettings)
     : null;
+  // The typed signature (C2): whether this document asks for one, and
+  // whether the reader's account has a password to re-enter (a local
+  // account); an SSO account signs with its name and is identified by its
+  // session. Read only when the card will ask, never echoed to the client
+  // beyond the yes/no.
+  const ackSignature = showAckCard && doc.ack_signature === 1;
+  const ackLocalAccount = ackSignature ? Boolean((await getUserByUsername(user.username))?.password_hash) : false;
 
   return (
     <PageWidth>
@@ -435,6 +478,7 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
           isDraft={doc.status === "draft" && isStaff}
           branchCount={branchCount}
           pendingCount={pending.length}
+          retired={retired}
           reviewOverdue={
             reviewOverdue && isStaff
               ? { dueDateLabel: reviewDueLabel, canEdit: hasEditRights }
@@ -526,10 +570,22 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
           {showAckCard && (
             <AckCard
               docId={doc.id}
-              readerName={user.name}
-              // The workspace's confirmation statement (E4); a per-document
-              // statement arrives with C2.
-              statement={complianceSettings?.compliance_statement_default}
+              // The name a signature must match (lib/attestation compares
+              // against the same fallback) and the printed line's subject.
+              readerName={user.name || user.username}
+              // The policy's own confirmation statement (C2), else the
+              // workspace default (E4).
+              statement={doc.ack_statement ?? complianceSettings?.compliance_statement_default}
+              // The typed signature (C2): the Sign to confirm block, the
+              // password field for a local account, and the name on the
+              // reader's current confirmation for the done state.
+              signature={ackSignature}
+              localAccount={ackLocalAccount}
+              signedName={myAck?.signed_name ?? null}
+              // The policy's dates (G1): "Effective 1 Jan 2026 · re-confirm
+              // yearly" under the version line.
+              effectiveAt={doc.ack_effective_at}
+              recertMonths={doc.ack_recert_months}
               // The newest version's provenance (C6), the one the reader
               // confirms: the stamped publisher over the byline, and the
               // approver when a change request carried it. A document with

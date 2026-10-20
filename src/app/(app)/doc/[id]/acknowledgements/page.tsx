@@ -1,41 +1,29 @@
-import { Check } from "lucide-react";
-import { Chip, chipClass } from "@/components/Chip";
-import { SectionEmpty } from "@/components/form";
-import { ackFormerStaffRows } from "@/lib/db";
-import type { AckStatusRow, AckFormerStaffRow } from "@/lib/db";
+import { Chip } from "@/components/Chip";
+import { ackFormerStaffRows, listAckLedger } from "@/lib/db";
+import type { AckFormerStaffRow } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings-store";
 import { formatDateTime, settingsForUser } from "@/lib/format";
+import { userHolds } from "@/lib/access";
 import { Table, Th, Td, TABLE_HEAD_ROW, TR } from "@/components/Table";
-import { documentWordCount, isShortRead, readTimeLabel, SHORT_READ_TOOLTIP } from "@/lib/read-evidence";
+import { AckRoster, VersionCell, ReadTimeCell, ReachedEndCell, SignedCell } from "@/components/AckRoster";
+import type { AckLedgerViewRow } from "@/components/AckRoster";
+import { documentWordCount } from "@/lib/read-evidence";
 import { ackPageContext, cachedAckRows } from "./data";
 
 import type { Metadata } from "next";
 import { cachedDocument } from "@/lib/page-data";
 export const dynamic = "force-dynamic";
 
-// The Record tab of the Read confirmation pages: the roster. The header,
-// the subtitle sentence and the Record · History row live in layout.tsx.
+// The Record tab of the Read confirmation pages: the roster (C4, 1.12.0:
+// AckRoster with its Show filter, the people filter, the pager and the
+// Current version / All confirmations switch), the collapsed former-staff
+// section and the two footnotes. The header, the subtitle sentence, the
+// Export menu and the Record · History row live in layout.tsx.
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
   const doc = await cachedDocument(Number(id)).catch(() => undefined);
   return { title: doc?.title ? `Read confirmation · ${doc.title}` : "Read confirmation" };
-}
-
-/** "v12", marked "(inferred)" on rows from before 1.10.0. The explanation is
- *  a footnote under the table, not a tooltip: the table scrolls sideways
- *  inside its card, and a tooltip bubble is clipped by that container. */
-function VersionCell({ row }: { row: Pick<AckStatusRow, "rev" | "version_source"> }) {
-  if (!row.rev) return <>—</>;
-  if (row.version_source === "inferred") {
-    return (
-      <span className="inline-flex items-center gap-1.5">
-        v{row.rev}
-        <span className="text-xs text-slate-500">(inferred)</span>
-      </span>
-    );
-  }
-  return <>v{row.rev}</>;
 }
 
 const INFERRED_NOTE =
@@ -47,36 +35,6 @@ const INFERRED_NOTE =
 const EVIDENCE_NOTE =
   "Read time is how long the document was open on screen for that person since everyone was last asked, summed from view tracking when they confirmed; it is not proof of comprehension. A time in amber is shorter than a quarter of a typical read of this document at 200 words per minute. Reached end is what the reader's own browser reported. Confirmations before 1.11.0 recorded neither.";
 
-/**
- * "6 min", "under 1 min", blank when the record holds no read time. The
- * warn tone (ink, not a chip: this is a measurement, not a status) applies
- * only below a quarter of a typical read of the document, with the tooltip
- * on a focusable span as the style guide asks of non-interactive elements.
- */
-function ReadTimeCell({ seconds, words }: { seconds: number | null; words: number }) {
-  const label = readTimeLabel(seconds);
-  if (!label) return null;
-  if (isShortRead(seconds, words)) {
-    return (
-      <span className="ink-warn" data-tt={SHORT_READ_TOOLTIP} data-tt-wrap tabIndex={0}>
-        {label}
-      </span>
-    );
-  }
-  return <>{label}</>;
-}
-
-/** A check mark when the reader's browser reported the end on screen; nothing otherwise. */
-function ReachedEndCell({ reached }: { reached: boolean | null }) {
-  if (!reached) return null;
-  return (
-    <>
-      <Check className="h-4 w-4 ink-ok" aria-hidden="true" />
-      <span className="sr-only">Yes</span>
-    </>
-  );
-}
-
 export default async function AcknowledgementsPage({
   params,
 }: {
@@ -85,19 +43,39 @@ export default async function AcknowledgementsPage({
   const { id } = await params;
   const { user, doc } = await ackPageContext(Number(id));
 
-  const [rows, former, settings] = await Promise.all([
+  const [rows, former, ledger, settings, canSeeIp] = await Promise.all([
     cachedAckRows(doc.id),
     ackFormerStaffRows(doc.id),
+    listAckLedger(doc.id),
     getAppSettings(),
+    // The IP column of the All confirmations view is for exporters only, as
+    // the ip column of the CSV is (F6).
+    userHolds(user, "compliance.export", { legacyMin: "admin" }),
   ]);
   const fmt = settingsForUser(settings, user);
   const acked = rows.filter((r) => r.acknowledged_at);
-  const pending = rows.filter((r) => !r.acknowledged_at);
-  const anyInferred = [...rows, ...former].some((r) => r.rev && r.version_source === "inferred");
+  const anyInferred = [...rows, ...former, ...ledger].some((r) => r.rev && r.version_source === "inferred");
   // The threshold rule measures each read time against the live text: the
   // document people are asked to read today.
   const words = documentWordCount(doc.content ?? "");
-  const anyConfirmed = acked.length > 0 || former.length > 0;
+  const anyConfirmed = acked.length > 0 || former.length > 0 || ledger.length > 0;
+  // Only what the view shows crosses to the client: the IP for an exporter,
+  // never the user agent or the statement text (the CSV carries those).
+  const ledgerRows: AckLedgerViewRow[] = ledger.map((r) => ({
+    id: r.id,
+    name: r.name,
+    username: r.username,
+    email: r.email,
+    account_removed: r.account_removed,
+    acknowledged_at: r.acknowledged_at,
+    superseded: r.superseded,
+    rev: r.rev,
+    version_source: r.version_source,
+    signed_name: r.signed_name,
+    read_seconds: r.read_seconds,
+    reached_end: r.reached_end,
+    ip: canSeeIp ? r.ip : "",
+  }));
 
   return (
     <>
@@ -113,63 +91,7 @@ export default async function AcknowledgementsPage({
         </div>
       )}
 
-      {/* overflow-hidden keeps the rounded corners; the Table's own scroll
-          wrapper carries the sideways scroll on a phone (seven columns, five
-          of them nowrap, outgrow 375px). On paper the Table drops its minimum
-          width and the wrapper its scroll, so the two evidence columns are
-          not clipped by this card on a portrait page. */}
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-surface shadow-xs">
-        {rows.length === 0 ? (
-          <SectionEmpty className="px-4 py-6">
-            No one is asked to confirm this document yet. Everyone who can see it is listed here once it
-            is published.
-          </SectionEmpty>
-        ) : (
-          <Table scroll minWidth="54rem">
-            <thead className={TABLE_HEAD_ROW}>
-              <tr>
-                <Th>Person</Th>
-                <Th>Role</Th>
-                <Th fit>Status</Th>
-                <Th fit>Confirmed</Th>
-                <Th fit>Version</Th>
-                <Th fit>Read time</Th>
-                <Th fit>Reached end (self-reported)</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {[...pending, ...acked].map((r) => (
-                <tr key={r.id} className={TR}>
-                  <Td>
-                    <span className="font-medium text-slate-800">{r.name || r.username}</span>
-                    {r.email && <span className="ml-2 text-xs text-slate-500">{r.email}</span>}
-                  </Td>
-                  <Td className="text-slate-500">{r.role}</Td>
-                  <Td fit>
-                    {r.acknowledged_at ? (
-                      <span className={chipClass("ok")}>Confirmed</span>
-                    ) : (
-                      <span className={chipClass("warn")}>Pending</span>
-                    )}
-                  </Td>
-                  <Td fit className="text-slate-500">
-                    {r.acknowledged_at ? formatDateTime(r.acknowledged_at, fmt) : "—"}
-                  </Td>
-                  <Td fit className="text-slate-500">
-                    <VersionCell row={r} />
-                  </Td>
-                  <Td fit className="text-slate-500">
-                    <ReadTimeCell seconds={r.read_seconds} words={words} />
-                  </Td>
-                  <Td fit>
-                    <ReachedEndCell reached={r.reached_end} />
-                  </Td>
-                </tr>
-              ))}
-            </tbody>
-          </Table>
-        )}
-      </div>
+      <AckRoster docId={doc.id} rows={rows} ledger={ledgerRows} canSeeIp={canSeeIp} fmt={fmt} words={words} />
 
       {former.length > 0 && <FormerStaff rows={former} fmt={fmt} words={words} />}
 
@@ -189,7 +111,8 @@ function FormerStaff({
   fmt,
   words,
 }: {
-  rows: AckFormerStaffRow[];
+  /** signed_name is the C2 field on the row (optional here so the section compiles before and after it lands). */
+  rows: (AckFormerStaffRow & { signed_name?: string | null })[];
   fmt: Parameters<typeof formatDateTime>[1];
   /** The live document's word count, for the Read time threshold. */
   words: number;
@@ -203,13 +126,14 @@ function FormerStaff({
         People who confirmed this document but are no longer asked. Their records are kept and are not
         counted above.
       </p>
-      <Table scroll minWidth="50rem" className="mt-2">
+      <Table scroll minWidth="54rem" className="mt-2">
         <thead className={TABLE_HEAD_ROW}>
           <tr>
             <Th>Person</Th>
             <Th fit>Account</Th>
             <Th fit>Confirmed</Th>
             <Th fit>Version</Th>
+            <Th fit>Signed</Th>
             <Th fit>Read time</Th>
             <Th fit>Reached end (self-reported)</Th>
           </tr>
@@ -229,6 +153,9 @@ function FormerStaff({
               </Td>
               <Td fit className="text-slate-500">
                 <VersionCell row={r} />
+              </Td>
+              <Td fit className="text-slate-700">
+                <SignedCell name={r.signed_name} />
               </Td>
               <Td fit className="text-slate-500">
                 <ReadTimeCell seconds={r.read_seconds} words={words} />

@@ -267,8 +267,12 @@ describe("the pure rules", () => {
   });
 
   test("the CSV appends read_seconds and reached_end_self_reported after the provenance pair", () => {
+    // 1.12.0 appends the attestation and re-confirmation columns after the
+    // evidence pair; the pair itself keeps its place.
     assert.ok(
-      ROSTER_CSV_HEADER.endsWith(",version_published_by,version_approved_by,read_seconds,reached_end_self_reported"),
+      ROSTER_CSV_HEADER.includes(
+        ",version_published_by,version_approved_by,read_seconds,reached_end_self_reported,statement,"
+      ),
       ROSTER_CSV_HEADER
     );
     assert.ok(ROSTER_CSV_HEADER.startsWith("name,username,email,role,status,acknowledged_at,document,revision_as_of,"), "existing columns stay in place");

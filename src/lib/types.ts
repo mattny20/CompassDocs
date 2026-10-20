@@ -204,6 +204,24 @@ export interface Document {
   ack_last_reminded_at?: string | null;
   /** How the document treats a text edit (A5, 1.10.1): 'ask' the editor each time, 'material' only when the change looks material, 'reset' always re-ask everyone. */
   ack_edit_default: AckEditDefault;
+  /** The policy's own confirmation statement (C2, 1.12.0); null = the workspace default. */
+  ack_statement: string | null;
+  /** 1 = readers type their full name to confirm (a local account also re-enters its password) (C2, 1.12.0). */
+  ack_signature: number;
+  /** Re-confirm every N months (G1, 1.12.0); null = never. */
+  ack_recert_months: number | null;
+  /** When the next re-confirmation cycle fires (G1); null when no interval is set. */
+  ack_next_recert_at: string | null;
+  /** The date the policy took effect (G1); set when the requirement is first switched on. */
+  ack_effective_at: string | null;
+  /** When the policy was retired (G3, 1.12.0); null while it is live. */
+  ack_retired_at: string | null;
+  /** Who retired it, as a name snapshot (G3); '' while live. */
+  ack_retired_by_name: string;
+  /** Why it was retired (G3); '' while live. */
+  ack_retired_reason: string;
+  /** The policy that replaced it (G3); null when none. */
+  ack_superseded_by: number | null;
   /** Non-null = this doc is a draft branch of that document. */
   branch_of: number | null;
   /** Nested pages: the parent document (null = top level). */

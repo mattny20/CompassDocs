@@ -4,6 +4,553 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.12.0] - 2026-10-19
+
+Read confirmation, part four: a page of your own, the Record tab as a
+ledger, the statement and a typed signature on every confirmation, annual
+re-confirmation on an interval, and retirement. (Enterprise, `policy_ack`.)
+
+### Added
+- **My policies.** Compliance in the main navigation now opens on a page
+  of your own: every policy you are asked to read and confirm, and where
+  you stand on each. A standing line ("3 of 5 policies confirmed") and a
+  progress bar, then two groups: **To confirm** (the most recently
+  changed first, matching the row's "Updated" line) and **Confirmed**. Each row is the policy's space and title,
+  linking straight to the confirmation card at the end of the document,
+  when it was last saved ("Updated 3d ago"), and one chip from a closed
+  set: **To confirm**, **Changed since you confirmed 3 Mar 2026** (an
+  edit, a re-ask or the annual cycle lapsed an earlier confirmation) or
+  **Confirmed 3 Mar 2026 · v12**. A filter box appears over ten rows.
+  With nothing in scope the page reads "Nothing to confirm"; once
+  everything is confirmed, "You're up to date. 5 policies confirmed."
+  closes the Confirmed group. No history, print or CSV here: the person
+  record (1.14.0) holds those. In the API: `GET /api/compliance/mine`
+  answers `{ rows: [{ id, title, space_icon, space_name, state,
+  acknowledged_at, prior_acknowledged_at, rev, updated_at }], confirmed,
+  total }` with `state` one of `pending`, `reconfirm` or `confirmed`
+  (`overdue` arrives with due dates in 1.13.0); any role, 402 without the
+  licence.
+- **The Compliance section is routed.** One header and a tab row over
+  **My policies** (`/compliance`), **Overview** (`/compliance/overview`,
+  the tiles), **Policies** (`/compliance/policies`: Request read
+  confirmation, every policy's progress with Remind, Ask everyone to
+  re-confirm…, Stop requiring, the per-policy download, the roster expand
+  and the Paused group, and the matrix's Export CSV on the Policy progress
+  card) and **People** (`/compliance/people`), with **Settings**
+  (`/compliance/settings`) as the last tab. The row lists only the tabs
+  the viewer may open: the three portal pages need
+  `compliance.program_read` (anyone else gets the not-found page, as the
+  training pages answer), Settings needs `compliance.program_manage`.
+  Every portal action, dialog, toast and sentence is as it was.
+- **Who sees Compliance.** The sidebar row shows for anyone with a policy
+  in a space they can see, not only portal managers, and never without
+  the licence: people whose workspace keeps every policy in spaces they
+  cannot see never get the row, and it stays once everything is
+  confirmed. The row carries a badge with the number of policies to
+  confirm ("3 policies to confirm" to a screen reader), like Training's
+  open assignments; while it does, the sidebar's More fold stays open, so
+  work waiting for you is never behind a fold.
+- **What the reader confirms is on the record.** Every confirmation now
+  stores the confirmation statement the server showed when the button was
+  pressed, as `statement_text` on the row, so an auditor reads the words the
+  person agreed to rather than the words the workspace uses today. The
+  statement is the policy's own when it has one (below) and the workspace
+  default from Program settings otherwise; the client never supplies it. The
+  row also keeps the browser's User-Agent (`user_agent`, the first 300
+  characters; the audit row carried it since 1.10.1, the record did not),
+  shown and exported under the same rule as the IP address. The JSON record
+  (`GET /api/documents/{id}/acknowledgements`) carries `statement_text`,
+  `signed_name` and `identity_proof` on every row and former-staff row
+  (`null` while pending). Confirmations from before 1.12.0 read as unsigned
+  with no statement text; nothing is backfilled or guessed.
+- **A policy can carry its own confirmation statement.** The Read
+  confirmation page gains a **Settings** tab (Record · History · Settings,
+  shown to holders of `document.ack_require` on the space and to program
+  managers) with a card, **Confirmation statement**, and one **Save
+  settings** row. The statement field ("Shown above the confirm button and
+  stored with every confirmation. Legal teams may add a clause such as "and
+  that I will comply with it".") takes up to 500 characters, shows the
+  workspace default as its placeholder and reads as the default when left
+  blank; the card at the end of the document renders it as Markdown directly
+  above the button, so pressing the button is the confirmation itself and no
+  dialog asks twice. `GET /api/documents/{id}/ack-settings` answers `{
+  statement, statement_default, signature }` and `PATCH` takes any subset of
+  `{ statement, signature }` (the statement trimmed, 500 characters at most,
+  `null` or blank to return to the default; `signature` a boolean), answers
+  the same shape read after the write, refuses the first problem it finds
+  with 400 (an unknown key included, so a field from a later release never
+  saves silently) and writes one `ack.settings_changed` audit row `{
+  statement_changed, signature, signature_changed }` when something
+  changed, none for a no-op. The route takes the guards of its sibling
+  routes, in their order: the document in the caller's scope (404, a draft
+  the caller may not read included), the licence (402), then
+  `document.ack_require` on the document's own space or
+  `compliance.program_manage` (403), so the shipped Compliance manager
+  preset, which the Settings tab admits, saves from the tab too.
+  `superseded_by_title` is answered only when the replacement is in the
+  caller's own scope (the id always is, so the chip falls back to
+  "Document #id"). Everything a PATCH can be refused for is judged before
+  anything is written, the replacement first, and `next_recert_at` on a
+  policy with no interval (and none in the same call) answers 400 "Set an
+  interval before a next re-confirmation date.", so a 400 means nothing
+  changed and no audit row was written.
+- **Optional typed signature per policy.** The same card's switch, **Require
+  typed signature** ("The reader types their full name; local accounts also
+  re-enter their password. SSO accounts are identified by their sign-in
+  session."), adds a **Sign to confirm** block to the card at the end of the
+  document: **Type your full name to sign** ("Exactly as it appears on your
+  account: Dana Whitfield") and, for an account with a password,
+  **Re-enter your account password**. The confirm button waits, with the
+  help "Sign above to confirm" under it, until the typed name matches the
+  account's (case and spacing do not matter); the password is checked on the
+  server. The done state then reads "You confirmed version 12 on 3 Mar 2026,
+  14:02, signed as Dana Whitfield." and the printed standing line ends
+  "· signed as Dana Whitfield". A
+  kept edit's **Re-confirm the current text** asks for the signature again
+  on such a policy. The row stores the name as typed (`signed_name`) and how
+  the signer was identified (`identity_proof`: `password` for a local
+  account that re-entered it, `sso_session` for an SSO account, which has no
+  password to re-enter and is identified by the session that reached the
+  route, `typed_name_only` for a local account that somehow carries no
+  password hash; `''` on an unsigned row). The password is never stored and
+  never reaches an audit row: the route takes it out of the body before
+  anything else reads it. `POST /api/documents/{id}/ack` accepts `{
+  signed_name, password }` beside `version_id` and `reached_end`, answers
+  409 "Type your full name exactly as it appears on your account (Dana
+  Whitfield)." or "Password check failed. Re-enter your account password to
+  sign." without recording anything, and its 200 body gains `signed_name`.
+  The password check sits behind the sign-in throttle, counted against
+  the username-and-address pair only: five wrong passwords lock that pair
+  for fifteen minutes, for signing and for the sign-in form alike, and the
+  route answers 429 "Too many failed attempts. Try again in 15 minutes.";
+  the sign-in form's per-address spray counter is not fed, so an office
+  signing a policy from one address cannot lock its own sign-in. A
+  signed-in session is therefore not an unthrottled way to guess the
+  account's password, and a wrong password is on the record as a failed
+  sign-in is: `auth.login_failed` with `via: "attestation"` against the
+  policy, and `auth.lockout` (`minutes: 15`) when that miss engaged the
+  lock. The password itself reaches no row. The audit row
+  `document.acknowledge` gains `signed_name` and `identity_proof` beside
+  `user_agent`.
+- **The Record tab is a real table.** The per-document Read confirmation
+  page's Record tab now runs on the house table with the house controls
+  over it: a **Show** switch (All / Pending / Confirmed), a **Filter
+  people** box with its live count ("3 of 42 people"), paging at 50 rows,
+  and a **View** switch between **Current version** (one row per person
+  asked, their confirmation that counts against the marker) and **All
+  confirmations** (every confirmation ever recorded for the document,
+  newest first, including the ones a later re-confirmation or a re-ask
+  replaced). The current view's columns are Person, Role, Status,
+  Confirmed, Version, **Signed** (the name typed when the policy requires a
+  signature, behind a pen icon; blank otherwise), Read time and Reached end
+  (self-reported); the All confirmations view shows Person, Confirmed,
+  Version, Signed, Read time and, for a viewer who holds
+  `compliance.export`, **IP**. A confirmation whose account has since been
+  removed shows the name recorded at the time with an **Account removed**
+  chip. The collapsed former-staff section gains the Signed column too; the
+  two footnotes and the progress bar stay.
+- **An Export menu replaces the Export CSV button** on the record page:
+  **Export CSV** (the per-policy record, as before), **Ledger CSV (all
+  confirmations)** (every confirmation ever recorded for the policy, for
+  `compliance.export` holders only, because it carries the IP address and
+  user agent of each) and **Print…** last. The printed page opens with a
+  title line "Read confirmations · {policy} · as of {date}" and keeps every
+  control off paper.
+- **The ledger.** `GET /api/documents/{id}/acknowledgements?view=all`
+  answers every confirmation ever recorded for the document as JSON (`rows`
+  with `superseded`, `account_removed`, `current`, the version, hash and
+  evidence fields, the statement, signature and identity proof; `ip` and
+  `user_agent` blank unless the caller holds `compliance.export`).
+  `GET /api/documents/{id}/acknowledgements?format=ledger` downloads the
+  same as CSV, and `GET /api/admin/compliance?format=ledger` the whole
+  workspace's ledger (every document, purged ones under the title recorded
+  at the time, grouped by document, newest first within each); both need
+  `compliance.export` and answer 403 without it. The ledger header is
+  `document,document_id,space,name,username,email,role,acknowledged_at,superseded,version,version_id,content_sha256,version_source,statement,signed_name,identity_proof,read_seconds,reached_end_self_reported,ip,user_agent,account_removed`.
+  A row is `superseded` when the current view no longer shows it: a later
+  confirmation by the same person exists, or everyone was asked again after
+  it. The two ledger downloads write `ack.export` with `{ format: 'ledger',
+  doc_id: <id> | 'all', rows, with_ip: true }` before the response streams,
+  beside the roster and matrix rows 1.10.1 introduced.
+- **Annual re-confirmation on an interval.** A policy can ask everyone to
+  read and confirm it again every 6, 12 or 24 months (any whole number of
+  months from 1 to 60 through the API) without anyone editing it. Each
+  policy stores its **next re-confirmation date**: set with the interval
+  (the last ask plus the interval, or 14 days out when that is already
+  past, so a policy last asked two years ago schedules a first cycle
+  people can see coming instead of firing at the next tick), restarted by
+  every reset (a material change, a merge, a restore, an approval, a
+  scheduled publish, **Ask everyone to re-confirm…**, a cycle) and left
+  alone by an editorial fix. When the date passes, the hourly sweep moves
+  the confirmation marker to the newest version in one atomic claim (the
+  statement moves the date its own condition tests, so every app instance
+  may run it and each cycle fires once), writes a **Reset** row from
+  source *Annual re-confirmation* by *Scheduler* on the History tab with
+  the confirmations it reset and the people eligible, and queues one
+  notice that goes out at once and is never coalesced: *Please re-confirm
+  "Expense policy"* with "Annual re-confirmation: it has been 12 months
+  since you confirmed "Expense policy". Please read it again and confirm."
+  The reader's strip and card already show the cycle's own sentence
+  instead of a comparison (1.11.0, B3). A paused (unpublished), trashed or
+  retired policy, and a draft branch, wait until they are live again. Each
+  cycle is audited as `ack.recert` ("Asked for annual re-confirmation") by
+  the system with the version, the confirmations reset and the people
+  eligible; the delivery writes its own `ack.recert` with the counts, as
+  before.
+- **Effective date.** A policy is dated the day its requirement is first
+  switched on (`ack_effective_at`), kept through an off-and-on and through
+  an upgrade (existing policies are undated until someone dates them on
+  the Settings tab). The effective date and the next re-confirmation date
+  are calendar days and read as the day chosen in every time zone: the
+  card's "Effective 1 Jan 2026", the popover's "next 1 Jan 2027", the
+  portal row's "Next re-confirmation 1 Jan 2027" and the Settings tab's own
+  line go through one day formatter pinned to UTC, so a workspace west of
+  UTC no longer reads the day before.
+- **Program settings → Re-confirmation.** A **Re-confirm every** default
+  (Never / 6 months / 12 months / 24 months; Never until an admin chooses)
+  that a policy receives when it is first set to require read
+  confirmation, with "Applied when a policy is first set to require
+  confirmation. Each policy can change it on its Settings tab." Saved as
+  `ack_defaults.recert_months` (null, 6, 12 or 24; anything else answers
+  400 "must be 6, 12 or 24 months, or null for never", and a hand-edited
+  value the build does not offer reads as Never), audited
+  `settings.compliance` per changed key like the other defaults. A
+  policy's own interval survives a later change of the default and an
+  off-and-on of its requirement.
+- **Retire a policy.** A policy can be retired: an end-of-life state beside
+  the document's status that keeps the evidence. `POST
+  /api/documents/{id}/ack/retire { reason }` (ten characters or more)
+  switches the requirement off and records who retired it, when and why in
+  one statement, guarded on the policy not being retired already (409 "This
+  policy is already retired."). The confirmation marker stays where it is,
+  so the final roster is reproducible from the ledger; the policy's queued
+  notices (a reminder, a re-ask not yet sent) are cancelled; and the decision
+  ledger gains a **retired** row with the standing frozen at that moment
+  (confirmed of required, and the version people had been asked to confirm).
+  The document itself is untouched: unpublish it separately if people should
+  no longer read it, and a paused (unpublished) policy can be retired too.
+  For holders of `document.ack_require` on the space or
+  `compliance.program_manage`; the answer is `{ ok, acked, required, rev }`.
+  Audit: `ack.retired` ("Retired policy") with the reason, the replacement,
+  the frozen counts, the version and the number of notices cancelled.
+- **What readers see on a retired policy.** The confirmation card and the
+  sticky control are gone (the policy asks nobody), and the notices strip
+  shows one neutral row for everyone: "Retired 3 Mar 2026 · replaced by
+  Expense policy 2026", with the replacement as a link when the reader may
+  open it, or "Retired 3 Mar 2026" alone. For a manager, the shield
+  popover shows "Retired 3 Mar 2026 · un-retire it on the Settings tab"
+  (the tab linked) in place of the Require readers to confirm switch,
+  which PATCH /ack would only refuse with 409.
+- **Un-retire.** `POST /api/documents/{id}/ack/unretire` clears the
+  retirement (the replacement too) and switches the requirement back on.
+  Confirmations made before the policy was retired count again, unless the
+  text changed while it was retired: a save with the requirement off moves
+  the marker, so those people are asked again rather than shown as current
+  for words they never read. A re-confirmation cycle that fell due while
+  the policy was retired is moved a whole interval out in the same
+  statement, so nobody is asked again the day a policy comes back. An
+  unpublished document resumes as Paused. 409 "This policy is not retired."
+  otherwise; the answer is `{ ok, current, eligible }`. Audit:
+  `ack.unretired` ("Resumed retired policy") with the standing and
+  `superseded_by_cleared`, the replacement the un-retire removed (`null`
+  when there was none), as `ack.retired` names the one that was set. The
+  "Policy resumed: 42 of 50 confirmations still current" toast offers
+  **Ask everyone to re-confirm…** while anyone's confirmation is still
+  current, on the Settings tab and in the portal: the same question and
+  reset as the page header's button.
+- **A replacement.** `documents.ack_superseded_by` names the policy that
+  replaced a retired one; it is validated as a published document other
+  than the policy itself, inside the caller's scope. `PATCH
+  /api/documents/{id}/ack-settings { superseded_by }` sets it (400 with
+  the reason when it is refused), audited as `ack.settings_changed` with
+  the old and new ids.
+- **The compliance portal keeps retired policies.** `GET
+  /api/admin/compliance` lists them after every live and paused policy,
+  each with `ack_retired_at`, `ack_retired_by_name`, `ack_retired_reason`,
+  `ack_superseded_by`, `superseded_by_title` and `retired_rev`, and with
+  `required` and `acked` frozen at retirement (the final standing, "42 of
+  50 confirmed v12"). The tiles leave them out, and the request picker
+  (`candidates`) never offers one, so "Request read confirmation" cannot
+  silently re-require a retired policy.
+- **The Trash keeps the evidence.** A trashed document with confirmations
+  on record is no longer removed by the retention sweep. It waits in the
+  Trash with a chip, "Retired policy · 42 confirmations on record" (or
+  "Policy · 42 confirmations on record" for one that was never retired),
+  and "kept until deleted forever" in place of its purge date, until an
+  administrator chooses **Delete forever**, which archives the confirmed
+  text first as before. Trashing a retired policy is allowed.
+- New tests: `test/attestation.test.ts` (the name rule and its username
+  fallback, local versus SSO versus hash-less accounts, a wrong password,
+  the throttle engaging on the fifth failure, which says so, and refusing
+  the right password until it lifts, the pair-only rule: another account
+  on the same address still signs after one account's five failures and
+  the address is not locked for sign-in, and that the result never carries
+  the password or the typed name); `test/ack-statement.test.ts` (the stored
+  statement is the served one, workspace default or the policy's own,
+  never the client's; the User-Agent cut at 300; a 1.11.x-shaped call takes
+  the defaults; a signature policy's 409s, the signed row, the roster and
+  `getCurrentAck` carrying the name, and the audit row without the
+  password; a wrong password audited as `auth.login_failed`, the fifth as
+  `auth.lockout`, the right one then 429; a console spy proving the
+  password reaches no log line; the settings route's GET, every 400, the
+  trim, the no-op, the subset, the clear, a viewer's 403 and an anonymous
+  401; a refused replacement beside other fields changes nothing and
+  writes no row; a next date without an interval refused by name);
+  `test/training-signature.test.ts` (the training route's signature branch
+  driven directly: wrong name 409 and wrong password 409 in the route's
+  own words, the sixth attempt 429, the right pair 200 with the name
+  recorded, a miss audited without the password);
+  `test/markdown-inline.test.ts` (the inline schema keeps emphasis, code
+  and a link and drops an embed, a video, an image, a task list, a
+  heading, raw HTML and styles); `test/ack-ledger-view.test.ts` (the
+  ledger's ordering, superseded rule, removed-account snapshot and
+  purged-document rows) and the CSV headers' legacy prefixes, the ledger
+  header and the personal-data rule (ip and user agent blank without
+  `compliance.export`); `test/my-policies.test.ts` (the three states and
+  their order, the scope rule, the badge count, a retired policy absent);
+  `test/ack-sweep.test.ts` (two sweeps in parallel fire one cycle, one
+  ledger row and one notice; a marker older than the interval schedules the
+  first cycle 14 days out; a paused, trashed or retired policy waits; a
+  reset moves the next date) and the default interval round-tripping and
+  refusing 7 in `test/compliance-settings.test.ts`; `test/ack-retire.test.ts`
+  (retire freezes the counts and writes the ledger row, a second retire is
+  refused, edits while retired advance the marker, a retired policy is out
+  of the candidates and the pending list, the purge guard, un-retire with
+  the prior confirmations current, the PATCH 409, the cancelled outbox
+  rows); and the double-boot test's three blocks (every new column, default
+  and foreign key after an upgrade boot, existing rows unsigned and no cycle
+  scheduled, a 1.11.x-shaped INSERT taking the defaults, values set between
+  boots surviving a second boot). The e2e specs gain the signature document
+  (the settings route's defaults and validation, the policy's own statement
+  on the card, the button waiting on the name, a wrong password's toast, the
+  signed confirmation and the record carrying the name and the proof), the
+  Record tab's controls, the All confirmations view listing a superseded
+  row, the Export menu and the ledger download, the 403 on both ledger files
+  for a role without `compliance.export`, My policies (the API shape, the
+  standing line, the row and its chip and link, the badge, the dashboard
+  row, the up-to-date line, the "Changed since you confirmed" chip after a
+  re-ask, and a plain viewer's one-tab section with the portal paths
+  answering not found), the routed portal pages, and the API-level retire
+  and un-retire flow (403 for a read-only role, the DocNotices row, the
+  card restored).
+- **The compliance portal's Retired group.** Compliance › Policies lists
+  retired policies in a collapsed **Retired · 3** group at the foot of the
+  Policy progress card, below Paused, each row with a neutral **Retired
+  3 Mar 2026** chip (who retired it is the chip's tooltip), the final
+  standing frozen at retirement ("42 of 50 people confirmed v12"), the
+  reason, **Replaced by** with the replacement as a link when one was
+  named, **View record** (the policy's Read confirmation page, which stays
+  open with History) and the per-policy CSV for exporters. No Remind, no
+  re-ask, no Stop requiring: nothing is asked and nothing can be stopped.
+  **Un-retire** is the row's one action for `compliance.program_manage`
+  holders: it asks once ("Resume read confirmation for "Expense policy"?
+  Confirmations made before it was retired stay on record. If the text
+  changed while it was retired, people whose confirmation is older than the
+  current version are asked again." / **Resume**) and toasts "Policy
+  resumed: 42 of 50 confirmations still current"; while any confirmation
+  is still current the toast carries **Ask everyone to re-confirm…** as
+  its action, the row's own question and POST, for the case where that
+  number is the wrong one.
+- **Retire policy… on the portal row.** Beside Remind, Ask everyone to
+  re-confirm… and Stop requiring, managers get **Retire policy…**, which
+  opens the same question as the Settings tab's Lifecycle card ('Retire
+  "Expense policy"?', the standing, "Why is this policy being retired?" with
+  a reason of at least 10 characters, **Retire policy**), posts to the
+  policy's retire route and toasts "Policy retired: 42 of 50 confirmations
+  on record"; the row moves to the Retired group.
+- **Re-confirmation on the portal.** A policy with an interval shows
+  "Next re-confirmation 1 Jan 2027" on its row's meta line, after "Updated
+  … · last reminded …". Compliance › Overview gains a fifth tile,
+  **Re-confirmation due in 30 days**, counting the live policies (published,
+  required, not retired) whose next date falls within 30 days; `GET
+  /api/admin/compliance` carries it as `kpis.recert_due_30`, and every
+  `docs` row now carries `ack_recert_months`, `ack_next_recert_at` and
+  `ack_effective_at`.
+- **The Record tab's subtitle counts cycles.** On a policy with an interval
+  the sentence under the Read confirmation title ends "· Cycle 4 · annual"
+  ("· Cycle 2 · every 6 months"): the first ask is cycle 1 and every annual
+  re-confirmation on the History tab starts the next.
+- **Settings tab: Re-confirmation and Lifecycle.** The Read confirmation
+  page's Settings tab gains two cards under its one **Save settings** row.
+  **Re-confirmation**: **Re-confirm every** (Never, 6 months, 12 months or
+  24 months, the workspace's value marked "(workspace default)", and an
+  interval the API set outside those four shown as it is, "18 months");
+  **Next re-confirmation**, shown once an interval is chosen and prefilled
+  the way the server schedules it (the day everyone was last asked plus the
+  interval, or 14 days out when that has already passed), with the help
+  "Everyone is asked again on this date. A material change restarts the
+  interval." and a past date refused inline ("The next re-confirmation date
+  cannot be in the past."); a warning when the first cycle was pushed out
+  ("People last re-confirmed 18 months ago. The first cycle is scheduled
+  for 2 Nov 2026: change the date, or use Ask everyone to re-confirm
+  now."); and **Effective date**. **Lifecycle**: **Replaced by**, a picker
+  over the published documents you can see, saved with the settings and
+  shown to readers once the policy is retired; **Retire policy…**, which
+  asks the same question as the portal row (above) and retires the policy
+  in place, the card then reading "Retired 3 Mar 2026 by Mia Manager" with
+  the reason; and **Un-retire**, which asks the same question as the
+  portal's and resumes with the same toast, "Policy resumed: 42 of 50
+  confirmations still current". Only a date you change is checked: a
+  stored next date that has already passed (a retired or paused policy's,
+  which the sweep leaves alone) shows the hint "This date has passed; the
+  next cycle fires when the policy is live again." under the field, and
+  the statement, the signature and the replacement still save. After
+  Retire or Un-retire, focus lands on the button that replaced the one
+  used (the card's heading for a moment while the page refreshes), never
+  on the page body.
+- **`PATCH /api/documents/{id}/ack-settings`** takes `recert_months` (a
+  whole number of months from 1 to 60, or null for never),
+  `next_recert_at` (a date not in the past, or null to schedule from the
+  last ask), `effective_at` (a date, or null) and `superseded_by` (the id
+  of a published document in your scope, or null), any subset in one call,
+  400 naming the first problem ("A policy cannot be replaced by itself.",
+  "The replacement must be a published document you can see."). `GET`
+  answers them beside `marker` (when everyone was last asked),
+  `recert_default` (the workspace interval) and `superseded_by_title`. The
+  `ack.settings_changed` audit row carries what the PATCH moved
+  (`recert_months`, `next_recert_at`, `effective_at`, and the replacement's
+  old and new ids as above), and a PATCH that changes nothing writes none.
+- **The cycle on the document.** The shield popover's status line gains a
+  second line, "Re-confirm yearly · next 1 Jan 2027", and the confirmation
+  card's version line gains "Effective 1 Jan 2026 · re-confirm yearly"
+  (either half alone when the other is unset; nothing without both).
+
+### Changed
+- **CSV columns appended; existing columns unchanged.** Both the per-policy
+  CSV and the portal matrix append six columns at the end, in this order:
+  `statement` (the confirmation statement the person confirmed under),
+  `signed_name`, `identity_proof` (`password`, `sso_session` or
+  `typed_name_only` when the policy requires a signature; blank otherwise),
+  `recert_months`, `effective_at` and `next_recert_at` (the policy's
+  re-confirmation settings, blank while none are set). The per-policy CSV's
+  `user_agent` column, reserved and blank since 1.10.1, is now filled for
+  confirmations made on 1.12.0 or later under the same rule as `ip`: filled
+  only when the caller holds `compliance.export`, blank otherwise. The JSON
+  roster rows carry `user_agent` beside `ip` for an exporter.
+- **The portal matrix leaves out retired policies**, as the portal's tiles
+  do: nobody owes a retired policy, so it has no row there. Its evidence
+  stays exportable through its own record page (Export CSV and the ledger
+  CSV) and in the workspace ledger.
+- **A retired policy stays retired until un-retired.** `PATCH
+  /api/documents/{id}/ack { required: true }` on a retired policy answers
+  409 "This policy is retired. Un-retire it first.", and so does every
+  portal action on one (`POST /api/admin/compliance` with `request`,
+  `remind` or `stop`); the switch-on itself refuses a retired policy, so no
+  path but un-retire brings the requirement back while the retirement
+  stands.
+- The decision ledger's `retired` outcome, reserved since 1.10.0, is now
+  written; the History tab and the ledger exports show it with the frozen
+  counts.
+- **The portal's roster expand is the Record tab's roster.** Expanding a
+  policy row on Compliance › Policies now shows the same table as the
+  policy's Record tab: Person with email, Role, the Confirmed / Pending
+  chip, the confirmation time, the version, the typed signature, Read time
+  and Reached end, with the **Show** filter, **Filter people** and its live
+  count, and a pager past 50 people, in place of the four-column table of
+  1.10.1. The IP column is not shown here (it belongs to the All
+  confirmations view, which the expand row does not offer); the per-policy
+  CSV and the Record tab remain the complete record.
+- The Overview's tiles follow the page width.
+- `GET /api/documents/{id}/ack` (the summary) carries `ack_recert_months`,
+  `ack_next_recert_at` and `ack_effective_at`.
+- The Settings tab saves only the fields that changed since the last save,
+  so a stored next date that has since passed is never re-judged by a save
+  that did not touch it.
+- **Ask everyone to re-confirm…** and every reset of a policy's
+  confirmations now also restart its re-confirmation interval; nothing
+  changes for a policy without one. A cycle also stamps the policy's
+  reminder time, so **Remind** keeps its one-hour cooldown after the
+  cycle's notice went out. A policy with an interval of its own that is
+  stopped and requested again keeps its next re-confirmation date, unless
+  that date passed while it was off: then the request moves it out a whole
+  interval, as un-retire does, so the hourly sweep does not ask everyone a
+  second time on top of the request that just went out.
+- The training deck's e-signature gate runs through the same check as the
+  policy signature (`lib/attestation`, extracted from the training route):
+  its two sentences are unchanged, and its password branch is now throttled
+  like a sign-in, as above: the sixth wrong password answers 429, the lock
+  holds for the sign-in form too, and a wrong password is audited as
+  `auth.login_failed` (`via: "attestation"`) and `auth.lockout` against
+  the deck's document.
+- The card's confirmed sentence and the printed standing line read
+  "signed as {name}" on a signed confirmation; unsigned confirmations read
+  as before. The card's confirmation statement is rendered as inline Markdown (one
+  sentence at the card's own size): a clause may carry emphasis, code or a
+  link, and nothing else; a directive, an image, an embed, a task list or
+  raw HTML in a statement is dropped on the card rather than rendered; the
+  default statement renders exactly as it did.
+- The dashboard's attention row reads "3 policies need your read
+  confirmation" (it said "3 documents need…"), counts every pending
+  policy rather than the first twenty, and opens the one policy's
+  confirmation card when exactly one is pending and My policies otherwise
+  (it used to open the first policy whatever the count).
+- `/compliance` no longer sends people without the Compliance section to
+  the dashboard: it is My policies for everyone. The portal's **Export
+  CSV** moved from the page header, now the section's, to the Policy
+  progress card on the Policies page; the header's Settings button is the
+  Settings tab.
+- The palette's "Go to Compliance" follows the sidebar's rule and also
+  answers "my policies", "read confirmation" and "confirm".
+
+### Upgrading
+- **Schema additions, all metadata-only.** On `documents`: `ack_statement`
+  (text, null = the workspace default), `ack_signature` (integer, NOT NULL
+  DEFAULT 0), `ack_recert_months` (integer), `ack_next_recert_at`
+  (timestamptz), `ack_effective_at` (date), `ack_retired_at`,
+  `ack_retired_by` (references `users`, SET NULL when the account goes),
+  `ack_retired_by_name`, `ack_retired_reason` and `ack_superseded_by`
+  (references `documents`, SET NULL when the replacement is purged); on
+  `acknowledgements`: `statement_text` (text, NOT NULL DEFAULT ''),
+  `signed_name` (text, null when unsigned), `identity_proof` (text, NOT
+  NULL DEFAULT '') and `user_agent` (text, NOT NULL DEFAULT ''); and three
+  partial indexes: `idx_documents_ack_recert` on `documents
+  (ack_next_recert_at) WHERE ack_required = 1 AND ack_recert_months IS NOT
+  NULL`, for the hourly sweep, and `idx_documents_ack_retired_by` and
+  `idx_documents_ack_superseded_by` under the two SET NULL references
+  (each `WHERE … IS NOT NULL`, so they hold only retired rows), so that
+  removing an account or purging a replacement does not scan `documents`. Every line is a catalog-guarded `ADD COLUMN
+  IF NOT EXISTS` with a constant default, or a guarded index: no rewrite,
+  no backfill, no lock on an up-to-date table. The Record tab, the ledger
+  reads and My policies add no schema of their own; they are served by
+  `idx_ack_doc` and `idx_ack_user` from 1.10.0.
+- **Nothing to migrate, and nothing fires.** Existing policies keep the
+  workspace statement and ask for no signature; existing rows read as
+  unsigned with no statement text and no user agent. No policy has an
+  interval until someone sets one, and the workspace default applies only
+  to policies switched on from then; existing policies carry no effective
+  date until it is set. No policy is retired. Bookmarks to `/compliance`
+  open My policies; the portal's lists are under `/compliance/policies` and
+  `/compliance/people`, its tiles under `/compliance/overview`;
+  `/compliance/settings` is unchanged.
+- The portal's two new payload fields (`kpis.recert_due_30` and the three
+  re-confirmation columns on `docs` rows) are additive; a client built
+  against 1.11.x ignores them.
+- **Rollback to 1.11.2 is supported.** 1.11.2 ignores the new columns and
+  the indexes and leaves them in place. While rolled back: a row it writes
+  takes the defaults (unsigned, no statement text, no user agent), a
+  policy's own statement and signature switch wait unused, and a policy
+  that requires a signature records unsigned confirmations until 1.12.0
+  runs again; no cycle fires, and an interval is honoured again on
+  re-upgrade; a retired policy reads as a policy whose requirement is off
+  (the columns and the ledger row stay for the re-upgrade), and if someone
+  re-requires a retired policy from 1.11.2's request picker while rolled
+  back, it comes back as retired after the re-upgrade (its requirement
+  reads as on in the record, and Retire is refused as already retired):
+  use Un-retire to resume it; and the
+  retention sweep purges trashed documents with confirmations as it did
+  before (the archive still keeps every cited text).
+- Scripts that read the CSVs by column name are unaffected; scripts that
+  count columns should expect six more at the end of both files.
+- Privacy: the password a local account re-enters to sign is checked
+  against the stored hash and discarded; it is not stored on the row, in
+  the audit log or in any log line. The User-Agent now kept on the row was
+  already on the confirmation's audit row; on the record and in the CSV it
+  is filled only for holders of `compliance.export`, as the IP address is.
+  The ledger exports and the IP column of the All confirmations view are
+  the only new places the recorded IP address and user agent surface, and
+  both are behind `compliance.export`; a roster reader without that key
+  sees the same ledger rows with those two fields blank.
+
 ## [1.11.2] - 2026-10-19
 
 Directory settings, organised: a Display page, export presets as a list

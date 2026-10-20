@@ -25,6 +25,18 @@
 // shows the reason line and no disclosure: nothing changed to show. The
 // texts arrive as props from the page, so no endpoint serves them.
 //
+// The statement (C2, 1.12.0) is the policy's own when it has one, else the
+// workspace default, rendered through MarkdownView directly above the
+// button so pressing the button is the attestation. When the policy
+// requires a typed signature, the "Sign to confirm" block from the training
+// player sits between the statement and the button: the full name, and for
+// a local account the password; the button is aria-disabled, with the help
+// "Sign above to confirm", until the typed name matches the account's
+// (nameKey, the same rule lib/attestation applies on the server). The one
+// exception to "nothing is gated": a signature is the reader's own act, and
+// a button that posts an empty name would only come back 409. The done
+// state and the printed standing line then read "signed as {name}".
+//
 // The card is print:hidden; a one-line standing statement takes its place on
 // paper so a printed policy carries the printer's own status.
 //
@@ -33,26 +45,35 @@
 // is the program view, gated on compliance.program_read, so a link there
 // would bounce most readers to the dashboard.
 
-import { useMemo, useRef } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { CircleCheckBig, History, ShieldCheck } from "lucide-react";
+import { CircleCheckBig, History, PenLine, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/Button";
 import { CARD_CLASS } from "@/components/Card";
-import { CardTitle } from "@/components/Heading";
+import { CardTitle, SubHeading } from "@/components/Heading";
 import { DocDiff } from "@/components/DocDiff";
+import { Field, TextInput } from "@/components/form";
+import { MarkdownView } from "@/components/MarkdownView";
 import { useFormatDate } from "@/components/SettingsProvider";
 import { monthsLabel, useAckState } from "@/components/AckState";
 import type { AckReason } from "@/components/AckState";
+import { recertMetaLine } from "@/lib/ack-recert";
 import { diffLines, diffStats } from "@/lib/diff";
 import { useAction } from "@/lib/use-action";
 import { CONFIRM_SECTION_ID } from "@/lib/use-reached-end";
 
-/** The house statement; C2 makes it configurable per document. */
+/** The house statement; the workspace and each policy may override it (E4, C2). */
 export const DEFAULT_CONFIRMATION_STATEMENT = "I confirm that I have read and understood this document.";
 
 const STALE_MESSAGE =
   "This document changed while you were reading it. The page has been refreshed; please read the changes.";
+
+/** The visible help under the button until the typed name matches (C2). */
+export const SIGN_FIRST_HELP = "Sign above to confirm";
+
+/** Whitespace-collapsed, case-insensitive name comparison: the rule lib/attestation applies on the server. */
+const nameKey = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase();
 
 /** A version written since the one the reader confirmed (B3). */
 export interface VersionSince {
@@ -92,18 +113,32 @@ export function reasonSentence(r: AckReason, date: (iso: string) => string): str
 export function AckCard({
   docId,
   statement = DEFAULT_CONFIRMATION_STATEMENT,
+  signature = false,
+  localAccount = false,
+  signedName = null,
   meta,
+  effectiveAt = null,
+  recertMonths = null,
   readerName,
   current,
   baseline = null,
   changesSince = [],
 }: {
   docId: number;
-  /** The confirmation statement (the only sentence on the card). */
+  /** The confirmation statement (the only sentence on the card), rendered as Markdown. */
   statement?: string;
+  /** The policy requires a typed signature (C2): the Sign to confirm block gates the button. */
+  signature?: boolean;
+  /** The reader's account has a password to re-enter (a local account); SSO accounts sign with the name alone. */
+  localAccount?: boolean;
+  /** The typed name on the reader's current confirmation, when it was signed (C2). */
+  signedName?: string | null;
   /** The version being confirmed: "Version 12 · published {date} by {author} · approved by {approvedBy}" (C6). */
   meta: { rev: number | null; publishedLabel: string | null; author: string; approvedBy?: string };
-  /** The signed-in reader, for the printed standing line. */
+  /** The policy's effective date ('YYYY-MM-DD') and re-confirmation interval (G1): "Effective 1 Jan 2026 · re-confirm yearly" under the version line. */
+  effectiveAt?: string | null;
+  recertMonths?: number | null;
+  /** The signed-in reader: the name a signature must match, and the printed standing line's subject. */
   readerName: string;
   /** The text on screen, for the what-changed diff (B3). */
   current?: AckText;
@@ -117,6 +152,12 @@ export function AckCard({
   const router = useRouter();
   const { run, isBusy } = useAction();
   const section = useRef<HTMLElement>(null);
+  const signHelpId = useId();
+  // The signature as typed (C2). The name the record shows follows the
+  // server's answer after a POST, so the done state never trusts the input.
+  const [typedName, setTypedName] = useState("");
+  const [password, setPassword] = useState("");
+  const [signedAs, setSignedAs] = useState<string | null>(signedName);
   // Lines added and removed since the confirmed version: the disclosure's
   // header. Measured once per pair of texts, and only when there is a pair.
   const stats = useMemo(
@@ -129,14 +170,22 @@ export function AckCard({
   const confirmed = ack.ackedAt !== null;
   const prior = confirmed ? null : (ack.prior ?? null);
   const versionLabel = (rev: number | null) => (rev !== null ? `version ${rev}` : null);
+  // A kept edit (A2): the confirmation still counts but cites an older
+  // version than the text on screen, so the card offers a re-confirmation.
+  const canReconfirm =
+    confirmed && ack.ackedVersionId !== null && ack.versionId !== null && ack.ackedVersionId !== ack.versionId;
+  // The typed name matches the account's: the button is live (C2). Without
+  // a signature requirement it always is.
+  const signed = !signature || (typedName.trim() !== "" && nameKey(typedName) === nameKey(readerName));
+  const showSignBlock = signature && (!confirmed || canReconfirm);
 
   async function confirm() {
-    if (!ack) return;
+    if (!ack || !signed) return;
     // Holders rather than plain lets: the assignments happen inside run()'s
     // callback, which TypeScript's narrowing cannot see.
     const outcome: {
       stale: boolean;
-      recorded: { acknowledged_at: string; version_id: number | null; rev: number | null } | null;
+      recorded: { acknowledged_at: string; version_id: number | null; rev: number | null; signed_name?: string | null } | null;
     } = { stale: false, recorded: null };
     const ok = await run(
       "ack",
@@ -146,7 +195,13 @@ export function AckCard({
           headers: { "content-type": "application/json" },
           // The self-reported evidence (C3) rides with the version: the
           // server measures the reading time itself and trusts nothing else.
-          body: JSON.stringify({ version_id: ack.versionId, reached_end: ack.reachedEnd }),
+          // The signature (C2) rides along only when the policy asks for
+          // one; the password only when the account has one to re-enter.
+          body: JSON.stringify({
+            version_id: ack.versionId,
+            reached_end: ack.reachedEnd,
+            ...(signature ? { signed_name: typedName.trim(), ...(localAccount ? { password } : {}) } : {}),
+          }),
         });
         if (res.status === 409) {
           const data = (await res.json().catch(() => ({}))) as { stale?: boolean; error?: string };
@@ -179,6 +234,10 @@ export function AckCard({
         versionId: recorded?.version_id ?? ack.versionId,
         rev: recorded?.rev ?? ack.rev,
       });
+      if (signature) {
+        setSignedAs(recorded?.signed_name ?? typedName.trim());
+        setPassword("");
+      }
       // The toast announces; focus lands on the section so the confirmed
       // state is the next thing a keyboard or screen-reader user meets.
       section.current?.focus({ preventScroll: true });
@@ -192,11 +251,20 @@ export function AckCard({
   ]
     .filter(Boolean)
     .join(" · ");
+  // The policy's dates (G1): the day it came into force and how often it
+  // asks again; null when it has neither, and then no line. The effective
+  // date is a calendar day ('YYYY-MM-DD'), so the day formatter: the
+  // instant formatter would print the day before in any zone west of UTC.
+  const recertLine = recertMetaLine(
+    { ack_effective_at: effectiveAt, ack_recert_months: recertMonths, ack_next_recert_at: null },
+    fmt.day
+  );
 
+  const signedClause = signedAs ? `, signed as ${signedAs}` : "";
   const confirmedSentence = confirmed
     ? versionLabel(ack.ackedRev)
-      ? `You confirmed ${versionLabel(ack.ackedRev)} on ${fmt.dateTime(ack.ackedAt)}.`
-      : `You confirmed reading this document on ${fmt.dateTime(ack.ackedAt)}.`
+      ? `You confirmed ${versionLabel(ack.ackedRev)} on ${fmt.dateTime(ack.ackedAt)}${signedClause}.`
+      : `You confirmed reading this document on ${fmt.dateTime(ack.ackedAt)}${signedClause}.`
     : "";
 
   // The disclosure exists only when the text changed since the confirmed
@@ -204,6 +272,52 @@ export function AckCard({
   // to show, and the reason line stands alone.
   const showChanges = Boolean(prior && prior.changed && changesSince.length > 0);
   const historyHref = prior && prior.versionId !== null ? `/doc/${docId}/history?from=${prior.versionId}&to=current` : null;
+
+  // The "Sign to confirm" block (C2), the training player's recipe: a
+  // bounded panel on the canvas tint, the name field with the account's
+  // name as its help, and the password field for a local account.
+  const signBlock = showSignBlock ? (
+    <div className="mt-5 w-full max-w-md rounded-lg border border-slate-200 bg-canvas p-4 text-left">
+      <SubHeading as="h3" icon={<PenLine />}>
+        Sign to confirm
+      </SubHeading>
+      <Field
+        label="Type your full name to sign"
+        help={`Exactly as it appears on your account: ${readerName}`}
+        className="mt-2"
+      >
+        <TextInput
+          autoComplete="name"
+          value={typedName}
+          onChange={(e) => setTypedName(e.target.value)}
+          disabled={isBusy("ack")}
+        />
+      </Field>
+      {localAccount && (
+        <Field label="Re-enter your account password" className="mt-3">
+          <TextInput
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            disabled={isBusy("ack")}
+          />
+        </Field>
+      )}
+    </div>
+  ) : null;
+
+  // The button stays focusable while it waits for the signature
+  // (aria-disabled, not disabled), so the help under it is discoverable
+  // and read with the button's name; the click is ignored until then.
+  const gateProps: { "aria-disabled"?: true; "aria-describedby"?: string; className?: string } = signed
+    ? {}
+    : { "aria-disabled": true, "aria-describedby": signHelpId, className: "aria-disabled:cursor-not-allowed aria-disabled:opacity-60" };
+  const signHelp = !signed ? (
+    <p id={signHelpId} className="mt-2 text-xs text-slate-500">
+      {SIGN_FIRST_HELP}
+    </p>
+  ) : null;
 
   return (
     <>
@@ -232,18 +346,24 @@ export function AckCard({
               <p className="mt-2 max-w-md text-sm text-slate-600">{confirmedSentence}</p>
               {/* A kept edit (A2): the confirmation still counts but cites an
                   older version than the text on screen. Re-confirming posts
-                  the latest version id; the ledger keeps both rows. */}
-              {ack.ackedVersionId !== null && ack.versionId !== null && ack.ackedVersionId !== ack.versionId && (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  icon={<ShieldCheck />}
-                  busy={isBusy("ack")}
-                  onClick={() => void confirm()}
-                  className="mt-3"
-                >
-                  Re-confirm the current text{ack.rev !== null ? ` (v${ack.rev})` : ""}
-                </Button>
+                  the latest version id; the ledger keeps both rows, and a
+                  signature policy asks for the signature again. */}
+              {canReconfirm && (
+                <>
+                  {signBlock}
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    icon={<ShieldCheck />}
+                    busy={isBusy("ack")}
+                    onClick={() => void confirm()}
+                    {...gateProps}
+                    className={`mt-3 ${gateProps.className ?? ""}`.trim()}
+                  >
+                    Re-confirm the current text{ack.rev !== null ? ` (v${ack.rev})` : ""}
+                  </Button>
+                  {signHelp}
+                </>
               )}
             </>
           ) : (
@@ -253,8 +373,15 @@ export function AckCard({
                   {reasonSentence(prior.reason, fmt.date)}
                 </p>
               )}
-              <p className="mt-2 max-w-md text-sm text-slate-600">{statement}</p>
+              {/* The statement as Markdown, at the card's own size (the
+                  prose recipe is the document's; this is one sentence).
+                  Inline-only: emphasis, a link, code; never an image, an
+                  embed, a directive or a task list in what a reader signs. */}
+              <div className="mt-2 max-w-md text-sm text-slate-600 [&_.doc-prose]:text-sm [&_.doc-prose]:leading-6 [&_.doc-prose]:text-slate-600 [&_.doc-prose_p]:my-0">
+                <MarkdownView content={statement} docKey={`ack-statement-${docId}`} inline />
+              </div>
               {metaLine && <p className="mt-1 text-xs text-slate-500">{metaLine}</p>}
+              {recertLine && <p className="mt-0.5 text-xs text-slate-500">{recertLine}</p>}
 
               {showChanges && prior && (
                 <details className="mt-5 w-full rounded-lg border border-slate-200 bg-surface text-left [&[open]>summary]:border-b [&[open]>summary]:border-slate-100">
@@ -315,16 +442,20 @@ export function AckCard({
                 </details>
               )}
 
+              {signBlock}
+
               <Button
                 variant="primary"
                 size="lg"
                 icon={<ShieldCheck />}
                 busy={isBusy("ack")}
                 onClick={() => void confirm()}
-                className="mt-5 w-full sm:w-auto"
+                {...gateProps}
+                className={`mt-5 w-full sm:w-auto ${gateProps.className ?? ""}`.trim()}
               >
                 I&apos;ve read and understood this
               </Button>
+              {signHelp}
             </>
           )}
         </div>
@@ -335,7 +466,7 @@ export function AckCard({
         {confirmed
           ? `Read confirmation recorded for ${readerName} on ${fmt.dateTime(ack.ackedAt)}${
               versionLabel(ack.ackedRev) ? ` · ${versionLabel(ack.ackedRev)}` : ""
-            }`
+            }${signedAs ? ` · signed as ${signedAs}` : ""}`
           : `Read confirmation required. Not yet confirmed by ${readerName}`}
       </p>
     </>

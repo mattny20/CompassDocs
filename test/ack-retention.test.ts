@@ -30,6 +30,18 @@ import {
   attestationCountsByUser,
   listVersions,
 } from "../src/lib/db";
+import {
+  ROSTER_CSV_HEADER,
+  MATRIX_CSV_HEADER,
+  LEDGER_CSV_HEADER,
+  ATTESTATION_CSV_COLUMNS,
+  personalDataCells,
+  personalDataForViewer,
+  ledgerCsvCells,
+  attestationCsvCells,
+  recertCsvCells,
+  type LedgerCsvRow,
+} from "../src/lib/read-evidence";
 
 const STAMP = `ackret-${Date.now()}`;
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");
@@ -208,24 +220,46 @@ describe("attestation retention", () => {
     assert.equal((await getAttestedVersion(v1))!.source, "live");
   });
 
-  test("the automatic purge archives too, and only the versions a record cites", async () => {
+  test("the automatic purge leaves a document with confirmations alone (G3, 1.12.0), archives only the cited versions of what it removes, and Delete forever still archives the rest", async () => {
     const reader = await newUser("auto");
     const { id, v1 } = await newPolicy(`${STAMP} auto`, "First text");
     await recordAcknowledgement(id, reader, "", v1);
-    // A version nobody confirmed, no marker and no decision cites: inserted
-    // directly, because updateDocument now records a decision (A2/C1).
-    await pool().query(
-      "INSERT INTO doc_versions (document_id, title, content, author, note) VALUES ($1, $2, 'Second text', 'test', 'Edited')",
-      [id, `${STAMP} auto`]
-    );
-    const versions = await listVersions(id);
-    const v2 = versions[0].id;
+    // The same policy with nobody's confirmation: only its marker cites v1.
+    const bare = await newPolicy(`${STAMP} auto bare`, "Bare first text");
+    // On each, a version nobody confirmed, no marker and no decision cites:
+    // inserted directly, because updateDocument now records a decision (A2/C1).
+    for (const [docId, title] of [
+      [id, `${STAMP} auto`],
+      [bare.id, `${STAMP} auto bare`],
+    ] as const) {
+      await pool().query(
+        "INSERT INTO doc_versions (document_id, title, content, author, note) VALUES ($1, $2, 'Second text', 'test', 'Edited')",
+        [docId, title]
+      );
+    }
+    const v2 = (await listVersions(id))[0].id;
+    const bareV2 = (await listVersions(bare.id))[0].id;
     assert.notEqual(v2, v1);
-    await pool().query("UPDATE documents SET deleted_at = now() - interval '40 days' WHERE id = $1", [id]);
+    assert.notEqual(bareV2, bare.v1);
+    await pool().query("UPDATE documents SET deleted_at = now() - interval '40 days' WHERE id = ANY($1)", [[id, bare.id]]);
 
-    const n = await purgeExpiredTrash(30);
-    assert.ok(n >= 1, "the expired document was purged");
+    // No assertion on the count: test/ack-retire.test.ts sweeps the same
+    // Trash in parallel and may purge this file's expired document first.
+    // The rows below prove the sweep ran.
+    await purgeExpiredTrash(30);
+    const stayed = await pool().query("SELECT 1 FROM documents WHERE id = $1", [id]);
+    assert.equal(stayed.rows.length, 1, "a document with confirmations on record is never auto-purged: it waits for Delete forever");
+    const notYet = await pool().query("SELECT 1 FROM attested_texts WHERE document_id = $1", [id]);
+    assert.equal(notYet.rows.length, 0, "and nothing of it was archived yet");
+    const gone = await pool().query("SELECT 1 FROM documents WHERE id = $1", [bare.id]);
+    assert.equal(gone.rows.length, 0, "the one without confirmations was purged");
+    const bareKept = await pool().query("SELECT version_id FROM attested_texts WHERE document_id = $1 ORDER BY version_id", [bare.id]);
+    assert.deepEqual(bareKept.rows.map((r) => r.version_id), [bare.v1], "its v1 (the marker) is archived; v2 (cited by nothing) is not");
+    assert.equal(await getAttestedVersion(bareV2), undefined);
 
+    // The deliberate purge takes the confirmed one, archiving what the
+    // record cites and nothing else.
+    assert.equal(await purgeDocument(id), true);
     const kept = await pool().query("SELECT version_id FROM attested_texts WHERE document_id = $1 ORDER BY version_id", [id]);
     assert.deepEqual(
       kept.rows.map((r) => r.version_id),
@@ -263,5 +297,101 @@ describe("attestation retention", () => {
     assert.equal(former.length, 1);
     assert.equal(former[0].name, `Former staff #${person}`);
     assert.equal(former[0].email, "");
+  });
+});
+
+// The CSV contracts (C4, 1.12.0): existing columns stay in place, the six
+// new ones close the line, the ledger header is the documented one, and the
+// two personal-data columns are blank for a caller without
+// compliance.export. Pure: no database.
+describe("CSV headers and the personal-data rule", () => {
+  const ROSTER_1110 =
+    "name,username,email,role,status,acknowledged_at,document,revision_as_of,version,version_id,content_sha256,version_source,former_staff,asked_at,asked_by,reason,kept_since_asked,ip,user_agent,version_published_by,version_approved_by,read_seconds,reached_end_self_reported";
+  const MATRIX_1101 =
+    "document,space,revision_as_of,name,username,email,role,acknowledged_at,version,version_id,content_sha256,version_source,former_staff,asked_at,asked_by,reason,kept_since_asked,version_published_by,version_approved_by";
+  const SIX = ",statement,signed_name,identity_proof,recert_months,effective_at,next_recert_at";
+
+  const ledgerRow: LedgerCsvRow = {
+    document_title: "Expenses",
+    document_id: 7,
+    space_name: "HR",
+    name: "Dana Writer",
+    username: "dana",
+    email: "dana@example.test",
+    role: "viewer",
+    acknowledged_at: "2026-03-03T10:00:00.000Z",
+    superseded: true,
+    rev: 12,
+    version_id: 99,
+    content_sha256: "abc",
+    version_source: "recorded",
+    statement_text: "I confirm that I have read and understood this document.",
+    signed_name: "Dana Writer",
+    identity_proof: "password",
+    read_seconds: 240,
+    reached_end: true,
+    ip: "203.0.113.9",
+    user_agent: "Mozilla/5.0",
+    account_removed: false,
+  };
+
+  test("both export headers keep their legacy prefix and end with the six 1.12.0 columns", () => {
+    assert.ok(ROSTER_CSV_HEADER.startsWith(ROSTER_1110), "the roster header starts with the 1.11.0 columns");
+    assert.equal(ROSTER_CSV_HEADER, ROSTER_1110 + SIX);
+    assert.ok(MATRIX_CSV_HEADER.startsWith(MATRIX_1101), "the matrix header starts with the 1.10.1 columns");
+    assert.equal(MATRIX_CSV_HEADER, MATRIX_1101 + SIX);
+    assert.equal(`,${ATTESTATION_CSV_COLUMNS}`, SIX);
+  });
+
+  test("the ledger header is the documented one, and a ledger line has one cell per column", () => {
+    assert.equal(
+      LEDGER_CSV_HEADER,
+      "document,document_id,space,name,username,email,role,acknowledged_at,superseded,version,version_id,content_sha256,version_source,statement,signed_name,identity_proof,read_seconds,reached_end_self_reported,ip,user_agent,account_removed"
+    );
+    const header = LEDGER_CSV_HEADER.split(",");
+    const cells = ledgerCsvCells(ledgerRow, true);
+    assert.equal(cells.length, header.length);
+    assert.equal(cells[header.indexOf("superseded")], "yes");
+    assert.equal(cells[header.indexOf("version")], "v12");
+    assert.equal(cells[header.indexOf("statement")], ledgerRow.statement_text);
+    assert.equal(cells[header.indexOf("signed_name")], "Dana Writer");
+    assert.equal(cells[header.indexOf("identity_proof")], "password");
+    assert.equal(cells[header.indexOf("read_seconds")], 240);
+    assert.equal(cells[header.indexOf("reached_end_self_reported")], "yes");
+    assert.equal(cells[header.indexOf("ip")], "203.0.113.9");
+    assert.equal(cells[header.indexOf("user_agent")], "Mozilla/5.0");
+    assert.equal(cells[header.indexOf("account_removed")], "no");
+  });
+
+  test("ip and user_agent are blank without compliance.export, on the cells and on the row", () => {
+    assert.deepEqual(personalDataCells(ledgerRow, false), ["", ""]);
+    assert.deepEqual(personalDataCells(ledgerRow, true), ["203.0.113.9", "Mozilla/5.0"]);
+    assert.deepEqual(personalDataCells(null, true), ["", ""], "no recorded access, nothing to show");
+    const header = LEDGER_CSV_HEADER.split(",");
+    const cells = ledgerCsvCells(ledgerRow, false);
+    assert.equal(cells[header.indexOf("ip")], "");
+    assert.equal(cells[header.indexOf("user_agent")], "");
+    assert.equal(cells[header.indexOf("name")], "Dana Writer", "only the two personal-data cells change");
+    const blanked = personalDataForViewer(ledgerRow, false);
+    assert.equal(blanked.ip, "");
+    assert.equal(blanked.user_agent, "");
+    assert.equal(blanked.signed_name, "Dana Writer");
+    assert.equal(personalDataForViewer(ledgerRow, true), ledgerRow, "an exporter gets the row as recorded");
+  });
+
+  test("attestation and re-confirmation cells: blank while pending or unset, YYYY-MM-DD for a date", () => {
+    assert.deepEqual(attestationCsvCells({ acknowledged_at: null, statement_text: "x", signed_name: "y", identity_proof: "z" }), ["", "", ""]);
+    assert.deepEqual(attestationCsvCells({ acknowledged_at: "2026-03-03T10:00:00.000Z" }), ["", "", ""], "a row type without the fields still writes three cells");
+    assert.deepEqual(
+      attestationCsvCells({ acknowledged_at: "2026-03-03T10:00:00.000Z", statement_text: "I confirm", signed_name: "Dana Writer", identity_proof: "sso_session" }),
+      ["I confirm", "Dana Writer", "sso_session"]
+    );
+    assert.deepEqual(recertCsvCells({}), ["", "", ""]);
+    assert.deepEqual(recertCsvCells({ ack_recert_months: null, ack_effective_at: null, ack_next_recert_at: null }), ["", "", ""]);
+    assert.deepEqual(
+      recertCsvCells({ ack_recert_months: 12, ack_effective_at: new Date("2026-01-01T00:00:00.000Z"), ack_next_recert_at: "2027-01-01T00:00:00.000Z" }),
+      [12, "2026-01-01", "2027-01-01T00:00:00.000Z"],
+      "a pg Date becomes its calendar day; a timestamp string is written as is"
+    );
   });
 });

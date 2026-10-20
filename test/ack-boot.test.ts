@@ -1,7 +1,8 @@
 // The confirmation-marker upgrade against a database shaped like 1.9.4,
-// booted twice (A1/C5 double-boot idempotency), and the 1.10.1 additions
+// booted twice (A1/C5 double-boot idempotency), the 1.10.1 additions
 // against a database shaped like 1.10.0, booted twice (the path every real
-// upgrade takes).
+// upgrade takes), and the 1.12.0 columns and indexes (G1, C2, G3) against a
+// database shaped like 1.11.x, booted twice.
 //
 // The trap this pins: the marker must be backfilled from updated_at so that
 // every confirmation 1.9.x showed as current is still current after the
@@ -187,11 +188,16 @@ async function assertSchema1101(db: Client, label: string) {
         "idx_documents_space",
         "idx_documents_search",
         "idx_ra_user_space",
+        // 1.12.0 (G3): the partial indexes under the two SET NULL references.
+        "idx_documents_ack_retired_by",
+        "idx_documents_ack_superseded_by",
       ],
     ]
   );
+  // Sorted here, not by the database: the expected order must not depend
+  // on the rig's collation.
   assert.deepEqual(
-    indexes.rows.map((r) => r.indexname),
+    indexes.rows.map((r) => r.indexname).sort(),
     [
       "idx_ack_notices_by_user",
       "idx_ack_notices_doc_user_kind",
@@ -199,11 +205,23 @@ async function assertSchema1101(db: Client, label: string) {
       "idx_ack_outbox_due",
       "idx_doc_versions_approved_by",
       "idx_doc_versions_published_by",
+      "idx_documents_ack_retired_by",
+      "idx_documents_ack_superseded_by",
       "idx_documents_search",
       "idx_documents_space",
       "idx_ra_user_space",
     ],
     `${label}: the indexes exist`
+  );
+  // The OID 1082 text parser in lib/db is process-wide: it must reach
+  // exactly one column, so a later `date` column is read as text on purpose.
+  const dates = await db.query<{ c: string }>(
+    "SELECT table_name || '.' || column_name AS c FROM information_schema.columns WHERE table_schema = current_schema() AND data_type = 'date' ORDER BY 1"
+  );
+  assert.deepEqual(
+    dates.rows.map((r) => r.c),
+    ["documents.ack_effective_at"],
+    `${label}: the OID 1082 text parser reaches exactly one column; a new date column must be read as text on purpose`
   );
   const trigger = await db.query(
     "SELECT 1 FROM pg_trigger WHERE tgrelid = 'users'::regclass AND tgname = 'compass_users_ladder_sync' AND NOT tgisinternal"
@@ -455,6 +473,102 @@ describe("confirmation marker upgrade (1.9.4 → 1.10.1), booted twice", () => {
       "the one-shot flags are as they were"
     );
   });
+
+  test("1.12.0 (G3): the retirement columns, their SET NULL references and the two partial indexes come back on an upgrade boot, every existing document stays unretired, a retirement set between boots survives, and a second boot moves nothing", async () => {
+    // A database shaped like 1.11.x: the five columns gone (their two
+    // foreign keys and the two partial indexes go with them).
+    await db.query(`
+      ALTER TABLE documents
+        DROP COLUMN IF EXISTS ack_retired_at,
+        DROP COLUMN IF EXISTS ack_retired_by,
+        DROP COLUMN IF EXISTS ack_retired_by_name,
+        DROP COLUMN IF EXISTS ack_retired_reason,
+        DROP COLUMN IF EXISTS ack_superseded_by;
+    `);
+    const upgrade = boot(DB);
+    assert.ok(upgrade.ok, `the upgrade boot succeeds:\n${upgrade.out}`);
+    await assertSchema1101(db, "1.12.0 (G3) upgrade boot");
+
+    const columns = await db.query<{ column_name: string; data_type: string; is_nullable: string; column_default: string | null }>(
+      `SELECT column_name, data_type, is_nullable, column_default FROM information_schema.columns
+       WHERE table_schema = current_schema() AND table_name = 'documents'
+         AND column_name IN ('ack_retired_at', 'ack_retired_by', 'ack_retired_by_name', 'ack_retired_reason', 'ack_superseded_by')
+       ORDER BY column_name`
+    );
+    assert.deepEqual(
+      columns.rows,
+      [
+        { column_name: "ack_retired_at", data_type: "timestamp with time zone", is_nullable: "YES", column_default: null },
+        { column_name: "ack_retired_by", data_type: "integer", is_nullable: "YES", column_default: null },
+        { column_name: "ack_retired_by_name", data_type: "text", is_nullable: "NO", column_default: "''::text" },
+        { column_name: "ack_retired_reason", data_type: "text", is_nullable: "NO", column_default: "''::text" },
+        { column_name: "ack_superseded_by", data_type: "integer", is_nullable: "YES", column_default: null },
+      ],
+      "the five retirement columns, metadata-only"
+    );
+    // A deleted account or a purged replacement clears the reference; the
+    // retirement itself (the stamp, the name, the reason) is never cascaded.
+    const fks = async () =>
+      (
+        await db.query<{ conname: string; confdeltype: string; ref: string }>(
+          `SELECT conname, confdeltype, confrelid::regclass::text AS ref FROM pg_constraint
+           WHERE conrelid = 'documents'::regclass AND contype = 'f'
+             AND conname IN ('documents_ack_retired_by_fkey', 'documents_ack_superseded_by_fkey')
+           ORDER BY conname`
+        )
+      ).rows.map((r) => [r.conname, r.confdeltype, r.ref]);
+    const expectedFks = [
+      ["documents_ack_retired_by_fkey", "n", "users"],
+      ["documents_ack_superseded_by_fkey", "n", "documents"],
+    ];
+    assert.deepEqual(await fks(), expectedFks, "both references are ON DELETE SET NULL");
+    // The upgrade left every existing document unretired.
+    const retired = await db.query("SELECT COUNT(*)::int AS n FROM documents WHERE ack_retired_at IS NOT NULL OR ack_required IS NULL");
+    assert.equal(retired.rows[0].n, 0);
+
+    // A retirement set between boots (what retirePolicy writes, done by hand
+    // so the boot is the only code under test) survives the next boot
+    // untouched, references and all.
+    const [policy, replacement] = (await db.query<{ id: number }>("SELECT id FROM documents WHERE ack_required = 1 ORDER BY id LIMIT 2")).rows.map(
+      (r) => r.id
+    );
+    assert.ok(policy && replacement, "two fixture policies require confirmation");
+    const manager = (await db.query<{ id: number }>("SELECT id FROM users WHERE username = 'boot_late'")).rows[0].id;
+    await db.query(
+      `UPDATE documents
+         SET ack_required = 0, ack_retired_at = '2026-05-01T09:00:00Z', ack_retired_by = $2, ack_retired_by_name = 'Late Reader',
+             ack_retired_reason = 'Superseded by hand', ack_superseded_by = $3
+       WHERE id = $1`,
+      [policy, manager, replacement]
+    );
+    const second = boot(DB);
+    assert.ok(second.ok, `the second boot succeeds:\n${second.out}`);
+    const kept = await db.query<{
+      ack_required: number;
+      ack_retired_at: Date;
+      ack_retired_by: number;
+      ack_retired_by_name: string;
+      ack_retired_reason: string;
+      ack_superseded_by: number;
+    }>(
+      "SELECT ack_required, ack_retired_at, ack_retired_by, ack_retired_by_name, ack_retired_reason, ack_superseded_by FROM documents WHERE id = $1",
+      [policy]
+    );
+    const { ack_retired_at, ...rest } = kept.rows[0];
+    assert.equal(new Date(ack_retired_at).toISOString(), "2026-05-01T09:00:00.000Z", "the stamp is as written");
+    assert.deepEqual(
+      rest,
+      { ack_required: 0, ack_retired_by: manager, ack_retired_by_name: "Late Reader", ack_retired_reason: "Superseded by hand", ack_superseded_by: replacement },
+      "the retirement is as written"
+    );
+    assert.deepEqual(await fks(), expectedFks, "the references are still there");
+    assert.equal(
+      (await db.query("SELECT COUNT(*)::int AS n FROM documents WHERE ack_retired_at IS NOT NULL")).rows[0].n,
+      1,
+      "no other document was retired"
+    );
+    await assertSchema1101(db, "1.12.0 (G3) second boot");
+  });
 });
 
 describe("the 1.10.1 additions against a 1.10.0 database, booted twice", () => {
@@ -565,5 +679,160 @@ describe("the 1.10.1 additions against a 1.10.0 database, booted twice", () => {
     assert.doesNotMatch(second.out, /version provenance backfilled/, "the backfill did not run again");
     await assertSchema1101(db, "second boot");
     assert.deepEqual(await snapshot(db, [policy]), between, "nothing moved on the second boot");
+  });
+
+  test("1.12.0 (G1): the re-confirmation columns and their partial index come back on an upgrade boot, existing policies get no cycle, values set between boots survive, and a second boot moves nothing", async () => {
+    // A database shaped like 1.11.x: the three columns and the index gone.
+    await db.query(`
+      DROP INDEX IF EXISTS idx_documents_ack_recert;
+      ALTER TABLE documents
+        DROP COLUMN IF EXISTS ack_recert_months,
+        DROP COLUMN IF EXISTS ack_next_recert_at,
+        DROP COLUMN IF EXISTS ack_effective_at;
+    `);
+    const upgrade = boot(DB);
+    assert.ok(upgrade.ok, `the upgrade boot succeeds:\n${upgrade.out}`);
+
+    const columns = await db.query<{ column_name: string; data_type: string; is_nullable: string; column_default: string | null }>(
+      `SELECT column_name, data_type, is_nullable, column_default FROM information_schema.columns
+       WHERE table_schema = current_schema() AND table_name = 'documents'
+         AND column_name IN ('ack_recert_months', 'ack_next_recert_at', 'ack_effective_at')
+       ORDER BY column_name`
+    );
+    assert.deepEqual(
+      columns.rows,
+      [
+        { column_name: "ack_effective_at", data_type: "date", is_nullable: "YES", column_default: null },
+        { column_name: "ack_next_recert_at", data_type: "timestamp with time zone", is_nullable: "YES", column_default: null },
+        { column_name: "ack_recert_months", data_type: "integer", is_nullable: "YES", column_default: null },
+      ],
+      "the three re-confirmation columns, nullable with no default (metadata-only)"
+    );
+    const index = await db.query<{ indexdef: string }>(
+      "SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'idx_documents_ack_recert'"
+    );
+    assert.equal(index.rows.length, 1, "idx_documents_ack_recert exists");
+    assert.match(
+      index.rows[0].indexdef,
+      /USING btree \(ack_next_recert_at\) WHERE \(\(ack_required = 1\) AND \(ack_recert_months IS NOT NULL\)\)/,
+      "the partial index covers exactly the rows the sweep tests"
+    );
+    // The upgrade dates nothing and starts no cycle: an existing policy is
+    // asked again only once someone sets an interval.
+    const existing = await db.query<{ ack_recert_months: number | null; ack_next_recert_at: string | null; ack_effective_at: string | null }>(
+      "SELECT ack_recert_months, ack_next_recert_at, ack_effective_at::text AS ack_effective_at FROM documents WHERE ack_required = 1"
+    );
+    assert.ok(existing.rows.length >= 1, "the fixture policy still requires confirmation");
+    assert.ok(
+      existing.rows.every((r) => r.ack_recert_months === null && r.ack_next_recert_at === null && r.ack_effective_at === null),
+      "no cycle and no effective date on an existing policy"
+    );
+
+    // A cycle set between boots survives the next one untouched.
+    const dated = await db.query<{ id: number }>("SELECT id FROM documents WHERE ack_required = 1 ORDER BY id LIMIT 1");
+    const docId = dated.rows[0].id;
+    await db.query(
+      "UPDATE documents SET ack_recert_months = 12, ack_next_recert_at = '2027-01-01T00:00:00Z', ack_effective_at = '2026-01-01' WHERE id = $1",
+      [docId]
+    );
+    const second = boot(DB);
+    assert.ok(second.ok, `the second boot succeeds:\n${second.out}`);
+    const kept = await db.query<{ ack_recert_months: number; next: string; eff: string }>(
+      "SELECT ack_recert_months, ack_next_recert_at::text AS next, ack_effective_at::text AS eff FROM documents WHERE id = $1",
+      [docId]
+    );
+    assert.equal(kept.rows[0].ack_recert_months, 12);
+    assert.equal(kept.rows[0].eff, "2026-01-01");
+    assert.match(kept.rows[0].next, /^2027-01-01 00:00:00/);
+    assert.equal(
+      (await db.query("SELECT 1 FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'idx_documents_ack_recert'")).rowCount,
+      1,
+      "the index is still there after the second boot"
+    );
+    await assertSchema1101(db, "1.12.0 second boot");
+  });
+
+  test("1.12.0 (C2): the statement and signature columns come back on an upgrade boot with their defaults, a 1.11.x-shaped confirmation still inserts, values set between boots survive, and a second boot moves nothing", async () => {
+    // A database shaped like 1.11.x: the two document columns and the four
+    // record columns gone.
+    await db.query(`
+      ALTER TABLE documents DROP COLUMN IF EXISTS ack_statement, DROP COLUMN IF EXISTS ack_signature;
+      ALTER TABLE acknowledgements
+        DROP COLUMN IF EXISTS statement_text, DROP COLUMN IF EXISTS signed_name,
+        DROP COLUMN IF EXISTS identity_proof, DROP COLUMN IF EXISTS user_agent;
+    `);
+    const upgrade = boot(DB);
+    assert.ok(upgrade.ok, `the upgrade boot succeeds:\n${upgrade.out}`);
+
+    const shape = async () =>
+      (
+        await db.query<{ table_name: string; column_name: string; data_type: string; is_nullable: string; column_default: string | null }>(
+          `SELECT table_name, column_name, data_type, is_nullable, column_default FROM information_schema.columns
+           WHERE table_schema = current_schema()
+             AND ((table_name = 'documents' AND column_name IN ('ack_statement', 'ack_signature'))
+               OR (table_name = 'acknowledgements' AND column_name IN ('statement_text', 'signed_name', 'identity_proof', 'user_agent')))
+           ORDER BY table_name, column_name`
+        )
+      ).rows;
+    const expected = [
+      { table_name: "acknowledgements", column_name: "identity_proof", data_type: "text", is_nullable: "NO", column_default: "''::text" },
+      { table_name: "acknowledgements", column_name: "signed_name", data_type: "text", is_nullable: "YES", column_default: null },
+      { table_name: "acknowledgements", column_name: "statement_text", data_type: "text", is_nullable: "NO", column_default: "''::text" },
+      { table_name: "acknowledgements", column_name: "user_agent", data_type: "text", is_nullable: "NO", column_default: "''::text" },
+      { table_name: "documents", column_name: "ack_signature", data_type: "integer", is_nullable: "NO", column_default: "0" },
+      { table_name: "documents", column_name: "ack_statement", data_type: "text", is_nullable: "YES", column_default: null },
+    ];
+    assert.deepEqual(await shape(), expected, "the six columns with their defaults (metadata-only: constant defaults, no backfill)");
+
+    // The upgrade changes no policy's behaviour: the workspace default
+    // statement and no signature; existing rows read as unsigned with no
+    // statement text (they predate the column).
+    const docs = await db.query<{ ack_statement: string | null; ack_signature: number }>(
+      "SELECT ack_statement, ack_signature FROM documents WHERE ack_required = 1"
+    );
+    assert.ok(docs.rows.length >= 1, "the fixture policy still requires confirmation");
+    assert.ok(docs.rows.every((r) => r.ack_statement === null && r.ack_signature === 0), "default statement, no signature");
+    const acks = await db.query<{ statement_text: string; signed_name: string | null; identity_proof: string; user_agent: string }>(
+      "SELECT statement_text, signed_name, identity_proof, user_agent FROM acknowledgements"
+    );
+    assert.ok(acks.rows.length >= 1, "the fixture confirmation is still there");
+    assert.ok(
+      acks.rows.every((r) => r.statement_text === "" && r.signed_name === null && r.identity_proof === "" && r.user_agent === ""),
+      "existing rows are unsigned with no statement text"
+    );
+
+    // A 1.11.x-shaped INSERT (what a 1.11.2 binary writes during a rollback)
+    // takes the defaults.
+    const policy = (await db.query<{ id: number }>("SELECT id FROM documents WHERE ack_required = 1 ORDER BY id LIMIT 1")).rows[0].id;
+    const reader = (await db.query<{ id: number }>("SELECT id FROM users WHERE username = 'boot110_reader'")).rows[0].id;
+    const legacy = await db.query<{ id: number; statement_text: string; signed_name: string | null; identity_proof: string; user_agent: string }>(
+      `INSERT INTO acknowledgements (document_id, user_id, acknowledged_at, ip, version_id, content_sha256, user_name, user_email, document_title)
+       VALUES ($1, $2, now(), '10.0.0.4', NULL, NULL, 'Boot Reader', 'reader@boot110.test', 'Boot 1.10 policy')
+       RETURNING id, statement_text, signed_name, identity_proof, user_agent`,
+      [policy, reader]
+    );
+    const { id: legacyId, ...legacyRow } = legacy.rows[0];
+    assert.deepEqual(legacyRow, { statement_text: "", signed_name: null, identity_proof: "", user_agent: "" });
+
+    // Values set between boots survive the next one untouched.
+    await db.query("UPDATE documents SET ack_statement = 'I will comply.', ack_signature = 1 WHERE id = $1", [policy]);
+    await db.query(
+      "UPDATE acknowledgements SET statement_text = 'I will comply.', signed_name = 'Boot Reader', identity_proof = 'password', user_agent = 'BootTest/1' WHERE id = $1",
+      [legacyId]
+    );
+    const second = boot(DB);
+    assert.ok(second.ok, `the second boot succeeds:\n${second.out}`);
+    assert.deepEqual(await shape(), expected, "the second boot leaves the shape alone");
+    const keptDoc = await db.query<{ ack_statement: string | null; ack_signature: number }>(
+      "SELECT ack_statement, ack_signature FROM documents WHERE id = $1",
+      [policy]
+    );
+    assert.deepEqual(keptDoc.rows[0], { ack_statement: "I will comply.", ack_signature: 1 });
+    const keptRow = await db.query<{ statement_text: string; signed_name: string | null; identity_proof: string; user_agent: string }>(
+      "SELECT statement_text, signed_name, identity_proof, user_agent FROM acknowledgements WHERE id = $1",
+      [legacyId]
+    );
+    assert.deepEqual(keptRow.rows[0], { statement_text: "I will comply.", signed_name: "Boot Reader", identity_proof: "password", user_agent: "BootTest/1" });
+    await assertSchema1101(db, "1.12.0 (C2) second boot");
   });
 });

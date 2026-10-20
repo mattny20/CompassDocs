@@ -2,7 +2,8 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkDirective from "remark-directive";
 import rehypeRaw from "rehype-raw";
-import rehypeSanitize from "rehype-sanitize";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
+import type { Components } from "react-markdown";
 import { MD_SANITIZE_SCHEMA, rehypeFilterStyles } from "@/lib/md-html";
 import { remarkDocBlocks } from "@/lib/doc-blocks";
 import { remarkDropTitle } from "@/lib/drop-title";
@@ -19,6 +20,21 @@ import {
   ChecklistBox,
 } from "./DocBlocks";
 import { Callout, DocDetails, VideoBlock, SiteEmbed } from "./DocBlocksStatic";
+
+/**
+ * The inline-only schema (1.12.0): what a confirmation statement may carry.
+ * One sentence with emphasis, code and a link, and nothing that embeds,
+ * loads or asks: the md-* directive divs (an embed's iframe, a video) are
+ * unwrapped to nothing, images and task-list inputs are dropped, and so
+ * are headings, tables and inline styles. `a` keeps the default attributes,
+ * so `href` stays under the default protocols (a javascript: link is
+ * dropped here as it is in the document view).
+ */
+export const MD_INLINE_SANITIZE_SCHEMA: typeof defaultSchema = {
+  ...defaultSchema,
+  tagNames: ["p", "em", "strong", "a", "code", "br"],
+  attributes: { a: defaultSchema.attributes?.a ?? [] },
+};
 
 /** Tab titles for a md-tabs group, read from the hast children. */
 function tabTitles(node: any): string[] {
@@ -40,9 +56,18 @@ export function MarkdownView({
   docKey,
   slideBreaks,
   dropTitle,
+  inline,
 }: {
   content: string;
   docKey?: string;
+  /**
+   * Inline-only rendering (1.12.0): the confirmation statement on the
+   * read confirmation card. The sanitizer keeps p, em, strong, a, code and
+   * br and nothing else (MD_INLINE_SANITIZE_SCHEMA), and only the link
+   * component is mapped, so a statement can carry emphasis and a link but
+   * never a directive, an image, an embed or a task list.
+   */
+  inline?: boolean;
   /**
    * The document's title, when the surface already shows it as a masthead:
    * a leading `# Title` that repeats it is dropped from the body (1.9.2,
@@ -56,6 +81,35 @@ export function MarkdownView({
    */
   slideBreaks?: "indicator" | "hidden";
 }) {
+  // External links become favicon chips; internal links stay plain. Email
+  // CTA buttons keep their own styling. The one component inline mode maps.
+  const a: Components["a"] = ({ href, children, className }) => {
+    if (className?.includes("email-btn")) {
+      return (
+        <a href={href} className={className}>
+          {children}
+        </a>
+      );
+    }
+    return <DocLink href={href}>{children}</DocLink>;
+  };
+
+  if (inline) {
+    // The same parse (so a directive is recognised and then dropped, not
+    // shown as its literal text), a narrower allowlist, no block components.
+    return (
+      <div className="doc-prose">
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm, remarkDirective, remarkDocBlocks]}
+          rehypePlugins={[rehypeRaw, [rehypeSanitize, MD_INLINE_SANITIZE_SCHEMA]]}
+          components={{ a }}
+        >
+          {content}
+        </ReactMarkdown>
+      </div>
+    );
+  }
+
   return (
     <div className="doc-prose">
       <ReactMarkdown
@@ -92,18 +146,7 @@ export function MarkdownView({
           img({ src, alt, title }) {
             return <DocImage src={String(src ?? "")} alt={alt} title={title ?? undefined} />;
           },
-          // External links become favicon chips; internal links stay plain.
-          // Email CTA buttons keep their own styling.
-          a({ href, children, className }) {
-            if (className?.includes("email-btn")) {
-              return (
-                <a href={href} className={className}>
-                  {children}
-                </a>
-              );
-            }
-            return <DocLink href={href}>{children}</DocLink>;
-          },
+          a,
           // Rich document blocks arrive as md-* divs from the directive plugin.
           div(props: any) {
             const { node, className, children } = props;

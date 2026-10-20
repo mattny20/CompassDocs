@@ -58,6 +58,10 @@ export default async function TrashPage({
           space_name: d.space_name,
           space_icon: d.space_icon,
           deleted_at: d.deleted_at ?? null,
+          // Confirmations on record keep a row out of the retention sweep
+          // (G3, 1.12.0): the row says so with a chip.
+          ack_count: d.ack_count,
+          ack_retired_at: d.ack_retired_at ?? null,
         }))}
         total={total}
         page={page}

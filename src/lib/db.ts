@@ -34,6 +34,8 @@ import { changeSummary, suggestReconfirm } from "./diff";
 import type { ChangeSummary } from "./diff";
 import type { EditDefault } from "./compliance-settings";
 import { storedReadSeconds } from "./read-evidence";
+import { RECERT_LEDGER_REASON, recertNoticeSentence, nextRecertDate } from "./ack-recert";
+import type { RecertFields, RecertPatch } from "./ack-recert";
 
 export type { AckPolicy, AckSource, AckOutcome, AckDecision, AckOutcomeInfo } from "./types";
 export type { AckNotice, AckNoticeMode, AckNoticeKind, AckNoticeChannel, AckOutboxRow } from "./types";
@@ -49,6 +51,10 @@ function toIso(raw: string | null): string | null {
 }
 types.setTypeParser(1184, (v) => toIso(v));
 types.setTypeParser(1114, (v) => toIso(v));
+// A plain `date` (1082) stays the 'YYYY-MM-DD' text Postgres sends: pg would
+// otherwise hand back a local-midnight Date object. First used by
+// documents.ack_effective_at (1.12.0); nothing else in the schema is a date.
+types.setTypeParser(1082, (v) => v);
 
 // --- Connection (singleton across hot reloads) -------------------------------
 
@@ -822,6 +828,38 @@ const SCHEMA_SQL = `
   -- it is set to required (setAckRequired). Metadata-only: a default on an
   -- existing column takes no rewrite.
   ALTER TABLE documents ADD COLUMN IF NOT EXISTS ack_edit_default text NOT NULL DEFAULT 'ask';
+  -- 1.12.0 (C2): the confirmation statement this policy prints on its card
+  -- (NULL = the workspace default, compliance_statement_default) and
+  -- whether the reader signs with a typed name (a local account also
+  -- re-enters its password; an SSO account is identified by its session).
+  -- Metadata-only: a constant default on an added column takes no rewrite.
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS ack_statement text;
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS ack_signature integer NOT NULL DEFAULT 0;
+  -- 1.12.0 (G3): retirement. A retired policy keeps every confirmation and
+  -- its marker (ack_revision_at / ack_version_id stay put so the final roster
+  -- is reproducible from the ledger); ack_required drops to 0 and these five
+  -- columns say when, by whom, why and which policy replaced it. Metadata-only.
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS ack_retired_at timestamptz;
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS ack_retired_by integer REFERENCES users(id) ON DELETE SET NULL;
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS ack_retired_by_name text NOT NULL DEFAULT '';
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS ack_retired_reason text NOT NULL DEFAULT '';
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS ack_superseded_by integer REFERENCES documents(id) ON DELETE SET NULL;
+  -- Both references SET NULL on delete: removing an account or purging a
+  -- replacement looks for the documents that cite it, and without an index
+  -- each firing is a sequential scan of documents (idx_documents_ack_version
+  -- is the same case). Partial, so the indexes hold only retired rows.
+  CREATE INDEX IF NOT EXISTS idx_documents_ack_retired_by ON documents(ack_retired_by) WHERE ack_retired_by IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS idx_documents_ack_superseded_by ON documents(ack_superseded_by) WHERE ack_superseded_by IS NOT NULL;
+  -- 1.12.0 (G1): periodic re-confirmation. ack_recert_months NULL = no cycle;
+  -- ack_next_recert_at is stored, never derived (set with the interval, moved
+  -- by every reset and by the sweep's claim, whose WHERE tests it: see
+  -- claimDueRecertifications); ack_effective_at is the day the requirement
+  -- was first switched on (setAckRequired). The partial index is the sweep's
+  -- only scan. Metadata-only.
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS ack_recert_months integer;
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS ack_next_recert_at timestamptz;
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS ack_effective_at date;
+  CREATE INDEX IF NOT EXISTS idx_documents_ack_recert ON documents(ack_next_recert_at) WHERE ack_required = 1 AND ack_recert_months IS NOT NULL;
   CREATE TABLE IF NOT EXISTS acknowledgements (
     id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     document_id integer NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
@@ -875,6 +913,19 @@ const SCHEMA_SQL = `
   -- self-reported latch (use-reached-end.ts), 1 or 0, never trusted for time.
   ALTER TABLE acknowledgements ADD COLUMN IF NOT EXISTS read_seconds integer;
   ALTER TABLE acknowledgements ADD COLUMN IF NOT EXISTS reached_end integer NOT NULL DEFAULT 0;
+  -- 1.12.0 (C2): what the person agreed to and how they were identified.
+  -- statement_text is the confirmation statement the server served when
+  -- the row was written (the policy's own, else the workspace default at
+  -- that moment; never the client's text; '' on rows from before 1.12.0).
+  -- signed_name is the typed name when the policy required a signature
+  -- (NULL on an unsigned row); identity_proof is 'password' (a local
+  -- account re-entered it), 'sso_session' or 'typed_name_only' on a signed
+  -- row and '' otherwise; user_agent is the first 300 characters of the
+  -- browser's header ('' when unknown). Metadata-only, like the pair above.
+  ALTER TABLE acknowledgements ADD COLUMN IF NOT EXISTS statement_text text NOT NULL DEFAULT '';
+  ALTER TABLE acknowledgements ADD COLUMN IF NOT EXISTS signed_name text;
+  ALTER TABLE acknowledgements ADD COLUMN IF NOT EXISTS identity_proof text NOT NULL DEFAULT '';
+  ALTER TABLE acknowledgements ADD COLUMN IF NOT EXISTS user_agent text NOT NULL DEFAULT '';
 
   -- 1.10.0 retention: attestation records outlive the person and the policy.
   -- Metadata-only here; the ON DELETE SET NULL swap and the snapshot backfill
@@ -3566,12 +3617,18 @@ export interface TrashedDocRow {
   space_name: string;
   space_icon: string;
   space_slug: string;
+  /** Confirmations on record for this document (G3, 1.12.0): a row with any is never auto-purged. */
+  ack_count: number;
+  /** When the policy was retired (G3), null for a document that never was. */
+  ack_retired_at: string | null;
 }
 
 /**
  * The Trash, a page at a time and without document bodies (the old query
  * loaded every body of every trashed document to render a title). `q`
- * matches the title or the space name, case-insensitively.
+ * matches the title or the space name, case-insensitively. Each row carries
+ * its confirmation count and its retirement stamp (G3, 1.12.0) so the page
+ * can say which rows the retention sweep leaves alone.
  */
 export async function listTrashedDocuments(opts: { q?: string; limit?: number; offset?: number } = {}): Promise<{
   rows: TrashedDocRow[];
@@ -3590,7 +3647,9 @@ export async function listTrashedDocuments(opts: { q?: string; limit?: number; o
   const [{ n: total }] = await q<{ n: number }>(`SELECT COUNT(*)::int AS n ${from}`, params);
   const rows = await q<TrashedDocRow>(
     `SELECT d.id, d.title, d.type, d.status, d.deleted_at,
-            s.name AS space_name, s.icon AS space_icon, s.slug AS space_slug
+            s.name AS space_name, s.icon AS space_icon, s.slug AS space_slug,
+            (SELECT COUNT(*)::int FROM acknowledgements a WHERE a.document_id = d.id) AS ack_count,
+            d.ack_retired_at
      ${from} ORDER BY d.deleted_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
     [...params, limit, offset]
   );
@@ -3685,6 +3744,12 @@ export async function purgeDocument(id: number): Promise<boolean> {
  * 0 (or less) disables auto-purge (Trash is kept forever). Returns the count
  * removed. The attested text behind every confirmation is archived first, in
  * the same transaction.
+ *
+ * A document with confirmations on record is never auto-purged (G3,
+ * 1.12.0): the NOT EXISTS leaves it in the Trash, where the page says so,
+ * until someone chooses "Delete forever" (purgeDocument, which archives the
+ * cited versions first). The sweep is for ordinary documents; evidence
+ * waits for a deliberate decision.
  */
 export async function purgeExpiredTrash(retentionDays: number): Promise<number> {
   if (!Number.isFinite(retentionDays) || retentionDays <= 0) return 0;
@@ -3695,6 +3760,7 @@ export async function purgeExpiredTrash(retentionDays: number): Promise<number> 
     const due = await client.query<{ id: number }>(
       `SELECT id FROM documents
        WHERE deleted_at IS NOT NULL AND deleted_at < now() - ($1 * interval '1 day')
+         AND NOT EXISTS (SELECT 1 FROM acknowledgements a WHERE a.document_id = documents.id)
        FOR UPDATE SKIP LOCKED`,
       [retentionDays]
     );
@@ -5247,16 +5313,18 @@ export async function listSubscriberRecipients(
 // --- Policy acknowledgements (enterprise) ---------------------------------------
 
 /**
- * The workspace's "When the text of a policy changes" (E4). A dynamic import:
- * lib/compliance-settings imports this module, and a static import back
- * would be a cycle. Unreadable settings fall back to the column default.
+ * The workspace's "When the text of a policy changes" (E4) and "Re-confirm
+ * every" (G1) defaults. A dynamic import: lib/compliance-settings imports
+ * this module, and a static import back would be a cycle. Unreadable
+ * settings fall back to the column defaults ('ask', no cycle).
  */
-async function workspaceEditDefault(): Promise<AckEditDefault> {
+async function workspaceAckDefaults(): Promise<{ edit_default: AckEditDefault; recert_months: number | null }> {
   try {
     const m = await import("./compliance-settings");
-    return (await m.getComplianceSettings()).ack_defaults.edit_default;
+    const d = (await m.getComplianceSettings()).ack_defaults;
+    return { edit_default: d.edit_default, recert_months: d.recert_months };
   } catch {
-    return "ask";
+    return { edit_default: "ask", recert_months: null };
   }
 }
 
@@ -5271,11 +5339,29 @@ async function workspaceEditDefault(): Promise<AckEditDefault> {
  * value to apply instead of the workspace's. Every caller of the old
  * two-argument form keeps working: the portal's Request and the shield both
  * reach this through requestAcknowledgement.
+ *
+ * 1.12.0 (G1): the switch-on that wins the claim also dates the policy
+ * (ack_effective_at = today, kept once set) and, when the workspace has a
+ * default interval and the document has none, starts its cycle
+ * (ack_recert_months = the default, ack_next_recert_at = now + interval).
+ * `recertMonths` works like `editDefault`: undefined reads the workspace,
+ * null leaves the columns alone, a number applies instead.
+ *
+ * A policy with an interval of its own that is stopped and switched on
+ * again keeps its next date, unless that date passed while it was off:
+ * then the switch-on moves it to now + interval, the rule un-retire
+ * applies (RECERT_NEXT_ON_RESUME), so the sweep does not fire a cycle at
+ * the next tick on top of the request that just went out.
+ *
+ * A retired policy (G3, ack_retired_at set) never switches on here: the
+ * WHERE refuses it and the call answers `switched_on: false` like a policy
+ * that already requires confirmation. Un-retire (unretirePolicy) is the one
+ * way back; the routes answer 409 before they get here.
  */
 export async function setAckRequired(
   docId: number,
   required: boolean,
-  opts: { editDefault?: AckEditDefault | null } = {}
+  opts: { editDefault?: AckEditDefault | null; recertMonths?: number | null } = {}
 ): Promise<{ switched_on: boolean; edit_default: AckEditDefault }> {
   if (!required) {
     const r = await q<{ ack_edit_default: string }>(
@@ -5284,21 +5370,35 @@ export async function setAckRequired(
     );
     return { switched_on: false, edit_default: editDefaultOf(r[0]) };
   }
-  const apply = opts.editDefault === undefined ? await workspaceEditDefault() : opts.editDefault;
+  const workspace =
+    opts.editDefault === undefined || opts.recertMonths === undefined ? await workspaceAckDefaults() : null;
+  const apply = opts.editDefault === undefined ? workspace!.edit_default : opts.editDefault;
+  const recert = opts.recertMonths === undefined ? workspace!.recert_months : opts.recertMonths;
   // The flip is the claim: `ack_required = 0` in the WHERE is re-checked
   // against the row as updated by a concurrent call (READ COMMITTED), so of
   // two simultaneous switch-ons exactly one gets a row back. A snapshot
   // subquery here would let both report switched_on.
+  //
+  // The next date's second WHEN is RECERT_NEXT_ON_RESUME's body: a stale
+  // date on a policy with an interval moves out a whole interval.
   const r = await q<{ ack_edit_default: string }>(
     `UPDATE documents
      SET ack_required = 1,
          ack_edit_default = CASE
            WHEN ack_edit_default = 'ask' AND $2::text IS NOT NULL THEN $2::text
            ELSE ack_edit_default
-         END
-     WHERE id = $1 AND ack_required = 0
+         END,
+         ack_effective_at = COALESCE(ack_effective_at, CURRENT_DATE),
+         ack_next_recert_at = CASE
+           WHEN ack_recert_months IS NULL AND $3::int IS NOT NULL THEN now() + make_interval(months => $3::int)
+           WHEN ack_recert_months IS NOT NULL AND ack_next_recert_at <= now()
+           THEN now() + make_interval(months => ack_recert_months)
+           ELSE ack_next_recert_at
+         END,
+         ack_recert_months = COALESCE(ack_recert_months, $3::int)
+     WHERE id = $1 AND ack_required = 0 AND ack_retired_at IS NULL
      RETURNING ack_edit_default`,
-    [docId, apply]
+    [docId, apply, recert]
   );
   if (r[0]) return { switched_on: true, edit_default: editDefaultOf(r[0]) };
   const cur = await q<{ ack_edit_default: string }>("SELECT ack_edit_default FROM documents WHERE id = $1", [docId]);
@@ -5398,6 +5498,31 @@ export interface ComplianceDocRow {
   kept_since_reset: number;
   /** How far the live text drifted from the confirmed version, in % of words (0 when nothing was kept). */
   drift_pct: number;
+  /**
+   * Retirement (G3, 1.12.0): when the policy was retired, by whom and why;
+   * null / '' for a live policy. A retired row's `required` and `acked` are
+   * the counts frozen on its 'retired' ledger row (the final standing), not
+   * the live audience, and `retired_rev` is the version people had been
+   * asked to confirm at that moment (the marker may move on later edits).
+   * The portal lists retired rows in their own collapsed group; the tiles
+   * leave them out.
+   */
+  ack_retired_at: string | null;
+  ack_retired_by_name: string;
+  ack_retired_reason: string;
+  /** The policy that replaced this one, and its title (null when none, or when it was trashed). */
+  ack_superseded_by: number | null;
+  superseded_by_title: string | null;
+  retired_rev: number | null;
+  /**
+   * Periodic re-confirmation (G1, 1.12.0): the interval in months (null =
+   * off), the stored next date and the effective date as 'YYYY-MM-DD'. The
+   * portal row reads "Next re-confirmation {date}" from them and the
+   * Overview tile counts the rows due within 30 days (recertDueWithin).
+   */
+  ack_recert_months: number | null;
+  ack_next_recert_at: string | null;
+  ack_effective_at: string | null;
 }
 
 /**
@@ -5405,39 +5530,50 @@ export interface ComplianceDocRow {
  * decisions. Published policies and paused ones alike (G2, 1.11.0: an
  * unpublished policy keeps its requirement and its confirmations; `status`
  * says which it is, and the route's KPI sums and the CSV matrix take only
- * the published rows). Draft branches never appear: they are working copies
- * whose text reaches readers only by merging, and only setAckRequired ever
+ * the published rows), and retired ones (G3, 1.12.0: the requirement is off
+ * but the record stays; they sort last, with their counts frozen at
+ * retirement). Draft branches never appear: they are working copies whose
+ * text reaches readers only by merging, and only setAckRequired ever
  * writes ack_required, so a branch cannot carry it anyway.
  */
 export async function complianceDocs(): Promise<ComplianceDocRow[]> {
-  const docs = await q<Omit<ComplianceDocRow, "last_decision" | "last_reset" | "kept_since_reset" | "drift_pct">>(
+  const docs = await q<Omit<ComplianceDocRow, "last_decision" | "last_reset" | "kept_since_reset" | "drift_pct" | "retired_rev">>(
     `SELECT d.id, d.title, s.name AS space_name, s.icon AS space_icon, d.status,
             d.updated_at, d.ack_revision_at, d.ack_version_id, d.ack_last_reminded_at,
             d.ack_edit_default,
+            d.ack_retired_at, d.ack_retired_by_name, d.ack_retired_reason, d.ack_superseded_by,
+            r.title AS superseded_by_title,
+            d.ack_recert_months, d.ack_next_recert_at, d.ack_effective_at::text AS ack_effective_at,
             ${VERSION_REV("d.ack_version_id")} AS ack_rev,
             COUNT(u.id)::int AS required,
             COUNT(u.id) FILTER (WHERE a.acknowledged_at IS NOT NULL)::int AS acked
      FROM documents d
      JOIN spaces s ON s.id = d.space_id
+     LEFT JOIN documents r ON r.id = d.ack_superseded_by AND r.deleted_at IS NULL
      LEFT JOIN users u ON ${ACK_ELIGIBLE}
      LEFT JOIN LATERAL (
        SELECT a.acknowledged_at FROM acknowledgements a
        WHERE a.document_id = d.id AND a.user_id = u.id AND ${ACK_CURRENT}
        ORDER BY a.acknowledged_at DESC LIMIT 1
      ) a ON true
-     WHERE d.ack_required = 1 AND d.deleted_at IS NULL AND d.branch_of IS NULL
+     WHERE (d.ack_required = 1 OR d.ack_retired_at IS NOT NULL) AND d.deleted_at IS NULL AND d.branch_of IS NULL
      GROUP BY d.id, d.title, s.name, s.icon, d.status, d.updated_at, d.ack_revision_at, d.ack_version_id,
-              d.ack_last_reminded_at, d.ack_edit_default
-     ORDER BY (d.status <> 'published'),
+              d.ack_last_reminded_at, d.ack_edit_default,
+              d.ack_retired_at, d.ack_retired_by_name, d.ack_retired_reason, d.ack_superseded_by, r.title,
+              d.ack_recert_months, d.ack_next_recert_at, d.ack_effective_at
+     ORDER BY (d.ack_retired_at IS NOT NULL), (d.status <> 'published'),
               (COUNT(u.id) - COUNT(u.id) FILTER (WHERE a.acknowledged_at IS NOT NULL)) DESC, d.title`
   );
   if (docs.length === 0) return [];
   const ids = docs.map((d) => d.id);
-  // Three set-based reads instead of three per policy: the newest decision,
-  // the newest reset, and the kept edits since the marker with the drift
-  // they left (from the rows, no document text crosses the wire).
+  const retiredIds = docs.filter((d) => d.ack_retired_at !== null).map((d) => d.id);
+  // Four set-based reads instead of four per policy: the newest decision,
+  // the newest reset, the kept edits since the marker with the drift they
+  // left (from the rows, no document text crosses the wire), and for the
+  // retired rows the 'retired' ledger row whose counts and version are the
+  // final standing (G3).
   const briefCols = "x.document_id, x.decided_at, x.decided_by_name, x.reason, x.outcome, x.source";
-  const [latest, resets, driftBy] = await Promise.all([
+  const [latest, resets, driftBy, retiredRows] = await Promise.all([
     q<AckDecisionBrief & { document_id: number }>(
       `SELECT DISTINCT ON (x.document_id) ${briefCols} FROM ack_decisions x
        WHERE x.document_id = ANY($1) ORDER BY x.document_id, x.decided_at DESC, x.id DESC`,
@@ -5450,6 +5586,16 @@ export async function complianceDocs(): Promise<ComplianceDocRow[]> {
       [ids]
     ),
     keptSinceMarker(ids),
+    retiredIds.length === 0
+      ? Promise.resolve([] as { document_id: number; confirmations_affected: number | null; eligible: number | null; rev: number | null }[])
+      : q<{ document_id: number; confirmations_affected: number | null; eligible: number | null; rev: number | null }>(
+          `SELECT DISTINCT ON (x.document_id) x.document_id, x.confirmations_affected, x.eligible,
+                  ${VERSION_REV("x.version_id")} AS rev
+           FROM ack_decisions x
+           WHERE x.document_id = ANY($1) AND x.outcome = 'retired'
+           ORDER BY x.document_id, x.decided_at DESC, x.id DESC`,
+          [retiredIds]
+        ),
   ]);
   const brief = (r: AckDecisionBrief & { document_id: number }): AckDecisionBrief => ({
     decided_at: r.decided_at,
@@ -5460,13 +5606,22 @@ export async function complianceDocs(): Promise<ComplianceDocRow[]> {
   });
   const latestBy = new Map(latest.map((r) => [r.document_id, brief(r)]));
   const resetBy = new Map(resets.map((r) => [r.document_id, brief(r)]));
-  return docs.map((d) => ({
-    ...d,
-    last_decision: latestBy.get(d.id) ?? null,
-    last_reset: resetBy.get(d.id) ?? null,
-    kept_since_reset: driftBy.get(d.id)?.n ?? 0,
-    drift_pct: driftBy.get(d.id)?.pct ?? 0,
-  }));
+  const retiredBy = new Map(retiredRows.map((r) => [r.document_id, r]));
+  return docs.map((d) => {
+    const frozen = d.ack_retired_at !== null ? retiredBy.get(d.id) : undefined;
+    return {
+      ...d,
+      // A retired policy answers with the standing frozen on its ledger row
+      // (a row written by hand before 1.12.0 has none: the live counts stand in).
+      required: frozen?.eligible ?? d.required,
+      acked: frozen?.confirmations_affected ?? d.acked,
+      retired_rev: frozen ? (frozen.rev ?? d.ack_rev) : null,
+      last_decision: latestBy.get(d.id) ?? null,
+      last_reset: resetBy.get(d.id) ?? null,
+      kept_since_reset: driftBy.get(d.id)?.n ?? 0,
+      drift_pct: driftBy.get(d.id)?.pct ?? 0,
+    };
+  });
 }
 
 /** Eligible users who have NOT confirmed the doc's current marker. */
@@ -5516,7 +5671,11 @@ export async function complianceUserSummary(): Promise<
   );
 }
 
-/** Published docs not yet requiring acknowledgement (request-ack picker). */
+/**
+ * Published docs not yet requiring acknowledgement (request-ack picker). A
+ * retired policy is left out (G3): "Request read confirmation" must never
+ * silently re-require one; un-retire is the named way back.
+ */
 export async function ackCandidateDocs(): Promise<
   { id: number; title: string; space_name: string; space_icon: string }[]
 > {
@@ -5524,13 +5683,198 @@ export async function ackCandidateDocs(): Promise<
     `SELECT d.id, d.title, s.name AS space_name, s.icon AS space_icon
      FROM documents d JOIN spaces s ON s.id = d.space_id
      WHERE d.ack_required = 0 AND d.status = 'published' AND d.deleted_at IS NULL
-       AND d.branch_of IS NULL
+       AND d.branch_of IS NULL AND d.ack_retired_at IS NULL
      ORDER BY s.name, d.title`
   );
 }
 
 export async function setAckLastReminded(docId: number): Promise<void> {
   await q("UPDATE documents SET ack_last_reminded_at = now() WHERE id = $1", [docId]);
+}
+
+// --- Retire a policy (G3, 1.12.0) -------------------------------------------------
+//
+// An end-of-life state beside `status`, not inside it: a retired policy keeps
+// every confirmation, its marker and its ledger, stops asking anyone, and
+// says when, by whom, why and which policy replaced it. The requirement is
+// switched off in the same UPDATE that stamps the retirement, so nothing
+// between the two can ask a reader to confirm a policy that is ending.
+// Un-retire is the one way back: setAckRequired and the portal's Request
+// never touch a retired policy (ackCandidateDocs leaves it out, PATCH /ack
+// answers 409).
+
+/** The error a cancelled outbox row carries (done_at set, nothing sent). */
+export const ACK_OUTBOX_CANCELLED_RETIRED = "cancelled: policy retired";
+
+/** What retirePolicy answers: the standing frozen on the ledger row. */
+export interface RetireResult {
+  title: string;
+  /** documents.ack_retired_at, also the ledger row's decided_at. */
+  retired_at: string;
+  /** The marker at retirement: the version people had been asked to confirm, and its number. */
+  version_id: number | null;
+  rev: number | null;
+  /** Confirmations current at that moment, of the audience then (the ledger row's confirmations_affected / eligible). */
+  acked: number;
+  required: number;
+  decision_id: number;
+  /** Queued notices for this policy (not yet claimed by a drain) that were cancelled. */
+  cancelled: number;
+  /** documents.ack_superseded_by as it stood (set beforehand through setSupersededBy). */
+  superseded_by: number | null;
+}
+
+/**
+ * Retire a policy: one UPDATE switches the requirement off and stamps the
+ * retirement, guarded on `ack_retired_at IS NULL`, so a second call (two
+ * tabs, two managers) gets no row and answers null (the route's 409).
+ * ack_revision_at and ack_version_id are left as they are, so the final
+ * roster stays reproducible from the append-only ledger. In the same
+ * transaction: the policy's queued notices are cancelled (done_at set with
+ * ACK_OUTBOX_CANCELLED_RETIRED as the error, the column the drain treats as
+ * finished, so a reminder queued an hour ago never reaches anyone about a
+ * policy that has ended; a row a drain has already claimed finishes under
+ * its own rules, and the drain's deliverable check skips it), and the
+ * 'retired' ledger row is written with the counts taken BEFORE the update
+ * (afterwards the policy asks nobody and the number would mean nothing),
+ * carrying the retirement stamp as its decided_at. Returns null when the
+ * document is gone or already retired.
+ */
+export async function retirePolicy(docId: number, actor: AckActor, reason: string): Promise<RetireResult | null> {
+  await ready();
+  const client = await pool().connect();
+  try {
+    await client.query("BEGIN");
+    // Counted before the flip: the final standing, as of the moment the
+    // policy stopped asking.
+    const counts = await ackCounts(client, docId);
+    const moved = await client.query<{
+      title: string;
+      retired_at: string;
+      ack_version_id: number | null;
+      ack_superseded_by: number | null;
+      rev: number | null;
+    }>(
+      `UPDATE documents
+         SET ack_required = 0, ack_retired_at = now(),
+             ack_retired_by = $2, ack_retired_by_name = $3, ack_retired_reason = $4
+       WHERE id = $1 AND ack_retired_at IS NULL
+       RETURNING title, ack_retired_at::text AS retired_at, ack_version_id, ack_superseded_by,
+                 ${VERSION_REV("documents.ack_version_id")} AS rev`,
+      [docId, actor.id, actor.name, reason]
+    );
+    if (moved.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    const row = moved.rows[0];
+    const cancelled = await client.query(
+      `UPDATE ack_outbox SET done_at = now(), error = $2
+       WHERE document_id = $1 AND done_at IS NULL AND claimed_at IS NULL`,
+      [docId, ACK_OUTBOX_CANCELLED_RETIRED]
+    );
+    const decisionId = await recordAckDecision(client, {
+      ...decisionColumns(
+        docId,
+        row.title,
+        "retired",
+        { versionId: row.ack_version_id, actor, source: "manual", reason },
+        counts
+      ),
+      decided_at: row.retired_at,
+    });
+    await client.query("COMMIT");
+    return {
+      title: row.title,
+      retired_at: row.retired_at,
+      version_id: row.ack_version_id,
+      rev: row.rev,
+      acked: counts.current,
+      required: counts.eligible,
+      decision_id: decisionId,
+      cancelled: cancelled.rowCount ?? 0,
+      superseded_by: row.ack_superseded_by,
+    };
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Resume a retired policy: the five retirement columns are cleared (the
+ * replacement too: a policy that is live again is not replaced by anything)
+ * and the requirement switches back on. The marker is untouched, so every
+ * confirmation made before it was retired is current again unless the text
+ * changed while it was retired (a save with the requirement off advances
+ * the marker silently, A2 rule 3, so those people are asked again rather
+ * than shown as 100% for words they never read). An unpublished document
+ * resumes as Paused (G2). Answers the standing after the switch, or null
+ * when the document is gone or not retired (the route's 409).
+ */
+export async function unretirePolicy(docId: number): Promise<{ title: string; current: number; eligible: number } | null> {
+  await ready();
+  const r = await q<{ title: string }>(
+    `UPDATE documents
+       SET ack_required = 1, ack_retired_at = NULL, ack_retired_by = NULL,
+           ack_retired_by_name = '', ack_retired_reason = '', ack_superseded_by = NULL,
+           ${RECERT_NEXT_ON_RESUME}
+     WHERE id = $1 AND ack_retired_at IS NOT NULL AND deleted_at IS NULL
+     RETURNING title`,
+    [docId]
+  );
+  if (!r[0]) return null;
+  const counts = await ackCounts(pool(), docId);
+  return { title: r[0].title, current: counts.current, eligible: counts.eligible };
+}
+
+/**
+ * Name the policy that replaces this one (the Lifecycle card's "Replaced
+ * by", PATCH /ack-settings { superseded_by }), or clear it with null. The
+ * target must be a published, live, non-branch document other than this
+ * one, inside `scope` when the caller passes theirs (spaceScopeFor), so a
+ * manager cannot point readers at a document they may not see. Answers
+ * the value before and after for the audit row, with the target's title,
+ * or the first problem in a sentence the route can return as its 400.
+ */
+export async function setSupersededBy(
+  docId: number,
+  supersededBy: number | null,
+  scope?: SpaceScope
+): Promise<{ ok: true; from: number | null; to: number | null; to_title: string | null } | { ok: false; error: string }> {
+  await ready();
+  let toTitle: string | null = null;
+  if (supersededBy !== null) {
+    if (!Number.isInteger(supersededBy) || supersededBy <= 0) {
+      return { ok: false, error: "'superseded_by' must be a document id or null." };
+    }
+    if (supersededBy === docId) return { ok: false, error: "A policy cannot be replaced by itself." };
+    const scoped = scope !== undefined && Array.isArray(scope);
+    const target = await q<{ title: string }>(
+      `SELECT d.title FROM documents d
+       WHERE d.id = $1 AND d.status = 'published' AND d.deleted_at IS NULL AND d.branch_of IS NULL
+         ${scoped ? "AND d.space_id = ANY($2)" : ""}`,
+      scoped ? [supersededBy, scope] : [supersededBy]
+    );
+    if (!target[0]) return { ok: false, error: "The replacement must be a published document you can see." };
+    toTitle = target[0].title;
+  }
+  const r = await q<{ before: number | null; after: number | null }>(
+    `UPDATE documents d SET ack_superseded_by = $2
+     FROM (SELECT id, ack_superseded_by AS before FROM documents WHERE id = $1 AND deleted_at IS NULL) o
+     WHERE d.id = o.id
+     RETURNING o.before, d.ack_superseded_by AS after`,
+    [docId, supersededBy]
+  );
+  if (!r[0]) return { ok: false, error: "Document not found." };
+  return { ok: true, from: r[0].before, to: r[0].after, to_title: toTitle };
+}
+
+/** The portal's Retired group: every retired policy, as complianceDocs lists it (counts frozen at retirement). */
+export async function listRetiredPolicies(): Promise<ComplianceDocRow[]> {
+  return (await complianceDocs()).filter((d) => d.ack_retired_at !== null);
 }
 
 /**
@@ -5561,13 +5905,31 @@ export async function setAckLastReminded(docId: number): Promise<void> {
  * view was recorded) and the reader's own reached-the-end report. The
  * route derives the first and parses the second; this function stores
  * them as given, whole seconds and a 1/0 flag.
+ *
+ * The attestation fields (C2, 1.12.0) ride in the same object: the
+ * statement the server served (never the client's text), the typed name
+ * and identity proof when the policy required a signature, and the
+ * browser's User-Agent. A caller shaped like 1.11.x passes none and the
+ * row takes the column defaults ('' / NULL), which is also what a 1.11.2
+ * binary writes during a rollback.
  */
 export interface AckEvidence {
   /** Seconds the document was open on screen for this person since everyone was last asked; null when unknown. */
   readSeconds?: number | null;
   /** The card's self-reported latch: the end of the text was on screen (or focus entered the card). */
   reachedEnd?: boolean;
+  /** The confirmation statement the server served for this document (the policy's own, else the workspace default). */
+  statementText?: string;
+  /** The typed name when the policy required a signature; null (the default) on an unsigned row. */
+  signedName?: string | null;
+  /** How the signer was identified (lib/attestation's IdentityProof); '' on an unsigned row. */
+  identityProof?: AckIdentityProof | "";
+  /** The browser's User-Agent header, first 300 characters; '' when unknown. */
+  userAgent?: string;
 }
+
+/** How a signed confirmation's identity was asserted (lib/attestation). */
+export type AckIdentityProof = "password" | "sso_session" | "typed_name_only";
 
 export async function recordAcknowledgement(
   docId: number,
@@ -5615,16 +5977,22 @@ export async function recordAcknowledgement(
     const sha = createHash("sha256").update(version.content).digest("hex");
     const readSeconds = storedReadSeconds(evidence.readSeconds);
     const reachedEnd = evidence.reachedEnd === true ? 1 : 0;
+    // The attestation fields (C2): stored as given, bounded like the ip.
+    const statementText = typeof evidence.statementText === "string" ? evidence.statementText : "";
+    const signedName =
+      typeof evidence.signedName === "string" && evidence.signedName.trim() ? evidence.signedName.trim().slice(0, 200) : null;
+    const identityProof = signedName ? (evidence.identityProof ?? "") : "";
+    const userAgent = typeof evidence.userAgent === "string" ? evidence.userAgent.slice(0, 300) : "";
     const inserted = await client.query<{ id: number }>(
       `INSERT INTO acknowledgements
          (document_id, user_id, ip, version_id, content_sha256, user_name, user_email, document_title, acknowledged_at,
-          read_seconds, reached_end)
-       SELECT d.id, u.id, $3, $4, $5, u.name, u.email, d.title, clock_timestamp(), $6, $7
+          read_seconds, reached_end, statement_text, signed_name, identity_proof, user_agent)
+       SELECT d.id, u.id, $3, $4, $5, u.name, u.email, d.title, clock_timestamp(), $6, $7, $8, $9, $10, $11
        FROM documents d
        JOIN users u ON u.id = $2
        WHERE d.id = $1
        RETURNING id`,
-      [docId, userId, ip.slice(0, 100), versionId, sha, readSeconds, reachedEnd]
+      [docId, userId, ip.slice(0, 100), versionId, sha, readSeconds, reachedEnd, statementText, signedName, identityProof, userAgent]
     );
     if (inserted.rowCount === 0) {
       await client.query("ROLLBACK");
@@ -5648,6 +6016,8 @@ export interface CurrentAck {
   rev: number | null;
   /** SHA-256 of the version text at confirmation; null on inferred rows. */
   content_sha256: string | null;
+  /** The typed name on a signed confirmation (C2); null on an unsigned row. */
+  signed_name: string | null;
 }
 
 /** The user's confirmation that is current against the doc's marker, if any. */
@@ -5659,7 +6029,7 @@ export async function getCurrentAck(docId: number, userId: number): Promise<Curr
 /** getCurrentAck on a given client (recordAcknowledgement asks inside its own transaction). */
 async function currentAckRow(client: Queryable, docId: number, userId: number): Promise<CurrentAck | undefined> {
   const r = await client.query<CurrentAck>(
-    `SELECT a.acknowledged_at, a.version_id, a.content_sha256,
+    `SELECT a.acknowledged_at, a.version_id, a.content_sha256, a.signed_name,
             ${VERSION_REV("a.version_id")} AS rev
      FROM acknowledgements a
      JOIN documents d ON d.id = a.document_id
@@ -5696,7 +6066,7 @@ export async function getLatestAck(docId: number, userId: number): Promise<Lates
     `SELECT a.acknowledged_at,
             COALESCE(a.version_id, inf.id) AS version_id,
             (a.version_id IS NULL AND inf.id IS NOT NULL) AS version_inferred,
-            a.content_sha256,
+            a.content_sha256, a.signed_name,
             ${VERSION_REV("COALESCE(a.version_id, inf.id)")} AS rev,
             (${ACK_CURRENT}) AS current
      FROM acknowledgements a
@@ -5799,6 +6169,16 @@ export interface AckStatusRow {
   read_seconds: number | null;
   /** The reader's own report that the end of the text was on screen. null while pending. */
   reached_end: boolean | null;
+  /**
+   * The attestation (C2, 1.12.0): the statement the person agreed to as the
+   * server served it ('' on rows from before 1.12.0), the typed name when
+   * the policy required a signature, and how the signer was identified
+   * ('password' | 'sso_session' | 'typed_name_only'; '' unsigned). All
+   * three null while pending.
+   */
+  statement_text: string | null;
+  signed_name: string | null;
+  identity_proof: string | null;
 }
 
 /**
@@ -5813,12 +6193,14 @@ export async function ackStatusForDocument(docId: number): Promise<AckStatusRow[
             CASE WHEN a.acknowledged_at IS NULL THEN NULL
                  ELSE ${VERSION_SOURCE("a.content_sha256")} END AS version_source,
             a.read_seconds,
-            CASE WHEN a.acknowledged_at IS NULL THEN NULL ELSE (a.reached_end = 1) END AS reached_end
+            CASE WHEN a.acknowledged_at IS NULL THEN NULL ELSE (a.reached_end = 1) END AS reached_end,
+            a.statement_text, a.signed_name, a.identity_proof
      FROM users u
      JOIN documents d ON d.id = $1
      JOIN spaces s ON s.id = d.space_id
      LEFT JOIN LATERAL (
-       SELECT a.acknowledged_at, a.version_id, a.content_sha256, a.read_seconds, a.reached_end
+       SELECT a.acknowledged_at, a.version_id, a.content_sha256, a.read_seconds, a.reached_end,
+              a.statement_text, a.signed_name, a.identity_proof
        FROM acknowledgements a
        WHERE a.document_id = d.id AND a.user_id = u.id AND ${ACK_CURRENT}
        ORDER BY a.acknowledged_at DESC, a.id DESC LIMIT 1
@@ -5850,6 +6232,10 @@ export interface AckFormerStaffRow {
   read_seconds: number | null;
   /** The reader's own report that the end of the text was on screen. */
   reached_end: boolean;
+  /** The attestation (C2), as on AckStatusRow: the statement served ('' before 1.12.0), the typed name (null unsigned) and the identity proof ('' unsigned). */
+  statement_text: string;
+  signed_name: string | null;
+  identity_proof: string;
 }
 
 /**
@@ -5872,7 +6258,8 @@ export async function ackFormerStaffRows(docId: number): Promise<AckFormerStaffR
             x.version_id, x.content_sha256,
             ${VERSION_REV("x.version_id")} AS rev,
             ${VERSION_SOURCE("x.content_sha256")} AS version_source,
-            x.read_seconds, (x.reached_end = 1) AS reached_end
+            x.read_seconds, (x.reached_end = 1) AS reached_end,
+            x.statement_text, x.signed_name, x.identity_proof
      FROM (
        SELECT a.*, COALESCE(a.user_id::text, 'gone:' || a.user_name || '|' || a.user_email) AS grp
        FROM acknowledgements a WHERE a.document_id = $1
@@ -5885,29 +6272,312 @@ export async function ackFormerStaffRows(docId: number): Promise<AckFormerStaffR
   );
 }
 
+// --- Per-policy confirmation settings (C2, 1.12.0) ---------------------------
+//
+// The Settings tab of the Read confirmation page edits two columns on the
+// document: its own confirmation statement (NULL = the workspace default,
+// compliance_statement_default) and whether readers sign with a typed name.
+// Wave 2 adds the re-confirmation interval and the lifecycle fields through
+// their own setters (setAckRecert, setSupersededBy); this pair stays what
+// the statement card needs. Neither touches updated_at: a settings change
+// is not an edit of the text, so it must not read as a conflict.
+
+export interface AckSettings {
+  /** The policy's own confirmation statement; null = the workspace default. */
+  statement: string | null;
+  /** Whether the reader types their full name (and a local account its password) to confirm. */
+  signature: boolean;
+}
+
+/** What updateAckSettings accepts: any subset; `statement: null` clears the override. */
+export interface AckSettingsPatch {
+  statement?: string | null;
+  signature?: boolean;
+}
+
+/** The two per-policy settings; undefined when the document does not exist. */
+export async function getAckSettings(docId: number): Promise<AckSettings | undefined> {
+  await ready();
+  const row = (
+    await q<{ ack_statement: string | null; ack_signature: number }>(
+      "SELECT ack_statement, ack_signature FROM documents WHERE id = $1",
+      [docId]
+    )
+  )[0];
+  return row ? { statement: row.ack_statement, signature: row.ack_signature === 1 } : undefined;
+}
+
+/**
+ * Write the given fields and answer what the document now holds. The
+ * statement is stored as given (the route trims and bounds it; an empty
+ * string is stored as NULL so it can never shadow the default with nothing).
+ */
+export async function updateAckSettings(docId: number, patch: AckSettingsPatch): Promise<AckSettings | undefined> {
+  await ready();
+  const sets: string[] = [];
+  const params: unknown[] = [docId];
+  if (patch.statement !== undefined) {
+    params.push(patch.statement === null || patch.statement === "" ? null : patch.statement);
+    sets.push(`ack_statement = $${params.length}`);
+  }
+  if (patch.signature !== undefined) {
+    params.push(patch.signature ? 1 : 0);
+    sets.push(`ack_signature = $${params.length}`);
+  }
+  if (sets.length === 0) return getAckSettings(docId);
+  const row = (
+    await q<{ ack_statement: string | null; ack_signature: number }>(
+      `UPDATE documents SET ${sets.join(", ")} WHERE id = $1 RETURNING ack_statement, ack_signature`,
+      params
+    )
+  )[0];
+  return row ? { statement: row.ack_statement, signature: row.ack_signature === 1 } : undefined;
+}
+
+/**
+ * One row of the confirmation ledger (C4, 1.12.0): an acknowledgements row
+ * as recorded, with the person as they are today. The current view
+ * (ackStatusForDocument) shows one row per person, their newest
+ * confirmation that counts against the marker; the ledger shows every row
+ * ever written for the document, newest first, including the ones the
+ * current view no longer shows (`superseded`) and rows whose account or
+ * document is gone (shown from the row's own snapshot).
+ */
+export interface AckLedgerRow {
+  /** The acknowledgements row. */
+  id: number;
+  /** NULL once the document was purged (the title snapshot still names it). */
+  document_id: number | null;
+  /** The live title, or the row's snapshot when the document is gone. */
+  document_title: string;
+  space_name: string;
+  user_id: number | null;
+  /** The account's live name (its username when the name is blank), or the row's snapshot once the account is gone. */
+  name: string;
+  username: string;
+  /** The live email, or the row's snapshot once the account is gone. */
+  email: string;
+  role: string;
+  /** True when the account is gone (user_id NULL): name and email are the row's snapshot. */
+  account_removed: boolean;
+  acknowledged_at: string;
+  /** True while the row counts against the document's marker (false once the document is gone). */
+  current: boolean;
+  /**
+   * True when the current view does not show this row: a later confirmation
+   * by the same person exists (a re-confirmation after a kept edit, or after
+   * the marker moved), or the marker moved past it. A purged document's rows
+   * are superseded only by a later row of the same person.
+   */
+  superseded: boolean;
+  version_id: number | null;
+  rev: number | null;
+  content_sha256: string | null;
+  version_source: AckVersionSource;
+  /** The confirmation statement the person saw (C2); '' on rows from before 1.12.0. */
+  statement_text: string;
+  /** The name they typed when the policy required a signature (C2); null otherwise. */
+  signed_name: string | null;
+  /** How the signer was identified (C2): 'password', 'sso_session', 'typed_name_only'; '' when unsigned. */
+  identity_proof: string;
+  read_seconds: number | null;
+  reached_end: boolean;
+  /** Personal data: the routes blank both unless the caller holds compliance.export. */
+  ip: string;
+  user_agent: string;
+}
+
+/**
+ * The ledger SELECT shared by the one-document and the every-document
+ * reads. `where` filters the inner scan (the row number that marks a
+ * superseded row is taken per document and person, so the filter must not
+ * split a person's rows); `order` closes the statement. Served by
+ * idx_ack_doc for one document; the every-document read is an export and
+ * scans the table.
+ */
+function ackLedgerSql(where: string, order: string): string {
+  return `SELECT x.id, x.document_id,
+            COALESCE(d.title, x.document_title, '') AS document_title,
+            COALESCE(s.name, '') AS space_name,
+            x.user_id,
+            COALESCE(NULLIF(u.name, ''), u.username, NULLIF(x.user_name, ''), '') AS name,
+            COALESCE(u.username, '') AS username,
+            COALESCE(u.email, x.user_email, '') AS email,
+            COALESCE(u.role, '') AS role,
+            (x.user_id IS NULL) AS account_removed,
+            x.acknowledged_at,
+            (d.id IS NOT NULL AND x.acknowledged_at >= d.ack_revision_at) AS current,
+            (x.rn > 1 OR (d.id IS NOT NULL AND x.acknowledged_at < d.ack_revision_at)) AS superseded,
+            x.version_id, x.content_sha256,
+            ${VERSION_REV("x.version_id")} AS rev,
+            ${VERSION_SOURCE("x.content_sha256")} AS version_source,
+            x.statement_text, x.signed_name, x.identity_proof,
+            x.read_seconds, (x.reached_end = 1) AS reached_end,
+            x.ip, x.user_agent
+     FROM (
+       SELECT a.*,
+              ROW_NUMBER() OVER (
+                PARTITION BY a.document_id, COALESCE(a.user_id::text, 'gone:' || a.user_name || '|' || a.user_email)
+                ORDER BY a.acknowledged_at DESC, a.id DESC
+              ) AS rn
+       FROM acknowledgements a${where}
+     ) x
+     LEFT JOIN documents d ON d.id = x.document_id
+     LEFT JOIN spaces s ON s.id = d.space_id
+     LEFT JOIN users u ON u.id = x.user_id
+     ORDER BY ${order}`;
+}
+
+/** Every confirmation ever recorded for one document, newest first (the All confirmations view and the per-document ledger CSV). */
+export async function listAckLedger(docId: number): Promise<AckLedgerRow[]> {
+  return q(ackLedgerSql(" WHERE a.document_id = $1", "x.acknowledged_at DESC, x.id DESC"), [docId]);
+}
+
+/**
+ * Every confirmation ever recorded, over every document including purged
+ * ones (the workspace ledger CSV): grouped by document title, newest first
+ * within each.
+ */
+export async function listAckLedgerAll(): Promise<AckLedgerRow[]> {
+  return q(
+    ackLedgerSql("", "COALESCE(d.title, x.document_title, ''), x.document_id NULLS LAST, x.acknowledged_at DESC, x.id DESC")
+  );
+}
+
+// ── My policies (B4, 1.12.0) ────────────────────────────────────────────────
+// What one person is asked to confirm, read four ways: the dashboard row and
+// the sidebar badge (the pending ones), the My policies page and its API (every
+// policy in scope with where the person stands), and the nav gate (is there a
+// policy to see at all). One document predicate feeds all four so they cannot
+// disagree: published, requiring confirmation, not a working copy, not in the
+// trash and not retired. The retired test reads the column rather than relying
+// on retirePolicy's `ack_required = 0`, the way the recert sweep's WHERE does. A
+// paused policy (G2) is unpublished and so never owed; a retired one (G3) keeps
+// its record but asks nobody. Alias `d`.
+
+const MY_POLICY_DOC = `d.ack_required = 1 AND d.status = 'published' AND d.deleted_at IS NULL
+       AND d.branch_of IS NULL AND d.ack_retired_at IS NULL`;
+
+/** `AND d.space_id = ANY($n)` for a list scope; nothing for "all". */
+function myPolicyScope(scope: SpaceScope, param: number): string {
+  return Array.isArray(scope) ? ` AND d.space_id = ANY($${param})` : "";
+}
+
 /**
  * Published ack-required docs in the user's scope they haven't confirmed
- * yet (the dashboard row). A paused policy and a draft branch are never
- * owed: the first is unpublished, the second is a working copy.
+ * yet (the dashboard row), newest ask first. Unlimited since 1.12.0: the
+ * dashboard shows the count, and the count must be the truth.
  */
 export async function listPendingAcksFor(
   userId: number,
   scope: SpaceScope
 ): Promise<{ id: number; title: string; space_name: string; space_icon: string }[]> {
-  const scopeCond = Array.isArray(scope) ? " AND d.space_id = ANY($2)" : "";
   return q(
     `SELECT d.id, d.title, s.name AS space_name, s.icon AS space_icon
      FROM documents d
      JOIN spaces s ON s.id = d.space_id
-     WHERE d.ack_required = 1 AND d.status = 'published' AND d.deleted_at IS NULL AND d.branch_of IS NULL${scopeCond}
+     WHERE ${MY_POLICY_DOC}${myPolicyScope(scope, 2)}
        AND NOT EXISTS (
          SELECT 1 FROM acknowledgements a
          WHERE a.document_id = d.id AND a.user_id = $1 AND ${ACK_CURRENT}
        )
-     ORDER BY d.ack_revision_at DESC
-     LIMIT 20`,
+     ORDER BY d.updated_at DESC, d.id DESC`,
     Array.isArray(scope) ? [userId, scope] : [userId]
   );
+}
+
+/**
+ * Where a person stands on one policy. 'pending': never confirmed the current
+ * ask; 'reconfirm': confirmed before, and the marker moved since (an edit, a
+ * manual re-ask or the annual cycle); 'confirmed': a confirmation on or after
+ * the marker. 'overdue' joins the union with due dates (E1, 1.13.0).
+ */
+export type MyPolicyState = "pending" | "reconfirm" | "confirmed";
+
+export interface MyPolicyRow {
+  id: number;
+  title: string;
+  space_icon: string;
+  space_name: string;
+  state: MyPolicyState;
+  /** The current confirmation's time; null unless 'confirmed'. */
+  acknowledged_at: string | null;
+  /** The newest confirmation from before the marker moved (the one that lapsed, or the previous cycle's); null when there is none. */
+  prior_acknowledged_at: string | null;
+  /** The version number the current confirmation cites ("v12"); null unless 'confirmed'. */
+  rev: number | null;
+  updated_at: string;
+}
+
+/**
+ * The My policies page (B4): every policy in the person's scope with their
+ * current confirmation and their latest earlier one, to-confirm rows first
+ * and then the most recently changed (updated_at, the date each row
+ * prints; the dashboard row, listPendingAcksFor, keeps the newest ask
+ * first). Both confirmations come from one indexed probe each
+ * (idx_ack_doc / idx_ack_user), so the page costs two index lookups per
+ * policy, not a scan of the person's history.
+ */
+export async function listMyPolicies(userId: number, scope: SpaceScope): Promise<MyPolicyRow[]> {
+  return q(
+    `SELECT d.id, d.title, s.icon AS space_icon, s.name AS space_name,
+            CASE WHEN cur.acknowledged_at IS NOT NULL THEN 'confirmed'
+                 WHEN prior.acknowledged_at IS NOT NULL THEN 'reconfirm'
+                 ELSE 'pending' END AS state,
+            cur.acknowledged_at,
+            prior.acknowledged_at AS prior_acknowledged_at,
+            ${VERSION_REV("cur.version_id")} AS rev,
+            d.updated_at
+     FROM documents d
+     JOIN spaces s ON s.id = d.space_id
+     LEFT JOIN LATERAL (
+       SELECT a.acknowledged_at, a.version_id FROM acknowledgements a
+       WHERE a.document_id = d.id AND a.user_id = $1 AND ${ACK_CURRENT}
+       ORDER BY a.acknowledged_at DESC, a.id DESC LIMIT 1
+     ) cur ON true
+     LEFT JOIN LATERAL (
+       SELECT a.acknowledged_at FROM acknowledgements a
+       WHERE a.document_id = d.id AND a.user_id = $1 AND a.acknowledged_at < d.ack_revision_at
+       ORDER BY a.acknowledged_at DESC, a.id DESC LIMIT 1
+     ) prior ON true
+     WHERE ${MY_POLICY_DOC}${myPolicyScope(scope, 2)}
+     ORDER BY (cur.acknowledged_at IS NOT NULL), d.updated_at DESC, d.id DESC`,
+    Array.isArray(scope) ? [userId, scope] : [userId]
+  );
+}
+
+/** The sidebar badge: how many policies in scope the person has not confirmed the current ask of. Equals listPendingAcksFor's length. */
+export async function countPendingAcksFor(userId: number, scope: SpaceScope): Promise<number> {
+  const r = await q<{ n: number }>(
+    `SELECT COUNT(*)::int AS n
+     FROM documents d
+     WHERE ${MY_POLICY_DOC}${myPolicyScope(scope, 2)}
+       AND NOT EXISTS (
+         SELECT 1 FROM acknowledgements a
+         WHERE a.document_id = d.id AND a.user_id = $1 AND ${ACK_CURRENT}
+       )`,
+    Array.isArray(scope) ? [userId, scope] : [userId]
+  );
+  return r[0]?.n ?? 0;
+}
+
+/**
+ * The nav gate: is there any policy in this person's scope to show them?
+ * One EXISTS, so a workspace whose policies all live in spaces the person
+ * cannot see never shows them the item, and the item does not flicker off
+ * once everything is confirmed. `userId` is in the signature for audiences
+ * (D4), when being in scope stops meaning being asked; until then every
+ * account in scope is asked, and the answer follows the scope alone.
+ */
+export async function hasPolicyInScope(userId: number, scope: SpaceScope): Promise<boolean> {
+  if (scope !== "all" && scope.length === 0) return false;
+  const r = await q<{ some: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM documents d WHERE ${MY_POLICY_DOC}${myPolicyScope(scope, 1)}
+     ) AS some`,
+    Array.isArray(scope) ? [scope] : []
+  );
+  return r[0]?.some === true;
 }
 
 export interface AttestedVersion {
@@ -6173,6 +6843,18 @@ function decisionColumns(docId: number, title: string, outcome: AckOutcome, opts
 }
 
 /**
+ * The SET clause every marker move carries (G1, 1.12.0): a policy with a
+ * re-confirmation cycle restarts its interval from the move, so a material
+ * change or a manual re-ask pushes the next scheduled cycle out; a policy
+ * without one is untouched. The sweep's own claim writes the same column
+ * without the CASE (its WHERE already requires an interval).
+ */
+const RECERT_NEXT_ON_RESET = `ack_next_recert_at = CASE
+           WHEN ack_recert_months IS NOT NULL THEN clock_timestamp() + make_interval(months => ack_recert_months)
+           ELSE ack_next_recert_at
+         END`;
+
+/**
  * Ask everyone to re-confirm: move the confirmation marker to `versionId`
  * (every confirmation made before now goes stale) and write the 'reset'
  * decision row, in the caller's transaction. This is the ONLY code that
@@ -6207,7 +6889,8 @@ export async function resetAcknowledgements(
   // Counted before the marker moves: afterwards nothing is current.
   const counts = opts.silent ? null : await ackCounts(client, docId);
   const moved = await client.query<{ title: string; marker: string }>(
-    `UPDATE documents SET ack_revision_at = clock_timestamp(), ack_version_id = $2
+    `UPDATE documents SET ack_revision_at = clock_timestamp(), ack_version_id = $2,
+         ${RECERT_NEXT_ON_RESET}
      WHERE id = $1 RETURNING title, ack_revision_at::text AS marker`,
     [docId, opts.versionId]
   );
@@ -6774,6 +7457,15 @@ export interface AckSummary {
   workspace_edit_default?: AckEditDefault;
   /** The workspace's "Require a reason for editorial fixes too" (E4); filled by the route beside workspace_edit_default. */
   keep_reason_required?: boolean;
+  /**
+   * Periodic re-confirmation (G1, 1.12.0): the interval in months (null =
+   * off), the stored next date and the effective date as 'YYYY-MM-DD', so
+   * the shield popover's status line (recertStatusLine) reads from the
+   * summary the document page already has.
+   */
+  ack_recert_months: number | null;
+  ack_next_recert_at: string | null;
+  ack_effective_at: string | null;
   last_decision: AckDecision | null;
   /** The confirmed text, when asked for (the editor's what-changed view). */
   baseline?: { version_id: number; rev: number | null; title: string; content: string };
@@ -6789,8 +7481,17 @@ export interface AckSummary {
 export async function ackSummary(docId: number, opts: { baseline?: boolean } = {}): Promise<AckSummary> {
   await ready();
   const doc = (
-    await q<{ ack_required: number; ack_revision_at: string; ack_edit_default: string }>(
-      "SELECT ack_required, ack_revision_at, ack_edit_default FROM documents WHERE id = $1",
+    await q<{
+      ack_required: number;
+      ack_revision_at: string;
+      ack_edit_default: string;
+      ack_recert_months: number | null;
+      ack_next_recert_at: string | null;
+      ack_effective_at: string | null;
+    }>(
+      `SELECT ack_required, ack_revision_at, ack_edit_default,
+              ack_recert_months, ack_next_recert_at, ack_effective_at::text AS ack_effective_at
+       FROM documents WHERE id = $1`,
       [docId]
     )
   )[0];
@@ -6811,6 +7512,9 @@ export async function ackSummary(docId: number, opts: { baseline?: boolean } = {
     latest_version_id: info.latest_version_id,
     latest_rev: info.latest_rev,
     edit_default: editDefaultOf(doc),
+    ack_recert_months: doc.ack_recert_months,
+    ack_next_recert_at: doc.ack_next_recert_at,
+    ack_effective_at: doc.ack_effective_at,
     last_decision: last,
   };
   if (opts.baseline && info.version_id != null) {
@@ -6909,21 +7613,66 @@ export async function claimReconfirmation(
   }
 }
 
+/** One row a marker claim's UPDATE returns: the document after the move. */
+interface MovedMarker {
+  id: number;
+  title: string;
+  space_id: number;
+  ack_version_id: number | null;
+  rev: number | null;
+  /** The new marker (ack_revision_at), also the decision row's decided_at. */
+  marker: string;
+}
+
+/**
+ * The tail of a marker claim, shared by claimReconfirmationOn (A7) and
+ * claimDueRecertifications (G1): the 'reset' decision row with the counts
+ * taken before the move and the marker's stamp as decided_at, then the
+ * 'updated' outbox row (immediate for manual and recurrence, see
+ * ackNoticeDelayMinutes; neither coalesces, see ackNoticeCoalesces).
+ * `reason` is what the ledger keeps; `noticeReason` is what people read on
+ * the outbox row, the same sentence unless the caller separates them (the
+ * sweep does: "Annual re-confirmation" on the record, the months-since
+ * sentence in the notice).
+ */
+async function recordMarkerClaim(
+  client: Queryable,
+  row: MovedMarker,
+  counts: { eligible: number; current: number },
+  opts: { source: "manual" | "recurrence"; reason: string; noticeReason?: string; actor: AckActor; origin?: string }
+): Promise<{ decision_id: number; outbox_id: number }> {
+  const decisionId = await recordAckDecision(client, {
+    ...decisionColumns(
+      row.id,
+      row.title,
+      "reset",
+      { versionId: row.ack_version_id, actor: opts.actor, source: opts.source, reason: opts.reason },
+      counts
+    ),
+    decided_at: row.marker,
+  });
+  const outboxId = await insertAckOutbox(client, {
+    document_id: row.id,
+    mode: "updated",
+    source: opts.source,
+    reason: opts.noticeReason ?? opts.reason,
+    actor: opts.actor,
+    user_ids: null,
+    delay_minutes: ackNoticeDelayMinutes(opts.source),
+    origin: opts.origin ?? "",
+  });
+  return { decision_id: decisionId, outbox_id: outboxId };
+}
+
 async function claimReconfirmationOn(client: Queryable, docId: number, opts: ReconfirmInput): Promise<ReconfirmClaim> {
   // Counted before the marker moves: afterwards nothing is current.
   const counts = await ackCounts(client, docId);
-  const moved = await client.query<{
-    id: number;
-    title: string;
-    space_id: number;
-    ack_version_id: number | null;
-    rev: number | null;
-    marker: string;
-  }>(
+  const moved = await client.query<MovedMarker>(
     `UPDATE documents
        SET ack_revision_at = clock_timestamp(),
            ack_version_id = (SELECT MAX(v.id) FROM doc_versions v WHERE v.document_id = documents.id),
-           ack_last_reminded_at = clock_timestamp()
+           ack_last_reminded_at = clock_timestamp(),
+           ${RECERT_NEXT_ON_RESET}
      WHERE id = $1 AND ack_required = 1 AND status = 'published' AND deleted_at IS NULL
        AND (ack_last_reminded_at IS NULL OR ack_last_reminded_at < now() - interval '1 hour')
      RETURNING id, title, space_id, ack_version_id,
@@ -6943,30 +7692,11 @@ async function claimReconfirmationOn(client: Queryable, docId: number, opts: Rec
     return { claimed: false, last_asked_at: stamp.rows[0]?.last ?? null };
   }
   const row = moved.rows[0];
-  const decisionId = await recordAckDecision(client, {
-    ...decisionColumns(
-      docId,
-      row.title,
-      "reset",
-      { versionId: row.ack_version_id, actor: opts.actor, source: opts.source, reason: opts.reason },
-      counts
-    ),
-    decided_at: row.marker,
-  });
-  const outboxId = await insertAckOutbox(client, {
-    document_id: docId,
-    mode: "updated",
-    source: opts.source,
-    reason: opts.reason,
-    actor: opts.actor,
-    user_ids: null,
-    delay_minutes: ackNoticeDelayMinutes(opts.source),
-    origin: opts.origin ?? "",
-  });
+  const { decision_id, outbox_id } = await recordMarkerClaim(client, row, counts, opts);
   return {
     claimed: true,
-    decision_id: decisionId,
-    outbox_id: outboxId,
+    decision_id,
+    outbox_id,
     confirmations_reset: counts.current,
     eligible: counts.eligible,
     version_id: row.ack_version_id,
@@ -6975,6 +7705,212 @@ async function claimReconfirmationOn(client: Queryable, docId: number, opts: Rec
     space_id: row.space_id,
     marker: row.marker,
   };
+}
+
+// --- Periodic re-confirmation (G1, 1.12.0) --------------------------------------
+//
+// The fourth writer of the marker: the hourly sweep. A policy with an
+// interval (documents.ack_recert_months) carries a stored next date
+// (ack_next_recert_at); when it passes, one atomic claim moves the marker,
+// the next date and the reminder stamp for every due policy at once, and
+// A7's tail writes the ledger row and the notice. The per-policy settings
+// (getAckRecert / setAckRecert) feed the Settings tab and the ack-settings
+// route; the pure rules and copy live in lib/ack-recert.
+
+/** One cycle the sweep fired: what the audit row and the caller need. */
+export interface RecertCycle {
+  document_id: number;
+  title: string;
+  space_id: number;
+  /** The marker after the move: the newest version and its number. */
+  version_id: number | null;
+  rev: number | null;
+  marker: string;
+  decision_id: number;
+  outbox_id: number;
+  /** Confirmations that went stale (the decision row's confirmations_affected). */
+  confirmations_reset: number;
+  eligible: number;
+  recert_months: number;
+}
+
+/** The ledger and outbox actor of a cycle: nobody clicked. */
+export const RECERT_ACTOR: AckActor = { id: null, name: "Scheduler" };
+
+/** What makes a policy due (alias d): the sweep's pre-count and its claim read the same predicate. */
+const RECERT_DUE = `d.ack_required = 1 AND d.status = 'published' AND d.deleted_at IS NULL AND d.branch_of IS NULL
+       AND d.ack_retired_at IS NULL AND d.ack_recert_months IS NOT NULL AND d.ack_next_recert_at <= now()`;
+
+/**
+ * Fire every cycle that is due: ONE UPDATE moves the marker to the newest
+ * version, the next date to now + interval and the reminder stamp, for every
+ * published, required, unretired policy with a cycle whose next date has
+ * passed. The statement moves the column its WHERE tests
+ * (ack_next_recert_at), so a second instance's UPDATE waits on the row lock,
+ * re-evaluates the row the first wrote and matches nothing: each cycle fires
+ * once however many instances tick. Per returned row the tail is A7's
+ * (recordMarkerClaim): the 'reset' ledger row (source 'recurrence', reason
+ * "Annual re-confirmation", by Scheduler, the counts taken before the move)
+ * and one immediate 'updated' outbox row whose reason is the sentence people
+ * read; the drain never coalesces a recurrence row (ackNoticeCoalesces).
+ *
+ * The counts: the due set is read first and counted per policy under the
+ * current marker (ackCounts, as claimReconfirmationOn counts before its
+ * UPDATE); the claim then names those ids and re-tests the whole predicate,
+ * so a row another instance moved in between is not returned and its counts
+ * are dropped. A policy that comes due between the read and the claim waits
+ * for the next tick. A confirmation that commits between the count and the
+ * move goes stale with the rest and is not in the number (A7's rule).
+ *
+ * `client` is the caller's transaction (the tests); null opens one here and
+ * commits it, so a failure leaves no moved marker, no row and no notice.
+ * `documentIds` limits the sweep (tests sharing a database; the tick passes
+ * nothing).
+ */
+export async function claimDueRecertifications(
+  client: Queryable | null,
+  opts: { documentIds?: number[] } = {}
+): Promise<RecertCycle[]> {
+  if (client) return claimDueRecertificationsOn(client, opts);
+  await ready();
+  const own = await pool().connect();
+  try {
+    await own.query("BEGIN");
+    const cycles = await claimDueRecertificationsOn(own, opts);
+    await own.query("COMMIT");
+    return cycles;
+  } catch (e) {
+    await own.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    own.release();
+  }
+}
+
+async function claimDueRecertificationsOn(client: Queryable, opts: { documentIds?: number[] }): Promise<RecertCycle[]> {
+  const only = opts.documentIds ?? null;
+  const due = await client.query<{ id: number }>(
+    `SELECT d.id FROM documents d
+     WHERE ${RECERT_DUE} AND ($1::int[] IS NULL OR d.id = ANY($1::int[]))
+     ORDER BY d.id`,
+    [only]
+  );
+  if (due.rowCount === 0) return [];
+  const ids = due.rows.map((r) => r.id);
+  // Counted before the marker moves: afterwards nothing is current.
+  const counts = new Map<number, { eligible: number; current: number }>();
+  for (const id of ids) counts.set(id, await ackCounts(client, id));
+  const moved = await client.query<MovedMarker & { recert_months: number }>(
+    `UPDATE documents d
+       SET ack_revision_at = clock_timestamp(),
+           ack_version_id = (SELECT MAX(v.id) FROM doc_versions v WHERE v.document_id = d.id),
+           ack_next_recert_at = clock_timestamp() + make_interval(months => d.ack_recert_months),
+           ack_last_reminded_at = clock_timestamp()
+     WHERE d.id = ANY($1::int[]) AND ${RECERT_DUE}
+     RETURNING d.id, d.title, d.space_id, d.ack_version_id, d.ack_recert_months AS recert_months,
+               ${VERSION_REV("d.ack_version_id")} AS rev,
+               d.ack_revision_at::text AS marker`,
+    [ids]
+  );
+  const cycles: RecertCycle[] = [];
+  for (const row of moved.rows) {
+    const c = counts.get(row.id) ?? { eligible: 0, current: 0 };
+    const tail = await recordMarkerClaim(client, row, c, {
+      source: "recurrence",
+      reason: RECERT_LEDGER_REASON,
+      noticeReason: recertNoticeSentence(row.recert_months, row.title),
+      actor: RECERT_ACTOR,
+    });
+    cycles.push({
+      document_id: row.id,
+      title: row.title,
+      space_id: row.space_id,
+      version_id: row.ack_version_id,
+      rev: row.rev,
+      marker: row.marker,
+      decision_id: tail.decision_id,
+      outbox_id: tail.outbox_id,
+      confirmations_reset: c.current,
+      eligible: c.eligible,
+      recert_months: row.recert_months,
+    });
+  }
+  return cycles;
+}
+
+/**
+ * The SET clause a resume carries (G1 + G3): a cycle that fell due while the
+ * policy was retired (or otherwise not taking confirmations) would fire at
+ * the next tick, asking everyone again the day the policy came back. When
+ * there is an interval and the next date has passed, the next date moves to
+ * now + interval; anything else is untouched. unretirePolicy writes it in
+ * its own UPDATE so nothing can tick between the resume and the move;
+ * recertAfterResume runs it alone for any other path that brings a policy
+ * back with a stale date.
+ */
+const RECERT_NEXT_ON_RESUME = `ack_next_recert_at = CASE
+           WHEN ack_recert_months IS NOT NULL AND ack_next_recert_at <= now()
+           THEN now() + make_interval(months => ack_recert_months)
+           ELSE ack_next_recert_at
+         END`;
+
+/** Apply RECERT_NEXT_ON_RESUME on its own; answers the next date after the call (null without a cycle, or when the document is gone). */
+export async function recertAfterResume(docId: number): Promise<string | null> {
+  const r = await q<{ next: string | null }>(
+    `UPDATE documents SET ${RECERT_NEXT_ON_RESUME} WHERE id = $1 RETURNING ack_next_recert_at AS next`,
+    [docId]
+  );
+  return r[0]?.next ?? null;
+}
+
+/** The re-confirmation settings of one policy, as the Settings tab's card and the ack-settings GET read them. */
+export interface AckRecert extends RecertFields {
+  /** The marker (ack_revision_at): the first cycle is dated from it, and the Settings tab's warn line compares it with the interval. */
+  ack_revision_at: string;
+}
+
+export async function getAckRecert(docId: number): Promise<AckRecert | undefined> {
+  const r = await q<AckRecert>(
+    `SELECT ack_recert_months, ack_next_recert_at, ack_effective_at::text AS ack_effective_at, ack_revision_at
+     FROM documents WHERE id = $1`,
+    [docId]
+  );
+  return r[0];
+}
+
+/**
+ * Apply a validated re-confirmation patch (validateRecertPatch in
+ * lib/ack-recert): the interval, the next date and the effective date, any
+ * subset. The next date follows the interval: clearing the interval clears
+ * it; setting or changing the interval without a next date (or with it
+ * cleared) schedules the first cycle from the marker (marker + N months, or
+ * now + 14 days when that is already past); an explicit next date is kept
+ * as sent; a next date on a policy with no interval is not stored, there
+ * being nothing to fire. Returns the row after the change, or undefined
+ * when the document is gone.
+ */
+export async function setAckRecert(docId: number, patch: RecertPatch): Promise<AckRecert | undefined> {
+  const cur = await getAckRecert(docId);
+  if (!cur) return undefined;
+  const months = patch.recert_months === undefined ? cur.ack_recert_months : patch.recert_months;
+  let next: string | null;
+  if (months === null) {
+    next = null;
+  } else if (patch.next_recert_at != null) {
+    next = patch.next_recert_at;
+  } else if (patch.next_recert_at === null || cur.ack_next_recert_at === null || months !== cur.ack_recert_months) {
+    next = nextRecertDate(new Date(cur.ack_revision_at), months).toISOString();
+  } else {
+    next = cur.ack_next_recert_at;
+  }
+  const effective = patch.effective_at === undefined ? cur.ack_effective_at : patch.effective_at;
+  const r = await q<AckRecert>(
+    `UPDATE documents SET ack_recert_months = $2, ack_next_recert_at = $3, ack_effective_at = $4::date
+     WHERE id = $1
+     RETURNING ack_recert_months, ack_next_recert_at, ack_effective_at::text AS ack_effective_at, ack_revision_at`,
+    [docId, months, next, effective]
+  );
+  return r[0];
 }
 
 // --- Training decks (enterprise "training") ---------------------------------------
