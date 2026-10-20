@@ -290,23 +290,27 @@ before(async () => {
 });
 
 after(async () => {
-  // Only what this file made.
-  await pool().query("DELETE FROM sessions WHERE user_id = ANY($1)", [userIds]);
-  await pool().query("DELETE FROM notifications WHERE user_id = ANY($1)", [userIds]);
-  await pool().query("DELETE FROM ack_notices WHERE document_id = ANY($1) OR user_id = ANY($2)", [docIds, userIds]);
-  await pool().query("DELETE FROM ack_outbox WHERE document_id = ANY($1)", [docIds]);
+  // Only what this file made. Each statement with the deadlock retry:
+  // another file's teardown deletes its people's rows on this file's
+  // internal policies while these cascade over the same rows the other way
+  // round, and whichever side is the victim must still run (what a teardown
+  // leaves behind is the next run's interference).
+  await fixtureQuery("DELETE FROM sessions WHERE user_id = ANY($1)", [userIds]);
+  await fixtureQuery("DELETE FROM notifications WHERE user_id = ANY($1)", [userIds]);
+  await fixtureQuery("DELETE FROM ack_notices WHERE document_id = ANY($1) OR user_id = ANY($2)", [docIds, userIds]);
+  await fixtureQuery("DELETE FROM ack_outbox WHERE document_id = ANY($1)", [docIds]);
   // A welcome row is keyed to the joiner's earliest-due policy, which may be another file's: by person too.
-  for (const id of userIds) await pool().query("DELETE FROM ack_outbox WHERE user_ids @> $1::jsonb", [JSON.stringify([id])]);
-  await pool().query("DELETE FROM acknowledgements WHERE document_id = ANY($1)", [docIds]);
-  await pool().query("DELETE FROM ack_decisions WHERE document_id = ANY($1) OR document_title LIKE $2", [docIds, `${STAMP}%`]);
-  await pool().query(
+  for (const id of userIds) await fixtureQuery("DELETE FROM ack_outbox WHERE user_ids @> $1::jsonb", [JSON.stringify([id])]);
+  await fixtureQuery("DELETE FROM acknowledgements WHERE document_id = ANY($1)", [docIds]);
+  await fixtureQuery("DELETE FROM ack_decisions WHERE document_id = ANY($1) OR document_title LIKE $2", [docIds, `${STAMP}%`]);
+  await fixtureQuery(
     "DELETE FROM audit_log WHERE (action LIKE 'ack.%' OR action LIKE 'document.ack%') AND (target_id = ANY($1) OR target_id = ANY($2))",
     [docIds.map(String), userIds.map(String)]
   );
-  await pool().query("DELETE FROM documents WHERE id = ANY($1)", [docIds]);
-  await pool().query("DELETE FROM groups WHERE id = ANY($1)", [[g1, g2, g3]]);
-  await pool().query("DELETE FROM users WHERE id = ANY($1)", [userIds]);
-  await pool().query("DELETE FROM spaces WHERE id = ANY($1)", [[spaceA, spaceP, spaceW]]);
+  await fixtureQuery("DELETE FROM documents WHERE id = ANY($1)", [docIds]);
+  await fixtureQuery("DELETE FROM groups WHERE id = ANY($1)", [[g1, g2, g3]]);
+  await fixtureQuery("DELETE FROM users WHERE id = ANY($1)", [userIds]);
+  await fixtureQuery("DELETE FROM spaces WHERE id = ANY($1)", [[spaceA, spaceP, spaceW]]);
 });
 
 describe("sanitizeRules", () => {
@@ -926,6 +930,20 @@ describe("the hourly safety net and the migration", () => {
     const client = await pool().connect();
     try {
       await client.query("BEGIN");
+      // The migration is one statement over every policy and every account
+      // in the database, which the other files are inserting, reconciling
+      // and deleting as this runs: a row for a document deleted meanwhile
+      // fails its foreign key, and two statements writing one policy's
+      // rows in different orders deadlock, either side the victim. Inside
+      // this transaction `documents` and `users` are temporary copies
+      // holding this file's two policies and its people (pg_temp resolves
+      // first), so the migration reads and writes rows for those alone;
+      // the tables it writes are the real ones. The copies go with the
+      // rollback, as does the search path.
+      const searchPath = (await client.query<{ search_path: string }>("SHOW search_path")).rows[0].search_path;
+      await client.query(`SET LOCAL search_path = pg_temp, ${searchPath}`);
+      await client.query("CREATE TEMP TABLE documents ON COMMIT DROP AS SELECT * FROM documents WHERE id = ANY($1)", [ids]);
+      await client.query("CREATE TEMP TABLE users ON COMMIT DROP AS SELECT * FROM users WHERE id = ANY($1)", [userIds]);
       // The counts as the portal computes them (open rows of active accounts, current against marker and cycle).
       const COUNTS = `SELECT d.id, COUNT(u.id)::int AS eligible,
                              COUNT(u.id) FILTER (WHERE EXISTS (SELECT 1 FROM acknowledgements a WHERE a.document_id = d.id AND a.user_id = u.id
@@ -943,7 +961,10 @@ describe("the hourly safety net and the migration", () => {
       assert.equal(before.counts.find((c) => c.id === m1.id).current, 1);
       assert.ok(before.roster.length >= 12, `every one of this file's people owes both (${before.roster.length})`);
 
-      await client.query("DELETE FROM policy_assignments WHERE document_id = ANY($1)", [ids]);
+      // This file's people's rows go, as a 1.12.0 binary that never wrote
+      // any would have left them; the workspace's admins' rows stay, locked
+      // by nobody, and the comparison does not read them.
+      await client.query("DELETE FROM policy_assignments WHERE document_id = ANY($1) AND user_id = ANY($2)", [ids, userIds]);
       await client.query("DELETE FROM policy_settings WHERE document_id = ANY($1)", [ids]);
       await client.query("DELETE FROM settings WHERE key = 'policy_assignments_migrated'");
       await migratePolicyAssignments(client);
