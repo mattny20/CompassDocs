@@ -7887,16 +7887,15 @@ async function workspaceOverdueGraceDays(): Promise<number | null> {
 /**
  * One open row's overdue test (E1, 1.13.0): its due date plus the policy's
  * grace has passed. The grace resolves the cascade's way (lib/ack-due
- * resolveDefaults): policy_settings.overdue_grace_days, else the space's
- * policy_defaults, else the workspace's ack_defaults (the parameter), else
- * the built-in 0; a space value that is not a whole number of days in range
- * reads as unset, as sanitizeLayer reads it. Needs `pa`, `ps`
- * (policy_settings LEFT JOINed on the document) and `s` (spaces) in scope;
- * the caller adds "and no current confirmation".
+ * resolveDefaults; policy_settings carries no grace column, so the policy
+ * layer never sets it): the space's policy_defaults, else the workspace's
+ * ack_defaults (the parameter), else the built-in 0; a space value that is
+ * not a whole number of days in range reads as unset, as sanitizeLayer
+ * reads it. Needs `pa` and `s` (spaces) in scope; the caller adds "and no
+ * current confirmation".
  */
 function paOverdueSql(workspaceParam: string): string {
   return `pa.due_at IS NOT NULL AND pa.due_at + make_interval(days => COALESCE(
-      ps.overdue_grace_days,
       CASE WHEN s.policy_defaults->>'overdue_grace_days' ~ '^\\d{1,2}$'
             AND (s.policy_defaults->>'overdue_grace_days')::int <= 90
            THEN (s.policy_defaults->>'overdue_grace_days')::int END,
@@ -7937,7 +7936,6 @@ export async function listPendingAcksFor(userId: number, scope: SpaceScope): Pro
      FROM policy_assignments pa
      JOIN documents d ON d.id = pa.document_id
      JOIN spaces s ON s.id = d.space_id
-     LEFT JOIN policy_settings ps ON ps.document_id = d.id
      WHERE pa.user_id = $1 AND ${PA_OPEN} AND ${MY_POLICY_DOC}${myPolicyScope(scope, 2)}
        AND NOT EXISTS (
          SELECT 1 FROM acknowledgements a
@@ -7999,7 +7997,6 @@ export async function listMyPolicies(userId: number, scope: SpaceScope): Promise
      FROM policy_assignments pa
      JOIN documents d ON d.id = pa.document_id
      JOIN spaces s ON s.id = d.space_id
-     LEFT JOIN policy_settings ps ON ps.document_id = d.id
      LEFT JOIN LATERAL (
        SELECT a.acknowledged_at, a.version_id FROM acknowledgements a
        WHERE a.document_id = d.id AND a.user_id = $1 AND ${ACK_CURRENT_PA}
@@ -8050,7 +8047,6 @@ export async function countOverdueAcksFor(userId: number, scope: SpaceScope): Pr
      FROM policy_assignments pa
      JOIN documents d ON d.id = pa.document_id
      JOIN spaces s ON s.id = d.space_id
-     LEFT JOIN policy_settings ps ON ps.document_id = d.id
      WHERE pa.user_id = $1 AND ${PA_OPEN} AND ${MY_POLICY_DOC}${myPolicyScope(scope, 2)}
        AND ${paOverdueSql(graceParam)}
        AND NOT EXISTS (

@@ -122,7 +122,7 @@ after(async () => {
 });
 
 describe("listMyPolicies: one person's standing on every policy in scope", () => {
-  test("states and order: to-confirm first, most recently changed first, then the confirmed ones", async () => {
+  test("states and order: to-confirm first, the soonest deadline first, then the confirmed ones", async () => {
     const pending = await newPolicy(`${STAMP} pending`);
     const confirmed = await newPolicy(`${STAMP} confirmed`);
     await recordAcknowledgement(confirmed.id, readerId, "", confirmed.v1);
@@ -298,7 +298,7 @@ describe("listMyPolicies: one person's standing on every policy in scope", () =>
     );
   });
 
-  test("an overdue policy (E1): state 'overdue', first on the page and the dashboard, counted by countOverdueAcksFor; the policy's or the space's grace delays it; a confirmation ends it", async () => {
+  test("an overdue policy (E1): state 'overdue', first on the page and the dashboard, counted by countOverdueAcksFor; the space's grace delays it; a confirmation ends it", async () => {
     const scope = asScope([spaceId]);
     const late = await newPolicy(`${STAMP} overdue`);
     const backdate = () =>
@@ -324,21 +324,17 @@ describe("listMyPolicies: one person's standing on every policy in scope", () =>
     assert.equal(await countOverdueAcksFor(editorId, scope), 0, "the editor's row on the same policy keeps its own deadline");
     assert.equal(await countPendingAcksFor(readerId, scope), dashboard.length, "the badge counts it among the pending ones, not twice");
 
-    // The grace from the cascade: the policy's own number, else the space's
-    // policy_defaults (a junk value there reads as unset), else the built-in 0.
-    assert.equal(
-      (await fixtureQuery("UPDATE policy_settings SET overdue_grace_days = 3 WHERE document_id = $1", [late.id])).rowCount,
-      1,
-      "the policy's settings row (written at switch-on)"
-    );
+    // The grace from the cascade (policy_settings carries no grace column,
+    // so it starts at the space): the space's policy_defaults (a junk or
+    // out-of-range value there reads as unset), else the workspace's
+    // ack_defaults (not written here: another file may hold that row),
+    // else the built-in 0.
+    await fixtureQuery(`UPDATE spaces SET policy_defaults = '{"overdue_grace_days": 3}' WHERE id = $1`, [spaceId]);
     assert.equal(await stateOf(), "pending", "3 days of grace: two days late is not yet overdue");
     assert.equal(await countOverdueAcksFor(readerId, scope), 0);
     assert.equal((await listPendingAcksFor(readerId, scope)).find((d) => d.id === late.id)!.overdue, false);
-    await fixtureQuery("UPDATE policy_settings SET overdue_grace_days = 1 WHERE document_id = $1", [late.id]);
+    await fixtureQuery(`UPDATE spaces SET policy_defaults = '{"overdue_grace_days": 1}' WHERE id = $1`, [spaceId]);
     assert.equal(await stateOf(), "overdue", "one day of grace has passed");
-    await fixtureQuery("UPDATE policy_settings SET overdue_grace_days = NULL WHERE document_id = $1", [late.id]);
-    await fixtureQuery(`UPDATE spaces SET policy_defaults = '{"overdue_grace_days": 5}' WHERE id = $1`, [spaceId]);
-    assert.equal(await stateOf(), "pending", "the space's grace applies when the policy inherits");
     await fixtureQuery(`UPDATE spaces SET policy_defaults = '{"overdue_grace_days": "x"}' WHERE id = $1`, [spaceId]);
     assert.equal(await stateOf(), "overdue", "a junk space value reads as unset, as sanitizeLayer reads it");
     await fixtureQuery(`UPDATE spaces SET policy_defaults = '{"overdue_grace_days": 120}' WHERE id = $1`, [spaceId]);

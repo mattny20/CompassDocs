@@ -758,3 +758,209 @@ test("retire and un-retire: program_read only is 403; a holder of document.ack_r
     if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
   }
 });
+
+// 1.13.0 (D2): the roster's actions are bound to their document and never
+// to a person's own row. The space-scoped twin
+// POST /api/documents/[id]/acknowledgements/actions admits a steward holding
+// document.ack_require on that space without the Compliance section, and
+// every write runs WHERE document_id = that document: assignment ids of a
+// policy in another space come back as `skipped` and that policy's rows are
+// untouched (the other policy itself is 404 to the steward). A snooze pauses
+// reminders and nothing else: the Overview's numbers, the policy row's
+// counts and the CSV's status cell read the same before and after, with
+// only snoozed_until filled. Exempting your own row is 400 with the one
+// sentence, on both routes, and writes nothing.
+//
+// The rows here are pending, not overdue: a deadline reaches the past only
+// by waiting (a rule's days are 1 or more and a fixed date in the past
+// falls back to the rule), so the invariant is proved on a pending row,
+// which the server treats exactly as an overdue one (status, counts and
+// CSV all read from due_at and the confirmation, never from the snooze).
+test("assignment actions: a steward of one space cannot reach another space's rows through the twin, a snooze leaves the numbers and the CSV status alone, and exempting yourself is 400", async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(150_000);
+  await login(page, ADMIN);
+  const suffix = stamp();
+  const title = `E2E assignment actions ${suffix}`;
+  const steward = { username: `e2e_asgstew_${suffix}`, password: "E2eStew!12345" };
+  const person = { username: `e2e_asgperson_${suffix}`, password: "E2ePerson!12345" };
+  const SELF = "Ask another compliance manager to record your exemption.";
+  let docId: number | undefined;
+  let otherId: number | undefined;
+  let otherSpaceId: number | undefined;
+  let stewardId: number | undefined;
+  let stewardRole: number | undefined;
+  let personId: number | undefined;
+  try {
+    // A person in the sample space (enrolled when the policy is switched
+    // on), the policy in space 1, and a second policy in a private space the
+    // steward cannot see; both required quietly.
+    personId = await makeUser(page, person, "E2E Assignment Person");
+    docId = await makePolicy(page, title);
+    test.skip(!(await portalLicensed(page)), "policy_ack is not licensed in this build; the EE rig runs the flow");
+    const on = await api(page, "/api/admin/compliance", { method: "POST", body: { docId, action: "request", notify: false } });
+    expect(on.status, "requested quietly").toBe(200);
+    const otherSpace = await api(page, "/api/admin/spaces", {
+      method: "POST",
+      body: { name: `E2E Other B ${suffix}`, slug: `e2e-other-b-${suffix}`, description: "", visibility: "private" },
+    });
+    otherSpaceId = otherSpace.body?.space?.id ?? otherSpace.body?.id;
+    expect(otherSpaceId, "the other space exists").toBeTruthy();
+    otherId = await makePolicy(page, `${title} B`, otherSpaceId!);
+    const otherOn = await api(page, "/api/admin/compliance", { method: "POST", body: { docId: otherId, action: "request", notify: false } });
+    expect(otherOn.status, "the other policy is required quietly").toBe(200);
+
+    // The rows, by the admin: the person's row on A, and every row on B.
+    const rosterA = await api(page, `/api/documents/${docId}/acknowledgements`);
+    expect(rosterA.status).toBe(200);
+    const personRow = (rosterA.body?.rows ?? []).find((r: { username: string }) => r.username === person.username);
+    expect(personRow?.assignment_id, "the person is enrolled on A with an assignment id").toBeTruthy();
+    const adminRow = (rosterA.body?.rows ?? []).find((r: { username: string }) => r.username === ADMIN.username);
+    expect(adminRow?.assignment_id, "and so is the admin").toBeTruthy();
+    const rosterB = await api(page, `/api/documents/${otherId}/acknowledgements`);
+    expect(rosterB.status).toBe(200);
+    const rowsB: { assignment_id: number; due_at: string | null; username: string }[] = rosterB.body?.rows ?? [];
+    expect(rowsB.length, "B has rows (the admin at least)").toBeGreaterThanOrEqual(1);
+    const idsB = rowsB.map((r) => r.assignment_id);
+    const dueB = new Map(rowsB.map((r) => [r.assignment_id, r.due_at]));
+
+    // The steward: document.ack_require on space 1 only, no Compliance section.
+    stewardId = await makeUser(page, steward, "E2E Assignment Steward");
+    const role = await api(page, "/api/admin/rbac/roles", {
+      method: "POST",
+      body: { name: `E2E Assignment Steward ${suffix}`, description: "e2e: ack_require on one space", permissions: ["document.ack_require", "document.ack_roster_read"] },
+    });
+    expect(role.status).toBe(201);
+    stewardRole = role.body?.id;
+    const scoped = await api(page, "/api/admin/rbac/assignments", {
+      method: "POST",
+      body: { role_id: stewardRole, user_id: stewardId, space_id: 1 },
+    });
+    expect(scoped.status, "assigned on space 1").toBe(201);
+    const sctx = await browser.newContext();
+    try {
+      const spage = await sctx.newPage();
+      await login(spage, steward);
+      // Without the section, the admin route is closed; the twin is open
+      // for the steward's own space.
+      expect(
+        (await api(spage, "/api/admin/compliance/assignments", { method: "POST", body: { action: "extend", assignment_ids: [personRow.assignment_id], days: 7 } })).status,
+        "the admin route needs program_manage"
+      ).toBe(403);
+      // B's ids through A's twin: 200, nothing changed, every id skipped.
+      const crossed = await api(spage, `/api/documents/${docId}/acknowledgements/actions`, {
+        method: "POST",
+        body: { action: "extend", assignment_ids: idsB, days: 7, reason: "Reaching across spaces, for the test" },
+      });
+      expect(crossed.status, "the twin answers, bound to its document").toBe(200);
+      expect(crossed.body?.changed).toEqual([]);
+      expect([...(crossed.body?.skipped ?? [])].sort((a, b) => a - b)).toEqual([...idsB].sort((a, b) => a - b));
+      // B itself does not exist for the steward.
+      expect(
+        (await api(spage, `/api/documents/${otherId}/acknowledgements/actions`, { method: "POST", body: { action: "extend", assignment_ids: idsB, days: 7 } })).status,
+        "the other space's policy is 404"
+      ).toBe(404);
+      // A's own row through the twin: the steward may act.
+      const extended = await api(spage, `/api/documents/${docId}/acknowledgements/actions`, {
+        method: "POST",
+        body: { action: "extend", assignment_ids: [personRow.assignment_id], days: 7, reason: "Audit week" },
+      });
+      expect(extended.status, "a steward extends a row of their own space").toBe(200);
+      expect(extended.body?.changed).toEqual([personRow.assignment_id]);
+      const undone = await api(spage, `/api/documents/${docId}/acknowledgements/actions`, {
+        method: "POST",
+        body: { action: "undo_extend", assignment_ids: [personRow.assignment_id] },
+      });
+      expect(undone.status).toBe(200);
+      expect(undone.body?.changed).toEqual([personRow.assignment_id]);
+    } finally {
+      await sctx.close();
+    }
+    // B's rows are exactly as they were.
+    const rosterBAfter = await api(page, `/api/documents/${otherId}/acknowledgements`);
+    for (const r of rosterBAfter.body?.rows ?? []) {
+      expect(r.due_at, `B's row ${r.username} keeps its deadline`).toBe(dueB.get(r.assignment_id));
+      expect(r.exempt).toBe(false);
+      expect(r.snoozed_until).toBeNull();
+    }
+    const dueA = (await api(page, `/api/documents/${docId}/acknowledgements`)).body?.rows?.find(
+      (r: { username: string }) => r.username === person.username
+    )?.due_at;
+    expect(dueA, "the extension was undone").toBe(personRow.due_at);
+
+    // The snooze invariant: the Overview's numbers, the policy row and the
+    // CSV status cell before and after, with only snoozed_until filled.
+    const before = await api(page, "/api/admin/compliance");
+    expect(before.status).toBe(200);
+    const rowBefore = (before.body?.docs ?? []).find((d: { id: number }) => d.id === docId);
+    expect(rowBefore).toBeTruthy();
+    const csvBefore = await fetchText(page, `/api/documents/${docId}/acknowledgements?format=csv`);
+    expect(csvBefore.status).toBe(200);
+    const headerCells = cells(csvBefore.text.trim().split("\n")[0]);
+    const statusAt = headerCells.indexOf("status");
+    const snoozedAt = headerCells.indexOf("snoozed_until");
+    const lineOf = (text: string) => text.trim().split("\n").slice(1).map(cells).find((c) => c[1] === person.username);
+    const personBefore = lineOf(csvBefore.text);
+    expect(personBefore?.[statusAt]).toBe("pending");
+    expect(personBefore?.[snoozedAt]).toBe("");
+    const snoozed = await api(page, "/api/admin/compliance/assignments", {
+      method: "POST",
+      body: { action: "snooze", assignment_ids: [personRow.assignment_id] },
+    });
+    expect(snoozed.status, "snoozed through the admin route").toBe(200);
+    expect(snoozed.body?.changed).toEqual([personRow.assignment_id]);
+    expect(snoozed.body?.until, "the answer says when reminders resume").toBeTruthy();
+    const after = await api(page, "/api/admin/compliance");
+    expect(after.body?.kpis, "the Overview's numbers do not move").toEqual(before.body?.kpis);
+    const rowAfter = (after.body?.docs ?? []).find((d: { id: number }) => d.id === docId);
+    expect({ required: rowAfter?.required, acked: rowAfter?.acked }).toEqual({ required: rowBefore?.required, acked: rowBefore?.acked });
+    const csvAfter = await fetchText(page, `/api/documents/${docId}/acknowledgements?format=csv`);
+    const personAfter = lineOf(csvAfter.text);
+    expect(personAfter?.[statusAt], "the CSV status is the same").toBe("pending");
+    expect(personAfter?.[snoozedAt], "only the snooze is on the row").not.toBe("");
+    const snoozedRow = (await api(page, `/api/documents/${docId}/acknowledgements`)).body?.rows?.find(
+      (r: { username: string }) => r.username === person.username
+    );
+    expect(snoozedRow?.snoozed_until).toBeTruthy();
+    expect(snoozedRow?.acknowledged_at).toBeNull();
+    expect(snoozedRow?.exempt).toBe(false);
+    const unsnoozed = await api(page, "/api/admin/compliance/assignments", {
+      method: "POST",
+      body: { action: "unsnooze", assignment_ids: [personRow.assignment_id] },
+    });
+    expect(unsnoozed.status).toBe(200);
+    expect(unsnoozed.body?.changed).toEqual([personRow.assignment_id]);
+
+    // Exempting yourself: 400 with the sentence on both routes, nothing written.
+    for (const path of ["/api/admin/compliance/assignments", `/api/documents/${docId}/acknowledgements/actions`]) {
+      const self = await api(page, path, {
+        method: "POST",
+        body: { action: "exempt", assignment_ids: [adminRow.assignment_id, personRow.assignment_id], reason: "Author of the policy" },
+      });
+      expect(self.status, `${path}: your own row is refused`).toBe(400);
+      expect(self.body?.error).toBe(SELF);
+    }
+    const untouched = (await api(page, `/api/documents/${docId}/acknowledgements`)).body?.rows ?? [];
+    expect(untouched.every((r: { exempt: boolean }) => r.exempt === false), "the whole request was refused: nobody was exempted").toBe(true);
+    expect((await auditRows(page, (r) => r.action === "ack.exempted" && Number(r.target_id) === docId)).length).toBe(0);
+    // Someone else's row goes through, and is on the record.
+    const other = await api(page, "/api/admin/compliance/assignments", {
+      method: "POST",
+      body: { action: "exempt", assignment_ids: [personRow.assignment_id], reason: "Signed on paper" },
+    });
+    expect(other.status).toBe(200);
+    expect(other.body?.changed).toEqual([personRow.assignment_id]);
+    const exempted = await auditRows(page, (r) => r.action === "ack.exempted" && Number(r.target_id) === docId);
+    expect(exempted.length).toBe(1);
+    expect(exempted[0].details).toMatchObject({ assignment_id: personRow.assignment_id, user_id: personId });
+  } finally {
+    if (stewardRole) await api(page, `/api/admin/rbac/roles/${stewardRole}`, { method: "DELETE" });
+    if (stewardId) await api(page, `/api/admin/users/${stewardId}`, { method: "DELETE" });
+    if (personId) await api(page, `/api/admin/users/${personId}`, { method: "DELETE" });
+    if (otherId) await api(page, `/api/documents/${otherId}`, { method: "DELETE" });
+    if (otherSpaceId) await api(page, `/api/admin/spaces/${otherSpaceId}`, { method: "DELETE" });
+    if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
+  }
+});

@@ -3,10 +3,10 @@
 // The Read confirmation popover on the document shield (A5, 1.10.1): the
 // four controls and nothing else (STYLEGUIDE §Overlays): the "Require
 // readers to confirm" Toggle, the status line with its "View record" link,
-// the "When the text changes" Select, and "Ask everyone to re-confirm…".
-// Audience, deadline, reminders, the interval, the statement and signature
-// go to the document's Read confirmation Settings page when it exists (C2),
-// never here.
+// the "When the text changes" Select, and "Ask everyone to re-confirm…",
+// plus one link, "All settings" (D1, 1.13.0), to the document's Read
+// confirmation Settings page. Audience, deadline, reminders, the interval,
+// the statement and signature live on that page (C2), never here.
 //
 // The Toggle is never flipped optimistically. Switching on puts the shared
 // question first (requireAckDialog, awaited before any busy state, so Cancel
@@ -64,6 +64,14 @@ export interface AckSettingsProps {
    * offering a switch that only ends in that toast.
    */
   retired?: { at: string; canOpenSettings: boolean } | null;
+  /**
+   * "All settings" (D1, 1.13.0): the link to the Settings tab, for holders
+   * of document.ack_require on the space or compliance.program_manage (the
+   * tab's own gate). The page passes it; the popover shows the link under
+   * its controls while the policy is not retired (the retired line links
+   * the tab itself).
+   */
+  canOpenSettings?: boolean;
 }
 
 /** What PATCH answers (the parts the popover reads). */
@@ -92,6 +100,7 @@ export function AckSettings({
   canViewRecord,
   viewerName,
   retired = null,
+  canOpenSettings = false,
   onRequiredChange,
 }: AckSettingsProps & {
   /** The trigger follows the requirement (compass tint while required). */
@@ -296,6 +305,16 @@ export function AckSettings({
             summary={{ current: summary.current, eligible: summary.eligible, rev: summary.rev }}
           />
         </div>
+      )}
+
+      {/* The one link (D1): who must confirm, the deadline, the reminders,
+          the cycle, the statement and the signature are set on the tab. */}
+      {canOpenSettings && !retired && (
+        <p className="mt-4 text-xs">
+          <Link href={`/doc/${docId}/acknowledgements/settings`} className="font-medium text-compass-700 hover:underline">
+            All settings
+          </Link>
+        </p>
       )}
     </section>
   );

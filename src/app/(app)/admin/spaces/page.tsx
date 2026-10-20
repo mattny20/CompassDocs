@@ -10,6 +10,8 @@ import {
 } from "@/lib/db";
 import { editorsEditAll } from "@/lib/access";
 import { listTemplates } from "@/lib/doc-templates";
+import { workspaceDueDefaults } from "@/lib/compliance";
+import { resolveDefaults } from "@/lib/ack-due";
 import { SpacesManager } from "@/components/SpacesManager";
 import { SettingsPage } from "@/components/SettingsPage";
 import { EVERY_SPACE_UNFILTERED } from "@/lib/space-scope";
@@ -20,7 +22,7 @@ export const metadata = settingsMetadata("/admin/spaces");
 
 export default async function SpacesPage() {
   await requireSettingsSection("/admin/spaces");
-  const [spaces, groups, users, spaceGroups, subscriptionGroups, editorGrants, editAll, cats, templates] =
+  const [spaces, groups, users, spaceGroups, subscriptionGroups, editorGrants, editAll, cats, templates, workspaceDue] =
     await Promise.all([
       listSpaces(EVERY_SPACE_UNFILTERED),
       listGroups(),
@@ -31,6 +33,9 @@ export default async function SpacesPage() {
       editorsEditAll(),
       listAllSpaceCategories(),
       listTemplates(true),
+      // The workspace layer of the policy deadline cascade (E1): what a
+      // blank space field inherits, for the "Inherit (14)" placeholders.
+      workspaceDueDefaults(),
     ]);
   const categoriesBySpace: Record<number, { id: number; name: string; position: number }[]> = {};
   for (const c of cats) (categoriesBySpace[c.space_id] ??= []).push({ id: c.id, name: c.name, position: c.position });
@@ -58,6 +63,7 @@ export default async function SpacesPage() {
       initialEditorGrants={editorGrants}
       initialEditorsEditAll={editAll}
       initialCategories={categoriesBySpace}
+      policyInherit={resolveDefaults({ workspace: workspaceDue }).values}
     />
     </SettingsPage>
   );

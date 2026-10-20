@@ -5,9 +5,14 @@
 // primary action. Every card is its own component taking the shared form
 // model { s, set, errors }: Confirmation statement (C2: the sentence on
 // the card at the end of the document, and the typed-signature switch),
-// Re-confirmation (G1: how often everyone is asked again, the next date and
-// the effective date) and Lifecycle (G3: the policy that replaces this one,
-// Retire policy… and Un-retire).
+// Who must confirm (D1, 1.13.0: everyone who can see the space, or the
+// groups, people and roles named, minus exclusions; the two switches; the
+// live "Applies to 412 people" line), Deadline (E1: inherit, days after
+// assignment or a fixed date, with "Also move existing deadlines"),
+// Reminders (E2: the cadence and the policy owner), Re-confirmation (G1:
+// how often everyone is asked again, the next date and the effective date)
+// and Lifecycle (G3: the policy that replaces this one, Retire policy… and
+// Un-retire).
 //
 // The save PATCHes /api/documents/[id]/ack-settings with the fields that
 // changed since the last clean state (so a stored next date that has
@@ -16,21 +21,29 @@
 // (STYLEGUIDE §Forms: markClean before applying the response). Retire and
 // Un-retire are not form fields: they POST at once, ask first (formDialog /
 // confirmDialog, awaited before any busy state) and refresh the route, and
-// the card follows the server's answer.
+// the card follows the server's answer. "Also move existing deadlines" is
+// not a form field either: it PATCHes the rule as the card holds it with
+// move_existing and tells with Undo (the inverse move: the previous rule
+// re-applied the same way), never asks.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { Archive, ArchiveRestore, X } from "lucide-react";
 import { Button, iconButtonClass } from "@/components/Button";
 import { Card } from "@/components/Card";
 import { confirmDialog, formDialog } from "@/components/Dialog";
 import { EntityPicker, type PickerOption } from "@/components/EntityPicker";
-import { Field, Select, Textarea, TextInput, Toggle } from "@/components/form";
+import { Field, Select, Textarea, TextInput, Toggle, rangeError } from "@/components/form";
 import { SaveRow } from "@/components/SaveRow";
 import { useFormatDate } from "@/components/SettingsProvider";
 import { toast } from "@/components/Toasts";
 import { Tooltip } from "@/components/Tooltip";
 import { RECONFIRM_LABEL, RECONFIRM_REASON_TOO_SHORT, askReconfirm } from "@/components/ReconfirmButton";
 import { RECERT_OPTIONS, addMonths, nextRecertDate, recertOptionLabel } from "@/lib/ack-recert";
+import { AUDIENCE_ROLES, audienceSavedToast } from "@/lib/audience";
+import { DUE_FIELDS, DUE_RANGES, audienceDueHelper, inheritLabel } from "@/lib/ack-due";
+import type { DefaultsOrigin, DueRule, PolicyDefaults, PolicyDefaultsKey } from "@/lib/ack-due";
+import type { AudienceMode, AudienceRule } from "@/lib/types";
 import { useAction } from "@/lib/use-action";
 import { useLeaveGuard, useUnsavedChanges } from "@/lib/use-unsaved";
 
@@ -42,6 +55,40 @@ export const RETIRE_LABEL = "Retire policy…";
 export const UNRETIRE_LABEL = "Un-retire";
 /** The inline validation line of the next-date field; the route answers the same rule with 400. */
 export const NEXT_DATE_PAST = "The next re-confirmation date cannot be in the past.";
+/** A targeted audience with nobody named; the route refuses the same way. */
+export const AUDIENCE_EMPTY = "Name at least one group, person or role.";
+/** An edited fixed deadline before today; the route refuses the same way. */
+export const DUE_DATE_PAST = "The deadline cannot be in the past.";
+/** The Deadline card's secondary action. */
+export const MOVE_EXISTING_LABEL = "Also move existing deadlines";
+/** The rule line under the People picker (D1), word for word. */
+export const PEOPLE_ACCESS_RULE =
+  'People must be able to see this document\'s space. Someone who cannot is shown as "No access" in the preview and is not required until access is granted in Space settings.';
+
+/** The audience as the route answers it (D1). */
+export interface PolicyAudienceInitial {
+  audience_mode: AudienceMode;
+  rules: AudienceRule[];
+  exclude_stewards: boolean;
+  assign_new_members: boolean;
+}
+
+/** One resolution of the defaults cascade: the numbers and where each came from. */
+export interface ResolvedForCard {
+  values: PolicyDefaults;
+  origin: Record<PolicyDefaultsKey, DefaultsOrigin>;
+}
+
+/** The four reminder numbers the Reminders card edits (policy_settings' columns). */
+export type ReminderKey = "remind_before_days" | "remind_every_days" | "escalate_after_days" | "nudge_every_days";
+/** The spec's labels, the unit in brackets (TextInput has no suffix). */
+export const REMINDER_FIELDS: readonly { key: ReminderKey; label: string }[] = [
+  { key: "remind_before_days", label: "Remind before due (days)" },
+  { key: "remind_every_days", label: "Remind every (days while overdue)" },
+  { key: "escalate_after_days", label: "Escalate after (days overdue)" },
+  { key: "nudge_every_days", label: "Nudge without a deadline every (days, 0 = never)" },
+];
+const REMINDER_KEYS: readonly ReminderKey[] = REMINDER_FIELDS.map((f) => f.key);
 
 /** What the page hands the panel: the document's own values and what the cards need to show them. */
 export interface PolicySettingsInitial {
@@ -70,9 +117,30 @@ export interface PolicySettingsInitial {
   summary: { current: number; eligible: number; rev: number | null };
   /** The signed-in person, named on the card right after they retire the policy. */
   viewerName: string;
+  /** Who must confirm (D1). */
+  audience: PolicyAudienceInitial;
+  /** The Groups picker's options (sublabel Entra / Google / Manual) and the People picker's (sublabel the username). */
+  groups: PickerOption[];
+  people: PickerOption[];
+  /** The policy's own deadline rule (E1): both null = inherit. */
+  rule: DueRule;
+  /** The cascade with the policy's layer (the effective numbers) and the space for the inherit label. */
+  defaults: ResolvedForCard & { space: { id: number; name: string } | null };
+  /** The cascade without the policy's layer: what a blank field inherits. */
+  inherited: ResolvedForCard;
+  /** The policy's own reminder numbers (E2): null = inherit. */
+  reminders: Record<ReminderKey, number | null>;
+  /** The policy owner (E2): null = whoever switched the requirement on, else the space's approvers. */
+  owner_user_id: number | null;
+  owner_name: string | null;
+  /** Whoever switched the requirement on: the owner picker's placeholder. */
+  requested_by: { id: number; name: string } | null;
 }
 
-/** The form as edited; '' for the statement means "use the default", '' for a date means none. */
+/** The Deadline card's radio. */
+export type DueMode = "inherit" | "days" | "fixed";
+
+/** The form as edited; '' for the statement means "use the default", '' for a date or a number means none / inherit. */
 export interface PolicySettingsForm {
   statement: string;
   signature: boolean;
@@ -82,13 +150,34 @@ export interface PolicySettingsForm {
   /** 'YYYY-MM-DD', or ''. */
   effective_at: string;
   superseded_by: number | null;
+  audience_mode: AudienceMode;
+  /** The include rules as the pickers hold them: group ids, user ids, role names. */
+  groups: number[];
+  people: number[];
+  roles: string[];
+  /** The Exclude picker lists groups and people in one box: a group keeps its id, a person travels as -id (see excludeId). */
+  excludes: number[];
+  /** Rules the card cannot show (an exclude of a role, set through the API): carried unchanged so a save never drops them. */
+  other_rules: AudienceRule[];
+  exclude_stewards: boolean;
+  assign_new_members: boolean;
+  due_mode: DueMode;
+  /** Digits, or '' (judged only in 'days' mode). */
+  due_days: string;
+  /** 'YYYY-MM-DD', or '' (judged only in 'fixed' mode). */
+  due_at: string;
+  remind_before_days: string;
+  remind_every_days: string;
+  escalate_after_days: string;
+  nudge_every_days: string;
+  owner_user_id: number | null;
 }
 
 /** The model every card takes: the values, one setter, the field errors. */
 export interface PolicySettingsModel {
   s: PolicySettingsForm;
   set: <K extends keyof PolicySettingsForm>(key: K, value: PolicySettingsForm[K]) => void;
-  errors: Partial<Record<keyof PolicySettingsForm, string | undefined>>;
+  errors: Partial<Record<keyof PolicySettingsForm | "audience", string | undefined>>;
 }
 
 /** What GET and PATCH /ack-settings answer (the parts the form reads back). */
@@ -102,6 +191,26 @@ interface SettingsAnswer {
   recert_default: number | null;
   superseded_by: number | null;
   superseded_by_title: string | null;
+  audience_mode: AudienceMode;
+  rules: AudienceRule[];
+  exclude_stewards: boolean;
+  assign_new_members: boolean;
+  due_days: number | null;
+  due_at: string | null;
+  remind_before_days: number | null;
+  remind_every_days: number | null;
+  escalate_after_days: number | null;
+  nudge_every_days: number | null;
+  owner_user_id: number | null;
+  owner_name: string | null;
+  requested_by: { id: number; name: string } | null;
+  defaults: ResolvedForCard & { space: { id: number; name: string } | null };
+  inherited: ResolvedForCard;
+  /** PATCH only: the deadlines this call moved, and the audience's counts when it was saved. */
+  moved?: number;
+  added?: number;
+  closed?: number;
+  reopened?: number;
 }
 
 /** 'YYYY-MM-DD' of an instant, in UTC: what a date-only input holds and what the route reads it as. */
@@ -116,7 +225,64 @@ function monthsBetween(from: Date, to: Date): number {
   return Math.max(1, months);
 }
 
+/** The Exclude picker's one id space: a group as its id, a person as the negative of theirs. */
+function excludeId(rule: AudienceRule): number | null {
+  const n = Number(rule.ref);
+  if (!Number.isInteger(n) || n <= 0) return null;
+  if (rule.kind === "group") return n;
+  if (rule.kind === "user") return -n;
+  return null;
+}
+
+/** The saved rules as the pickers hold them, and the rest carried as they are. */
+function splitRules(rules: AudienceRule[]) {
+  const out = { groups: [] as number[], people: [] as number[], roles: [] as string[], excludes: [] as number[], other: [] as AudienceRule[] };
+  for (const r of rules) {
+    const n = Number(r.ref);
+    if (r.effect === "include" && r.kind === "group" && Number.isInteger(n) && n > 0) out.groups.push(n);
+    else if (r.effect === "include" && r.kind === "user" && Number.isInteger(n) && n > 0) out.people.push(n);
+    else if (r.effect === "include" && r.kind === "role" && (AUDIENCE_ROLES as readonly string[]).includes(r.ref)) out.roles.push(r.ref);
+    else {
+      const id = r.effect === "exclude" ? excludeId(r) : null;
+      if (id !== null) out.excludes.push(id);
+      else out.other.push(r);
+    }
+  }
+  // The roles in their fixed order, so the rules' JSON is stable.
+  out.roles = AUDIENCE_ROLES.filter((role) => out.roles.includes(role));
+  return out;
+}
+
+/** The rules a save sends: the pickers' choices in a fixed order, then what the card could not show. */
+export function rulesFromForm(s: PolicySettingsForm): AudienceRule[] {
+  const rules: AudienceRule[] = [];
+  for (const id of s.groups) rules.push({ kind: "group", ref: String(id), effect: "include" });
+  for (const id of s.people) rules.push({ kind: "user", ref: String(id), effect: "include" });
+  for (const role of AUDIENCE_ROLES) if (s.roles.includes(role)) rules.push({ kind: "role", ref: role, effect: "include" });
+  for (const id of s.excludes) {
+    rules.push(id > 0 ? { kind: "group", ref: String(id), effect: "exclude" } : { kind: "user", ref: String(-id), effect: "exclude" });
+  }
+  return rules.concat(s.other_rules);
+}
+
+/** The deadline rule a save sends. */
+export function ruleFromForm(s: PolicySettingsForm): DueRule {
+  if (s.due_mode === "days") return { due_days: Number(s.due_days), due_at: null };
+  if (s.due_mode === "fixed") return { due_days: null, due_at: s.due_at || null };
+  return { due_days: null, due_at: null };
+}
+
+/** The Deadline card's fields for a stored rule. */
+function dueFormFrom(rule: DueRule): Pick<PolicySettingsForm, "due_mode" | "due_days" | "due_at"> {
+  return {
+    due_mode: rule.due_at ? "fixed" : rule.due_days !== null ? "days" : "inherit",
+    due_days: rule.due_days !== null ? String(rule.due_days) : "",
+    due_at: rule.due_at ?? "",
+  };
+}
+
 function fromInitial(i: PolicySettingsInitial): PolicySettingsForm {
+  const split = splitRules(i.audience.rules);
   return {
     statement: i.statement ?? "",
     signature: i.signature,
@@ -124,6 +290,20 @@ function fromInitial(i: PolicySettingsInitial): PolicySettingsForm {
     next_recert_at: i.next_recert_at ? ymd(new Date(i.next_recert_at)) : "",
     effective_at: i.effective_at ?? "",
     superseded_by: i.superseded_by,
+    audience_mode: i.audience.audience_mode,
+    groups: split.groups,
+    people: split.people,
+    roles: split.roles,
+    excludes: split.excludes,
+    other_rules: split.other,
+    exclude_stewards: i.audience.exclude_stewards,
+    assign_new_members: i.audience.assign_new_members,
+    ...dueFormFrom(i.rule),
+    remind_before_days: i.reminders.remind_before_days === null ? "" : String(i.reminders.remind_before_days),
+    remind_every_days: i.reminders.remind_every_days === null ? "" : String(i.reminders.remind_every_days),
+    escalate_after_days: i.reminders.escalate_after_days === null ? "" : String(i.reminders.escalate_after_days),
+    nudge_every_days: i.reminders.nudge_every_days === null ? "" : String(i.reminders.nudge_every_days),
+    owner_user_id: i.owner_user_id,
   };
 }
 
@@ -144,8 +324,63 @@ function nextDateError(s: PolicySettingsForm, saved: PolicySettingsForm): string
   return s.next_recert_at < ymd(new Date()) ? NEXT_DATE_PAST : undefined;
 }
 
+/** The fixed deadline: a date, and (when edited) not before today, the route's rule. */
+function dueDateError(s: PolicySettingsForm, saved: PolicySettingsForm): string | undefined {
+  if (s.due_mode !== "fixed") return undefined;
+  if (!s.due_at) return "Enter a date.";
+  if (s.due_at === saved.due_at) return undefined;
+  return s.due_at < ymd(new Date()) ? DUE_DATE_PAST : undefined;
+}
+
+/** A blank reminder field inherits; anything typed must be a whole number in the key's range. */
+function reminderError(key: ReminderKey, value: string): string | undefined {
+  return value === "" ? undefined : rangeError(value, DUE_RANGES[key].min, DUE_RANGES[key].max);
+}
+
 /** The plain hint under a stored next date that has already passed. */
 export const NEXT_DATE_PASSED_HINT = "This date has passed; the next cycle fires when the policy is live again.";
+
+/** "Moved 412 deadlines" (the spec's toast), or the no-op sentence. */
+export function movedToast(n: number): string {
+  if (n === 0) return "No deadlines to move.";
+  return `Moved ${n} ${n === 1 ? "deadline" : "deadlines"}`;
+}
+
+const people = (n: number) => `${n} ${n === 1 ? "person" : "people"}`;
+
+/** The server's answer folded into what the panel holds (every key the answer carries wins). */
+function applyAnswer(server: PolicySettingsInitial, data: Partial<SettingsAnswer>): PolicySettingsInitial {
+  return {
+    ...server,
+    statement: data.statement ?? null,
+    signature: data.signature ?? server.signature,
+    recert_months: data.recert_months ?? null,
+    next_recert_at: data.next_recert_at ?? null,
+    effective_at: data.effective_at ?? null,
+    marker: data.marker ?? server.marker,
+    recert_default: data.recert_default === undefined ? server.recert_default : data.recert_default,
+    superseded_by: data.superseded_by ?? null,
+    superseded_by_title: data.superseded_by_title ?? null,
+    audience: {
+      audience_mode: data.audience_mode ?? server.audience.audience_mode,
+      rules: data.rules ?? server.audience.rules,
+      exclude_stewards: data.exclude_stewards ?? server.audience.exclude_stewards,
+      assign_new_members: data.assign_new_members ?? server.audience.assign_new_members,
+    },
+    rule: {
+      due_days: data.due_days === undefined ? server.rule.due_days : data.due_days,
+      due_at: data.due_at === undefined ? server.rule.due_at : data.due_at,
+    },
+    defaults: data.defaults ?? server.defaults,
+    inherited: data.inherited ?? server.inherited,
+    reminders: Object.fromEntries(
+      REMINDER_KEYS.map((k) => [k, data[k] === undefined ? server.reminders[k] : data[k]])
+    ) as Record<ReminderKey, number | null>,
+    owner_user_id: data.owner_user_id === undefined ? server.owner_user_id : data.owner_user_id,
+    owner_name: data.owner_name === undefined ? server.owner_name : data.owner_name,
+    requested_by: data.requested_by === undefined ? server.requested_by : data.requested_by,
+  };
+}
 
 export function PolicySettingsPanel({
   doc,
@@ -156,6 +391,7 @@ export function PolicySettingsPanel({
 }) {
   const [s, setS] = useState<PolicySettingsForm>(() => fromInitial(initial));
   const [saving, setSaving] = useState(false);
+  const [moving, setMoving] = useState(false);
   // What the server holds: the clean form is derived from it, the marker
   // and the workspace default come from it, and the Lifecycle card reads
   // the retirement from it. A refresh (after Retire or Un-retire) hands the
@@ -180,14 +416,51 @@ export function PolicySettingsPanel({
   }
 
   // The clean form, derived from what the server holds: the save sends
-  // what differs from it, and the next-date rule judges only an edit.
+  // what differs from it, and the date rules judge only an edit.
   const saved = fromInitial(server);
   const errors: PolicySettingsModel["errors"] = {
     statement: statementError(s.statement),
     next_recert_at: nextDateError(s, saved),
+    audience:
+      s.audience_mode === "targeted" && !rulesFromForm(s).some((r) => r.effect === "include") ? AUDIENCE_EMPTY : undefined,
+    due_days: s.due_mode === "days" ? rangeError(s.due_days, DUE_RANGES.due_days.min, DUE_RANGES.due_days.max) : undefined,
+    due_at: dueDateError(s, saved),
+    remind_before_days: reminderError("remind_before_days", s.remind_before_days),
+    remind_every_days: reminderError("remind_every_days", s.remind_every_days),
+    escalate_after_days: reminderError("escalate_after_days", s.escalate_after_days),
+    nudge_every_days: reminderError("nudge_every_days", s.nudge_every_days),
   };
   const invalid = Object.values(errors).some(Boolean);
   const model: PolicySettingsModel = { s, set, errors };
+
+  /** One PATCH; the server's error or the fallback is toasted; the answer comes back on success. */
+  async function patch(body: Record<string, unknown>, fallback: string): Promise<Partial<SettingsAnswer> | null> {
+    const res = await fetch(`/api/documents/${doc.id}/ack-settings`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = (await res.json().catch(() => ({}))) as Partial<SettingsAnswer> & { error?: string };
+    if (!res.ok) {
+      toast("error", data?.error || fallback);
+      return null;
+    }
+    return data;
+  }
+
+  /**
+   * The inverse of a move (E1): the previous rule re-applied with
+   * move_existing, so the rows go back to the dates that rule gives and the
+   * rule itself is restored. The card follows the answer.
+   */
+  async function undoMove(from: DueRule) {
+    const data = await patch({ due_days: from.due_days, due_at: from.due_at, move_existing: true }, "Couldn't move the deadlines back.");
+    if (!data) return;
+    const next = applyAnswer(server, data);
+    setServer(next);
+    setS((prev) => ({ ...prev, ...dueFormFrom(next.rule) }));
+    toast("ok", `${movedToast(data.moved ?? 0)} back`);
+  }
 
   async function save() {
     if (invalid) {
@@ -204,6 +477,20 @@ export function PolicySettingsPanel({
     if (s.recert_months !== null && s.next_recert_at !== saved.next_recert_at) body.next_recert_at = s.next_recert_at || null;
     if (s.effective_at !== saved.effective_at) body.effective_at = s.effective_at || null;
     if (s.superseded_by !== saved.superseded_by) body.superseded_by = s.superseded_by;
+    // The audience: the rules travel whole whenever any of them moved.
+    const rulesNow = rulesFromForm(s);
+    if (s.audience_mode !== saved.audience_mode) body.audience_mode = s.audience_mode;
+    if (JSON.stringify(rulesNow) !== JSON.stringify(rulesFromForm(saved))) body.rules = rulesNow;
+    if (s.exclude_stewards !== saved.exclude_stewards) body.exclude_stewards = s.exclude_stewards;
+    if (s.assign_new_members !== saved.assign_new_members) body.assign_new_members = s.assign_new_members;
+    // The deadline rule: each half that changed (a fixed date moves every
+    // open deadline on the server; the days apply to future assignments).
+    const ruleNow = ruleFromForm(s);
+    const ruleSaved = ruleFromForm(saved);
+    if (ruleNow.due_days !== ruleSaved.due_days) body.due_days = ruleNow.due_days;
+    if (ruleNow.due_at !== ruleSaved.due_at) body.due_at = ruleNow.due_at;
+    for (const k of REMINDER_KEYS) if (s[k] !== saved[k]) body[k] = s[k] === "" ? null : Number(s[k]);
+    if (s.owner_user_id !== saved.owner_user_id) body.owner_user_id = s.owner_user_id;
     if (Object.keys(body).length === 0) {
       markClean();
       setS(saved);
@@ -211,38 +498,70 @@ export function PolicySettingsPanel({
       return;
     }
     setSaving(true);
-    const res = await fetch(`/api/documents/${doc.id}/ack-settings`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const data = (await res.json().catch(() => ({}))) as Partial<SettingsAnswer> & { error?: string };
+    const data = await patch(body, "Could not save the settings.");
     setSaving(false);
-    if (!res.ok) {
-      toast("error", data?.error || "Could not save the settings.");
-      return;
-    }
+    if (!data) return;
     markClean();
-    const next: PolicySettingsInitial = {
-      ...server,
-      statement: data.statement ?? null,
-      signature: data.signature ?? s.signature,
-      recert_months: data.recert_months ?? null,
-      next_recert_at: data.next_recert_at ?? null,
-      effective_at: data.effective_at ?? null,
-      marker: data.marker ?? server.marker,
-      recert_default: data.recert_default === undefined ? server.recert_default : data.recert_default,
-      superseded_by: data.superseded_by ?? null,
-      superseded_by_title: data.superseded_by_title ?? null,
-    };
+    const next = applyAnswer(server, data);
     setServer(next);
     setS(fromInitial(next));
-    toast("ok", "Settings saved.");
+    // The audience's own sentence when it was saved (the counts are what
+    // the save did), else the plain one; a fixed date that moved the open
+    // deadlines says so, with Undo through the inverse move.
+    toast(
+      "ok",
+      typeof data.added === "number"
+        ? audienceSavedToast({ added: data.added, closed: data.closed ?? 0, reopened: data.reopened ?? 0 })
+        : "Settings saved."
+    );
+    if ((data.moved ?? 0) > 0) {
+      toast("ok", movedToast(data.moved ?? 0), { action: { label: "Undo", onClick: () => void undoMove(ruleSaved) } });
+    }
+  }
+
+  /**
+   * "Also move existing deadlines" (E1): the rule as the card holds it,
+   * saved and applied to every open row (the fixed date while ahead, else
+   * each person's cycle start plus the days). Tells, never asks: Undo is the
+   * inverse move when the rule changed; a move under an unchanged rule has
+   * no inverse (the rows' old dates are only in due_history), so it offers
+   * none.
+   */
+  async function moveExisting() {
+    if (errors.due_days || errors.due_at) {
+      toast("error", "Fix the highlighted fields first.");
+      return;
+    }
+    const rule = ruleFromForm(s);
+    const from = ruleFromForm(saved);
+    const changed = rule.due_days !== from.due_days || rule.due_at !== from.due_at;
+    setMoving(true);
+    const data = await patch({ due_days: rule.due_days, due_at: rule.due_at, move_existing: true }, "Couldn't move the deadlines.");
+    setMoving(false);
+    if (!data) return;
+    const next = applyAnswer(server, data);
+    setServer(next);
+    // The rule is now the stored one; when nothing else is unsaved the row goes clean.
+    if (JSON.stringify(s) === JSON.stringify(fromInitial(next))) markClean();
+    toast(
+      "ok",
+      movedToast(data.moved ?? 0),
+      changed && (data.moved ?? 0) > 0 ? { action: { label: "Undo", onClick: () => void undoMove(from) } } : {}
+    );
   }
 
   return (
     <div className="space-y-6">
       <StatementCard model={model} statementDefault={server.statement_default} />
+      <AudienceCard model={model} docId={doc.id} groups={server.groups} people={server.people} newJoinerDays={server.defaults.values.new_joiner_days} />
+      <DeadlineCard
+        model={model}
+        server={server}
+        busy={saving || moving}
+        moving={moving}
+        onMoveExisting={() => void moveExisting()}
+      />
+      <RemindersCard model={model} server={server} />
       <ReconfirmationCard
         model={model}
         marker={server.marker}
@@ -309,6 +628,438 @@ export function StatementCard({ model, statementDefault }: { model: PolicySettin
         checked={s.signature}
         onChange={(next) => set("signature", next)}
       />
+    </Card>
+  );
+}
+
+/**
+ * A stacked radio group (STYLEGUIDE §Overlays' radio-card recipe, outside a
+ * dialog): a label and one description sentence per card, the chosen card
+ * tinted, and the card's own controls (a number, a date) shown under its
+ * description while it is chosen. The radio and the extra control are
+ * siblings, never nested in one label, so each keeps one accessible name.
+ */
+function RadioCards<T extends string>({
+  label,
+  name,
+  value,
+  onChange,
+  options,
+}: {
+  /** The group's accessible name (the card's title). */
+  label: string;
+  name: string;
+  value: T;
+  onChange: (next: T) => void;
+  options: { value: T; label: string; description: string; extra?: ReactNode }[];
+}) {
+  const id = useId();
+  return (
+    <div role="radiogroup" aria-label={label} className="space-y-2">
+      {options.map((o) => {
+        const checked = o.value === value;
+        const rid = `${id}-${o.value}`;
+        return (
+          <div
+            key={o.value}
+            className={`flex gap-3 rounded-lg border p-3 transition ${checked ? "border-compass-300 bg-compass-50/60" : "border-slate-200 hover:bg-slate-50"}`}
+          >
+            <input
+              type="radio"
+              id={rid}
+              name={name}
+              value={o.value}
+              checked={checked}
+              onChange={() => onChange(o.value)}
+              aria-describedby={`${rid}-desc`}
+              className="mt-0.5 h-4 w-4 shrink-0"
+            />
+            <div className="min-w-0 flex-1">
+              <label htmlFor={rid} className="block cursor-pointer text-sm font-medium text-slate-800">
+                {o.label}
+              </label>
+              <span id={`${rid}-desc`} className="block text-xs text-slate-500">
+                {o.description}
+              </span>
+              {checked && o.extra && <div className="mt-3">{o.extra}</div>}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** The Field's label recipe around a composite picker (STYLEGUIDE §Forms: a picker keeps its own markup). */
+function PickerLabel({ children }: { children: ReactNode }) {
+  return <span className="mb-1 block text-xs font-medium text-slate-500">{children}</span>;
+}
+
+/**
+ * Who must confirm (D1): space mode (everyone who can see the space, what
+ * every policy did before) or targeted mode (groups, people and ladder
+ * roles, minus exclusions; every name is still held to the space's
+ * visibility). The two switches apply in both modes. The live line counts
+ * the rules as the card holds them through GET ?preview=1, debounced,
+ * nothing written.
+ */
+export function AudienceCard({
+  model,
+  docId,
+  groups,
+  people: peopleOptions,
+  newJoinerDays,
+}: {
+  model: PolicySettingsModel;
+  docId: number;
+  groups: PickerOption[];
+  people: PickerOption[];
+  /** The resolved new_joiner_days, for the enrol switch's help. */
+  newJoinerDays: number;
+}) {
+  const { s, set, errors } = model;
+  const id = useId();
+  const [preview, setPreview] = useState<{ count: number; no_access: number } | null>(null);
+  const rulesJson = JSON.stringify(rulesFromForm(s));
+
+  useEffect(() => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(async () => {
+      const qs = new URLSearchParams({
+        preview: "1",
+        audience_mode: s.audience_mode,
+        exclude_stewards: s.exclude_stewards ? "1" : "0",
+        rules: rulesJson,
+      });
+      try {
+        const res = await fetch(`/api/documents/${docId}/ack-settings?${qs}`, { signal: ctrl.signal });
+        if (res.ok) setPreview((await res.json()) as { count: number; no_access: number });
+      } catch {
+        /* aborted by a newer edit, or offline: the last line stands */
+      }
+    }, 400);
+    return () => {
+      clearTimeout(timer);
+      ctrl.abort();
+    };
+  }, [docId, s.audience_mode, s.exclude_stewards, rulesJson]);
+
+  // One box for both kinds of exclusion (see excludeId).
+  const excludeOptions: PickerOption[] = [
+    ...groups.map((g) => ({ id: g.id, label: g.label, sublabel: g.sublabel ? `Group · ${g.sublabel}` : "Group" })),
+    ...peopleOptions.map((p) => ({ id: -p.id, label: p.label, sublabel: "Person" })),
+  ];
+
+  function toggleRole(role: string, on: boolean) {
+    const next = new Set(s.roles);
+    if (on) next.add(role);
+    else next.delete(role);
+    set(
+      "roles",
+      AUDIENCE_ROLES.filter((r) => next.has(r))
+    );
+  }
+
+  const targeted = (
+    <div className="space-y-4">
+      <div>
+        <PickerLabel>Groups</PickerLabel>
+        <EntityPicker
+          options={groups}
+          value={s.groups}
+          onChange={(ids) => set("groups", ids)}
+          label="Groups"
+          placeholder="Search groups…"
+          emptyText="No groups match."
+        />
+      </div>
+      <div>
+        <PickerLabel>People</PickerLabel>
+        <EntityPicker
+          options={peopleOptions}
+          value={s.people}
+          onChange={(ids) => set("people", ids)}
+          label="People"
+          placeholder="Search people…"
+          emptyText="No people match."
+        />
+        <span className="mt-1 block text-xs text-slate-500">{PEOPLE_ACCESS_RULE}</span>
+      </div>
+      <fieldset>
+        <legend className="mb-1 block text-xs font-medium text-slate-500">Roles</legend>
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-700">
+          {AUDIENCE_ROLES.map((role) => (
+            <label key={role} className="flex cursor-pointer items-center gap-1.5">
+              <input type="checkbox" checked={s.roles.includes(role)} onChange={(e) => toggleRole(role, e.target.checked)} />
+              {role.charAt(0).toUpperCase() + role.slice(1)}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      <div>
+        <PickerLabel>Exclude</PickerLabel>
+        <EntityPicker
+          options={excludeOptions}
+          value={s.excludes}
+          onChange={(ids) => set("excludes", ids)}
+          label="Exclude"
+          placeholder="e.g. Contractors"
+          emptyText="No groups or people match."
+        />
+        <span className="mt-1 block text-xs text-slate-500">Groups and people left out even when a rule above names them.</span>
+      </div>
+      {errors.audience && (
+        <p role="alert" className="text-xs text-red-600">
+          {errors.audience}
+        </p>
+      )}
+    </div>
+  );
+
+  return (
+    <Card
+      title="Who must confirm"
+      description="The people this policy asks for a read confirmation. Whoever is named, only people who can see this document's space are asked."
+    >
+      <RadioCards<AudienceMode>
+        label="Who must confirm"
+        name={`${id}-audience`}
+        value={s.audience_mode}
+        onChange={(mode) => set("audience_mode", mode)}
+        options={[
+          {
+            value: "space",
+            label: "Everyone who can see this space",
+            description: "Every active account with access to the space, and anyone who gains access later.",
+          },
+          {
+            value: "targeted",
+            label: "Specific groups, people and roles",
+            description: "Only the groups, people and roles named here, minus any exclusions.",
+            extra: targeted,
+          },
+        ]}
+      />
+
+      <div className="mt-4 space-y-2">
+        <label className="flex cursor-pointer items-start gap-2.5 text-sm text-slate-800">
+          <input
+            type="checkbox"
+            className="mt-0.5 shrink-0"
+            checked={s.exclude_stewards}
+            onChange={(e) => set("exclude_stewards", e.target.checked)}
+          />
+          <span>Exempt the document&apos;s author and approvers</span>
+        </label>
+        <label className="flex cursor-pointer items-start gap-2.5 text-sm text-slate-800">
+          <input
+            type="checkbox"
+            className="mt-0.5 shrink-0"
+            checked={s.assign_new_members}
+            onChange={(e) => set("assign_new_members", e.target.checked)}
+            aria-describedby={`${id}-joiners`}
+          />
+          <span className="min-w-0">
+            <span className="block">Enrol new joiners automatically</span>
+            <span id={`${id}-joiners`} className="block text-xs text-slate-500">
+              New accounts and people added to the audience get {newJoinerDays} days from the day they join
+            </span>
+          </span>
+        </label>
+      </div>
+
+      {/* The live line: what a save would hold open, and who is named but cannot see the space. */}
+      <p className="mt-4 text-xs text-slate-500" aria-live="polite">
+        {preview
+          ? `Applies to ${people(preview.count)}${preview.no_access > 0 ? ` · ${preview.no_access} without access` : ""}`
+          : "Counting who this applies to…"}
+      </p>
+    </Card>
+  );
+}
+
+/**
+ * The deadline (E1): inherit the space's or the workspace's days, a number
+ * of days after each person's assignment, or one fixed date. The helper
+ * line reads the stored rule (what the current audience actually has); the
+ * secondary button recomputes every open deadline from the rule as the card
+ * holds it.
+ */
+export function DeadlineCard({
+  model,
+  server,
+  busy,
+  moving,
+  onMoveExisting,
+}: {
+  model: PolicySettingsModel;
+  server: PolicySettingsInitial;
+  busy: boolean;
+  moving: boolean;
+  onMoveExisting: () => void;
+}) {
+  const { s, set, errors } = model;
+  const fmt = useFormatDate();
+  const id = useId();
+  const today = ymd(new Date());
+  const deadlineInvalid = Boolean(errors.due_days || errors.due_at);
+
+  return (
+    <Card
+      title="Deadline"
+      description="How long people have to confirm this policy. A deadline never blocks the document: an overdue person can still read and confirm it."
+    >
+      <RadioCards<DueMode>
+        label="Deadline"
+        name={`${id}-due`}
+        value={s.due_mode}
+        onChange={(mode) => set("due_mode", mode)}
+        options={[
+          {
+            value: "inherit",
+            label: inheritLabel(server.inherited, server.defaults.space?.name),
+            description: "Follows the space's or the workspace's rule, and moves with it when that changes.",
+          },
+          {
+            value: "days",
+            label: "Days after assignment",
+            description: "Each person's own deadline, counted from the day they are asked. A change applies to future assignments.",
+            extra: (
+              <Field label="Days" size="xs" error={errors.due_days}>
+                <TextInput
+                  type="number"
+                  inputMode="numeric"
+                  min={DUE_RANGES.due_days.min}
+                  max={DUE_RANGES.due_days.max}
+                  step={1}
+                  value={s.due_days}
+                  onChange={(e) => set("due_days", e.target.value)}
+                />
+              </Field>
+            ),
+          },
+          {
+            value: "fixed",
+            label: "Fixed date",
+            description: "One date for everyone. Changing it moves every open deadline.",
+            extra: (
+              <Field label="Due date" size="sm" error={errors.due_at}>
+                <TextInput type="date" min={today} value={s.due_at} onChange={(e) => set("due_at", e.target.value)} />
+              </Field>
+            ),
+          },
+        ]}
+      />
+
+      {/* The stored rule, as the current audience has it; the day formatter for a fixed 'YYYY-MM-DD'. */}
+      <p className="mt-4 text-xs text-slate-500">{audienceDueHelper(server.rule, server.defaults.values, fmt.day)}</p>
+
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
+        <p className="min-w-0 text-sm text-slate-600">
+          Deadlines already set keep their dates when the rule changes. Recompute every open deadline from the rule above.
+        </p>
+        {deadlineInvalid ? (
+          <Tooltip label="Fix the highlighted fields first.">
+            <Button variant="secondary" size="sm" disabled>
+              {MOVE_EXISTING_LABEL}
+            </Button>
+          </Tooltip>
+        ) : (
+          <Button variant="secondary" size="sm" onClick={onMoveExisting} disabled={busy} busy={moving}>
+            {MOVE_EXISTING_LABEL}
+          </Button>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+/** The help under a blank reminder field: the number it inherits and where from. */
+function inheritedHelp(server: PolicySettingsInitial, key: ReminderKey): string {
+  const value = server.inherited.values[key];
+  switch (server.inherited.origin[key]) {
+    case "space":
+      return `Inherited from ${server.defaults.space?.name ?? "the"} space (${value})`;
+    case "workspace":
+      return `Inherited from workspace (${value})`;
+    default:
+      return `Built-in (${value})`;
+  }
+}
+
+/**
+ * Reminders (E2): the four numbers of this policy's cadence, blank to
+ * inherit, in a two-column grid, and the policy owner, who hears the
+ * escalations (else whoever switched the requirement on, else the space's
+ * approvers).
+ */
+export function RemindersCard({ model, server }: { model: PolicySettingsModel; server: PolicySettingsInitial }) {
+  const { s, set, errors } = model;
+  const helpByKey = Object.fromEntries(DUE_FIELDS.map((f) => [f.key, f.help])) as Record<string, string>;
+  // The chip's name: the server's (the stored owner, even one the picker
+  // does not offer), else the picked option's.
+  const ownerName =
+    s.owner_user_id === null
+      ? null
+      : (s.owner_user_id === server.owner_user_id ? server.owner_name : null) ??
+        server.people.find((o) => o.id === s.owner_user_id)?.label ??
+        `User #${s.owner_user_id}`;
+
+  return (
+    <Card
+      title="Reminders"
+      description="When people are reminded about this policy and when it is escalated. A blank field inherits the space's or the workspace's number."
+    >
+      <div className="grid gap-4 sm:grid-cols-2">
+        {REMINDER_FIELDS.map((f) => (
+          <Field key={f.key} label={f.label} help={s[f.key] === "" ? inheritedHelp(server, f.key) : helpByKey[f.key]} error={errors[f.key]}>
+            <TextInput
+              type="number"
+              inputMode="numeric"
+              min={DUE_RANGES[f.key].min}
+              max={DUE_RANGES[f.key].max}
+              step={1}
+              placeholder={String(server.inherited.values[f.key])}
+              value={s[f.key]}
+              onChange={(e) => set(f.key, e.target.value)}
+            />
+          </Field>
+        ))}
+      </div>
+
+      {/* A composite picker keeps its own markup (STYLEGUIDE §Forms): the
+          Lifecycle card's "Replaced by" recipe, a chip with its clear button
+          once someone is chosen. */}
+      <div className="mt-4 max-w-md">
+        <PickerLabel>Policy owner</PickerLabel>
+        {s.owner_user_id !== null ? (
+          <span className="inline-flex items-center gap-1.5 rounded-lg border border-compass-200 bg-compass-50 px-3 py-1.5 text-sm font-medium text-compass-800">
+            {ownerName}
+            <button
+              type="button"
+              onClick={() => set("owner_user_id", null)}
+              data-tt="Clear owner"
+              aria-label="Clear owner"
+              className={iconButtonClass("quiet", "sm", "-mr-1")}
+            >
+              <X />
+            </button>
+          </span>
+        ) : (
+          <EntityPicker
+            options={server.people}
+            onPick={(id) => set("owner_user_id", id)}
+            label="Policy owner"
+            placeholder={server.requested_by ? server.requested_by.name : "Search people…"}
+            emptyText="No people match."
+            maxVisible={10}
+          />
+        )}
+        <span className="mt-1 block text-xs text-slate-500">
+          Hears when people are overdue. Leave blank for whoever switched the requirement on
+          {server.requested_by ? ` (${server.requested_by.name})` : ""}, else the space&apos;s approvers.
+        </span>
+      </div>
     </Card>
   );
 }
@@ -603,7 +1354,7 @@ export function LifecycleCard({
           card). Not a Field: a label element around the chip would hand a
           click on the words to the clear button. */}
       <div className="max-w-md">
-        <span className="mb-1 block text-xs font-medium text-slate-500">Replaced by</span>
+        <PickerLabel>Replaced by</PickerLabel>
         {s.superseded_by !== null ? (
           <span className="inline-flex items-center gap-1.5 rounded-lg border border-compass-200 bg-compass-50 px-3 py-1.5 text-sm font-medium text-compass-800">
             {chosenTitle}
