@@ -36,7 +36,11 @@ export function ListFilter({
   const active = value.trim().length > 0;
   return (
     <div className={`flex flex-wrap items-center gap-2 ${className}`.trim()}>
-      <div className="relative min-w-56 flex-1 sm:max-w-sm">
+      {/* The box keeps a floor so it never shrinks to nothing beside the
+          count or a neighbouring control: 12rem under sm (a 375px phone
+          keeps the rail and the gutters, so a card's content box is about
+          213px wide: 14rem would push it sideways), 14rem from sm. */}
+      <div className="relative min-w-48 flex-1 sm:min-w-56 sm:max-w-sm">
         <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden />
         <TextInput
           value={value}

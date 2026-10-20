@@ -585,6 +585,13 @@ is a `Segmented` (1.9.3) — a radiogroup, so specs find it with
   move the choice, the current option is `bg-compass-50 text-compass-700`.
   `size="sm"` for toolbars. Options may carry an icon and a `hint`
   (tooltip). Never write a second recipe, filled or tinted.
+- A group in a toolbar that must fit a phone passes `className="flex-wrap"`,
+  so its options wrap inside the border instead of pushing the toolbar
+  sideways (1.13.0: the roster's five-option Show control, which the
+  portal's expand row shows in a box about 213px wide at 375px;
+  `e2e/compliance-portal.spec.ts` asserts it). It changes nothing where the
+  options fit on one line. Never shorten the labels or swap in a select to
+  make room.
 
 ## Account pages
 
@@ -779,8 +786,11 @@ text-slate-500` before them ("Notary · Phoenix").
 
 - **Filtering a list already on the page is `<ListFilter value onChange
   label shown total noun>`** (`components/ListFilter`): a filter box with
-  a live "3 of 89 users" count, Escape clears. Lookups that fetch keep
-  "Search …" (EntityPicker, people search, settings search).
+  a live "3 of 89 users" count, Escape clears. The box keeps a floor of
+  12rem under `sm` and 14rem from `sm`, so it fits a 375px phone's card
+  (about 213px wide with the rail and the gutters) and never shrinks to
+  nothing beside the count. Lookups that fetch keep "Search …"
+  (EntityPicker, people search, settings search).
 - **Paging is `<Pager page limit total onPage busy>`** (`components/Pager`):
   "Showing 1–50 of 4,333" with Previous / Next, rendered above and below a
   long table. A list that can grow without bound (the Trash, the audit

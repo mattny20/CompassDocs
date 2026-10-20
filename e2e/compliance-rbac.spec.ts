@@ -544,9 +544,23 @@ test("a program_read-only role reads the portal and nothing more; unknown action
     expect(matrixExport.length).toBeGreaterThanOrEqual(1);
     expect(matrixExport[0].details).toMatchObject({ format: "matrix", doc_id: "all", with_ip: false });
     expect(typeof matrixExport[0].details?.rows).toBe("number");
-    // The matrix carries the same six columns at the end (C4).
+    // The matrix carries the same six columns (C4, 1.12.0) and, after them,
+    // the same five exemption and deadline columns (D2, 1.13.0) at the end:
+    // MATRIX_CSV_HEADER in src/lib/read-evidence.ts.
     const matrixHeader = cells(matrix.text.trim().split("\n")[0]);
-    expect(matrixHeader.slice(-6)).toEqual(["statement", "signed_name", "identity_proof", "recert_months", "effective_at", "next_recert_at"]);
+    expect(matrixHeader.slice(-11)).toEqual([
+      "statement",
+      "signed_name",
+      "identity_proof",
+      "recert_months",
+      "effective_at",
+      "next_recert_at",
+      "exempt_reason",
+      "exempt_by",
+      "exempt_until",
+      "snoozed_until",
+      "due_at",
+    ]);
 
     // The ledgers (C4, 1.12.0): the workspace file from the portal route and
     // the per-policy file from the record route, both for an exporter, both

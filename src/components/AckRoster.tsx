@@ -845,9 +845,20 @@ export function AckRoster({
   return (
     <div data-roster={docId}>
       {!nobody && (
+        // The toolbar fits the tightest common phone (STYLEGUIDE §Segmented
+        // controls): inside the portal's expand row at 375px the box is
+        // about 213px wide, narrower than the five Show options on one
+        // line, so both groups may wrap their options inside the pill
+        // instead of pushing the toolbar sideways; where the options fit on
+        // one line nothing changes. The table under it scrolls inside its
+        // own wrapper, by design.
         <div className="mb-3 flex flex-wrap items-center gap-3 print:hidden">
-          {hasLedger && <Segmented label="View" size="sm" options={VIEW_OPTIONS} value={view} onChange={changeView} />}
-          {!ledgerView && <Segmented label="Show" size="sm" options={SHOW_OPTIONS} value={show} onChange={changeShow} />}
+          {hasLedger && (
+            <Segmented label="View" size="sm" options={VIEW_OPTIONS} value={view} onChange={changeView} className="flex-wrap" />
+          )}
+          {!ledgerView && (
+            <Segmented label="Show" size="sm" options={SHOW_OPTIONS} value={show} onChange={changeShow} className="flex-wrap" />
+          )}
           <ListFilter
             value={filter}
             onChange={changeFilter}
