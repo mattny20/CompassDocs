@@ -245,13 +245,17 @@ test("a program_read-only role reads the portal and nothing more; unknown action
       // Nothing changed hands.
       expect((await api(page, `/api/documents/${docId}`)).body?.doc?.ack_required).toBe(1);
 
-      // The page: the programme is readable, with no manage or export
-      // control anywhere, and the roster expand says why it cannot load
-      // instead of spinning.
-      await rpage.goto("/compliance");
+      // The pages (B4, 1.12.0: /compliance is My policies; the programme
+      // is the Overview's tiles and the Policies page's rows): readable,
+      // with no manage or export control anywhere and no Settings tab, and
+      // the roster expand says why it cannot load instead of spinning.
+      await rpage.goto("/compliance/overview");
       const main = rpage.locator("#main");
       await expect(main.getByRole("heading", { name: /^Compliance/ })).toBeVisible();
       await expect(main.getByText("Policies requiring confirmation")).toBeVisible();
+      await expect(main.getByRole("link", { name: "Settings", exact: true })).toHaveCount(0);
+      await rpage.goto("/compliance/policies");
+      await expect(main.getByRole("heading", { name: /^Compliance/ })).toBeVisible();
       const row = main.locator("li", { hasText: title });
       await expect(row).toBeVisible();
       await expect(main.getByRole("button", { name: "Request read confirmation" })).toHaveCount(0);

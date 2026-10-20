@@ -105,18 +105,28 @@ async function fetchText(page: Page, path: string): Promise<{ status: number; te
   }, path);
 }
 
-/** The signed-in person confirms the policy's current version through the API. */
-async function confirmThrough(page: Page, docId: number): Promise<void> {
+/**
+ * A confirmation of the policy's current version through the API, as the
+ * card posts it. The summary (GET /ack) is for editors and roster readers,
+ * so `page` is the admin's; `as` is whose confirmation it is — a plain
+ * viewer's page, when the test has one — and defaults to the admin's own.
+ */
+async function confirmThrough(page: Page, docId: number, as: Page = page): Promise<void> {
   const summary = await api(page, `/api/documents/${docId}/ack`);
   expect(summary.status).toBe(200);
-  const confirmed = await api(page, `/api/documents/${docId}/ack`, {
+  const confirmed = await api(as, `/api/documents/${docId}/ack`, {
     method: "POST",
     body: { version_id: summary.body?.latest_version_id },
   });
   expect(confirmed.status, "confirmed").toBe(200);
 }
 
-/** The section's tab row: the one <nav aria-label="Compliance"> under the header. */
+// A chip is "<icon> Confirmed {date} · v1": its text starts with the space
+// after the icon, and a regex in getByText runs against the raw text (only
+// string matches are whitespace-normalised), so a chip's regex is never
+// anchored at the start; the row scopes it.
+
+/** The section's tab row: the one <nav aria-label="Compliance"> under the header. Tab names are exact: "Policies" is inside "My policies". */
 const subnav = (page: Page) => page.getByRole("navigation", { name: "Compliance" });
 
 /** The sidebar's Compliance row (expanded sidebar: the label plus the badge's sr-only sentence). */
@@ -135,7 +145,7 @@ test("request asks with the audience count and Cancel sends nothing; Require and
     // shared header; the tab row lights it.
     await page.goto("/compliance/policies");
     await expect(page.getByRole("heading", { name: /^Compliance/ })).toBeVisible();
-    await expect(subnav(page).getByRole("link", { name: "Policies" })).toHaveAttribute("aria-current", "page");
+    await expect(subnav(page).getByRole("link", { name: "Policies", exact: true })).toHaveAttribute("aria-current", "page");
     await expect(page.getByRole("heading", { name: "Request read confirmation" })).toBeVisible();
 
     // Pick the document; the primary names the action in the glossary's words.
@@ -455,7 +465,7 @@ test("an unpublished policy is paused: it moves to the collapsed group with the 
     // other specs may have added a policy in between. The tiles are a
     // description list: the label is the term and its number the definition.
     await page.goto("/compliance/overview");
-    await expect(subnav(page).getByRole("link", { name: "Overview" })).toHaveAttribute("aria-current", "page");
+    await expect(subnav(page).getByRole("link", { name: "Overview", exact: true })).toHaveAttribute("aria-current", "page");
     const tile = page.getByRole("term").filter({ hasText: "Policies requiring confirmation" }).locator("..");
     await expect(tile.getByRole("definition")).toHaveText(String((await portal()).kpis.policies));
     // The paused policy cannot be acted on through the API either.
@@ -573,7 +583,7 @@ test("My policies: the standing line, the two groups, the row's link to the conf
     // its chip and its link to the confirmation card.
     await page.goto("/compliance");
     await expect(page.getByRole("heading", { name: /^Compliance/ })).toBeVisible();
-    await expect(subnav(page).getByRole("link", { name: "My policies" })).toHaveAttribute("aria-current", "page");
+    await expect(subnav(page).getByRole("link", { name: "My policies", exact: true })).toHaveAttribute("aria-current", "page");
     await expect(page.getByText(/^\d+ of \d+ polic(y|ies) confirmed$/)).toBeVisible();
     const toConfirm = page.getByRole("region", { name: "To confirm" });
     await expect(toConfirm.getByRole("heading", { name: "To confirm" })).toBeVisible();
@@ -604,7 +614,7 @@ test("My policies: the standing line, the two groups, the row's link to the conf
     const confirmedGroup = page.getByRole("region", { name: "Confirmed" });
     const done = confirmedGroup.locator("li", { hasText: title });
     await expect(done).toBeVisible();
-    await expect(done.getByText(/^Confirmed .+ · v1$/)).toBeVisible();
+    await expect(done.getByText(/Confirmed .+ · v1$/)).toBeVisible();
     await expect(page.getByRole("region", { name: "To confirm" }).locator("li", { hasText: title })).toHaveCount(0);
     const after = (await api(page, "/api/compliance/mine")).body?.rows?.find((r: { id: number }) => r.id === docId);
     expect(after?.state).toBe("confirmed");
@@ -624,7 +634,7 @@ test("My policies: the standing line, the two groups, the row's link to the conf
     await page.goto("/compliance");
     const changed = page.getByRole("region", { name: "To confirm" }).locator("li", { hasText: title });
     await expect(changed).toBeVisible();
-    await expect(changed.getByText(/^Changed since you confirmed .+$/)).toBeVisible();
+    await expect(changed.getByText(/Changed since you confirmed \S+/)).toBeVisible();
     const lapsed = (await api(page, "/api/compliance/mine")).body?.rows?.find((r: { id: number }) => r.id === docId);
     expect(lapsed?.state).toBe("reconfirm");
     expect(lapsed?.acknowledged_at).toBeNull();
@@ -693,9 +703,10 @@ test("a viewer with a policy in scope sees the Compliance row with its badge and
         await expect(vpage.getByRole("heading", { name: "Page not found" }), path).toBeVisible();
       }
 
-      // Confirming from the card: the row moves to Confirmed and the badge
+      // Confirmed as the viewer (the card's POST; the summary it cites is
+      // the admin's to read): the row moves to Confirmed and the badge
       // drops with it (the only policy this account owes on a quiet rig).
-      await confirmThrough(vpage, docId);
+      await confirmThrough(page, docId, vpage);
       await vpage.goto("/compliance");
       await expect(vpage.getByRole("region", { name: "Confirmed" }).locator("li", { hasText: title })).toBeVisible();
       if ((await vpage.getByRole("region", { name: "To confirm" }).count()) === 0) {
@@ -767,7 +778,7 @@ test("a retired policy sits in the collapsed Retired group with its chip, count 
     await expect(row).toHaveCount(1);
     await group.locator("summary").click();
     await expect(row).toBeVisible();
-    await expect(row.getByText(/^Retired \S/)).toBeVisible();
+    await expect(row.getByText(/Retired \S/)).toBeVisible();
     await expect(row.getByText(/^1 of \d+ (person|people) confirmed v1$/)).toBeVisible();
     await expect(row.getByText(REASON)).toBeVisible();
     await expect(row.getByRole("link", { name: "View record" })).toHaveAttribute("href", `/doc/${docId}/acknowledgements`);
@@ -912,7 +923,7 @@ test("the Overview's fifth tile counts re-confirmations due in 30 days, and a po
     expect(dueSoon.kpis.recert_due_30).toBeGreaterThanOrEqual(1);
     expect(dueSoon.kpis.recert_due_30).toBe(dueSoon.due);
     await page.goto("/compliance/overview");
-    await expect(subnav(page).getByRole("link", { name: "Overview" })).toHaveAttribute("aria-current", "page");
+    await expect(subnav(page).getByRole("link", { name: "Overview", exact: true })).toHaveAttribute("aria-current", "page");
     const tile = page.getByRole("term").filter({ hasText: "Re-confirmation due in 30 days" }).locator("..");
     await expect(tile.getByRole("definition")).toHaveText(String((await portal()).kpis.recert_due_30));
 
