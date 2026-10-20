@@ -1037,7 +1037,8 @@ test("a live row links to the policy's Settings tab, counts the people enrolled 
     const settings = row.getByRole("link", { name: "Read confirmation settings" });
     await expect(settings).toHaveAttribute("href", `/doc/${docId}/acknowledgements/settings`);
     await expect(row.locator('[data-tt="Read confirmation settings"]')).toHaveCount(1);
-    await expect(row.getByText(/· Due \d+ days after assignment$/)).toBeVisible();
+    // 1.14.0 appends "· owner {name}" to this line when the server names one.
+    await expect(row.getByText(/· Due \d+ days after assignment( · owner .+)?$/)).toBeVisible();
     await expect(row.getByText(/\d+ overdue/)).toHaveCount(0);
     await expect(row.getByText(/^never reminded · next automatic reminder \S/)).toBeVisible();
     await settings.click();
@@ -1068,7 +1069,7 @@ test("a live row links to the policy's Settings tab, counts the people enrolled 
     expect(ruled.mine.due_rule).toMatchObject({ due_days: 5, due_at: null, resolved_days: 5 });
     expect(ruled.mine.overdue).toBe(0);
     await page.goto("/compliance/policies");
-    await expect(row.getByText(/· Due 5 days after assignment$/)).toBeVisible();
+    await expect(row.getByText(/· Due 5 days after assignment( · owner .+)?$/)).toBeVisible();
 
     // Remind: the question, the toast, and the cadence line now dated from
     // the reminder the people just got (the manual Remind stamps the rows).

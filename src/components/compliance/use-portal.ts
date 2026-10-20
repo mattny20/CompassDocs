@@ -32,11 +32,11 @@ import { confirmDialog, formDialog } from "@/components/Dialog";
 import { toast } from "@/components/Toasts";
 import { requireAckDialog } from "@/components/RequireAckDialog";
 import { askReconfirm, RECONFIRM_LABEL, RECONFIRM_REASON_TOO_SHORT } from "@/components/ReconfirmButton";
-import type { AckRosterRow } from "@/components/AckRoster";
+import { exemptDialog, type AckRosterRow } from "@/components/AckRoster";
 import { useFormatDate } from "@/components/SettingsProvider";
 import { people } from "@/components/compliance/copy";
 import type { EditDefault } from "@/lib/compliance-settings";
-import { EXEMPT_REASON_MAX, EXTEND_DAYS_DEFAULT, SNOOZE_DAYS_DEFAULT } from "@/lib/ack-assignments";
+import { EXTEND_DAYS_DEFAULT, SNOOZE_DAYS_DEFAULT } from "@/lib/ack-assignments";
 import type { PolicyAttentionReason, PolicyAttentionRow } from "@/lib/types";
 import { useAction } from "@/lib/use-action";
 
@@ -233,9 +233,6 @@ export const ATTENTION_PERSON_REASONS: ReadonlySet<PolicyAttentionReason> = new 
 
 /** The error toast when the assignments route changed nothing for the row (it came back skipped). */
 export const QUEUE_NOTHING_CHANGED = "Nothing changed: this row was skipped (exempt, removed or already in that state).";
-
-/** Today as the date input and the server see it (YYYY-MM-DD, UTC: parseAssignmentRequest's rule). */
-const today = () => new Date().toISOString().slice(0, 10);
 
 /** The props every routed portal page takes from its server page. */
 export interface PortalPageProps {
@@ -548,34 +545,14 @@ export function usePortal(licensed: boolean) {
     await load();
   }
 
-  /** Exempt…: the roster's question (a reason, an optional end date), then the row leaves every count. With Undo. */
+  /** Exempt…: the roster's question (a reason, an optional end date; the queue spans policies, so it names this one), then the row leaves every count. With Undo. */
   async function exemptFor(row: PolicyAttentionRow): Promise<boolean> {
     if (row.assignment_id == null) return false;
     const id = row.assignment_id;
     // Awaited before anything is busy (STYLEGUIDE §Overlays): Cancel leaves the row idle.
-    const values = await formDialog({
-      title: `Exempt ${nameOf(row)} from this policy`,
-      fields: [
-        {
-          key: "reason",
-          label: "Reason",
-          type: "textarea",
-          required: true,
-          help: "Shown on the compliance record and in exports",
-          validate: (v) => (v.trim().length > EXEMPT_REASON_MAX ? `Keep the reason under ${EXEMPT_REASON_MAX} characters.` : undefined),
-        },
-        {
-          key: "until",
-          label: "Until (optional)",
-          type: "date",
-          required: false,
-          validate: (v) => (v && v <= today() ? "Pick a date after today." : undefined),
-        },
-      ],
-      confirmLabel: "Exempt",
-    });
+    const values = await exemptDialog(nameOf(row), `"${row.title}"`);
     if (!values) return false;
-    return exemptWith(row, [id], values.reason.trim(), values.until || null);
+    return exemptWith(row, [id], values.reason, values.until);
   }
 
   async function exemptWith(row: PolicyAttentionRow, ids: number[], reason: string, until: string | null, opts: { undo?: boolean } = {}): Promise<boolean> {

@@ -656,6 +656,7 @@ export function PortalPolicies({ licensed, canManageLicense = false }: PortalPag
                             can={{ act: can.manage }}
                             grace={roster.grace}
                             onChanged={() => void portal.reloadRoster(d.id)}
+                            recordHref={(userId) => `/compliance/person/${userId}`}
                           />
                         </div>
                       )}
