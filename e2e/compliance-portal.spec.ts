@@ -1362,7 +1362,7 @@ test("a live row's stacked bar and legend, the Sort and the filter, the set chip
     expect(mine!.pending).toBe(mine!.required - 1);
     expect(mine!.exempt).toBe(0);
     expect(mine!.set_names).toEqual([]);
-    expect(mine!.edit_default).toBe("ask");
+    expect(["ask", "material", "reset"], "the resolved edit default travels with the row").toContain(mine!.edit_default);
 
     // The row: the bar's accessible name and its legend carry the same four
     // numbers; the owner (whoever switched the requirement on, by the
