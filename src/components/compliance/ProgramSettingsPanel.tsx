@@ -6,21 +6,24 @@
 // per-document default A5 applies when a document is first set to required)
 // and Confirmation statement (the sentence on the end-of-article card) from
 // 1.10.1; Re-confirmation (the interval a policy receives when first set to
-// required, G1) from 1.12.0. Deadlines and Reminders arrive with E1/E2, the
-// typed-signature toggle with C2 and Evidence with F2/C5; add each as
-// another <Card> above the SaveRow.
+// required, G1) from 1.12.0; Deadlines and reminders (the seven numbers of
+// the policy -> space -> workspace -> built-in cascade, E1/E2) from 1.13.0.
+// The typed-signature toggle (C2) and Evidence (F2/C5) arrive later; add
+// each as another <Card> above the SaveRow.
 
 import { useState } from "react";
 import { ShieldCheck } from "lucide-react";
 import { Card } from "@/components/Card";
 import { CARD_TITLE_TEXT, Eyebrow } from "@/components/Heading";
-import { Field, Select, Textarea, Toggle } from "@/components/form";
+import { Field, Select, TextInput, Textarea, Toggle, rangeError } from "@/components/form";
 import { SaveRow } from "@/components/SaveRow";
 import { buttonClass } from "@/components/Button";
 import { toast } from "@/components/Toasts";
 import { useFormatDate } from "@/components/SettingsProvider";
 import { useLeaveGuard, useUnsavedChanges } from "@/lib/use-unsaved";
 import { RECERT_OPTIONS } from "@/lib/ack-recert";
+import { BUILT_IN, DUE_FIELDS, DUE_NUMBER_KEYS, DUE_RANGES } from "@/lib/ack-due";
+import type { DueNumberKey } from "@/lib/ack-due";
 import { EDIT_DEFAULT_OPTIONS } from "./copy";
 import type { ComplianceSettings, EditDefault } from "@/lib/compliance-settings";
 
@@ -41,12 +44,16 @@ function statementError(text: string): string | undefined {
   return undefined;
 }
 
+/** The seven deadline numbers as typed: "" = unset (the built-in applies). */
+type DueForm = Record<DueNumberKey, string>;
+
 interface FormState {
   edit_default: EditDefault;
   keep_reason_required: boolean;
   /** null = never: a policy switched on receives no cycle. */
   recert_months: number | null;
   statement: string;
+  due: DueForm;
 }
 
 function fromSettings(s: ComplianceSettings): FormState {
@@ -55,7 +62,13 @@ function fromSettings(s: ComplianceSettings): FormState {
     keep_reason_required: s.ack_defaults.keep_reason_required,
     recert_months: s.ack_defaults.recert_months,
     statement: s.compliance_statement_default,
+    due: Object.fromEntries(DUE_NUMBER_KEYS.map((k) => [k, s.ack_defaults[k] == null ? "" : String(s.ack_defaults[k])])) as DueForm,
   };
+}
+
+/** A blank field keeps the built-in; anything typed must be a whole number in the key's range. */
+function dueError(key: DueNumberKey, value: string): string | undefined {
+  return value === "" ? undefined : rangeError(value, DUE_RANGES[key].min, DUE_RANGES[key].max);
 }
 
 /** The Select's option value for an interval: "" for never, else the months. */
@@ -74,8 +87,16 @@ export function ProgramSettingsPanel({ initial }: { initial: ComplianceSettings 
     setS((prev) => ({ ...prev, [key]: value }));
   }
 
-  const errors = { statement: statementError(s.statement) };
-  const invalid = Object.values(errors).some(Boolean);
+  function setDue(key: DueNumberKey, value: string) {
+    markDirty();
+    setS((prev) => ({ ...prev, due: { ...prev.due, [key]: value } }));
+  }
+
+  const errors = {
+    statement: statementError(s.statement),
+    due: Object.fromEntries(DUE_NUMBER_KEYS.map((k) => [k, dueError(k, s.due[k])])) as Record<DueNumberKey, string | undefined>,
+  };
+  const invalid = Boolean(errors.statement) || Object.values(errors.due).some(Boolean);
   const option = EDIT_DEFAULT_OPTIONS.find((o) => o.value === s.edit_default) ?? EDIT_DEFAULT_OPTIONS[0];
 
   async function save() {
@@ -92,6 +113,8 @@ export function ProgramSettingsPanel({ initial }: { initial: ComplianceSettings 
           edit_default: s.edit_default,
           keep_reason_required: s.keep_reason_required,
           recert_months: s.recert_months,
+          // Blank = null = the built-in; the server refuses anything out of range.
+          ...Object.fromEntries(DUE_NUMBER_KEYS.map((k) => [k, s.due[k] === "" ? null : Number(s.due[k])])),
         },
         compliance_statement_default: s.statement,
       }),
@@ -172,8 +195,35 @@ export function ProgramSettingsPanel({ initial }: { initial: ComplianceSettings 
         </Field>
       </Card>
 
+      <Card
+        title="Deadlines and reminders"
+        description="How long people have to confirm a policy, and when CompassDocs reminds them and escalates. A space can set its own under its Policy defaults, and a policy its own on its Settings tab. A blank field keeps the built-in."
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
+          {DUE_FIELDS.map((f) => (
+            <Field
+              key={f.key}
+              label={f.label}
+              help={s.due[f.key] === "" ? `Built-in: ${BUILT_IN[f.key]}` : f.help}
+              error={errors.due[f.key]}
+            >
+              <TextInput
+                type="number"
+                inputMode="numeric"
+                min={DUE_RANGES[f.key].min}
+                max={DUE_RANGES[f.key].max}
+                step={1}
+                placeholder={String(BUILT_IN[f.key])}
+                value={s.due[f.key]}
+                onChange={(e) => setDue(f.key, e.target.value)}
+              />
+            </Field>
+          ))}
+        </div>
+      </Card>
+
       <SaveRow dirty={dirty} busy={saving} onSave={save} disabled={invalid} />
-      {/* Deadlines, reminders and evidence cards arrive with E1/E2 and F2/C5. */}
+      {/* The evidence card arrives with F2/C5. */}
     </div>
   );
 }

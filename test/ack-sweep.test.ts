@@ -53,6 +53,32 @@ import {
   isRecertDefault,
 } from "../src/lib/ack-recert";
 import { fixtureQuery } from "./support/retry";
+// E2 (1.13.0): the reminder and escalation sweeps.
+import {
+  claimAckReminders,
+  claimAckEscalations,
+  escalationRecipients,
+  stampAckReminded,
+  ackReminderSummary,
+  listApproverIdsForSpace,
+  pendingAckOutboxFor as pendingOutboxE2,
+} from "../src/lib/db";
+import { remindDueAcks, escalateOverdueAcks, sweepDefaults } from "../src/lib/compliance";
+import {
+  nextReminderAt,
+  reminderSubtitle,
+  daysAgoLabel,
+  dueStatusLabel,
+  dueNoticeTitle,
+  dueNoticeBody,
+  dueLine,
+  bundleTitle,
+  bundleBody,
+  bundleList,
+  escalationTitle,
+  escalationBody,
+  escalationList,
+} from "../src/lib/ack-remind";
 
 const STAMP = `acksweep-${Date.now()}`;
 const DAY = 86_400_000;
@@ -661,6 +687,522 @@ describe("lib/ack-recert (pure)", () => {
     assert.equal(recertNoticeSentence(1, "Expense policy"), 'Annual re-confirmation: it has been 1 month since you confirmed "Expense policy". Please read it again and confirm.');
     for (const s of [recertStatusLine(doc, fmt)!, recertMetaLine(doc, fmt)!, recertNoticeSentence(6, "x")]) {
       assert.ok(!s.includes("—") && !/attest/i.test(s), `glossary: ${s}`);
+    }
+  });
+});
+
+// --- E2 (1.13.0): the reminder and escalation sweeps ------------------------------
+//
+// The claims are one statement each (FOR UPDATE SKIP LOCKED in the subquery,
+// the UPDATE stamping the column its WHERE tests), the cadence is resolved
+// per policy (policy_settings -> the space's policy_defaults -> the numbers
+// the sweep passes), and the claimed people go to the outbox one row per
+// policy. The deliveries themselves are test/ack-outbox.test.ts's.
+
+describe("the reminder sweep (E2)", () => {
+  const E2 = `${STAMP}-e2`;
+  /** The workspace-resolved numbers every claim here takes (nothing is read from the shared settings row). */
+  const D = sweepDefaults({ remind_before_days: 3, remind_every_days: 7, escalate_after_days: 7, nudge_every_days: 0, overdue_grace_days: 0 });
+  const people: Record<string, number> = {};
+  const userIds: number[] = [];
+  const e2Docs: number[] = [];
+  let privateSpace = 0;
+  let teamGroup = 0;
+
+  const hoursAgo = (h: number) => new Date(Date.now() - h * 3_600_000).toISOString();
+  const daysFromNow = (d: number) => new Date(Date.now() + d * DAY).toISOString();
+
+  async function person(tag: string, role = "viewer", status = "active"): Promise<number> {
+    const r = await fixtureQuery(
+      `INSERT INTO users (username, name, email, role, status) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+      [`${E2}-${tag}`, `Sweep ${tag}`, `${E2}-${tag}@example.test`, role, status]
+    );
+    people[tag] = r.rows[0].id;
+    userIds.push(r.rows[0].id);
+    return r.rows[0].id;
+  }
+
+  /** A live policy with no rows yet (the switch-on reconciles everyone who can see the space; each test assigns exactly the rows it needs). */
+  async function policy(title: string, space = privateSpace): Promise<number> {
+    const doc = await createDocument({
+      space_id: space,
+      title: `${E2} ${title}`,
+      type: "policy",
+      status: "published",
+      content: TEXT,
+      summary: "",
+      tags: [],
+      author: "test",
+    });
+    await setAckRequired(doc.id, true, { editDefault: null, recertMonths: null });
+    await pool().query("DELETE FROM policy_assignments WHERE document_id = $1", [doc.id]);
+    docIds.push(doc.id);
+    e2Docs.push(doc.id);
+    return doc.id;
+  }
+
+  interface RowState {
+    dueAt?: string | null;
+    remindedAt?: string | null;
+    escalatedAt?: string | null;
+    snoozedUntil?: string | null;
+    exempt?: boolean;
+    removed?: boolean;
+  }
+
+  /** One assignment row as the test needs it (the reconcile may have written one: it is overwritten). */
+  async function assign(docId: number, userId: number, s: RowState = {}): Promise<void> {
+    await fixtureQuery(
+      `INSERT INTO policy_assignments
+         (document_id, user_id, source, cycle_started_at, due_at, reminded_at, reminder_count, escalated_at, snoozed_until,
+          exempt_at, exempt_by_name, exempt_reason, removed_at, removed_reason)
+       SELECT d.id, $2, 'space', d.ack_revision_at, $3::timestamptz, $4::timestamptz,
+              CASE WHEN $4::timestamptz IS NULL THEN 0 ELSE 1 END, $5::timestamptz, $6::timestamptz,
+              CASE WHEN $7::boolean THEN now() END, CASE WHEN $7::boolean THEN 'Sweep Manager' ELSE '' END,
+              CASE WHEN $7::boolean THEN 'On leave' ELSE '' END,
+              CASE WHEN $8::boolean THEN now() END, CASE WHEN $8::boolean THEN 'left_group' ELSE '' END
+       FROM documents d WHERE d.id = $1
+       ON CONFLICT (document_id, user_id) DO UPDATE SET
+         cycle_started_at = EXCLUDED.cycle_started_at, due_at = EXCLUDED.due_at,
+         reminded_at = EXCLUDED.reminded_at, reminder_count = EXCLUDED.reminder_count, escalated_at = EXCLUDED.escalated_at,
+         snoozed_until = EXCLUDED.snoozed_until,
+         exempt_at = EXCLUDED.exempt_at, exempt_by_name = EXCLUDED.exempt_by_name, exempt_reason = EXCLUDED.exempt_reason,
+         removed_at = EXCLUDED.removed_at, removed_reason = EXCLUDED.removed_reason`,
+      [docId, userId, s.dueAt ?? null, s.remindedAt ?? null, s.escalatedAt ?? null, s.snoozedUntil ?? null, s.exempt === true, s.removed === true]
+    );
+  }
+
+  interface Row {
+    reminded_at: string | null;
+    reminder_count: number;
+    escalated_at: string | null;
+  }
+  const row = async (docId: number, userId: number): Promise<Row> =>
+    (
+      await pool().query<Row>(
+        "SELECT reminded_at, reminder_count, escalated_at FROM policy_assignments WHERE document_id = $1 AND user_id = $2",
+        [docId, userId]
+      )
+    ).rows[0];
+
+  async function setPolicySettings(docId: number, s: Record<string, number | null>): Promise<void> {
+    const keys = Object.keys(s);
+    await fixtureQuery(
+      `INSERT INTO policy_settings (document_id, ${keys.join(", ")}) VALUES ($1, ${keys.map((_, i) => `$${i + 2}`).join(", ")})
+       ON CONFLICT (document_id) DO UPDATE SET ${keys.map((k) => `${k} = EXCLUDED.${k}`).join(", ")}`,
+      [docId, ...keys.map((k) => s[k])]
+    );
+  }
+
+  const audits = async (action: string, docId: number) =>
+    (
+      await pool().query<{ actor_name: string; actor_id: number | null; details: Record<string, unknown> }>(
+        "SELECT actor_name, actor_id, details FROM audit_log WHERE action = $1 AND target_id = $2 ORDER BY id",
+        [action, String(docId)]
+      )
+    ).rows;
+
+  before(async () => {
+    const sp = await fixtureQuery(
+      `INSERT INTO spaces (name, slug, icon, description, visibility) VALUES ($1, $2, '📁', '', 'private') RETURNING id`,
+      [`Ack Sweep Private ${STAMP}`, `${STAMP}-private`]
+    );
+    privateSpace = sp.rows[0].id;
+    for (const tag of ["ana", "ben", "cal", "dave", "owner", "requester", "lead"]) await person(tag);
+    await person("adminlead", "admin");
+    await person("gone", "viewer", "disabled");
+    const g = await fixtureQuery("INSERT INTO groups (name) VALUES ($1) RETURNING id", [`Sweep Team ${STAMP}`]);
+    teamGroup = g.rows[0].id;
+    await fixtureQuery("INSERT INTO group_members (group_id, user_id) VALUES ($1, $2), ($1, $3)", [teamGroup, people.ana, people.ben]);
+    await fixtureQuery("INSERT INTO group_leads (group_id, user_id) VALUES ($1, $2), ($1, $3)", [teamGroup, people.lead, people.adminlead]);
+  });
+
+  after(async () => {
+    await pool().query("DELETE FROM audit_log WHERE action IN ('ack.reminder_auto', 'ack.escalated') AND target_id = ANY($1)", [e2Docs.map(String)]);
+    await pool().query("DELETE FROM acknowledgements WHERE user_id = ANY($1)", [userIds]);
+    await pool().query("DELETE FROM groups WHERE id = $1", [teamGroup]);
+    // The documents (and their rows, outbox rows and notices) go with the file's after().
+    await pool().query("DELETE FROM policy_assignments WHERE user_id = ANY($1)", [userIds]);
+    await pool().query("DELETE FROM users WHERE id = ANY($1)", [userIds]);
+    await pool().query("DELETE FROM spaces WHERE id = $1", [privateSpace]);
+  });
+
+  test("two sweeps in parallel claim each row once; one 'due' outbox row per policy carries the people and their dates; the audit row is the system's; nothing is claimed twice", async () => {
+    const id = await policy("parallel");
+    await assign(id, people.ana, { dueAt: daysFromNow(2) });
+    await assign(id, people.ben, { dueAt: daysFromNow(-5) });
+    await assign(id, people.cal, { dueAt: daysFromNow(10) });
+
+    const [a, b] = await Promise.all([remindDueAcks({ documentIds: [id], defaults: D }), remindDueAcks({ documentIds: [id], defaults: D })]);
+    assert.equal(a.claimed + b.claimed, 2, `the two due rows are claimed once between the sweeps (${a.claimed} + ${b.claimed})`);
+    const ana = await row(id, people.ana);
+    const ben = await row(id, people.ben);
+    const cal = await row(id, people.cal);
+    assert.equal(ana.reminder_count, 1, "due in 2 days: reminded once");
+    assertNear(ana.reminded_at, new Date(), 60_000, "ana's stamp");
+    assert.equal(ben.reminder_count, 1, "5 days overdue: reminded once");
+    assert.deepEqual([cal.reminder_count, cal.reminded_at], [0, null], "due in 10 days: not yet");
+
+    const outbox = (await pendingOutboxE2(id)).filter((r) => r.mode === "due");
+    assert.ok(outbox.length >= 1 && outbox.length <= 2, `one row per policy per sweep that claimed something: ${outbox.length}`);
+    const named = outbox.flatMap((r) => r.user_ids ?? []).sort();
+    assert.deepEqual(named, [people.ana, people.ben].sort(), "the rows name the claimed people once");
+    for (const r of outbox) {
+      assert.equal(r.actor_name, "system");
+      assert.equal(r.actor_id, null);
+      assert.equal(r.source, "");
+      assert.ok(new Date(r.not_before).getTime() <= Date.now() + 1000, "a sweep row goes out at once");
+      const payload = r.payload as { rows: { user_id: number; due_at: string | null; overdue: boolean }[] };
+      assert.ok(Array.isArray(payload?.rows), "the payload carries the rows");
+      for (const p of payload.rows) {
+        assert.ok(p.due_at, "each row has its date");
+        assert.equal(p.overdue, p.user_id === people.ben, `overdue is per person (${p.user_id})`);
+      }
+    }
+    const audit = await audits("ack.reminder_auto", id);
+    assert.equal(
+      audit.reduce((n, r) => n + Number(r.details.reminded), 0),
+      2,
+      "ack.reminder_auto counts the people reminded"
+    );
+    assert.ok(audit.every((r) => r.actor_name === "system" && r.actor_id === null && r.details.policy === id));
+    assert.equal(audit.reduce((n, r) => n + Number(r.details.overdue), 0), 1, "and how many of them were overdue");
+
+    const again = await remindDueAcks({ documentIds: [id], defaults: D });
+    assert.equal(again.claimed, 0, "straight after, nothing is due: the claim stamped the column it tests");
+    assert.equal(again.policies, 0);
+  });
+
+  test("the cadence: before the due date, every N days while overdue, a nudge without a deadline only when it is on; the policy's own numbers win over the space's, the space's over the workspace's", async () => {
+    const id = await policy("cadence");
+    await assign(id, people.ana, { dueAt: daysFromNow(2), remindedAt: hoursAgo(25) });
+    await assign(id, people.ben, { dueAt: daysFromNow(-5), remindedAt: daysFromNow(-8) });
+    await assign(id, people.cal, { dueAt: null });
+    await assign(id, people.dave, { dueAt: null, remindedAt: daysFromNow(-2) });
+
+    // Workspace numbers (every 7, nudge off): ana was reminded yesterday,
+    // ben eight days ago, the two without a date are never nudged.
+    let claimed = await claimAckReminders(D, { documentIds: [id] });
+    assert.deepEqual(claimed.map((r) => r.user_id), [people.ben], "only ben: his last reminder is older than 7 days");
+    assert.equal(claimed[0].overdue, true);
+    assert.equal(claimed[0].reminder_count, 2, "the count goes up");
+    assert.equal(claimed[0].title, `${E2} cadence`);
+    assert.equal(claimed[0].email, `${E2}-ben@example.test`);
+
+    // The policy's own cadence: every day. Ana (reminded 25 hours ago) is due again.
+    await setPolicySettings(id, { remind_every_days: 1 });
+    claimed = await claimAckReminders(D, { documentIds: [id] });
+    assert.deepEqual(claimed.map((r) => r.user_id), [people.ana], "the policy's remind_every_days wins over the workspace's 7");
+    assert.equal(claimed[0].overdue, false, "due in 2 days: due soon, not overdue");
+
+    // The space's layer: a nudge every day for policies without a deadline
+    // that do not say otherwise. Dave (nudged 2 days ago) and cal (never).
+    await pool().query("UPDATE spaces SET policy_defaults = $2::jsonb WHERE id = $1", [privateSpace, JSON.stringify({ nudge_every_days: 1 })]);
+    claimed = await claimAckReminders(D, { documentIds: [id] });
+    assert.deepEqual(claimed.map((r) => r.user_id).sort(), [people.cal, people.dave].sort(), "the space's nudge_every_days applies");
+    assert.ok(claimed.every((r) => r.due_at === null && r.overdue === false), "a nudge has no date and is never overdue");
+    // The policy switches the nudge off for itself: nobody without a date again, even days later.
+    await setPolicySettings(id, { nudge_every_days: 0 });
+    await pool().query("UPDATE policy_assignments SET reminded_at = now() - interval '30 days' WHERE document_id = $1 AND due_at IS NULL", [id]);
+    claimed = await claimAckReminders(D, { documentIds: [id] });
+    assert.deepEqual(claimed.map((r) => r.user_id), [], "nudge 0 on the policy: never");
+    await pool().query("UPDATE spaces SET policy_defaults = '{}'::jsonb WHERE id = $1", [privateSpace]);
+
+    // The workspace's nudge, passed in: on, and the pure helper agrees on the next date.
+    await setPolicySettings(id, { nudge_every_days: null });
+    const nudge = sweepDefaults({ remind_before_days: 3, remind_every_days: 7, escalate_after_days: 7, nudge_every_days: 5, overdue_grace_days: 0 });
+    claimed = await claimAckReminders(nudge, { documentIds: [id] });
+    assert.deepEqual(claimed.map((r) => r.user_id).sort(), [people.cal, people.dave].sort(), "the workspace nudge applies when neither layer above sets one");
+    const next = nextReminderAt({ due_at: null, reminded_at: new Date().toISOString() }, nudge);
+    assertNear(next!.toISOString(), new Date(Date.now() + 5 * DAY), 60_000, "the next nudge is five days out");
+  });
+
+  test("snoozed, exempt, removed, confirmed and disabled rows are never claimed; a paused or retired policy never reminds; the grace period keeps a row 'due soon'", async () => {
+    const id = await policy("skipped");
+    await assign(id, people.ana, { dueAt: daysFromNow(-5), snoozedUntil: daysFromNow(3) });
+    await assign(id, people.ben, { dueAt: daysFromNow(-5), snoozedUntil: daysFromNow(-1) });
+    await assign(id, people.cal, { dueAt: daysFromNow(-5), exempt: true });
+    await assign(id, people.dave, { dueAt: daysFromNow(-5), removed: true });
+    await assign(id, people.owner, { dueAt: daysFromNow(-5) });
+    await recordAcknowledgement(id, people.owner, "", (await listVersions(id))[0].id);
+    await assign(id, people.gone, { dueAt: daysFromNow(-5) });
+
+    let claimed = await claimAckReminders(D, { documentIds: [id] });
+    assert.deepEqual(claimed.map((r) => r.user_id), [people.ben], "only the row whose snooze has ended");
+    for (const [who, tag] of [
+      [people.ana, "snoozed"],
+      [people.cal, "exempt"],
+      [people.dave, "removed"],
+      [people.owner, "confirmed"],
+      [people.gone, "disabled account"],
+    ] as const) {
+      assert.equal((await row(id, who)).reminder_count, 0, `${tag}: untouched`);
+    }
+    // Escalation skips the same rows: ana (snoozed) waits, cal, dave, the
+    // confirmed and the disabled never; ben is well past the threshold.
+    await pool().query("UPDATE policy_assignments SET due_at = now() - interval '20 days' WHERE document_id = $1", [id]);
+    const esc = await claimAckEscalations(D, { documentIds: [id] });
+    assert.deepEqual(esc.map((r) => r.user_id), [people.ben], "escalation: only ben");
+    assert.equal(esc[0].days, 7);
+
+    // Paused (unpublished) and retired policies never remind or escalate.
+    const paused = await policy("paused");
+    await assign(paused, people.ana, { dueAt: daysFromNow(-20) });
+    await pool().query("UPDATE documents SET status = 'draft' WHERE id = $1", [paused]);
+    assert.equal((await remindDueAcks({ documentIds: [paused], defaults: D })).claimed, 0, "paused: no reminder");
+    assert.equal((await escalateOverdueAcks({ documentIds: [paused], defaults: D })).claimed, 0, "paused: no escalation");
+    await pool().query("UPDATE documents SET status = 'published' WHERE id = $1", [paused]);
+    assert.equal((await remindDueAcks({ documentIds: [paused], defaults: D })).claimed, 1, "published again: reminded");
+    const retired = await policy("retired");
+    await assign(retired, people.ana, { dueAt: daysFromNow(-20) });
+    await pool().query("UPDATE documents SET ack_retired_at = now(), ack_required = 0 WHERE id = $1", [retired]);
+    assert.equal((await remindDueAcks({ documentIds: [retired], defaults: D })).claimed, 0, "retired: no reminder");
+    assert.equal((await escalateOverdueAcks({ documentIds: [retired], defaults: D })).claimed, 0, "retired: no escalation");
+    await pool().query("UPDATE documents SET ack_required = 1 WHERE id = $1", [retired]);
+    assert.equal((await remindDueAcks({ documentIds: [retired], defaults: D })).claimed, 0, "retired with the requirement on: still nothing");
+
+    // The grace period: a row one day past its date is 'due soon' while the
+    // grace runs and 'overdue' once it is over.
+    const graced = await policy("grace");
+    await assign(graced, people.ana, { dueAt: daysFromNow(-1) });
+    const G = sweepDefaults({ remind_before_days: 3, remind_every_days: 7, escalate_after_days: 7, nudge_every_days: 0, overdue_grace_days: 3 });
+    claimed = await claimAckReminders(G, { documentIds: [graced] });
+    assert.equal(claimed.length, 1);
+    assert.equal(claimed[0].overdue, false, "inside the grace: due soon");
+    assert.equal(dueStatusLabel(claimed[0].due_at, claimed[0].overdue), "Due soon");
+    await assign(graced, people.ana, { dueAt: daysFromNow(-4) });
+    claimed = await claimAckReminders(G, { documentIds: [graced] });
+    assert.equal(claimed[0].overdue, true, "past the grace: overdue");
+    assert.equal(dueStatusLabel(claimed[0].due_at, claimed[0].overdue), "Overdue");
+  });
+
+  test("escalation fires once after due + grace + escalate days, with the recipients resolved per policy (owner, else requested_by, else the approvers, plus the overdue people's leads in scope); extending the due date re-arms it", async () => {
+    const id = await policy("escalation");
+    await setPolicySettings(id, { owner_user_id: people.owner });
+    await assign(id, people.ana, { dueAt: daysFromNow(-8) });
+    await assign(id, people.ben, { dueAt: daysFromNow(-5) });
+    await assign(id, people.cal, { dueAt: daysFromNow(-8), escalatedAt: daysFromNow(-1) });
+    await assign(id, people.dave, { dueAt: daysFromNow(-8), exempt: true });
+
+    const first = await escalateOverdueAcks({ documentIds: [id], defaults: D });
+    assert.deepEqual([first.claimed, first.policies], [1, 1], "ana alone crossed the line (8 > 7); ben has not; cal was escalated already; dave is exempt");
+    assertNear((await row(id, people.ana)).escalated_at, new Date(), 60_000, "ana's row is stamped");
+    assert.equal((await row(id, people.ben)).escalated_at, null);
+    // The private space: the viewer lead cannot see it and gets nothing; the
+    // admin lead (space.read_all) and the owner do.
+    const [outbox] = (await pendingOutboxE2(id)).filter((r) => r.mode === "escalation");
+    assert.ok(outbox, "one escalation row");
+    assert.deepEqual([...(outbox.user_ids ?? [])].sort(), [people.owner, people.adminlead].sort(), "the owner and the lead in scope; not the lead without access");
+    const payload = outbox.payload as { days: number; overdue: { user_id: number; name: string }[]; recipients: { id: number; via: string }[] };
+    assert.equal(payload.days, 7);
+    assert.deepEqual(payload.overdue.map((o) => [o.user_id, o.name]), [[people.ana, "Sweep ana"]]);
+    assert.deepEqual(
+      payload.recipients.map((r) => [r.id, r.via]).sort((x, y) => Number(x[0]) - Number(y[0])),
+      [[people.owner, "owner"], [people.adminlead, "lead"]].sort((x, y) => Number(x[0]) - Number(y[0]))
+    );
+    assert.equal(first.recipients, 2);
+    const audit = await audits("ack.escalated", id);
+    assert.equal(audit.length, 1);
+    assert.equal(audit[0].actor_name, "system");
+    assert.deepEqual([audit[0].details.policy, audit[0].details.overdue, audit[0].details.recipients, audit[0].details.days], [id, 1, 2, 7]);
+    assert.deepEqual(audit[0].details.user_ids, [people.ana]);
+
+    // Once: the next sweep finds nothing; ben crosses the line later and is
+    // escalated on his own.
+    assert.equal((await escalateOverdueAcks({ documentIds: [id], defaults: D })).claimed, 0, "ana is not escalated twice");
+    await assign(id, people.ben, { dueAt: daysFromNow(-8) });
+    assert.equal((await escalateOverdueAcks({ documentIds: [id], defaults: D })).claimed, 1, "ben, once he is 8 days overdue");
+
+    // Extending the due date (what extendAssignments writes) re-arms the row.
+    await pool().query("UPDATE policy_assignments SET due_at = now() + interval '5 days', escalated_at = NULL WHERE document_id = $1 AND user_id = $2", [id, people.ana]);
+    assert.equal((await escalateOverdueAcks({ documentIds: [id], defaults: D })).claimed, 0, "extended: not overdue, nothing fires");
+    await pool().query("UPDATE policy_assignments SET due_at = now() - interval '8 days' WHERE document_id = $1 AND user_id = $2", [id, people.ana]);
+    assert.equal((await escalateOverdueAcks({ documentIds: [id], defaults: D })).claimed, 1, "past the extended date: escalated again");
+
+    // The grace delays the threshold: 8 days overdue with 3 days' grace is not 7 past it.
+    const graced = await policy("escalation grace");
+    await assign(graced, people.ana, { dueAt: daysFromNow(-8) });
+    const G = sweepDefaults({ remind_before_days: 3, remind_every_days: 7, escalate_after_days: 7, nudge_every_days: 0, overdue_grace_days: 3 });
+    assert.equal((await claimAckEscalations(G, { documentIds: [graced] })).length, 0, "8 < 3 + 7: waits");
+    await assign(graced, people.ana, { dueAt: daysFromNow(-11) });
+    const late = await claimAckEscalations(G, { documentIds: [graced] });
+    assert.equal(late.length, 1, "11 > 10: fires");
+    assert.equal(late[0].days, 10, "the threshold reported is grace + escalate");
+    // The policy's own escalate_after_days wins.
+    const own = await policy("escalation own days");
+    await setPolicySettings(own, { escalate_after_days: 30 });
+    await assign(own, people.ana, { dueAt: daysFromNow(-20) });
+    assert.equal((await claimAckEscalations(D, { documentIds: [own] })).length, 0, "the policy says 30 days");
+
+    // Recipients: requested_by when there is no owner; the space's approvers when there is neither.
+    const viaRequester = await policy("escalation requester");
+    await setPolicySettings(viaRequester, { owner_user_id: null, requested_by: people.requester });
+    let recipients = await escalationRecipients([{ document_id: viaRequester, space_id: privateSpace, user_ids: [people.cal] }]);
+    assert.deepEqual(
+      recipients.get(viaRequester)!.map((r) => [r.id, r.via]),
+      [[people.requester, "requested_by"]],
+      "no owner: whoever switched it on (cal belongs to no group: no lead)"
+    );
+    const viaApprovers = await policy("escalation approvers");
+    await setPolicySettings(viaApprovers, { owner_user_id: null, requested_by: null });
+    recipients = await escalationRecipients([{ document_id: viaApprovers, space_id: privateSpace, user_ids: [people.cal] }]);
+    const approvers = await listApproverIdsForSpace(privateSpace, 0);
+    assert.deepEqual(
+      recipients.get(viaApprovers)!.map((r) => r.id).sort(),
+      [...approvers].sort(),
+      "neither: the space's approvers"
+    );
+    assert.ok(recipients.get(viaApprovers)!.every((r) => r.via === "approver"));
+    // An owner whose account is disabled is skipped like no owner at all.
+    await setPolicySettings(viaRequester, { owner_user_id: people.gone });
+    recipients = await escalationRecipients([{ document_id: viaRequester, space_id: privateSpace, user_ids: [] }]);
+    assert.deepEqual(recipients.get(viaRequester)!.map((r) => r.via), ["requested_by"], "a disabled owner falls through");
+
+    // An internal space: both leads of the overdue person's group can see it; a person reached two ways keeps the first.
+    const internal = await policy("escalation internal", spaceId);
+    await setPolicySettings(internal, { owner_user_id: people.lead });
+    recipients = await escalationRecipients([{ document_id: internal, space_id: spaceId, user_ids: [people.ana] }]);
+    assert.deepEqual(
+      recipients.get(internal)!.map((r) => [r.id, r.via]).sort((x, y) => Number(x[0]) - Number(y[0])),
+      [[people.lead, "owner"], [people.adminlead, "lead"]].sort((x, y) => Number(x[0]) - Number(y[0])),
+      "the viewer lead sees an internal space; as the owner he is listed once, as the owner"
+    );
+    // A policy nobody can be told about is still stamped and audited, with no outbox row.
+    const nobody = await policy("escalation nobody");
+    await setPolicySettings(nobody, { owner_user_id: null, requested_by: null });
+    await assign(nobody, people.cal, { dueAt: daysFromNow(-8) });
+    await pool().query("UPDATE policy_assignments SET escalated_at = NULL WHERE document_id = $1", [nobody]);
+    const approversHere = await listApproverIdsForSpace(privateSpace, 0);
+    const r = await escalateOverdueAcks({ documentIds: [nobody], defaults: D });
+    assert.equal(r.claimed, 1);
+    assert.equal(r.recipients, approversHere.length, "told whoever approves in the space, or nobody");
+    assert.equal((await pendingOutboxE2(nobody)).filter((x) => x.mode === "escalation").length, approversHere.length > 0 ? 1 : 0);
+    assert.equal((await audits("ack.escalated", nobody)).length, 1, "audited either way");
+    assertNear((await row(nobody, people.cal)).escalated_at, new Date(), 60_000, "and stamped, so it is not escalated again");
+  });
+
+  test("the manual Remind stamps the open, unconfirmed rows it reaches; the per-policy summary says when people were last reminded and when the sweep next will", async () => {
+    const id = await policy("stamp");
+    await assign(id, people.ana, { dueAt: daysFromNow(10) });
+    await assign(id, people.ben, { dueAt: daysFromNow(2), remindedAt: daysFromNow(-1) });
+    await assign(id, people.cal, { dueAt: daysFromNow(2), exempt: true });
+    await assign(id, people.dave, { dueAt: daysFromNow(2) });
+    await recordAcknowledgement(id, people.dave, "", (await listVersions(id))[0].id);
+
+    // Before the Remind: ben's next automatic reminder is 7 days after his
+    // last (in 6 days), ana's 3 days before her date (in 7); the earliest wins.
+    let summary = (await ackReminderSummary([id], D)).get(id)!;
+    assertNear(summary.last_reminded_at, new Date(Date.now() - DAY), 60_000, "last reminded: ben's stamp");
+    assertNear(summary.next_reminder_at, new Date(Date.now() + 6 * DAY), 60_000, "next: ben, in 6 days");
+    assert.equal(
+      reminderSubtitle(summary, (iso) => new Date(iso).toISOString().slice(0, 10)),
+      `last reminded yesterday · next automatic reminder ${new Date(Date.now() + 6 * DAY).toISOString().slice(0, 10)}`
+    );
+    const pure = nextReminderAt({ due_at: daysFromNow(2), reminded_at: daysFromNow(-1) }, D);
+    assertNear(pure!.toISOString(), new Date(Date.now() + 6 * DAY), 60_000, "the pure helper agrees");
+
+    assert.equal(await stampAckReminded(id), 2, "ana and ben: open and unconfirmed (cal exempt, dave confirmed)");
+    assert.equal((await row(id, people.ana)).reminder_count, 1);
+    assert.equal((await row(id, people.ben)).reminder_count, 2);
+    assert.equal((await row(id, people.cal)).reminder_count, 0);
+    assert.equal((await row(id, people.dave)).reminder_count, 0);
+    assert.equal(await stampAckReminded(id, [people.dave, people.cal]), 0, "named people who are confirmed or exempt: nothing");
+    assert.equal(await stampAckReminded(id, [people.ana]), 1, "a named open row");
+
+    summary = (await ackReminderSummary([id], D)).get(id)!;
+    assertNear(summary.last_reminded_at, new Date(), 60_000, "last reminded: just now");
+    assertNear(summary.next_reminder_at, new Date(Date.now() + 7 * DAY), 60_000, "next: 7 days after today's stamp (ana's date is 10 days out, so 3 days before it is later)");
+    // A document whose manual Remind stamp is newer than every row's.
+    await pool().query("UPDATE policy_assignments SET reminded_at = now() - interval '3 days' WHERE document_id = $1", [id]);
+    await pool().query("UPDATE documents SET ack_last_reminded_at = now() - interval '1 day' WHERE id = $1", [id]);
+    summary = (await ackReminderSummary([id], D)).get(id)!;
+    assertNear(summary.last_reminded_at, new Date(Date.now() - DAY), 60_000, "the document's stamp when it is the later one");
+    // Nothing scheduled: everyone confirmed or exempt, or no date and no nudge.
+    await pool().query("UPDATE policy_assignments SET exempt_at = now() WHERE document_id = $1 AND user_id = ANY($2)", [id, [people.ana, people.ben]]);
+    summary = (await ackReminderSummary([id], D)).get(id)!;
+    assert.equal(summary.next_reminder_at, null, "no open, unconfirmed row: nothing is scheduled");
+    assert.equal(reminderSubtitle({ last_reminded_at: null, next_reminder_at: null }, (s) => s), null);
+    assert.deepEqual(await ackReminderSummary([], D), new Map());
+  });
+});
+
+describe("lib/ack-remind (pure)", () => {
+  const now = new Date("2026-10-20T12:00:00Z");
+  const iso = (d: number) => new Date(now.getTime() + d * DAY).toISOString();
+  const cadence = { remind_before_days: 3, remind_every_days: 7, nudge_every_days: 0 };
+
+  test("nextReminderAt mirrors the claim: before the date, after the last reminder, a nudge only when on, never in the past, held by a snooze", () => {
+    assert.equal(nextReminderAt({ due_at: iso(10), reminded_at: null }, cadence, now)!.toISOString(), iso(7), "3 days before the date");
+    assert.equal(nextReminderAt({ due_at: iso(2), reminded_at: null }, cadence, now)!.toISOString(), now.toISOString(), "already inside the window: the next tick");
+    assert.equal(nextReminderAt({ due_at: iso(2), reminded_at: iso(-1) }, cadence, now)!.toISOString(), iso(6), "7 days after the last reminder");
+    assert.equal(nextReminderAt({ due_at: iso(-5), reminded_at: iso(-8) }, cadence, now)!.toISOString(), now.toISOString(), "overdue and the week is up: the next tick");
+    assert.equal(nextReminderAt({ due_at: iso(20), reminded_at: iso(-1) }, cadence, now)!.toISOString(), iso(17), "the later of the two rules");
+    assert.equal(nextReminderAt({ due_at: null, reminded_at: null }, cadence, now), null, "no date, nudge off: never");
+    assert.equal(nextReminderAt({ due_at: null, reminded_at: null }, { ...cadence, nudge_every_days: 5 }, now)!.toISOString(), now.toISOString(), "no date, nudge on, never nudged: the next tick");
+    assert.equal(nextReminderAt({ due_at: null, reminded_at: iso(-2) }, { ...cadence, nudge_every_days: 5 }, now)!.toISOString(), iso(3), "5 days after the last nudge");
+    assert.equal(nextReminderAt({ due_at: iso(2), reminded_at: null, snoozed_until: iso(4) }, cadence, now)!.toISOString(), iso(4), "a snooze holds it to its end");
+    assert.equal(nextReminderAt({ due_at: iso(10), reminded_at: null, snoozed_until: iso(1) }, cadence, now)!.toISOString(), iso(7), "a snooze that ends before the date changes nothing");
+  });
+
+  test("the subtitle and the days-ago words", () => {
+    const fmt = (s: string) => s.slice(0, 10);
+    assert.equal(daysAgoLabel(iso(0), now), "today");
+    assert.equal(daysAgoLabel(iso(-1), now), "yesterday");
+    assert.equal(daysAgoLabel(iso(-2), now), "2 days ago");
+    assert.equal(daysAgoLabel(new Date(now.getTime() - 3_600_000).toISOString(), now), "today");
+    assert.equal(reminderSubtitle({ last_reminded_at: iso(-2), next_reminder_at: iso(5) }, fmt, now), "last reminded 2 days ago · next automatic reminder 2026-10-25");
+    assert.equal(reminderSubtitle({ last_reminded_at: null, next_reminder_at: iso(5) }, fmt, now), "next automatic reminder 2026-10-25");
+    assert.equal(reminderSubtitle({ last_reminded_at: iso(0), next_reminder_at: null }, fmt, now), "last reminded today");
+    assert.equal(reminderSubtitle({ last_reminded_at: null, next_reminder_at: null }, fmt, now), null);
+  });
+
+  test("the notices' words: due in N days, due today, overdue, a nudge, the bundle, the escalation; glossary words only", () => {
+    const t = "Acceptable Use Policy";
+    const fmt = (s: string) => new Date(s).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+    assert.equal(dueNoticeTitle(t, iso(3), false, now), 'Due in 3 days: confirm "Acceptable Use Policy"');
+    assert.equal(dueNoticeTitle(t, iso(1), false, now), 'Due in 1 day: confirm "Acceptable Use Policy"');
+    assert.equal(dueNoticeTitle(t, iso(0.4), false, now), 'Due in 1 day: confirm "Acceptable Use Policy"', "a part of a day rounds up");
+    assert.equal(dueNoticeTitle(t, iso(-1), false, now), 'Due today: confirm "Acceptable Use Policy"', "the date passed inside the grace");
+    assert.equal(dueNoticeTitle(t, iso(-5), true, now), 'Overdue: confirm "Acceptable Use Policy"');
+    assert.equal(dueNoticeTitle(t, null, false, now), 'Reminder: confirm "Acceptable Use Policy"');
+    assert.equal(dueNoticeBody(t, iso(9), fmt), "Due 29 Oct.");
+    assert.equal(dueNoticeBody(t, null), 'You still need to read and confirm "Acceptable Use Policy".');
+    assert.equal(dueLine(iso(9), fmt), "Please confirm by 29 Oct.");
+    assert.equal(dueLine(null), "");
+    assert.deepEqual([dueStatusLabel(iso(9), false), dueStatusLabel(iso(-9), true), dueStatusLabel(null, false)], ["Due soon", "Overdue", "Reminder"]);
+
+    const items = [
+      { title: "Acceptable Use Policy", due_at: iso(9), overdue: false },
+      { title: "Code of Conduct", due_at: iso(-3), overdue: true },
+      { title: "Expense policy", due_at: null, overdue: false },
+      { title: "Remote Work Policy", due_at: iso(14), overdue: false },
+      { title: "Travel policy", due_at: iso(21), overdue: false },
+    ];
+    assert.equal(bundleTitle(5), "You have 5 policies to confirm");
+    assert.equal(bundleTitle(1), "You have 1 policy to confirm");
+    assert.equal(
+      bundleBody(items, fmt),
+      "Acceptable Use Policy (due 29 Oct) · Code of Conduct (overdue) · Expense policy (no deadline) · Remote Work Policy (due 3 Nov) · +1"
+    );
+    assert.equal(bundleBody(items.slice(0, 2), fmt), "Acceptable Use Policy (due 29 Oct) · Code of Conduct (overdue)");
+    assert.equal(bundleList(items.slice(0, 3), fmt), "- Acceptable Use Policy (due 29 Oct)\n- Code of Conduct (overdue)\n- Expense policy");
+
+    assert.equal(escalationTitle(7, t), 'Overdue: 7 people on "Acceptable Use Policy"');
+    assert.equal(escalationTitle(1, t), 'Overdue: 1 person on "Acceptable Use Policy"');
+    assert.equal(escalationBody(7, ["Ana Ruiz", "Ben Lo", "Chloe Park", "Dan Fox"]), "More than 7 days overdue: Ana Ruiz, Ben Lo, +2");
+    assert.equal(escalationBody(1, ["Ana Ruiz"]), "More than 1 day overdue: Ana Ruiz");
+    assert.equal(escalationList([{ name: "Ana Ruiz", due_at: iso(-9) }, { name: "Ben Lo", due_at: null }], fmt), "- Ana Ruiz (due 11 Oct)\n- Ben Lo");
+
+    for (const s of [
+      dueNoticeTitle(t, iso(3), false, now),
+      dueNoticeBody(t, null),
+      bundleTitle(4),
+      bundleBody(items, fmt),
+      escalationTitle(7, t),
+      escalationBody(7, ["Ana"]),
+      reminderSubtitle({ last_reminded_at: iso(-2), next_reminder_at: iso(5) }, fmt, now)!,
+    ]) {
+      assert.ok(!s.includes("—") && !/acknowledg|attest/i.test(s), `glossary: ${s}`);
     }
   });
 });

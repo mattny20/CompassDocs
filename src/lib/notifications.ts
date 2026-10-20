@@ -20,6 +20,8 @@ export interface NotificationEvent {
     | "cr_resolved"
     | "review_due"
     | "ack_requested"
+    | "ack_due"
+    | "ack_escalation"
     | "training_assigned"
     | "training_due"
     | "service_status";

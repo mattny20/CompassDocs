@@ -26,10 +26,42 @@ import {
   setAckLastReminded,
   compliancePendingUsers,
   claimDueRecertifications,
+  claimAckReminders,
+  claimAckEscalations,
+  escalationRecipients,
+  expireExemptions,
+  reconcileAllPolicies,
+  getUserById,
+  listOwedPoliciesFor,
+  ackNoticeIdsFor,
 } from "./db";
-import type { AckOutboxInput, AckNoticeInput, AckActor, Queryable, ClaimedAckOutboxRow } from "./db";
+import type { AckOutboxInput, AckNoticeInput, AckActor, Queryable, ClaimedAckOutboxRow, AckSweepDefaults, EscalationVia } from "./db";
+// Reminders and escalation (E2): the cadence words and the notices' copy.
+import { featureEnabled } from "./ee";
+import {
+  bundleBody,
+  bundleList,
+  bundleTitle,
+  dueLine,
+  dueNoticeBody,
+  dueNoticeTitle,
+  dueStatusLabel,
+  escalationBody,
+  escalationList,
+  escalationTitle,
+} from "./ack-remind";
+import type { DayFormatter } from "./ack-remind";
 import { RECERT_LEDGER_REASON } from "./ack-recert";
-import type { AckNoticeMode, AckNoticeChannel, AckSource } from "./types";
+// Deadlines (E1): the cascade's layers, the per-recipient due dates for the
+// notices and the "Also move existing deadlines" writer.
+import { cache } from "react";
+import { policyDefaultLayers, assignmentDueDates, moveDeadlines } from "./db";
+import { getComplianceSettings } from "./compliance-settings";
+import { getAppSettings } from "./settings-store";
+import { formatDate } from "./format";
+import { DUE_NUMBER_KEYS, daysLeft, dueLineFor, dueSuffixFor, resolveDefaults } from "./ack-due";
+import type { DueRule, PolicyDefaultsLayer, ResolvedDefaults } from "./ack-due";
+import type { AckNoticeMode, AckNoticeChannel, AckNoticeKind, AckSource } from "./types";
 import { auditAck } from "./audit";
 import type { AckAuditAction } from "./audit";
 
@@ -213,10 +245,15 @@ export function noticeCopy(input: {
   actorName: string;
   reason?: string | null;
   dueAt?: string | null;
+  /** The due date already formatted the workspace's way (the drain passes it); formatDay(dueAt) otherwise. */
+  dueText?: string | null;
+  /** A 'welcome' notice (D1): how many policies the new account owes and their titles (the first three are named). */
+  count?: number;
+  titles?: string[];
 }): NoticeCopy {
   const t = input.docTitle;
   const who = input.actorName || "Someone";
-  const by = input.dueAt ? ` by ${formatDay(input.dueAt)}` : "";
+  const by = input.dueText ? ` by ${input.dueText}` : input.dueAt ? ` by ${formatDay(input.dueAt)}` : "";
   const note = (input.reason ?? "").trim();
   switch (input.mode) {
     case "updated": {
@@ -249,8 +286,18 @@ export function noticeCopy(input: {
         reason: "",
       };
     }
-    case "reminder":
     case "due":
+      // The sweep's automatic reminder (E2): the drain words each person's
+      // own notice from their row (deliverDue); this is the one-date shape.
+      return {
+        label: "Reminder",
+        requestType: "sent a reminder",
+        title: dueNoticeTitle(t, input.dueAt ?? null, false),
+        body: input.dueAt ? `Due ${input.dueText || formatDay(input.dueAt)}.` : dueNoticeBody(t, null),
+        changeNote: "",
+        reason: "",
+      };
+    case "reminder":
     case "overdue":
     case "escalation":
       return {
@@ -261,8 +308,26 @@ export function noticeCopy(input: {
         changeNote: "",
         reason: "",
       };
+    case "welcome": {
+      // One notice for everything a new account owes (D1): the first three
+      // titles, then "and n more"; the due dates are on My policies.
+      const titles = input.titles ?? [];
+      const n = input.count ?? titles.length;
+      const named = titles
+        .slice(0, 3)
+        .map((x) => `"${x}"`)
+        .join(", ");
+      const more = n > 3 ? ` and ${n - 3} more` : "";
+      return {
+        label: "Action required",
+        requestType: "requested",
+        title: `Welcome: ${n} ${n === 1 ? "policy" : "policies"} to read`,
+        body: `Please read and confirm ${named ? `${named}${more}` : "your policies"}. Each one shows its due date on My policies.`,
+        changeNote: "",
+        reason: "",
+      };
+    }
     case "request":
-    case "welcome":
     default:
       return {
         label: "Action required",
@@ -281,9 +346,10 @@ function auditActionFor(mode: AckNoticeMode, source: AckSource | "" | null): Ack
     case "updated":
       return source === "recurrence" ? "ack.recert" : "ack.reset_notified";
     case "reminder":
-    case "due":
     case "overdue":
       return "ack.reminder_sent";
+    case "due":
+      return "ack.reminder_auto";
     case "escalation":
       return "ack.escalated";
     case "request":
@@ -304,11 +370,14 @@ export interface NotifyAckInput {
   /**
    * People to reach on every channel they allow. `noticeId` is set when an
    * earlier attempt wrote their row but reached nothing (channels []): the
-   * channels go onto that row instead of a new one.
+   * channels go onto that row instead of a new one. `due_at` is the
+   * person's own due date (their assignment row, E1): the due tags and the
+   * "by {date}" clause are theirs, and people with different dates get
+   * different renderings of the one notice. Absent or null: `dueAt` below.
    */
-  users: { id: number; name: string; email: string; noticeId?: number }[];
+  users: { id: number; name: string; email: string; noticeId?: number; due_at?: string | null }[];
   /** People an earlier attempt reached in-app but could not email: email only, then the channel is added to their row. */
-  resumeEmail?: { id: number; name: string; email: string; noticeId: number }[];
+  resumeEmail?: { id: number; name: string; email: string; noticeId: number; due_at?: string | null }[];
   requesterId: number | null;
   requesterName: string;
   /** Absolute origin for the links; '' leaves them relative. */
@@ -344,14 +413,6 @@ export interface NotifyAckResult {
  * the retry resumes from the notice log instead of repeating.
  */
 export async function notifyAckRequest(input: NotifyAckInput): Promise<NotifyAckResult> {
-  const copy = noticeCopy({
-    mode: input.mode,
-    source: input.source,
-    docTitle: input.docTitle,
-    actorName: input.requesterName,
-    reason: input.reason,
-    dueAt: input.dueAt,
-  });
   const link = `/doc/${input.docId}#confirm-reading`;
   const origin = input.origin || "";
   const url = `${origin}${link}`;
@@ -361,48 +422,85 @@ export async function notifyAckRequest(input: NotifyAckInput): Promise<NotifyAck
   const errors: string[] = [];
   const channels = new Map<number, AckNoticeChannel[]>();
 
-  // Same message for every target, so render the template once. A template
-  // that will not render is a failure to retry, not a reason to skip the
-  // inbox: people still see the bell, and the row comes back for the email.
-  // The free-text tags (title, names, change note, reason) are rendered as
-  // written, never as markdown or HTML: the template marks them as text.
-  let mail: { subject: string; text: string; html: string } | null = null;
-  if (mailer) {
-    try {
-      const daysLeft = input.dueAt
-        ? String(Math.max(0, Math.ceil((new Date(input.dueAt).getTime() - Date.now()) / 86_400_000)))
-        : "";
-      mail = await renderEmail(
-        "ack_request",
-        {
-          requester_name: input.requesterName || "CompassDocs",
-          doc_title: input.docTitle,
-          doc_url: url,
-          request_type: copy.requestType,
-          request_label: copy.label,
-          change_note: copy.changeNote,
-          reason: copy.reason,
-          due_date: input.dueAt ? formatDay(input.dueAt) : "",
-          days_left: daysLeft,
-        },
-        origin
-      );
-    } catch (e) {
-      console.error("Ack email render failed:", e);
-      errors.push(`Email template: ${errorMessage(e)}`);
-    }
-  }
+  // The due date is each recipient's own (E1): the drain reads it off their
+  // assignment row; a caller without rows may pass one date for everyone.
+  // Dates are formatted the workspace's way (its date format and time
+  // zone), the same way the Due chips show them.
+  const settings = await getAppSettings();
+  const fmtDue = (iso: string) => formatDate(iso, settings);
+  const dueOf = (u: { due_at?: string | null }) => u.due_at ?? input.dueAt ?? null;
+  const copyFor = (dueAt: string | null) =>
+    noticeCopy({
+      mode: input.mode,
+      source: input.source,
+      docTitle: input.docTitle,
+      actorName: input.requesterName,
+      reason: input.reason,
+      dueAt,
+      dueText: dueAt ? fmtDue(dueAt) : null,
+    });
 
-  // In-app and webhook, for the people not yet reached. An inbox that took
-  // no rows is a delivery failure like a refused mail: the row comes back
-  // and these people (their row says nothing reached them) are fed to
-  // notify() again on the retry.
+  // One rendering per distinct due date, on first use: people who share a
+  // date share a mail, and a workspace with one rule renders once as
+  // before. A template that will not render is a failure to retry, not a
+  // reason to skip the inbox: people still see the bell, and the row comes
+  // back for the email. The free-text tags (title, names, change note,
+  // reason) are rendered as written, never as markdown or HTML: the
+  // template marks them as text.
+  const mails = new Map<string, { subject: string; text: string; html: string } | null>();
+  const mailFor = async (dueAt: string | null) => {
+    const key = dueAt ?? "";
+    if (mails.has(key)) return mails.get(key)!;
+    let mail: { subject: string; text: string; html: string } | null = null;
+    if (mailer) {
+      try {
+        const copy = copyFor(dueAt);
+        const left = dueAt ? daysLeft(dueAt, new Date(), settings.timezone) : null;
+        mail = await renderEmail(
+          "ack_request",
+          {
+            requester_name: input.requesterName || "CompassDocs",
+            doc_title: input.docTitle,
+            doc_url: url,
+            request_type: copy.requestType,
+            request_label: copy.label,
+            change_note: copy.changeNote,
+            reason: copy.reason,
+            due_date: dueAt ? fmtDue(dueAt) : "",
+            due_line: dueLineFor(dueAt, fmtDue),
+            due_suffix: dueSuffixFor(dueAt, fmtDue),
+            days_left: left === null ? "" : String(Math.max(0, left)),
+          },
+          origin
+        );
+      } catch (e) {
+        console.error("Ack email render failed:", e);
+        errors.push(`Email template: ${errorMessage(e)}`);
+      }
+    }
+    mails.set(key, mail);
+    return mail;
+  };
+
+  // In-app and webhook, for the people not yet reached, one fan-out per
+  // distinct due date (the body says "by {date}"). An inbox that took no
+  // rows is a delivery failure like a refused mail: the row comes back and
+  // these people (their row says nothing reached them) are fed to notify()
+  // again on the retry.
   const fresh = input.users;
   for (const u of fresh) channels.set(u.id, []);
-  if (fresh.length > 0) {
+  const byDue = new Map<string, typeof fresh>();
+  for (const u of fresh) {
+    const key = dueOf(u) ?? "";
+    const group = byDue.get(key);
+    if (group) group.push(u);
+    else byDue.set(key, [u]);
+  }
+  for (const [key, group] of byDue) {
+    const copy = copyFor(key || null);
     try {
       const reached = await notify(
-        fresh.map((u) => u.id),
+        group.map((u) => u.id),
         {
           kind: "ack_requested",
           title: copy.title,
@@ -458,7 +556,7 @@ export async function notifyAckRequest(input: NotifyAckInput): Promise<NotifyAck
   // queue's error column, which no erasure path rewrites.
   const targets = [...fresh, ...resume];
   let emailed = 0;
-  if (mail && targets.length > 0) {
+  if (mailer && targets.length > 0) {
     const prefs = await getNotifyPrefsFor(targets.map((u) => u.id)).catch(
       () => new Map<number, Record<string, Record<string, boolean>>>()
     );
@@ -466,8 +564,10 @@ export async function notifyAckRequest(input: NotifyAckInput): Promise<NotifyAck
     for (const target of targets) {
       if (!target.email) continue;
       if (!notifyPrefAllows(prefs.get(target.id), "ack_requested", "email")) continue;
+      const mail = await mailFor(dueOf(target));
+      if (!mail) continue;
       try {
-        await mailer!([target.email], mail.subject, mail.text, mail.html);
+        await mailer([target.email], mail.subject, mail.text, mail.html);
         emailed++;
         channels.get(target.id)?.push("email");
         const noticeId = noticeIdOf.get(target.id);
@@ -541,6 +641,8 @@ interface GroupOutcome {
   emailed: number;
   noticed: number;
   errors: string[];
+  /** 'due' rows only (E2): recipients told in a bundle instead of this row's own notice. */
+  bundled?: number;
 }
 
 async function deliverGroup(
@@ -549,6 +651,9 @@ async function deliverGroup(
   ctx: { origin: string; mailer: Mailer | null; heartbeat: () => Promise<void>; heartbeatEvery?: number }
 ): Promise<GroupOutcome> {
   const none: GroupOutcome = { deliverable: false, pending: 0, skippedRecent: 0, emailed: 0, noticed: 0, errors: [] };
+  // A welcome (D1) names a person, not a policy: its list is resolved at
+  // delivery and the row's document is only the one it is keyed to.
+  if (primary.mode === "welcome") return deliverWelcome(group, primary, ctx);
   const doc = primary.document_id != null ? await ackNoticeDocument(primary.document_id) : undefined;
   if (!doc || !doc.deliverable) return none;
 
@@ -564,7 +669,10 @@ async function deliverGroup(
   // the last 24 hours and did not confirm since (a manual or recurrence
   // row in the group turns the coalescing off for the whole group: those
   // always deliver).
-  const recipients = await ackNoticeRecipients(doc.id, primary.user_ids);
+  // Each person's due date rides along from their assignment row (E1), so
+  // the mail and the inbox line say "by {their date}".
+  const dues = await assignmentDueDates(doc.id, primary.user_ids);
+  const recipients = (await ackNoticeRecipients(doc.id, primary.user_ids)).map((u) => ({ ...u, due_at: dues.get(u.id) ?? null }));
   const already = await ackNoticesForOutbox(ids);
   const coalesce = group.every((r) => ackNoticeCoalesces(r.source));
   const recent = coalesce
@@ -658,6 +766,24 @@ export async function deliverAckNotices(opts: DeliverOptions = {}): Promise<Deli
   const open = new Set(rows.map((r) => r.id));
   const heartbeat = () => touchAckOutbox([...open]);
 
+  // The sweep's rows (E2): a person named on more than three 'due' rows of
+  // this batch is told once, before the rows go out one by one; the plan
+  // says who was bundled per row and what failed for them.
+  let sweep: SweepCtx | null = null;
+  let bundles: DueBundlePlan = { bundled: new Map(), errors: new Map() };
+  if (rows.some((r) => r.mode === "due" || r.mode === "escalation")) {
+    const settings = await getAppSettings();
+    sweep = {
+      origin: opts.origin ?? "",
+      mailer,
+      heartbeat,
+      every: Math.max(1, opts.heartbeatEvery ?? ACK_NOTICE_HEARTBEAT_EVERY),
+      fmt: (iso) => formatDate(iso, settings),
+    };
+    await heartbeat();
+    bundles = await planDueBundles(rows, sweep);
+  }
+
   for (const group of groupOutbox(rows)) {
     const ids = group.map((r) => r.id);
     const primary = group[group.length - 1];
@@ -667,12 +793,17 @@ export async function deliverAckNotices(opts: DeliverOptions = {}): Promise<Deli
     const docRef = { id: primary.document_id ?? 0, title: "" };
     try {
       await heartbeat();
-      const outcome = await deliverGroup(group, primary, {
-        origin: opts.origin ?? "",
-        mailer,
-        heartbeat,
-        heartbeatEvery: opts.heartbeatEvery,
-      });
+      const outcome =
+        sweep && primary.mode === "due"
+          ? await deliverDue(primary, bundles, sweep)
+          : sweep && primary.mode === "escalation"
+            ? await deliverEscalation(primary, sweep)
+            : await deliverGroup(group, primary, {
+                origin: opts.origin ?? "",
+                mailer,
+                heartbeat,
+                heartbeatEvery: opts.heartbeatEvery,
+              });
       if (!outcome.deliverable) {
         await completeAckOutbox(ids);
         out.delivered++;
@@ -716,6 +847,7 @@ export async function deliverAckNotices(opts: DeliverOptions = {}): Promise<Deli
           emailed: counts.emailed,
           noticed: counts.noticed,
           skipped_recent: outcome.skippedRecent,
+          ...(outcome.bundled !== undefined ? { bundled: outcome.bundled } : {}),
         },
       });
       if (primary.mode === "updated" && primary.document_id != null) {
@@ -745,6 +877,79 @@ export async function deliverAckNotices(opts: DeliverOptions = {}): Promise<Deli
   return out;
 }
 
+// --- Deadlines and the defaults cascade (E1, 1.13.0) -----------------------------
+//
+// policy_settings -> spaces.policy_defaults -> ack_defaults -> BUILT_IN. The
+// pure rule is resolveDefaults in lib/ack-due; here the layers are read from
+// the database. A page, a route and the sweeps all resolve through these.
+
+/**
+ * The workspace layer of the cascade: ack_defaults' seven numbers, only the
+ * ones an admin set (null = the built-in). Read once per request (the
+ * settings reader is React-cached) and once per sweep, then passed into the
+ * SQL claims as their COALESCE fallbacks.
+ */
+export async function workspaceDueDefaults(): Promise<PolicyDefaultsLayer> {
+  const { ack_defaults } = await getComplianceSettings();
+  const out: PolicyDefaultsLayer = {};
+  for (const key of DUE_NUMBER_KEYS) if (ack_defaults[key] != null) out[key] = ack_defaults[key];
+  return out;
+}
+
+export interface ResolvedPolicyDefaults extends ResolvedDefaults {
+  /** The policy's own deadline rule (both null = inherit), for the Deadline card's radio. */
+  rule: DueRule;
+  /** The policy's space, for "Inherit (14 days, from Security space)"; null when the document is gone. */
+  space: { id: number; name: string } | null;
+}
+
+/**
+ * One policy's effective values and where each came from ('policy' |
+ * 'space' | 'workspace' | 'built-in'), read once per request (React
+ * cache(), the approvalMode pattern): the Settings tab's hints, the
+ * ack-settings GET, the reader's chips and the roster all share the answer.
+ * A document that is gone resolves to the workspace and built-in layers
+ * with `space` null, so a caller need not test for it.
+ */
+export const resolvePolicyDefaults = cache(async (docId: number): Promise<ResolvedPolicyDefaults> => {
+  const [layers, workspace] = await Promise.all([policyDefaultLayers(docId), workspaceDueDefaults()]);
+  const resolved = resolveDefaults({ policy: layers?.policy, space: layers?.space.defaults, workspace });
+  return {
+    ...resolved,
+    rule: layers?.rule ?? { due_days: null, due_at: null },
+    space: layers ? { id: layers.space.id, name: layers.space.name } : null,
+  };
+});
+
+/**
+ * "Also move existing deadlines" (E1): recompute every open row of the
+ * policy from `rule` as it now stands (lib/db moveDeadlines: the fixed date
+ * while ahead, else each row's cycle start plus the days, the cascade
+ * filling an inherited number; due_history keeps the old and new dates)
+ * and write ack.due_moved {policy, n, from_rule, to_rule}. `fromRule` is
+ * what the policy had before the save, as the route read it. The toast's
+ * Undo is undoExtension over the returned ids.
+ */
+export async function movePolicyDeadlines(
+  doc: { id: number; title: string },
+  rule: DueRule,
+  opts: { fromRule?: DueRule | null; actor: AckActor; ip?: string | null; reason?: string }
+): Promise<{ moved: number; ids: number[] }> {
+  const [resolved, settings] = await Promise.all([resolvePolicyDefaults(doc.id), getAppSettings()]);
+  const r = await moveDeadlines(doc.id, rule, {
+    dueDays: resolved.values.due_days,
+    timeZone: settings.timezone,
+    actor: opts.actor,
+    reason: opts.reason,
+  });
+  await auditAck("ack.due_moved", doc, {
+    actor: opts.actor,
+    ip: opts.ip,
+    details: { policy: doc.id, n: r.moved, from_rule: opts.fromRule ?? null, to_rule: rule },
+  });
+  return r;
+}
+
 // --- The re-confirmation sweep (G1, 1.12.0) -------------------------------------
 
 /**
@@ -759,8 +964,15 @@ export async function deliverAckNotices(opts: DeliverOptions = {}): Promise<Deli
  * the notice has gone out, with the delivery counts). Returns how many
  * cycles fired. `documentIds` limits the sweep (tests sharing a database).
  */
-export async function recertifyDueAcks(opts: { documentIds?: number[] } = {}): Promise<{ cycles: number }> {
-  const cycles = await claimDueRecertifications(null, opts);
+export async function recertifyDueAcks(
+  opts: { documentIds?: number[]; defaults?: PolicyDefaultsLayer | null; timeZone?: string } = {}
+): Promise<{ cycles: number }> {
+  // The people's clocks restart with the cycle (E1): the claim re-arms every
+  // open row from the cascade, with the workspace layer loaded once here
+  // (complianceHourly may pass the one it loaded for the whole tick).
+  const defaults = opts.defaults === undefined ? await workspaceDueDefaults() : opts.defaults;
+  const timeZone = opts.timeZone ?? (await getAppSettings()).timezone;
+  const cycles = await claimDueRecertifications(null, { documentIds: opts.documentIds, defaults, timeZone });
   for (const c of cycles) {
     await auditAck("ack.recert", { id: c.document_id, title: c.title }, {
       actor: { id: null, name: "system" },
@@ -774,8 +986,730 @@ export async function recertifyDueAcks(opts: { documentIds?: number[] } = {}): P
         recert_months: c.recert_months,
         decision_id: c.decision_id,
         outbox_id: c.outbox_id,
+        rearmed: c.rearmed,
       },
     });
   }
   return { cycles: cycles.length };
+}
+
+// --- The welcome notice (D1, 1.13.0) ---------------------------------------------
+//
+// A new account enrolled in several policies at once (autoAssignPolicies in
+// lib/db, from createUser, scimCreateUser and createSsoUser) is told once:
+// one 'welcome' outbox row naming the person, keyed to the first policy
+// (the row goes with it; a claim filtered by document finds it), delivered
+// below with the ack_welcome template. The list is resolved at delivery
+// (listOwedPoliciesFor: what they still owe at the tick), so a policy
+// confirmed or retired in the two minutes between is not named. A single
+// policy goes the usual way, as a 'request' row for that person alone. The
+// record is one ack_notices row per policy named, kind 'welcome', so each
+// policy's log shows the person was told; a retry adds the email channel
+// to every one of them. The per-kind email preference (Read confirmations)
+// is honoured like every other notice of the family.
+
+/**
+ * Queue the welcome for one person. Answers the outbox row id, or null when
+ * there is nothing to say. `origin` is the sending request's when there is
+ * one; a provisioning hook has none and the drain falls back to the
+ * workspace's custom_domain for the links.
+ */
+export async function notifyWelcome(userId: number, policies: { id: number }[], origin = ""): Promise<number | null> {
+  if (policies.length === 0) return null;
+  return insertAckOutbox(null, {
+    document_id: policies[0].id,
+    mode: policies.length === 1 ? "request" : "welcome",
+    source: "",
+    user_ids: [userId],
+    origin,
+  });
+}
+
+async function deliverWelcome(
+  group: ClaimedAckOutboxRow[],
+  primary: ClaimedAckOutboxRow,
+  ctx: { origin: string; mailer: Mailer | null; heartbeat: () => Promise<void> }
+): Promise<GroupOutcome> {
+  const none: GroupOutcome = { deliverable: false, pending: 0, skippedRecent: 0, emailed: 0, noticed: 0, errors: [] };
+  const userId = primary.user_ids?.[0];
+  if (userId == null) return none;
+  const person = await getUserById(userId);
+  if (!person || person.status !== "active") return none;
+  const policies = await listOwedPoliciesFor(userId);
+  if (policies.length === 0) return none;
+
+  const ids = group.map((r) => r.id);
+  await rekeyAckNotices(ids, primary.id);
+  // An earlier attempt's record: nothing to do once the mail went; email
+  // only when the inbox was reached; everything when nothing reached them.
+  const already = (await ackNoticesForOutbox(ids)).get(userId);
+  const out: GroupOutcome = { deliverable: true, pending: 1, skippedRecent: 0, emailed: 0, noticed: 0, errors: [] };
+  if (already && already.channels.includes("email")) return out;
+
+  const origin = ctx.origin || primary.origin || "";
+  const link = "/compliance";
+  const url = `${origin}${link}`;
+  const settings = await getAppSettings();
+  const fmt = (iso: string) => formatDate(iso, settings);
+  const copy = noticeCopy({
+    mode: "welcome",
+    docTitle: "",
+    actorName: primary.actor_name,
+    count: policies.length,
+    titles: policies.map((p) => p.title),
+  });
+  const errors: string[] = [];
+
+  let mail: { subject: string; text: string; html: string } | null = null;
+  if (ctx.mailer) {
+    try {
+      mail = await renderEmail(
+        "ack_welcome",
+        {
+          count: String(policies.length),
+          policy_list: policies.map((p) => `- ${p.title}${p.due_at ? ` (due ${fmt(p.due_at)})` : ""}`).join("\n"),
+          portal_url: url,
+        },
+        origin
+      );
+    } catch (e) {
+      console.error("Welcome email render failed:", e);
+      errors.push(`Email template: ${errorMessage(e)}`);
+    }
+  }
+
+  // In-app and webhook, unless an earlier attempt reached them there.
+  const channels: AckNoticeChannel[] = [];
+  if (!already || already.channels.length === 0) {
+    try {
+      const reached = await notify(
+        [userId],
+        { kind: "ack_requested", title: copy.title, body: copy.body, link, actorName: primary.actor_name, origin },
+        { heartbeat: ctx.heartbeat }
+      );
+      if (reached.inboxIds.includes(userId)) channels.push("inapp");
+      if (reached.webhookIds.includes(userId)) channels.push("webhook");
+      if (reached.inboxError) errors.push(`Inbox: ${reached.inboxError}`);
+    } catch (e) {
+      console.error("Welcome inbox notification failed:", e);
+      errors.push(`Inbox: ${errorMessage(e)}`);
+    }
+  }
+
+  // The record, one row per policy named, before the slow part.
+  let noticeIds: number[];
+  if (!already) {
+    noticeIds = await recordNotices(
+      policies.map((p) => ({
+        user_id: userId,
+        user_name: person.name,
+        user_email: person.email,
+        document_id: p.id,
+        document_title: p.title,
+        kind: "welcome" as const,
+        channels: [...channels],
+        by_user_id: primary.actor_id,
+        by_name: primary.actor_name || "system",
+        outbox_id: primary.id,
+      }))
+    );
+    out.noticed = noticeIds.length;
+  } else {
+    noticeIds = await ackNoticeIdsFor(primary.id, userId);
+    for (const id of noticeIds) for (const ch of channels) await addAckNoticeChannel(id, ch);
+  }
+
+  if (mail && person.email) {
+    const prefs = await getNotifyPrefsFor([userId]).catch(() => new Map<number, Record<string, Record<string, boolean>>>());
+    if (notifyPrefAllows(prefs.get(userId), "ack_requested", "email")) {
+      try {
+        await ctx.mailer!([person.email], mail.subject, mail.text, mail.html);
+        out.emailed = 1;
+        for (const id of noticeIds) await addAckNoticeChannel(id, "email");
+      } catch (e) {
+        console.error(`Welcome email to user #${userId} failed:`, e);
+        errors.push(`Email to user #${userId}: ${errorMessage(e)}`);
+      }
+    }
+  }
+  out.errors = errors;
+  return out;
+}
+
+// --- The sweeps' deliveries (E2, 1.13.0) -----------------------------------------
+//
+// 'due' and 'escalation' rows are the hourly sweep's (remindDueAcks and
+// escalateOverdueAcks below). They are delivered here rather than through
+// notifyAckRequest: their words are each person's own (their due date, due
+// soon or overdue), their inbox kind and email template are their own
+// (ack_due / ack_escalation, honouring the matching per-kind email choice
+// and, like every compliance mail, ignoring the master switch), and a
+// person named on more than three 'due' rows of one batch is told once,
+// "You have 5 policies to confirm", across all of them. The record is the
+// same as every other notice: one ack_notices row per person and policy,
+// written before the mail goes out, resumed from on a retry (people an
+// earlier attempt reached in-app are emailed only, never told twice).
+
+/** A person is bundled when more than this many 'due' rows of one batch name them. */
+export const DUE_BUNDLE_OVER = 3;
+
+interface SweepCtx {
+  origin: string;
+  mailer: Mailer | null;
+  heartbeat: () => Promise<void>;
+  every: number;
+  /** The workspace's date formatter (its format and time zone), as the Due chips show dates. */
+  fmt: DayFormatter;
+}
+
+/** One (policy, outbox row) a delivery records for a person: the row an earlier attempt wrote, if any, and what reached them then. */
+interface SweepRecord {
+  document_id: number;
+  document_title: string;
+  outbox_id: number;
+  noticeId?: number;
+  channels: AckNoticeChannel[];
+}
+
+interface SweepTarget {
+  id: number;
+  name: string;
+  email: string;
+  records: SweepRecord[];
+}
+
+interface SweepMessage {
+  kind: "ack_due" | "ack_escalation";
+  noticeKind: AckNoticeKind;
+  title: string;
+  body: string;
+  link: string;
+  template: string;
+  vars: Record<string, string>;
+}
+
+/** What the sweep put on a 'due' row: each person's due date and whether the grace period has passed. */
+interface DuePayloadRow {
+  user_id: number;
+  due_at: string | null;
+  overdue: boolean;
+}
+
+/** What the sweep put on an 'escalation' row. */
+interface EscalationPayload {
+  days: number;
+  overdue: { user_id: number; name: string; due_at: string | null }[];
+  recipients: { id: number; via: EscalationVia }[];
+}
+
+function duePayloadRows(row: ClaimedAckOutboxRow): Map<number, DuePayloadRow> {
+  const map = new Map<number, DuePayloadRow>();
+  const p = row.payload as { rows?: Partial<DuePayloadRow>[] } | null | undefined;
+  for (const r of p?.rows ?? []) {
+    if (typeof r?.user_id !== "number") continue;
+    map.set(r.user_id, { user_id: r.user_id, due_at: r.due_at ?? null, overdue: Boolean(r.overdue) });
+  }
+  return map;
+}
+
+function escalationPayload(row: ClaimedAckOutboxRow): EscalationPayload {
+  const p = row.payload as Partial<EscalationPayload> | null | undefined;
+  return {
+    days: typeof p?.days === "number" ? p.days : 0,
+    overdue: Array.isArray(p?.overdue) ? p.overdue.filter((o) => o && typeof o.user_id === "number") : [],
+    recipients: Array.isArray(p?.recipients) ? p.recipients.filter((r) => r && typeof r.id === "number") : [],
+  };
+}
+
+/** A record an earlier attempt completed (the mail went out) needs nothing more. */
+function recordDone(rec: { channels: AckNoticeChannel[] } | undefined): boolean {
+  return Boolean(rec && rec.channels.includes("email"));
+}
+
+/**
+ * Deliver one message to a set of people and record it per person and
+ * policy: the inbox and webhooks through notify() for anyone with a record
+ * nothing has reached yet, the record rows (one per policy, with the
+ * channels reached so far) before the slow part, then one mail per person
+ * who still lacks the email channel on any of their records, adding
+ * 'email' to those records as the server accepts the mail. Failures are
+ * collected, never thrown, so the caller can retry the rows.
+ */
+async function deliverSweepMessage(
+  msg: SweepMessage,
+  targets: SweepTarget[],
+  ctx: SweepCtx
+): Promise<{ emailed: number; noticed: number; errors: string[] }> {
+  const errors: string[] = [];
+  const reached = new Map<number, AckNoticeChannel[]>();
+  const fresh = targets.filter((t) => t.records.some((r) => r.noticeId == null || r.channels.length === 0));
+  for (const t of fresh) reached.set(t.id, []);
+  if (fresh.length > 0) {
+    try {
+      const r = await notify(
+        fresh.map((t) => t.id),
+        { kind: msg.kind, title: msg.title, body: msg.body, link: msg.link, origin: ctx.origin },
+        { heartbeat: ctx.heartbeat, heartbeatEvery: ctx.every }
+      );
+      for (const id of r.inboxIds) reached.get(id)?.push("inapp");
+      for (const id of r.webhookIds) reached.get(id)?.push("webhook");
+      if (r.inboxError) errors.push(`Inbox: ${r.inboxError}`);
+    } catch (e) {
+      console.error("Ack sweep inbox notifications failed:", e);
+      errors.push(`Inbox: ${errorMessage(e)}`);
+    }
+  }
+
+  // The record, before the mail: a new row per (person, policy) nothing
+  // was written for; a row that said nothing reached them gets the channels
+  // added to it.
+  const inserts: AckNoticeInput[] = [];
+  const inserted: SweepRecord[] = [];
+  for (const t of fresh) {
+    const channels = reached.get(t.id) ?? [];
+    for (const rec of t.records) {
+      if (rec.noticeId == null) {
+        inserts.push({
+          user_id: t.id,
+          user_name: t.name,
+          user_email: t.email,
+          document_id: rec.document_id,
+          document_title: rec.document_title,
+          kind: msg.noticeKind,
+          channels,
+          by_user_id: null,
+          by_name: "system",
+          outbox_id: rec.outbox_id,
+        });
+        inserted.push(rec);
+      } else if (rec.channels.length === 0) {
+        for (const ch of channels) await addAckNoticeChannel(rec.noticeId, ch);
+        rec.channels = [...channels];
+      }
+    }
+  }
+  const ids = await recordNotices(inserts);
+  inserted.forEach((rec, i) => {
+    rec.noticeId = ids[i];
+    rec.channels = [...(inserts[i].channels ?? [])];
+  });
+
+  // Email, once per person, for anyone whose records still lack it. The
+  // error names the person by id, never by address.
+  let emailed = 0;
+  const need = targets.filter((t) => t.email && t.records.some((r) => r.noticeId != null && !r.channels.includes("email")));
+  if (ctx.mailer && need.length > 0) {
+    let mail: { subject: string; text: string; html: string } | null = null;
+    try {
+      mail = await renderEmail(msg.template, msg.vars, ctx.origin);
+    } catch (e) {
+      console.error("Ack sweep email render failed:", e);
+      errors.push(`Email template: ${errorMessage(e)}`);
+    }
+    if (mail) {
+      const prefs = await getNotifyPrefsFor(need.map((t) => t.id)).catch(
+        () => new Map<number, Record<string, Record<string, boolean>>>()
+      );
+      let attempted = 0;
+      for (const t of need) {
+        if (!notifyPrefAllows(prefs.get(t.id), msg.kind, "email")) continue;
+        try {
+          await ctx.mailer([t.email], mail.subject, mail.text, mail.html);
+          emailed++;
+          for (const rec of t.records) {
+            if (rec.noticeId == null || rec.channels.includes("email")) continue;
+            await addAckNoticeChannel(rec.noticeId, "email");
+            rec.channels.push("email");
+          }
+        } catch (e) {
+          console.error(`Ack sweep email to user #${t.id} failed:`, e);
+          errors.push(`Email to user #${t.id}: ${errorMessage(e)}`);
+        }
+        if (++attempted % ctx.every === 0) await ctx.heartbeat();
+      }
+    }
+  }
+  return { emailed, noticed: ids.length, errors };
+}
+
+/** Per 'due' row: who was told in a bundle instead (left out of the row's own notice), and what failed for them. */
+interface DueBundlePlan {
+  bundled: Map<number, Set<number>>;
+  errors: Map<number, string[]>;
+}
+
+/**
+ * The bundles of a batch: for every person named on more than
+ * DUE_BUNDLE_OVER deliverable 'due' rows, one notice "You have {n}
+ * policies to confirm" listing the titles and due dates, linking My
+ * policies, with one ack_notices row per policy (kind 'due', each under
+ * its own outbox row) and one mail (template ack_due_bundle). A failure is
+ * charged to every row of the bundle, so they are retried together and the
+ * retry resumes the bundle from the record.
+ */
+async function planDueBundles(rows: ClaimedAckOutboxRow[], ctx: SweepCtx): Promise<DueBundlePlan> {
+  const plan: DueBundlePlan = { bundled: new Map(), errors: new Map() };
+  const dueRows = rows.filter((r) => r.mode === "due" && r.document_id != null);
+  if (dueRows.length <= DUE_BUNDLE_OVER) return plan;
+
+  interface Item {
+    row: ClaimedAckOutboxRow;
+    doc: { id: number; title: string };
+    due: DuePayloadRow | undefined;
+    had: { id: number; channels: AckNoticeChannel[] } | undefined;
+  }
+  const people = new Map<number, { id: number; name: string; email: string }>();
+  const perUser = new Map<number, Item[]>();
+  for (const row of dueRows) {
+    const doc = await ackNoticeDocument(row.document_id!);
+    if (!doc || !doc.deliverable) continue;
+    const payload = duePayloadRows(row);
+    const [recipients, already] = await Promise.all([ackNoticeRecipients(doc.id, row.user_ids), ackNoticesForOutbox([row.id])]);
+    for (const u of recipients) {
+      people.set(u.id, u);
+      const items = perUser.get(u.id) ?? [];
+      items.push({ row, doc, due: payload.get(u.id), had: already.get(u.id) });
+      perUser.set(u.id, items);
+    }
+  }
+
+  const charge = (rowId: number, errors: string[]) => {
+    if (errors.length === 0) return;
+    plan.errors.set(rowId, [...(plan.errors.get(rowId) ?? []), ...errors]);
+  };
+  for (const [userId, items] of perUser) {
+    if (items.length <= DUE_BUNDLE_OVER) continue;
+    for (const it of items) {
+      const set = plan.bundled.get(it.row.id) ?? new Set<number>();
+      set.add(userId);
+      plan.bundled.set(it.row.id, set);
+    }
+    // Everything an earlier attempt completed needs nothing more.
+    if (items.every((it) => recordDone(it.had))) continue;
+    const person = people.get(userId)!;
+    const policies = items.map((it) => ({ title: it.doc.title, due_at: it.due?.due_at ?? null, overdue: it.due?.overdue ?? false }));
+    const link = "/compliance";
+    const msg: SweepMessage = {
+      kind: "ack_due",
+      noticeKind: "due",
+      title: bundleTitle(items.length),
+      body: bundleBody(policies, ctx.fmt),
+      link,
+      template: "ack_due_bundle",
+      vars: {
+        count: String(items.length),
+        policy_list: bundleList(policies, ctx.fmt),
+        portal_url: `${ctx.origin}${link}`,
+      },
+    };
+    const target: SweepTarget = {
+      ...person,
+      records: items.map((it) => ({
+        document_id: it.doc.id,
+        document_title: it.doc.title,
+        outbox_id: it.row.id,
+        noticeId: it.had?.id,
+        channels: [...(it.had?.channels ?? [])],
+      })),
+    };
+    try {
+      const r = await deliverSweepMessage(msg, [target], ctx);
+      for (const it of items) charge(it.row.id, r.errors);
+    } catch (e) {
+      console.error(`[ack] bundled reminder for user #${userId} failed:`, e);
+      for (const it of items) charge(it.row.id, [errorMessage(e)]);
+    }
+  }
+  return plan;
+}
+
+/** The words of one person's automatic reminder for one policy (E2). */
+function dueMessage(doc: { id: number; title: string }, dueAt: string | null, overdue: boolean, ctx: SweepCtx): SweepMessage {
+  const link = `/doc/${doc.id}#confirm-reading`;
+  return {
+    kind: "ack_due",
+    noticeKind: "due",
+    title: dueNoticeTitle(doc.title, dueAt, overdue),
+    body: dueNoticeBody(doc.title, dueAt, ctx.fmt),
+    link,
+    template: "ack_due",
+    vars: {
+      doc_title: doc.title,
+      doc_url: `${ctx.origin}${link}`,
+      due_date: dueAt ? ctx.fmt(dueAt) : "",
+      due_line: dueLine(dueAt, ctx.fmt),
+      status_label: dueStatusLabel(dueAt, overdue),
+    },
+  };
+}
+
+/**
+ * One 'due' row: everyone it names who is still active, minus the people
+ * the batch bundled, grouped by their status and date (people who share
+ * both share a message), each group through deliverSweepMessage. The
+ * bundle's failures for this row are reported with the row's own.
+ */
+async function deliverDue(row: ClaimedAckOutboxRow, plan: DueBundlePlan, ctx: SweepCtx): Promise<GroupOutcome> {
+  const none: GroupOutcome = { deliverable: false, pending: 0, skippedRecent: 0, emailed: 0, noticed: 0, errors: [] };
+  const doc = row.document_id != null ? await ackNoticeDocument(row.document_id) : undefined;
+  if (!doc || !doc.deliverable) return none;
+  const payload = duePayloadRows(row);
+  const [recipients, already] = await Promise.all([ackNoticeRecipients(doc.id, row.user_ids), ackNoticesForOutbox([row.id])]);
+  const bundled = plan.bundled.get(row.id) ?? new Set<number>();
+  const errors = [...(plan.errors.get(row.id) ?? [])];
+
+  const groups = new Map<string, { dueAt: string | null; overdue: boolean; targets: SweepTarget[] }>();
+  for (const u of recipients) {
+    if (bundled.has(u.id)) continue;
+    const had = already.get(u.id);
+    if (recordDone(had)) continue;
+    const p = payload.get(u.id);
+    const dueAt = p?.due_at ?? null;
+    const overdue = p?.overdue ?? false;
+    const key = `${overdue ? "overdue" : "due"}|${dueAt ?? ""}`;
+    const g = groups.get(key) ?? { dueAt, overdue, targets: [] };
+    g.targets.push({
+      ...u,
+      records: [{ document_id: doc.id, document_title: doc.title, outbox_id: row.id, noticeId: had?.id, channels: [...(had?.channels ?? [])] }],
+    });
+    groups.set(key, g);
+  }
+  let emailed = 0;
+  let noticed = 0;
+  for (const g of groups.values()) {
+    const r = await deliverSweepMessage(dueMessage(doc, g.dueAt, g.overdue, ctx), g.targets, ctx);
+    emailed += r.emailed;
+    noticed += r.noticed;
+    errors.push(...r.errors);
+  }
+  return { deliverable: true, pending: recipients.length, skippedRecent: 0, emailed, noticed, errors, bundled: bundled.size };
+}
+
+/**
+ * One 'escalation' row: the recipients it names (the owner or their
+ * stand-ins, and the overdue people's group leads), each told once about
+ * this policy, leads linked to their team view and the others to the
+ * policy in the portal (two messages at most), the record under kind
+ * 'escalation'.
+ */
+async function deliverEscalation(row: ClaimedAckOutboxRow, ctx: SweepCtx): Promise<GroupOutcome> {
+  const none: GroupOutcome = { deliverable: false, pending: 0, skippedRecent: 0, emailed: 0, noticed: 0, errors: [] };
+  const doc = row.document_id != null ? await ackNoticeDocument(row.document_id) : undefined;
+  if (!doc || !doc.deliverable) return none;
+  const payload = escalationPayload(row);
+  const [recipients, already] = await Promise.all([ackNoticeRecipients(doc.id, row.user_ids), ackNoticesForOutbox([row.id])]);
+  const via = new Map(payload.recipients.map((r) => [r.id, r.via]));
+  const byLink = new Map<string, SweepTarget[]>();
+  for (const u of recipients) {
+    const had = already.get(u.id);
+    if (recordDone(had)) continue;
+    const link = via.get(u.id) === "lead" ? "/compliance/team" : `/compliance/policies?policy=${doc.id}`;
+    const targets = byLink.get(link) ?? [];
+    targets.push({
+      ...u,
+      records: [{ document_id: doc.id, document_title: doc.title, outbox_id: row.id, noticeId: had?.id, channels: [...(had?.channels ?? [])] }],
+    });
+    byLink.set(link, targets);
+  }
+  const names = payload.overdue.map((o) => o.name);
+  const errors: string[] = [];
+  let emailed = 0;
+  let noticed = 0;
+  for (const [link, targets] of byLink) {
+    const msg: SweepMessage = {
+      kind: "ack_escalation",
+      noticeKind: "escalation",
+      title: escalationTitle(names.length, doc.title),
+      body: escalationBody(payload.days, names),
+      link,
+      template: "ack_escalation",
+      vars: {
+        policy_title: doc.title,
+        overdue_count: String(names.length),
+        overdue_list: escalationList(payload.overdue, ctx.fmt),
+        portal_url: `${ctx.origin}${link}`,
+      },
+    };
+    const r = await deliverSweepMessage(msg, targets, ctx);
+    emailed += r.emailed;
+    noticed += r.noticed;
+    errors.push(...r.errors);
+  }
+  return { deliverable: true, pending: recipients.length, skippedRecent: 0, emailed, noticed, errors };
+}
+
+// --- Reminders and escalation (E2, 1.13.0) ---------------------------------------
+//
+// The hourly sweep. Each claim is one statement in lib/db (claimAckReminders,
+// claimAckEscalations: the UPDATE stamps the column its WHERE tests, FOR
+// UPDATE SKIP LOCKED in the subquery), so every instance may run it and a
+// row is claimed once; a crash between the claim and the outbox row drops
+// that cycle's reminder, as the training sweep does. The claimed people are
+// handed to the outbox, one row per policy, which the minute tick delivers
+// (deliverDue / deliverEscalation above), so the tick never waits on mail.
+
+/** The sweep's actor on the outbox rows and the audit rows. */
+const SWEEP_ACTOR: AckActor = { id: null, name: "system" };
+
+/**
+ * The five numbers the SQL claims take as COALESCE fallbacks: the workspace
+ * layer (ack_defaults' seven numbers, the ones an admin set) resolved over
+ * the built-ins. Loaded once per tick and passed into every claim.
+ */
+export function sweepDefaults(workspace: PolicyDefaultsLayer | null | undefined): AckSweepDefaults {
+  const v = resolveDefaults({ workspace }).values;
+  return {
+    remind_before_days: v.remind_before_days,
+    remind_every_days: v.remind_every_days,
+    escalate_after_days: v.escalate_after_days,
+    nudge_every_days: v.nudge_every_days,
+    overdue_grace_days: v.overdue_grace_days,
+  };
+}
+
+export interface SweepOptions {
+  /** Limit the claim to these policies (tests sharing a database; the tick passes nothing). */
+  documentIds?: number[];
+  /** The workspace-resolved numbers; read from the settings when absent. */
+  defaults?: AckSweepDefaults;
+}
+
+async function sweepDefaultsFromSettings(): Promise<AckSweepDefaults> {
+  return sweepDefaults(await workspaceDueDefaults());
+}
+
+/**
+ * Remind everyone whose confirmation is due or overdue (the cadence per
+ * policy: remind_before_days ahead of the date, every remind_every_days
+ * after, nudge_every_days for a policy with no date). One claim across all
+ * live policies; then one 'due' outbox row per policy with the claimed
+ * people and their dates, and ack.reminder_auto {policy, reminded,
+ * overdue} by the system. The drain bundles a person with more than three
+ * policies into one notice and writes a second ack.reminder_auto per row
+ * with the delivery counts.
+ */
+export async function remindDueAcks(opts: SweepOptions = {}): Promise<{ claimed: number; policies: number; outbox_ids: number[] }> {
+  const defaults = opts.defaults ?? (await sweepDefaultsFromSettings());
+  const rows = await claimAckReminders(defaults, { documentIds: opts.documentIds });
+  const byDoc = new Map<number, typeof rows>();
+  for (const r of rows) {
+    const list = byDoc.get(r.document_id) ?? [];
+    list.push(r);
+    byDoc.set(r.document_id, list);
+  }
+  const outboxIds: number[] = [];
+  for (const [docId, claimed] of byDoc) {
+    const outboxId = await insertAckOutbox(null, {
+      document_id: docId,
+      mode: "due",
+      source: "",
+      actor: SWEEP_ACTOR,
+      user_ids: claimed.map((r) => r.user_id),
+      payload: { rows: claimed.map((r) => ({ user_id: r.user_id, due_at: r.due_at, overdue: r.overdue })) },
+      delay_minutes: 0,
+      origin: "",
+    });
+    outboxIds.push(outboxId);
+    await auditAck("ack.reminder_auto", { id: docId, title: claimed[0].title }, {
+      actor: SWEEP_ACTOR,
+      details: {
+        policy: docId,
+        reminded: claimed.length,
+        overdue: claimed.filter((r) => r.overdue).length,
+        outbox_id: outboxId,
+      },
+    });
+  }
+  return { claimed: rows.length, policies: byDoc.size, outbox_ids: outboxIds };
+}
+
+/**
+ * Escalate everyone past due_at + overdue_grace_days + escalate_after_days
+ * (once per row: escalated_at; extending the due date re-arms it). The
+ * recipients are resolved once per policy (escalationRecipients: the owner,
+ * else requested_by, else the space's approvers, plus the overdue people's
+ * group leads who can see the space); one 'escalation' outbox row per
+ * policy carries them and the overdue names, and ack.escalated {policy,
+ * overdue, recipients} is written by the system. A policy nobody can be
+ * told about (no owner, no approver, no lead) is still stamped and audited
+ * with recipients 0, so it is not escalated again next hour.
+ */
+export async function escalateOverdueAcks(
+  opts: SweepOptions = {}
+): Promise<{ claimed: number; policies: number; recipients: number; outbox_ids: number[] }> {
+  const defaults = opts.defaults ?? (await sweepDefaultsFromSettings());
+  const rows = await claimAckEscalations(defaults, { documentIds: opts.documentIds });
+  const byDoc = new Map<number, typeof rows>();
+  for (const r of rows) {
+    const list = byDoc.get(r.document_id) ?? [];
+    list.push(r);
+    byDoc.set(r.document_id, list);
+  }
+  const recipients = await escalationRecipients(
+    [...byDoc].map(([document_id, claimed]) => ({ document_id, space_id: claimed[0].space_id, user_ids: claimed.map((r) => r.user_id) }))
+  );
+  const outboxIds: number[] = [];
+  let told = 0;
+  for (const [docId, claimed] of byDoc) {
+    const to = recipients.get(docId) ?? [];
+    let outboxId: number | null = null;
+    if (to.length > 0) {
+      outboxId = await insertAckOutbox(null, {
+        document_id: docId,
+        mode: "escalation",
+        source: "",
+        actor: SWEEP_ACTOR,
+        user_ids: to.map((r) => r.id),
+        payload: {
+          days: claimed[0].days,
+          overdue: claimed.map((r) => ({ user_id: r.user_id, name: r.name, due_at: r.due_at })),
+          recipients: to.map((r) => ({ id: r.id, via: r.via })),
+        },
+        delay_minutes: 0,
+        origin: "",
+      });
+      outboxIds.push(outboxId);
+      told += to.length;
+    }
+    await auditAck("ack.escalated", { id: docId, title: claimed[0].title }, {
+      actor: SWEEP_ACTOR,
+      details: {
+        policy: docId,
+        overdue: claimed.length,
+        recipients: to.length,
+        days: claimed[0].days,
+        user_ids: claimed.map((r) => r.user_id),
+        recipient_ids: to.map((r) => r.id),
+        outbox_id: outboxId,
+      },
+    });
+  }
+  return { claimed: rows.length, policies: byDoc.size, recipients: told, outbox_ids: outboxIds };
+}
+
+/**
+ * The hourly tick's read-confirmation work (instrumentation.ts, after
+ * trainingHourly), gated on the policy_ack entitlement: the audience
+ * reconcile, expired exemptions, due and overdue reminders, escalations,
+ * then the re-confirmation cycles. The workspace defaults are read once and
+ * passed into every claim. Each step has its own catch, tagged
+ * [compliance], so one failing step never stops the others; every step is
+ * an atomic claim, so every instance may run this at once.
+ */
+export async function complianceHourly(): Promise<void> {
+  if (!(await featureEnabled("policy_ack"))) return;
+  const layer = await workspaceDueDefaults();
+  const defaults = sweepDefaults(layer);
+  const step = async (name: string, run: () => Promise<unknown>) => {
+    try {
+      await run();
+    } catch (e) {
+      console.error(`[compliance] ${name} failed:`, e);
+    }
+  };
+  await step("audience reconcile", () => reconcileAllPolicies());
+  await step("expired exemptions", () => expireExemptions());
+  await step("reminders", () => remindDueAcks({ defaults }));
+  await step("escalation", () => escalateOverdueAcks({ defaults }));
+  await step("re-confirmation", () => recertifyDueAcks({ defaults: layer }));
 }

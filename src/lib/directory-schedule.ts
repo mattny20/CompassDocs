@@ -10,7 +10,7 @@ import "server-only";
 // and whether the brake held anything back — the same facts the Sync page
 // shows, delivered instead of waited for.
 
-import { getSetting, setSetting, pool } from "./db";
+import { getSetting, setSetting, pool, drainAudienceSyncTally } from "./db";
 import { ee, featureEnabled } from "./ee";
 import { sendMail } from "./mailer";
 import { getSmtpConfig, smtpConfigured } from "./smtp-config";
@@ -32,6 +32,25 @@ const KEYS = {
 
 const ADVISORY_LOCK = 728342;
 const PROVIDERS: DirectorySyncProvider[] = ["microsoft", "google"];
+
+/**
+ * The report line the group hooks add (D1, 1.13.0): "Policy audiences
+ * updated: +12 / −3", after the sync's own lines and before the Sync page
+ * link in both parts. Left out when nothing moved or the sync failed.
+ */
+export function audienceReportLine(t: { added: number; closed: number } | null): string {
+  if (!t || t.added + t.closed === 0) return "";
+  return `Policy audiences updated: +${t.added} / −${t.closed}`;
+}
+
+function withAudienceLine(mail: { text: string; html: string }, t: { added: number; closed: number } | null): [string, string] {
+  const line = audienceReportLine(t);
+  if (!line) return [mail.text, mail.html];
+  const text = mail.text.includes("\nSync page: ") ? mail.text.replace("\n\nSync page: ", `\n\n${line}\n\nSync page: `) : `${mail.text}\n\n${line}`;
+  const block = `<br><div>${line}</div>`;
+  const html = mail.html.includes("<div>Sync page: ") ? mail.html.replace("<br><div>Sync page: ", `${block}<br><div>Sync page: `) : mail.html.replace(/<\/div>$/, `${block}</div>`);
+  return [text, html];
+}
 
 function freq(v: string | null | undefined): SyncFrequency {
   return (SYNC_FREQUENCIES as readonly string[]).includes(String(v)) ? (v as SyncFrequency) : "off";
@@ -94,11 +113,16 @@ export async function runScheduledDirectorySyncs(now: Date = new Date()): Promis
         if (!isSyncDue(schedule[provider], schedule.hour, schedule.last[provider]?.at, now)) continue;
         let summary: DirectorySyncSummary | undefined;
         let error: string | undefined;
+        // The group hooks (setGroupMembers, D1) count what the policy
+        // audiences gained and lost while the sync ran; the tally is
+        // cleared first so an earlier hour's edits are not reported twice.
+        drainAudienceSyncTally();
         try {
           summary = await edition.runDirectorySync(provider, { allowRemovals: false });
         } catch (e) {
           error = e instanceof Error ? e.message : String(e);
         }
+        const audiences = drainAudienceSyncTally();
         const ok = !error;
         const p = summary?.preview;
         const quiet = ok && p && p.adds.length === 0 && p.changes.length === 0 && p.removals.length === 0 && p.adoptions.length === 0 && !summary?.blocked && !summary?.warning;
@@ -115,7 +139,7 @@ export async function runScheduledDirectorySyncs(now: Date = new Date()): Promis
             if (smtpConfigured(cfg)) {
               const report = await getSyncReport(provider === "microsoft" ? "graph" : "google");
               const mail = syncReportEmail({ provider, ok, error, summary, unresolved: report?.unresolved, adopted: report?.adopted, origin, at: now });
-              await sendMail(schedule.report_to, mail.subject, mail.text, mail.html);
+              await sendMail(schedule.report_to, mail.subject, ...withAudienceLine(mail, ok ? audiences : null));
             }
           } catch (e) {
             console.error(`[directory] sync report email failed:`, e);

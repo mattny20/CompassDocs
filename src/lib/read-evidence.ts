@@ -35,19 +35,69 @@ const ROSTER_CSV_HEADER_1110 =
   "name,username,email,role,status,acknowledged_at,document,revision_as_of,version,version_id,content_sha256,version_source,former_staff,asked_at,asked_by,reason,kept_since_asked,ip,user_agent,version_published_by,version_approved_by,read_seconds,reached_end_self_reported";
 
 /**
+ * The five columns 1.13.0 (D2) appends to both files after the six, in this
+ * order: the exemption's reason, who recorded it and until when (blank on a
+ * row that is not exempt), when a snooze ends (blank when not snoozed) and
+ * the person's deadline (blank when the policy sets none). On the roster an
+ * exempt row carries status 'exempt'; the matrix has no status column, so
+ * there an exempt row is one whose exempt_reason is filled.
+ */
+export const EXEMPTION_CSV_COLUMNS = "exempt_reason,exempt_by,exempt_until,snoozed_until,due_at";
+
+/**
  * The roster CSV header (GET /api/documents/[id]/acknowledgements?format=csv).
  * Existing columns stay in place and new ones are appended, never renamed:
- * the two evidence columns follow the provenance pair, and the six
- * attestation and re-confirmation columns (1.12.0) close the line.
+ * the two evidence columns follow the provenance pair, the six attestation
+ * and re-confirmation columns (1.12.0) follow those, and the five exemption
+ * and deadline columns (1.13.0) close the line.
  */
-export const ROSTER_CSV_HEADER = `${ROSTER_CSV_HEADER_1110},${ATTESTATION_CSV_COLUMNS}`;
+export const ROSTER_CSV_HEADER = `${ROSTER_CSV_HEADER_1110},${ATTESTATION_CSV_COLUMNS},${EXEMPTION_CSV_COLUMNS}`;
 
 /** The matrix header as 1.10.1 shipped it (GET /api/admin/compliance?format=csv). */
 const MATRIX_CSV_HEADER_1101 =
   "document,space,revision_as_of,name,username,email,role,acknowledged_at,version,version_id,content_sha256,version_source,former_staff,asked_at,asked_by,reason,kept_since_asked,version_published_by,version_approved_by";
 
-/** The matrix CSV header: the 1.10.1 columns in place, the same six appended (1.12.0). */
-export const MATRIX_CSV_HEADER = `${MATRIX_CSV_HEADER_1101},${ATTESTATION_CSV_COLUMNS}`;
+/** The matrix CSV header: the 1.10.1 columns in place, the same six (1.12.0) and the same five (1.13.0) appended. */
+export const MATRIX_CSV_HEADER = `${MATRIX_CSV_HEADER_1101},${ATTESTATION_CSV_COLUMNS},${EXEMPTION_CSV_COLUMNS}`;
+
+/** The roster's status column: 'exempt' outranks the confirmation, since an exempt row is in no denominator. */
+export type RosterStatus = "acknowledged" | "pending" | "exempt";
+export function rosterStatus(row: { acknowledged_at: string | null; exempt?: boolean | null }): RosterStatus {
+  if (row.exempt) return "exempt";
+  return row.acknowledged_at ? "acknowledged" : "pending";
+}
+
+/** A timestamp column as the CSV writes it: ISO whether pg handed back a Date or a string; blank when null. */
+function stampCell(v: string | Date | null | undefined): string {
+  if (v == null || v === "") return "";
+  if (v instanceof Date) return Number.isNaN(v.getTime()) ? "" : v.toISOString();
+  return String(v);
+}
+
+/**
+ * The five exemption and deadline cells (1.13.0, D2 fields on the record
+ * row), before csvCell: the three exemption cells only on an exempt row,
+ * the snooze end only while snoozed, the deadline when the row has one.
+ * Optional on the input so a former-staff row (no assignment) writes five
+ * blanks and a row type without the fields still compiles.
+ */
+export function exemptionCsvCells(row: {
+  exempt?: boolean | null;
+  exempt_reason?: string | null;
+  exempt_by_name?: string | null;
+  exempt_until?: string | Date | null;
+  snoozed_until?: string | Date | null;
+  due_at?: string | Date | null;
+}): [string, string, string, string, string] {
+  const exempt = Boolean(row.exempt);
+  return [
+    exempt ? (row.exempt_reason ?? "") : "",
+    exempt ? (row.exempt_by_name ?? "") : "",
+    exempt ? stampCell(row.exempt_until) : "",
+    stampCell(row.snoozed_until),
+    stampCell(row.due_at),
+  ];
+}
 
 /**
  * The ledger CSV header (1.12.0, C4): every confirmation ever recorded,

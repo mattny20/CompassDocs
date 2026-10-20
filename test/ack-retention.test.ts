@@ -35,11 +35,14 @@ import {
   MATRIX_CSV_HEADER,
   LEDGER_CSV_HEADER,
   ATTESTATION_CSV_COLUMNS,
+  EXEMPTION_CSV_COLUMNS,
   personalDataCells,
   personalDataForViewer,
   ledgerCsvCells,
   attestationCsvCells,
   recertCsvCells,
+  exemptionCsvCells,
+  rosterStatus,
   type LedgerCsvRow,
 } from "../src/lib/read-evidence";
 
@@ -310,6 +313,8 @@ describe("CSV headers and the personal-data rule", () => {
   const MATRIX_1101 =
     "document,space,revision_as_of,name,username,email,role,acknowledged_at,version,version_id,content_sha256,version_source,former_staff,asked_at,asked_by,reason,kept_since_asked,version_published_by,version_approved_by";
   const SIX = ",statement,signed_name,identity_proof,recert_months,effective_at,next_recert_at";
+  /** The five 1.13.0 (D2) columns: after the six, on both files. */
+  const FIVE = ",exempt_reason,exempt_by,exempt_until,snoozed_until,due_at";
 
   const ledgerRow: LedgerCsvRow = {
     document_title: "Expenses",
@@ -335,12 +340,47 @@ describe("CSV headers and the personal-data rule", () => {
     account_removed: false,
   };
 
-  test("both export headers keep their legacy prefix and end with the six 1.12.0 columns", () => {
+  test("both export headers keep their legacy prefix, then the six 1.12.0 columns, then the five 1.13.0 columns", () => {
     assert.ok(ROSTER_CSV_HEADER.startsWith(ROSTER_1110), "the roster header starts with the 1.11.0 columns");
-    assert.equal(ROSTER_CSV_HEADER, ROSTER_1110 + SIX);
+    assert.ok(ROSTER_CSV_HEADER.startsWith(ROSTER_1110 + SIX), "the 1.12.0 columns are still in place");
+    assert.equal(ROSTER_CSV_HEADER, ROSTER_1110 + SIX + FIVE);
     assert.ok(MATRIX_CSV_HEADER.startsWith(MATRIX_1101), "the matrix header starts with the 1.10.1 columns");
-    assert.equal(MATRIX_CSV_HEADER, MATRIX_1101 + SIX);
+    assert.ok(MATRIX_CSV_HEADER.startsWith(MATRIX_1101 + SIX));
+    assert.equal(MATRIX_CSV_HEADER, MATRIX_1101 + SIX + FIVE);
     assert.equal(`,${ATTESTATION_CSV_COLUMNS}`, SIX);
+    assert.equal(`,${EXEMPTION_CSV_COLUMNS}`, FIVE);
+  });
+
+  test("the status column and the five exemption cells (1.13.0, D2): 'exempt' outranks a confirmation; the three exemption cells only on an exempt row; five blanks for a former staff member", () => {
+    assert.equal(rosterStatus({ acknowledged_at: null }), "pending");
+    assert.equal(rosterStatus({ acknowledged_at: "2026-03-03T10:00:00.000Z" }), "acknowledged");
+    assert.equal(rosterStatus({ acknowledged_at: "2026-03-03T10:00:00.000Z", exempt: true }), "exempt");
+    assert.equal(rosterStatus({ acknowledged_at: null, exempt: false }), "pending");
+    assert.deepEqual(exemptionCsvCells({}), ["", "", "", "", ""], "a former-staff row, or a row type without the fields");
+    assert.deepEqual(
+      exemptionCsvCells({
+        exempt: true,
+        exempt_reason: "On leave",
+        exempt_by_name: "Priya Shah",
+        exempt_until: "2026-12-01T00:00:00.000Z",
+        snoozed_until: null,
+        due_at: "2026-10-29T00:00:00.000Z",
+      }),
+      ["On leave", "Priya Shah", "2026-12-01T00:00:00.000Z", "", "2026-10-29T00:00:00.000Z"]
+    );
+    assert.deepEqual(
+      exemptionCsvCells({ exempt: false, exempt_reason: "stale", exempt_by_name: "stale", exempt_until: "2026-12-01T00:00:00.000Z", snoozed_until: "2026-10-22T09:00:00.000Z", due_at: null }),
+      ["", "", "", "2026-10-22T09:00:00.000Z", ""],
+      "not exempt: the three exemption cells are blank whatever the columns hold; a snooze shows"
+    );
+    assert.deepEqual(
+      exemptionCsvCells({ exempt: true, exempt_reason: "Standing", exempt_by_name: "", exempt_until: null, due_at: new Date("2026-10-29T00:00:00.000Z") }),
+      ["Standing", "", "", "", "2026-10-29T00:00:00.000Z"],
+      "a standing exemption has no until; a pg Date is written as ISO"
+    );
+    const header = ROSTER_CSV_HEADER.split(",");
+    assert.equal(header.indexOf("exempt_reason"), header.indexOf("next_recert_at") + 1, "the five follow the six");
+    assert.equal(header[header.length - 1], "due_at");
   });
 
   test("the ledger header is the documented one, and a ledger line has one cell per column", () => {

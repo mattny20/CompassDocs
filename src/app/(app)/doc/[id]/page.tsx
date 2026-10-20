@@ -26,6 +26,7 @@ import {
   ackSummary,
   lastAckDecision,
   getUserByUsername,
+  hasOpenAssignment,
 } from "@/lib/db";
 import { getComplianceSettings } from "@/lib/compliance-settings";
 import { askedClause } from "./acknowledgements/ack-sentence";
@@ -195,10 +196,14 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
     doc.status === "published" &&
     doc.branch_of === null &&
     doc.ack_retired_at === null;
-  const [myAck, ackVersion] = ackActive
-    ? await Promise.all([getCurrentAck(doc.id, user.id), getAckVersionInfo(doc.id)])
-    : [undefined, null];
-  const showAckCard = ackActive && canSubmitAck;
+  // The audience (D1, 1.13.0): the card, the sticky control and the notice
+  // row appear only for a person the policy asks (an open assignment row:
+  // not removed from the audience, not exempt). Everyone else reads the
+  // document as any other; POST /ack answers them 400 as well.
+  const [myAck, ackVersion, ackAssigned] = ackActive
+    ? await Promise.all([getCurrentAck(doc.id, user.id), getAckVersionInfo(doc.id), hasOpenAssignment(doc.id, user.id)])
+    : [undefined, null, false];
+  const showAckCard = ackActive && canSubmitAck && ackAssigned;
   // The re-confirmation view (B3): when no confirmation counts but the
   // reader has one that lapsed, the page works out what they confirmed
   // (getLatestAck, the version inferred for rows from before 1.10.0),
@@ -474,7 +479,7 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
       ) : (
         <DocNotices
           docId={doc.id}
-          ack={ackActive ? { canSubmit: canSubmitAck } : undefined}
+          ack={ackActive && ackAssigned ? { canSubmit: canSubmitAck } : undefined}
           isDraft={doc.status === "draft" && isStaff}
           branchCount={branchCount}
           pendingCount={pending.length}

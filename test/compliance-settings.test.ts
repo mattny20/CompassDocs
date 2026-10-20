@@ -83,11 +83,13 @@ describe("program settings", () => {
 
     // A value from a later build, or a hand edit, never takes a known key
     // off its default; keys the build does not know are ignored on read.
-    await setSetting("ack_defaults", JSON.stringify({ edit_default: "never", keep_reason_required: false, due_days: 14 }));
+    // (due_days became a known key in 1.13.0, E1: the unknown one here is
+    // a key no build has.)
+    await setSetting("ack_defaults", JSON.stringify({ edit_default: "never", keep_reason_required: false, cooldown_hours: 2 }));
     const s = await readComplianceSettings();
     assert.equal(s.ack_defaults.edit_default, "ask", "an unknown edit_default is the default");
     assert.equal(s.ack_defaults.keep_reason_required, false, "a valid sibling still counts");
-    assert.ok(!("due_days" in s.ack_defaults), "unknown keys are not surfaced");
+    assert.ok(!("cooldown_hours" in s.ack_defaults), "unknown keys are not surfaced");
     await clearKeys();
   });
 

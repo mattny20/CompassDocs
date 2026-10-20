@@ -27,8 +27,11 @@ const stamp = () => `${Date.now()}${Math.floor(Math.random() * 1000)}`;
 
 const BODY = "## Policy\n\nShort policy text for the access-control check. Read it and confirm at the end.";
 
+// The 1.11.0 columns in place, the six attestation and re-confirmation
+// columns (1.12.0, C4) and the five exemption and deadline columns (1.13.0,
+// D2) appended: ROSTER_CSV_HEADER in src/lib/read-evidence.ts.
 const ROSTER_HEADER =
-  "name,username,email,role,status,acknowledged_at,document,revision_as_of,version,version_id,content_sha256,version_source,former_staff,asked_at,asked_by,reason,kept_since_asked,ip,user_agent,version_published_by,version_approved_by,read_seconds,reached_end_self_reported,statement,signed_name,identity_proof,recert_months,effective_at,next_recert_at";
+  "name,username,email,role,status,acknowledged_at,document,revision_as_of,version,version_id,content_sha256,version_source,former_staff,asked_at,asked_by,reason,kept_since_asked,ip,user_agent,version_published_by,version_approved_by,read_seconds,reached_end_self_reported,statement,signed_name,identity_proof,recert_months,effective_at,next_recert_at,exempt_reason,exempt_by,exempt_until,snoozed_until,due_at";
 
 /** The ledger (C4, 1.12.0): every confirmation ever recorded; compliance.export only. */
 const LEDGER_HEADER =
@@ -376,14 +379,21 @@ test("a program_read-only role reads the portal and nothing more; unknown action
       // re-confirmation settings (none set here).
       const statementAt = header.indexOf("statement");
       expect(statementAt, "statement follows the evidence pair").toBe(reachedAt + 1);
-      expect(header.slice(statementAt), "the six columns in order, last").toEqual([
+      expect(header.slice(statementAt), "the six columns in order, then the five of 1.13.0 (D2), last").toEqual([
         "statement",
         "signed_name",
         "identity_proof",
         "recert_months",
         "effective_at",
         "next_recert_at",
+        "exempt_reason",
+        "exempt_by",
+        "exempt_until",
+        "snoozed_until",
+        "due_at",
       ]);
+      expect(adminLine![header.indexOf("exempt_reason")], "the admin is not exempt").toBe("");
+      expect(adminLine![header.indexOf("snoozed_until")], "nor snoozed").toBe("");
       expect(adminLine![header.indexOf("signed_name")], "no signature required, none recorded").toBe("");
       expect(adminLine![header.indexOf("recert_months")], "no interval set").toBe("");
       expect(adminLine![header.indexOf("next_recert_at")]).toBe("");

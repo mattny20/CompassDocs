@@ -11,6 +11,31 @@ export const dynamic = "force-dynamic";
 
 /** A reason longer than this is cut, as PUT /api/documents/[id] cuts ack_reason. */
 const REASON_MAX = 500;
+/** The most people one per-person re-ask names (D4); the assignments endpoints keep the same cap. (Not exported: a route file may only export handlers.) */
+const USER_IDS_MAX = 200;
+
+/**
+ * The per-person list as the body sends it: an array of positive integers,
+ * duplicates collapsed, at least one and at most USER_IDS_MAX. The first
+ * problem is named; a list that is not a list is refused rather than read
+ * as "everyone", so a client bug never widens a re-ask.
+ */
+function parseUserIds(raw: unknown): { ok: true; ids: number[] } | { ok: false; error: string } {
+  if (!Array.isArray(raw) || !raw.every((v) => typeof v === "number" && Number.isSafeInteger(v) && v > 0)) {
+    return { ok: false, error: "user_ids must be a list of user ids." };
+  }
+  const ids = [...new Set(raw as number[])];
+  if (ids.length === 0) return { ok: false, error: "Choose at least one person." };
+  if (ids.length > USER_IDS_MAX) return { ok: false, error: `Ask up to ${USER_IDS_MAX} people at a time.` };
+  return { ok: true, ids };
+}
+
+/** 400 when nobody named has an open row: they are exempt, removed, or not asked at all. */
+function nobodyOpenError(n: number): string {
+  return n === 1
+    ? "This person isn't asked to confirm this document."
+    : "None of these people are asked to confirm this document.";
+}
 
 // POST { reason, user_ids? }: ask everyone to re-confirm without an edit
 // (A7, 1.10.1). The whole reset is one atomic claim in lib/db
@@ -31,9 +56,17 @@ const REASON_MAX = 500;
 // (429 inside the hour: "Readers were asked again 12 minutes ago.", the
 // same hour the portal's Remind keeps).
 //
-// `user_ids` is the per-person re-ask (D4): the route accepts the key now
-// and answers 400 until audiences ship, so a client built against D4 gets a
-// sentence rather than a whole-audience reset it did not ask for.
+// `user_ids` is the per-person re-ask (D4, 1.13.0): the same guards and the
+// same reason rule, but the document marker stays where it is. One
+// statement restarts the named people's confirmation cycle
+// (policy_assignments.cycle_started_at, with a fresh deadline and cleared
+// reminder stamps), so their confirmation lapses and nobody else's does; the
+// ledger gets one 'reset' row of scope 'users' and only those people are
+// notified. People named who are exempt, removed or not assigned are
+// skipped and listed in the answer; when nobody named has an open row the
+// answer is 400 and nothing is written. No hour guard and no Remind stamp:
+// asking one person again blocks nothing. The list takes up to
+// USER_IDS_MAX positive integers (duplicates collapse).
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const gate = await apiGuard("viewer");
   if (gate instanceof NextResponse) return gate;
@@ -76,13 +109,17 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       { status: 400 }
     );
   }
+  let userIds: number[] | null = null;
   if (body?.user_ids !== undefined && body?.user_ids !== null) {
-    return NextResponse.json({ error: "Per-person re-asks arrive with audiences." }, { status: 400 });
+    const parsed = parseUserIds(body.user_ids);
+    if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
+    userIds = parsed.ids;
   }
 
   const claim = await claimReconfirmation(null, doc.id, {
     source: "manual",
     reason,
+    userIds,
     // The outbox row's actor: the same name the audit row carries.
     actor: { id: user.id, name: user.name || user.username },
     // And the request's origin, so the notice's links are absolute on a
@@ -90,6 +127,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     origin: requestOrigin(req),
   });
   if (!claim.claimed) {
+    if (claim.skipped) {
+      // A per-person list in which nobody has an open row: nothing was written.
+      return NextResponse.json({ error: nobodyOpenError(claim.skipped.length), skipped: claim.skipped }, { status: 400 });
+    }
     if (!claim.last_asked_at) {
       // The document stopped taking confirmations between the check above
       // and the claim (unpublished, trashed, switched off).
@@ -104,7 +145,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   // The ledger row is the record; this is its echo with the same version,
   // count and reason (C1). The drain writes ack.reset_notified once the
-  // notices have gone out.
+  // notices have gone out. A per-person ask (D4) carries the people whose
+  // cycle restarted and the ids it skipped; a whole-audience ask writes
+  // user_ids null so an export always has the column.
+  const personal = claim.scope === "users";
   await auditAck("ack.reconfirmation_requested", doc, {
     actor: actorFrom(user),
     ip: ipFrom(req),
@@ -113,13 +157,27 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     source: "manual",
     reason,
     details: {
+      scope: claim.scope,
       reset: claim.confirmations_reset,
       eligible: claim.eligible,
-      queued: claim.eligible,
+      queued: personal ? claim.user_ids.length : claim.eligible,
+      user_ids: personal ? claim.user_ids : null,
+      skipped: personal ? claim.skipped : null,
       decision_id: claim.decision_id,
       outbox_id: claim.outbox_id,
     },
   });
+  if (personal) {
+    // The people re-asked are the people notified; the rest of the list had
+    // no open row (exempt, removed, never assigned) and is reported as such.
+    return NextResponse.json({
+      ok: true,
+      reset: claim.confirmations_reset,
+      queued: claim.user_ids.length,
+      user_ids: claim.user_ids,
+      skipped: claim.skipped,
+    });
+  }
   // `queued` is everyone pending now, which after the reset is the whole
   // audience; the drain resolves the list again at delivery.
   return NextResponse.json({ ok: true, reset: claim.confirmations_reset, queued: claim.eligible });

@@ -81,6 +81,11 @@ const DOWNGRADE_1101_SQL = `
     DROP COLUMN IF EXISTS approved_by, DROP COLUMN IF EXISTS approved_by_name,
     DROP COLUMN IF EXISTS change_request_id;
   DELETE FROM settings WHERE key = 'migrated_version_provenance';
+  ${/* 1.13.0 (D1): the audience tables and their one-shot flag, so every upgrade path below materialises the rows. */ ""}
+  DROP TABLE IF EXISTS policy_assignments;
+  DROP TABLE IF EXISTS policy_audience_rules;
+  DROP TABLE IF EXISTS policy_settings;
+  DELETE FROM settings WHERE key = 'policy_assignments_migrated';
 `;
 
 // Then strip the 1.10.0 additions so it looks the way 1.9.4 left it.
@@ -110,6 +115,7 @@ const FLAG_KEYS = [
   "migrated_ack_retention",
   "ack_retention_schema",
   "migrated_version_provenance",
+  "policy_assignments_migrated",
 ];
 const ALL_FLAGS = [
   "ack_marker_schema=1",
@@ -117,6 +123,7 @@ const ALL_FLAGS = [
   "migrated_ack_retention=1",
   "migrated_ack_revisions=1",
   "migrated_version_provenance=1",
+  "policy_assignments_migrated=1",
 ];
 
 interface Snapshot {
@@ -191,6 +198,11 @@ async function assertSchema1101(db: Client, label: string) {
         // 1.12.0 (G3): the partial indexes under the two SET NULL references.
         "idx_documents_ack_retired_by",
         "idx_documents_ack_superseded_by",
+        // 1.13.0 (D1): the audience tables' indexes (the third is partial).
+        "idx_policy_rules_doc",
+        "idx_policy_assign_user",
+        "idx_policy_assign_doc_exempt",
+        "idx_policy_assign_due",
       ],
     ]
   );
@@ -209,6 +221,10 @@ async function assertSchema1101(db: Client, label: string) {
       "idx_documents_ack_superseded_by",
       "idx_documents_search",
       "idx_documents_space",
+      "idx_policy_assign_doc_exempt",
+      "idx_policy_assign_due",
+      "idx_policy_assign_user",
+      "idx_policy_rules_doc",
       "idx_ra_user_space",
     ],
     `${label}: the indexes exist`
@@ -218,10 +234,13 @@ async function assertSchema1101(db: Client, label: string) {
   const dates = await db.query<{ c: string }>(
     "SELECT table_name || '.' || column_name AS c FROM information_schema.columns WHERE table_schema = current_schema() AND data_type = 'date' ORDER BY 1"
   );
+  // 1.13.0 (E1) adds policy_settings.due_at, a fixed deadline read as its
+  // 'YYYY-MM-DD' text on purpose (lib/ack-due endOfDayIn turns the day into
+  // the person's due instant).
   assert.deepEqual(
-    dates.rows.map((r) => r.c),
-    ["documents.ack_effective_at"],
-    `${label}: the OID 1082 text parser reaches exactly one column; a new date column must be read as text on purpose`
+    dates.rows.map((r) => r.c).sort(),
+    ["documents.ack_effective_at", "policy_settings.due_at"],
+    `${label}: the OID 1082 text parser reaches exactly these columns; a new date column must be read as text on purpose`
   );
   const trigger = await db.query(
     "SELECT 1 FROM pg_trigger WHERE tgrelid = 'users'::regclass AND tgname = 'compass_users_ladder_sync' AND NOT tgisinternal"
@@ -834,5 +853,89 @@ describe("the 1.10.1 additions against a 1.10.0 database, booted twice", () => {
     );
     assert.deepEqual(keptRow.rows[0], { statement_text: "I will comply.", signed_name: "Boot Reader", identity_proof: "password", user_agent: "BootTest/1" });
     await assertSchema1101(db, "1.12.0 (C2) second boot");
+  });
+
+  test("1.13.0 (E1): spaces.policy_defaults comes back on an upgrade boot as jsonb NOT NULL DEFAULT '{}', every existing space inherits everything, a 1.12.0-shaped INSERT takes the default, a value set between boots survives, and a second boot moves nothing", async () => {
+    // A database shaped like 1.12.0: the column gone.
+    await db.query("ALTER TABLE spaces DROP COLUMN IF EXISTS policy_defaults");
+    const upgrade = boot(DB);
+    assert.ok(upgrade.ok, `the upgrade boot succeeds:\n${upgrade.out}`);
+
+    const column = async () =>
+      (
+        await db.query<{ data_type: string; is_nullable: string; column_default: string | null }>(
+          `SELECT data_type, is_nullable, column_default FROM information_schema.columns
+           WHERE table_schema = current_schema() AND table_name = 'spaces' AND column_name = 'policy_defaults'`
+        )
+      ).rows;
+    const expected = [{ data_type: "jsonb", is_nullable: "NO", column_default: "'{}'::jsonb" }];
+    assert.deepEqual(await column(), expected, "the column with its constant default (metadata-only: no backfill)");
+    // The upgrade changes no space's behaviour: every space inherits the
+    // workspace defaults until an admin sets something on it.
+    const spaces = await db.query<{ n: number; empty: number }>(
+      "SELECT COUNT(*)::int AS n, COUNT(*) FILTER (WHERE policy_defaults = '{}'::jsonb)::int AS empty FROM spaces"
+    );
+    assert.ok(spaces.rows[0].n >= 1, "the fixture space is there");
+    assert.equal(spaces.rows[0].empty, spaces.rows[0].n, "every existing space reads as inheriting everything");
+
+    // A 1.12.0-shaped INSERT (what a rolled-back binary writes) takes the default.
+    const legacy = await db.query<{ id: number; policy_defaults: unknown }>(
+      "INSERT INTO spaces (name, slug, icon, description, visibility) VALUES ('Boot 1.13 legacy', 'boot-113-legacy', '📁', '', 'internal') RETURNING id, policy_defaults"
+    );
+    assert.deepEqual(legacy.rows[0].policy_defaults, {});
+
+    // A layer set between boots (what PATCH /api/admin/spaces/[id] writes,
+    // done by hand so the boot is the only code under test) survives.
+    const spaceId = (await db.query<{ id: number }>("SELECT id FROM spaces ORDER BY id LIMIT 1")).rows[0].id;
+    await db.query(`UPDATE spaces SET policy_defaults = '{"due_days": 30, "remind_every_days": 3, "owner_user_id": 1}' WHERE id = $1`, [spaceId]);
+    const second = boot(DB);
+    assert.ok(second.ok, `the second boot succeeds:\n${second.out}`);
+    assert.deepEqual(await column(), expected, "the second boot leaves the shape alone");
+    assert.deepEqual(
+      (await db.query<{ policy_defaults: unknown }>("SELECT policy_defaults FROM spaces WHERE id = $1", [spaceId])).rows[0].policy_defaults,
+      { due_days: 30, remind_every_days: 3, owner_user_id: 1 },
+      "the layer is as written"
+    );
+    assert.deepEqual(
+      (await db.query<{ policy_defaults: unknown }>("SELECT policy_defaults FROM spaces WHERE id = $1", [legacy.rows[0].id])).rows[0].policy_defaults,
+      {},
+      "the legacy insert still inherits"
+    );
+    await assertSchema1101(db, "1.13.0 (E1) second boot");
+  });
+
+  test("1.13.0 (E2): the ack_outbox payload column comes back on an upgrade boot, nullable with no default, a 1.12.0-shaped queue row still inserts, a payload set between boots survives, and a second boot moves nothing", async () => {
+    // A database shaped like 1.12.0: the column gone.
+    await db.query("ALTER TABLE ack_outbox DROP COLUMN IF EXISTS payload");
+    const upgrade = boot(DB);
+    assert.ok(upgrade.ok, `the upgrade boot succeeds:\n${upgrade.out}`);
+    const column = async () =>
+      (
+        await db.query<{ data_type: string; is_nullable: string; column_default: string | null }>(
+          "SELECT data_type, is_nullable, column_default FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'ack_outbox' AND column_name = 'payload'"
+        )
+      ).rows;
+    const expected = [{ data_type: "jsonb", is_nullable: "YES", column_default: null }];
+    assert.deepEqual(await column(), expected, "payload jsonb, nullable, no default (metadata-only)");
+
+    // What a 1.12.0 binary writes (no payload) still inserts and reads as NULL.
+    const policy = (await db.query<{ id: number }>("SELECT id FROM documents WHERE ack_required = 1 ORDER BY id LIMIT 1")).rows[0].id;
+    const legacy = await db.query<{ id: number; payload: unknown }>(
+      "INSERT INTO ack_outbox (document_id, mode, source, actor_name) VALUES ($1, 'reminder', 'manual', 'Boot') RETURNING id, payload",
+      [policy]
+    );
+    assert.equal(legacy.rows[0].payload, null);
+    // A sweep row set between boots survives the next one untouched.
+    await db.query(`UPDATE ack_outbox SET payload = '{"rows": [{"user_id": 1, "due_at": null, "overdue": false}]}' WHERE id = $1`, [legacy.rows[0].id]);
+    const second = boot(DB);
+    assert.ok(second.ok, `the second boot succeeds:\n${second.out}`);
+    assert.deepEqual(await column(), expected, "the second boot leaves the shape alone");
+    assert.deepEqual(
+      (await db.query<{ payload: unknown }>("SELECT payload FROM ack_outbox WHERE id = $1", [legacy.rows[0].id])).rows[0].payload,
+      { rows: [{ user_id: 1, due_at: null, overdue: false }] },
+      "the payload is as written"
+    );
+    await db.query("DELETE FROM ack_outbox WHERE id = $1", [legacy.rows[0].id]);
+    await assertSchema1101(db, "1.13.0 (E2) second boot");
   });
 });

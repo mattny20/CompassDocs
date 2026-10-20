@@ -35,9 +35,10 @@ const stamp = () => `${Date.now()}${Math.floor(Math.random() * 1000)}`;
 const BODY = "## Policy\n\nShort policy text for the portal smoke. Read it and confirm at the end.";
 
 // The 1.10.1 columns in place, the six attestation and re-confirmation
-// columns appended (1.12.0, C4): MATRIX_CSV_HEADER in src/lib/read-evidence.ts.
+// columns (1.12.0, C4) and the five exemption and deadline columns (1.13.0,
+// D2) appended: MATRIX_CSV_HEADER in src/lib/read-evidence.ts.
 const MATRIX_HEADER =
-  "document,space,revision_as_of,name,username,email,role,acknowledged_at,version,version_id,content_sha256,version_source,former_staff,asked_at,asked_by,reason,kept_since_asked,version_published_by,version_approved_by,statement,signed_name,identity_proof,recert_months,effective_at,next_recert_at";
+  "document,space,revision_as_of,name,username,email,role,acknowledged_at,version,version_id,content_sha256,version_source,former_staff,asked_at,asked_by,reason,kept_since_asked,version_published_by,version_approved_by,statement,signed_name,identity_proof,recert_months,effective_at,next_recert_at,exempt_reason,exempt_by,exempt_until,snoozed_until,due_at";
 
 /** One CSV line into cells: quoted fields may hold commas and doubled quotes. */
 function cells(line: string): string[] {
@@ -374,7 +375,8 @@ test("the row's re-ask opens the question, refuses a short reason, resets the ro
     await expect(row.getByRole("button", { name: "Ask everyone to re-confirm…" })).toBeDisabled();
 
     // The API's own rules: the hour guard, the reason rule, and the
-    // per-person list that arrives with audiences (D4).
+    // per-person list (D4): a list that is not a list, and a person with no
+    // open row, are refused and write nothing.
     const again = await api(page, `/api/documents/${docId}/ack/reconfirm`, {
       method: "POST",
       body: { reason: "Asking again straight away, for the test" },
@@ -384,12 +386,19 @@ test("the row's re-ask opens the question, refuses a short reason, resets the ro
     const short = await api(page, `/api/documents/${docId}/ack/reconfirm`, { method: "POST", body: { reason: "short" } });
     expect(short.status).toBe(400);
     expect(short.body?.error).toBe("A reason of at least 10 characters is required.");
-    const perPerson = await api(page, `/api/documents/${docId}/ack/reconfirm`, {
+    const notAList = await api(page, `/api/documents/${docId}/ack/reconfirm`, {
       method: "POST",
-      body: { reason: "One person, which D4 brings later", user_ids: [1] },
+      body: { reason: "One person, named badly, for the test", user_ids: "1" },
     });
-    expect(perPerson.status).toBe(400);
-    expect(perPerson.body?.error).toBe("Per-person re-asks arrive with audiences.");
+    expect(notAList.status).toBe(400);
+    expect(notAList.body?.error).toBe("user_ids must be a list of user ids.");
+    const nobody = await api(page, `/api/documents/${docId}/ack/reconfirm`, {
+      method: "POST",
+      body: { reason: "One person nobody enrolled, for the test", user_ids: [2147483647] },
+    });
+    expect(nobody.status, "a per-person ask of someone with no open row is 400").toBe(400);
+    expect(nobody.body?.error).toBe("This person isn't asked to confirm this document.");
+    expect(nobody.body?.skipped).toEqual([2147483647]);
     expect((await auditRows(page, "ack.reconfirmation_requested", docId)).length, "none of the refusals is on the record").toBe(1);
   } finally {
     if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });

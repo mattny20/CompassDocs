@@ -11,6 +11,7 @@ import {
   getDocument,
   setAckRequired,
   listAckLedgerAll,
+  stampAckReminded,
 } from "@/lib/db";
 import { requestAcknowledgement, enqueueReminder } from "@/lib/compliance";
 import { audit, auditAck, actorFrom, ipFrom } from "@/lib/audit";
@@ -24,6 +25,7 @@ import {
   attestationCsvCells,
   recertCsvCells,
   ledgerCsvCells,
+  exemptionCsvCells,
 } from "@/lib/read-evidence";
 import { recertDueWithin } from "@/lib/ack-recert";
 import type { SessionUser } from "@/lib/types";
@@ -132,7 +134,10 @@ export async function GET(req: Request) {
     // row cites (C6, 1.10.1), and (C4, 1.12.0) the same six columns the
     // roster appends: statement, signed_name, identity_proof (C2), then
     // recert_months, effective_at, next_recert_at from the documents row
-    // (G1). No IP column here: with_ip is false. Every cell goes through
+    // (G1), and (D2, 1.13.0) the same five the roster appends after them:
+    // exempt_reason, exempt_by, exempt_until (filled on an exempt row,
+    // which is in no count; the matrix has no status column), snoozed_until
+    // and due_at. No IP column here: with_ip is false. Every cell goes through
     // csvCell (quotes doubled, a formula-leading value prefixed with a
     // quote), so a name or a note that starts with = never runs when the
     // sheet opens; the header is MATRIX_CSV_HEADER in src/lib/read-evidence.
@@ -179,6 +184,7 @@ export async function GET(req: Request) {
             ...provenanceCells(provenance, r.version_id).map(esc),
             ...attestationCsvCells(r).map(esc),
             ...recert,
+            ...exemptionCsvCells(r).map(esc),
           ].join(",")
         );
       }
@@ -202,6 +208,8 @@ export async function GET(req: Request) {
             ...provenanceCells(provenance, r.version_id).map(esc),
             ...attestationCsvCells(r).map(esc),
             ...recert,
+            // No assignment row travels with a former staff member: five blanks.
+            ...exemptionCsvCells({}).map(esc),
           ].join(",")
         );
       }
@@ -372,6 +380,10 @@ export async function POST(req: Request) {
         { status: 429 }
       );
     }
+    // The rows the reminder reaches are stamped (E2, 1.13.0): the automatic
+    // cadence counts from this one and the row subtitle reads "last
+    // reminded today". The drain resolves the same people a minute later.
+    await stampAckReminded(doc.id).catch((e) => console.error("[ack] could not stamp the reminder on the assignments:", e));
     return NextResponse.json({ ok: true, queued });
   }
 

@@ -36,6 +36,18 @@ import type { EditDefault } from "./compliance-settings";
 import { storedReadSeconds } from "./read-evidence";
 import { RECERT_LEDGER_REASON, recertNoticeSentence, nextRecertDate } from "./ack-recert";
 import type { RecertFields, RecertPatch } from "./ack-recert";
+import { BUILT_IN, DUE_HISTORY_MAX, endOfDayIn, sanitizeLayer } from "./ack-due";
+import type { DueRule, PolicyDefaultsLayer } from "./ack-due";
+import {
+  PA_OPEN,
+  audienceAdmitsSql,
+  audienceRemovedReasonSql,
+  audienceRulesFromJson,
+  audienceRulesFromTable,
+  audienceSourceSql,
+} from "./audience";
+import type { AudienceSqlAliases } from "./audience";
+import type { AudienceMode, AudienceRule, PolicySettings } from "./types";
 
 export type { AckPolicy, AckSource, AckOutcome, AckDecision, AckOutcomeInfo } from "./types";
 export type { AckNotice, AckNoticeMode, AckNoticeKind, AckNoticeChannel, AckOutboxRow } from "./types";
@@ -154,6 +166,7 @@ async function initialize(): Promise<void> {
     await migrateSecuritySealing(client);
     await migrateWeightedSearch(client);
     await migrateDirectoryRegistry(client);
+    await migratePolicyAssignments(client);
     await seedIfEmpty(client);
     await bootstrapAuth(client);
   } finally {
@@ -1094,6 +1107,12 @@ const SCHEMA_SQL = `
   -- workspace without custom_domain still mails absolute links. Nothing is
   -- remembered across requests. guardAddColumns rewrites this statement.
   ALTER TABLE ack_outbox ADD COLUMN IF NOT EXISTS origin text NOT NULL DEFAULT '';
+  -- 1.13.0 (E2): what a sweep hands the drain beside the recipient list. A
+  -- 'due' row carries each person's due date and whether it is past; an
+  -- 'escalation' row the overdue people, the threshold in days and who is
+  -- told through which role. NULL on every other row; a 1.12.0 binary
+  -- ignores it. guardAddColumns rewrites this statement.
+  ALTER TABLE ack_outbox ADD COLUMN IF NOT EXISTS payload jsonb;
   DO $$ BEGIN
     IF to_regclass('idx_ack_outbox_due') IS NULL THEN
       CREATE INDEX idx_ack_outbox_due ON ack_outbox(done_at, not_before);
@@ -1162,6 +1181,14 @@ const SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS idx_policy_assign_user ON policy_assignments(user_id, due_at);
   CREATE INDEX IF NOT EXISTS idx_policy_assign_doc_exempt ON policy_assignments(document_id, exempt_at);
   CREATE INDEX IF NOT EXISTS idx_policy_assign_due ON policy_assignments(due_at) WHERE exempt_at IS NULL AND removed_at IS NULL;
+
+  -- 1.13.0 deadlines (E1): the space layer of the defaults cascade
+  -- (policy_settings -> spaces.policy_defaults -> ack_defaults -> built-in).
+  -- Any subset of {due_days, new_joiner_days, overdue_grace_days,
+  -- remind_before_days, remind_every_days, escalate_after_days,
+  -- nudge_every_days, owner_user_id}; a key absent means inherit
+  -- (lib/ack-due). Metadata-only: a 1.12.0 binary never reads it.
+  ALTER TABLE spaces ADD COLUMN IF NOT EXISTS policy_defaults jsonb NOT NULL DEFAULT '{}';
 
   -- Training decks (enterprise "training" entitlement): a published document
   -- becomes a slide deck (split on ---) that can be assigned to users with a
@@ -2311,6 +2338,46 @@ async function migrateVersionProvenance(client: import("pg").PoolClient) {
 }
 
 /**
+ * One-shot audience migration (1.13.0, D1), guarded like
+ * migrateVersionProvenance: every policy that requires confirmation or was
+ * retired gets its policy_settings row (space mode, the defaults) and one
+ * policy_assignments row per person who owed it under 1.12.0's rule (an
+ * active account that can see the space), with the row's cycle dated from
+ * the document marker and source 'space', so every confirmation that was
+ * current stays current and no count moves on the upgrade boot
+ * (test/ack-boot.test.ts proves the KPI sums and each roster identical
+ * before and after). Trashed and paused policies are included, so a
+ * restore or a republish finds its audience as it was. A policy switched
+ * on later by a rolled-back 1.12.0 binary is healed by the hourly sweep.
+ * Exported for test/ack-audience.test.ts, which runs it inside a rolled-back
+ * transaction; the boot calls it once.
+ */
+export async function migratePolicyAssignments(client: Queryable) {
+  const done = await client.query("SELECT 1 FROM settings WHERE key = 'policy_assignments_migrated'");
+  if (done.rowCount) return;
+  const settings = await client.query(
+    `INSERT INTO policy_settings (document_id)
+     SELECT d.id FROM documents d WHERE d.ack_required = 1 OR d.ack_retired_at IS NOT NULL
+     ON CONFLICT (document_id) DO NOTHING`
+  );
+  const rows = await client.query(
+    `INSERT INTO policy_assignments (document_id, user_id, source, cycle_started_at)
+     SELECT d.id, u.id, 'space', d.ack_revision_at
+     FROM documents d
+     JOIN spaces s ON s.id = d.space_id
+     JOIN users u ON ${ACK_ELIGIBLE}
+     WHERE d.ack_required = 1 OR d.ack_retired_at IS NOT NULL
+     ON CONFLICT (document_id, user_id) DO NOTHING`
+  );
+  await client.query(
+    "INSERT INTO settings (key, value) VALUES ('policy_assignments_migrated','1') ON CONFLICT (key) DO NOTHING"
+  );
+  console.log(
+    `[ack] policy audiences materialised: ${settings.rowCount ?? 0} policy setting row(s) and ${rows.rowCount ?? 0} assignment(s)`
+  );
+}
+
+/**
  * One-time security migrations (0.41.0), inside the init advisory lock:
  * 1. Seal existing plaintext credential settings with the master key.
  * 2. Replace raw session tokens with their SHA-256 (cookies stay valid — the
@@ -2838,6 +2905,8 @@ export async function updateSpace(
     visibility?: string;
     default_template_id?: number | null;
     default_view?: string;
+    /** The space layer of the deadline cascade (E1), stored whole: the route merges a PATCH over the current object first (lib/ack-due mergeLayer). */
+    policy_defaults?: PolicyDefaultsLayer;
   }
 ): Promise<Space | undefined> {
   if (patch.visibility !== undefined && !["public", "internal", "private"].includes(patch.visibility)) {
@@ -2849,6 +2918,9 @@ export async function updateSpace(
   ) {
     delete patch.default_view;
   }
+  // Only known keys with values in range are stored; a junk value from a
+  // direct caller is dropped, never written (the route refuses it with 400).
+  if (patch.policy_defaults !== undefined) patch.policy_defaults = sanitizeLayer(patch.policy_defaults);
   const sets: string[] = [];
   const vals: any[] = [];
   for (const key of ["name", "description", "icon", "color", "visibility", "default_template_id", "default_view"] as const) {
@@ -2857,12 +2929,23 @@ export async function updateSpace(
       vals.push(patch[key]);
     }
   }
+  if (patch.policy_defaults !== undefined) {
+    sets.push(`policy_defaults = $${sets.length + 1}::jsonb`);
+    vals.push(JSON.stringify(patch.policy_defaults));
+  }
   if (!sets.length) return getSpaceById(id);
   vals.push(id);
+  const before = patch.visibility !== undefined ? await getSpaceById(id) : undefined;
   const r = await q<Space>(
     `UPDATE spaces SET ${sets.join(", ")} WHERE id = $${vals.length} RETURNING *`,
     vals
   );
+  // A visibility change moves who can see the space, so its policies'
+  // audiences follow (D1): private shrinks them to the granted people,
+  // internal opens them to every active account.
+  if (before && r[0] && r[0].visibility !== before.visibility) {
+    await reconcilePoliciesForSpace(id).catch((e) => console.error("[ack] could not reconcile the space's policies:", e));
+  }
   return r[0];
 }
 
@@ -4235,8 +4318,10 @@ export async function createSsoUser(input: {
     [input.username, input.email, input.name, input.role, input.provider, input.externalId]
   );
   // New members inherit any auto-assign training decks (best effort —
-  // a failure here must never block account creation).
+  // a failure here must never block account creation), and a row for every
+  // policy whose audience admits them, with one welcome notice (D1).
   await autoAssignTraining(r[0].id).catch(() => {});
+  await autoAssignPolicies(r[0].id).catch((e) => console.error("[ack] could not enrol the new account:", e));
   return (await getUserById(r[0].id))!;
 }
 
@@ -4299,8 +4384,10 @@ export async function scimCreateUser(input: {
     ]
   );
   // New members inherit any auto-assign training decks (best effort —
-  // a failure here must never block account creation).
+  // a failure here must never block account creation), and a row for every
+  // policy whose audience admits them, with one welcome notice (D1).
   await autoAssignTraining(r[0].id).catch(() => {});
+  await autoAssignPolicies(r[0].id).catch((e) => console.error("[ack] could not enrol the new account:", e));
   return (await getUserById(r[0].id))!;
 }
 
@@ -4328,6 +4415,10 @@ export async function scimUpdateUser(
       id,
     ]
   );
+  // A status flip closes or re-opens the person's policy rows (D1).
+  if (fields.status !== undefined && fields.status !== existing.status) {
+    await reconcilePoliciesForUser(id).catch((e) => console.error("[ack] could not reconcile the account's policies:", e));
+  }
   return getUserById(id);
 }
 
@@ -4354,8 +4445,10 @@ export async function createUser(input: {
     ]
   );
   // New members inherit any auto-assign training decks (best effort —
-  // a failure here must never block account creation).
+  // a failure here must never block account creation), and a row for every
+  // policy whose audience admits them, with one welcome notice (D1).
   await autoAssignTraining(r[0].id).catch(() => {});
+  await autoAssignPolicies(r[0].id).catch((e) => console.error("[ack] could not enrol the new account:", e));
   return (await getUserById(r[0].id))!;
 }
 
@@ -4370,6 +4463,11 @@ export async function updateUser(
     fields.status ?? existing.status,
     id,
   ]);
+  // A status flip closes or re-opens the person's policy rows (D1); a role
+  // change waits for the hourly sweep, as every role writer does.
+  if (fields.status !== undefined && fields.status !== existing.status) {
+    await reconcilePoliciesForUser(id).catch((e) => console.error("[ack] could not reconcile the account's policies:", e));
+  }
   return getUserById(id);
 }
 
@@ -4725,10 +4823,13 @@ export async function addGroupMember(groupId: number, userId: number): Promise<v
     "INSERT INTO group_members (group_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING",
     [groupId, userId]
   );
+  // The policies the group reaches (a group rule, a private space) follow (D1).
+  await reconcilePoliciesForGroup(groupId).catch((e) => console.error("[ack] could not reconcile the group's policies:", e));
 }
 
 export async function removeGroupMember(groupId: number, userId: number): Promise<void> {
   await q("DELETE FROM group_members WHERE group_id = $1 AND user_id = $2", [groupId, userId]);
+  await reconcilePoliciesForGroup(groupId).catch((e) => console.error("[ack] could not reconcile the group's policies:", e));
 }
 
 /** Replace a group's membership wholesale (used by the Entra sync). */
@@ -4751,6 +4852,9 @@ export async function setGroupMembers(groupId: number, userIds: number[]): Promi
   } finally {
     client.release();
   }
+  // After the commit, never inside it: the membership stands whatever the
+  // audiences do. The counts feed the sync report (drainAudienceSyncTally).
+  await reconcilePoliciesForGroup(groupId).catch((e) => console.error("[ack] could not reconcile the group's policies:", e));
 }
 
 // --- Per-space grants ------------------------------------------------------------
@@ -4887,6 +4991,10 @@ async function setSpaceRoleGroups(spaceId: number, groupIds: number[], roleKey: 
   } finally {
     client.release();
   }
+  // Who can see a private space changed: its policies' audiences follow (D1).
+  if (roleKey === "space-member") {
+    await reconcilePoliciesForSpace(spaceId).catch((e) => console.error("[ack] could not reconcile the space's policies:", e));
+  }
 }
 
 /** Replace the space-scoped user assignments of one seeded role. */
@@ -4914,6 +5022,9 @@ async function setSpaceRoleUsers(spaceId: number, userIds: number[], roleKey: st
     throw e;
   } finally {
     client.release();
+  }
+  if (roleKey === "space-member") {
+    await reconcilePoliciesForSpace(spaceId).catch((e) => console.error("[ack] could not reconcile the space's policies:", e));
   }
 }
 
@@ -5463,7 +5574,15 @@ export async function setAckRequired(
      RETURNING ack_edit_default`,
     [docId, apply, recert]
   );
-  if (r[0]) return { switched_on: true, edit_default: editDefaultOf(r[0]) };
+  if (r[0]) {
+    // The audience (D1, 1.13.0): the policy's settings row (space mode
+    // unless it already had one) and a row for everyone its audience names,
+    // in one transaction, so the first count after a switch-on is right.
+    // Only the call that flipped the requirement does this; the loser of a
+    // race changes nothing.
+    await reconcilePolicyAssignments(null, docId, { auto: false });
+    return { switched_on: true, edit_default: editDefaultOf(r[0]) };
+  }
   const cur = await q<{ ack_edit_default: string }>("SELECT ack_edit_default FROM documents WHERE id = $1", [docId]);
   return { switched_on: false, edit_default: editDefaultOf(cur[0]) };
 }
@@ -5505,6 +5624,19 @@ const ACK_ELIGIBLE = `u.status = 'active' AND ${ACK_VISIBILITY}`;
 // scheduling and trash/restore never touch it. Every compliance query below
 // uses this fragment and nothing else, so they cannot disagree.
 const ACK_CURRENT = `a.acknowledged_at >= d.ack_revision_at`;
+
+// Who owes a policy, since 1.13.0 (D1): an open row of policy_assignments
+// (alias pa; PA_OPEN from lib/audience = not removed, not exempt) for an
+// active account. ACK_ELIGIBLE is no longer recomputed by the counts: the
+// rows are materialised from the policy's audience by
+// reconcilePolicyAssignments (below), which intersects every target with
+// ACK_VISIBILITY, so the private-space ceiling still holds. Where a query
+// joins pa, a confirmation counts from the later of the document marker and
+// the row's own cycle start (a per-person re-ask, D4, or a return to the
+// audience), so the roster, the portal, My policies and the reader agree.
+const ACK_CURRENT_PA = `a.acknowledged_at >= GREATEST(d.ack_revision_at, pa.cycle_started_at)`;
+/** An open row of an active account: the people a policy asks. */
+const PA_OWES = `${PA_OPEN} AND u.status = 'active'`;
 
 // 1-based position of a version among its document's versions, ordered the
 // way Version history numbers them (oldest = v1). NULL when the column is
@@ -5613,10 +5745,11 @@ export async function complianceDocs(): Promise<ComplianceDocRow[]> {
      FROM documents d
      JOIN spaces s ON s.id = d.space_id
      LEFT JOIN documents r ON r.id = d.ack_superseded_by AND r.deleted_at IS NULL
-     LEFT JOIN users u ON ${ACK_ELIGIBLE}
+     LEFT JOIN policy_assignments pa ON pa.document_id = d.id AND ${PA_OPEN}
+     LEFT JOIN users u ON u.id = pa.user_id AND u.status = 'active'
      LEFT JOIN LATERAL (
        SELECT a.acknowledged_at FROM acknowledgements a
-       WHERE a.document_id = d.id AND a.user_id = u.id AND ${ACK_CURRENT}
+       WHERE a.document_id = d.id AND a.user_id = u.id AND ${ACK_CURRENT_PA}
        ORDER BY a.acknowledged_at DESC LIMIT 1
      ) a ON true
      WHERE (d.ack_required = 1 OR d.ack_retired_at IS NOT NULL) AND d.deleted_at IS NULL AND d.branch_of IS NULL
@@ -5687,19 +5820,19 @@ export async function complianceDocs(): Promise<ComplianceDocRow[]> {
   });
 }
 
-/** Eligible users who have NOT confirmed the doc's current marker. */
+/** People the policy asks (open assignment rows of active accounts) who have NOT confirmed its current ask. */
 export async function compliancePendingUsers(
   docId: number
 ): Promise<{ id: number; name: string; username: string; email: string }[]> {
   return q(
     `SELECT u.id, u.name, u.username, u.email
-     FROM users u
-     JOIN documents d ON d.id = $1
-     JOIN spaces s ON s.id = d.space_id
-     WHERE ${ACK_ELIGIBLE}
+     FROM policy_assignments pa
+     JOIN users u ON u.id = pa.user_id
+     JOIN documents d ON d.id = pa.document_id
+     WHERE pa.document_id = $1 AND ${PA_OWES}
        AND NOT EXISTS (
          SELECT 1 FROM acknowledgements a
-         WHERE a.document_id = d.id AND a.user_id = u.id AND ${ACK_CURRENT}
+         WHERE a.document_id = d.id AND a.user_id = u.id AND ${ACK_CURRENT_PA}
        )
      ORDER BY u.name`,
     [docId]
@@ -5719,16 +5852,16 @@ export async function complianceUserSummary(): Promise<
             COUNT(d.id)::int AS required,
             COUNT(d.id) FILTER (WHERE a.acknowledged_at IS NOT NULL)::int AS acked
      FROM users u
+     LEFT JOIN policy_assignments pa ON pa.user_id = u.id AND ${PA_OPEN}
      LEFT JOIN documents d
-       ON d.ack_required = 1 AND d.status = 'published' AND d.deleted_at IS NULL AND d.branch_of IS NULL
-     LEFT JOIN spaces s ON s.id = d.space_id
+       ON d.id = pa.document_id
+      AND d.ack_required = 1 AND d.status = 'published' AND d.deleted_at IS NULL AND d.branch_of IS NULL
      LEFT JOIN LATERAL (
        SELECT a.acknowledged_at FROM acknowledgements a
-       WHERE a.document_id = d.id AND a.user_id = u.id AND ${ACK_CURRENT}
+       WHERE a.document_id = d.id AND a.user_id = u.id AND ${ACK_CURRENT_PA}
        ORDER BY a.acknowledged_at DESC LIMIT 1
      ) a ON true
      WHERE u.status = 'active'
-       AND (d.id IS NULL OR ${ACK_VISIBILITY})
      GROUP BY u.id, u.name, u.username, u.role
      ORDER BY (COUNT(d.id) - COUNT(d.id) FILTER (WHERE a.acknowledged_at IS NOT NULL)) DESC, u.name`
   );
@@ -5753,6 +5886,632 @@ export async function ackCandidateDocs(): Promise<
 
 export async function setAckLastReminded(docId: number): Promise<void> {
   await q("UPDATE documents SET ack_last_reminded_at = now() WHERE id = $1", [docId]);
+}
+
+// --- Audiences (D1, 1.13.0) ------------------------------------------------------
+//
+// Who must confirm a policy is a row of policy_assignments, materialised
+// from the policy's audience (policy_settings.audience_mode and the rows of
+// policy_audience_rules; the predicates in lib/audience) by
+// reconcilePolicyAssignments and read by every count above. Rows are never
+// deleted: a person who leaves the audience keeps their row with removed_at
+// and a reason, and the same row re-opens when they return, their exemption
+// and reminder history with it. Nothing here touches the acknowledgements
+// ledger: a row says who owes a confirmation, never who gave one.
+//
+// The target of a policy = the people its rules admit who are active and
+// can see its space (ACK_VISIBILITY, the ceiling the ack route and the
+// document page enforce), so a rule narrows and never widens. Rows of a
+// policy that stopped asking (requirement off, retired, trashed) are left
+// as they are: ack_required = 0 takes the policy out of every sum, and
+// un-retiring reconciles. The doc-scoped reconcile serves a save, a switch-on
+// and the group, space and hourly hooks; the user-scoped one serves a new
+// account and a status flip, so provisioning five thousand people does not
+// rebuild every policy five thousand times.
+//
+// "Enrol new joiners automatically" (policy_settings.assign_new_members)
+// gates the automatic paths only: a new account, a group or space change, a
+// status flip and the hourly sweep add nobody to a policy that has it off
+// (they still close rows that no longer belong). A manager's save of the
+// audience and the switch-on always enrol everyone the target names.
+
+export interface ReconcileResult {
+  added: number;
+  closed: number;
+  reopened: number;
+}
+
+/** The workspace layer the reconcile needs: the two day counts of ack_defaults (null = built-in) and the zone a fixed date's day ends in. */
+export interface AudienceDefaults {
+  due_days: number | null;
+  new_joiner_days: number | null;
+  timeZone: string;
+}
+
+/**
+ * Read raw from the settings table: lib/compliance-settings is server-only
+ * and imports this module. A value outside 1..365, or an unreadable row,
+ * reads as null and the SQL falls through to the built-in 14; a blank zone
+ * is UTC (what the app shows when none is set).
+ */
+export async function workspaceAudienceDefaults(): Promise<AudienceDefaults> {
+  let due_days: number | null = null;
+  let new_joiner_days: number | null = null;
+  let timeZone = "UTC";
+  try {
+    const raw = await getSetting("ack_defaults");
+    const o = raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
+    const pick = (k: string): number | null => {
+      const v = o?.[k];
+      return typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= 365 ? v : null;
+    };
+    due_days = pick("due_days");
+    new_joiner_days = pick("new_joiner_days");
+  } catch {
+    /* built-in */
+  }
+  try {
+    timeZone = (await getSetting("timezone"))?.trim() || "UTC";
+  } catch {
+    /* UTC */
+  }
+  return { due_days, new_joiner_days, timeZone };
+}
+
+/** The author and approvers of a policy (aliases d, s, u): what "Exempt the document's author and approvers" takes out. */
+const ACK_STEWARD = `(
+    u.name = d.author
+    OR EXISTS (SELECT 1 FROM doc_versions v WHERE v.document_id = d.id AND v.published_by = u.id)
+    OR ${HOLDS_GLOBALLY("change_request.read", "u.id")}
+    OR ${HOLDS_ON_SPACE("change_request.read", "s.id", "u.id")}
+  )`;
+
+const audienceSql = (rules: string, mode: string, excludeStewards: string): AudienceSqlAliases => ({
+  doc: "d",
+  user: "u",
+  rules,
+  mode,
+  excludeStewards,
+  visible: ACK_VISIBILITY,
+  steward: ACK_STEWARD,
+});
+
+/** The policy's saved audience, over the aliases d, s, ps (LEFT JOINed: a missing row reads as space mode) and u. */
+const SAVED_AUDIENCE = audienceSql(
+  audienceRulesFromTable("d.id"),
+  "COALESCE(ps.audience_mode, 'space')",
+  "COALESCE(ps.exclude_stewards, 0) = 1"
+);
+/** A policy whose audience is kept: the requirement on, live, not a branch, not retired (paused ones included: they resume with the audience they had). */
+const AUDIENCE_POLICY = `d.ack_required = 1 AND d.deleted_at IS NULL AND d.branch_of IS NULL AND d.ack_retired_at IS NULL`;
+/** In the audience: an active account that can see the space and the rules admit. */
+const IN_AUDIENCE = `u.status = 'active' AND ${ACK_VISIBILITY} AND ${audienceAdmitsSql(SAVED_AUDIENCE)}`;
+/** The FROM list the audience statements share: the policy, its space and its settings row. */
+const AUDIENCE_FROM = `documents d
+       JOIN spaces s ON s.id = d.space_id
+       LEFT JOIN policy_settings ps ON ps.document_id = d.id`;
+/** The upsert's conflict arm: a closed row of a returning person re-opens with a fresh cycle and deadline; an open row is left alone. */
+const AUDIENCE_REOPEN = `ON CONFLICT (document_id, user_id) DO UPDATE
+       SET removed_at = NULL, removed_reason = '', cycle_started_at = now(),
+           due_at = EXCLUDED.due_at, source = EXCLUDED.source
+       WHERE policy_assignments.removed_at IS NOT NULL`;
+
+const NO_CHANGE: ReconcileResult = { added: 0, closed: 0, reopened: 0 };
+
+/**
+ * Bring one policy's rows in line with its audience: close the open rows
+ * of people the target no longer names (removed_at = now() and why), insert
+ * a row for each person it names who has none, and re-open the closed row
+ * of a person who is back. Returns the three counts. `client` runs it
+ * inside the caller's transaction (a save of the rules); null runs it in
+ * one of its own. `auto` marks the automatic paths (see the header):
+ * nothing is added to a policy with assign_new_members off. `defaults` is
+ * the workspace layer; a sweep loads it once and passes it in.
+ */
+export async function reconcilePolicyAssignments(
+  client: Queryable | null,
+  docId: number,
+  opts: { defaults?: AudienceDefaults; auto?: boolean } = {}
+): Promise<ReconcileResult> {
+  if (client) return reconcilePolicyOn(client, docId, opts);
+  await ready();
+  const own = await pool().connect();
+  try {
+    await own.query("BEGIN");
+    const r = await reconcilePolicyOn(own, docId, opts);
+    await own.query("COMMIT");
+    return r;
+  } catch (e) {
+    await own.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    own.release();
+  }
+}
+
+async function reconcilePolicyOn(
+  client: Queryable,
+  docId: number,
+  opts: { defaults?: AudienceDefaults; auto?: boolean }
+): Promise<ReconcileResult> {
+  const defaults = opts.defaults ?? (await workspaceAudienceDefaults());
+  // Self-healing: a policy switched on by a 1.12.0 binary during a rolling
+  // deploy has no settings row; it gets one here, in space mode.
+  await client.query(
+    "INSERT INTO policy_settings (document_id) SELECT id FROM documents WHERE id = $1 ON CONFLICT (document_id) DO NOTHING",
+    [docId]
+  );
+  // The settings row is the lock: two reconciles of one policy (a group
+  // sync and a save at once) run one after the other and neither doubles.
+  const head = await client.query<{ live: boolean; auto_on: boolean }>(
+    `SELECT (${AUDIENCE_POLICY}) AS live, (ps.assign_new_members = 1) AS auto_on
+     FROM documents d JOIN policy_settings ps ON ps.document_id = d.id
+     WHERE d.id = $1 FOR UPDATE OF ps`,
+    [docId]
+  );
+  const h = head.rows[0];
+  if (!h || !h.live) return { ...NO_CHANGE };
+  const closed = await client.query(
+    `UPDATE policy_assignments pa
+     SET removed_at = now(), removed_reason = ${audienceRemovedReasonSql(SAVED_AUDIENCE)}
+     FROM ${AUDIENCE_FROM}, users u
+     WHERE pa.document_id = $1 AND d.id = pa.document_id AND u.id = pa.user_id
+       AND pa.removed_at IS NULL
+       AND NOT (${IN_AUDIENCE})`,
+    [docId]
+  );
+  if (opts.auto && !h.auto_on) return { added: 0, closed: closed.rowCount ?? 0, reopened: 0 };
+  const opened = await client.query<{ inserted: boolean }>(
+    `INSERT INTO policy_assignments (document_id, user_id, source, due_at)
+     SELECT d.id, u.id, ${audienceSourceSql(SAVED_AUDIENCE)},
+            ${dueAtSql({ from: "now()", workspace: "$2", timeZone: "$3" })}
+     FROM ${AUDIENCE_FROM}, users u
+     WHERE d.id = $1 AND ${IN_AUDIENCE}
+     ${AUDIENCE_REOPEN}
+     RETURNING (xmax = 0) AS inserted`,
+    [docId, defaults.due_days, defaults.timeZone]
+  );
+  let added = 0;
+  let reopened = 0;
+  for (const r of opened.rows) {
+    if (r.inserted) added++;
+    else reopened++;
+  }
+  return { added, closed: closed.rowCount ?? 0, reopened };
+}
+
+/** One policy a user-scoped reconcile opened or re-opened, for the welcome notice and the audit row. */
+export interface EnrolledPolicy {
+  id: number;
+  title: string;
+  due_at: string | null;
+}
+
+/**
+ * The user-scoped form: the same predicates over every live policy for one
+ * person. Closes their rows where the target no longer names them (when
+ * `close` is set: a status flip), opens or re-opens rows where it does.
+ * 'new_member' rows take the new-joiner days from the cascade (the space,
+ * the workspace, the built-in) instead of the policy's deadline rule.
+ */
+async function reconcileUserOn(
+  client: Queryable,
+  userId: number,
+  opts: { defaults: AudienceDefaults; source: "rules" | "new_member"; auto: boolean; close: boolean }
+): Promise<ReconcileResult & { opened: EnrolledPolicy[] }> {
+  let closed = 0;
+  if (opts.close) {
+    const c = await client.query(
+      `UPDATE policy_assignments pa
+       SET removed_at = now(), removed_reason = ${audienceRemovedReasonSql(SAVED_AUDIENCE)}
+       FROM ${AUDIENCE_FROM}, users u
+       WHERE pa.user_id = $1 AND u.id = pa.user_id AND d.id = pa.document_id
+         AND pa.removed_at IS NULL AND ${AUDIENCE_POLICY}
+         AND NOT (${IN_AUDIENCE})`,
+      [userId]
+    );
+    closed = c.rowCount ?? 0;
+  }
+  const joiner = opts.source === "new_member";
+  const source = joiner ? "'new_member'" : audienceSourceSql(SAVED_AUDIENCE);
+  const due = dueAtSql({ from: "now()", workspace: "$2", timeZone: "$3", key: joiner ? "new_joiner_days" : "due_days" });
+  const opened = await client.query<{ document_id: number; due_at: string | null; inserted: boolean }>(
+    `INSERT INTO policy_assignments (document_id, user_id, source, due_at)
+     SELECT d.id, u.id, ${source}, ${due}
+     FROM ${AUDIENCE_FROM}, users u
+     WHERE u.id = $1 AND ${AUDIENCE_POLICY}
+       AND ($4::boolean = false OR COALESCE(ps.assign_new_members, 1) = 1)
+       AND ${IN_AUDIENCE}
+     ${AUDIENCE_REOPEN}
+     RETURNING document_id, due_at, (xmax = 0) AS inserted`,
+    [userId, joiner ? opts.defaults.new_joiner_days : opts.defaults.due_days, opts.defaults.timeZone, opts.auto]
+  );
+  let added = 0;
+  let reopened = 0;
+  for (const r of opened.rows) {
+    if (r.inserted) added++;
+    else reopened++;
+  }
+  const ids = opened.rows.map((r) => r.document_id);
+  const titles =
+    ids.length === 0
+      ? []
+      : (await client.query<{ id: number; title: string }>("SELECT id, title FROM documents WHERE id = ANY($1)", [ids])).rows;
+  const titleOf = new Map(titles.map((t) => [t.id, t.title]));
+  const rows = opened.rows
+    .map((r) => ({ id: r.document_id, title: titleOf.get(r.document_id) ?? "", due_at: r.due_at }))
+    .sort((a, b) => (a.due_at ?? "9").localeCompare(b.due_at ?? "9") || a.title.localeCompare(b.title));
+  return { added, closed, reopened, opened: rows };
+}
+
+/** The audit row for a policy whose audience moved (ack.audience_reconciled), written only when something did. A dynamic import: lib/audit imports this module. */
+async function auditAudienceMoved(doc: { id: number; title: string }, r: ReconcileResult): Promise<void> {
+  if (r.added + r.closed + r.reopened === 0) return;
+  try {
+    const { audit } = await import("./audit");
+    await audit({
+      actor: { id: null, name: "system" },
+      action: "ack.audience_reconciled",
+      targetType: "document",
+      targetId: doc.id,
+      targetLabel: doc.title,
+      details: { doc_id: doc.id, added: r.added, closed: r.closed, reopened: r.reopened },
+    });
+  } catch (e) {
+    console.error("[ack] could not audit the audience change:", e);
+  }
+}
+
+async function reconcileEach(
+  docs: { id: number; title: string }[],
+  opts: { defaults: AudienceDefaults; auto: boolean }
+): Promise<ReconcileResult> {
+  const total: ReconcileResult = { added: 0, closed: 0, reopened: 0 };
+  for (const d of docs) {
+    const r = await reconcilePolicyAssignments(null, d.id, opts);
+    total.added += r.added;
+    total.closed += r.closed;
+    total.reopened += r.reopened;
+    await auditAudienceMoved(d, r);
+  }
+  return total;
+}
+
+/**
+ * The hourly safety net (first in lib/compliance's complianceHourly):
+ * every live policy against its audience, so a role granted or revoked in
+ * Roles & permissions (not hooked: too many writers) takes effect within
+ * the hour, and a settings row missing after a rolling deploy heals. One
+ * ack.audience_reconciled row per policy whose rows moved.
+ */
+export async function reconcileAllPolicies(): Promise<ReconcileResult & { policies: number }> {
+  await ready();
+  const defaults = await workspaceAudienceDefaults();
+  const docs = await q<{ id: number; title: string }>(
+    `SELECT d.id, d.title FROM documents d WHERE ${AUDIENCE_POLICY} ORDER BY d.id`
+  );
+  const total = await reconcileEach(docs, { defaults, auto: true });
+  return { ...total, policies: docs.length };
+}
+
+/** What the group hooks moved since the last drain: the directory sync report's "Policy audiences updated: +12 / −3". */
+const audienceSyncTally = { added: 0, closed: 0 };
+
+/** Read and reset the tally. The scheduled sync drains it before and after a run; a manual group edit in between is counted with the run, which is the truth of what the hour changed. */
+export function drainAudienceSyncTally(): { added: number; closed: number } {
+  const out = { ...audienceSyncTally };
+  audienceSyncTally.added = 0;
+  audienceSyncTally.closed = 0;
+  return out;
+}
+
+/**
+ * A group's membership changed (a manual edit, an Entra or Google sync):
+ * the policies with a rule naming the group, and every policy in a private
+ * space (membership there reaches people through space.member and
+ * space.read_all grants to groups, whichever role carries them).
+ */
+export async function reconcilePoliciesForGroup(groupId: number): Promise<ReconcileResult> {
+  await ready();
+  const defaults = await workspaceAudienceDefaults();
+  const docs = await q<{ id: number; title: string }>(
+    `SELECT d.id, d.title FROM documents d JOIN spaces s ON s.id = d.space_id
+     WHERE ${AUDIENCE_POLICY}
+       AND (s.visibility = 'private'
+            OR EXISTS (SELECT 1 FROM policy_audience_rules r
+                       WHERE r.document_id = d.id AND r.kind = 'group' AND r.ref = $1::text))
+     ORDER BY d.id`,
+    [String(groupId)]
+  );
+  const total = await reconcileEach(docs, { defaults, auto: true });
+  audienceSyncTally.added += total.added + total.reopened;
+  audienceSyncTally.closed += total.closed;
+  return total;
+}
+
+/** A space's visibility or its member grants changed: every live policy in it. */
+export async function reconcilePoliciesForSpace(spaceId: number): Promise<ReconcileResult> {
+  await ready();
+  const defaults = await workspaceAudienceDefaults();
+  const docs = await q<{ id: number; title: string }>(
+    `SELECT d.id, d.title FROM documents d WHERE d.space_id = $1 AND ${AUDIENCE_POLICY} ORDER BY d.id`,
+    [spaceId]
+  );
+  return reconcileEach(docs, { defaults, auto: true });
+}
+
+/**
+ * An account's status flipped (updateUser, scimUpdateUser): disabling
+ * closes every open row with 'disabled'; re-enabling re-opens them with a
+ * fresh cycle and deadline, and opens rows for policies that admit the
+ * person now. User-scoped, so it costs two statements whatever the
+ * workspace's size.
+ */
+export async function reconcilePoliciesForUser(userId: number): Promise<ReconcileResult> {
+  await ready();
+  const defaults = await workspaceAudienceDefaults();
+  const r = await reconcileUserOn(pool(), userId, { defaults, source: "rules", auto: true, close: true });
+  if (r.added + r.closed + r.reopened > 0) {
+    try {
+      const { audit } = await import("./audit");
+      const who = await getUserById(userId);
+      await audit({
+        actor: { id: null, name: "system" },
+        action: "ack.audience_reconciled",
+        targetType: "user",
+        targetId: userId,
+        targetLabel: who?.name || who?.username || String(userId),
+        details: { user_id: userId, added: r.added, closed: r.closed, reopened: r.reopened, policies: r.opened.map((p) => p.id) },
+      });
+    } catch (e) {
+      console.error("[ack] could not audit the audience change:", e);
+    }
+  }
+  return { added: r.added, closed: r.closed, reopened: r.reopened };
+}
+
+/**
+ * A new account (createUser, scimCreateUser, createSsoUser, beside
+ * autoAssignTraining): a row for every policy whose audience admits them
+ * and enrols new joiners, source 'new_member', due the new-joiner days from
+ * now, never a past date; then one welcome notice listing them through the
+ * outbox (lib/compliance notifyWelcome; a single policy goes as the usual
+ * request) and ack.auto_enrolled {user_id, policies}. A disabled account
+ * (a SCIM push with active: false) gets nothing: the target is active
+ * people, and the status flip enrols them later.
+ */
+export async function autoAssignPolicies(
+  userId: number
+): Promise<{ policies: EnrolledPolicy[]; outbox_id: number | null }> {
+  await ready();
+  const defaults = await workspaceAudienceDefaults();
+  const r = await reconcileUserOn(pool(), userId, { defaults, source: "new_member", auto: true, close: false });
+  if (r.opened.length === 0) return { policies: [], outbox_id: null };
+  try {
+    const { audit } = await import("./audit");
+    const who = await getUserById(userId);
+    await audit({
+      actor: { id: null, name: "system" },
+      action: "ack.auto_enrolled",
+      targetType: "user",
+      targetId: userId,
+      targetLabel: who?.name || who?.username || String(userId),
+      details: { user_id: userId, policies: r.opened.map((p) => p.id), titles: r.opened.map((p) => p.title) },
+    });
+  } catch (e) {
+    console.error("[ack] could not audit the enrolment:", e);
+  }
+  let outboxId: number | null = null;
+  try {
+    const { notifyWelcome } = await import("./compliance");
+    outboxId = await notifyWelcome(userId, r.opened);
+  } catch (e) {
+    console.error("[ack] could not queue the welcome notice:", e);
+  }
+  return { policies: r.opened, outbox_id: outboxId };
+}
+
+/** The audience half of policy_settings with its rules, as the Settings tab and GET /ack-settings read it. */
+export interface PolicyAudience {
+  audience_mode: AudienceMode;
+  rules: AudienceRule[];
+  exclude_stewards: boolean;
+  assign_new_members: boolean;
+}
+
+/** What saveAudienceRules accepts: any subset; `rules` replaces the whole list. */
+export interface PolicyAudiencePatch {
+  audience_mode?: AudienceMode;
+  rules?: AudienceRule[];
+  exclude_stewards?: boolean;
+  assign_new_members?: boolean;
+}
+
+/** The saved rules of a policy, in the order they were written. */
+export async function listAudienceRules(docId: number): Promise<AudienceRule[]> {
+  return q<AudienceRule>(
+    "SELECT kind, ref, effect FROM policy_audience_rules WHERE document_id = $1 ORDER BY id",
+    [docId]
+  );
+}
+
+async function policyAudienceOn(client: Queryable, docId: number): Promise<PolicyAudience | null> {
+  const s = await client.query<{ audience_mode: string; exclude_stewards: number; assign_new_members: number }>(
+    "SELECT audience_mode, exclude_stewards, assign_new_members FROM policy_settings WHERE document_id = $1",
+    [docId]
+  );
+  const row = s.rows[0];
+  if (!row) return null;
+  const rules = await client.query<AudienceRule>(
+    "SELECT kind, ref, effect FROM policy_audience_rules WHERE document_id = $1 ORDER BY id",
+    [docId]
+  );
+  return {
+    audience_mode: row.audience_mode === "targeted" ? "targeted" : "space",
+    rules: rules.rows,
+    exclude_stewards: row.exclude_stewards === 1,
+    assign_new_members: row.assign_new_members === 1,
+  };
+}
+
+/** The policy's audience; null when it has no settings row yet (then it is in space mode with the defaults). */
+export async function getPolicyAudience(docId: number): Promise<PolicyAudience | null> {
+  await ready();
+  return policyAudienceOn(pool(), docId);
+}
+
+/** The whole policy_settings row (the deadline and reminder numbers are the E1/E2 agents' to write); null without one. */
+export async function getPolicySettings(docId: number): Promise<PolicySettings | null> {
+  const r = await q<PolicySettings>(
+    `SELECT document_id, audience_mode, assign_new_members, exclude_stewards, owner_user_id,
+            due_days, due_at::text AS due_at, remind_before_days, remind_every_days, escalate_after_days,
+            nudge_every_days, requested_by, requested_at
+     FROM policy_settings WHERE document_id = $1`,
+    [docId]
+  );
+  return r[0] ?? null;
+}
+
+/**
+ * Save a policy's audience (PATCH /ack-settings with audience_mode, rules,
+ * exclude_stewards, assign_new_members) and reconcile its rows in the same
+ * transaction, so the toast's counts are what the save did. `rules` must
+ * already be sanitizeRules' output. Answers the audience as stored with the
+ * counts, or null when the document is gone. The caller audits
+ * ack.audience_set {mode, rules, added, closed}.
+ */
+export async function saveAudienceRules(
+  docId: number,
+  patch: PolicyAudiencePatch
+): Promise<(PolicyAudience & ReconcileResult) | null> {
+  await ready();
+  const client = await pool().connect();
+  try {
+    await client.query("BEGIN");
+    const exists = await client.query("SELECT 1 FROM documents WHERE id = $1", [docId]);
+    if (exists.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    await client.query(
+      "INSERT INTO policy_settings (document_id) VALUES ($1) ON CONFLICT (document_id) DO NOTHING",
+      [docId]
+    );
+    await client.query(
+      `UPDATE policy_settings
+       SET audience_mode = COALESCE($2::text, audience_mode),
+           exclude_stewards = COALESCE($3::int, exclude_stewards),
+           assign_new_members = COALESCE($4::int, assign_new_members)
+       WHERE document_id = $1`,
+      [
+        docId,
+        patch.audience_mode ?? null,
+        patch.exclude_stewards === undefined ? null : patch.exclude_stewards ? 1 : 0,
+        patch.assign_new_members === undefined ? null : patch.assign_new_members ? 1 : 0,
+      ]
+    );
+    if (patch.rules) {
+      await client.query("DELETE FROM policy_audience_rules WHERE document_id = $1", [docId]);
+      if (patch.rules.length > 0) {
+        await client.query(
+          `INSERT INTO policy_audience_rules (document_id, kind, ref, effect)
+           SELECT $1, r.kind, r.ref, r.effect
+           FROM jsonb_to_recordset($2::jsonb) AS r(kind text, ref text, effect text)
+           ON CONFLICT DO NOTHING`,
+          [docId, JSON.stringify(patch.rules)]
+        );
+      }
+    }
+    const counts = await reconcilePolicyOn(client, docId, { auto: false });
+    const state = await policyAudienceOn(client, docId);
+    await client.query("COMMIT");
+    return { ...(state as PolicyAudience), ...counts };
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+/** What GET /ack-settings?preview=1 answers: the audience a draft of the rules would reach. */
+export interface AudiencePreview {
+  /** Active people the rules name who can see the space: the rows a save would hold open. */
+  count: number;
+  /** Active people a targeted rule names who cannot see the space (0 in space mode): shown as "No access", not enrolled. */
+  no_access: number;
+  /** The first five names, alphabetically. */
+  sample: string[];
+}
+
+/**
+ * Count an audience without writing it: the Settings tab's live line
+ * "Applies to 412 people · 3 without access". The same predicates as the
+ * reconcile over rules from the request (sanitizeRules first), so the
+ * preview and the save cannot disagree.
+ */
+export async function previewAudience(
+  docId: number,
+  input: { audience_mode: AudienceMode; rules: AudienceRule[]; exclude_stewards: boolean }
+): Promise<AudiencePreview> {
+  await ready();
+  const a = audienceSql(audienceRulesFromJson("$2"), "$3::text", "$4::boolean");
+  const r = await q<{ count: number; no_access: number; sample: string[] | null }>(
+    `WITH cand AS (
+       SELECT u.name, (${ACK_VISIBILITY}) AS visible
+       FROM documents d JOIN spaces s ON s.id = d.space_id, users u
+       WHERE d.id = $1 AND u.status = 'active' AND ${audienceAdmitsSql(a)}
+     )
+     SELECT COUNT(*) FILTER (WHERE visible)::int AS count,
+            COUNT(*) FILTER (WHERE NOT visible AND $3::text = 'targeted')::int AS no_access,
+            (SELECT array_agg(x.name) FROM (SELECT c.name FROM cand c WHERE c.visible ORDER BY c.name LIMIT 5) x) AS sample
+     FROM cand`,
+    [docId, JSON.stringify(input.rules), input.audience_mode, input.exclude_stewards]
+  );
+  const row = r[0];
+  return { count: row?.count ?? 0, no_access: row?.no_access ?? 0, sample: row?.sample ?? [] };
+}
+
+/** Does this policy ask this person right now (an open row)? The ack route's and the document page's gate. */
+export async function hasOpenAssignment(docId: number, userId: number): Promise<boolean> {
+  const r = await q<{ one: number }>(
+    `SELECT 1 AS one FROM policy_assignments pa WHERE pa.document_id = $1 AND pa.user_id = $2 AND ${PA_OPEN}`,
+    [docId, userId]
+  );
+  return r.length > 0;
+}
+
+/**
+ * The policies a person owes right now: open rows of an active account on
+ * published, required, unretired policies with no current confirmation,
+ * earliest deadline first. The welcome notice lists these at delivery, so
+ * a policy confirmed or retired between enqueue and the tick is not named.
+ */
+export async function listOwedPoliciesFor(userId: number): Promise<EnrolledPolicy[]> {
+  return q<EnrolledPolicy>(
+    `SELECT d.id, d.title, pa.due_at
+     FROM policy_assignments pa
+     JOIN users u ON u.id = pa.user_id
+     JOIN documents d ON d.id = pa.document_id
+     WHERE pa.user_id = $1 AND ${PA_OWES}
+       AND d.ack_required = 1 AND d.status = 'published' AND d.deleted_at IS NULL
+       AND d.branch_of IS NULL AND d.ack_retired_at IS NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM acknowledgements a
+         WHERE a.document_id = d.id AND a.user_id = pa.user_id AND ${ACK_CURRENT_PA}
+       )
+     ORDER BY pa.due_at NULLS LAST, d.title, d.id`,
+    [userId]
+  );
+}
+
+/** The notice rows one outbox row wrote for one person (a welcome writes one per policy): a retry adds its channel to each. */
+export async function ackNoticeIdsFor(outboxId: number, userId: number): Promise<number[]> {
+  const rows = await q<{ id: number }>("SELECT id FROM ack_notices WHERE outbox_id = $1 AND user_id = $2 ORDER BY id", [
+    outboxId,
+    userId,
+  ]);
+  return rows.map((r) => r.id);
 }
 
 // --- Retire a policy (G3, 1.12.0) -------------------------------------------------
@@ -5889,6 +6648,9 @@ export async function unretirePolicy(docId: number): Promise<{ title: string; cu
     [docId]
   );
   if (!r[0]) return null;
+  // The audience (D1): retiring left the rows as they were; people who
+  // joined or left while the policy was retired are brought in line now.
+  await reconcilePolicyAssignments(null, docId, { auto: false });
   const counts = await ackCounts(pool(), docId);
   return { title: r[0].title, current: counts.current, eligible: counts.eligible };
 }
@@ -6089,14 +6851,22 @@ export async function getCurrentAck(docId: number, userId: number): Promise<Curr
   return currentAckRow(pool(), docId, userId);
 }
 
-/** getCurrentAck on a given client (recordAcknowledgement asks inside its own transaction). */
+/**
+ * getCurrentAck on a given client (recordAcknowledgement asks inside its own
+ * transaction). Current against the later of the document marker and the
+ * person's own cycle start (D1/D4, 1.13.0) when they have an assignment row
+ * (LEFT JOIN: a person with no row, or a closed one, is measured against
+ * the marker alone), so the card and the roster agree after a per-person
+ * re-ask or a return to the audience.
+ */
 async function currentAckRow(client: Queryable, docId: number, userId: number): Promise<CurrentAck | undefined> {
   const r = await client.query<CurrentAck>(
     `SELECT a.acknowledged_at, a.version_id, a.content_sha256, a.signed_name,
             ${VERSION_REV("a.version_id")} AS rev
      FROM acknowledgements a
      JOIN documents d ON d.id = a.document_id
-     WHERE a.document_id = $1 AND a.user_id = $2 AND ${ACK_CURRENT}
+     LEFT JOIN policy_assignments pa ON pa.document_id = a.document_id AND pa.user_id = a.user_id AND pa.removed_at IS NULL
+     WHERE a.document_id = $1 AND a.user_id = $2 AND ${ACK_CURRENT_PA}
      ORDER BY a.acknowledged_at DESC, a.id DESC LIMIT 1`,
     [docId, userId]
   );
@@ -6131,9 +6901,10 @@ export async function getLatestAck(docId: number, userId: number): Promise<Lates
             (a.version_id IS NULL AND inf.id IS NOT NULL) AS version_inferred,
             a.content_sha256, a.signed_name,
             ${VERSION_REV("COALESCE(a.version_id, inf.id)")} AS rev,
-            (${ACK_CURRENT}) AS current
+            (${ACK_CURRENT_PA}) AS current
      FROM acknowledgements a
      JOIN documents d ON d.id = a.document_id
+     LEFT JOIN policy_assignments pa ON pa.document_id = a.document_id AND pa.user_id = a.user_id AND pa.removed_at IS NULL
      LEFT JOIN LATERAL (
        SELECT MAX(x.id) AS id FROM doc_versions x
        WHERE x.document_id = a.document_id AND x.created_at <= a.acknowledged_at
@@ -6242,11 +7013,34 @@ export interface AckStatusRow {
   statement_text: string | null;
   signed_name: string | null;
   identity_proof: string | null;
+  /**
+   * The person's assignment row (D1/D2, 1.13.0): its id (what the roster's
+   * actions send), the deadline (null when the policy sets none), whether
+   * the row is exempt (then it is in no count) with the reason, who recorded
+   * it, when and until when ('' / null when not exempt), when a snooze ends
+   * (null when not snoozed), and the per-person cycle start when it is later
+   * than both the document marker and the row's own assignment (a per-person
+   * re-ask, D4, or a row re-opened when the person returned; null on a row
+   * first assigned after the marker, whose cycle simply began then).
+   */
+  assignment_id: number | null;
+  due_at: string | null;
+  exempt: boolean;
+  exempt_reason: string;
+  exempt_by_name: string;
+  exempt_at: string | null;
+  exempt_until: string | null;
+  snoozed_until: string | null;
+  asked_again_at: string | null;
 }
 
 /**
  * Compliance status: everyone who is expected to confirm the doc (active
- * accounts that can see its space) with their current confirmation, if any.
+ * accounts that can see its space) with their current confirmation, if any,
+ * and their assignment row beside it (exempt rows last). A confirmation is
+ * current against the later of the document marker and the person's own
+ * cycle start (D4), so a per-person re-ask shows that person pending and
+ * nobody else.
  */
 export async function ackStatusForDocument(docId: number): Promise<AckStatusRow[]> {
   return q(
@@ -6257,19 +7051,26 @@ export async function ackStatusForDocument(docId: number): Promise<AckStatusRow[
                  ELSE ${VERSION_SOURCE("a.content_sha256")} END AS version_source,
             a.read_seconds,
             CASE WHEN a.acknowledged_at IS NULL THEN NULL ELSE (a.reached_end = 1) END AS reached_end,
-            a.statement_text, a.signed_name, a.identity_proof
-     FROM users u
-     JOIN documents d ON d.id = $1
-     JOIN spaces s ON s.id = d.space_id
+            a.statement_text, a.signed_name, a.identity_proof,
+            pa.id AS assignment_id, pa.due_at,
+            (pa.exempt_at IS NOT NULL) AS exempt,
+            COALESCE(pa.exempt_reason, '') AS exempt_reason,
+            COALESCE(pa.exempt_by_name, '') AS exempt_by_name,
+            pa.exempt_at, pa.exempt_until, pa.snoozed_until,
+            CASE WHEN pa.cycle_started_at > d.ack_revision_at AND pa.cycle_started_at > pa.assigned_at
+                 THEN pa.cycle_started_at END AS asked_again_at
+     FROM policy_assignments pa
+     JOIN users u ON u.id = pa.user_id
+     JOIN documents d ON d.id = pa.document_id
      LEFT JOIN LATERAL (
        SELECT a.acknowledged_at, a.version_id, a.content_sha256, a.read_seconds, a.reached_end,
               a.statement_text, a.signed_name, a.identity_proof
        FROM acknowledgements a
-       WHERE a.document_id = d.id AND a.user_id = u.id AND ${ACK_CURRENT}
+       WHERE a.document_id = d.id AND a.user_id = u.id AND ${ACK_CURRENT_PA}
        ORDER BY a.acknowledged_at DESC, a.id DESC LIMIT 1
      ) a ON true
-     WHERE ${ACK_ELIGIBLE}
-     ORDER BY (a.acknowledged_at IS NULL) DESC, u.name`,
+     WHERE pa.document_id = $1 AND pa.removed_at IS NULL AND u.status = 'active'
+     ORDER BY (pa.exempt_at IS NOT NULL), (a.acknowledged_at IS NULL) DESC, u.name`,
     [docId]
   );
 }
@@ -6350,6 +7151,395 @@ export interface AckSettings {
   statement: string | null;
   /** Whether the reader types their full name (and a local account its password) to confirm. */
   signature: boolean;
+}
+
+// --- Exemptions, extensions and snooze (D2, 1.13.0) ---------------------------
+//
+// Per-assignment levers on policy_assignments. Each is one UPDATE bounded
+// by the ids given and, when a document is named (`docId`, the space-scoped
+// twin route), by `pa.document_id = $docId` as well, so a steward of one
+// space can never move another space's rows by guessing ids; every call
+// answers which ids it skipped. Nothing here deletes a row, and nothing
+// here touches the acknowledgements ledger: who confirmed what stays as
+// recorded whatever happens to the assignment.
+//
+// Exempt rows leave every denominator: PA_OPEN (the open-row predicate the
+// compliance queries share) excludes them, so the portal, the record, My
+// policies and the sweeps stop counting the person the moment the row is
+// stamped, and the roster shows the row with status 'exempt' and the
+// reason, who recorded it and until when, in plain text.
+//
+// The invariant (printed on the roster and in the docs): snooze never
+// changes a person's status, the KPIs, the rosters, the exports or the
+// snapshot. It only pauses automatic reminders (claimAckReminders skips a
+// snoozed row) and, once the needs-attention queue ships, hides the row
+// from it. Overdue is a function of due_at and the confirmation alone.
+
+/** One row a lever changed: enough for the audit row without a second read. */
+export interface AssignmentChange {
+  id: number;
+  document_id: number;
+  user_id: number;
+  /** The policy's title, for the audit row's target label. */
+  title: string;
+}
+
+/** What every lever answers: the rows it changed and the ids it did not. */
+export interface AssignmentResult<T extends AssignmentChange = AssignmentChange> {
+  changed: T[];
+  /**
+   * Ids given that no row answered: unknown, another document than the one
+   * named, removed, or already in the state asked for (exempting an exempt
+   * row, unsnoozing a row that is not snoozed, undoing with nothing to undo).
+   */
+  skipped: number[];
+}
+
+/** A due-date change on a row, for ack.due_extended / ack.due_extension_undone. */
+export interface AssignmentDueChange extends AssignmentChange {
+  from_at: string | null;
+  to_at: string | null;
+}
+
+/** One entry of policy_assignments.due_history, newest last; the last 10 are kept. */
+export interface DueHistoryEntry {
+  /** 'extend' for the roster's Extend (undoExtension pops only these); other writers name their own kind. */
+  kind?: string;
+  from: string | null;
+  to: string | null;
+  /** Who moved it (the actor's name) and when. */
+  by: string;
+  by_id?: number | null;
+  at: string;
+  reason: string;
+}
+
+/** An assignment row as the roster and the levers read it (open and exempt rows; removed rows are history). */
+export interface PolicyAssignmentRow {
+  id: number;
+  document_id: number;
+  user_id: number;
+  source: string;
+  assigned_at: string;
+  cycle_started_at: string;
+  due_at: string | null;
+  due_history: DueHistoryEntry[];
+  reminded_at: string | null;
+  reminder_count: number;
+  escalated_at: string | null;
+  snoozed_until: string | null;
+  snoozed_by: number | null;
+  exempt_at: string | null;
+  exempt_by: number | null;
+  exempt_by_name: string;
+  exempt_reason: string;
+  exempt_until: string | null;
+}
+
+/** The longest exemption reason the record keeps (the roster's dialog bounds it the same). */
+export const EXEMPT_REASON_MAX = 300;
+/** A snooze pauses reminders for at most this many days. */
+export const SNOOZE_DAYS_MAX = 30;
+/** An extension pushes a deadline out by at most this many days. */
+export const EXTEND_DAYS_MAX = 365;
+/** due_history keeps this many entries per row, newest last. */
+export const DUE_HISTORY_KEEP = 10;
+
+/** Positive integer ids, deduped, in the order given. */
+function uniqueIds(ids: readonly unknown[]): number[] {
+  const out: number[] = [];
+  for (const v of ids) {
+    if (typeof v === "number" && Number.isSafeInteger(v) && v > 0 && !out.includes(v)) out.push(v);
+  }
+  return out;
+}
+
+/** The ids of `wanted` that no changed row answers. */
+function skippedOf(wanted: number[], changed: { id: number }[]): number[] {
+  const done = new Set(changed.map((r) => r.id));
+  return wanted.filter((id) => !done.has(id));
+}
+
+/** A day count clamped to 1..max, whole days. */
+const clampDays = (days: number, max: number) => Math.min(max, Math.max(1, Math.floor(days)));
+
+/**
+ * The workspace's default deadline in days (ack_defaults.due_days, E1), or
+ * null when unset or unreadable so the SQL falls through to the built-in
+ * 14. Read raw here because this module owns the settings table and the
+ * typed reader (lib/compliance-settings) is server-only.
+ */
+async function workspaceDueDays(): Promise<number | null> {
+  try {
+    const raw = await getSetting("ack_defaults");
+    const v = raw ? (JSON.parse(raw) as { due_days?: unknown }).due_days : undefined;
+    return typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= 365 ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The deadline a row gets back when its exemption ends (unexemptAssignments,
+ * expireExemptions): the policy's fixed date while it is still ahead, else
+ * now plus the days of the defaults cascade (E1): policy_settings.due_days,
+ * the space's policy_defaults, the workspace ack_defaults (the parameter),
+ * then the built-in 14. dueAtFor applies the same rule in TypeScript; it is
+ * SQL here so one UPDATE re-arms every row it clears. Needs `ps`
+ * (policy_settings, LEFT JOINed) and `s` (spaces) in the FROM list.
+ */
+const PA_REARM_DUE = (workspaceParam: string) => `CASE
+      WHEN ps.due_at IS NOT NULL AND ps.due_at > CURRENT_DATE THEN ps.due_at::timestamptz
+      ELSE now() + make_interval(days => COALESCE(ps.due_days, (s.policy_defaults->>'due_days')::int, ${workspaceParam}::int, 14))
+    END`;
+
+/** The FROM list the re-arming statements share: the policy, its space and its settings row. */
+const PA_REARM_FROM = `FROM documents d
+    JOIN spaces s ON s.id = d.space_id
+    LEFT JOIN policy_settings ps ON ps.document_id = d.id`;
+
+/** The assignment rows of a policy the roster shows: open and exempt, removed rows left out. */
+export async function listAssignmentsForDocument(docId: number): Promise<PolicyAssignmentRow[]> {
+  return q(
+    `SELECT id, document_id, user_id, source, assigned_at, cycle_started_at, due_at, due_history,
+            reminded_at, reminder_count, escalated_at, snoozed_until, snoozed_by,
+            exempt_at, exempt_by, exempt_by_name, exempt_reason, exempt_until
+     FROM policy_assignments
+     WHERE document_id = $1 AND removed_at IS NULL
+     ORDER BY id`,
+    [docId]
+  );
+}
+
+export interface ExemptResult extends AssignmentResult {
+  /**
+   * Ids among the request that are the actor's own row. When any is, the
+   * whole call is refused and nothing is written (the route answers 400:
+   * "Ask another compliance manager to record your exemption.").
+   */
+  self: number[];
+}
+
+/**
+ * Exempt open rows: the person leaves every denominator until the exemption
+ * is removed or expires. `reason` is required by the routes and kept to
+ * EXEMPT_REASON_MAX; `until` is a date (YYYY-MM-DD) or null for a standing
+ * exemption. A snooze or an escalation on the row is moot while it is
+ * exempt, so both are cleared. A manager cannot exempt their own row.
+ */
+export async function exemptAssignments(
+  docId: number | null,
+  ids: number[],
+  actor: AckActor,
+  opts: { reason: string; until: string | null }
+): Promise<ExemptResult> {
+  const wanted = uniqueIds(ids);
+  if (!wanted.length) return { changed: [], skipped: [], self: [] };
+  await ready();
+  if (actor.id != null) {
+    const own = await q<{ id: number }>(
+      `SELECT id FROM policy_assignments
+       WHERE id = ANY($1) AND user_id = $2 AND ($3::int IS NULL OR document_id = $3)`,
+      [wanted, actor.id, docId]
+    );
+    if (own.length) return { changed: [], skipped: wanted, self: own.map((r) => r.id) };
+  }
+  const changed = await q<AssignmentChange>(
+    `UPDATE policy_assignments pa
+        SET exempt_at = now(), exempt_by = $3, exempt_by_name = $4, exempt_reason = $5,
+            exempt_until = $6::timestamptz,
+            snoozed_until = NULL, snoozed_by = NULL, escalated_at = NULL
+       FROM documents d
+      WHERE d.id = pa.document_id AND pa.id = ANY($1) AND ($2::int IS NULL OR pa.document_id = $2)
+        AND pa.removed_at IS NULL AND pa.exempt_at IS NULL
+      RETURNING pa.id, pa.document_id, pa.user_id, d.title`,
+    [wanted, docId, actor.id, actor.name.slice(0, 200), opts.reason.trim().slice(0, EXEMPT_REASON_MAX), opts.until || null]
+  );
+  return { changed, skipped: skippedOf(wanted, changed), self: [] };
+}
+
+/**
+ * Remove exemptions: the rows return to pending with a fresh deadline from
+ * the cascade (PA_REARM_DUE), and the reminder and escalation stamps are
+ * cleared so the new deadline gets its own reminders. The exemption's
+ * history stays in the audit log; the row itself carries only its current
+ * state.
+ */
+export async function unexemptAssignments(docId: number | null, ids: number[]): Promise<AssignmentResult<AssignmentDueChange>> {
+  const wanted = uniqueIds(ids);
+  if (!wanted.length) return { changed: [], skipped: [] };
+  const workspace = await workspaceDueDays();
+  const changed = await q<AssignmentDueChange>(
+    `UPDATE policy_assignments pa
+        SET exempt_at = NULL, exempt_by = NULL, exempt_by_name = '', exempt_reason = '', exempt_until = NULL,
+            due_at = ${PA_REARM_DUE("$3")},
+            reminded_at = NULL, escalated_at = NULL
+       ${PA_REARM_FROM}
+      WHERE d.id = pa.document_id AND pa.id = ANY($1) AND ($2::int IS NULL OR pa.document_id = $2)
+        AND pa.removed_at IS NULL AND pa.exempt_at IS NOT NULL
+      RETURNING pa.id, pa.document_id, pa.user_id, d.title, NULL::text AS from_at, pa.due_at AS to_at`,
+    [wanted, docId, workspace]
+  );
+  return { changed, skipped: skippedOf(wanted, changed) };
+}
+
+/**
+ * Push open rows' deadlines out by `days` (1..EXTEND_DAYS_MAX): due_at =
+ * GREATEST(COALESCE(due_at, now()), now()) + days, so an overdue row counts
+ * from today and a row still ahead keeps its lead. Clears the escalation
+ * and any snooze (the new date starts clean) and appends {kind: 'extend',
+ * from, to, by, at, reason} to due_history, keeping the last
+ * DUE_HISTORY_KEEP. Exempt rows are skipped: they have no deadline to move.
+ */
+export async function extendAssignments(
+  docId: number | null,
+  ids: number[],
+  days: number,
+  reason: string,
+  actor: AckActor
+): Promise<AssignmentResult<AssignmentDueChange>> {
+  const wanted = uniqueIds(ids);
+  if (!wanted.length) return { changed: [], skipped: [] };
+  const by = clampDays(days, EXTEND_DAYS_MAX);
+  const changed = await q<AssignmentDueChange>(
+    `UPDATE policy_assignments pa
+        SET due_at = GREATEST(COALESCE(pa.due_at, now()), now()) + make_interval(days => $3),
+            escalated_at = NULL, snoozed_until = NULL, snoozed_by = NULL,
+            due_history = (CASE WHEN jsonb_typeof(pa.due_history) = 'array' AND jsonb_array_length(pa.due_history) >= $7
+                                THEN pa.due_history - 0
+                                WHEN jsonb_typeof(pa.due_history) = 'array' THEN pa.due_history
+                                ELSE '[]'::jsonb END)
+              || jsonb_build_array(jsonb_build_object(
+                   'kind', 'extend',
+                   'from', pa.due_at,
+                   'to', GREATEST(COALESCE(pa.due_at, now()), now()) + make_interval(days => $3),
+                   'by', $5::text, 'by_id', $6::int, 'at', now(), 'reason', $4::text))
+       FROM documents d
+      WHERE d.id = pa.document_id AND pa.id = ANY($1) AND ($2::int IS NULL OR pa.document_id = $2)
+        AND pa.removed_at IS NULL AND pa.exempt_at IS NULL
+      RETURNING pa.id, pa.document_id, pa.user_id, d.title,
+                pa.due_history -> -1 ->> 'from' AS from_at, pa.due_at AS to_at`,
+    [wanted, docId, by, reason.trim().slice(0, ACK_REASON_MAX), actor.name.slice(0, 200), actor.id, DUE_HISTORY_KEEP]
+  );
+  return { changed, skipped: skippedOf(wanted, changed) };
+}
+
+/**
+ * The inverse of extendAssignments (the toast's Undo): the newest
+ * due_history entry, when it is an 'extend', is popped and its `from` is
+ * the deadline again. A row whose newest entry is not an extension (a
+ * deadline moved by the policy's rule, E1) is skipped rather than guessed
+ * at. `from_at` on the answer is the date undone, `to_at` the one restored.
+ */
+export async function undoExtension(docId: number | null, ids: number[]): Promise<AssignmentResult<AssignmentDueChange>> {
+  const wanted = uniqueIds(ids);
+  if (!wanted.length) return { changed: [], skipped: [] };
+  const changed = await q<AssignmentDueChange>(
+    `WITH last AS (
+       SELECT id, due_history -> -1 AS entry FROM policy_assignments WHERE id = ANY($1)
+     )
+     UPDATE policy_assignments pa
+        SET due_at = (pa.due_history -> -1 ->> 'from')::timestamptz,
+            due_history = pa.due_history - (-1)
+       FROM last l, documents d
+      WHERE pa.id = l.id AND d.id = pa.document_id AND ($2::int IS NULL OR pa.document_id = $2)
+        AND pa.removed_at IS NULL AND pa.exempt_at IS NULL
+        AND jsonb_typeof(pa.due_history) = 'array' AND jsonb_array_length(pa.due_history) > 0
+        AND pa.due_history -> -1 ->> 'kind' = 'extend'
+      RETURNING pa.id, pa.document_id, pa.user_id, d.title,
+                l.entry ->> 'to' AS from_at, pa.due_at AS to_at`,
+    [wanted, docId]
+  );
+  return { changed, skipped: skippedOf(wanted, changed) };
+}
+
+/**
+ * Pause automatic reminders on open rows for `days` (1..SNOOZE_DAYS_MAX).
+ * Nothing else changes: the status, the counts, the record and the exports
+ * read exactly as before (the invariant above). An exempt row is skipped:
+ * it gets no reminders to pause.
+ */
+export async function snoozeAssignments(
+  docId: number | null,
+  ids: number[],
+  days: number,
+  actor: AckActor
+): Promise<AssignmentResult<AssignmentChange & { snoozed_until: string }>> {
+  const wanted = uniqueIds(ids);
+  if (!wanted.length) return { changed: [], skipped: [] };
+  const changed = await q<AssignmentChange & { snoozed_until: string }>(
+    `UPDATE policy_assignments pa
+        SET snoozed_until = now() + make_interval(days => $3), snoozed_by = $4
+       FROM documents d
+      WHERE d.id = pa.document_id AND pa.id = ANY($1) AND ($2::int IS NULL OR pa.document_id = $2)
+        AND pa.removed_at IS NULL AND pa.exempt_at IS NULL
+      RETURNING pa.id, pa.document_id, pa.user_id, d.title, pa.snoozed_until`,
+    [wanted, docId, clampDays(days, SNOOZE_DAYS_MAX), actor.id]
+  );
+  return { changed, skipped: skippedOf(wanted, changed) };
+}
+
+/** Resume automatic reminders on snoozed rows (the inverse of snoozeAssignments). */
+export async function unsnoozeAssignments(docId: number | null, ids: number[]): Promise<AssignmentResult> {
+  const wanted = uniqueIds(ids);
+  if (!wanted.length) return { changed: [], skipped: [] };
+  const changed = await q<AssignmentChange>(
+    `UPDATE policy_assignments pa
+        SET snoozed_until = NULL, snoozed_by = NULL
+       FROM documents d
+      WHERE d.id = pa.document_id AND pa.id = ANY($1) AND ($2::int IS NULL OR pa.document_id = $2)
+        AND pa.removed_at IS NULL AND pa.snoozed_until IS NOT NULL
+      RETURNING pa.id, pa.document_id, pa.user_id, d.title`,
+    [wanted, docId]
+  );
+  return { changed, skipped: skippedOf(wanted, changed) };
+}
+
+/**
+ * The hourly sweep's half (complianceHourly runs it after reconciling):
+ * exemptions whose `until` has passed are cleared and the rows re-armed
+ * exactly as unexemptAssignments re-arms them. One UPDATE: a second
+ * instance's statement re-reads each row after the lock, finds exempt_at
+ * already NULL and matches nothing. Returns the rows it cleared so the
+ * caller can audit each (ack.exemption_revoked by the system); standing
+ * exemptions (no `until`) are never touched here.
+ */
+export async function expireExemptions(): Promise<AssignmentDueChange[]> {
+  const workspace = await workspaceDueDays();
+  return q<AssignmentDueChange>(
+    `UPDATE policy_assignments pa
+        SET exempt_at = NULL, exempt_by = NULL, exempt_by_name = '', exempt_reason = '', exempt_until = NULL,
+            due_at = ${PA_REARM_DUE("$1")},
+            reminded_at = NULL, escalated_at = NULL
+       ${PA_REARM_FROM}
+      WHERE d.id = pa.document_id
+        AND pa.exempt_at IS NOT NULL AND pa.exempt_until IS NOT NULL AND pa.exempt_until < now()
+        AND pa.removed_at IS NULL
+      RETURNING pa.id, pa.document_id, pa.user_id, d.title, NULL::text AS from_at, pa.due_at AS to_at`,
+    [workspace]
+  );
+}
+
+/**
+ * The rows a per-person re-ask may reach (the assignments routes' 'reask'):
+ * open rows on live policies (published, required, not retired), bounded by
+ * the document when one is named. The routes group them by policy and hand
+ * each group to claimReconfirmation's userIds branch (D4), which moves the
+ * people's cycle marker, writes the ledger row and queues their notice.
+ */
+export async function reaskableAssignments(docId: number | null, ids: number[]): Promise<AssignmentChange[]> {
+  const wanted = uniqueIds(ids);
+  if (!wanted.length) return [];
+  return q<AssignmentChange>(
+    `SELECT pa.id, pa.document_id, pa.user_id, d.title
+       FROM policy_assignments pa
+       JOIN documents d ON d.id = pa.document_id
+      WHERE pa.id = ANY($1) AND ($2::int IS NULL OR pa.document_id = $2)
+        AND pa.removed_at IS NULL AND pa.exempt_at IS NULL
+        AND d.status = 'published' AND d.ack_required = 1 AND d.deleted_at IS NULL AND d.ack_retired_at IS NULL
+      ORDER BY pa.document_id, pa.id`,
+    [wanted, docId]
+  );
 }
 
 /** What updateAckSettings accepts: any subset; `statement: null` clears the override. */
@@ -6537,12 +7727,13 @@ export async function listPendingAcksFor(
 ): Promise<{ id: number; title: string; space_name: string; space_icon: string }[]> {
   return q(
     `SELECT d.id, d.title, s.name AS space_name, s.icon AS space_icon
-     FROM documents d
+     FROM policy_assignments pa
+     JOIN documents d ON d.id = pa.document_id
      JOIN spaces s ON s.id = d.space_id
-     WHERE ${MY_POLICY_DOC}${myPolicyScope(scope, 2)}
+     WHERE pa.user_id = $1 AND ${PA_OPEN} AND ${MY_POLICY_DOC}${myPolicyScope(scope, 2)}
        AND NOT EXISTS (
          SELECT 1 FROM acknowledgements a
-         WHERE a.document_id = d.id AND a.user_id = $1 AND ${ACK_CURRENT}
+         WHERE a.document_id = d.id AND a.user_id = $1 AND ${ACK_CURRENT_PA}
        )
      ORDER BY d.updated_at DESC, d.id DESC`,
     Array.isArray(scope) ? [userId, scope] : [userId]
@@ -6591,19 +7782,21 @@ export async function listMyPolicies(userId: number, scope: SpaceScope): Promise
             prior.acknowledged_at AS prior_acknowledged_at,
             ${VERSION_REV("cur.version_id")} AS rev,
             d.updated_at
-     FROM documents d
+     FROM policy_assignments pa
+     JOIN documents d ON d.id = pa.document_id
      JOIN spaces s ON s.id = d.space_id
      LEFT JOIN LATERAL (
        SELECT a.acknowledged_at, a.version_id FROM acknowledgements a
-       WHERE a.document_id = d.id AND a.user_id = $1 AND ${ACK_CURRENT}
+       WHERE a.document_id = d.id AND a.user_id = $1 AND ${ACK_CURRENT_PA}
        ORDER BY a.acknowledged_at DESC, a.id DESC LIMIT 1
      ) cur ON true
      LEFT JOIN LATERAL (
        SELECT a.acknowledged_at FROM acknowledgements a
-       WHERE a.document_id = d.id AND a.user_id = $1 AND a.acknowledged_at < d.ack_revision_at
+       WHERE a.document_id = d.id AND a.user_id = $1
+         AND a.acknowledged_at < GREATEST(d.ack_revision_at, pa.cycle_started_at)
        ORDER BY a.acknowledged_at DESC, a.id DESC LIMIT 1
      ) prior ON true
-     WHERE ${MY_POLICY_DOC}${myPolicyScope(scope, 2)}
+     WHERE pa.user_id = $1 AND ${PA_OPEN} AND ${MY_POLICY_DOC}${myPolicyScope(scope, 2)}
      ORDER BY (cur.acknowledged_at IS NOT NULL), d.updated_at DESC, d.id DESC`,
     Array.isArray(scope) ? [userId, scope] : [userId]
   );
@@ -6613,11 +7806,12 @@ export async function listMyPolicies(userId: number, scope: SpaceScope): Promise
 export async function countPendingAcksFor(userId: number, scope: SpaceScope): Promise<number> {
   const r = await q<{ n: number }>(
     `SELECT COUNT(*)::int AS n
-     FROM documents d
-     WHERE ${MY_POLICY_DOC}${myPolicyScope(scope, 2)}
+     FROM policy_assignments pa
+     JOIN documents d ON d.id = pa.document_id
+     WHERE pa.user_id = $1 AND ${PA_OPEN} AND ${MY_POLICY_DOC}${myPolicyScope(scope, 2)}
        AND NOT EXISTS (
          SELECT 1 FROM acknowledgements a
-         WHERE a.document_id = d.id AND a.user_id = $1 AND ${ACK_CURRENT}
+         WHERE a.document_id = d.id AND a.user_id = $1 AND ${ACK_CURRENT_PA}
        )`,
     Array.isArray(scope) ? [userId, scope] : [userId]
   );
@@ -6625,20 +7819,22 @@ export async function countPendingAcksFor(userId: number, scope: SpaceScope): Pr
 }
 
 /**
- * The nav gate: is there any policy in this person's scope to show them?
- * One EXISTS, so a workspace whose policies all live in spaces the person
- * cannot see never shows them the item, and the item does not flicker off
- * once everything is confirmed. `userId` is in the signature for audiences
- * (D4), when being in scope stops meaning being asked; until then every
- * account in scope is asked, and the answer follows the scope alone.
+ * The nav gate: does any policy in this person's scope ask them? One
+ * EXISTS over their open assignment rows (D1, 1.13.0: being in scope no
+ * longer means being asked), so a workspace whose policies all live in
+ * spaces the person cannot see, or whose audiences leave them out, never
+ * shows them the item, and the item does not flicker off once everything
+ * is confirmed (a confirmed row is still open).
  */
 export async function hasPolicyInScope(userId: number, scope: SpaceScope): Promise<boolean> {
   if (scope !== "all" && scope.length === 0) return false;
   const r = await q<{ some: boolean }>(
     `SELECT EXISTS (
-       SELECT 1 FROM documents d WHERE ${MY_POLICY_DOC}${myPolicyScope(scope, 1)}
+       SELECT 1 FROM policy_assignments pa
+       JOIN documents d ON d.id = pa.document_id
+       WHERE pa.user_id = $1 AND ${PA_OPEN} AND ${MY_POLICY_DOC}${myPolicyScope(scope, 2)}
      ) AS some`,
-    Array.isArray(scope) ? [scope] : []
+    Array.isArray(scope) ? [userId, scope] : [userId]
   );
   return r[0]?.some === true;
 }
@@ -6862,17 +8058,17 @@ export interface AckDecisionInput {
   origin?: string;
 }
 
-/** Eligible people and current confirmations for one document (the same joins as complianceDocs). */
+/** People the policy asks (open assignment rows of active accounts) and their current confirmations (the same joins as complianceDocs). */
 async function ackCounts(client: Queryable, docId: number): Promise<{ eligible: number; current: number }> {
   const r = await client.query<{ eligible: number; current: number }>(
     `SELECT COUNT(u.id)::int AS eligible,
             COUNT(u.id) FILTER (WHERE a.acknowledged_at IS NOT NULL)::int AS current
      FROM documents d
-     JOIN spaces s ON s.id = d.space_id
-     LEFT JOIN users u ON ${ACK_ELIGIBLE}
+     LEFT JOIN policy_assignments pa ON pa.document_id = d.id AND ${PA_OPEN}
+     LEFT JOIN users u ON u.id = pa.user_id AND u.status = 'active'
      LEFT JOIN LATERAL (
        SELECT a.acknowledged_at FROM acknowledgements a
-       WHERE a.document_id = d.id AND a.user_id = u.id AND ${ACK_CURRENT}
+       WHERE a.document_id = d.id AND a.user_id = u.id AND ${ACK_CURRENT_PA}
        ORDER BY a.acknowledged_at DESC LIMIT 1
      ) a ON true
      WHERE d.id = $1`,
@@ -7018,6 +8214,13 @@ export interface AckOutboxInput {
    * http(s) origin is stored; the drain never remembers one across rows.
    */
   origin?: string | null;
+  /**
+   * What a sweep hands the drain beside the recipient list (E2, 1.13.0): a
+   * 'due' row carries `{ rows: [{ user_id, due_at, overdue }] }`, an
+   * 'escalation' row `{ days, overdue: [{ user_id, name, due_at }],
+   * recipients: [{ id, via }] }`. Stored as JSON; absent on every other row.
+   */
+  payload?: unknown;
 }
 
 /** An http(s) origin without its trailing slash, or '' for anything else (a path, a header that is not a URL). */
@@ -7030,9 +8233,9 @@ export function ackOutboxOrigin(origin: string | null | undefined): string {
 export async function insertAckOutbox(client: Queryable | null, row: AckOutboxInput): Promise<number> {
   if (!client) await ready();
   const r = await (client ?? pool()).query<{ id: number }>(
-    `INSERT INTO ack_outbox (document_id, mode, source, reason, actor_id, actor_name, user_ids, not_before, origin)
+    `INSERT INTO ack_outbox (document_id, mode, source, reason, actor_id, actor_name, user_ids, not_before, origin, payload)
      VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb,
-             COALESCE($8::timestamptz, now() + make_interval(mins => $9::int)), $10)
+             COALESCE($8::timestamptz, now() + make_interval(mins => $9::int)), $10, $11::jsonb)
      RETURNING id`,
     [
       row.document_id,
@@ -7045,6 +8248,7 @@ export async function insertAckOutbox(client: Queryable | null, row: AckOutboxIn
       row.not_before instanceof Date ? row.not_before.toISOString() : (row.not_before ?? null),
       Math.max(0, row.delay_minutes ?? 0),
       ackOutboxOrigin(row.origin),
+      row.payload === undefined || row.payload === null ? null : JSON.stringify(row.payload),
     ]
   );
   return r.rows[0].id;
@@ -7338,6 +8542,298 @@ export async function addAckNoticeChannel(id: number, channel: AckNoticeChannel)
   );
 }
 
+// --- Reminder and escalation claims (E2, 1.13.0) ----------------------------------
+//
+// The hourly sweep (lib/compliance complianceHourly) reminds the people
+// whose confirmation is due or overdue and tells a policy's owner and the
+// overdue people's group leads when someone is well past the date. Each
+// claim is one statement: the subquery picks the rows under FOR UPDATE SKIP
+// LOCKED and the UPDATE stamps the column its WHERE tests (reminded_at,
+// escalated_at), so two instances never claim the same row and a crash
+// between the claim and the notice drops that cycle's reminder, as the
+// training sweep does. The cadence is resolved per policy inside the SQL:
+// policy_settings, then the space's policy_defaults, then the workspace
+// numbers the sweep passes in (already resolved over the built-ins).
+
+/** The workspace-resolved numbers a sweep passes in as the COALESCE fallbacks. */
+export interface AckSweepDefaults {
+  remind_before_days: number;
+  remind_every_days: number;
+  escalate_after_days: number;
+  nudge_every_days: number;
+  overdue_grace_days: number;
+}
+
+/** A policy the sweeps act on: required, published, live, not retired. */
+const SWEEP_POLICY = `d.ack_required = 1 AND d.status = 'published' AND d.deleted_at IS NULL
+       AND d.branch_of IS NULL AND d.ack_retired_at IS NULL`;
+/** An open row (not removed, not exempt) of an active account, not snoozed. */
+const SWEEP_OPEN = `pa.removed_at IS NULL AND pa.exempt_at IS NULL AND u.status = 'active'
+       AND (pa.snoozed_until IS NULL OR pa.snoozed_until <= now())`;
+/** No confirmation current for this row (the document marker or the row's own cycle, whichever is later). */
+const SWEEP_UNCONFIRMED = `NOT EXISTS (
+         SELECT 1 FROM acknowledgements a
+         WHERE a.document_id = d.id AND a.user_id = pa.user_id
+           AND a.acknowledged_at >= GREATEST(d.ack_revision_at, pa.cycle_started_at))`;
+/** One number of the cadence: the policy's own, else the space's, else the parameter. */
+const CADENCE = (col: string, param: string) => `COALESCE(ps.${col}, (s.policy_defaults->>'${col}')::int, ${param}::int)`;
+/** The grace period has no per-policy column: the space's, else the parameter. */
+const GRACE = (param: string) => `COALESCE((s.policy_defaults->>'overdue_grace_days')::int, ${param}::int)`;
+
+export interface ClaimedAckReminder {
+  assignment_id: number;
+  user_id: number;
+  name: string;
+  email: string;
+  document_id: number;
+  title: string;
+  space_id: number;
+  due_at: string | null;
+  /** The due date plus the grace period has passed. */
+  overdue: boolean;
+  /** After this claim. */
+  reminder_count: number;
+}
+
+/**
+ * Claim every row due a reminder, across all live policies, in one
+ * statement: open row, active account, not snoozed, no current
+ * confirmation; with a deadline, due within remind_before_days or past it
+ * and the last reminder older than remind_every_days (or none yet); without
+ * one, every nudge_every_days when that is above 0. SET reminded_at = now(),
+ * reminder_count + 1. `documentIds` limits the claim (tests sharing a
+ * database; the tick passes nothing).
+ */
+export async function claimAckReminders(
+  defaults: AckSweepDefaults,
+  opts: { documentIds?: number[] } = {}
+): Promise<ClaimedAckReminder[]> {
+  return q<ClaimedAckReminder>(
+    `WITH due AS (
+       SELECT pa.id, u.name, u.email, d.id AS document_id, d.title, d.space_id,
+              (pa.due_at IS NOT NULL AND pa.due_at + make_interval(days => c.grace_days) < now()) AS overdue
+       FROM policy_assignments pa
+       JOIN documents d ON d.id = pa.document_id
+       JOIN spaces s ON s.id = d.space_id
+       JOIN users u ON u.id = pa.user_id
+       LEFT JOIN policy_settings ps ON ps.document_id = d.id
+       CROSS JOIN LATERAL (SELECT
+           ${CADENCE("remind_before_days", "$1")} AS before_days,
+           ${CADENCE("remind_every_days", "$2")} AS every_days,
+           ${CADENCE("nudge_every_days", "$3")} AS nudge_days,
+           ${GRACE("$4")} AS grace_days) c
+       WHERE ${SWEEP_POLICY} AND ${SWEEP_OPEN} AND ${SWEEP_UNCONFIRMED}
+         AND (
+           (pa.due_at IS NOT NULL AND pa.due_at < now() + make_interval(days => c.before_days)
+              AND (pa.reminded_at IS NULL OR pa.reminded_at < now() - make_interval(days => c.every_days)))
+           OR (pa.due_at IS NULL AND c.nudge_days > 0
+              AND (pa.reminded_at IS NULL OR pa.reminded_at < now() - make_interval(days => c.nudge_days)))
+         )
+         AND ($5::int[] IS NULL OR d.id = ANY($5::int[]))
+       ORDER BY pa.id
+       FOR UPDATE OF pa SKIP LOCKED
+     )
+     UPDATE policy_assignments pa
+     SET reminded_at = now(), reminder_count = pa.reminder_count + 1
+     FROM due WHERE pa.id = due.id
+     RETURNING pa.id AS assignment_id, pa.user_id, due.name, due.email, due.document_id, due.title, due.space_id,
+               pa.due_at, due.overdue, pa.reminder_count`,
+    [
+      defaults.remind_before_days,
+      defaults.remind_every_days,
+      defaults.nudge_every_days,
+      defaults.overdue_grace_days,
+      opts.documentIds ?? null,
+    ]
+  );
+}
+
+export interface ClaimedAckEscalation {
+  assignment_id: number;
+  user_id: number;
+  name: string;
+  document_id: number;
+  title: string;
+  space_id: number;
+  due_at: string;
+  /** The threshold crossed: overdue_grace_days + escalate_after_days as resolved for the policy. */
+  days: number;
+}
+
+/**
+ * Claim every row to escalate, in one statement: open, active, not
+ * snoozed, no current confirmation, never escalated, and
+ * due_at + overdue_grace_days + escalate_after_days < now(). SET
+ * escalated_at = now(). Extending the due date clears escalated_at (the
+ * exemptions agent's extendAssignments), so the row re-arms.
+ */
+export async function claimAckEscalations(
+  defaults: AckSweepDefaults,
+  opts: { documentIds?: number[] } = {}
+): Promise<ClaimedAckEscalation[]> {
+  return q<ClaimedAckEscalation>(
+    `WITH over AS (
+       SELECT pa.id, u.name, d.id AS document_id, d.title, d.space_id, (c.grace_days + c.esc_days) AS days
+       FROM policy_assignments pa
+       JOIN documents d ON d.id = pa.document_id
+       JOIN spaces s ON s.id = d.space_id
+       JOIN users u ON u.id = pa.user_id
+       LEFT JOIN policy_settings ps ON ps.document_id = d.id
+       CROSS JOIN LATERAL (SELECT
+           ${CADENCE("escalate_after_days", "$1")} AS esc_days,
+           ${GRACE("$2")} AS grace_days) c
+       WHERE ${SWEEP_POLICY} AND ${SWEEP_OPEN} AND ${SWEEP_UNCONFIRMED}
+         AND pa.escalated_at IS NULL AND pa.due_at IS NOT NULL
+         AND pa.due_at + make_interval(days => c.grace_days + c.esc_days) < now()
+         AND ($3::int[] IS NULL OR d.id = ANY($3::int[]))
+       ORDER BY pa.id
+       FOR UPDATE OF pa SKIP LOCKED
+     )
+     UPDATE policy_assignments pa
+     SET escalated_at = now()
+     FROM over WHERE pa.id = over.id
+     RETURNING pa.id AS assignment_id, pa.user_id, over.name, over.document_id, over.title, over.space_id,
+               pa.due_at, over.days`,
+    [defaults.escalate_after_days, defaults.overdue_grace_days, opts.documentIds ?? null]
+  );
+}
+
+/** How a person came to receive an escalation; a person reached two ways keeps the first. */
+export type EscalationVia = "owner" | "requested_by" | "approver" | "lead";
+
+export interface EscalationRecipient {
+  id: number;
+  name: string;
+  email: string;
+  via: EscalationVia;
+}
+
+/**
+ * Who hears that people are overdue on a policy, resolved once per policy:
+ * the policy's owner (policy_settings.owner_user_id) when that account is
+ * active, else whoever switched the requirement on (requested_by), else
+ * the space's approvers (listApproverIdsForSpace); plus the leads of every
+ * group the overdue people belong to, in one join over group_leads and
+ * group_members, kept to leads who can see the policy's space (the same
+ * visibility rule the audience uses: public or internal space, space.read_all,
+ * or a space.member grant), so a lead of a broad group gets nothing about a
+ * private-space policy. Owners and approvers can see the space by
+ * construction. Active accounts only.
+ */
+export async function escalationRecipients(
+  policies: { document_id: number; space_id: number; user_ids: number[] }[]
+): Promise<Map<number, EscalationRecipient[]>> {
+  const out = new Map<number, EscalationRecipient[]>();
+  for (const p of policies) {
+    const chosen = new Map<number, EscalationVia>();
+    const settings = (
+      await q<{ owner: number | null; requester: number | null }>(
+        `SELECT (SELECT o.id FROM users o WHERE o.id = ps.owner_user_id AND o.status = 'active') AS owner,
+                (SELECT r.id FROM users r WHERE r.id = ps.requested_by AND r.status = 'active') AS requester
+         FROM policy_settings ps WHERE ps.document_id = $1`,
+        [p.document_id]
+      )
+    )[0];
+    if (settings?.owner != null) chosen.set(settings.owner, "owner");
+    else if (settings?.requester != null) chosen.set(settings.requester, "requested_by");
+    else for (const id of await listApproverIdsForSpace(p.space_id, 0)) chosen.set(id, "approver");
+    if (p.user_ids.length > 0) {
+      const leads = await q<{ id: number }>(
+        `SELECT DISTINCT u.id
+         FROM group_leads gl
+         JOIN group_members gm ON gm.group_id = gl.group_id AND gm.user_id = ANY($1::int[])
+         JOIN users u ON u.id = gl.user_id AND u.status = 'active'
+         JOIN spaces s ON s.id = $2
+         WHERE s.visibility IN ('public', 'internal')
+            OR ${HOLDS_GLOBALLY("space.read_all", "u.id")}
+            OR ${HOLDS_ON_SPACE("space.member", "s.id", "u.id")}`,
+        [p.user_ids, p.space_id]
+      );
+      for (const l of leads) if (!chosen.has(l.id)) chosen.set(l.id, "lead");
+    }
+    if (chosen.size === 0) {
+      out.set(p.document_id, []);
+      continue;
+    }
+    const people = await q<{ id: number; name: string; email: string }>(
+      "SELECT id, name, email FROM users WHERE id = ANY($1::int[]) AND status = 'active' ORDER BY name",
+      [[...chosen.keys()]]
+    );
+    out.set(
+      p.document_id,
+      people.map((u) => ({ id: u.id, name: u.name, email: u.email, via: chosen.get(u.id)! }))
+    );
+  }
+  return out;
+}
+
+/**
+ * The portal's manual Remind stamps the rows it reaches (reminded_at,
+ * reminder_count), so the automatic cadence counts from it and the row
+ * subtitle reads "last reminded today": every open row of an active
+ * account with no current confirmation, or the named people among them.
+ * Returns how many rows were stamped.
+ */
+export async function stampAckReminded(docId: number, userIds: number[] | null = null): Promise<number> {
+  const rows = await q<{ id: number }>(
+    `UPDATE policy_assignments pa
+     SET reminded_at = now(), reminder_count = pa.reminder_count + 1
+     FROM documents d, users u
+     WHERE d.id = pa.document_id AND u.id = pa.user_id AND pa.document_id = $1
+       AND ($2::int[] IS NULL OR pa.user_id = ANY($2::int[]))
+       AND pa.removed_at IS NULL AND pa.exempt_at IS NULL AND u.status = 'active'
+       AND ${SWEEP_UNCONFIRMED}
+     RETURNING pa.id`,
+    [docId, userIds]
+  );
+  return rows.length;
+}
+
+/** What the portal row's reminder subtitle reads (lib/ack-remind reminderSubtitle). */
+export interface AckReminderSummary {
+  document_id: number;
+  /** The newest reminder stamp over the policy's open rows, or the manual Remind's, whichever is later. */
+  last_reminded_at: string | null;
+  /** The earliest next automatic reminder over the policy's open, unconfirmed rows (the same rule as the claim); null when none is scheduled. */
+  next_reminder_at: string | null;
+}
+
+/**
+ * Per policy, when people were last reminded and when the sweep will next
+ * remind someone, with the cadence resolved as the claim resolves it. The
+ * next date is "now" for a row the next tick will take; a snooze pushes a
+ * row's date to its end.
+ */
+export async function ackReminderSummary(docIds: number[], defaults: AckSweepDefaults): Promise<Map<number, AckReminderSummary>> {
+  const out = new Map<number, AckReminderSummary>();
+  if (docIds.length === 0) return out;
+  const rows = await q<AckReminderSummary>(
+    `SELECT d.id AS document_id,
+            GREATEST(d.ack_last_reminded_at, MAX(pa.reminded_at)) AS last_reminded_at,
+            MIN(n.next) AS next_reminder_at
+     FROM documents d
+     JOIN spaces s ON s.id = d.space_id
+     LEFT JOIN policy_settings ps ON ps.document_id = d.id
+     LEFT JOIN policy_assignments pa ON pa.document_id = d.id AND pa.removed_at IS NULL AND pa.exempt_at IS NULL
+     LEFT JOIN users u ON u.id = pa.user_id
+     CROSS JOIN LATERAL (SELECT
+         ${CADENCE("remind_before_days", "$2")} AS before_days,
+         ${CADENCE("remind_every_days", "$3")} AS every_days,
+         ${CADENCE("nudge_every_days", "$4")} AS nudge_days) c
+     CROSS JOIN LATERAL (SELECT CASE
+         WHEN pa.id IS NULL OR u.status <> 'active' OR NOT ${SWEEP_UNCONFIRMED} THEN NULL
+         WHEN pa.due_at IS NOT NULL THEN GREATEST(now(), pa.due_at - make_interval(days => c.before_days),
+                                                  pa.reminded_at + make_interval(days => c.every_days), pa.snoozed_until)
+         WHEN c.nudge_days > 0 THEN GREATEST(now(), pa.reminded_at + make_interval(days => c.nudge_days), pa.snoozed_until)
+         ELSE NULL END AS next) n
+     WHERE d.id = ANY($1::int[])
+     GROUP BY d.id`,
+    [docIds, defaults.remind_before_days, defaults.remind_every_days, defaults.nudge_every_days]
+  );
+  for (const r of rows) out.set(r.document_id, r);
+  return out;
+}
+
 /** The notice log, newest first, for a person and/or a document (the person record, the roster expand, notices.csv). */
 export async function listAckNotices(opts: {
   userId?: number;
@@ -7427,16 +8923,25 @@ export async function listAckDecisions(docId: number): Promise<AckDecision[]> {
   );
 }
 
-/** The newest decision for a document (of one outcome when asked), or null. */
+/**
+ * The newest decision for a document (of one outcome, or one scope, when
+ * asked), or null. `scope: "all"` skips the per-person re-asks (D4, scope
+ * 'users'): a sentence about the whole audience ("asked 3 Mar by Matt")
+ * must not date itself from a row that asked one person.
+ */
 export async function lastAckDecision(
   docId: number,
-  opts: { outcome?: AckOutcome } = {}
+  opts: { outcome?: AckOutcome; scope?: "all" | "users" } = {}
 ): Promise<AckDecision | null> {
   const params: unknown[] = [docId];
   let where = "x.document_id = $1";
   if (opts.outcome) {
     params.push(opts.outcome);
     where += ` AND x.outcome = $${params.length}`;
+  }
+  if (opts.scope) {
+    params.push(opts.scope);
+    where += ` AND x.scope = $${params.length}`;
   }
   const rows = await q<AckDecision>(
     `${DECISION_SELECT} WHERE ${where} ORDER BY x.decided_at DESC, x.id DESC LIMIT 1`,
@@ -7562,7 +9067,9 @@ export async function ackSummary(docId: number, opts: { baseline?: boolean } = {
   const [counts, info, last] = await Promise.all([
     ackCounts(pool(), docId),
     getAckVersionInfo(docId),
-    lastAckDecision(docId),
+    // The whole audience's newest decision: a per-person re-ask (D4) is a
+    // ledger row, not the document's last ask.
+    lastAckDecision(docId, { scope: "all" }),
   ]);
   const summary: AckSummary = {
     required: doc.ack_required === 1,
@@ -7598,18 +9105,26 @@ export async function ackSummary(docId: number, opts: { baseline?: boolean } = {
 export type ReconfirmClaim =
   | {
       claimed: true;
+      /** 'all' moved the document marker (A7); 'users' restarted the named people's cycle and left the marker where it was (D4). */
+      scope: "all" | "users";
       decision_id: number;
       outbox_id: number;
-      /** Confirmations that went stale (the decision row's confirmations_affected). */
+      /** The decision row's confirmations_affected: everyone current before the move ('all'), or the rows re-opened ('users'). */
       confirmations_reset: number;
       eligible: number;
-      /** The marker after the move: the newest version and its number. */
+      /** The marker after the move ('all') or as it stands ('users'): the version and its number. */
       version_id: number | null;
       rev: number | null;
       title: string;
       space_id: number;
-      /** The new marker (ack_revision_at), also the decision row's decided_at. */
+      /** The marker (ack_revision_at): new for 'all', unchanged for 'users'. */
       marker: string;
+      /** When the ask was made: the decision row's decided_at (the marker for 'all', the cycle stamp for 'users'). */
+      asked_at: string;
+      /** 'users': the people whose cycle restarted, the outbox row's list; [] for 'all'. */
+      user_ids: number[];
+      /** 'users': the ids named that had no open row (exempt, removed, never assigned); [] for 'all'. */
+      skipped: number[];
     }
   | {
       claimed: false;
@@ -7619,13 +9134,22 @@ export type ReconfirmClaim =
        * confirmations (unpublished, trashed, requirement off) or is gone.
        */
       last_asked_at: string | null;
+      /**
+       * A per-person claim (D4) in which nobody named had an open row: the
+       * ids, so the route can say so. Absent on every other refusal.
+       */
+      skipped?: number[];
     };
 
 export interface ReconfirmInput {
   source: "manual" | "recurrence";
   reason: string;
   actor: AckActor;
-  /** D4 (later): move only these people's cycle marker. Refused until audiences ship. */
+  /**
+   * D4: ask only these people again. Their open rows' cycle restarts
+   * (policy_assignments.cycle_started_at) and the document marker stays, so
+   * everyone else's currency is untouched. Null or absent = everyone (A7).
+   */
   userIds?: number[] | null;
   /** The sending request's origin, stored on the outbox row (1.10.1); '' for the recurrence sweep. */
   origin?: string;
@@ -7656,10 +9180,6 @@ export async function claimReconfirmation(
   docId: number,
   opts: ReconfirmInput
 ): Promise<ReconfirmClaim> {
-  if (opts.userIds != null) {
-    // D4 brings the per-person statement (policy_assignments.cycle_started_at).
-    throw new Error("Per-person re-asks arrive with audiences.");
-  }
   if (client) return claimReconfirmationOn(client, docId, opts);
   await ready();
   const own = await pool().connect();
@@ -7728,6 +9248,8 @@ async function recordMarkerClaim(
 }
 
 async function claimReconfirmationOn(client: Queryable, docId: number, opts: ReconfirmInput): Promise<ReconfirmClaim> {
+  // A named list is the per-person statement (D4): the marker stays.
+  if (opts.userIds != null) return claimPersonalReconfirmationOn(client, docId, opts.userIds, opts);
   // Counted before the marker moves: afterwards nothing is current.
   const counts = await ackCounts(client, docId);
   const moved = await client.query<MovedMarker>(
@@ -7758,6 +9280,7 @@ async function claimReconfirmationOn(client: Queryable, docId: number, opts: Rec
   const { decision_id, outbox_id } = await recordMarkerClaim(client, row, counts, opts);
   return {
     claimed: true,
+    scope: "all",
     decision_id,
     outbox_id,
     confirmations_reset: counts.current,
@@ -7767,6 +9290,148 @@ async function claimReconfirmationOn(client: Queryable, docId: number, opts: Rec
     title: row.title,
     space_id: row.space_id,
     marker: row.marker,
+    asked_at: row.marker,
+    user_ids: [],
+    skipped: [],
+  };
+}
+
+// --- Ask one person to re-confirm (D4, 1.13.0) ---------------------------------
+//
+// The per-person marker is policy_assignments.cycle_started_at: a person's
+// confirmation counts while it is on or after BOTH the document marker and
+// their row's cycle stamp (the audience queries' GREATEST). Restarting one
+// row's cycle therefore lapses that person alone; the document marker, the
+// Remind cooldown and everyone else's currency are untouched, and the prior
+// confirmation stays in the ledger. The same statement serves the roster's
+// row action and bulk bar through the reconfirm route (user_ids) and the
+// assignments endpoints' 'reask' action.
+
+/**
+ * The per-person re-ask statement: restart the confirmation cycle of these
+ * people's OPEN rows for one policy in one UPDATE (cycle_started_at moves,
+ * the reminder and escalation stamps clear so the E2 cadence starts over),
+ * and answer the user ids it re-opened. Exempt and removed rows, and people
+ * never assigned, are not touched and not returned: the caller reports them
+ * as skipped. Never touches acknowledgements.
+ *
+ * `at` is the one wall-clock stamp every row takes (the caller's, so the
+ * ledger row carries the same instant; clock_timestamp() when absent, for
+ * the reason resetAcknowledgements gives: a confirmation whose transaction
+ * took the document's row lock first commits later than this transaction's
+ * start). `dueAt` re-arms due_at on the rows it re-opens: a cycle that
+ * starts today gets today's deadline from the cascade, so a person asked
+ * again is not overdue and escalated at the next tick on a date they already
+ * met; undefined leaves due_at as it is.
+ */
+export async function reopenAssignmentsFor(
+  client: Queryable | null,
+  docId: number,
+  userIds: number[],
+  opts: { at?: string | null; dueAt?: "cascade" | Date | string | null } = {}
+): Promise<number[]> {
+  const ids = uniqueIds(userIds);
+  if (ids.length === 0) return [];
+  if (!client) await ready();
+  const params: unknown[] = [docId, ids, opts.at ?? null];
+  let dueSet = "";
+  if (opts.dueAt === "cascade") {
+    params.push(await workspaceDueDays());
+    dueSet = `, due_at = ${PA_REARM_DUE("$4")}`;
+  } else if (opts.dueAt !== undefined) {
+    params.push(opts.dueAt instanceof Date ? opts.dueAt.toISOString() : opts.dueAt);
+    dueSet = ", due_at = $4::timestamptz";
+  }
+  const r = await (client ?? pool()).query<{ user_id: number }>(
+    `UPDATE policy_assignments pa
+        SET cycle_started_at = t.at, reminded_at = NULL, escalated_at = NULL${dueSet}
+       ${PA_REARM_FROM},
+            (SELECT COALESCE($3::timestamptz, clock_timestamp()) AS at) t
+      WHERE pa.document_id = d.id AND d.id = $1 AND pa.user_id = ANY($2::int[])
+        AND pa.removed_at IS NULL AND pa.exempt_at IS NULL
+      RETURNING pa.user_id`,
+    params
+  );
+  return r.rows.map((x) => x.user_id);
+}
+
+/**
+ * The per-person branch of claimReconfirmation (D4): the document row is
+ * read and locked (a confirmation in flight takes the same lock in
+ * recordAcknowledgement, so it commits before or after the stamp, never
+ * astride it; a whole-audience claim waits its turn), one wall-clock stamp
+ * is taken, the named people's open rows are re-opened with a fresh
+ * deadline from the cascade, then the 'reset' ledger row (scope 'users',
+ * confirmations_affected = the rows re-opened, eligible = the audience,
+ * decided_at = the stamp) and the immediate 'updated' outbox row naming
+ * only those people are written in the same transaction. No marker move,
+ * no Remind stamp, no hour guard: asking one person again blocks nothing.
+ *
+ * Answers {claimed: false, last_asked_at: null} when the document does not
+ * take confirmations, and the same with `skipped` (the ids) when nobody
+ * named has an open row: nothing is written either way.
+ */
+async function claimPersonalReconfirmationOn(
+  client: Queryable,
+  docId: number,
+  userIds: number[],
+  opts: ReconfirmInput
+): Promise<ReconfirmClaim> {
+  const ids = uniqueIds(userIds);
+  const doc = await client.query<MovedMarker>(
+    `SELECT id, title, space_id, ack_version_id,
+            ${VERSION_REV("documents.ack_version_id")} AS rev,
+            ack_revision_at::text AS marker
+       FROM documents
+      WHERE id = $1 AND ack_required = 1 AND status = 'published' AND deleted_at IS NULL
+      FOR UPDATE`,
+    [docId]
+  );
+  if (doc.rowCount === 0) return { claimed: false, last_asked_at: null };
+  if (ids.length === 0) return { claimed: false, last_asked_at: null, skipped: [] };
+  const row = doc.rows[0];
+  const at = (await client.query<{ at: string }>("SELECT clock_timestamp()::text AS at")).rows[0].at;
+  const reopened = await reopenAssignmentsFor(client, docId, ids, { at, dueAt: "cascade" });
+  if (reopened.length === 0) return { claimed: false, last_asked_at: null, skipped: ids };
+  const done = new Set(reopened);
+  const skipped = ids.filter((id) => !done.has(id));
+  // The audience for the ledger row; the rows re-opened are what the ask touched.
+  const counts = await ackCounts(client, docId);
+  const decisionId = await recordAckDecision(client, {
+    ...decisionColumns(
+      row.id,
+      row.title,
+      "reset",
+      { versionId: row.ack_version_id, actor: opts.actor, source: opts.source, reason: opts.reason, scope: "users" },
+      { eligible: counts.eligible, current: reopened.length }
+    ),
+    decided_at: at,
+  });
+  const outboxId = await insertAckOutbox(client, {
+    document_id: row.id,
+    mode: "updated",
+    source: opts.source,
+    reason: opts.reason,
+    actor: opts.actor,
+    user_ids: reopened,
+    delay_minutes: ackNoticeDelayMinutes(opts.source),
+    origin: opts.origin ?? "",
+  });
+  return {
+    claimed: true,
+    scope: "users",
+    decision_id: decisionId,
+    outbox_id: outboxId,
+    confirmations_reset: reopened.length,
+    eligible: counts.eligible,
+    version_id: row.ack_version_id,
+    rev: row.rev,
+    title: row.title,
+    space_id: row.space_id,
+    marker: row.marker,
+    asked_at: at,
+    user_ids: reopened,
+    skipped,
   };
 }
 
@@ -7795,6 +9460,8 @@ export interface RecertCycle {
   confirmations_reset: number;
   eligible: number;
   recert_months: number;
+  /** Open assignment rows whose due date restarted with the cycle (E1). */
+  rearmed: number;
 }
 
 /** The ledger and outbox actor of a cycle: nobody clicked. */
@@ -7829,10 +9496,26 @@ const RECERT_DUE = `d.ack_required = 1 AND d.status = 'published' AND d.deleted_
  * commits it, so a failure leaves no moved marker, no row and no notice.
  * `documentIds` limits the sweep (tests sharing a database; the tick passes
  * nothing).
+ *
+ * The people's clocks (E1): in the same transaction, every open assignment
+ * row of a policy whose cycle fired gets a fresh due date from the cascade
+ * (dueAtSql: the policy's fixed date while still ahead, else now plus
+ * due_days from policy_settings, the space, the workspace defaults the
+ * caller loaded once (`defaults`), or the built-in), and its reminder and
+ * escalation stamps are cleared so the E2 cadence starts over. Exempt and
+ * removed rows are left as they are. `timeZone` is the workspace's
+ * (settings.timezone), the zone a fixed date ends in.
  */
+export interface RecertSweepOptions {
+  documentIds?: number[];
+  /** The workspace layer of the cascade (ack_defaults' numbers, null = built-in), loaded once per sweep by the caller. */
+  defaults?: PolicyDefaultsLayer | null;
+  timeZone?: string;
+}
+
 export async function claimDueRecertifications(
   client: Queryable | null,
-  opts: { documentIds?: number[] } = {}
+  opts: RecertSweepOptions = {}
 ): Promise<RecertCycle[]> {
   if (client) return claimDueRecertificationsOn(client, opts);
   await ready();
@@ -7850,7 +9533,7 @@ export async function claimDueRecertifications(
   }
 }
 
-async function claimDueRecertificationsOn(client: Queryable, opts: { documentIds?: number[] }): Promise<RecertCycle[]> {
+async function claimDueRecertificationsOn(client: Queryable, opts: RecertSweepOptions): Promise<RecertCycle[]> {
   const only = opts.documentIds ?? null;
   const due = await client.query<{ id: number }>(
     `SELECT d.id FROM documents d
@@ -7875,6 +9558,27 @@ async function claimDueRecertificationsOn(client: Queryable, opts: { documentIds
                d.ack_revision_at::text AS marker`,
     [ids]
   );
+  // The people's clocks restart with the cycle (E1): a fresh due date from
+  // the cascade on every open row of the policies that fired, the reminder
+  // and escalation stamps cleared. Same transaction as the marker, so the
+  // notice the drain delivers already carries the new dates.
+  const rearmed = new Map<number, number>();
+  if (moved.rows.length > 0) {
+    const r = await client.query<{ document_id: number }>(
+      `UPDATE policy_assignments pa
+          SET due_at = ${dueAtSql({ from: "clock_timestamp()", workspace: "$2", timeZone: "$3" })},
+              reminded_at = NULL,
+              escalated_at = NULL
+         FROM documents d
+         LEFT JOIN policy_settings ps ON ps.document_id = d.id
+         LEFT JOIN spaces s ON s.id = d.space_id
+        WHERE pa.document_id = d.id AND d.id = ANY($1::int[])
+          AND pa.removed_at IS NULL AND pa.exempt_at IS NULL
+        RETURNING pa.document_id`,
+      [moved.rows.map((m) => m.id), opts.defaults?.due_days ?? null, opts.timeZone || "UTC"]
+    );
+    for (const row of r.rows) rearmed.set(row.document_id, (rearmed.get(row.document_id) ?? 0) + 1);
+  }
   const cycles: RecertCycle[] = [];
   for (const row of moved.rows) {
     const c = counts.get(row.id) ?? { eligible: 0, current: 0 };
@@ -7896,6 +9600,7 @@ async function claimDueRecertificationsOn(client: Queryable, opts: { documentIds
       confirmations_reset: c.current,
       eligible: c.eligible,
       recert_months: row.recert_months,
+      rearmed: rearmed.get(row.id) ?? 0,
     });
   }
   return cycles;
@@ -7974,6 +9679,149 @@ export async function setAckRecert(docId: number, patch: RecertPatch): Promise<A
     [docId, months, next, effective]
   );
   return r[0];
+}
+
+// --- Deadlines (E1, 1.13.0) ---------------------------------------------------------
+//
+// A person's due date is materialised on their policy_assignments row when
+// the row's clock starts (enrolment, a re-confirmation cycle, a re-ask) and
+// moved only by a manager (extend, "Also move existing deadlines") or a
+// rule change; nothing derives it at read time. The rule is the same in SQL
+// (dueAtSql, for the claims and the reconcile) and in JS (dueAtFor in
+// lib/ack-due, for a route): the policy's fixed date while it is still
+// ahead, else the start plus due_days resolved through the cascade
+// policy_settings -> spaces.policy_defaults -> the workspace's ack_defaults
+// -> the built-in. The workspace layer is a parameter: every sweep loads it
+// once (lib/compliance workspaceDueDefaults) and passes it in.
+
+/**
+ * The due-date expression for one assignment row. Requires the aliases
+ * `ps` (policy_settings, LEFT JOINed on the document) and `s` (spaces, the
+ * document's space) in scope. `from` is the SQL for the clock's start
+ * (now(), clock_timestamp(), pa.cycle_started_at); `workspace` the
+ * placeholder holding the workspace's number for `key` (int or null);
+ * `timeZone` the placeholder holding the workspace's IANA zone, in which
+ * the fixed date's day ends. `key` is 'due_days' (default) or
+ * 'new_joiner_days' (which policy_settings does not carry: the cascade
+ * starts at the space).
+ */
+export function dueAtSql(opts: { from: string; workspace: string; timeZone: string; key?: "due_days" | "new_joiner_days" }): string {
+  const key = opts.key ?? "due_days";
+  const policy = key === "due_days" ? "ps.due_days, " : "";
+  const dayEnd = `((ps.due_at + 1)::timestamp AT TIME ZONE ${opts.timeZone}::text)`;
+  return `CASE
+      WHEN ps.due_at IS NOT NULL AND ${dayEnd} > ${opts.from} THEN ${dayEnd} - interval '1 millisecond'
+      ELSE ${opts.from} + make_interval(days => COALESCE(${policy}(s.policy_defaults->>'${key}')::int, ${opts.workspace}::int, ${BUILT_IN[key]}))
+    END`;
+}
+
+/** The layers of one policy's cascade as stored, for resolvePolicyDefaults (lib/compliance). */
+export interface PolicyDefaultLayers {
+  /** policy_settings' own numbers and owner (empty when the policy has no row yet). */
+  policy: PolicyDefaultsLayer;
+  /** The policy's deadline rule: due_days or a fixed 'YYYY-MM-DD', both null = inherit. */
+  rule: DueRule;
+  space: { id: number; name: string; defaults: PolicyDefaultsLayer };
+}
+
+export async function policyDefaultLayers(docId: number): Promise<PolicyDefaultLayers | undefined> {
+  const r = await q<{
+    space_id: number;
+    space_name: string;
+    policy_defaults: unknown;
+    due_days: number | null;
+    due_at: string | null;
+    remind_before_days: number | null;
+    remind_every_days: number | null;
+    escalate_after_days: number | null;
+    nudge_every_days: number | null;
+    owner_user_id: number | null;
+  }>(
+    `SELECT s.id AS space_id, s.name AS space_name, s.policy_defaults,
+            ps.due_days, ps.due_at::text AS due_at, ps.remind_before_days, ps.remind_every_days,
+            ps.escalate_after_days, ps.nudge_every_days, ps.owner_user_id
+       FROM documents d
+       JOIN spaces s ON s.id = d.space_id
+       LEFT JOIN policy_settings ps ON ps.document_id = d.id
+      WHERE d.id = $1`,
+    [docId]
+  );
+  const row = r[0];
+  if (!row) return undefined;
+  return {
+    policy: sanitizeLayer({
+      due_days: row.due_days,
+      remind_before_days: row.remind_before_days,
+      remind_every_days: row.remind_every_days,
+      escalate_after_days: row.escalate_after_days,
+      nudge_every_days: row.nudge_every_days,
+      owner_user_id: row.owner_user_id,
+    }),
+    rule: { due_days: row.due_days, due_at: row.due_at },
+    space: { id: row.space_id, name: row.space_name, defaults: sanitizeLayer(row.policy_defaults) },
+  };
+}
+
+/**
+ * The due dates of the open rows of a policy, by user id (null = no due
+ * date), for the notices: the drain fills the email's due tags from each
+ * recipient's own row. `userIds` null = every open row.
+ */
+export async function assignmentDueDates(docId: number, userIds: number[] | null): Promise<Map<number, string | null>> {
+  const rows = await q<{ user_id: number; due_at: string | null }>(
+    `SELECT user_id, due_at FROM policy_assignments
+      WHERE document_id = $1 AND removed_at IS NULL AND exempt_at IS NULL
+        AND ($2::int[] IS NULL OR user_id = ANY($2::int[]))`,
+    [docId, userIds]
+  );
+  return new Map(rows.map((r) => [r.user_id, r.due_at]));
+}
+
+/**
+ * "Also move existing deadlines" (E1): recompute the due date of every open
+ * row of a policy from the rule as it now stands: the fixed date (its last
+ * instant in the workspace zone) while it is still ahead, else each row's
+ * cycle start plus the days (the rule's own, or `dueDays`, the number the
+ * cascade resolves when the rule inherits). The old and new dates go onto
+ * the row's due_history ({from, to, by, at, reason}, the last
+ * DUE_HISTORY_MAX kept), an escalation stamp is cleared when the new date is
+ * ahead so the escalation can fire again, and a row whose date would not
+ * change is left alone (no history entry). Exempt and removed rows are not
+ * touched. Returns the rows moved; the caller (movePolicyDeadlines in
+ * lib/compliance) writes the audit row, and the toast's Undo is the exempt
+ * agent's undoExtension over these ids.
+ */
+export async function moveDeadlines(
+  docId: number,
+  rule: DueRule,
+  opts: { dueDays: number; timeZone?: string; actor: AckActor; reason?: string }
+): Promise<{ moved: number; ids: number[] }> {
+  const fixed = endOfDayIn(rule.due_at, opts.timeZone || "UTC");
+  const fixedAhead = fixed && fixed.getTime() > Date.now() ? fixed.toISOString() : null;
+  const days = rule.due_days ?? opts.dueDays;
+  const reason = opts.reason ?? (fixedAhead ? "Deadline set to a fixed date" : `Deadline rule changed to ${days} days after assignment`);
+  const rows = await q<{ id: number }>(
+    `WITH target AS (
+       SELECT pa.id, pa.due_at AS from_due,
+              CASE WHEN $2::timestamptz IS NOT NULL THEN $2::timestamptz
+                   ELSE pa.cycle_started_at + make_interval(days => $3::int) END AS to_due
+         FROM policy_assignments pa
+        WHERE pa.document_id = $1 AND pa.removed_at IS NULL AND pa.exempt_at IS NULL
+     )
+     UPDATE policy_assignments pa
+        SET due_at = t.to_due,
+            escalated_at = CASE WHEN t.to_due > now() THEN NULL ELSE pa.escalated_at END,
+            due_history = (
+              SELECT COALESCE(jsonb_agg(h.e ORDER BY h.i), '[]'::jsonb)
+                FROM (SELECT e, i FROM jsonb_array_elements(pa.due_history) WITH ORDINALITY AS x(e, i)
+                       ORDER BY i DESC LIMIT $6::int - 1) AS h
+            ) || jsonb_build_array(jsonb_build_object('from', t.from_due, 'to', t.to_due, 'by', $4::int, 'at', now(), 'reason', $5::text))
+       FROM target t
+      WHERE pa.id = t.id AND pa.due_at IS DISTINCT FROM t.to_due
+      RETURNING pa.id`,
+    [docId, fixedAhead, days, opts.actor.id ?? null, reason, DUE_HISTORY_MAX]
+  );
+  return { moved: rows.length, ids: rows.map((r) => r.id) };
 }
 
 // --- Training decks (enterprise "training") ---------------------------------------

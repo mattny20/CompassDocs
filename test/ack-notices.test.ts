@@ -183,7 +183,8 @@ describe("the per-person notice log", () => {
     assert.equal(mine.filter((m) => m.to === emailOf("Reader A")).length, 1, "A was emailed once");
     assert.equal(mine.filter((m) => m.to === emailOf("Reader B")).length, 0, "B was not");
     const mail = mine.find((m) => m.to === emailOf("Reader A"))!;
-    assert.match(mail.subject, new RegExp(`Action required: confirm "${doc.title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"$`));
+    // The subject may end " by {date}" (E1, 1.13.0): the person's own due date, from their assignment row.
+    assert.match(mail.subject, new RegExp(`Action required: confirm "${doc.title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"( by .+)?$`));
     assert.match(mail.text, /Not Actor requested that you read and confirm:/);
     assert.ok(mail.text.includes(`${ORIGIN}/doc/${doc.id}#confirm-reading`), "the link lands on the card");
     assert.match(mail.text, /and confirm at the end that you have read and understood it\.$/);
@@ -235,7 +236,8 @@ describe("the per-person notice log", () => {
       `Reminder: confirm "${doc.title}"`,
     ]);
     assert.equal(inbox.rows.length, 1);
-    assert.equal(inbox.rows[0].body, `You still need to read and confirm "${doc.title}".`);
+    // Minus the "by {date}" the person's assignment row adds (E1, 1.13.0).
+    assert.equal(inbox.rows[0].body.replace(/ by [^"]+\.$/, "."), `You still need to read and confirm "${doc.title}".`);
     const audit = (await auditRow("ack.reminder_sent", doc.id))!;
     assert.equal(audit.details.noticed, (await listAckNotices({ documentId: doc.id })).filter((n) => n.outbox_id === rem.outbox_id).length);
   });

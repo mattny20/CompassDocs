@@ -1,3 +1,5 @@
+import type { PolicyDefaultsLayer } from "./ack-due";
+
 export type DocType = "sop" | "technical" | "policy" | "knowledge";
 export type DocStatus = "draft" | "published";
 
@@ -171,6 +173,13 @@ export interface Space {
   default_template_id: number | null;
   /** Layout the space page opens with; visitors can switch and are remembered. */
   default_view: SpaceView;
+  /**
+   * The space layer of the policy deadline cascade (E1, 1.13.0): any subset
+   * of the seven numbers and owner_user_id; a key absent means inherit from
+   * the workspace. Stored as written (validated on the way in); read it
+   * through lib/ack-due sanitizeLayer / resolveDefaults.
+   */
+  policy_defaults: PolicyDefaultsLayer;
 }
 
 export type SpaceView = "cards" | "table" | "tree" | "board" | "timeline" | "tags";
@@ -414,6 +423,71 @@ export interface AckOutboxRow {
   error: string | null;
   /** The sending request's origin kept for the links; '' when no request queued the row (1.10.1). */
   origin: string;
+  /** What a sweep handed the drain (E2, 1.13.0): the due dates of a 'due' row, the overdue people and roles of an 'escalation' row; null otherwise. */
+  payload: unknown | null;
+}
+
+// --- Audiences and assignments (1.13.0, D1) ----------------------------------
+
+/** Who a policy asks: everyone who can see its space, or the people its rules name. */
+export type AudienceMode = "space" | "targeted";
+export type AudienceRuleKind = "group" | "user" | "role";
+export type AudienceRuleEffect = "include" | "exclude";
+
+/** One row of policy_audience_rules: `ref` is a group id, a user id or a ladder role name, as text. */
+export interface AudienceRule {
+  kind: AudienceRuleKind;
+  ref: string;
+  effect: AudienceRuleEffect;
+}
+
+/** How a person came to owe a policy (policy_assignments.source). 'set' and 'recert' are reserved for D3 and later cycles. */
+export type PolicyAssignmentSource = "space" | "group" | "role" | "user" | "new_member" | "set" | "recert" | "manual";
+
+/** Why an assignment closed (policy_assignments.removed_reason); '' while open. */
+export type PolicyRemovedReason = "left_group" | "access_removed" | "audience_narrowed" | "disabled" | "set_unassigned" | "";
+
+/** One policy's audience, deadline and reminder configuration (policy_settings); the E1/E2 numbers are null = inherit. */
+export interface PolicySettings {
+  document_id: number;
+  audience_mode: AudienceMode;
+  assign_new_members: number;
+  exclude_stewards: number;
+  owner_user_id: number | null;
+  due_days: number | null;
+  /** A fixed deadline as 'YYYY-MM-DD' (read as text on purpose: the date parser in lib/db is reserved for ack_effective_at). */
+  due_at: string | null;
+  remind_before_days: number | null;
+  remind_every_days: number | null;
+  escalate_after_days: number | null;
+  nudge_every_days: number | null;
+  requested_by: number | null;
+  requested_at: string | null;
+}
+
+/** One person's standing on one policy (policy_assignments): open while removed_at and exempt_at are null. */
+export interface PolicyAssignment {
+  id: number;
+  document_id: number;
+  user_id: number;
+  source: PolicyAssignmentSource;
+  assigned_at: string;
+  /** The person's own cycle start: a confirmation counts only from the later of this and the document marker. */
+  cycle_started_at: string;
+  due_at: string | null;
+  due_history: { from: string | null; to: string | null; by: number | null; at: string; reason: string }[];
+  reminded_at: string | null;
+  reminder_count: number;
+  escalated_at: string | null;
+  snoozed_until: string | null;
+  snoozed_by: number | null;
+  exempt_at: string | null;
+  exempt_by: number | null;
+  exempt_by_name: string;
+  exempt_reason: string;
+  exempt_until: string | null;
+  removed_at: string | null;
+  removed_reason: PolicyRemovedReason;
 }
 
 export interface SearchHit {

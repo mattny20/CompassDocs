@@ -25,6 +25,8 @@ import {
   personalDataCells,
   personalDataForViewer,
   ledgerCsvCells,
+  rosterStatus,
+  exemptionCsvCells,
 } from "@/lib/read-evidence";
 
 export const dynamic = "force-dynamic";
@@ -54,8 +56,11 @@ export const dynamic = "force-dynamic";
 // reached_end_self_reported. Closing the line (1.12.0, C4): statement (the
 // confirmation statement the person saw), signed_name and identity_proof
 // (C2), then recert_months, effective_at and next_recert_at from the
-// documents row (G1). The headers live in src/lib/read-evidence.ts beside
-// the cell rules. Every cell goes through csvCell (quotes doubled, a
+// documents row (G1). After those (1.13.0, D2) the assignment's exemption
+// and deadline: exempt_reason, exempt_by, exempt_until (filled on a row
+// whose status is 'exempt'; such a row is in no count), snoozed_until and
+// due_at. The headers live in src/lib/read-evidence.ts beside the cell
+// rules. Every cell goes through csvCell (quotes doubled, a
 // formula-leading value prefixed with a quote), so a name or a note that
 // starts with = never runs when the sheet opens.
 //
@@ -200,7 +205,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
           esc(r.username),
           esc(r.email),
           esc(r.role),
-          esc(r.acknowledged_at ? "acknowledged" : "pending"),
+          esc(rosterStatus(r)),
           esc(r.acknowledged_at ?? ""),
           esc(doc.title),
           esc(doc.ack_revision_at),
@@ -215,6 +220,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
           ...evidenceCsvCells(r).map(esc),
           ...attestationCsvCells(r).map(esc),
           ...recert,
+          ...exemptionCsvCells(r).map(esc),
         ].join(",")
       ),
       ...former.map((r) =>
@@ -238,6 +244,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
           ...evidenceCsvCells(r).map(esc),
           ...attestationCsvCells(r).map(esc),
           ...recert,
+          // No assignment row travels with a former staff member: five blanks.
+          ...exemptionCsvCells({}).map(esc),
         ].join(",")
       ),
     ].join("\n");

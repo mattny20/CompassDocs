@@ -4,6 +4,8 @@ import { getSetting, setSetting } from "./db";
 import { audit } from "./audit";
 import type { AuditActor } from "./audit";
 import { isRecertDefault, RECERT_OPTIONS } from "./ack-recert";
+import { DUE_NUMBER_KEYS, dueNumberError, isDueNumber } from "./ack-due";
+import type { DueNumberKey } from "./ack-due";
 
 // Program settings (E4, 1.10.1): the documented defaults every policy
 // inherits, edited on /compliance/settings and read by the features that
@@ -28,7 +30,18 @@ export const EDIT_DEFAULTS = ["ask", "material", "reset"] as const;
  *  only when the change looks material, or always ask everyone to re-confirm. */
 export type EditDefault = (typeof EDIT_DEFAULTS)[number];
 
-export interface AckDefaults {
+/**
+ * The workspace layer of the deadline cascade (E1/E2, 1.13.0): the seven
+ * numbers of lib/ack-due, each null when the workspace keeps the built-in.
+ * A policy inherits them through policy_settings -> spaces.policy_defaults
+ * -> here -> BUILT_IN (resolvePolicyDefaults in lib/compliance).
+ */
+export type AckDueDefaults = { [K in DueNumberKey]: number | null };
+
+/** Every due number unset: what a workspace has until an admin types one. */
+const NO_DUE_DEFAULTS = Object.fromEntries(DUE_NUMBER_KEYS.map((k) => [k, null])) as AckDueDefaults;
+
+export interface AckDefaults extends AckDueDefaults {
   /** The per-document default a policy receives when it is first set to
    *  require read confirmation (A5, `documents.ack_edit_default`). */
   edit_default: EditDefault;
@@ -61,7 +74,7 @@ export const STATEMENT_MAX = 300;
  *  DEFAULT_CONFIRMATION_STATEMENT); kept as a literal here because the card
  *  is a client component and this module is server-only. */
 export const COMPLIANCE_DEFAULTS: ComplianceSettings = {
-  ack_defaults: { edit_default: "ask", keep_reason_required: true, recert_months: null },
+  ack_defaults: { edit_default: "ask", keep_reason_required: true, recert_months: null, ...NO_DUE_DEFAULTS },
   compliance_statement_default: "I confirm that I have read and understood this document.",
   ack_report: { enabled: false, cadence: "weekly", recipients: { users: [], groups: [] } },
 };
@@ -89,7 +102,11 @@ export function normaliseStatement(v: unknown): string {
 
 function normaliseAckDefaults(raw: Record<string, unknown> | null): AckDefaults {
   const d = COMPLIANCE_DEFAULTS.ack_defaults;
+  // A due number out of its range (a hand edit of 0 or 400 days) reads as
+  // unset, so the cascade moves on to the built-in rather than apply it.
+  const due = Object.fromEntries(DUE_NUMBER_KEYS.map((k) => [k, isDueNumber(k, raw?.[k]) ? raw![k] : null])) as AckDueDefaults;
   return {
+    ...due,
     edit_default: isEditDefault(raw?.edit_default) ? raw.edit_default : d.edit_default,
     keep_reason_required:
       typeof raw?.keep_reason_required === "boolean" ? raw.keep_reason_required : d.keep_reason_required,
@@ -145,7 +162,8 @@ export interface ComplianceSettingsPatch {
 
 export type PatchResult = { ok: true; patch: ComplianceSettingsPatch } | { ok: false; error: string };
 
-const ACK_DEFAULT_KEYS = new Set<keyof AckDefaults>(["edit_default", "keep_reason_required", "recert_months"]);
+const ACK_DEFAULT_KEYS = new Set<keyof AckDefaults>(["edit_default", "keep_reason_required", "recert_months", ...DUE_NUMBER_KEYS]);
+const isDueKey = (k: string): k is DueNumberKey => (DUE_NUMBER_KEYS as readonly string[]).includes(k);
 /** "6, 12 or 24" for the error line, from the options the Select offers. */
 const RECERT_DEFAULT_LIST = RECERT_OPTIONS.filter((o) => o.months !== null)
   .map((o) => String(o.months))
@@ -191,6 +209,10 @@ export function parseComplianceSettingsPatch(body: unknown): PatchResult {
             return { ok: false, error: `"ack_defaults.recert_months" must be ${RECERT_DEFAULT_LIST} months, or null for never.` };
           }
           inner.recert_months = v;
+        } else if (isDueKey(k)) {
+          // null = the built-in (the field left blank on the card).
+          if (v !== null && !isDueNumber(k, v)) return { ok: false, error: dueNumberError(k, "ack_defaults.") };
+          inner[k] = v;
         }
       }
       patch.ack_defaults = inner;
@@ -256,6 +278,21 @@ export async function saveComplianceSettings(
   }
 
   for (const change of changes) {
+    const dueKey = change.key.startsWith("ack_defaults.") ? change.key.slice("ack_defaults.".length) : "";
+    if (isDueKey(dueKey)) {
+      // The deadline cascade's workspace layer (E1): the same action a
+      // space's layer writes, so one filter shows every default that moved.
+      await audit({
+        actor: by.actor,
+        action: "ack.defaults_set",
+        targetType: "setting",
+        targetId: change.key,
+        targetLabel: change.key,
+        details: { scope: "workspace", space_id: null, key: dueKey, from: change.from, to: change.to },
+        ip: by.ip,
+      });
+      continue;
+    }
     await audit({
       actor: by.actor,
       action: "settings.compliance",
