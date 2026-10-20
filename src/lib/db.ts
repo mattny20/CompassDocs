@@ -6056,10 +6056,19 @@ const IN_AUDIENCE = `u.status = 'active' AND ${ACK_VISIBILITY} AND ${audienceAdm
 const AUDIENCE_FROM = `documents d
        JOIN spaces s ON s.id = d.space_id
        LEFT JOIN policy_settings ps ON ps.document_id = d.id`;
-/** The upsert's conflict arm: a closed row of a returning person re-opens with a fresh cycle and deadline; an open row is left alone. */
+/**
+ * The upsert's conflict arm: a closed row of a returning person re-opens
+ * with a fresh cycle and deadline and the reminder and escalation stamps
+ * cleared (the new cycle is reminded and escalated on its own; the count
+ * and the exemption are history and stay); an open row is left alone. A
+ * fresh row (the INSERT arm) takes the policy's cycle, d.ack_revision_at:
+ * a first assignment counts a confirmation from the marker, as 1.12.0 did,
+ * so the heal of a row a 1.12.0 binary never wrote moves no count.
+ */
 const AUDIENCE_REOPEN = `ON CONFLICT (document_id, user_id) DO UPDATE
        SET removed_at = NULL, removed_reason = '', cycle_started_at = now(),
-           due_at = EXCLUDED.due_at, source = EXCLUDED.source
+           due_at = EXCLUDED.due_at, source = EXCLUDED.source,
+           reminded_at = NULL, escalated_at = NULL
        WHERE policy_assignments.removed_at IS NOT NULL`;
 
 const NO_CHANGE: ReconcileResult = { added: 0, closed: 0, reopened: 0 };
@@ -6128,9 +6137,10 @@ async function reconcilePolicyOn(
   );
   if (opts.auto && !h.auto_on) return { added: 0, closed: closed.rowCount ?? 0, reopened: 0 };
   const opened = await client.query<{ inserted: boolean }>(
-    `INSERT INTO policy_assignments (document_id, user_id, source, due_at)
+    `INSERT INTO policy_assignments (document_id, user_id, source, due_at, cycle_started_at)
      SELECT d.id, u.id, ${audienceSourceSql(SAVED_AUDIENCE)},
-            ${dueAtSql({ from: "now()", workspace: "$2", timeZone: "$3" })}
+            ${dueAtSql({ from: "now()", workspace: "$2", timeZone: "$3" })},
+            d.ack_revision_at
      FROM ${AUDIENCE_FROM}, users u
      WHERE d.id = $1 AND ${IN_AUDIENCE}
      ${AUDIENCE_REOPEN}
@@ -6182,8 +6192,8 @@ async function reconcileUserOn(
   const source = joiner ? "'new_member'" : audienceSourceSql(SAVED_AUDIENCE);
   const due = dueAtSql({ from: "now()", workspace: "$2", timeZone: "$3", key: joiner ? "new_joiner_days" : "due_days" });
   const opened = await client.query<{ document_id: number; due_at: string | null; inserted: boolean }>(
-    `INSERT INTO policy_assignments (document_id, user_id, source, due_at)
-     SELECT d.id, u.id, ${source}, ${due}
+    `INSERT INTO policy_assignments (document_id, user_id, source, due_at, cycle_started_at)
+     SELECT d.id, u.id, ${source}, ${due}, d.ack_revision_at
      FROM ${AUDIENCE_FROM}, users u
      WHERE u.id = $1 AND ${AUDIENCE_POLICY}
        AND ($4::boolean = false OR COALESCE(ps.assign_new_members, 1) = 1)
