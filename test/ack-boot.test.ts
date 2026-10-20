@@ -81,7 +81,7 @@ const DOWNGRADE_1101_SQL = `
     DROP COLUMN IF EXISTS approved_by, DROP COLUMN IF EXISTS approved_by_name,
     DROP COLUMN IF EXISTS change_request_id;
   DELETE FROM settings WHERE key = 'migrated_version_provenance';
-  ${/* 1.13.0 (D1): the audience tables and their one-shot flag, so every upgrade path below materialises the rows. */ ""}
+  -- 1.13.0 (D1): the audience tables and their one-shot flag, so every upgrade path below materialises the rows.
   DROP TABLE IF EXISTS policy_assignments;
   DROP TABLE IF EXISTS policy_audience_rules;
   DROP TABLE IF EXISTS policy_settings;

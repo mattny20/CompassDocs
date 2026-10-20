@@ -6184,11 +6184,17 @@ async function reconcileEach(
  * the hour, and a settings row missing after a rolling deploy heals. One
  * ack.audience_reconciled row per policy whose rows moved.
  */
-export async function reconcileAllPolicies(): Promise<ReconcileResult & { policies: number }> {
+export async function reconcileAllPolicies(
+  opts: { documentIds?: number[] } = {}
+): Promise<ReconcileResult & { policies: number }> {
   await ready();
   const defaults = await workspaceAudienceDefaults();
+  // `documentIds` limits the sweep (tests sharing a database); the tick passes nothing.
   const docs = await q<{ id: number; title: string }>(
-    `SELECT d.id, d.title FROM documents d WHERE ${AUDIENCE_POLICY} ORDER BY d.id`
+    `SELECT d.id, d.title FROM documents d
+     WHERE ${AUDIENCE_POLICY} AND ($1::int[] IS NULL OR d.id = ANY($1::int[]))
+     ORDER BY d.id`,
+    [opts.documentIds ?? null]
   );
   const total = await reconcileEach(docs, { defaults, auto: true });
   return { ...total, policies: docs.length };
@@ -9566,13 +9572,10 @@ async function claimDueRecertificationsOn(client: Queryable, opts: RecertSweepOp
   if (moved.rows.length > 0) {
     const r = await client.query<{ document_id: number }>(
       `UPDATE policy_assignments pa
-          SET due_at = ${dueAtSql({ from: "clock_timestamp()", workspace: "$2", timeZone: "$3" })},
+          SET ${dueRearmSql("pa", { from: "clock_timestamp()", workspace: "$2", timeZone: "$3" })},
               reminded_at = NULL,
               escalated_at = NULL
-         FROM documents d
-         LEFT JOIN policy_settings ps ON ps.document_id = d.id
-         LEFT JOIN spaces s ON s.id = d.space_id
-        WHERE pa.document_id = d.id AND d.id = ANY($1::int[])
+        WHERE pa.document_id = ANY($1::int[])
           AND pa.removed_at IS NULL AND pa.exempt_at IS NULL
         RETURNING pa.document_id`,
       [moved.rows.map((m) => m.id), opts.defaults?.due_days ?? null, opts.timeZone || "UTC"]
@@ -9713,6 +9716,35 @@ export function dueAtSql(opts: { from: string; workspace: string; timeZone: stri
       WHEN ps.due_at IS NOT NULL AND ${dayEnd} > ${opts.from} THEN ${dayEnd} - interval '1 millisecond'
       ELSE ${opts.from} + make_interval(days => COALESCE(${policy}(s.policy_defaults->>'${key}')::int, ${opts.workspace}::int, ${BUILT_IN[key]}))
     END`;
+}
+
+/**
+ * THE fragment every writer that restarts a row's clock uses: the
+ * re-confirmation claim here, the exempt agent's un-exempt and
+ * expireExemptions, the reask agent's re-open, a reconcile's re-open.
+ * `due_at = (the cascade from \`from\`)`, as a correlated subquery on the
+ * row's own document, so it drops into any `UPDATE policy_assignments <row>
+ * SET …` or `INSERT … ON CONFLICT DO UPDATE SET …` without joins. `row` is
+ * the alias of the policy_assignments row being written ('pa'; in an ON
+ * CONFLICT clause the table name, 'policy_assignments').
+ *
+ * Parameters the caller binds: `workspace` is the placeholder holding the
+ * workspace's due_days, an integer or null (`(await
+ * workspaceDueDefaults()).due_days ?? null` in lib/compliance, loaded once
+ * per sweep or request); `timeZone` the placeholder holding the workspace's
+ * IANA zone (`(await getAppSettings()).timezone`, or 'UTC'), in which a
+ * fixed date's day ends; `from` the SQL for the clock's start (now() by
+ * default; clock_timestamp() where the caller stamps the rest of the row
+ * with it). The rule is dueAtFor's (lib/ack-due): the policy's fixed date
+ * while still ahead, else `from` plus due_days resolved policy ->
+ * space -> workspace -> built-in 14.
+ */
+export function dueRearmSql(row: string, opts: { workspace: string; timeZone: string; from?: string }): string {
+  return `due_at = (SELECT ${dueAtSql({ from: opts.from ?? "now()", workspace: opts.workspace, timeZone: opts.timeZone })}
+      FROM documents d
+      LEFT JOIN policy_settings ps ON ps.document_id = d.id
+      LEFT JOIN spaces s ON s.id = d.space_id
+     WHERE d.id = ${row}.document_id)`;
 }
 
 /** The layers of one policy's cascade as stored, for resolvePolicyDefaults (lib/compliance). */

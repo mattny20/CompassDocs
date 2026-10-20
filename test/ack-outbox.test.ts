@@ -271,8 +271,11 @@ describe("the notice outbox", () => {
     assert.ok((audit2.details.skipped_recent as number) >= 2, `the people skipped are counted: ${audit2.details.skipped_recent}`);
     assert.equal(audit2.details.reason, "Clause 2 reworded");
 
-    // Someone who has not heard yet (a new account) still does.
+    // Someone who has not heard yet (a new account) still does. Who is
+    // pending is read off policy_assignments since 1.13.0 (D1): the account
+    // created by a raw INSERT gets the row the create-user hook would give it.
     const readerC = await newUser("Reader C");
+    await pool().query("INSERT INTO policy_assignments (document_id, user_id, source) VALUES ($1, $2, 'new_member') ON CONFLICT DO NOTHING", [id, readerC]);
     const third = await enqueueAckNotice(null, {
       document_id: id,
       mode: "updated",
