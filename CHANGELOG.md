@@ -9,64 +9,68 @@ All notable changes to CompassDocs are documented here. The format is based on
 Read confirmation, part five: who must confirm (a policy's audience), a due
 date for every person with a policy, space and workspace cascade, automatic
 reminders and escalation from the hourly sweep, exemptions, extensions and
-snooze on the roster, and asking one person to re-confirm. (Enterprise,
-`policy_ack`.)
+snooze on the roster, and asking one person to re-confirm (Enterprise, `policy_ack`), plus two directory requests in core: section order and section heads on exports.
 
 ### Added
-- **Who must confirm: a policy's audience.** A policy asks either
-  **everyone who can see its space** (space mode, what every policy did
-  before) or **specific groups, people and roles** (targeted mode: Entra,
-  Google or manual groups, named people, the ladder roles Viewer / Editor /
-  Approver / Admin, minus exclusions, with an option to leave out the
-  document's author and the space's approvers). The audience is
-  materialised as one **assignment row per person** (`policy_assignments`),
-  and every count reads those rows: the portal's tiles and rows, the
-  Record tab, the people view, My policies, the sidebar badge, the summary
-  behind the editor's question and the notices. The rule that a policy can
-  only reach people who can see its space still holds: every audience is
-  intersected with the space's visibility, so a rule narrows and never
-  widens, and a person a rule names who cannot see the space is not
-  enrolled (the preview counts them as "without access"). Saving an
-  audience answers how many people it added and removed ("Audience saved:
-  14 people added, 3 people removed from the audience"); the API is
-  `PATCH /api/documents/{id}/ack-settings` with `audience_mode`, `rules`
-  (`[{kind, ref, effect}]`, up to 200), `exclude_stewards` and
-  `assign_new_members`, and `GET …?preview=1&rules=…` counts a draft without
-  saving it (`{ count, no_access, sample }`). A saved audience is audited as
-  `ack.audience_set` ("Set who must confirm a policy") with the mode, the
-  rules and the counts.
+- **Who must confirm: a policy's audience.** A policy asks either **everyone
+  who can see its space** (space mode, what every policy did before) or
+  **specific groups, people and roles** (targeted mode: Entra, Google or
+  manual groups, named people, the ladder roles Viewer / Editor / Approver /
+  Admin, minus exclusions, with an option to leave out the document's author
+  and the space's approvers) (saving space mode clears the policy's rules,
+  exclusions apply in targeted mode only, and the author is matched through
+  the directory's linked names). The audience is materialised as one
+  **assignment row per person** (`policy_assignments`), and every count
+  reads those rows: the portal's tiles and rows, the Record tab, the people
+  view, My policies, the sidebar badge, the summary behind the editor's
+  question and the notices. The rule that a policy can only reach people who
+  can see its space still holds: every audience is intersected with the
+  space's visibility, so a rule narrows and never widens, and a person a
+  rule names who cannot see the space is not enrolled (the preview counts
+  them as "without access"). Saving an audience answers how many people it
+  added and removed ("Audience saved: 14 people added, 3 people removed from
+  the audience") and queues one request notice for the people it added or
+  re-opened, worded with each person's own deadline through the shared
+  outbox (people the directory hooks or the hourly sweep add are first told
+  by the reminder sweep); the API is `PATCH
+  /api/documents/{id}/ack-settings` with `audience_mode`, `rules` (`[{kind,
+  ref, effect}]`, up to 200), `exclude_stewards` and `assign_new_members`,
+  and `GET …?preview=1&rules=…` counts a draft without saving it (`{ count,
+  no_access, sample }`). A saved audience is audited as `ack.audience_set`
+  ("Set who must confirm a policy") with the mode, the rules and the counts.
 - **Rows are kept, never deleted.** A person who leaves a policy's audience
   (leaves the group, loses access to the space, is excluded by a rule, is
   disabled) keeps their row, closed with the reason (`left_group`,
   `access_removed`, `audience_narrowed`, `disabled`); their past
-  confirmations stay on the record. When they return, the same row
-  re-opens with a fresh cycle and deadline, their exemption and reminder
-  history intact, and they are asked again: a confirmation from before they
-  left no longer counts. Closing a row never touches the acknowledgements
-  ledger.
-- **New accounts are enrolled automatically.** A person created locally,
-  by SCIM or at their first SSO sign-in gets a row for every policy whose
+  confirmations stay on the record. When they return, the same row re-opens
+  with a fresh cycle and a new-joiner deadline, its reminder and escalation
+  stamps cleared and its exemption history intact, and they are asked again:
+  a confirmation from before they left no longer counts. Closing a row never
+  touches the acknowledgements ledger.
+- **New accounts are enrolled automatically.** A person created locally, by
+  SCIM or at their first SSO sign-in gets a row for every policy whose
   audience admits them and has **Enrol new joiners automatically** on (the
-  default), due the new-joiner days from the day they join (14 built in,
-  or the space's / workspace's number), and **one welcome notice** listing
-  the policies with their due dates ("Welcome: 3 policies to read", linking
-  My policies) instead of one request per policy; a single policy goes as
-  the usual request. The email is the new editable template **Welcome:
-  policies to read** (`ack_welcome`: `count`, `policy_list`, `portal_url`,
-  `org_name`); the per-kind Read confirmations email choice is honoured,
-  the master switch is not, as for every notice of the family. Audited as
+  default), due the new-joiner days from the day they join (14 built in, or
+  the space's / workspace's number; the same number every later addition to
+  an audience gets), and **one welcome notice** listing the policies with
+  their due dates ("Welcome: 3 policies to read", linking My policies)
+  instead of one request per policy; a single policy goes as the usual
+  request. The email is the new editable template **Welcome: policies to
+  read** (`ack_welcome`: `count`, `policy_list`, `portal_url`, `org_name`);
+  the per-kind Read confirmations email choice is honoured, the master
+  switch is not, as for every notice of the family. Audited as
   `ack.auto_enrolled` ("Enrolled new account in policies").
-- **Audiences follow the directory.** Adding someone to a group or
-  replacing a group's members (a manual edit, an Entra or Google sync),
-  granting or removing a group's membership of a private space, changing a
-  space's visibility, and disabling or re-enabling an account bring the
-  policies concerned in line at once. Changes made in Roles & permissions
-  take effect within the hour: the hourly compliance sweep reconciles every
-  live policy first (and heals a policy switched on by a rolled-back 1.12.0
-  binary that has no settings row). The scheduled directory sync's report
-  gains the line **Policy audiences updated: +12 / −3** when a run moved
-  anyone. Each change that moved rows is audited `ack.audience_reconciled`
-  ("Updated a policy's audience") with the counts.
+- **Audiences follow the directory.** Adding someone to a group or replacing
+  a group's members (a manual edit, an Entra or Google sync), granting or
+  removing a group's membership of a private space, changing a space's
+  visibility, and disabling or re-enabling an account bring the policies
+  concerned in line at once. Changes made in Roles & permissions take effect
+  within the hour: the hourly compliance sweep reconciles every live policy
+  first (and heals a policy switched on by a rolled-back 1.12.0 binary that
+  has no settings row). The scheduled directory sync's report gains the line
+  **Policy audiences updated: +12 / −3** when a run moved anyone. Each
+  change that moved rows is audited `ack.audience_reconciled` ("Updated a
+  policy's audience") with the counts.
 - **Only the people a policy asks can confirm it.** The confirmation card,
   the sticky control and the notice row appear only for a person with an
   open row; someone outside the audience, or excused from it, reads the
@@ -86,13 +90,18 @@ snooze on the roster, and asking one person to re-confirm. (Enterprise,
   so the chip, the roster and the email all name the day the manager chose.
   A deadline never blocks the document: an overdue policy is confirmed the
   same way, and the record shows the date it was confirmed.
-- **Two grace periods, named apart.** *Days for new joiners* is what a new
-  account gets from the day it joins (its own number, 14 days built-in);
-  *Grace days after the due date* is the time after a due date before a
-  person counts as overdue (0 built-in: the moment the date passes).
-  Overdue means the due date plus the grace has passed and no current
-  confirmation stands; a confirmed row is never overdue, however old its
-  date, and a row with no due date never is.
+- **Two grace periods, named apart.** *Days for new joiners* is what anyone
+  who joins a policy's audience after it was switched on gets, from the day
+  they are added (a new account, a person a rule, a group change or a space
+  grant admits, a returner), 14 days built-in; the audience a switch-on
+  enrols, and the rows the upgrade wrote, get the days to confirm instead,
+  so the card's help ("New accounts and people added to the audience get 14
+  days from the day they join") is what the rows do. *Grace days after the
+  due date* is the time after a due date before a person counts as overdue
+  (0 built-in: the moment the date passes). Overdue means the due date plus
+  the grace has passed and no current confirmation stands; a confirmed row
+  is never overdue, however old its date, and a row with no due date never
+  is.
 - **Program settings: Deadlines and reminders.** A fourth card on
   `/compliance/settings` with the seven numbers every policy inherits: days
   to confirm, days for new joiners, grace days after the due date, the first
@@ -108,10 +117,10 @@ snooze on the roster, and asking one person to re-confirm. (Enterprise,
   changes writes an `ack.defaults_set` audit row ("Changed policy defaults")
   with `{scope: "workspace", key, from, to}`.
 - **Space policy defaults.** A space can set its own layer of the cascade:
-  `PATCH /api/admin/spaces/{id}` accepts `policy_defaults`, any subset of the
-  seven numbers plus `owner_user_id` (the person escalations go to for the
-  space's policies), each `null` to inherit from the workspace again. Keys
-  are merged over what the space holds, validated the same way as the
+  `PATCH /api/admin/spaces/{id}` accepts `policy_defaults`, any subset of
+  the seven numbers plus `owner_user_id` (the person escalations go to for
+  the space's policies), each `null` to inherit from the workspace again.
+  Keys are merged over what the space holds, validated the same way as the
   workspace's, and audited per changed key as `ack.defaults_set` with
   `{scope: "space", space_id, key, from, to}`.
 - **Read confirmation emails say when.** The `ack_request` template gains
@@ -119,60 +128,68 @@ snooze on the roster, and asking one person to re-confirm. (Enterprise,
   by 29 Oct 2026", appended to the default subject), and `{{due_date}}` and
   `{{days_left}}` are now filled: each from the recipient's own assignment
   row, so one notice to people with different deadlines renders once per
-  distinct date, and the in-app line reads "Please read and confirm "Code
-  of Conduct" by 29 Oct 2026." Dates are formatted the workspace's way (its
+  distinct date, and the in-app line reads "Please read and confirm "Code of
+  Conduct" by 29 Oct 2026." Dates are formatted the workspace's way (its
   date format and time zone). People with no due date get the sentences as
   before. A workspace that overrode the template keeps its own body and
   subject and adopts the new tags when it next edits them; the preview
   pane's sample now shows a due date.
 - **Annual re-confirmation restarts the clocks.** When a cycle fires, every
-  open assignment row of that policy gets a fresh due date from the
-  cascade, and its reminder and escalation stamps are cleared, in the same
+  open assignment row of that policy gets a fresh due date from the cascade,
+  and its reminder and escalation stamps are cleared, in the same
   transaction as the marker, so the notice that goes out already says the
   new date. Exempt and removed rows are left alone. The sweep's `ack.recert`
   audit row gains `rearmed` (the rows restarted).
 - **Moving existing deadlines.** Changing a policy's relative rule applies
   to people enrolled from then on; **Also move existing deadlines** on the
   Settings tab recomputes every open row of the policy from the rule as it
-  now stands (the fixed date while ahead, else each row's cycle start plus
-  the days), leaves a row whose date would not change alone, re-arms an
-  escalation that already fired when the new date is ahead, and puts the
-  old and new dates onto the row's `due_history` (`{kind: "moved", from, to,
-  by, at, reason}`, the last ten kept beside a manager's "extend" entries)
-  so an SLA change is never lost; a move is undone by applying the previous
-  rule again, never as an extension. Audited as `ack.due_moved` ("Moved
-  read confirmation deadlines") with `{policy, n, from_rule, to_rule}`; the
-  rule itself is `ack.due_set` ("Set read confirmation deadline") when it is
-  saved from the Settings tab.
+  now stands (the fixed date while ahead, else the later of each row's cycle
+  start and its assignment, plus the days, so a row the upgrade wrote dates
+  forward from the upgrade and a re-asked row from its re-ask), leaves a row
+  whose date would not change alone, re-arms an escalation that already
+  fired when the new date is ahead, and puts the old and new dates onto the
+  row's `due_history` (`{kind: "moved", from, to, by, at, reason}`, the last
+  ten kept beside a manager's "extend" entries) so an SLA change is never
+  lost; a move is undone by applying the previous rule again, never as an
+  extension. Audited as `ack.due_moved` ("Moved read confirmation
+  deadlines") with `{policy, n, from_rule, to_rule}`; the rule itself is
+  `ack.due_set` ("Set read confirmation deadline") when it is saved from the
+  Settings tab.
 - **Automatic reminders.** Nobody clicks thirty Remind buttons any more: the
-  hourly sweep reminds every person whose confirmation is due soon or overdue,
-  on a cadence each policy can set and otherwise inherits (the Settings tab's
-  **Reminders** card, the space's policy defaults, then Program settings: first
-  reminder 3 days before the due date, then every 7 days while it is due or
-  overdue; a policy with no due date is nudged every N days only when N is
-  above 0, never by default). A reminder is one in-app notice, **Due in 3
-  days: confirm "Acceptable Use Policy"** / **Due today: …** / **Overdue: …**
-  with the date as its body, linking the confirmation card, and one email
-  from the new editable template **Read confirmation due reminder**
-  (`ack_due`: `doc_title`, `doc_url`, `due_date`, `due_line`, `status_label`
-  Due soon / Overdue / Reminder, `org_name`). Someone with more than three
-  policies to confirm in the same hour gets one notice instead, **You have 5
-  policies to confirm**, listing the titles and due dates and linking My
-  policies (the template **Read confirmation reminders, bundled**,
-  `ack_due_bundle`: `count`, `policy_list`, `portal_url`, `org_name`); the
-  record still shows one row per policy. Snoozed, exempt and removed rows,
-  confirmed people, disabled accounts, paused and retired policies are never
-  reminded, and the grace days keep a row "due" rather than "overdue" until
-  they have passed.
+  hourly sweep reminds every person whose confirmation is due soon or
+  overdue, on a cadence each policy can set and otherwise inherits (the
+  Settings tab's **Reminders** card, the space's policy defaults, then
+  Program settings: first reminder 3 days before the due date, then every 7
+  days while it is due or overdue; a policy with no due date is nudged every
+  N days only when N is above 0, never by default). A reminder is one in-app
+  notice, **Due in 3 days: confirm "Acceptable Use Policy"** / **Due today:
+  …** / **Overdue: …** with the date as its body, linking the confirmation
+  card, and one email from the new editable template **Read confirmation due
+  reminder** (`ack_due`: `doc_title`, `doc_url`, `due_date`, `due_line`,
+  `status_label` Due soon / Overdue / Reminder, `org_name`). Someone with
+  more than three policies to confirm in the same hour gets one notice
+  instead, **You have 5 policies to confirm**, listing the titles and due
+  dates and linking My policies (the template **Read confirmation reminders,
+  bundled**, `ack_due_bundle`: `count`, `policy_list`, `portal_url`,
+  `org_name`); the record still shows one row per policy. Snoozed, exempt
+  and removed rows, confirmed people, disabled accounts, paused and retired
+  policies are never reminded, and the grace days keep a row "due" rather
+  than "overdue" until they have passed.
 - **Escalation.** Once someone is past the due date, its grace and the
-  policy's **Escalate after** days (7 by default), the policy's owner is told
-  once per person: **Overdue: 7 people on "Acceptable Use Policy"**, body
-  **More than 7 days overdue: Ana Ruiz, Ben Lo, +5**, linking the policy in
-  the portal. Without an owner, whoever switched the requirement on hears;
-  without either, the space's approvers. The leads of every group the overdue
-  people belong to hear too, linked to their team view, but only about
-  policies in spaces they can read: a lead of a broad group gets nothing about
-  a private-space policy. The email is the new template **Overdue read
+  policy's **Escalate after** days (7 by default), the policy's owner is
+  told once per person: **Overdue: 7 people on "Acceptable Use Policy"**,
+  body **More than 7 days overdue: Ana Ruiz, Ben Lo, +5**, linking the
+  Policies page with that policy's roster expanded when the owner holds the
+  Compliance section, else the policy's Record tab. Without an owner of its
+  own the policy falls to its space's Policy owner (the space's Policy
+  defaults), then to whoever switched the requirement on, then to the
+  space's approvers; an owner or requester who is not an active account that
+  can see the space is passed over, and both settings routes refuse such a
+  pick with 400 "The owner must be an active account that can see this
+  space." The leads of every group the overdue people belong to hear too,
+  linked to the policy itself (a team view comes later), but only about
+  policies in spaces they can read: a lead of a broad group gets nothing
+  about a private-space policy. The email is the new template **Overdue read
   confirmations, escalation** (`ack_escalation`: `policy_title`,
   `overdue_count`, `overdue_list`, `portal_url`, `org_name`). Extending a
   person's due date re-arms their escalation.
@@ -180,19 +197,20 @@ snooze on the roster, and asking one person to re-confirm. (Enterprise,
   reminders** ("A policy you must confirm is due soon or overdue") and
   **Compliance escalations** ("People you own or lead are overdue on a
   policy"), each with in-app, webhook and email switches; the bell shows the
-  reminder with a clipboard-clock icon and the escalation with a shield. Like
-  read confirmation requests, these emails ignore the personal master switch
-  and honour the per-event email choice, and the record shows it.
+  reminder with a clipboard-clock icon and the escalation with a shield.
+  Like read confirmation requests, these emails ignore the personal master
+  switch and honour the per-event email choice, and the record shows it.
 - **Every automatic send is on the record.** Each reminder writes one
-  ack_notices row per person and policy (kind `due`), each escalation one row
-  per recipient (kind `escalation`), with the channels that went out; a
+  ack_notices row per person and policy (kind `due`), each escalation one
+  row per recipient (kind `escalation`), with the channels that went out; a
   delivery that fails is retried from the record like every other notice.
   The audit log gets `ack.reminder_auto` {policy, reminded, overdue} and
   `ack.escalated` {policy, overdue, recipients, days} by the system when the
-  sweep claims, and a second entry of each with the delivery counts (pending,
-  emailed, noticed, bundled) when the notices have gone out.
+  sweep claims, and a second entry of each with the delivery counts
+  (pending, emailed, noticed, bundled) when the notices have gone out.
 - **The portal's manual Remind** now also stamps the rows it reaches
-  (`reminded_at`, `reminder_count`), so the automatic cadence counts from it.
+  (`reminded_at`, `reminder_count`), so the automatic cadence counts from
+  it.
 - **Exemptions, extensions and snooze on a policy's roster.** Three
   per-person levers on a policy assignment, each with a recorded reason or
   date and its own audit entry, so a programme can reach 100% honestly and
@@ -214,35 +232,38 @@ snooze on the roster, and asking one person to re-confirm. (Enterprise,
   current date, whichever is later, clears the escalation and any snooze,
   and keeps the move on the row (`due_history`, the last 10 moves: `{ kind:
   "extend", from, to, by, at, reason }`); **Undo** is the inverse of the
-  last extension on each row. **Snooze** pauses automatic reminders for 1
-  to 30 days (7 by default) and changes nothing else: a snooze never changes
-  a person's status, the numbers, the roster, an export or the record, and
+  last extension on each row. **Snooze** pauses automatic reminders for 1 to
+  30 days (7 by default) and changes nothing else: a snooze never changes a
+  person's status, the numbers, the roster, an export or the record, and
   overdue stays a function of the deadline and the confirmation alone.
   **Unsnooze** resumes them.
-- **Two endpoints, one bound.** `POST /api/admin/compliance/assignments
-  { action, assignment_ids, days?, reason?, until? }` with `action` one of
+- **Two endpoints, one bound.** `POST /api/admin/compliance/assignments {
+  action, assignment_ids, days?, reason?, until? }` with `action` one of
   `exempt`, `unexempt`, `extend`, `undo_extend`, `snooze`, `unsnooze` or
   `reask` (the per-person re-ask, which needs a reason of 10+ characters)
   and 1 to 200 ids, for holders of `compliance.program_manage`; and its
-  space-scoped twin `POST /api/documents/{id}/acknowledgements/actions`
-  with the same body for a holder of `document.ack_require` on the policy's
-  space (or a program manager), whose every write is bound to that document,
-  so ids from another policy's roster are never touched and come back in
-  `skipped`. Both answer `{ ok, action, changed, skipped }` (`until` on a
-  snooze) and 400 with the first problem named; 402 without the licence.
-- **The record and the exports carry it.** The JSON record
-  (`GET /api/documents/{id}/acknowledgements`) rows gain `assignment_id`,
+  space-scoped twin `POST /api/documents/{id}/acknowledgements/actions` with
+  the same body for a holder of `document.ack_require` on the policy's space
+  (or a program manager), whose every write is bound to that document, so
+  ids from another policy's roster are never touched and come back in
+  `skipped`. A paused or retired policy takes no lever: the twin answers 400
+  "This document doesn't ask for a read confirmation.", the admin route
+  reports the ids as skipped. Both answer `{ ok, action, changed, skipped }`
+  (`until` on a snooze) and 400 with the first problem named; 402 without
+  the licence.
+- **The record and the exports carry it.** The JSON record (`GET
+  /api/documents/{id}/acknowledgements`) rows gain `assignment_id`,
   `due_at`, `exempt`, `exempt_reason`, `exempt_by_name`, `exempt_at`,
   `exempt_until`, `snoozed_until` and `asked_again_at` (the person's own
   cycle start when they were asked again individually; `null` otherwise).
   The per-policy CSV's `status` column takes `exempt` (an exempt row is in
-  no count, whatever confirmation it holds), and both the per-policy and
-  the portal-wide CSV end with five new columns after the six of 1.12.0:
+  no count, whatever confirmation it holds), and both the per-policy and the
+  portal-wide CSV end with five new columns after the six of 1.12.0:
   `exempt_reason`, `exempt_by`, `exempt_until`, `snoozed_until`, `due_at`.
   Former-staff rows carry five blanks. Existing columns stay in place.
 - **One audit entry per row changed**, against the policy: `ack.exempted`
-  (the person, the reason, until), `ack.exemption_revoked` (by a manager,
-  or by the sweep when the date passed), `ack.due_extended` (from, to, the
+  (the person, the reason, until), `ack.exemption_revoked` (by a manager, or
+  by the sweep when the date passed), `ack.due_extended` (from, to, the
   days, the reason), `ack.due_extension_undone`, `ack.snoozed` (until) and
   `ack.unsnoozed`; a bulk extend adds one `ack.bulk_extended` summary (the
   count and the days). A per-person re-ask through these endpoints writes
@@ -258,16 +279,16 @@ snooze on the roster, and asking one person to re-confirm. (Enterprise,
   person: those now have their own action. **Ask to re-confirm…** on a
   roster row (the Record tab and the portal's expand row; the bar over
   ticked rows says **Ask 3 people to re-confirm**) opens one question, *Ask
-  Ana Ruiz to re-confirm "Expense policy"?*, with the standing ("Her
-  confirmation of version 12 stays in the record. She is asked to read the
-  document and confirm again.") and one required field, **Why is this
-  person being asked again?** (10 characters or more). On confirmation the
-  document marker does not move: one statement restarts the confirmation
-  cycle of that person's assignment row (`policy_assignments.cycle_started_at`),
-  so their confirmation alone stops counting, they get a fresh deadline
-  from the policy's rule (the fixed date while still ahead, else today plus
-  the days to confirm) and their reminder and escalation stamps clear so
-  the automatic reminders start over for the new deadline. Everyone else's
+  Ana Ruiz to re-confirm "Expense policy"?*, with the standing ("Their
+  confirmation of version 12 stays in the record. They are asked to read the
+  document and confirm again.") and one required field, **Why is this person
+  being asked again?** (10 characters or more). On confirmation the document
+  marker does not move: one statement restarts the confirmation cycle of
+  that person's assignment row (`policy_assignments.cycle_started_at`), so
+  their confirmation alone stops counting, they get a fresh deadline from
+  the policy's rule (the fixed date while still ahead, else today plus the
+  days to confirm) and their reminder and escalation stamps clear so the
+  automatic reminders start over for the new deadline. Everyone else's
   confirmation, the Remind cooldown and the annual cycle's next date are
   untouched, and the prior confirmation stays in the record tied to the
   version it covered. The History tab gains a row (**Asked again**, source
@@ -281,28 +302,32 @@ snooze on the roster, and asking one person to re-confirm. (Enterprise,
   closed, or who were never asked are skipped and listed back; when nobody
   named has an open row the request is refused ("This person isn't asked to
   confirm this document." / "None of these people are asked to confirm this
-  document.") and nothing is written. There is no one-hour guard on a
-  per-person ask and it stamps no cooldown: asking one person again never
-  blocks Remind or a whole-audience ask, and vice versa.
-- **The per-person re-ask API.** `POST /api/documents/{id}/ack/reconfirm
-  { reason, user_ids }` (the same route and guards: `document.ack_require`
-  on the space or `compliance.program_manage`; 402 without the licence)
-  takes `user_ids` as a list of up to 200 user ids (duplicates collapse) and
+  document.") and nothing is written. A per-person ask has a brake of its
+  own: a person asked within the last hour is skipped (the route and the
+  assignments endpoints' reask answer 429 "Ana Ruiz was asked again 12
+  minutes ago." when every person named is inside it, and otherwise list
+  those ids in skipped); it stamps no policy-wide cooldown, so asking one
+  person again never blocks Remind or a whole-audience ask, and vice versa.
+- **The per-person re-ask API.** `POST /api/documents/{id}/ack/reconfirm {
+  reason, user_ids }` (the same route and guards: `document.ack_require` on
+  the space or `compliance.program_manage`; 402 without the licence) takes
+  `user_ids` as a list of up to 200 user ids (duplicates collapse) and
   answers `{ ok, reset, queued, user_ids, skipped }`: `user_ids` the people
   whose cycle restarted (and who are notified), `skipped` the rest of the
   list. 400 with the first problem named: "user_ids must be a list of user
   ids.", "Choose at least one person.", "Ask up to 200 people at a time.",
   the reason rule, or the nobody-open sentence above (the answer then also
-  carries `skipped`). Without `user_ids` (or with `null`) the route is the
-  whole-audience ask it was. The assignments endpoints' `reask` action
-  reaches the same statement by assignment id, across policies.
+  carries `skipped`); 429 when every person named was asked inside the last
+  hour. Without `user_ids` (or with `null`) the route is the whole-audience
+  ask it was. The assignments endpoints' `reask` action reaches the same
+  statement by assignment id, across policies.
 - **A per-person ask on the ledger.** It is a `reset` row of scope `users`
   (`ack_decisions.scope`, reserved since 1.10.0): `confirmations_affected`
-  is the number of rows re-opened, `eligible` the audience, `decided_at`
-  the same instant the rows carry as their new cycle start, `reason` yours.
-  The audit entry `ack.reconfirmation_requested` carries `scope`
-  (`all` | `users`), `user_ids` (the people re-asked; `null` for a
-  whole-audience ask) and `skipped`, beside the counts it had.
+  is the number of rows re-opened, `eligible` the audience, `decided_at` the
+  same instant the rows carry as their new cycle start, `reason` yours. The
+  audit entry `ack.reconfirmation_requested` carries `scope` (`all` |
+  `users`), `user_ids` (the people re-asked; `null` for a whole-audience
+  ask) and `skipped`, beside the counts it had.
 - New tests: `test/ack-audience.test.ts` (the rule sanitiser and the toast;
   space mode equal to the old set on an internal and a private space; the
   cycle-aware currency across the reader, the summary, the roster and My
@@ -316,37 +341,94 @@ snooze on the roster, and asking one person to re-confirm. (Enterprise,
   fixture helper `test/support/assign.ts`; `test/ack-due.test.ts` (the
   cascade with its origins and both validators, the end of a fixed day in
   four zones, a past fixed date falling back, calendar days left, overdue
-  with grace, the three layers and the workspace audit row, moving
-  deadlines with the history bounded to ten, the cycle's re-arm through
-  every layer, the email tags with and without a date, one notice to three
-  people with two dates); `test/ack-sweep.test.ts` (two parallel sweeps
-  claim each row once; the cadence through the policy, space and workspace
-  layers; snoozed, exempt, removed, confirmed and disabled rows and paused
-  or retired policies never claimed; the grace; escalation once after due
-  plus grace plus escalate days, the recipients per policy and a lead off a
-  private space; the re-arm after an extension; the manual stamp) and
+  with grace, the three layers and the workspace audit row, moving deadlines
+  with the history bounded to ten, the cycle's re-arm through every layer,
+  the email tags with and without a date, one notice to three people with
+  two dates); `test/ack-sweep.test.ts` (two parallel sweeps claim each row
+  once; the cadence through the policy, space and workspace layers; snoozed,
+  exempt, removed, confirmed and disabled rows and paused or retired
+  policies never claimed; the grace; escalation once after due plus grace
+  plus escalate days, the recipients per policy and a lead off a private
+  space; the re-arm after an extension; the manual stamp) and
   `test/ack-outbox.test.ts` (the bundle for a person on four rows with one
   mail, the per-person wording and the email opt-out, a failed bundle
   charged to every row and resumed by the retry, the escalation row's two
-  links); `test/ack-exempt.test.ts` (an exempt row out of every
-  denominator; self-exemption refused and nothing written; the 300- and
-  200-bounds; un-exempt re-arming through the cascade; expiry; the extend
-  math, `due_history` and the last-ten rule; undo; snooze clamped at 30
-  with the invariant proved by a before-and-after snapshot of status,
-  summary, roster and CSV; the document bound on every lever; the
-  per-person re-ask through the dispatcher) and `test/ack-retention.test.ts`
-  (both headers' legacy prefix with the five columns); `test/ack-reask.test.ts`
-  (a per-person ask leaving the marker and everyone else's currency; the
-  decision row's scope and counts; only the people named told; exempt and
-  removed people skipped; the whole-audience path unchanged);
-  `test/ack-boot.test.ts` (the three tables, the indexes, the flag, the
-  spaces column and the payload column after an upgrade boot; a second boot
-  moving nothing; the KPI equality before and after the migration) and
-  `test/compliance-settings.test.ts` (`due_days` a known key). The e2e specs
-  gain the per-person re-ask's two 400s (`e2e/compliance-portal.spec.ts`)
-  and the eleven trailing CSV columns (`e2e/compliance-rbac.spec.ts`).
-- **Export presets: a preview of the sections, and their order.** In a preset's **Order and filter** card, choosing a **Sections by** field now opens a **Section order** list right under it: one row per section the field makes of the people the preset prints (its **Only people where** filter applied), labelled as the PDF prints them, with a count ("Phoenix · 12 people"), in the field's own order (a field with options in their order, other values alphabetically). Move up and Move down put the sections in the order the file should print them; **Reset to field order** goes back to the field's own. A value that is not in the list (a new office, a value nobody had when the order was set) prints after the listed ones, in the field's order, and "No <field>" stays last. The PDF (the table, the two- and three-column layouts and the photo cards), the CSV's Group column and the contacts export follow the order; a **One file per** zip split by the same field names its files in it too. The Directory page's Groups view is unchanged. In the API: a preset's `section_order` (the group values, up to 200, each once; dropped when the preset has no Sections by field, and cleared when the field changes), `GET /api/admin/directory/export-presets/sections?field=<key>&filter=<JSON>` (`{ sections: [{ value, label, count }] }`; 400 for a field the export cannot section by), and `section_order` as an export override (a JSON array; a request that overrides `group_by` without one, "What I see" included, starts from the field's order).
-- **Section heads: the people who head a department, an office, any section.** Under **Settings → Directory → Fields**, the options of any field the directory can make sections by (what **Sections by** offers) gain a **Heads** list: for each option, up to five people, picked by name and shown with their own value for the field ("Jane Smith · Executive"), since the point is a head who sits elsewhere, as department heads in an executive or admin department do. On the Directory page's **Groups** view each group lists its heads first, in the order set, with a **Head** chip after the name, and its heading reads "Engineering (13) · Head: Jane Smith" ("Heads: Jane Smith, Pat Lee" for several); a head whose own value is another group is an ordinary tile there as well. On exports that make sections by that field (the PDF's table, its two- and three-column layouts, the photo cards, and every file of a **One file per** zip), each section starts with its heads as rows like any other, the name followed by " · Head" (after the name format and the marker symbols), and the section's heading carries " · Head: Jane Smith"; a head who sits in the section they head prints once, at its top, and the heading's count covers members and heads. A head is drawn from the people the file prints, so one a preset's **Only people where** leaves out leads no section in it. The CSV ends every row with a **Section head of** column, after Markers, listing the sections the person heads ("Engineering; Design"), whether or not the file makes sections; a head row's name cell carries no mark. The contacts export is unchanged: one card per person, where their own value puts them. A new preset toggle in **Order and filter**, **Section heads first** (on; shown only once the Sections by field has a head), puts the heads at the top; off, they print only where their own value puts them and the heading carries no suffix. The **Section order** list names each section's head under its count. A person who leaves the directory, or is hidden, stops heading a section at once, with nothing to edit. In the API: an option's `heads` (directory person ids) on `GET` / `POST /api/admin/directory/fields` and `PATCH …/fields/{id}` (400 for an id that is not a whole number, more than five, or a person the directory does not have), `section_heads` on a preset and as an export override, and `heads: [{ id, name }]` per section from `GET /api/admin/directory/export-presets/sections`. A field save that changed who heads a section audits as `directory.field_updated` with `heads_changed: true`.
+  links); `test/ack-exempt.test.ts` (an exempt row out of every denominator;
+  self-exemption refused and nothing written; the 300- and 200-bounds;
+  un-exempt re-arming through the cascade; expiry; the extend math,
+  `due_history` and the last-ten rule; undo; snooze clamped at 30 with the
+  invariant proved by a before-and-after snapshot of status, summary, roster
+  and CSV; the document bound on every lever; the per-person re-ask through
+  the dispatcher) and `test/ack-retention.test.ts` (both headers' legacy
+  prefix with the five columns); `test/ack-reask.test.ts` (a per-person ask
+  leaving the marker and everyone else's currency; the decision row's scope
+  and counts; only the people named told; exempt and removed people skipped;
+  the whole-audience path unchanged); `test/ack-boot.test.ts` (the three
+  tables, the indexes, the flag, the spaces column and the payload column
+  after an upgrade boot; a second boot moving nothing; the KPI equality
+  before and after the migration) and `test/compliance-settings.test.ts`
+  (`due_days` a known key). The e2e specs gain the per-person re-ask's two
+  400s (`e2e/compliance-portal.spec.ts`) and the eleven trailing CSV columns
+  (`e2e/compliance-rbac.spec.ts`).
+- **Export presets: a preview of the sections, and their order.** In a
+  preset's **Order and filter** card, choosing a **Sections by** field now
+  opens a **Section order** list right under it: one row per section the
+  field makes of the people the preset prints (its **Only people where**
+  filter applied), labelled as the PDF prints them, with a count ("Phoenix ·
+  12 people"), in the field's own order (a field with options in their
+  order, other values alphabetically). Move up and Move down put the
+  sections in the order the file should print them; **Reset to field order**
+  goes back to the field's own. A value that is not in the list (a new
+  office, a value nobody had when the order was set) prints after the listed
+  ones, in the field's order, and "No <field>" stays last. The PDF (the
+  table, the two- and three-column layouts and the photo cards), the CSV's
+  Group column and the contacts export follow the order; a **One file per**
+  zip split by the same field names its files in it too. The Directory
+  page's Groups view is unchanged. In the API: a preset's `section_order`
+  (the group values, up to 200, each once; dropped when the preset has no
+  Sections by field, and cleared when the field changes), `GET
+  /api/admin/directory/export-presets/sections?field=<key>&filter=<JSON>`
+  (`{ sections: [{ value, label, count }] }`; 400 for a field the export
+  cannot section by), and `section_order` as an export override (a JSON
+  array; a request that overrides `group_by` without one, "What I see"
+  included, starts from the field's order).
+- **Section heads: the people who head a department, an office, any
+  section.** Under **Settings → Directory → Fields**, the options of any
+  field the directory can make sections by (what **Sections by** offers)
+  gain a **Heads** list: for each option, up to five people, picked by name
+  and shown with their own value for the field ("Jane Smith · Executive"),
+  since the point is a head who sits elsewhere, as department heads in an
+  executive or admin department do. On the Directory page's **Groups** view
+  each group lists its heads first, in the order set, with a **Head** chip
+  after the name, and its heading reads "Engineering (13) · Head: Jane
+  Smith" ("Heads: Jane Smith, Pat Lee" for several); a head whose own value
+  is another group is an ordinary tile there as well. On exports that make
+  sections by that field (the PDF's table, its two- and three-column
+  layouts, the photo cards, and every file of a **One file per** zip), each
+  section starts with its heads as rows like any other, the name followed by
+  " · Head" (after the name format and the marker symbols), and the
+  section's heading carries " · Head: Jane Smith"; a head who sits in the
+  section they head prints once, at its top, and the heading's count covers
+  members and heads. A head is drawn from the people the file prints, so one
+  a preset's **Only people where** leaves out leads no section in it. The
+  CSV ends every row with a **Section head of** column, after Markers,
+  listing the sections the person heads ("Engineering; Design"), whether or
+  not the file makes sections; a head row's name cell carries no mark. The
+  contacts export is unchanged: one card per person, where their own value
+  puts them. A new preset toggle in **Order and filter**, **Section heads
+  first** (on; shown only once the Sections by field has a head), puts the
+  heads at the top; off, they print only where their own value puts them and
+  the heading carries no suffix. The **Section order** list names each
+  section's head under its count. A person who leaves the directory, or is
+  hidden, stops heading a section at once, with nothing to edit. In the API:
+  an option's `heads` (directory person ids) on `GET` / `POST
+  /api/admin/directory/fields` and `PATCH …/fields/{id}` (400 for an id that
+  is not a whole number, more than five, or a person the directory does not
+  have), `section_heads` on a preset and as an export override, and `heads:
+  [{ id, name }]` per section from `GET
+  /api/admin/directory/export-presets/sections`. A field save that changed
+  who heads a section audits as `directory.field_updated` with
+  `heads_changed: true`.
 - **Settings tab: Who must confirm, Deadline and Reminders.** The Read
   confirmation page's Settings tab gains three cards between Confirmation
   statement and Re-confirmation, all under its one **Save settings** row.
@@ -373,8 +455,11 @@ snooze on the roster, and asking one person to re-confirm. (Enterprise,
   default" / "…, built-in", naming where the number comes from), **Days
   after assignment** with a Days field (1 to 365, refused inline outside
   that) or **Fixed date** with a date (today or later; "The deadline cannot
-  be in the past."); the helper line "Current audience: due 29 Oct 2026 ·
-  new joiners: 14 days after they join" reads the stored rule; the
+  be in the past."; a stored date that has passed shows "This date has
+  passed; new assignments use the inherited days until you set another
+  date." and Also move existing deadlines recomputes from the inherited days
+  without re-sending it); the helper line "Current audience: due 29 Oct 2026
+  · new joiners: 14 days after they join" reads the stored rule; the
   secondary button **Also move existing deadlines** recomputes every open
   deadline from the rule as the card holds it and toasts "Moved 412
   deadlines" with **Undo** (the previous rule re-applied the same way) when
@@ -391,9 +476,9 @@ snooze on the roster, and asking one person to re-confirm. (Enterprise,
   switched the requirement on, with "Hears when people are overdue. Leave
   blank for whoever switched the requirement on, else the space's
   approvers." Re-confirmation and Lifecycle are unchanged.
-- **`PATCH /api/documents/{id}/ack-settings` takes the three cards' fields.**
-  Beside the audience fields above: `due_days` (1 to 365 or null to
-  inherit), `due_at` (`YYYY-MM-DD`, today or later, or null) and
+- **`PATCH /api/documents/{id}/ack-settings` takes the three cards'
+  fields.** Beside the audience fields above: `due_days` (1 to 365 or null
+  to inherit), `due_at` (`YYYY-MM-DD`, today or later, or null) and
   `move_existing` (true moves every open deadline to the rule as it now
   stands; a new or changed fixed date moves them without it; the answer
   carries `moved`), `remind_before_days`, `remind_every_days`,
@@ -426,62 +511,62 @@ snooze on the roster, and asking one person to re-confirm. (Enterprise,
   the due date, First reminder, Days between reminders, Days overdue before
   escalation, Days between nudges), each with the placeholder "Inherit (14)"
   showing the workspace's number, and a **Policy owner** picker; a blank
-  field inherits, and the values save with the space through
-  `PATCH /api/admin/spaces/{id}` `policy_defaults` (refused inline outside
-  each range). A policy in that space then reads "Inherit (21 days, from
+  field inherits, and the values save with the space through `PATCH
+  /api/admin/spaces/{id}` `policy_defaults` (refused inline outside each
+  range). A policy in that space then reads "Inherit (21 days, from
   Security)" on its Deadline card and "Inherited from Security space (3)"
   under a blank reminder field.
 - **The roster acts on its rows.** The Record tab and the portal's expand
   row (`AckRoster`) gain a leading checkbox column, row actions as icon
-  buttons (Extend due date…, Exempt…, Remove exemption, Pause reminders
-  until {date} / Unsnooze, Ask to re-confirm… on a row with a current
-  confirmation) and a bulk bar "{n} selected" with the same actions over
-  the checked people (up to 200 at a time). Every action tells and offers
-  Undo as the inverse call ("Exempted Ana Ruiz from "AUP" · Undo",
-  "Extended 12 deadlines by 7 days · Undo", "Snoozed reminders for Ana Ruiz
-  until 27 Oct 2026 · Undo"); the re-ask is a notice already sent and
-  offers none ("Ana Ruiz will be asked to re-confirm."). A steward holding
-  `document.ack_require` on the policy's space acts through the document's
-  own route, a program manager through the admin route; the control is
-  disabled while a request is in flight and focus returns to the row.
+  buttons (Extend due date…, Exempt…, Remove exemption, Snooze / Unsnooze
+  (the date in the toast; Unsnooze's Undo re-snoozes for the days that were
+  left), Ask to re-confirm… on a row with a current confirmation) and a bulk
+  bar "{n} selected" with the same actions over the checked people (up to
+  200 at a time). Every action tells and offers Undo as the inverse call
+  ("Exempted Ana Ruiz from "AUP" · Undo", "Extended 12 deadlines by 7 days ·
+  Undo", "Snoozed reminders for Ana Ruiz until 27 Oct 2026 · Undo"); the
+  re-ask is a notice already sent and offers none ("Ana Ruiz will be asked
+  to re-confirm."). A steward holding `document.ack_require` on the policy's
+  space acts through the document's own route, a program manager through the
+  admin route; the control is disabled while a request is in flight and
+  focus returns to the row.
 - **Due and Exemption columns.** The roster shows each person's deadline
   and, in plain text, their exemption ("On leave until 1 Dec 2026 · Priya
   Shah · 3 Oct 2026"), the reason and asker of a per-person re-ask, or a
   snooze ("Snoozed until 22 Oct 2026"); the snooze invariant is spelled out
   under the table whenever a snoozed row is on the page.
 - **Overdue, Exempt and "Asked again" on the roster.** Status chips gain
-  **Overdue** (red, past the due date and the policy's grace) and
-  **Exempt** (neutral); a row asked to re-confirm on its own carries
-  "Asked again {date}" beside Pending; the Show filter gains Overdue and
-  Exempt.
+  **Overdue** (red, past the due date and the policy's grace) and **Exempt**
+  (neutral); a row asked to re-confirm on its own carries "Asked again
+  {date}" beside Pending after a real re-ask; the Show filter gains Overdue
+  and Exempt.
 - The roster JSON (`GET /api/documents/{id}/acknowledgements`) adds
-  `asked_again_reason` and `asked_again_by` to each row's re-ask fields
-  and, beside `rows`, `defaults.overdue_grace_days`, the policy's resolved
-  grace.
+  `asked_again_reason` and `asked_again_by` to each row's re-ask fields and,
+  beside `rows`, `defaults.overdue_grace_days`, the policy's resolved grace.
 - **Due dates for readers.** A policy's deadline now reaches the person it
-  applies to, as information and never a wall: the confirmation card at
-  the end of the document carries a chip "Due 29 Oct 2026" (neutral more
-  than three days out, amber at three or fewer) or "Overdue since 29 Oct
-  2026" (red); once overdue, one sentence above the same button says "This
-  was due 29 Oct 2026. Confirming now still records today's date." The
-  notice strip's one sentence gains " by 29 Oct 2026" and keeps its one
-  action; the sticky document bar shows "Due in 2 days", "Due tomorrow",
-  "Due today" or "Overdue" beside the jump link (only "Overdue" stays on a
-  phone). Every cue leaves with the pending state. The date comes from the
-  reader's own assignment row and the grace from the policy's defaults
-  cascade, formatted in the workspace's date format and time zone, so the
-  three surfaces name one day.
+  applies to, as information and never a wall: the confirmation card at the
+  end of the document carries a chip "Due 29 Oct 2026" (neutral more than
+  three days out, amber at three or fewer) or "Overdue since 29 Oct 2026"
+  (red); once overdue, one sentence above the same button says "This was due
+  29 Oct 2026. Confirming now still records today's date." The notice
+  strip's one sentence gains " by 29 Oct 2026" and keeps its one action; the
+  sticky document bar shows "Due in 2 days", "Due tomorrow", "Due today" or
+  "Overdue" beside the jump link (only "Overdue" stays on a phone). Every
+  cue leaves with the pending state. The date comes from the reader's own
+  assignment row and the grace from the policy's defaults cascade, formatted
+  in the workspace's date format and time zone, so the three surfaces name
+  one day.
 - **My policies knows about deadlines.** Each row carries the person's due
   date; the To confirm group is ordered overdue first, then the soonest
   deadline, then the most recently changed, and its chips read "Overdue ·
-  due 29 Oct 2026" (red) or "To confirm · due 29 Oct 2026" (amber);
-  "Changed since you confirmed {date}" and "Confirmed {date} · v12" are
-  unchanged. The empty state says policies will appear "with their due
-  dates". `GET /api/compliance/mine` rows gain `due_at` and the state
-  `'overdue'`, and arrive in the page's order.
-- **The dashboard counts the overdue ones.** The "Needs your attention"
-  row reads "3 policies need your read confirmation · 1 overdue" and names
-  each deadline in its detail ("Expense policy (due 29 Oct 2026)" after the
+  due 29 Oct 2026" (red) or "To confirm · due 29 Oct 2026" (amber); "Changed
+  since you confirmed {date}" and "Confirmed {date} · v12" are unchanged.
+  The empty state says policies will appear "with their due dates". `GET
+  /api/compliance/mine` rows gain `due_at` and the state `'overdue'`, and
+  arrive in the page's order.
+- **The dashboard counts the overdue ones.** The "Needs your attention" row
+  reads "3 policies need your read confirmation · 1 overdue" and names each
+  deadline in its detail ("Expense policy (due 29 Oct 2026)" after the
   space's icon), listing the overdue policy first. New
   `countOverdueAcksFor(userId, scope)` beside `countPendingAcksFor`;
   `listPendingAcksFor` rows gain `due_at` and `overdue`.
@@ -489,58 +574,57 @@ snooze on the roster, and asking one person to re-confirm. (Enterprise,
   person asked reads "{name} asked you to confirm this document again on
   {date}" on the strip (ending "by {date}" with their fresh deadline) and
   the card (with the reason), while someone whose confirmation lapsed with
-  an earlier whole-audience ask keeps reading that one: the page matches
-  the ledger row written at the same instant as the reader's own row (new
+  an earlier whole-audience ask keeps reading that one: the page matches the
+  ledger row written at the same instant as the reader's own row (new
   `getMyAssignment(docId, userId)`), and falls back to the newest
   whole-audience reset otherwise. The popover's "asked {date} by {name}"
   speaks for the whole audience only.
 - **The portal row's Settings button.** Each live row on Compliance ›
   Policies carries an icon button, **Read confirmation settings** (the
-  tooltip and the accessible name), for `compliance.program_manage`
-  holders, opening the policy's Settings tab
-  (`/doc/{id}/acknowledgements/settings`): who must confirm, the deadline,
-  the reminders, the statement and the rest live there, not on the portal.
-- **"+6 enrolled this week" on the portal row.** A live row's meta line
-  says how many people joined the policy's audience in the last seven days
-  (open rows assigned since then: a new account enrolled on arrival, a
-  person a rule or a group change admitted, everyone a switch-on enrolled);
-  nothing when nobody did. Someone returning to the audience keeps their
-  row and is not an enrolment.
+  tooltip and the accessible name), for `compliance.program_manage` holders,
+  opening the policy's Settings tab (`/doc/{id}/acknowledgements/settings`):
+  who must confirm, the deadline, the reminders, the statement and the rest
+  live there, not on the portal.
+- **"+6 enrolled this week" on the portal row.** A live row's meta line says
+  how many people joined the policy's audience in the last seven days (open
+  rows assigned since then: a new account enrolled on arrival, a person a
+  rule or a group change admitted, everyone a switch-on enrolled); nothing
+  when nobody did. Someone returning to the audience keeps their row and is
+  not an enrolment.
 - **The deadline on the portal row.** The same meta line reads the policy's
-  rule and its standing: **Due 14 days after assignment** (the policy's
-  own days, else the space's, the workspace's or the built-in 14) or **Due
-  29 Oct 2026** for a fixed date, followed by **· 12 overdue** once anyone
-  is past their due date and the grace with no current confirmation.
+  rule and its standing: **Due 14 days after assignment** (the policy's own
+  days, else the space's, the workspace's or the built-in 14) or **Due 29
+  Oct 2026** for a fixed date, followed by **· 12 overdue** once anyone is
+  past their due date and the grace with no current confirmation.
 - **The reminder cadence on the portal row.** A second meta line replaces
   the bare "last reminded 3 hours ago": **last reminded 2 days ago · next
   automatic reminder 29 Oct 2026**, the first half from whichever came
   later, the manual Remind or the sweep (both stamp the same rows), the
-  second from the hourly sweep's own rule (before the due date, every N
-  days while overdue, a snooze pushing it out), **never reminded** while
-  nobody has been, and the next re-confirmation date after it as before.
+  second from the hourly sweep's own rule (before the due date, every N days
+  while overdue, a snooze pushing it out), **never reminded** while nobody
+  has been, and the next re-confirmation date after it as before.
 - **Overdue confirmations on the Overview.** Compliance › Overview gains a
   sixth tile, **Overdue confirmations**: over the live policies, the open
   rows whose due date and grace have passed with no current confirmation
   (the part of Outstanding that is late). `GET /api/admin/compliance`
   carries it as `kpis.overdue`.
-- **An Overdue column on the People page.** Each person's row shows how
-  many of their outstanding confirmations are past their due date: an
-  error chip **2 overdue** when any is, a plain 0 otherwise. `users` rows of
-  the portal payload carry `overdue`.
+- **An Overdue column on the People page.** Each person's row shows how many
+  of their outstanding confirmations are past their due date: an error chip
+  **2 overdue** when any is, a plain 0 otherwise. `users` rows of the portal
+  payload carry `overdue`.
 - **The portal payload's new row fields.** Every `docs` row of `GET
-  /api/admin/compliance` carries `enrolled_week`, `overdue`, `due_rule`
-  (`{ due_days, due_at, resolved_days }`: the policy's own rule, both null
-  when it inherits, and the days the cascade settles on) and `reminder`
-  (`{ last_reminded_at, next_reminder_at }`, null on a paused or retired
-  row).
+  /api/admin/compliance` carries `enrolled_week`, `overdue`, `due_rule` (`{
+  due_days, due_at, resolved_days }`: the policy's own rule, both null when
+  it inherits, and the days the cascade settles on) and `reminder` (`{
+  last_reminded_at, next_reminder_at }`, null on a paused or retired row).
 - New tests: `test/ack-statement.test.ts` gains the settings route's new
   fields (the GET's two resolutions agreeing on a fresh policy; the preview
   in space mode and for one user rule, its 400s, nothing written; the
   audience's five refusals, a targeted save closing the unnamed rows with
   its audit row, space mode re-opening them; the deadline's four refusals,
-  30 days applying to future rows only, the move dating each row cycle
-  start plus 30 with `ack.due_set` and `ack.due_moved`, a fixed date moving
-  by itself to the end of its day, the same date again writing nothing; the
+  30 days applying to future rows only, the move dating each row cycle start
+  plus 30 with `ack.due_set` and `ack.due_moved`, a fixed date moving by
+  itself to the end of its day, the same date again writing nothing; the
   cadence's four refusals, three keys audited as `ack.defaults_set` with
   scope `policy`, the same values again writing none, a clear audited; no
   `ack.settings_changed` from any of it); `test/my-policies.test.ts` (the
@@ -557,21 +641,21 @@ snooze on the roster, and asking one person to re-confirm. (Enterprise,
   Snooze and Unsnooze, Ask to re-confirm… with its chip, the bulk bar over
   two rows), the twin route's bound, the snooze invariant and the
   self-exemption 400 (`e2e/compliance-rbac.spec.ts`), My policies' overdue
-  row and the reader's cues (NEW `e2e/my-policies.spec.ts`), the
-  per-person re-ask's own sentence on the card
-  (`e2e/acknowledgements.spec.ts`) and the portal row's settings button,
-  "+1 enrolled this week", the deadline copy, the Overdue tile and the
-  reminder subtitle (`e2e/compliance-portal.spec.ts`).
+  row and the reader's cues (NEW `e2e/my-policies.spec.ts`), the per-person
+  re-ask's own sentence on the card (`e2e/acknowledgements.spec.ts`) and the
+  portal row's settings button, "+1 enrolled this week", the deadline copy,
+  the Overdue tile and the reminder subtitle
+  (`e2e/compliance-portal.spec.ts`).
 
 ### Changed
-- "Who owes a policy" is no longer recomputed from the space's visibility
-  at read time; it is the policy's open assignment rows (not removed, not
+- "Who owes a policy" is no longer recomputed from the space's visibility at
+  read time; it is the policy's open assignment rows (not removed, not
   exempt) for active accounts. The portal, the Record tab, the people view,
   My policies, the badge, the dashboard row, the summary, the counts frozen
   on retirement and the notices all read the same rows, and a confirmation
   is current against the later of the document marker and the person's own
-  cycle start, so a per-person re-ask or a return to the audience shows
-  that person pending and nobody else.
+  cycle start, so a per-person re-ask or a return to the audience shows that
+  person pending and nobody else.
 - The nav gate for Compliance (`hasPolicyInScope`) now asks whether any
   policy in scope asks this person, not whether a policy exists in scope:
   people outside every audience no longer see the item.
@@ -580,19 +664,19 @@ snooze on the roster, and asking one person to re-confirm. (Enterprise,
   retiring leaves the rows as they are, since `ack_required = 0` already
   takes the policy out of every sum.
 - **The document's "last decision" is the whole audience's.** The shield
-  popover's status line, the summary API's `last_decision`, the Record
-  tab's subtitle and the portal's "Last asked" line are dated from the
-  newest decision that concerned everyone (scope `all`); a per-person
-  re-ask is a row in History, not the document's last ask.
-  (`lastAckDecision` takes `scope`; `ackSummary` asks for `all`.)
+  popover's status line, the summary API's `last_decision`, the Record tab's
+  subtitle and the portal's "Last asked" line are dated from the newest
+  decision that concerned everyone (scope `all`); a per-person re-ask is a
+  row in History, not the document's last ask. (`lastAckDecision` takes
+  `scope`; `ackSummary` asks for `all`.)
 - `claimReconfirmation` no longer throws on `userIds`: it is the per-person
   statement, in the same transaction shape as the whole-audience one (the
   ledger row and the notice roll back with it). Its answer carries `scope`,
   `asked_at`, `user_ids` and `skipped` on both paths.
 - The hourly tick's read-confirmation work is one orchestrator,
   `complianceHourly` (the audience reconcile, expired exemptions, reminders,
-  escalations, then the re-confirmation cycles, each an atomic claim with its
-  own error handling, tagged `[compliance]` in the log), in place of the
+  escalations, then the re-confirmation cycles, each an atomic claim with
+  its own error handling, tagged `[compliance]` in the log), in place of the
   1.12.0 inline re-confirmation call. `claimDueRecertifications` and
   `recertifyDueAcks` take the workspace defaults and time zone the tick
   loads once (`defaults`, `timeZone`) and read them themselves when a caller
@@ -607,19 +691,19 @@ snooze on the roster, and asking one person to re-confirm. (Enterprise,
   (the rules travel whole whenever any of them moved), so an unrelated save
   never re-judges a stored fixed date that has since passed.
 - The Record tab's Show filter is All / Pending / Overdue / Confirmed /
-  Exempt; Pending still lists everyone who has not confirmed (overdue
-  people included) and never an exempt person.
+  Exempt; Pending still lists everyone who has not confirmed (overdue people
+  included) and never an exempt person.
 - The version history's reset chip says "Asked 3 people to re-confirm"
-  ("Asked 1 person …") for a per-person re-ask instead of "Asked everyone
-  to re-confirm" (the history page passes the decision's scope and count).
+  ("Asked 1 person …") for a per-person re-ask instead of "Asked everyone to
+  re-confirm" (the history page passes the decision's scope and count).
 - The audit label for `ack.reconfirmation_requested` is now "Asked to
   re-confirm" (it covers the whole-audience and the per-person ask).
 - The dashboard's policies row lists the person's priority (overdue, then
   the soonest deadline, then the most recently changed) instead of the most
   recently changed alone, so its three titles are My policies' first three.
-- **The portal row's meta text is two lines.** The first is the audience
-  and the deadline ("Updated 3 Oct 2026 · +6 enrolled this week · Due 29
-  Oct 2026 · 12 overdue"), the second the reminders and the cycle ("last
+- **The portal row's meta text is two lines.** The first is the audience and
+  the deadline ("Updated 3 Oct 2026 · +6 enrolled this week · Due 29 Oct
+  2026 · 12 overdue"), the second the reminders and the cycle ("last
   reminded 2 days ago · next automatic reminder 29 Oct 2026 · Next
   re-confirmation 1 Jan 2027"); nothing moved off the row.
 - **The expand row's roster acts.** Expanding a policy row on Compliance ›
@@ -639,14 +723,14 @@ snooze on the roster, and asking one person to re-confirm. (Enterprise,
   1.12.0 binary boots on a 1.13.0 database and ignores all of them. Every
   existing space reads as inheriting everything; the workspace's existing
   `ack_defaults` keys (`edit_default`, `keep_reason_required`,
-  `recert_months`) are untouched, and the seven new keys are absent until
-  an admin saves the card, which reads as the built-ins.
+  `recert_months`) are untouched, and the seven new keys are absent until an
+  admin saves the card, which reads as the built-ins.
 - **One migration, and no count moves.** On the first boot a one-shot
   migration (flag `policy_assignments_migrated`, counts logged as `[ack]
-  policy audiences materialised: …`) writes one settings row per policy
-  that requires confirmation or was retired (space mode, new joiners
-  enrolled) and one open row per person who owed it under 1.12.0's rule,
-  dated from the confirmation marker, so every roster, every tile and every
+  policy audiences materialised: …`) writes one settings row per policy that
+  requires confirmation or was retired (space mode, new joiners enrolled)
+  and one open row per person who owed it under 1.12.0's rule, dated from
+  the confirmation marker, so every roster, every tile and every
   confirmation's currency are the same before and after
   (test/ack-boot.test.ts proves it on a 1.12.0-shaped database, booted
   twice). Nothing is sent: the welcome notice is for accounts created after
@@ -656,14 +740,14 @@ snooze on the roster, and asking one person to re-confirm. (Enterprise,
   own.** The migration dates nobody; due dates appear as rows are enrolled,
   re-asked or cycled from now on, and a workspace that wants its existing
   audiences dated sets a rule on the policy's Settings tab and uses "Also
-  move existing deadlines", which dates every open row from its cycle
-  start. A row is reminded only once its due date is within the cadence,
-  and escalated only once it is past the due date by the grace and the
-  escalate days, so a workspace whose policies get 14-day due dates sees
-  its first automatic reminders eleven days later; set the numbers under
-  Program settings → Deadlines and reminders before then if the built-ins
-  are not wanted. A crash between the claim and the notice drops that
-  cycle's reminder (the next cadence step sends it), as training does.
+  move existing deadlines", which dates every open row from its cycle start.
+  A row is reminded only once its due date is within the cadence, and
+  escalated only once it is past the due date by the grace and the escalate
+  days, so a workspace whose policies get 14-day due dates sees its first
+  automatic reminders eleven days later; set the numbers under Program
+  settings → Deadlines and reminders before then if the built-ins are not
+  wanted. A crash between the claim and the notice drops that cycle's
+  reminder (the next cadence step sends it), as training does.
 - Read confirmation emails and in-app lines gain the "by {date}" clause only
   for people whose row carries a due date; everyone else sees the 1.12.0
   copy. Custom `ack_request` templates are not changed.
@@ -673,9 +757,9 @@ snooze on the roster, and asking one person to re-confirm. (Enterprise,
   everyone in the space and an exemption recorded on 1.13.0 is not honoured
   (everyone is counted again) until the upgrade is repeated; nothing is
   lost.
-- Both CSV headers grew five columns at the end (the per-policy file now
-  has 34 columns, the portal-wide file 30). Scripts that read by column
-  name are unaffected; scripts that count columns need the new totals.
+- Both CSV headers grew five columns at the end (the per-policy file now has
+  34 columns, the portal-wide file 30). Scripts that read by column name are
+  unaffected; scripts that count columns need the new totals.
 - `POST /api/documents/{id}/ack/reconfirm` now accepts `user_ids` (a client
   that sent it before 1.13.0 was answered 400 "Per-person re-asks arrive
   with audiences."); the `ack.reconfirmation_requested` audit entry gains
@@ -684,27 +768,35 @@ snooze on the roster, and asking one person to re-confirm. (Enterprise,
   `ack.audience_reconciled`, `ack.due_set`, `ack.due_moved`,
   `ack.defaults_set`, `ack.exempted`, `ack.exemption_revoked`,
   `ack.due_extended`, `ack.due_extension_undone`, `ack.bulk_extended`,
-  `ack.snoozed`, `ack.unsnoozed` and `ack.reminder_auto`; `ack.escalated`
-  is now written; `ack.recert` carries `rearmed`. The seven deadline and
-  reminder numbers under Program settings audit as `ack.defaults_set`
-  (scope `workspace`) rather than `settings.compliance`; the other program
-  settings are unchanged.
-- Nothing to migrate. A preset saved before 1.13.0 has no section order and prints its sections in the field's order, as it did.
-- Nothing to migrate. No option has heads until an admin picks some, and until then every page, PDF and CSV is what it was; a preset saved before 1.13.0 reads as **Section heads first** on, which prints nothing new while no field has a head.
+  `ack.snoozed`, `ack.unsnoozed` and `ack.reminder_auto`; `ack.escalated` is
+  now written; `ack.recert` carries `rearmed`. The seven deadline and
+  reminder numbers under Program settings audit as `ack.defaults_set` (scope
+  `workspace`) rather than `settings.compliance`; the other program settings
+  are unchanged.
+
+
 - Nothing to run for the cards, the roster, the reader's cues or the portal:
   they read the rows and columns the migration and the sweeps write. A
   policy without a `policy_settings` row (switched on by a 1.12.0 binary
   during a rolling deploy) gets one on its first save from the Settings tab
-  or at the next hourly reconcile, whichever comes first; until a policy
-  has an assignment row for a person, that person sees no card and no
-  cues, as the audience rules say.
+  or at the next hourly reconcile, whichever comes first; until a policy has
+  an assignment row for a person, that person sees no card and no cues, as
+  the audience rules say.
 - The portal payload's new fields (`kpis.overdue`, `users[].overdue`, and
-  `enrolled_week`, `overdue`, `due_rule`, `reminder` on `docs` rows) and
-  the roster JSON's `asked_again_reason`, `asked_again_by` and `defaults`
-  are additive; a client built against 1.12.x ignores them. The overdue
-  counts, the tile and the People column read `policy_assignments.due_at`
-  through the grace cascade, so a workspace upgraded from 1.12.0, whose
-  migrated rows carry no due date, shows 0 overdue until deadlines are set.
+  `enrolled_week`, `overdue`, `due_rule`, `reminder` on `docs` rows) and the
+  roster JSON's `asked_again_reason`, `asked_again_by` and `defaults` are
+  additive; a client built against 1.12.x ignores them. The overdue counts,
+  the tile and the People column read `policy_assignments.due_at` through
+  the grace cascade, so a workspace upgraded from 1.12.0, whose migrated
+  rows carry no due date, shows 0 overdue until deadlines are set.
+- **Directory: nothing to migrate.** A preset saved before 1.13.0 has no
+  section order and prints its sections in the field's order, as it did; no
+  option has heads until an admin picks some, and until then every page, PDF
+  and CSV is what it was (a preset saved before 1.13.0 reads as **Section
+  heads first** on, which prints nothing new while no field has a head). A
+  1.12.x binary reads a field with heads and ignores them; saving that field
+  while rolled back writes its options without their heads, which must be
+  picked again after the re-upgrade.
 
 ## [1.12.0] - 2026-10-19
 
