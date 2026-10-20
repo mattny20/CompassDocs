@@ -1100,6 +1100,69 @@ const SCHEMA_SQL = `
     END IF;
   END $$;
 
+  -- 1.13.0 audiences (D1): who must confirm a policy, as materialised rows.
+  -- policy_settings is the per-policy audience and deadline configuration
+  -- (one row per policy, inserted by setAckRequired / the migration, healed
+  -- by reconcileAllPolicies); policy_audience_rules the include / exclude
+  -- rules of 'targeted' mode; policy_assignments one row per person the
+  -- policy currently asks (open), asked and excused (exempt_at), or asked
+  -- and then no longer (removed_at: kept as history, never deleted; the
+  -- same row re-opens when the person returns). The acknowledgements ledger
+  -- is untouched: a row here says who OWES a confirmation, never who gave
+  -- one. Metadata-only and rollback-safe: a 1.12.0 binary ignores all three.
+  -- The E1 deadline (due_days | due_at), the E2 reminder cadence and the
+  -- owner live on policy_settings; the per-person clock on the assignment.
+  CREATE TABLE IF NOT EXISTS policy_settings (
+    document_id integer PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+    audience_mode text NOT NULL DEFAULT 'space',
+    assign_new_members integer NOT NULL DEFAULT 1,
+    exclude_stewards integer NOT NULL DEFAULT 0,
+    owner_user_id integer REFERENCES users(id) ON DELETE SET NULL,
+    due_days integer,
+    due_at date,
+    remind_before_days integer,
+    remind_every_days integer,
+    escalate_after_days integer,
+    nudge_every_days integer,
+    requested_by integer REFERENCES users(id) ON DELETE SET NULL,
+    requested_at timestamptz
+  );
+  CREATE TABLE IF NOT EXISTS policy_audience_rules (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    document_id integer NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    kind text NOT NULL,
+    ref text NOT NULL,
+    effect text NOT NULL DEFAULT 'include',
+    UNIQUE (document_id, kind, ref, effect)
+  );
+  CREATE INDEX IF NOT EXISTS idx_policy_rules_doc ON policy_audience_rules(document_id);
+  CREATE TABLE IF NOT EXISTS policy_assignments (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    document_id integer NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    user_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    source text NOT NULL DEFAULT 'space',
+    assigned_at timestamptz NOT NULL DEFAULT now(),
+    cycle_started_at timestamptz NOT NULL DEFAULT now(),
+    due_at timestamptz,
+    due_history jsonb NOT NULL DEFAULT '[]',
+    reminded_at timestamptz,
+    reminder_count integer NOT NULL DEFAULT 0,
+    escalated_at timestamptz,
+    snoozed_until timestamptz,
+    snoozed_by integer,
+    exempt_at timestamptz,
+    exempt_by integer,
+    exempt_by_name text NOT NULL DEFAULT '',
+    exempt_reason text NOT NULL DEFAULT '',
+    exempt_until timestamptz,
+    removed_at timestamptz,
+    removed_reason text NOT NULL DEFAULT '',
+    UNIQUE (document_id, user_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_policy_assign_user ON policy_assignments(user_id, due_at);
+  CREATE INDEX IF NOT EXISTS idx_policy_assign_doc_exempt ON policy_assignments(document_id, exempt_at);
+  CREATE INDEX IF NOT EXISTS idx_policy_assign_due ON policy_assignments(due_at) WHERE exempt_at IS NULL AND removed_at IS NULL;
+
   -- Training decks (enterprise "training" entitlement): a published document
   -- becomes a slide deck (split on ---) that can be assigned to users with a
   -- due date and a final compliance confirmation. Completion records the doc
