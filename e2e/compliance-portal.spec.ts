@@ -33,6 +33,20 @@ import { ADMIN, login, api } from "./helpers";
 // Overview gains an Overdue confirmations tile; the People page an Overdue
 // column. An overdue row needs a backdated deadline, which no API offers,
 // so that path is proved in test/ack-portal.test.ts against the database.
+// 1.14.0 (F1, D3, F2, F3): the Overview's tiles are Policies, Compliance,
+// Overdue (with its people), Due in 7 days, Pending and Exempt, plus the
+// re-confirmation tile; a "Needs attention" queue lists each person and
+// reason (and each drifted policy) with its chip and actions; a live row on
+// Policies carries a stacked bar with its legend, the owner and the kept
+// edits on its subtitle, a set chip, and the card's Sort, "In set" and
+// filter controls; the Export CSV link is an Export menu (Matrix CSV, Ledger
+// CSV, Audit package (ZIP), Print…); the People page's Standing chip reads
+// Compliant / "{n} outstanding" / "{n} overdue" behind a Show control and a
+// filter, and each person links to their compliance record. A per-person
+// queue row (overdue, never opened) needs a backdated deadline or a
+// fortnight, which no API offers, so the snooze is proved on the payload
+// (test/ack-attention.test.ts proves the row leaving the queue) and the
+// queue's row here is the drifted policy, which a kept edit produces.
 //
 // Read confirmation is entitlement-gated (policy_ack). CI runs the community
 // build, so each test skips itself when the portal answers 402 and runs in

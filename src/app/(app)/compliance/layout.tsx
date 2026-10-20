@@ -7,6 +7,7 @@ import { PageContainer } from "@/components/PageWidth";
 import { PageHeader } from "@/components/PageHeader";
 import { EnterpriseBadge } from "@/components/Chip";
 import { ComplianceSubNav } from "./ComplianceSubNav";
+import { teamViewAllowed } from "./portal-page";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +24,12 @@ export default async function ComplianceLayout({ children }: { children: ReactNo
   const user = await requireUser();
   const section = await canAccessSection(user, "compliance");
   const settings = section && (await userHolds(user, "compliance.program_manage", { legacyMin: "admin" }));
+  // Evidence (F2, 1.14.0): compliance.export opens the snapshots and the audit package.
+  const evidence = section && (await userHolds(user, "compliance.export", { legacyMin: "admin" }));
+  // Team (F4, 1.14.0): the team page's own rule, section or not (a lead
+  // need not hold the section): leading a group when Program settings let
+  // leads see policy standing, or compliance.team_read.
+  const team = await teamViewAllowed(user.id);
   return (
     <PageContainer>
       <PageHeader
@@ -39,7 +46,7 @@ export default async function ComplianceLayout({ children }: { children: ReactNo
         }
         className="mb-5"
       />
-      <ComplianceSubNav section={section} settings={settings} />
+      <ComplianceSubNav section={section} evidence={evidence} team={team} settings={settings} />
       {children}
     </PageContainer>
   );

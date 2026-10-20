@@ -13,8 +13,14 @@
 // row an icon button to the policy's Settings tab (D1), a second meta line,
 // "+6 enrolled this week" (D1), the deadline rule with the overdue count
 // (E1) and the reminder cadence in place of the bare "last reminded" (E2).
+// 1.14.0 (F1, D3, F2): each live row's bar is stacked (confirmed, pending,
+// overdue, exempt hatched) with its legend; the subtitle names the owner
+// and the edits kept since the last ask; a Sort select, an "In set" select
+// and the list filter sit above the rows; a set chip names the sets the
+// policy belongs to; and the card's export is one Export menu (the matrix,
+// the ledger, the audit package, Print…) for compliance.export holders.
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
@@ -31,20 +37,37 @@ import {
   ClipboardCheck,
   Settings2,
   X,
+  Layers,
+  FileSpreadsheet,
+  FileArchive,
+  Printer,
 } from "lucide-react";
 import { LoadingRow } from "@/components/Spinner";
 import { chipClass } from "@/components/Chip";
 import { Button, buttonClass, iconButtonClass } from "@/components/Button";
 import { Card } from "@/components/Card";
 import { EntityPicker } from "@/components/EntityPicker";
-import { SectionEmpty } from "@/components/form";
+import { Select, SectionEmpty } from "@/components/form";
+import { ListFilter } from "@/components/ListFilter";
+import { Popover, MenuItem, MenuSeparator } from "@/components/Popover";
 import { AckRoster } from "@/components/AckRoster";
 import { ReconfirmButton } from "@/components/ReconfirmButton";
-import { EDIT_DEFAULT_CHIP, EDIT_DEFAULT_OPTIONS, people } from "@/components/compliance/copy";
+import {
+  EDIT_DEFAULT_CHIP,
+  EDIT_DEFAULT_OPTIONS,
+  POLICY_SORTS,
+  barCounts,
+  barLabel,
+  barLegend,
+  keptLine,
+  people,
+  type PolicySort,
+} from "@/components/compliance/copy";
 import type { EditDefault } from "@/lib/compliance-settings";
 import { recertPortalLine } from "@/lib/ack-recert";
 import { portalDueLine } from "@/lib/ack-due";
 import { reminderSubtitle } from "@/lib/ack-remind";
+import { RESET_MIN_PCT } from "@/lib/diff";
 import { timeAgo } from "@/lib/ui";
 import { useFormatDate } from "@/components/SettingsProvider";
 import { usePortal, type DecisionBrief, type DocRow, type Portal, type PortalPageProps } from "./use-portal";
@@ -66,15 +89,17 @@ function askedLine(x: DecisionBrief, date: (iso: string) => string): string {
 
 /**
  * The row's first meta line: when the text changed, who joined the audience
- * this week (D1) and the deadline rule with the overdue count (E1): "Updated
- * 3 Oct 2026 · +6 enrolled this week · Due 29 Oct 2026 · 12 overdue". The
- * rule's fixed date is a calendar day (the day formatter); a row from a
- * server without a rule says nothing about a deadline.
+ * this week (D1), the deadline rule with the overdue count (E1) and the
+ * policy's owner (F1, 1.14.0): "Updated 3 Oct 2026 · +6 enrolled this week
+ * · Due 29 Oct 2026 · 12 overdue · owner Priya Shah". The rule's fixed date
+ * is a calendar day (the day formatter); a row from a server without a rule
+ * says nothing about a deadline, and one without an owner nothing about one.
  */
 function audienceLine(d: DocRow, fmt: { date: (iso: string) => string; day: (ymd: string) => string }): string {
   const parts = [`Updated ${fmt.date(d.updated_at)}`];
   if ((d.enrolled_week ?? 0) > 0) parts.push(`+${d.enrolled_week} enrolled this week`);
   if (d.due_rule) parts.push(portalDueLine(d.due_rule, { due_days: d.due_rule.resolved_days }, d.overdue ?? 0, fmt.day));
+  if (d.owner_name) parts.push(`owner ${d.owner_name}`);
   return parts.join(" · ");
 }
 
@@ -96,16 +121,62 @@ function reminderLine(d: DocRow, fmt: { date: (iso: string) => string; day: (ymd
       ? `last reminded ${timeAgo(d.ack_last_reminded_at)}`
       : "never reminded";
   const recert = recertPortalLine(d, fmt.day);
-  return recert ? `${reminded} · ${recert}` : reminded;
+  const parts = [reminded];
+  if (recert) parts.push(recert);
+  // The edits kept since everyone was last asked (C1; F1 puts the count on
+  // the subtitle, beside the reminder it may call for).
+  if ((d.kept_since_reset ?? 0) > 0) parts.push(keptLine(d.kept_since_reset!, d.ack_rev));
+  return parts.join(" · ");
 }
 
-/** "Edited 3 times since v12 without re-asking · 7.8% drift" (the number feeds the needs-attention queue later). */
-function driftLabel(d: DocRow): string {
-  const n = d.kept_since_reset ?? 0;
+/**
+ * The drift chip: how far the live text now differs from the version people
+ * confirmed, through the edits the subtitle counts ("7.8% drift since v12").
+ * Warn once it reaches the re-ask threshold, which is when the Overview's
+ * queue lists the policy; neutral below it; nothing while nothing drifted.
+ */
+function driftChip(d: DocRow): { text: string; tone: "warn" | "neutral" } | null {
   const drift = Number(d.drift_pct ?? 0);
-  const edited = n === 1 ? "Edited once" : `Edited ${n} times`;
+  if (!(drift > 0)) return null;
   const since = d.ack_rev ? `v${d.ack_rev}` : "the last ask";
-  return `${edited} since ${since} without re-asking` + (drift > 0 ? ` · ${drift.toFixed(1)}% drift` : "");
+  return { text: `${drift.toFixed(1)}% drift since ${since}`, tone: drift >= RESET_MIN_PCT ? "warn" : "neutral" };
+}
+
+const DAY = 86_400_000;
+
+/**
+ * "Due soonest": a fixed date before any relative rule, a relative rule by
+ * the days it resolves to, no rule last. A fixed date that has passed still
+ * sorts first (it is the soonest a reader can be asked by).
+ */
+function dueKey(d: DocRow): number {
+  const rule = d.due_rule;
+  if (!rule) return Number.POSITIVE_INFINITY;
+  if (rule.due_at) {
+    const t = Date.parse(rule.due_at);
+    if (!Number.isNaN(t)) return t;
+  }
+  return Date.now() + rule.resolved_days * DAY + 1e13;
+}
+
+/** The share confirmed (1 when nobody is asked, so an empty policy never reads as the least compliant). */
+function pctOf(d: DocRow): number {
+  return d.required ? d.acked / d.required : 1;
+}
+
+/** The Sort select's orders, each settling ties by title. */
+function sortPolicies(rows: DocRow[], sort: PolicySort): DocRow[] {
+  const byTitle = (a: DocRow, b: DocRow) => a.title.localeCompare(b.title);
+  const out = [...rows];
+  if (sort === "title") return out.sort(byTitle);
+  if (sort === "overdue") return out.sort((a, b) => (b.overdue ?? 0) - (a.overdue ?? 0) || pctOf(a) - pctOf(b) || byTitle(a, b));
+  if (sort === "compliance") return out.sort((a, b) => pctOf(a) - pctOf(b) || (b.overdue ?? 0) - (a.overdue ?? 0) || byTitle(a, b));
+  return out.sort((a, b) => dueKey(a) - dueKey(b) || byTitle(a, b));
+}
+
+function matches(needle: string, ...values: (string | null | undefined)[]): boolean {
+  if (!needle) return true;
+  return values.some((v) => (v ?? "").toLowerCase().includes(needle));
 }
 
 /** The per-policy edit-default chip's tooltip (A5): the full option sentence behind EDIT_DEFAULT_CHIP's short state. */
@@ -119,6 +190,39 @@ function editDefaultTip(value: EditDefault): string {
 export function PortalPolicies({ licensed, canManageLicense = false }: PortalPageProps) {
   const fmt = useFormatDate();
   const portal = usePortal(licensed);
+
+  // The list's order and what is on it (F1, D3): the Sort select, the "In
+  // set" select (shown once any live policy belongs to a set) and the list
+  // filter over the live rows. The filter's count reads against the set
+  // choice, as the roster's reads against its Show choice. Paused and
+  // retired policies keep their own groups below, untouched by either.
+  const [sort, setSort] = useState<PolicySort>("overdue");
+  const [inSet, setInSet] = useState("");
+  const [filter, setFilter] = useState("");
+  const sortId = useId();
+  const setId = useId();
+  const needle = filter.trim().toLowerCase();
+  const liveRows = useMemo(
+    () => (portal.data?.docs ?? []).filter((d) => d.status === "published" && d.ack_retired_at === null),
+    [portal.data]
+  );
+  const setNames = useMemo(() => {
+    const names = new Set<string>();
+    for (const d of liveRows) for (const n of d.set_names ?? []) names.add(n);
+    return [...names].sort((a, b) => a.localeCompare(b));
+  }, [liveRows]);
+  const inSetRows = useMemo(
+    () => (inSet ? liveRows.filter((d) => (d.set_names ?? []).includes(inSet)) : liveRows),
+    [liveRows, inSet]
+  );
+  const shownRows = useMemo(
+    () =>
+      sortPolicies(
+        needle ? inSetRows.filter((d) => matches(needle, d.title, d.space_name, d.owner_name, ...(d.set_names ?? []))) : inSetRows,
+        sort
+      ),
+    [inSetRows, needle, sort]
+  );
 
   // Focus after Retire policy… / Un-retire (STYLEGUIDE §Settings pages:
   // focus never falls to <body>). The dialog hands focus back to the button
@@ -185,7 +289,7 @@ export function PortalPolicies({ licensed, canManageLicense = false }: PortalPag
   // policy (G3) is its own group whatever its status: the requirement is
   // off, the record is frozen, and the tiles leave it out too.
   const retired = data.docs.filter((d) => d.ack_retired_at !== null);
-  const active = data.docs.filter((d) => d.status === "published" && d.ack_retired_at === null);
+  const active = liveRows;
   const paused = data.docs.filter((d) => d.status !== "published" && d.ack_retired_at === null);
 
   return (
@@ -247,15 +351,11 @@ export function PortalPolicies({ licensed, canManageLicense = false }: PortalPag
         icon={<FileCheck />}
         padding="none"
         actions={
-          can.export ? (
-            // Printed for the record (STYLEGUIDE §Print): the controls stay
-            // off the paper, here, on the Request card and on the rows. A
-            // plain anchor: a Link would prefetch the download, and every
-            // export is an audit row.
-            <a href="/api/admin/compliance?format=csv" className={buttonClass("secondary", "sm", "print:hidden")}>
-              <Download className="h-4 w-4" aria-hidden /> Export CSV
-            </a>
-          ) : undefined
+          // Exports are files behind one Export menu, Print… last
+          // (STYLEGUIDE §Print); the whole control stays off the paper, as
+          // the Request card and the row controls do. compliance.export
+          // holders only: every download is an audit row.
+          can.export ? <PortalExportMenu /> : undefined
         }
       >
         {active.length === 0 ? (
@@ -267,11 +367,57 @@ export function PortalPolicies({ licensed, canManageLicense = false }: PortalPag
                 : "No documents require read confirmation yet."}
           </SectionEmpty>
         ) : (
+          <>
+            {/* The order and the filter (F1, D3): a Select for each choice
+                (its visible caption is its name), then the list filter with
+                its live count. Off the paper, like every control here. */}
+            <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 px-4 py-3 print:hidden">
+              <span className="flex items-center gap-1.5 text-xs text-slate-500">
+                <span id={sortId}>Sort</span>
+                <Select dense className="w-auto" aria-labelledby={sortId} value={sort} onChange={(e) => setSort(e.target.value as PolicySort)}>
+                  {POLICY_SORTS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </Select>
+              </span>
+              {setNames.length > 0 && (
+                <span className="flex items-center gap-1.5 text-xs text-slate-500">
+                  <span id={setId}>In set</span>
+                  <Select dense className="w-auto" aria-labelledby={setId} value={inSet} onChange={(e) => setInSet(e.target.value)}>
+                    <option value="">Any set</option>
+                    {setNames.map((n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    ))}
+                  </Select>
+                </span>
+              )}
+              <ListFilter
+                value={filter}
+                onChange={setFilter}
+                label="Filter policies"
+                noun="policies"
+                shown={shownRows.length}
+                total={inSetRows.length}
+                className="min-w-0 flex-1"
+              />
+            </div>
+            {shownRows.length === 0 ? (
+              <SectionEmpty className="px-4 py-6">
+                {needle ? "No policies match your filter." : `No policies in the set "${inSet}" right now.`}
+              </SectionEmpty>
+            ) : (
           <ul className="divide-y divide-slate-100">
-            {active.map((d) => {
+            {shownRows.map((d) => {
               const pct = d.required ? Math.round((d.acked / d.required) * 100) : 100;
               const complete = d.acked >= d.required;
               const roster = rosters[d.id];
+              const bar = barCounts(d);
+              const drift = driftChip(d);
+              const editDefault = d.ack_edit_default ?? d.edit_default;
               return (
                 <li key={d.id}>
                   <div className="flex flex-wrap items-center gap-3 px-4 py-3">
@@ -309,46 +455,79 @@ export function PortalPolicies({ licensed, canManageLicense = false }: PortalPag
                           inside a <button> is not valid HTML. pl-6 lines them
                           up under the title (chevron 16px + gap 8px). The
                           edit-default chip (A5) says how the policy treats a
-                          text edit; the drift chip appears once edits have
-                          been kept. */}
-                      {(d.ack_edit_default || (d.kept_since_reset ?? 0) > 0) && (
+                          text edit; the drift chip appears once kept edits
+                          moved the text; a set chip (D3) names each set the
+                          policy belongs to (an attribute, so neutral, with
+                          the icon and a hidden "In set" for readers). */}
+                      {(editDefault || drift || (d.set_names?.length ?? 0) > 0) && (
                         <span className="mt-1 flex flex-wrap items-center gap-1.5 pl-6">
-                          {d.ack_edit_default && (
+                          {editDefault && (
                             <span
                               className={chipClass("neutral", "sm")}
                               tabIndex={0}
-                              data-tt={editDefaultTip(d.ack_edit_default)}
+                              data-tt={editDefaultTip(editDefault)}
                               data-tt-wrap=""
                             >
-                              {EDIT_DEFAULT_CHIP[d.ack_edit_default]}
+                              {EDIT_DEFAULT_CHIP[editDefault]}
                             </span>
                           )}
-                          {(d.kept_since_reset ?? 0) > 0 && (
+                          {drift && (
                             <span
-                              className={chipClass("neutral", "sm")}
+                              className={chipClass(drift.tone, "sm")}
                               tabIndex={0}
-                              data-tt="Edits the editor said did not need everyone to re-confirm; drift is how far the text now differs from the version people confirmed"
+                              data-tt="How far the text now differs from the version people confirmed, through edits the editor said did not need everyone to re-confirm"
                               data-tt-wrap=""
                             >
-                              {driftLabel(d)}
+                              {drift.text}
                             </span>
                           )}
+                          {(d.set_names ?? []).map((name) => (
+                            <span key={name} className={chipClass("neutral", "sm")}>
+                              <Layers className="h-3 w-3" aria-hidden />
+                              <span className="sr-only">In set </span>
+                              {name}
+                            </span>
+                          ))}
                         </span>
                       )}
                     </div>
-                    <div className="w-40">
+                    <div className="w-full sm:w-64">
                       <div className="mb-0.5 flex justify-between text-xs">
                         <span className={complete ? "font-medium ink-ok" : "text-slate-500"}>
                           {d.acked}/{d.required}
                         </span>
                         <span className="text-slate-500">{pct}%</span>
                       </div>
-                      <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
-                        <div
-                          className={`h-full rounded-full ${complete ? "bg-emerald-500" : "bg-compass-500"}`}
-                          style={{ width: `${pct}%` }}
-                        />
+                      {/* The stacked bar (F1): confirmed, pending, overdue
+                          and, beside the denominator, exempt as a hatch over
+                          the slate token, so it survives dark mode and print
+                          (a hue would not; the stripes are in rem so they
+                          scale with the interface, STYLEGUIDE §Scaling).
+                          Each segment's share is of all four numbers; the
+                          legend under it carries the numbers for anyone who
+                          cannot read the colours, and for paper. */}
+                      <div
+                        role="img"
+                        aria-label={barLabel(d)}
+                        className="flex h-1.5 overflow-hidden rounded-full bg-slate-100"
+                      >
+                        {bar.total > 0 && (
+                          <>
+                            <span className="h-full bg-compass-600" style={{ width: `${(bar.confirmed / bar.total) * 100}%` }} />
+                            <span className="h-full bg-slate-200" style={{ width: `${((bar.pending - bar.overdue) / bar.total) * 100}%` }} />
+                            <span className="h-full bg-red-500" style={{ width: `${(bar.overdue / bar.total) * 100}%` }} />
+                            <span
+                              className="h-full"
+                              style={{
+                                width: `${(bar.exempt / bar.total) * 100}%`,
+                                backgroundImage:
+                                  "repeating-linear-gradient(45deg, rgb(var(--slate-300)) 0 0.25rem, transparent 0.25rem 0.5rem)",
+                              }}
+                            />
+                          </>
+                        )}
                       </div>
+                      <span className="mt-0.5 block text-2xs text-slate-500">{barLegend(d)}</span>
                     </div>
                     {(can.manage || can.export) && (
                       // Five controls do not fit beside the title on a
@@ -486,6 +665,8 @@ export function PortalPolicies({ licensed, canManageLicense = false }: PortalPag
               );
             })}
           </ul>
+            )}
+          </>
         )}
         {paused.length > 0 && <PausedPolicies rows={paused} date={fmt.date} />}
         {retired.length > 0 && (
@@ -498,6 +679,62 @@ export function PortalPolicies({ licensed, canManageLicense = false }: PortalPag
           />
         )}
       </Card>
+    </div>
+  );
+}
+
+/**
+ * The Policy progress card's Export menu (F2, 1.14.0; STYLEGUIDE §Print:
+ * exports are files behind an Export menu, "Print…" last), the twin of the
+ * record page's AckExportMenu for the whole programme: the matrix CSV (one
+ * row per policy and person), the ledger CSV (every confirmation ever
+ * recorded, with IP and user agent) and the audit package (the ZIP with its
+ * hash manifest), each a download that never leaves the page (the routes
+ * answer with an attachment), then Print…. The trigger carries aria-haspopup
+ * and aria-expanded, and the whole control stays off paper.
+ */
+function PortalExportMenu() {
+  const [open, setOpen] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const close = useCallback(() => setOpen(false), []);
+  const download = (href: string) => {
+    setOpen(false);
+    window.location.assign(href);
+  };
+  return (
+    <div className="relative print:hidden">
+      <button
+        ref={trigger}
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        data-tt="Download or print the programme's records"
+        className={buttonClass("secondary", "sm")}
+      >
+        <Download className="h-4 w-4" aria-hidden /> Export <ChevronDown className="h-4 w-4" aria-hidden />
+      </button>
+      <Popover open={open} onClose={close} triggerRef={trigger} role="menu" label="Export" align="end" width="w-64">
+        <MenuItem icon={<FileSpreadsheet />} onClick={() => download("/api/admin/compliance?format=csv")}>
+          Matrix CSV
+        </MenuItem>
+        <MenuItem icon={<FileSpreadsheet />} onClick={() => download("/api/admin/compliance?format=ledger")}>
+          Ledger CSV
+        </MenuItem>
+        <MenuItem icon={<FileArchive />} onClick={() => download("/api/admin/compliance/audit-package")}>
+          Audit package (ZIP)
+        </MenuItem>
+        <MenuSeparator />
+        <MenuItem
+          icon={<Printer />}
+          onClick={() => {
+            setOpen(false);
+            window.print();
+          }}
+        >
+          Print…
+        </MenuItem>
+      </Popover>
     </div>
   );
 }

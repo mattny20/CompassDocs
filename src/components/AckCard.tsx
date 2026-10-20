@@ -47,15 +47,15 @@
 // The card is print:hidden; a one-line standing statement takes its place on
 // paper so a printed policy carries the printer's own status.
 //
-// The confirmed state is a sentence, not a link: "View your record" arrives
-// with My policies (1.11.1), the one page every reader can open. /compliance
-// is the program view, gated on compliance.program_read, so a link there
-// would bounce most readers to the dashboard.
+// The confirmed state is a sentence with one link under it (F3, 1.14.0):
+// "View your record" opens the reader's own compliance record
+// (/compliance/person/me), the one page every reader can open for
+// themselves; the link lives in the card, never on the sticky chip.
 
 import { useId, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { CalendarClock, CircleAlert, CircleCheckBig, History, PenLine, ShieldCheck } from "lucide-react";
+import { CalendarClock, CircleAlert, CircleCheckBig, ClipboardCheck, History, PenLine, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/Button";
 import { CARD_CLASS } from "@/components/Card";
 import { chipClass } from "@/components/Chip";
@@ -362,6 +362,15 @@ export function AckCard({
           {confirmed ? (
             <>
               <p className="mt-2 max-w-md text-sm text-slate-600">{confirmedSentence}</p>
+              {/* The reader's own record (F3): every policy they must
+                  confirm, with the evidence and prior cycles. */}
+              <Link
+                href="/compliance/person/me"
+                className="mt-2 inline-flex items-center gap-1.5 text-sm font-medium text-compass-700 hover:underline"
+              >
+                <ClipboardCheck className="h-4 w-4" aria-hidden />
+                View your record
+              </Link>
               {/* A kept edit (A2): the confirmation still counts but cites an
                   older version than the text on screen. Re-confirming posts
                   the latest version id; the ledger keeps both rows, and a

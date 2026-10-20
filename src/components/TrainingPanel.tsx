@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { LoadingRow, Spinner } from "@/components/Spinner";
 import { chipClass } from "@/components/Chip";
-import { SettingsLink } from "@/components/SettingsLink";
+import { TeamLeadsBlock } from "@/components/TeamLeadsBlock";
 import { buttonClass } from "@/components/Button";
 import Link from "next/link";
 import {
@@ -530,7 +530,7 @@ function Overview({
 
       <Evidence onError={onError} onNotice={onNotice} />
       <ReportSettings onError={onError} onNotice={onNotice} userOpts={userOpts} />
-      <TeamLeads onError={onError} onNotice={onNotice} userOpts={userOpts} />
+      <TeamLeadsBlock copy={TEAM_LEADS_TRAINING_COPY} userOpts={userOpts} />
     </div>
   );
 }
@@ -718,90 +718,13 @@ function ReportSettings({
 }
 
 // --- Team leads: who gets the scoped team view + weekly digest --------------
+// Since 1.14.0 (F4) the block is components/TeamLeadsBlock, shared with the
+// compliance Overview (the same group_leads: a lead named here is a lead
+// there); this panel renders it with the training sentence against
+// /api/training/leads and hands it the picker options it already loaded.
 
-interface LeadRow {
-  group_id: number;
-  group_name: string;
-  user_id: number;
-}
-
-function TeamLeads({
-  onError,
-  onNotice,
-  userOpts,
-}: {
-  onError: (s: string) => void;
-  onNotice: (s: string) => void;
-  userOpts: PickerOption[];
-}) {
-  const [groups, setGroups] = useState<{ id: number; name: string }[]>([]);
-  const [leads, setLeads] = useState<Map<number, number[]>>(new Map());
-  const [loaded, setLoaded] = useState(false);
-
-  useEffect(() => {
-    void fetch("/api/training/leads")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: { groups?: { id: number; name: string }[]; leads?: LeadRow[] } | null) => {
-        if (d) {
-          setGroups(d.groups ?? []);
-          const m = new Map<number, number[]>();
-          for (const l of d.leads ?? []) m.set(l.group_id, [...(m.get(l.group_id) ?? []), l.user_id]);
-          setLeads(m);
-        }
-        setLoaded(true);
-      })
-      .catch(() => setLoaded(true));
-  }, []);
-
-  async function save(groupId: number, userIds: number[]) {
-    setLeads((m) => new Map(m).set(groupId, userIds));
-    const res = await fetch("/api/training/leads", {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ group_id: groupId, user_ids: userIds }),
-    });
-    if (!res.ok) {
-      const d = (await res.json().catch(() => ({}))) as { error?: string };
-      onError(d.error || "Could not save the team leads.");
-    } else onNotice("Team leads saved.");
-  }
-
-  return (
-    <section className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
-      <h2 className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
-        <Users className="h-4 w-4 text-compass-600" /> Team leads
-      </h2>
-      <p className="mt-0.5 text-xs text-slate-500">
-        Leads see a scoped view of their own group&apos;s training (no manager access needed) and
-        get a weekly email summary.
-      </p>
-      {loaded &&
-        (groups.length === 0 ? (
-          <p className="mt-2 text-sm text-slate-500">
-            No groups yet — create them under <SettingsLink href="/admin/groups" />.
-          </p>
-        ) : (
-          <div className="mt-3 space-y-2">
-            {groups.map((g) => (
-              <div key={g.id} className="flex flex-wrap items-center gap-2">
-                <span className="w-44 truncate text-sm font-medium text-slate-700" title={g.name}>
-                  {g.name}
-                </span>
-                <div className="min-w-64 flex-1 sm:max-w-lg">
-                  <EntityPicker
-                    options={userOpts}
-                    value={leads.get(g.id) ?? []}
-                    onChange={(ids) => void save(g.id, ids)}
-                    placeholder="Add leads…"
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
-        ))}
-    </section>
-  );
-}
+const TEAM_LEADS_TRAINING_COPY =
+  "Leads see a scoped view of their own group's training (no manager access needed) and get a weekly email summary.";
 
 // --- Compliance matrix: people × decks --------------------------------------
 

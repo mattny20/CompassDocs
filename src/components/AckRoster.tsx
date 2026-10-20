@@ -34,8 +34,15 @@
 // the rows it already read; the portal passes the JSON roster and may leave
 // `ledger` out, which hides the view switch, and passes `onChanged` so it
 // can reload its own copy of the rows.
+//
+// 1.14.0 (F3): the person cell links to the person's compliance record
+// (/compliance/person/{id}) when the caller passes `recordHref`; the three
+// questions (Exempt…, Extend due date…, Ask to re-confirm…) are exported as
+// `exemptDialog`, `extendDialog` and `reaskDialog`, so the record page asks
+// them in the same words.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import {
   BellOff,
   BellRing,
@@ -239,10 +246,18 @@ export function SignedCell({ name }: { name: string | null | undefined }) {
   );
 }
 
-function PersonCell({ name, username, email }: { name: string; username: string; email?: string }) {
+/** The person: a link to their compliance record (F3) when the caller may open it, plain text otherwise. */
+function PersonCell({ name, username, email, href }: { name: string; username: string; email?: string; href?: string }) {
+  const label = name || username;
   return (
     <>
-      <span className="font-medium text-slate-800">{name || username}</span>
+      {href ? (
+        <Link href={href} className="font-medium text-slate-800 hover:text-compass-700">
+          {label}
+        </Link>
+      ) : (
+        <span className="font-medium text-slate-800">{label}</span>
+      )}
       {email && <span className="ml-2 text-xs text-slate-500">{email}</span>}
     </>
   );
@@ -269,7 +284,7 @@ function stateOf(r: AckRosterRow, grace: number, now: Date): RowState {
 }
 
 /** Today as the date input and the server see it (YYYY-MM-DD, UTC: parseAssignmentRequest's rule). */
-const today = () => new Date().toISOString().slice(0, 10);
+export const today = () => new Date().toISOString().slice(0, 10);
 
 /**
  * The calendar day of an instant in the workspace zone ('YYYY-MM-DD'; en-CA
@@ -278,12 +293,100 @@ const today = () => new Date().toISOString().slice(0, 10);
  * names the day before anywhere west of UTC; read in the zone it is the
  * day the manager typed.
  */
-function dayIn(iso: string, timeZone: string): string {
+export function dayIn(iso: string, timeZone: string): string {
   try {
     return new Intl.DateTimeFormat("en-CA", { timeZone: timeZone || "UTC", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(iso));
   } catch {
     return iso.slice(0, 10);
   }
+}
+
+// ── The three questions (D2, D4), in the spec's words ───────────────────────
+// Each is awaited before anything is busy (STYLEGUIDE §Overlays), so Cancel
+// leaves the control idle, and answers null when the person cancelled. The
+// roster and the person record (F3, 1.14.0) ask them; nothing else holds a
+// copy of these sentences.
+
+/**
+ * Exempt…: the required reason (shown on the record and in exports) and the
+ * optional end date (after today). `policy` names the policy where the page
+ * spans several ("this policy" on a document's own roster).
+ */
+export async function exemptDialog(who: string, policy = "this policy"): Promise<{ reason: string; until: string | null } | null> {
+  const values = await formDialog({
+    title: `Exempt ${who} from ${policy}`,
+    fields: [
+      {
+        key: "reason",
+        label: "Reason",
+        type: "textarea",
+        required: true,
+        help: "Shown on the compliance record and in exports",
+        validate: (v) => (v.trim().length > EXEMPT_REASON_MAX ? `Keep the reason under ${EXEMPT_REASON_MAX} characters.` : undefined),
+      },
+      {
+        key: "until",
+        label: "Until (optional)",
+        type: "date",
+        required: false,
+        validate: (v) => (v && v <= today() ? "Pick a date after today." : undefined),
+      },
+    ],
+    confirmLabel: "Exempt",
+  });
+  if (!values) return null;
+  return { reason: values.reason.trim(), until: values.until || null };
+}
+
+/** Extend due date…: the days (1..365, 7 by default) and an optional reason; `body` may name the person and the policy. */
+export async function extendDialog(count: number, body?: string): Promise<{ days: number; reason: string } | null> {
+  const values = await formDialog({
+    title: count === 1 ? "Extend due date" : `Extend due dates for ${people(count)}`,
+    body,
+    fields: [
+      { key: "days", label: "Days", type: "number", min: 1, max: EXTEND_DAYS_MAX, initial: String(EXTEND_DAYS_DEFAULT) },
+      { key: "reason", label: "Reason (optional)", type: "textarea", required: false, help: "Recorded on the compliance record" },
+    ],
+    confirmLabel: "Extend",
+  });
+  if (!values) return null;
+  return { days: Number(values.days), reason: values.reason.trim() };
+}
+
+/**
+ * Ask to re-confirm…: the reason of at least ten characters. `one` is the
+ * person and the version they confirmed when the ask is for one person;
+ * null asks for `count` people at once (the bulk bar).
+ */
+export async function reaskDialog(opts: {
+  one: { name: string; rev: number | null } | null;
+  count: number;
+  /** The document's title for the question; "this document" when absent. */
+  title?: string;
+}): Promise<string | null> {
+  const { one, count, title } = opts;
+  const version = one?.rev ? `version ${one.rev}` : "the current version";
+  const values = await formDialog({
+    title: one
+      ? title
+        ? `Ask ${one.name} to re-confirm "${title}"?`
+        : `Ask ${one.name} to re-confirm this document?`
+      : `Ask ${people(count)} to re-confirm`,
+    body: one
+      ? `Their confirmation of ${version} stays in the record. They are asked to read the document and confirm again.`
+      : "Their confirmations stay in the record. They are asked to read the document and confirm again.",
+    fields: [
+      {
+        key: "reason",
+        label: one ? "Why is this person being asked again?" : "Why are these people being asked again?",
+        type: "textarea",
+        required: true,
+        validate: (v) => (v.trim().length < REASK_REASON_MIN ? RECONFIRM_REASON_TOO_SHORT : undefined),
+      },
+    ],
+    confirmLabel: "Ask to re-confirm",
+  });
+  return values ? values.reason.trim() : null;
 }
 
 /**
@@ -401,6 +504,7 @@ export function AckRoster({
   can,
   grace = 0,
   onChanged,
+  recordHref,
 }: {
   docId: number;
   /** The document's title for the dialogs and toasts ("this document" when absent). */
@@ -430,6 +534,13 @@ export function AckRoster({
   grace?: number;
   /** After a successful action or Undo: the caller reloads its rows (the portal). Without it the route is refreshed (a server page). */
   onChanged?: () => void;
+  /**
+   * The person's compliance record (F3, 1.14.0): the person cell of the
+   * current view links to `recordHref(userId)` (/compliance/person/{id})
+   * when given. The caller decides, since the record's own rule admits a
+   * roster reader for the spaces they read and a programme reader for all.
+   */
+  recordHref?: (userId: number) => string;
 }) {
   const [show, setShow] = useState<Show>("all");
   const [view, setView] = useState<View>("current");
@@ -580,29 +691,9 @@ export function AckRoster({
     if (!ids.length) return;
     const who = ids.length === 1 ? nameOf(targets[0]) : people(ids.length);
     // Awaited before anything is busy (STYLEGUIDE §Overlays): Cancel leaves the row idle.
-    const values = await formDialog({
-      title: `Exempt ${who} from this policy`,
-      fields: [
-        {
-          key: "reason",
-          label: "Reason",
-          type: "textarea",
-          required: true,
-          help: "Shown on the compliance record and in exports",
-          validate: (v) => (v.trim().length > EXEMPT_REASON_MAX ? `Keep the reason under ${EXEMPT_REASON_MAX} characters.` : undefined),
-        },
-        {
-          key: "until",
-          label: "Until (optional)",
-          type: "date",
-          required: false,
-          validate: (v) => (v && v <= today() ? "Pick a date after today." : undefined),
-        },
-      ],
-      confirmLabel: "Exempt",
-    });
-    if (!values) return;
-    await exemptWith(ids, values.reason.trim(), values.until || null);
+    const asked = await exemptDialog(who);
+    if (!asked) return;
+    await exemptWith(ids, asked.reason, asked.until);
   }
 
   async function exemptWith(ids: number[], reason: string, until: string | null, opts: { undo?: boolean } = {}) {
@@ -654,20 +745,13 @@ export function AckRoster({
   async function extend(targets: AckRosterRow[]) {
     const ids = idsOf(targets);
     if (!ids.length) return;
-    const values = await formDialog({
-      title: ids.length === 1 ? "Extend due date" : `Extend due dates for ${people(ids.length)}`,
-      fields: [
-        { key: "days", label: "Days", type: "number", min: 1, max: EXTEND_DAYS_MAX, initial: String(EXTEND_DAYS_DEFAULT) },
-        { key: "reason", label: "Reason (optional)", type: "textarea", required: false, help: "Recorded on the compliance record" },
-      ],
-      confirmLabel: "Extend",
-    });
-    if (!values) return;
-    const days = Number(values.days);
+    const asked = await extendDialog(ids.length);
+    if (!asked) return;
+    const { days, reason } = asked;
     pendingFocus.current = ids[0];
     const r = await post(
       `extend-${ids[0]}`,
-      { action: "extend", assignment_ids: ids, days, reason: values.reason.trim() },
+      { action: "extend", assignment_ids: ids, days, reason },
       "Couldn't extend the due date."
     );
     if (!settled(r)) return;
@@ -743,32 +827,12 @@ export function AckRoster({
     const ids = idsOf(targets);
     if (!ids.length) return;
     const one = ids.length === 1 ? targets[0] : null;
-    const version = one?.rev ? `version ${one.rev}` : "the current version";
-    const values = await formDialog({
-      title: one
-        ? title
-          ? `Ask ${nameOf(one)} to re-confirm "${title}"?`
-          : `Ask ${nameOf(one)} to re-confirm this document?`
-        : `Ask ${people(ids.length)} to re-confirm`,
-      body: one
-        ? `Their confirmation of ${version} stays in the record. They are asked to read the document and confirm again.`
-        : "Their confirmations stay in the record. They are asked to read the document and confirm again.",
-      fields: [
-        {
-          key: "reason",
-          label: one ? "Why is this person being asked again?" : "Why are these people being asked again?",
-          type: "textarea",
-          required: true,
-          validate: (v) => (v.trim().length < REASK_REASON_MIN ? RECONFIRM_REASON_TOO_SHORT : undefined),
-        },
-      ],
-      confirmLabel: "Ask to re-confirm",
-    });
-    if (!values) return;
+    const reason = await reaskDialog({ one: one ? { name: nameOf(one), rev: one.rev } : null, count: ids.length, title });
+    if (reason === null) return;
     pendingFocus.current = ids[0];
     const r = await post(
       `reask-${ids[0]}`,
-      { action: "reask", assignment_ids: ids, reason: values.reason.trim() },
+      { action: "reask", assignment_ids: ids, reason },
       "Couldn't ask to re-confirm."
     );
     if (!r) {
@@ -951,6 +1015,7 @@ export function AckRoster({
             onTogglePage={togglePage}
             registerRow={registerRow}
             actions={{ extend, exempt, unexempt, snooze, unsnooze, reask }}
+            recordHref={recordHref}
           />
         )}
       </div>
@@ -986,6 +1051,7 @@ function CurrentTable({
   onTogglePage,
   registerRow,
   actions,
+  recordHref,
 }: {
   rows: AckRosterRow[];
   fmt: AppSettings;
@@ -1001,6 +1067,7 @@ function CurrentTable({
   onTogglePage: () => void;
   registerRow: (id: number) => (el: HTMLTableRowElement | null) => void;
   actions: RowActions;
+  recordHref?: (userId: number) => string;
 }) {
   const f = (iso: string) => formatDate(iso, fmt);
   const selectable = rows.some((r) => r.assignment_id != null);
@@ -1067,7 +1134,7 @@ function CurrentTable({
                 </Td>
               )}
               <Td>
-                <PersonCell name={r.name} username={r.username} email={r.email} />
+                <PersonCell name={r.name} username={r.username} email={r.email} href={recordHref?.(r.id)} />
               </Td>
               <Td className="text-slate-500">{r.role ?? ""}</Td>
               <Td fit>

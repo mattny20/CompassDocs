@@ -127,6 +127,9 @@ export default async function AcknowledgementsPage({
         endpoint={endpoint}
         can={{ act: Boolean(endpoint) }}
         grace={defaults.values.overdue_grace_days}
+        // The person's record (F3, 1.14.0): a roster reader opens it for the
+        // spaces they read, so every person on this roster has a page.
+        recordHref={(userId) => `/compliance/person/${userId}`}
       />
 
       {former.length > 0 && <FormerStaff rows={former} fmt={fmt} words={words} />}

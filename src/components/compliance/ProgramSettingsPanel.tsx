@@ -8,14 +8,17 @@
 // 1.10.1; Re-confirmation (the interval a policy receives when first set to
 // required, G1) from 1.12.0; Deadlines and reminders (the seven numbers of
 // the policy -> space -> workspace -> built-in cascade, E1/E2) from 1.13.0.
-// The typed-signature toggle (C2) and Evidence (F2/C5) arrive later; add
-// each as another <Card> above the SaveRow.
+// Compliance report (the scheduled summary email: on or off, weekly or
+// monthly, to whom; F2) from 1.14.0, saved through its own route inside
+// the page's one Save. Add any further card above the SaveRow.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ShieldCheck } from "lucide-react";
 import { Card } from "@/components/Card";
 import { CARD_TITLE_TEXT, Eyebrow } from "@/components/Heading";
 import { Field, Select, TextInput, Textarea, Toggle, rangeError } from "@/components/form";
+import { Segmented } from "@/components/Segmented";
+import { EntityPicker, type PickerOption } from "@/components/EntityPicker";
 import { SaveRow } from "@/components/SaveRow";
 import { buttonClass } from "@/components/Button";
 import { toast } from "@/components/Toasts";
@@ -25,7 +28,7 @@ import { RECERT_OPTIONS } from "@/lib/ack-recert";
 import { BUILT_IN, DUE_FIELDS, DUE_NUMBER_KEYS, DUE_RANGES } from "@/lib/ack-due";
 import type { DueNumberKey } from "@/lib/ack-due";
 import { EDIT_DEFAULT_OPTIONS } from "./copy";
-import type { ComplianceSettings, EditDefault } from "@/lib/compliance-settings";
+import type { AckReportSettings, ComplianceSettings, EditDefault } from "@/lib/compliance-settings";
 
 // The three "when the text of a policy changes" options live in ./copy with
 // the rest of the shared compliance copy (A5's popover and the portal chip
@@ -52,8 +55,12 @@ interface FormState {
   keep_reason_required: boolean;
   /** null = never: a policy switched on receives no cycle. */
   recert_months: number | null;
+  /** "Group leads see policy standing" (F4, 1.14.0): the team view and the digest's Policies section for leads. */
+  leads_see_policies: boolean;
   statement: string;
   due: DueForm;
+  /** The scheduled report (F2, 1.14.0); saved through its own route. */
+  report: AckReportSettings;
 }
 
 function fromSettings(s: ComplianceSettings): FormState {
@@ -61,8 +68,10 @@ function fromSettings(s: ComplianceSettings): FormState {
     edit_default: s.ack_defaults.edit_default,
     keep_reason_required: s.ack_defaults.keep_reason_required,
     recert_months: s.ack_defaults.recert_months,
+    leads_see_policies: s.ack_defaults.leads_see_policies,
     statement: s.compliance_statement_default,
     due: Object.fromEntries(DUE_NUMBER_KEYS.map((k) => [k, s.ack_defaults[k] == null ? "" : String(s.ack_defaults[k])])) as DueForm,
+    report: { enabled: s.ack_report.enabled, cadence: s.ack_report.cadence, recipients: [...s.ack_report.recipients] },
   };
 }
 
@@ -74,9 +83,55 @@ function dueError(key: DueNumberKey, value: string): string | undefined {
 /** The Select's option value for an interval: "" for never, else the months. */
 const recertValue = (months: number | null) => (months === null ? "" : String(months));
 
+/** The server enforces the same cap (REPORT_RECIPIENTS_MAX in lib/compliance-settings, a server-only module). */
+const REPORT_RECIPIENTS_MAX = 50;
+
+/** The two cadences of the report (F2): the labels items/F2.md names. */
+const REPORT_CADENCE: { value: AckReportSettings["cadence"]; label: string }[] = [
+  { value: "weekly", label: "Weekly (Monday)" },
+  { value: "monthly", label: "Monthly (with the snapshot)" },
+];
+
+/** A report that is on needs someone to go to; the route caps the list and refuses an inactive account. */
+function reportError(r: AckReportSettings): string | undefined {
+  if (r.recipients.length > REPORT_RECIPIENTS_MAX) return `Choose up to ${REPORT_RECIPIENTS_MAX} recipients.`;
+  if (r.enabled && r.recipients.length === 0) return "Choose at least one recipient, or turn the report off.";
+  return undefined;
+}
+
 export function ProgramSettingsPanel({ initial }: { initial: ComplianceSettings }) {
   const [s, setS] = useState<FormState>(() => fromSettings(initial));
   const [saving, setSaving] = useState(false);
+  const fmt = useFormatDate();
+
+  // The report block (F2): the picker's options (active accounts, the list
+  // the @mention picker reads), when the report last went out, and the last
+  // saved values so an unchanged block is not re-sent. Loads, not edits, so
+  // nothing here marks the page dirty.
+  const [userOpts, setUserOpts] = useState<PickerOption[]>([]);
+  const [lastSent, setLastSent] = useState<{ at: string; period: string } | null>(null);
+  const [reportBaseline, setReportBaseline] = useState<AckReportSettings>(initial.ack_report);
+  useEffect(() => {
+    void fetch("/api/users/mentionable")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!d?.users) throw new Error();
+        setUserOpts(
+          (d.users as { id: number; name: string; username: string }[]).map((u) => ({
+            id: u.id,
+            label: u.name || u.username,
+            sublabel: u.username,
+          }))
+        );
+      })
+      .catch(() => toast("error", "Couldn't load people for the report's recipients."));
+    void fetch("/api/admin/compliance/report")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.last_sent) setLastSent(d.last_sent);
+      })
+      .catch(() => {});
+  }, []);
 
   const { dirty, markDirty, markClean, hasUnsavedChanges } = useUnsavedChanges(JSON.stringify(s));
   useLeaveGuard(dirty, hasUnsavedChanges);
@@ -92,11 +147,17 @@ export function ProgramSettingsPanel({ initial }: { initial: ComplianceSettings 
     setS((prev) => ({ ...prev, due: { ...prev.due, [key]: value } }));
   }
 
+  function setReport(patch: Partial<AckReportSettings>) {
+    markDirty();
+    setS((prev) => ({ ...prev, report: { ...prev.report, ...patch } }));
+  }
+
   const errors = {
     statement: statementError(s.statement),
     due: Object.fromEntries(DUE_NUMBER_KEYS.map((k) => [k, dueError(k, s.due[k])])) as Record<DueNumberKey, string | undefined>,
+    report: reportError(s.report),
   };
-  const invalid = Boolean(errors.statement) || Object.values(errors.due).some(Boolean);
+  const invalid = Boolean(errors.statement) || Object.values(errors.due).some(Boolean) || Boolean(errors.report);
   const option = EDIT_DEFAULT_OPTIONS.find((o) => o.value === s.edit_default) ?? EDIT_DEFAULT_OPTIONS[0];
 
   async function save() {
@@ -113,6 +174,9 @@ export function ProgramSettingsPanel({ initial }: { initial: ComplianceSettings 
           edit_default: s.edit_default,
           keep_reason_required: s.keep_reason_required,
           recert_months: s.recert_months,
+          // Always sent (F4): the first save of ack_defaults creates the stored
+          // row, and a row without this key reads as off on the next read.
+          leads_see_policies: s.leads_see_policies,
           // Blank = null = the built-in; the server refuses anything out of range.
           ...Object.fromEntries(DUE_NUMBER_KEYS.map((k) => [k, s.due[k] === "" ? null : Number(s.due[k])])),
         },
@@ -120,14 +184,39 @@ export function ProgramSettingsPanel({ initial }: { initial: ComplianceSettings 
       }),
     });
     const data = await res.json().catch(() => ({}));
-    setSaving(false);
     if (!res.ok) {
+      setSaving(false);
       toast("error", data?.error || "Could not save program settings.");
       return;
     }
+    // The report block (F2) saves through its own route, which also refuses
+    // a recipient that is not an active account. A refusal is toasted and
+    // leaves the page dirty: the defaults above are already saved, and a
+    // retry re-sends them unchanged.
+    const report = await saveReport();
+    setSaving(false);
+    if (!report) return;
     markClean();
-    if (data?.settings) setS(fromSettings(data.settings));
+    if (data?.settings) setS(fromSettings({ ...data.settings, ack_report: report }));
     toast("ok", "Program settings saved.");
+  }
+
+  /** PUT /api/admin/compliance/report when the block changed: the saved values, or null when refused (toasted). */
+  async function saveReport(): Promise<AckReportSettings | null> {
+    if (JSON.stringify(s.report) === JSON.stringify(reportBaseline)) return reportBaseline;
+    const res = await fetch("/api/admin/compliance/report", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(s.report),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      toast("error", data?.error || "Could not save the report settings.");
+      return null;
+    }
+    const next: AckReportSettings = data?.settings ?? s.report;
+    setReportBaseline(next);
+    return next;
   }
 
   return (
@@ -222,8 +311,59 @@ export function ProgramSettingsPanel({ initial }: { initial: ComplianceSettings 
         </div>
       </Card>
 
+      <Card
+        title="Compliance report"
+        description="A summary of the programme by email: compliance, overdue people, escalations, the lowest policies and the deadlines ahead. The monthly report carries the monthly snapshot's SHA-256."
+      >
+        <Toggle
+          label="Send the compliance report"
+          help="Weekly on Monday, or monthly with the snapshot, to the people below. Nothing goes out while email is not set up."
+          checked={s.report.enabled}
+          onChange={(next) => setReport({ enabled: next })}
+        />
+        <div className="mt-4">
+          <span className="mb-1 block text-xs font-medium text-slate-500">Cadence</span>
+          <Segmented label="Cadence" options={REPORT_CADENCE} value={s.report.cadence} onChange={(next) => setReport({ cadence: next })} />
+        </div>
+        <div className="mt-4">
+          <span className="mb-1 block text-xs font-medium text-slate-500">Recipients</span>
+          <EntityPicker
+            options={userOpts}
+            value={s.report.recipients}
+            onChange={(ids) => setReport({ recipients: ids })}
+            label="Recipients"
+            placeholder="Search people…"
+          />
+          {errors.report ? (
+            <span role="alert" className="mt-1 block text-xs text-red-600">
+              {errors.report}
+            </span>
+          ) : (
+            <span className="mt-1 block text-xs text-slate-500">
+              Up to {REPORT_RECIPIENTS_MAX} people with an active account.
+              {lastSent ? ` Last sent ${fmt.date(lastSent.at)} (${lastSent.period}).` : " Not sent yet."}
+            </span>
+          )}
+        </div>
+      </Card>
+
+      {/* Team leads (F4, 1.14.0): its own card rather than a toggle inside
+          Editing (which is about text changes): the one setting that opens
+          the lead view and the digest's Policies section. The leads
+          themselves are named on the Overview's Team leads block. */}
+      <Card
+        title="Team leads"
+        description="Leads of a group are named on the Overview's Team leads block; the same leads see their group's training when that is licensed."
+      >
+        <Toggle
+          label="Group leads see policy standing"
+          help="Leads of a group see where its members stand on policies in spaces they can read, and get the weekly summary."
+          checked={s.leads_see_policies}
+          onChange={(next) => set("leads_see_policies", next)}
+        />
+      </Card>
+
       <SaveRow dirty={dirty} busy={saving} onSave={save} disabled={invalid} />
-      {/* The evidence card arrives with F2/C5. */}
     </div>
   );
 }
