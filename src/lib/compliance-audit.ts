@@ -453,7 +453,7 @@ export async function takeComplianceSnapshot(
   const id = await insertComplianceSnapshot({
     kind,
     period: kind === "monthly" ? opts.period : "",
-    documentId: kind === "retirement" ? (opts.documentId ?? null) : (opts.documentId ?? null),
+    documentId: opts.documentId ?? null,
     takenBy: opts.by,
     sha256,
     data: text,
@@ -635,9 +635,9 @@ const csvText = (header: string, lines: unknown[][]): string =>
   `${header}\n${lines.map((cells) => `${csvLine(cells)}\n`).join("")}`;
 
 export interface CompliancePackage {
-  /** The ZIP bytes, for `new Response(stream)`. */
-  stream: ReadableStream<Uint8Array>;
-  /** The same bytes as a Node stream, for a caller that pipes or collects. */
+  /** The ZIP bytes as a web stream, for `new Response(stream)`. Made on first access: a package has one reader, this or `node`. */
+  readonly stream: ReadableStream<Uint8Array>;
+  /** The same bytes as a Node stream, for a caller that pipes or collects (never beside `stream`). */
   node: Readable;
   /** Settles once the archive has been written in full: its size and the policies it covers. Rejects when a source failed or the reader went away. */
   done: Promise<{ bytes: number; policies: number }>;
@@ -754,10 +754,14 @@ export async function buildCompliancePackage(opts: { documentId?: number | null;
     });
   }
 
-  const [app] = [ds.app];
-  lazy("manifest.json", async function* () {
+  // The manifest, last: it lists every entry before it (never itself) and
+  // waits for the streamed ones, which the archive has consumed by the time
+  // it reaches this entry.
+  const listed = [...entries];
+  const app = ds.app;
+  addStreamed(zip, "manifest.json", async function* () {
     const files = await Promise.all(
-      entries.map(async (e) => ({ name: e.name, sha256: e.sha256 ?? (await e.pending!).sha256 }))
+      listed.map(async (e) => ({ name: e.name, sha256: e.sha256 ?? (await e.pending!).sha256 }))
     );
     const manifest = manifestFor(files, {
       app_version: currentVersion(),
@@ -766,7 +770,7 @@ export async function buildCompliancePackage(opts: { documentId?: number | null;
       generated_by: opts.by,
     });
     yield JSON.stringify(manifest, null, 2) + "\n";
-  });
+  }).catch(() => {});
 
   // The archive, counted on its way out so the caller can audit the size.
   let bytes = 0;
@@ -797,8 +801,15 @@ export async function buildCompliancePackage(opts: { documentId?: number | null;
   out.on("error", (e: Error) => counter.destroy(e));
   out.pipe(counter);
   const stamp = at.toISOString().slice(0, 10);
+  // Readable.toWeb attaches a consumer of its own, so the web stream is made
+  // only when asked for: a caller reads the package through `stream` or
+  // through `node`, never both.
+  let web: ReadableStream<Uint8Array> | null = null;
   return {
-    stream: Readable.toWeb(counter) as unknown as ReadableStream<Uint8Array>,
+    get stream() {
+      web ??= Readable.toWeb(counter) as unknown as ReadableStream<Uint8Array>;
+      return web;
+    },
     node: counter,
     done,
     filename: documentId == null ? `compliance-audit-package-${stamp}.zip` : `compliance-audit-package-doc-${documentId}-${stamp}.zip`,

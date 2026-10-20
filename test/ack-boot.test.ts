@@ -1246,4 +1246,94 @@ describe("the 1.10.1 additions against a 1.10.0 database, booted twice", () => {
     await db.query("DELETE FROM policy_audience_rules WHERE id = $1", [legacy.rows[0].id]);
     await assertSchema1101(db, "1.14.0 (D3) second boot");
   });
+
+  test("1.14.0 (F2): compliance_snapshots, its monthly unique index and the two reference indexes come back on an upgrade boot in the contracted shape, a month is claimed once, a snapshot written between boots survives, and a second boot moves nothing", async () => {
+    // A database shaped like 1.13.0: the table (and so its indexes) gone.
+    await db.query("DROP TABLE IF EXISTS compliance_snapshots");
+    const upgrade = boot(DB);
+    assert.ok(upgrade.ok, `the upgrade boot succeeds:\n${upgrade.out}`);
+
+    const shape = async () =>
+      (
+        await db.query<{ column_name: string; data_type: string; is_nullable: string; column_default: string | null; is_identity: string }>(
+          `SELECT column_name, data_type, is_nullable, column_default, is_identity FROM information_schema.columns
+           WHERE table_schema = current_schema() AND table_name = 'compliance_snapshots' ORDER BY ordinal_position`
+        )
+      ).rows;
+    const expected = [
+      { column_name: "id", data_type: "integer", is_nullable: "NO", column_default: null, is_identity: "YES" },
+      { column_name: "taken_at", data_type: "timestamp with time zone", is_nullable: "NO", column_default: "now()", is_identity: "NO" },
+      { column_name: "kind", data_type: "text", is_nullable: "NO", column_default: "'manual'::text", is_identity: "NO" },
+      { column_name: "period", data_type: "text", is_nullable: "NO", column_default: "''::text", is_identity: "NO" },
+      { column_name: "document_id", data_type: "integer", is_nullable: "YES", column_default: null, is_identity: "NO" },
+      { column_name: "taken_by", data_type: "integer", is_nullable: "YES", column_default: null, is_identity: "NO" },
+      { column_name: "taken_by_name", data_type: "text", is_nullable: "NO", column_default: "'system'::text", is_identity: "NO" },
+      { column_name: "sha256", data_type: "text", is_nullable: "NO", column_default: null, is_identity: "NO" },
+      { column_name: "data", data_type: "text", is_nullable: "NO", column_default: null, is_identity: "NO" },
+    ];
+    assert.deepEqual(await shape(), expected, "the contracted columns, types and defaults (metadata-only)");
+    const indexes = async () =>
+      (
+        await db.query<{ indexname: string; indexdef: string }>(
+          `SELECT indexname, indexdef FROM pg_indexes WHERE schemaname = current_schema() AND tablename = 'compliance_snapshots' ORDER BY indexname`
+        )
+      ).rows;
+    const idx = await indexes();
+    assert.deepEqual(
+      idx.map((i) => i.indexname),
+      ["compliance_snapshots_pkey", "idx_compliance_snapshots_doc", "idx_compliance_snapshots_monthly", "idx_compliance_snapshots_taken_by"],
+      "the primary key, the monthly claim and the two reference indexes"
+    );
+    assert.match(
+      idx.find((i) => i.indexname === "idx_compliance_snapshots_monthly")!.indexdef,
+      /CREATE UNIQUE INDEX idx_compliance_snapshots_monthly ON (public\.)?compliance_snapshots USING btree \(period\) WHERE \(kind = 'monthly'::text\)/
+    );
+    assert.match(idx.find((i) => i.indexname === "idx_compliance_snapshots_doc")!.indexdef, /\(document_id\) WHERE \(document_id IS NOT NULL\)/);
+    assert.match(idx.find((i) => i.indexname === "idx_compliance_snapshots_taken_by")!.indexdef, /\(taken_by\) WHERE \(taken_by IS NOT NULL\)/);
+    const fks = await db.query<{ confrelid: string; confdeltype: string }>(
+      `SELECT confrelid::regclass::text AS confrelid, confdeltype FROM pg_constraint
+       WHERE conrelid = 'compliance_snapshots'::regclass AND contype = 'f' ORDER BY confrelid::regclass::text`
+    );
+    assert.deepEqual(
+      fks.rows,
+      [
+        { confrelid: "documents", confdeltype: "n" },
+        { confrelid: "users", confdeltype: "n" },
+      ],
+      "both references SET NULL, so a purge or an account deletion never takes evidence with it"
+    );
+    assert.equal((await db.query("SELECT COUNT(*)::int AS n FROM compliance_snapshots")).rows[0].n, 0, "nothing is backfilled");
+
+    // The monthly claim: the second INSERT for a period finds it taken; a
+    // manual snapshot of the same period is not a claim.
+    const first = await db.query<{ id: number }>(
+      `INSERT INTO compliance_snapshots (kind, period, sha256, data) VALUES ('monthly', '2026-01', 'a', '{}')
+       ON CONFLICT (period) WHERE kind = 'monthly' DO NOTHING RETURNING id`
+    );
+    assert.equal(first.rowCount, 1, "the first claim wins");
+    const second = await db.query(
+      `INSERT INTO compliance_snapshots (kind, period, sha256, data) VALUES ('monthly', '2026-01', 'b', '{}')
+       ON CONFLICT (period) WHERE kind = 'monthly' DO NOTHING RETURNING id`
+    );
+    assert.equal(second.rowCount, 0, "the second finds the month taken");
+    const manual = await db.query<{ id: number; taken_by_name: string; kind: string }>(
+      "INSERT INTO compliance_snapshots (kind, period, sha256, data) VALUES ('manual', '2026-01', 'c', '{}') RETURNING id, taken_by_name, kind"
+    );
+    assert.deepEqual(manual.rows[0], { id: manual.rows[0].id, taken_by_name: "system", kind: "manual" }, "a manual one takes the defaults");
+
+    const reboot = boot(DB);
+    assert.ok(reboot.ok, `the second boot succeeds:\n${reboot.out}`);
+    assert.deepEqual(await shape(), expected, "the second boot leaves the shape alone");
+    assert.deepEqual((await indexes()).map((i) => i.indexname), idx.map((i) => i.indexname));
+    assert.deepEqual(
+      (await db.query<{ id: number; sha256: string }>("SELECT id, sha256 FROM compliance_snapshots ORDER BY id")).rows,
+      [
+        { id: first.rows[0].id, sha256: "a" },
+        { id: manual.rows[0].id, sha256: "c" },
+      ],
+      "the rows written between boots survive, untouched"
+    );
+    await db.query("DELETE FROM compliance_snapshots");
+    await assertSchema1101(db, "1.14.0 (F2) second boot");
+  });
 });

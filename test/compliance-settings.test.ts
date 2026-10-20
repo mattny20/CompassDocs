@@ -145,8 +145,13 @@ describe("program settings", () => {
     refused({ compliance_statement_default: "" }, "Enter a confirmation statement");
     refused({ compliance_statement_default: "x".repeat(301) }, "under 300 characters");
     refused({ compliance_statement_default: 42 }, "must be text");
-    // Read with its default, but not writable until F2's Evidence card ships.
-    refused({ ack_report: { enabled: true } }, 'Unknown setting "ack_report"');
+    // The report block (F2, 1.14.0): its three keys, each checked; the
+    // active-account rule on recipients is the route's (validateReportRecipients).
+    refused({ ack_report: { enabled: "yes" } }, "must be true or false");
+    refused({ ack_report: { cadence: "daily" } }, "weekly or monthly");
+    refused({ ack_report: { recipients: [1, "2"] } }, "list of user ids");
+    refused({ ack_report: { digest: true } }, 'Unknown setting "ack_report.digest"');
+    refused({ ack_report: [] }, "must be an object");
     refused(null, "JSON object");
     refused([], "JSON object");
     refused("ask", "JSON object");
