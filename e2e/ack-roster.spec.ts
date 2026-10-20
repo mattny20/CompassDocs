@@ -79,7 +79,7 @@ test("the Record tab: Due and Exemption columns, the Overdue and Exempt filters,
   await login(page, ADMIN);
   const suffix = stamp();
   const title = `E2E ack roster ${suffix}`;
-  const PERSON = "E2E Roster Person";
+  const PERSON = `E2E Roster Person ${suffix}`;
   const person = { username: `e2e_roster_${suffix}`, password: "E2eRoster!12345" };
   let docId: number | undefined;
   let personId: number | undefined;
@@ -109,7 +109,13 @@ test("the Record tab: Due and Exemption columns, the Overdue and Exempt filters,
     const status = page.locator('[role="status"]');
     const rows = main.locator("tbody tr");
     const row = main.locator("tbody tr", { hasText: PERSON });
-    const mine = main.locator("tbody tr", { hasText: ADMIN.username }).first();
+    // The admin's row by its checkbox's accessible name ("Select {name}"):
+    // the cell shows the account's display name, which the rig provisions.
+    const adminName: string = adminRow.name || ADMIN.username;
+    const mine = rows.filter({ has: page.getByRole("checkbox", { name: `Select ${adminName}`, exact: true }) });
+    // A toast's Undo, by the toast's own text: action toasts stay ten
+    // seconds and several may be up at once.
+    const undoOn = (text: string | RegExp) => status.locator("div", { hasText: text }).getByRole("button", { name: "Undo" });
 
     // The columns: Due (the person's deadline, formatted) and Exemption
     // (blank until something is recorded); the five Show choices.
@@ -149,7 +155,6 @@ test("the Record tab: Due and Exemption columns, the Overdue and Exempt filters,
     await expect(status.getByText(`Exempted ${PERSON} from "${title}"`)).toBeVisible();
     await expect(row).toContainText("Exempt");
     await expect(row).toContainText("On leave until");
-    await expect(row).toContainText("Pending", { timeout: 1 }).catch(() => undefined);
     await expect(row.getByText("Pending")).toHaveCount(0);
     await expect(row.getByRole("button", { name: "Remove exemption" })).toBeVisible();
     expect((await rosterRow(page, docId, person.username)).exempt, "the server agrees").toBe(true);
@@ -157,7 +162,7 @@ test("the Record tab: Due and Exemption columns, the Overdue and Exempt filters,
     await expect(rows).toHaveCount(1);
     await expect(rows.first()).toContainText(PERSON);
     await show.getByRole("radio", { name: "All", exact: true }).click();
-    await status.getByRole("button", { name: "Undo" }).click();
+    await undoOn(`Exempted ${PERSON} from`).click();
     await expect(status.getByText(`Exemption undone: ${PERSON} is pending again.`)).toBeVisible();
     await expect(row.getByText("Pending")).toHaveCount(1);
     await expect(row.getByRole("button", { name: "Exempt…" })).toBeVisible();
@@ -176,7 +181,7 @@ test("the Record tab: Due and Exemption columns, the Overdue and Exempt filters,
     await expect(status.getByText(`Extended the deadline for ${PERSON} by 7 days`)).toBeVisible();
     const dueAfter = (await rosterRow(page, docId, person.username)).due_at as string;
     expect(new Date(dueAfter).getTime() - new Date(dueBefore).getTime(), "seven days later").toBe(7 * 86_400_000);
-    await status.getByRole("button", { name: "Undo" }).click();
+    await undoOn(`Extended the deadline for ${PERSON}`).click();
     await expect(status.getByText(`Extension undone: the deadline for ${PERSON} is back to its previous date.`)).toBeVisible();
     expect((await rosterRow(page, docId, person.username)).due_at, "back to the date before").toBe(dueBefore);
 
@@ -244,7 +249,7 @@ test("the Record tab: Due and Exemption columns, the Overdue and Exempt filters,
     await expect(bar, "a successful action clears the selection").toHaveCount(0);
     expect(new Date((await rosterRow(page, docId, person.username)).due_at).getTime() - new Date(personDue).getTime()).toBe(7 * 86_400_000);
     expect(new Date((await rosterRow(page, docId, ADMIN.username)).due_at).getTime() - new Date(adminDue).getTime()).toBe(7 * 86_400_000);
-    await status.getByRole("button", { name: "Undo" }).click();
+    await undoOn("Extended 2 deadlines by 7 days").click();
     await expect(status.getByText("Extension undone: 2 deadlines are back to their previous dates.")).toBeVisible();
     expect((await rosterRow(page, docId, person.username)).due_at).toBe(personDue);
     expect((await rosterRow(page, docId, ADMIN.username)).due_at).toBe(adminDue);

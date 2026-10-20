@@ -607,7 +607,8 @@ test("My policies: the standing line, the two groups, the row's link to the conf
     const row = toConfirm.locator("li", { hasText: title });
     await expect(row).toBeVisible();
     await expect(row.getByRole("link", { name: title })).toHaveAttribute("href", `/doc/${docId}#confirm-reading`);
-    await expect(row.getByText("To confirm", { exact: true })).toBeVisible();
+    // The chip carries the deadline since 1.13.0 (E1): "To confirm · due {date}".
+    await expect(row.getByText(/To confirm( · due .+)?$/)).toBeVisible();
     await expect(row.getByText(/^.+ · Updated /)).toBeVisible();
     // No history, print or CSV here (those wait for the person record).
     await expect(page.getByRole("link", { name: /Export CSV/ })).toHaveCount(0);
@@ -707,7 +708,7 @@ test("a viewer with a policy in scope sees the Compliance row with its badge and
       const row = vpage.getByRole("region", { name: "To confirm" }).locator("li", { hasText: title });
       await expect(row).toBeVisible();
       await expect(row.getByRole("link", { name: title })).toHaveAttribute("href", `/doc/${docId}#confirm-reading`);
-      await expect(row.getByText("To confirm", { exact: true })).toBeVisible();
+      await expect(row.getByText(/To confirm( · due .+)?$/)).toBeVisible();
 
       // The person's own API opens; the portal's does not, and its pages
       // answer the shell's not-found page, as /training/person does.

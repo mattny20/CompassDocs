@@ -25,7 +25,7 @@ import { validateRecertPatch } from "@/lib/ack-recert";
 import type { RecertPatch } from "@/lib/ack-recert";
 import { isAudienceMode, sanitizeRules } from "@/lib/audience";
 import { DUE_RANGES, isDueNumber, parseYmd, resolveDefaults } from "@/lib/ack-due";
-import type { DueNumberKey, DueRule, PolicyDefaultsKey } from "@/lib/ack-due";
+import type { DueNumberKey, DueRule } from "@/lib/ack-due";
 import type { AudienceMode, AudienceRule, SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -179,7 +179,8 @@ const FIELDS: { [K in keyof SettingsPatch]-?: Check<SettingsPatch[K]> } = {
 };
 
 /** The reminder numbers and the owner: the keys that audit as ack.defaults_set at the policy layer. */
-const CADENCE_KEYS: readonly PolicyDefaultsKey[] = [
+type CadenceKey = Exclude<keyof PolicySettingsNumbersPatch, "due_days" | "due_at">;
+const CADENCE_KEYS: readonly CadenceKey[] = [
   "remind_before_days",
   "remind_every_days",
   "escalate_after_days",
@@ -358,6 +359,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     owner_user_id,
   } = patch;
   const actor = actorFrom(user);
+  /** The same person as the deadline writers name them (AckActor: an id that is never undefined). */
+  const ackActor = { id: user.id, name: user.name || user.username };
   const ip = ipFrom(req);
 
   // Everything that can still be refused is judged before anything is
@@ -492,7 +495,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     const shouldMove = move_existing === true || fixedChanged;
     let moved = 0;
     if (shouldMove) {
-      moved = (await movePolicyDeadlines(doc, toRule, { fromRule, actor, ip })).moved;
+      moved = (await movePolicyDeadlines(doc, toRule, { fromRule, actor: ackActor, ip })).moved;
     }
     extras.moved = moved;
     if (ruleChanged || shouldMove) {
