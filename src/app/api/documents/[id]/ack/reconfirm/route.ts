@@ -5,6 +5,7 @@ import { spaceScopeFor, scopeAllows, canSeeDrafts, userHolds } from "@/lib/acces
 import { featureEnabled } from "@/lib/ee";
 import { auditAck, actorFrom, ipFrom } from "@/lib/audit";
 import { requestOrigin } from "@/lib/oauth";
+import { askedAgainError, minutesSince } from "@/lib/ack-assignment-actions";
 import type { SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -64,8 +65,11 @@ function nobodyOpenError(n: number): string {
 // ledger gets one 'reset' row of scope 'users' and only those people are
 // notified. People named who are exempt, removed or not assigned are
 // skipped and listed in the answer; when nobody named has an open row the
-// answer is 400 and nothing is written. No hour guard and no Remind stamp:
-// asking one person again blocks nothing. The list takes up to
+// answer is 400 and nothing is written. No Remind stamp: asking one person
+// again blocks nobody else. The one brake is per person: someone asked
+// again less than an hour ago is skipped (a double submit sends one
+// notice), and when that is the only reason nobody was asked the answer is
+// 429 "Ana Ruiz was asked again 12 minutes ago." The list takes up to
 // USER_IDS_MAX positive integers (duplicates collapse).
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const gate = await apiGuard("viewer");
@@ -127,6 +131,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     origin: requestOrigin(req),
   });
   if (!claim.claimed) {
+    if (claim.cooldown?.length) {
+      // A per-person list in which everyone with an open row was asked
+      // again within the hour: the per-person brake. Nothing was written.
+      return NextResponse.json(
+        { error: await askedAgainError(claim.cooldown, claim.last_asked_at), skipped: claim.skipped ?? [] },
+        { status: 429 }
+      );
+    }
     if (claim.skipped) {
       // A per-person list in which nobody has an open row: nothing was written.
       return NextResponse.json({ error: nobodyOpenError(claim.skipped.length), skipped: claim.skipped }, { status: 400 });
@@ -136,7 +148,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       // and the claim (unpublished, trashed, switched off).
       return NextResponse.json({ error: "This document doesn't ask for a read confirmation." }, { status: 400 });
     }
-    const minutes = Math.max(1, Math.round((Date.now() - new Date(claim.last_asked_at).getTime()) / 60_000));
+    const minutes = minutesSince(claim.last_asked_at);
     return NextResponse.json(
       { error: `Readers were asked again ${minutes} ${minutes === 1 ? "minute" : "minutes"} ago.` },
       { status: 429 }
@@ -163,6 +175,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       queued: personal ? claim.user_ids.length : claim.eligible,
       user_ids: personal ? claim.user_ids : null,
       skipped: personal ? claim.skipped : null,
+      // Of the skipped, the people held by the hour (asked again already).
+      cooldown: personal ? claim.cooldown : null,
       decision_id: claim.decision_id,
       outbox_id: claim.outbox_id,
     },

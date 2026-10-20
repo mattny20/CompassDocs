@@ -15,6 +15,7 @@ import {
   createDocument,
   setAckRequired,
   recordAcknowledgement,
+  claimReconfirmation,
   ackStatusForDocument,
   listAckLedger,
   listAckLedgerAll,
@@ -87,6 +88,7 @@ describe("the confirmation ledger (All confirmations view, ledger exports)", () 
     await pool().query("DELETE FROM acknowledgements WHERE document_id = $1 OR document_title = $2", [docId, title]);
     await pool().query("DELETE FROM attested_texts WHERE document_id = $1", [docId]);
     await pool().query("DELETE FROM ack_decisions WHERE document_id = $1", [docId]);
+    await pool().query("DELETE FROM ack_outbox WHERE document_id = $1", [docId]);
     await pool().query("DELETE FROM documents WHERE id = $1", [docId]);
     await pool().query("DELETE FROM users WHERE id = ANY($1)", [userIds]);
     await pool().query("DELETE FROM spaces WHERE id = $1", [spaceId]);
@@ -154,6 +156,47 @@ describe("the confirmation ledger (All confirmations view, ledger exports)", () 
     assert.equal(typeof ledger[0].user_agent, "string");
     assert.equal(ledger[0].reached_end, false);
     assert.equal(ledger[0].read_seconds, null);
+  });
+
+  test("after a per-person re-ask (D4) the ledger agrees with the current view: the person's newest row reads current=false, superseded=true; the marker stays; nobody else moves", async () => {
+    const markerOf = async () =>
+      (await pool().query<{ at: string }>("SELECT ack_revision_at::text AS at FROM documents WHERE id = $1", [docId])).rows[0].at;
+    const before = await markerOf();
+    const claim = await claimReconfirmation(null, docId, {
+      source: "manual",
+      reason: "Please read section 4 again",
+      actor: { id: null, name: "Ledger Tester" },
+      userIds: [stayer],
+    });
+    assert.equal(claim.claimed, true);
+    assert.equal(await markerOf(), before, "a per-person ask leaves the document marker where it was");
+
+    // The ledger measures currency against the later of the marker and the
+    // person's own cycle, as every count and the roster do: the stayer's v3
+    // row, current a moment ago, is now superseded by the ask; the leaver's
+    // v1 row was already superseded by the marker and stays so.
+    const ledger = await listAckLedger(docId);
+    assert.deepEqual(
+      ledger.map((r) => [r.name, r.rev]),
+      [
+        ["Led Stayer", 3],
+        ["Led Stayer", 2],
+        ["Led Leaver", 1],
+        ["Led Stayer", 1],
+      ],
+      "nothing was added or removed"
+    );
+    assert.equal(ledger[0].current, false, "the stayer's v3 confirmation no longer counts against their own cycle");
+    assert.equal(ledger[0].superseded, true);
+    assert.deepEqual(ledger.map((r) => r.current), [false, false, false, false]);
+    assert.deepEqual(ledger.map((r) => r.superseded), [true, true, true, true]);
+
+    // The Current version view two clicks away says the same.
+    const current = await ackStatusForDocument(docId);
+    const stayerRow = current.find((r) => r.id === stayer)!;
+    assert.equal(stayerRow.acknowledged_at, null, "pending again");
+    assert.ok(stayerRow.asked_again_at, "and shown as asked again");
+    assert.equal(current.find((r) => r.id === leaver)!.acknowledged_at, null, "the leaver, not asked, is as before");
   });
 
   test("a removed account shows the snapshot name with account_removed, and leaves the current view", async () => {

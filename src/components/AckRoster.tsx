@@ -15,9 +15,11 @@
 // who recorded it and until when; a per-person re-ask's reason; a snooze),
 // the Overdue / Exempt / "Asked again {date}" chips, and, for a viewer who
 // may act (document.ack_require on the space or compliance.program_manage),
-// a leading checkbox column, row actions as icon buttons (Extend…, Exempt…,
-// Remove exemption, Snooze / Unsnooze, Ask to re-confirm…) and a bulk bar
-// "{n} selected" with the same actions over the checked assignment ids.
+// a leading checkbox column, row actions as icon buttons (Extend due date…,
+// Exempt…, Remove exemption, Snooze / Unsnooze, Ask to re-confirm…) and a
+// bulk bar "{n} selected" with the same actions, under the same labels,
+// over the checked assignment ids (a row's data-tt is its aria-label; a
+// snooze's date goes in the toast and the Exemption cell, never the label).
 // Every action is one POST to `endpoint` (the space-scoped twin
 // /api/documents/{id}/acknowledgements/actions for a steward, the admin
 // route /api/admin/compliance/assignments for a program manager; the same
@@ -73,6 +75,7 @@ import {
   EXTEND_DAYS_MAX,
   REASK_REASON_MIN,
   SNOOZE_DAYS_DEFAULT,
+  SNOOZE_DAYS_MAX,
   SNOOZE_INVARIANT,
   exemptionText,
   snoozeText,
@@ -269,6 +272,21 @@ function stateOf(r: AckRosterRow, grace: number, now: Date): RowState {
 const today = () => new Date().toISOString().slice(0, 10);
 
 /**
+ * The calendar day of an instant in the workspace zone ('YYYY-MM-DD'; en-CA
+ * prints the ISO order). An exemption's `until` is stored as that day's
+ * last instant in the zone (lib/ack-due endOfDayIn), so sliced in UTC it
+ * names the day before anywhere west of UTC; read in the zone it is the
+ * day the manager typed.
+ */
+function dayIn(iso: string, timeZone: string): string {
+  try {
+    return new Intl.DateTimeFormat("en-CA", { timeZone: timeZone || "UTC", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(iso));
+  } catch {
+    return iso.slice(0, 10);
+  }
+}
+
+/**
  * The Exemption column, plain text, never a tooltip in the table
  * (STYLEGUIDE §Tables): "On leave until 1 Dec · Priya Shah · 3 Oct" on an
  * exempt row; the re-ask's reason and who asked on a row asked again; the
@@ -291,7 +309,13 @@ function exemptionNote(r: AckRosterRow, fmt: AppSettings, now: Date): string {
   return parts.filter(Boolean).join(" · ");
 }
 
-/** The status chip (the closed set) and, on a row asked again that has not confirmed since, the "Asked again {date}" chip beside it. */
+/**
+ * The status chip (the closed set) and, on a row asked again that has not
+ * confirmed since, the "Asked again {date}" chip beside it. Only a real
+ * re-ask earns the chip (one with a reason or an asker: the per-person
+ * ledger row behind it); a row re-opened because the person returned to the
+ * audience carries the same stamp, and nobody asked them.
+ */
 function StatusCell({ row, state, fmt }: { row: AckRosterRow; state: RowState; fmt: AppSettings }) {
   const chip =
     state === "exempt" ? (
@@ -303,7 +327,8 @@ function StatusCell({ row, state, fmt }: { row: AckRosterRow; state: RowState; f
     ) : (
       <span className={chipClass("warn")}>Pending</span>
     );
-  const askedAgain = (state === "pending" || state === "overdue") && row.asked_again_at;
+  const askedAgain =
+    (state === "pending" || state === "overdue") && row.asked_again_at && Boolean(row.asked_again_reason || row.asked_again_by);
   if (!askedAgain) return chip;
   return (
     <span className="inline-flex flex-wrap items-center gap-1">
@@ -610,12 +635,12 @@ export function AckRoster({
     });
   }
 
-  /** Remove exemption's Undo: the inverse call, one per distinct reason and date (an exemption needs its reason). */
+  /** Remove exemption's Undo: the inverse call, one per distinct reason and date (an exemption needs its reason); the date read in the workspace zone, never a UTC slice. */
   async function reexempt(before: AckRosterRow[]) {
     const groups = new Map<string, { reason: string; until: string | null; ids: number[] }>();
     for (const row of before) {
       if (row.assignment_id == null) continue;
-      const day = row.exempt_until ? row.exempt_until.slice(0, 10) : null;
+      const day = row.exempt_until ? dayIn(row.exempt_until, fmt.timezone) : null;
       const until = day && day > today() ? day : null;
       const reason = row.exempt_reason || "Exemption restored";
       const key = `${reason}\u0000${until ?? ""}`;
@@ -666,17 +691,15 @@ export function AckRoster({
     );
   }
 
-  async function snooze(targets: AckRosterRow[], opts: { undo?: boolean } = {}) {
+  /** Snooze: a week from the row and the bar (the date goes in the toast); Unsnooze's Undo passes the days that were left. */
+  async function snooze(targets: AckRosterRow[], opts: { undo?: boolean; days?: number } = {}) {
     const ids = idsOf(targets);
     if (!ids.length) return;
+    const days = opts.days ?? SNOOZE_DAYS_DEFAULT;
     pendingFocus.current = ids[0];
-    const r = await post(
-      `snooze-${ids[0]}`,
-      { action: "snooze", assignment_ids: ids, days: SNOOZE_DAYS_DEFAULT },
-      "Couldn't snooze reminders."
-    );
+    const r = await post(`snooze-${ids[0]}`, { action: "snooze", assignment_ids: ids, days }, "Couldn't snooze reminders.");
     if (!settled(r)) return;
-    const until = r.until ? formatDate(r.until, fmt) : `${SNOOZE_DAYS_DEFAULT} days from now`;
+    const until = r.until ? formatDate(r.until, fmt) : `${days} days from now`;
     const text = `Snoozed reminders for ${whoOf(r.changed)} until ${until}${skippedNote(r.skipped.length)}`;
     if (opts.undo) {
       toast("ok", text);
@@ -696,8 +719,24 @@ export function AckRoster({
       return;
     }
     toast("ok", `Reminders resume for ${who}.${skippedNote(r.skipped.length)}`, {
-      action: { label: "Undo", onClick: () => void snooze(before.filter((row) => r.changed.includes(row.assignment_id!)), { undo: true }) },
+      action: { label: "Undo", onClick: () => void resnooze(before.filter((row) => r.changed.includes(row.assignment_id!))) },
     });
+  }
+
+  /**
+   * Unsnooze's Undo: snoozed again for the days each row had left (rounded
+   * up, clamped to 1..SNOOZE_DAYS_MAX), one call per distinct count, so the
+   * row ends where it was rather than a week out.
+   */
+  async function resnooze(before: AckRosterRow[]) {
+    const groups = new Map<number, AckRosterRow[]>();
+    for (const row of before) {
+      if (!row.snoozed_until) continue;
+      const left = Math.ceil((new Date(row.snoozed_until).getTime() - now.getTime()) / DAY);
+      const days = Number.isFinite(left) ? Math.min(SNOOZE_DAYS_MAX, Math.max(1, left)) : SNOOZE_DAYS_DEFAULT;
+      groups.set(days, [...(groups.get(days) ?? []), row]);
+    }
+    for (const [days, rows] of groups) await snooze(rows, { undo: true, days });
   }
 
   async function reask(targets: AckRosterRow[]) {
@@ -834,7 +873,7 @@ export function AckRoster({
           </Button>
           <span className="mx-1 h-4 w-px bg-compass-200" aria-hidden />
           {sub.open.length > 0 && (
-            <BulkButton icon={<CalendarPlus />} label="Extend…" count={sub.open.length} busy={busy} onClick={() => void extend(sub.open)} />
+            <BulkButton icon={<CalendarPlus />} label="Extend due date…" count={sub.open.length} busy={busy} onClick={() => void extend(sub.open)} />
           )}
           {sub.exemptable.length > 0 && (
             <BulkButton icon={<UserMinus />} label="Exempt…" count={sub.exemptable.length} busy={busy} onClick={() => void exempt(sub.exemptable)} />
@@ -953,8 +992,6 @@ function CurrentTable({
   actions: RowActions;
 }) {
   const f = (iso: string) => formatDate(iso, fmt);
-  // "Pause reminders until {date}": a week from now, the row action's duration.
-  const snoozeUntil = f(new Date(now.getTime() + SNOOZE_DAYS_DEFAULT * DAY).toISOString());
   const selectable = rows.some((r) => r.assignment_id != null);
   return (
     <Table scroll minWidth={canAct ? "86rem" : "76rem"}>
@@ -1063,19 +1100,9 @@ function CurrentTable({
                           <IconAction icon={<UserMinus />} label="Exempt…" disabled={busy} onClick={() => void actions.exempt([r])} />
                           {state !== "confirmed" &&
                             (snoozed ? (
-                              <IconAction
-                                icon={<BellRing />}
-                                label={`Unsnooze (reminders paused until ${f(r.snoozed_until!)})`}
-                                disabled={busy}
-                                onClick={() => void actions.unsnooze([id])}
-                              />
+                              <IconAction icon={<BellRing />} label="Unsnooze" disabled={busy} onClick={() => void actions.unsnooze([id])} />
                             ) : (
-                              <IconAction
-                                icon={<BellOff />}
-                                label={`Pause reminders until ${snoozeUntil}`}
-                                disabled={busy}
-                                onClick={() => void actions.snooze([r])}
-                              />
+                              <IconAction icon={<BellOff />} label="Snooze" disabled={busy} onClick={() => void actions.snooze([r])} />
                             ))}
                         </>
                       )}

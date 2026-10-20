@@ -8,6 +8,7 @@ import {
   unsnoozeAssignments,
   reaskableAssignments,
   claimReconfirmation,
+  getUserById,
 } from "./db";
 import type { AckActor, AssignmentChange } from "./db";
 import { audit, auditAck } from "./audit";
@@ -32,7 +33,7 @@ import type { AssignmentAction, AssignmentRequest } from "./ack-assignments";
 export interface AssignmentContext {
   /** The policy the twin route is bound to; null for the admin route (rows of any policy). */
   doc: { id: number; title: string } | null;
-  /** Who is acting, as the rows record it (exempt_by, snoozed_by, due_history.by). */
+  /** Who is acting, as the rows record it (exempt_by, snoozed_by, due_history.by_id / by_name). */
   actor: AckActor;
   /** The same person, as the audit rows record them, with the request's address. */
   audit: { actor: AuditActor; ip: string | null };
@@ -51,9 +52,35 @@ export interface AssignmentAnswer {
   until?: string | null;
 }
 
-export type AssignmentOutcome = { status: 200; body: AssignmentAnswer } | { status: 400; body: { error: string } };
+export type AssignmentOutcome =
+  | { status: 200; body: AssignmentAnswer }
+  | { status: 400; body: { error: string } }
+  /** reask: nobody was asked because everyone who could have been was asked again within the hour (the per-person brake). */
+  | { status: 429; body: { error: string; skipped: number[] } };
 
 const docOf = (row: AssignmentChange) => ({ id: row.document_id, title: row.title });
+
+/** Whole minutes since an instant, at least one: what "asked again N minutes ago" reads. */
+export function minutesSince(iso: string | null): number {
+  if (!iso) return 1;
+  return Math.max(1, Math.round((Date.now() - new Date(iso).getTime()) / 60_000));
+}
+
+/**
+ * The 429 of a per-person re-ask held by the hour (D4 fix round): "Ana Ruiz
+ * was asked again 12 minutes ago." for one person, "These people were asked
+ * again 12 minutes ago." for more. The reconfirm route and the assignments
+ * routes answer the same sentence.
+ */
+export async function askedAgainError(userIds: number[], lastAskedAt: string | null): Promise<string> {
+  const minutes = minutesSince(lastAskedAt);
+  const ago = `${minutes} ${minutes === 1 ? "minute" : "minutes"} ago`;
+  if (userIds.length === 1) {
+    const u = await getUserById(userIds[0]);
+    return `${u?.name || u?.username || "This person"} was asked again ${ago}.`;
+  }
+  return `These people were asked again ${ago}.`;
+}
 
 export async function runAssignmentAction(req: AssignmentRequest, ctx: AssignmentContext): Promise<AssignmentOutcome> {
   const docId = ctx.doc?.id ?? null;
@@ -146,12 +173,18 @@ export async function runAssignmentAction(req: AssignmentRequest, ctx: Assignmen
 
   // reask: open rows on live policies, grouped by policy; each group is one
   // per-person claim (D4). A group the claim refuses (the policy stopped
-  // taking confirmations between the read and the claim, or its cooldown)
-  // is reported as skipped, not failed.
+  // taking confirmations between the read and the claim) is reported as
+  // skipped, not failed. A person asked again within the hour is held by
+  // the claim's brake and reported as skipped too; when that is the only
+  // reason nobody was asked, the answer is 429 with the sentence the
+  // reconfirm route gives, so the roster says why rather than "nothing
+  // changed".
   const rows = await reaskableAssignments(docId, req.ids);
   const groups = new Map<number, AssignmentChange[]>();
   for (const row of rows) groups.set(row.document_id, [...(groups.get(row.document_id) ?? []), row]);
   const changed: number[] = [];
+  const held: number[] = [];
+  let lastAskedAt: string | null = null;
   for (const [documentId, group] of groups) {
     const userIds = group.map((g) => g.user_id);
     const claim = await claimReconfirmation(null, documentId, {
@@ -161,7 +194,12 @@ export async function runAssignmentAction(req: AssignmentRequest, ctx: Assignmen
       origin: ctx.origin,
       userIds,
     });
-    if (!claim.claimed) continue;
+    const cooled = new Set(claim.cooldown ?? []);
+    held.push(...group.filter((g) => cooled.has(g.user_id)).map((g) => g.user_id));
+    if (!claim.claimed) {
+      if (claim.last_asked_at && (lastAskedAt === null || claim.last_asked_at > lastAskedAt)) lastAskedAt = claim.last_asked_at;
+      continue;
+    }
     // The claim says whose cycle it restarted; a row that closed between
     // the read above and the claim is reported as skipped.
     const reopened = new Set(claim.user_ids);
@@ -181,6 +219,9 @@ export async function runAssignmentAction(req: AssignmentRequest, ctx: Assignmen
         outbox_id: claim.outbox_id,
       },
     });
+  }
+  if (changed.length === 0 && held.length > 0) {
+    return { status: 429, body: { error: await askedAgainError(held, lastAskedAt), skipped: req.ids } };
   }
   return answer(changed, req.ids.filter((id) => !changed.includes(id)));
 }

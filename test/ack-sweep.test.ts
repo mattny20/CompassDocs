@@ -10,15 +10,21 @@
 //
 // Run: DATABASE_URL=… npx tsx --tsconfig ./tsconfig.test.json --test test/ack-sweep.test.ts
 
+// lib/ee as a licensed build sees it, installed before lib/compliance loads
+// (imports run in source order): complianceHourly is gated on the licence.
+import "./support/ee-stub";
 import { test, before, after, describe } from "node:test";
 import assert from "node:assert/strict";
 import type { PoolClient } from "pg";
+import { edition } from "./support/ee-stub";
 import {
   pool,
   getSetting,
   setSetting,
   createDocument,
   setAckRequired,
+  setSpaceGroups,
+  canSeeSpace,
   recordAcknowledgement,
   getCurrentAck,
   listVersions,
@@ -63,7 +69,7 @@ import {
   listApproverIdsForSpace,
   pendingAckOutboxFor as pendingOutboxE2,
 } from "../src/lib/db";
-import { remindDueAcks, escalateOverdueAcks, sweepDefaults } from "../src/lib/compliance";
+import { remindDueAcks, escalateOverdueAcks, sweepDefaults, requestAcknowledgement, complianceHourly } from "../src/lib/compliance";
 import {
   nextReminderAt,
   reminderSubtitle,
@@ -708,6 +714,8 @@ describe("the reminder sweep (E2)", () => {
   const e2Docs: number[] = [];
   let privateSpace = 0;
   let teamGroup = 0;
+  /** The group granted on the private space: the owner and the requester can see it; the leads and the overdue people cannot. */
+  let scopeGroup = 0;
 
   const hoursAgo = (h: number) => new Date(Date.now() - h * 3_600_000).toISOString();
   const daysFromNow = (d: number) => new Date(Date.now() + d * DAY).toISOString();
@@ -808,19 +816,30 @@ describe("the reminder sweep (E2)", () => {
       [`Ack Sweep Private ${STAMP}`, `${STAMP}-private`]
     );
     privateSpace = sp.rows[0].id;
-    for (const tag of ["ana", "ben", "cal", "dave", "owner", "requester", "lead"]) await person(tag);
+    for (const tag of ["ana", "ben", "cal", "dave", "owner", "requester", "lead", "outsider"]) await person(tag);
     await person("adminlead", "admin");
     await person("gone", "viewer", "disabled");
     const g = await fixtureQuery("INSERT INTO groups (name) VALUES ($1) RETURNING id", [`Sweep Team ${STAMP}`]);
     teamGroup = g.rows[0].id;
     await fixtureQuery("INSERT INTO group_members (group_id, user_id) VALUES ($1, $2), ($1, $3)", [teamGroup, people.ana, people.ben]);
     await fixtureQuery("INSERT INTO group_leads (group_id, user_id) VALUES ($1, $2), ($1, $3)", [teamGroup, people.lead, people.adminlead]);
+    // An escalation reaches only people who can see the policy's space (E2
+    // fix round): the owner and the requester are granted the private space
+    // through a group; the viewer lead, the overdue people and the outsider
+    // are not. Granted before any policy exists there, so the grant's hook
+    // reconciles nothing.
+    const sg = await fixtureQuery("INSERT INTO groups (name) VALUES ($1) RETURNING id", [`Sweep Scope ${STAMP}`]);
+    scopeGroup = sg.rows[0].id;
+    await fixtureQuery("INSERT INTO group_members (group_id, user_id) VALUES ($1, $2), ($1, $3)", [scopeGroup, people.owner, people.requester]);
+    await setSpaceGroups(privateSpace, [scopeGroup]);
+    assert.equal(await canSeeSpace(people.owner, privateSpace), true, "the owner sees the private space");
+    assert.equal(await canSeeSpace(people.outsider, privateSpace), false, "the outsider does not");
   });
 
   after(async () => {
     await pool().query("DELETE FROM audit_log WHERE action IN ('ack.reminder_auto', 'ack.escalated') AND target_id = ANY($1)", [e2Docs.map(String)]);
     await pool().query("DELETE FROM acknowledgements WHERE user_id = ANY($1)", [userIds]);
-    await pool().query("DELETE FROM groups WHERE id = $1", [teamGroup]);
+    await pool().query("DELETE FROM groups WHERE id = ANY($1)", [[teamGroup, scopeGroup]]);
     // The documents (and their rows, outbox rows and notices) go with the file's after().
     await pool().query("DELETE FROM policy_assignments WHERE user_id = ANY($1)", [userIds]);
     await pool().query("DELETE FROM users WHERE id = ANY($1)", [userIds]);
@@ -960,6 +979,17 @@ describe("the reminder sweep (E2)", () => {
     assert.equal((await escalateOverdueAcks({ documentIds: [retired], defaults: D })).claimed, 0, "retired: no escalation");
     await pool().query("UPDATE documents SET ack_required = 1 WHERE id = $1", [retired]);
     assert.equal((await remindDueAcks({ documentIds: [retired], defaults: D })).claimed, 0, "retired with the requirement on: still nothing");
+    // A trashed policy and a draft branch are never claimed by either sweep.
+    const trashed = await policy("trashed");
+    await assign(trashed, people.ana, { dueAt: daysFromNow(-20) });
+    await pool().query("UPDATE documents SET deleted_at = now() WHERE id = $1", [trashed]);
+    assert.equal((await remindDueAcks({ documentIds: [trashed], defaults: D })).claimed, 0, "trashed: no reminder");
+    assert.equal((await escalateOverdueAcks({ documentIds: [trashed], defaults: D })).claimed, 0, "trashed: no escalation");
+    await pool().query("UPDATE documents SET deleted_at = NULL, branch_of = $2 WHERE id = $1", [trashed, paused]);
+    assert.equal((await remindDueAcks({ documentIds: [trashed], defaults: D })).claimed, 0, "a branch: no reminder");
+    assert.equal((await escalateOverdueAcks({ documentIds: [trashed], defaults: D })).claimed, 0, "a branch: no escalation");
+    await pool().query("UPDATE documents SET branch_of = NULL WHERE id = $1", [trashed]);
+    assert.equal((await remindDueAcks({ documentIds: [trashed], defaults: D })).claimed, 1, "live again: reminded");
 
     // The grace period: a row one day past its date is 'due soon' while the
     // grace runs and 'overdue' once it is over.
@@ -976,7 +1006,7 @@ describe("the reminder sweep (E2)", () => {
     assert.equal(dueStatusLabel(claimed[0].due_at, claimed[0].overdue), "Overdue");
   });
 
-  test("escalation fires once after due + grace + escalate days, with the recipients resolved per policy (owner, else requested_by, else the approvers, plus the overdue people's leads in scope); extending the due date re-arms it", async () => {
+  test("escalation fires once after due + grace + escalate days, across two instances at once, with the recipients resolved per policy (owner, else requested_by, else the approvers, plus the overdue people's leads in scope); extending the due date re-arms it", async () => {
     const id = await policy("escalation");
     await setPolicySettings(id, { owner_user_id: people.owner });
     await assign(id, people.ana, { dueAt: daysFromNow(-8) });
@@ -984,7 +1014,14 @@ describe("the reminder sweep (E2)", () => {
     await assign(id, people.cal, { dueAt: daysFromNow(-8), escalatedAt: daysFromNow(-1) });
     await assign(id, people.dave, { dueAt: daysFromNow(-8), exempt: true });
 
-    const first = await escalateOverdueAcks({ documentIds: [id], defaults: D });
+    // Two instances' hourly ticks at once: the claim stamps the column it
+    // tests (FOR UPDATE SKIP LOCKED), so one of them escalates ana and the
+    // other finds nothing; one outbox row, one audit row between them.
+    const [x, y] = await Promise.all([escalateOverdueAcks({ documentIds: [id], defaults: D }), escalateOverdueAcks({ documentIds: [id], defaults: D })]);
+    assert.equal(x.claimed + y.claimed, 1, `ana is escalated once between the two sweeps (${x.claimed} + ${y.claimed})`);
+    assert.equal((await pendingOutboxE2(id)).filter((r) => r.mode === "escalation").length, 1, "one escalation row");
+    assert.equal((await audits("ack.escalated", id)).length, 1, "one ack.escalated row");
+    const first = x.claimed ? x : y;
     assert.deepEqual([first.claimed, first.policies], [1, 1], "ana alone crossed the line (8 > 7); ben has not; cal was escalated already; dave is exempt");
     assertNear((await row(id, people.ana)).escalated_at, new Date(), 60_000, "ana's row is stamped");
     assert.equal((await row(id, people.ben)).escalated_at, null);
@@ -1057,6 +1094,63 @@ describe("the reminder sweep (E2)", () => {
     await setPolicySettings(viaRequester, { owner_user_id: people.gone });
     recipients = await escalationRecipients([{ document_id: viaRequester, space_id: privateSpace, user_ids: [] }]);
     assert.deepEqual(recipients.get(viaRequester)!.map((r) => r.via), ["requested_by"], "a disabled owner falls through");
+    // An owner who cannot see the private space is skipped the same way (the
+    // ceiling: an escalation names the overdue people), and so is a
+    // requester who cannot: the policy falls to the space's approvers.
+    await setPolicySettings(viaRequester, { owner_user_id: people.outsider });
+    recipients = await escalationRecipients([{ document_id: viaRequester, space_id: privateSpace, user_ids: [] }]);
+    assert.deepEqual(
+      recipients.get(viaRequester)!.map((r) => [r.id, r.via]),
+      [[people.requester, "requested_by"]],
+      "an owner off the private space is not told; the requester in scope is"
+    );
+    await setPolicySettings(viaRequester, { owner_user_id: people.outsider, requested_by: people.outsider });
+    recipients = await escalationRecipients([{ document_id: viaRequester, space_id: privateSpace, user_ids: [] }]);
+    assert.ok(recipients.get(viaRequester)!.every((r) => r.via === "approver" && r.id !== people.outsider), "both off the space: the approvers");
+    assert.deepEqual(
+      recipients.get(viaRequester)!.map((r) => r.id).sort(),
+      [...(await listApproverIdsForSpace(privateSpace, 0))].sort()
+    );
+    // The space layer's owner (policy_defaults.owner_user_id) stands in for a
+    // policy that names none, as the Settings tab's cascade says.
+    await setPolicySettings(viaRequester, { owner_user_id: null, requested_by: null });
+    await pool().query("UPDATE spaces SET policy_defaults = $2::jsonb WHERE id = $1", [privateSpace, JSON.stringify({ owner_user_id: people.owner })]);
+    recipients = await escalationRecipients([{ document_id: viaRequester, space_id: privateSpace, user_ids: [] }]);
+    assert.deepEqual(recipients.get(viaRequester)!.map((r) => [r.id, r.via]), [[people.owner, "owner"]], "the space's owner, via 'owner'");
+    await pool().query("UPDATE spaces SET policy_defaults = $2::jsonb WHERE id = $1", [privateSpace, JSON.stringify({ owner_user_id: people.outsider })]);
+    recipients = await escalationRecipients([{ document_id: viaRequester, space_id: privateSpace, user_ids: [] }]);
+    assert.ok(recipients.get(viaRequester)!.every((r) => r.via === "approver"), "a space owner off the space falls through too");
+    await pool().query("UPDATE spaces SET policy_defaults = '{}'::jsonb WHERE id = $1", [privateSpace]);
+
+    // The requester is whoever switched the requirement on, written by the
+    // switch-on itself (no fixture): the portal's Request and the popover
+    // both go through requestAcknowledgement. The first requester is kept.
+    const switched = await createDocument({
+      space_id: privateSpace,
+      title: `${E2} escalation switch-on`,
+      type: "policy",
+      status: "published",
+      content: TEXT,
+      summary: "",
+      tags: [],
+      author: "test",
+    });
+    docIds.push(switched.id);
+    e2Docs.push(switched.id);
+    const on = await requestAcknowledgement(switched, { id: people.requester, name: "Sweep requester" }, "", { notify: false });
+    assert.equal(on.switched_on, true);
+    const stamped = (await pool().query("SELECT requested_by, requested_at FROM policy_settings WHERE document_id = $1", [switched.id])).rows[0];
+    assert.equal(stamped?.requested_by, people.requester, "requested_by is the actor who switched it on");
+    assert.ok(stamped?.requested_at, "and the moment");
+    recipients = await escalationRecipients([{ document_id: switched.id, space_id: privateSpace, user_ids: [] }]);
+    assert.deepEqual(recipients.get(switched.id)!.map((r) => [r.id, r.via]), [[people.requester, "requested_by"]], "no owner: the requester, from the switch-on");
+    await setAckRequired(switched.id, false);
+    assert.equal((await requestAcknowledgement(switched, { id: people.owner, name: "Sweep owner" }, "", { notify: false })).switched_on, true);
+    assert.equal(
+      (await pool().query("SELECT requested_by FROM policy_settings WHERE document_id = $1", [switched.id])).rows[0].requested_by,
+      people.requester,
+      "a later switch-on keeps the first requester"
+    );
 
     // An internal space: both leads of the overdue person's group can see it; a person reached two ways keeps the first.
     const internal = await policy("escalation internal", spaceId);
@@ -1123,6 +1217,62 @@ describe("the reminder sweep (E2)", () => {
     assert.equal(summary.next_reminder_at, null, "no open, unconfirmed row: nothing is scheduled");
     assert.equal(reminderSubtitle({ last_reminded_at: null, next_reminder_at: null }, (s) => s), null);
     assert.deepEqual(await ackReminderSummary([], D), new Map());
+  });
+
+  test("complianceHourly runs the steps in order under the licence, a failing step never stops the next, and nothing moves with the feature off", async () => {
+    // An internal space, so the reconcile step (the first) keeps the rows
+    // of people who can see it rather than closing them.
+    const id = await policy("hourly", spaceId);
+    // ana is due in 2 days: the reminder step claims her. ben's exemption
+    // ran out yesterday: the exemptions step would clear it, but a trigger
+    // scoped to his row refuses, so that step throws.
+    await assign(id, people.ana, { dueAt: daysFromNow(2) });
+    await assign(id, people.ben, { dueAt: daysFromNow(-5), exempt: true });
+    await pool().query("UPDATE policy_assignments SET exempt_until = now() - interval '1 day' WHERE document_id = $1 AND user_id = $2", [id, people.ben]);
+    const refuse = `acksweep_refuse_${STAMP.replace(/\D/g, "")}`;
+    await fixtureQuery(
+      `CREATE OR REPLACE FUNCTION ${refuse}() RETURNS trigger AS $t$
+       BEGIN
+         IF OLD.user_id = ${people.ben} AND OLD.exempt_at IS NOT NULL AND NEW.exempt_at IS NULL THEN
+           RAISE EXCEPTION 'exemption expiry refused by the test';
+         END IF;
+         RETURN NEW;
+       END $t$ LANGUAGE plpgsql`
+    );
+    await fixtureQuery(`CREATE TRIGGER ${refuse} BEFORE UPDATE ON policy_assignments FOR EACH ROW EXECUTE FUNCTION ${refuse}()`);
+    const logged: string[] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => {
+      logged.push(args.map(String).join(" "));
+    };
+    try {
+      await complianceHourly({ documentIds: [id] });
+    } finally {
+      console.error = original;
+      await pool().query(`DROP TRIGGER IF EXISTS ${refuse} ON policy_assignments`);
+      await pool().query(`DROP FUNCTION IF EXISTS ${refuse}()`);
+    }
+    assert.ok(
+      logged.some((l) => l.startsWith("[compliance] expired exemptions failed")),
+      `the failing step is logged with its name: ${JSON.stringify(logged)}`
+    );
+    const ben = (await pool().query("SELECT exempt_at FROM policy_assignments WHERE document_id = $1 AND user_id = $2", [id, people.ben])).rows[0];
+    assert.ok(ben.exempt_at, "the refused step changed nothing");
+    assert.equal((await row(id, people.ana)).reminder_count, 1, "the reminder step after it still ran");
+    assert.equal((await audits("ack.reminder_auto", id)).length, 1, "and audited");
+
+    // The feature off (no licence): the tick does nothing at all.
+    await assign(id, people.cal, { dueAt: daysFromNow(2) });
+    const granted = edition.features.splice(0, edition.features.length);
+    try {
+      await complianceHourly({ documentIds: [id] });
+    } finally {
+      edition.features.push(...granted);
+    }
+    assert.equal((await row(id, people.cal)).reminder_count, 0, "with the feature off nobody is reminded");
+    assert.equal((await audits("ack.reminder_auto", id)).length, 1, "and nothing is audited");
+    await complianceHourly({ documentIds: [id] });
+    assert.equal((await row(id, people.cal)).reminder_count, 1, "licensed again: the tick runs");
   });
 });
 

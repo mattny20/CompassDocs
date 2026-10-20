@@ -64,7 +64,9 @@ keep their own titles.
   and a copy of `DocActions` without the `ack` prop (the shield toggle
   keeps its state locally, so two copies would disagree after a click; A5
   moves it into a popover). Under `sm` the bar shows the **control and the
-  title only**: the `DocActions` wrapper is `hidden sm:flex`, the control
+  title only**, plus, from 1.13.0, the `sm` `error` chip **Overdue** from
+  the reader's deadline (the neutral and warn due chips are `hidden
+  sm:contents`): the `DocActions` wrapper is `hidden sm:flex`, the control
   collapses to its icon plus "Pending" / "Confirmed" (`text-2xs`), and the
   bar itself never scrolls sideways (`e2e/acknowledgements.spec.ts` asserts
   it at 375px). Nine 36px icon buttons do not fit beside a title on a phone,
@@ -823,7 +825,12 @@ text-slate-500` before them ("Notary · Phoenix").
   bg-compass-50/70 px-3 py-2`, "{n} selected" in `text-sm font-semibold
   text-compass-800`, a ghost `sm` **Clear selection**, a hairline, then the
   same actions the rows offer as `secondary` `sm` `Button`s with their
-  lucide icons, disabled with `busy` while a request is in flight. The bar
+  lucide icons, disabled with `busy` while a request is in flight. One
+  label per action on both surfaces (`AckRoster`: "Extend due date…",
+  "Exempt…", "Remove exemption", "Snooze", "Unsnooze", "Ask to
+  re-confirm…"); a row's icon button has the same words as its `data-tt`
+  and `aria-label`, and a date the action sets (a snooze's end) goes in
+  the toast and the row's own column, never in the label. The bar
   is `print:hidden`. A bulk action over more than the server's cap (200) is
   disabled inside `Tooltip("Up to 200 people at a time.")`. Selection is
   per page: the header checkbox selects the rows on the page, and a

@@ -41,6 +41,7 @@ import {
   createSession,
 } from "../src/lib/db";
 import { newToken } from "../src/lib/password";
+import { endOfDayIn } from "../src/lib/ack-due";
 import { fixtureQuery } from "./support/retry";
 
 // --- The request scope outside Next ------------------------------------------
@@ -456,11 +457,16 @@ describe("ask one person to re-confirm (D4)", () => {
     await assign(ahead.id, readerA, { dueAt: daysAgo(20) });
     const kept = await claimReconfirmation(null, ahead.id, { source: "manual", reason: REASON, actor: manager(), userIds: [readerA] });
     assert.equal(kept.claimed, true);
-    const fixed = await pool().query<{ day: string }>(
-      "SELECT (due_at AT TIME ZONE 'UTC')::date::text AS day FROM policy_assignments WHERE document_id = $1 AND user_id = $2",
+    // The one re-arm fragment (dueRearmSql): the fixed day's last instant in
+    // the workspace zone, to the millisecond, as the reconcile and the
+    // re-confirmation cycle write it, so a person asked again on a fixed-date
+    // policy is due when their colleagues are.
+    const timeZone = (await getSetting("timezone"))?.trim() || "UTC";
+    const fixed = await pool().query<{ due_at: string }>(
+      "SELECT due_at FROM policy_assignments WHERE document_id = $1 AND user_id = $2",
       [ahead.id, readerA]
     );
-    assert.equal(fixed.rows[0].day, dayOffset(10), "the fixed date still ahead is the deadline");
+    assert.equal(fixed.rows[0].due_at, endOfDayIn(dayOffset(10), timeZone)!.toISOString(), "the fixed date still ahead is the deadline: its last instant in the workspace zone");
 
     const past = await newPolicy("fixed past");
     await setDueRule(past.id, { due_days: 3, due_at: dayOffset(-1) });
@@ -616,6 +622,68 @@ describe("ask one person to re-confirm (D4)", () => {
     const [notice] = await pendingAckOutboxFor(id);
     assert.equal(notice.user_ids, null);
   });
+
+  test("the one-hour brake is per person: two asks of the same person at once take the hour once, a later one re-opens nothing and reports them; a row in its first cycle is never held; the hour lifts", async () => {
+    const { id, v1 } = await newPolicy("brake");
+    for (const u of [readerA, readerB]) {
+      await assign(id, u);
+      await recordAcknowledgement(id, u, "", v1);
+    }
+    // Two asks of the same person in the same second: the document row lock
+    // serialises them, and the second sees the first's cycle stamp.
+    const ask = (userIds: number[]) => claimReconfirmation(null, id, { source: "manual", reason: REASON, actor: manager(), userIds });
+    const [x, y] = await Promise.all([ask([readerA]), ask([readerA])]);
+    const won = [x, y].filter((r) => r.claimed);
+    assert.equal(won.length, 1, `one of the two asked: ${JSON.stringify([x, y])}`);
+    const lost = [x, y].find((r) => !r.claimed)!;
+    if (lost.claimed) throw new Error("unreachable");
+    assert.deepEqual(lost.cooldown, [readerA], "the person held by the hour");
+    assert.deepEqual(lost.skipped, [readerA]);
+    assert.ok(lost.last_asked_at && Date.now() - new Date(lost.last_asked_at).getTime() < 10_000, "the stamp that refused it is the first ask's");
+    assert.equal((await listAckDecisions(id)).length, 1, "one ledger row");
+    assert.equal((await pendingAckOutboxFor(id)).length, 1, "one notice");
+    assert.equal(await currentByCycle(id, readerA), false, "asked once");
+    if (!won[0].claimed) throw new Error("unreachable");
+    assert.deepEqual(won[0].cooldown, [], "nothing held the winner");
+
+    // Straight after: the same refusal, nothing written. With a person in
+    // their first cycle beside them, that person is asked and the held one
+    // comes back in skipped and in cooldown.
+    const again = await ask([readerA]);
+    assert.equal(again.claimed, false);
+    if (again.claimed) throw new Error("unreachable");
+    assert.deepEqual([again.cooldown, again.skipped], [[readerA], [readerA]]);
+    const mixed = await ask([readerA, readerB]);
+    assert.equal(mixed.claimed, true);
+    if (!mixed.claimed) throw new Error("unreachable");
+    assert.deepEqual([mixed.user_ids, mixed.skipped, mixed.cooldown], [[readerB], [readerA], [readerA]]);
+    assert.equal((await listAckDecisions(id)).length, 2);
+    assert.equal((await pendingAckOutboxFor(id)).length, 2);
+
+    // A row whose stamp is the marker (a fresh reconcile row) or older than
+    // its assignment (a migrated row) is in its first cycle and never held,
+    // however recent: a person who confirmed in three seconds can be asked
+    // again at once.
+    await pool().query(
+      `UPDATE policy_assignments pa SET cycle_started_at = d.ack_revision_at
+         FROM documents d WHERE d.id = pa.document_id AND pa.document_id = $1 AND pa.user_id = $2`,
+      [id, readerB]
+    );
+    const fresh = await ask([readerB]);
+    assert.equal(fresh.claimed, true, "a first-cycle row is asked at once");
+    await pool().query("UPDATE policy_assignments SET cycle_started_at = assigned_at - interval '30 days' WHERE document_id = $1 AND user_id = $2", [id, readerB]);
+    assert.equal((await ask([readerB])).claimed, true, "a migrated-shape row too");
+
+    // The bare statement has no brake unless asked for it; with it, the held
+    // row is left alone. An hour later the brake lifts.
+    assert.deepEqual(await reopenAssignmentsFor(null, id, [readerA], { cooldown: true }), [], "held");
+    assert.deepEqual(await reopenAssignmentsFor(null, id, [readerA]), [readerA], "the bare statement re-opens it");
+    await pool().query("UPDATE policy_assignments SET cycle_started_at = now() - interval '61 minutes' WHERE document_id = $1 AND user_id = $2", [id, readerA]);
+    const later = await ask([readerA]);
+    assert.equal(later.claimed, true, "an hour later the person can be asked again");
+    if (!later.claimed) throw new Error("unreachable");
+    assert.deepEqual([later.user_ids, later.cooldown], [[readerA], []]);
+  });
 });
 
 // --- The route -----------------------------------------------------------------------
@@ -682,13 +750,15 @@ describe("POST /api/documents/[id]/ack/reconfirm with user_ids", () => {
     assert.equal(audited[0].details.source, "manual");
 
     // The whole-audience ask straight after: the per-person one took no hour.
+    // `queued` is everyone pending after the reset, which is the whole
+    // audience: the switch-on enrolled the manager and everyone else who
+    // sees the space, not only the two readers.
+    const eligible = (await ackSummary(id)).eligible;
     const everyone = await post(id, { reason: "Section 4 now applies to contractors too" });
     assert.equal(everyone.status, 200, JSON.stringify(everyone.body));
-    // The other person's confirmation went stale now (1); the re-asked
-    // person's is counted too (2) until ackCounts reads the per-person cycle
-    // as the audience queries do (GREATEST of the marker and the stamp).
-    assert.ok(everyone.body.reset >= 1 && everyone.body.reset <= 2, `reset ${everyone.body.reset}`);
-    assert.ok(everyone.body.queued >= 1);
+    assert.equal(everyone.body.reset, 1, "only readerB was current: readerA lapsed with the per-person ask");
+    assert.equal(everyone.body.queued, eligible, "queued is the whole audience");
+    assert.ok(eligible >= 2, "the two readers at least");
     assert.equal(everyone.body.user_ids, undefined, "the whole-audience answer is as it was");
     assert.notEqual((await marker(id)).at, before.at);
     const all = await auditRows("ack.reconfirmation_requested", id);
@@ -699,5 +769,51 @@ describe("POST /api/documents/[id]/ack/reconfirm with user_ids", () => {
     // A null list reads as everyone too, and is now inside the hour.
     const nul = await post(id, { reason: "Asking everyone again straight away", user_ids: null });
     assert.equal(nul.status, 429);
+  });
+
+  test("answers 429 with the person's name when everyone who could have been asked was asked again within the hour, else 200 with them in skipped", async () => {
+    const route = await import("../src/app/api/documents/[id]/ack/reconfirm/route");
+    const post = (id: number, body: unknown) =>
+      call(route.POST as Handler, sessionRequest(`http://localhost/api/documents/${id}/ack/reconfirm`, managerSession, body), id);
+
+    const { id, v1 } = await newPolicy("route brake");
+    for (const u of [readerA, readerB]) {
+      await assign(id, u);
+      await recordAcknowledgement(id, u, "", v1);
+    }
+    const first = await post(id, { reason: REASON, user_ids: [readerA] });
+    assert.equal(first.status, 200, JSON.stringify(first.body));
+    assert.deepEqual(first.body, { ok: true, reset: 1, queued: 1, user_ids: [readerA], skipped: [] });
+
+    // The double submit: refused by name, nothing written.
+    const second = await post(id, { reason: REASON, user_ids: [readerA] });
+    assert.equal(second.status, 429, JSON.stringify(second.body));
+    assert.equal(second.body.error, "Reask reader-a was asked again 1 minute ago.");
+    assert.deepEqual(second.body.skipped, [readerA]);
+    assert.equal((await listAckDecisions(id)).length, 1, "one ledger row");
+    assert.equal((await pendingAckOutboxFor(id)).length, 1, "one notice");
+    assert.equal((await auditRows("ack.reconfirmation_requested", id)).length, 1, "the refusal is not on the record");
+
+    // Someone else beside the held person: 200, the held one in skipped,
+    // and the audit row says who was held.
+    const both = await post(id, { reason: REASON, user_ids: [readerA, readerB] });
+    assert.equal(both.status, 200, JSON.stringify(both.body));
+    assert.deepEqual(both.body, { ok: true, reset: 1, queued: 1, user_ids: [readerB], skipped: [readerA] });
+    const audited = await auditRows("ack.reconfirmation_requested", id);
+    assert.equal(audited.length, 2);
+    assert.deepEqual(audited[1].details.skipped, [readerA]);
+    assert.deepEqual(audited[1].details.cooldown, [readerA]);
+
+    // Both held: the plural sentence. A held person beside an exempt one:
+    // the hour is the reason nobody was asked, so 429 rather than "not asked".
+    const two = await post(id, { reason: REASON, user_ids: [readerA, readerB] });
+    assert.equal(two.status, 429);
+    assert.equal(two.body.error, "These people were asked again 1 minute ago.");
+    await assign(id, exemptC, { exempt: true });
+    const mixed = await post(id, { reason: REASON, user_ids: [readerA, exemptC] });
+    assert.equal(mixed.status, 429);
+    assert.equal(mixed.body.error, "Reask reader-a was asked again 1 minute ago.");
+    assert.deepEqual(mixed.body.skipped, [readerA, exemptC]);
+    assert.equal((await listAckDecisions(id)).length, 2, "still two ledger rows");
   });
 });

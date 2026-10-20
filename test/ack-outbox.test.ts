@@ -831,16 +831,25 @@ describe("the sweep's deliveries (E2)", () => {
     }
   });
 
-  test("an escalation row tells the owner and the leads about the overdue people, each linked to their own view, recorded under kind 'escalation'", async () => {
+  test("an escalation row tells the owner, the approver and the lead about the overdue people, each linked to a page they can open, recorded under kind 'escalation'", async () => {
     const { id, title } = await newPolicy("escalation");
-    // The actor plays the owner, A the lead; B and a third person are overdue.
+    // The actor plays the owner (a viewer: no Compliance section), an admin
+    // the space's approver (the section, through the ladder), A the lead; B
+    // and a third person are overdue.
     const readerE = await newUser("Reader E overdue");
+    const manager = (
+      await fixtureQuery(
+        `INSERT INTO users (username, name, email, role, status) VALUES ($1, $2, $3, 'admin', 'active') RETURNING id`,
+        [`${STAMP}-Manager`, "Out Manager", `${STAMP}-Manager@example.test`]
+      )
+    ).rows[0].id as number;
+    userIds.push(manager);
     const outboxId = await enqueueAckNotice(null, {
       document_id: id,
       mode: "escalation",
       source: "",
       actor: system,
-      user_ids: [actorId, readerA],
+      user_ids: [actorId, readerA, manager],
       payload: {
         days: 7,
         overdue: [
@@ -850,6 +859,7 @@ describe("the sweep's deliveries (E2)", () => {
         recipients: [
           { id: actorId, via: "owner" },
           { id: readerA, via: "lead" },
+          { id: manager, via: "approver" },
         ],
       },
       delay_minutes: 0,
@@ -860,35 +870,41 @@ describe("the sweep's deliveries (E2)", () => {
     };
     await drainUntil(mailer, done(outboxId), `row ${outboxId} delivered`);
 
+    // Every link is a page the recipient can open: the portal's pages need
+    // the Compliance section, the team view is not in this release.
     const owner = await inboxOf(actorId, "ack_escalation");
     assert.equal(owner.length, 1);
     assert.equal(owner[0].title, `Overdue: 2 people on "${title}"`);
     assert.equal(owner[0].body, "More than 7 days overdue: Out Reader B, Out Reader E overdue");
-    assert.equal(owner[0].link, `/compliance/policies?policy=${id}`, "the owner opens the policy in the portal");
+    assert.equal(owner[0].link, `/doc/${id}/acknowledgements`, "an owner without the Compliance section opens the policy's Record tab");
     const lead = await inboxOf(readerA, "ack_escalation");
     assert.equal(lead.length, 1);
-    assert.equal(lead[0].link, "/compliance/team", "a lead opens the team view");
+    assert.equal(lead[0].link, `/doc/${id}`, "a lead opens the policy itself");
+    const approver = await inboxOf(manager, "ack_escalation");
+    assert.equal(approver.length, 1);
+    assert.equal(approver[0].link, `/compliance/policies?policy=${id}`, "a holder of the Compliance section opens the policy's row in the portal");
     assert.equal((await inboxOf(readerB, "ack_escalation")).length, 0, "the overdue people are not told they were escalated");
 
     const rows = (await listNoticesE2({ documentId: id })).filter((n) => n.outbox_id === outboxId);
-    assert.deepEqual(rows.map((n) => n.user_id).sort(), [actorId, readerA].sort(), "one record per recipient");
+    assert.deepEqual(rows.map((n) => n.user_id).sort(), [actorId, readerA, manager].sort(), "one record per recipient");
     assert.ok(rows.every((n) => n.kind === "escalation" && n.by_name === "system"));
     assert.ok(rows.every((n) => n.channels.includes("inapp") && n.channels.includes("email")));
-    assert.equal(sent.length, 2, "the owner and the lead were emailed");
+    assert.equal(sent.length, 3, "the owner, the approver and the lead were emailed");
     for (const m of sent) {
       assert.ok(m.subject.endsWith(`2 overdue on "${title}"`), m.subject);
       assert.ok(m.text.includes("Out Reader B (due"), "the mail lists the people with their dates");
       assert.doesNotMatch(m.text, /acknowledg|—/i);
     }
-    assert.ok(sent.find((m) => m.to === `${STAMP}-Reader A@example.test`)!.text.includes(`${ORIGIN}/compliance/team`), "the lead's link");
-    assert.ok(sent.find((m) => m.to === `${STAMP}-Actor@example.test`)!.text.includes(`${ORIGIN}/compliance/policies?policy=${id}`), "the owner's link");
+    assert.ok(sent.find((m) => m.to === `${STAMP}-Reader A@example.test`)!.text.includes(`${ORIGIN}/doc/${id}`), "the lead's link");
+    assert.ok(sent.find((m) => m.to === `${STAMP}-Actor@example.test`)!.text.includes(`${ORIGIN}/doc/${id}/acknowledgements`), "the owner's link");
+    assert.ok(sent.find((m) => m.to === `${STAMP}-Manager@example.test`)!.text.includes(`${ORIGIN}/compliance/policies?policy=${id}`), "the approver's link");
 
     const audit = (await auditRows("ack.escalated", id)).find((r) => r.details.outbox_id === outboxId)!;
     assert.ok(audit, "ack.escalated by the drain with the delivery counts");
     assert.equal(audit.details.mode, "escalation");
-    assert.equal(audit.details.pending, 2);
-    assert.equal(audit.details.noticed, 2);
-    assert.equal(audit.details.emailed, 2);
+    assert.equal(audit.details.pending, 3);
+    assert.equal(audit.details.noticed, 3);
+    assert.equal(audit.details.emailed, 3);
 
     // A policy that stopped requiring confirmation escalates to nobody.
     const stopped = await newPolicy("escalation stopped");

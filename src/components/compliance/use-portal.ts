@@ -423,6 +423,12 @@ export function usePortal(licensed: boolean) {
     [fetchRoster, load]
   );
 
+  /** Open a policy's roster without ever folding it: the escalation notice's `?policy=` link (E2). */
+  async function openRoster(docId: number) {
+    if (open === docId) return;
+    await toggleRoster(docId);
+  }
+
   async function toggleRoster(docId: number) {
     if (open === docId) {
       setOpen(null);
@@ -462,6 +468,7 @@ export function usePortal(licensed: boolean) {
     retire,
     unretire,
     toggleRoster,
+    openRoster,
   };
 }
 

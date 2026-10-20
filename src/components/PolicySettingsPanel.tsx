@@ -339,6 +339,8 @@ function reminderError(key: ReminderKey, value: string): string | undefined {
 
 /** The plain hint under a stored next date that has already passed. */
 export const NEXT_DATE_PASSED_HINT = "This date has passed; the next cycle fires when the policy is live again.";
+/** The plain hint under a stored fixed deadline that has already passed: a new row falls back to the inherited days (lib/ack-due dueAtSql), and a move recomputes from that rule. */
+export const DUE_DATE_PASSED_HINT = "This date has passed; new assignments use the inherited days until you set another date.";
 
 /** "Moved 412 deadlines" (the spec's toast), or the no-op sentence. */
 export function movedToast(n: number): string {
@@ -522,10 +524,13 @@ export function PolicySettingsPanel({
   /**
    * "Also move existing deadlines" (E1): the rule as the card holds it,
    * saved and applied to every open row (the fixed date while ahead, else
-   * each person's cycle start plus the days). Tells, never asks: Undo is the
-   * inverse move when the rule changed; a move under an unchanged rule has
-   * no inverse (the rows' old dates are only in due_history), so it offers
-   * none.
+   * the later of each person's cycle start and assignment plus the days).
+   * Tells, never asks: Undo is the inverse move when the rule changed; a
+   * move under an unchanged rule has no inverse (the rows' old dates are
+   * only in due_history), so it offers none. The stored fixed date is left
+   * out while the card still holds it: a date that has passed is refused
+   * when sent again ("The deadline cannot be in the past."), and the server
+   * moves from the rule it already applies.
    */
   async function moveExisting() {
     if (errors.due_days || errors.due_at) {
@@ -535,8 +540,10 @@ export function PolicySettingsPanel({
     const rule = ruleFromForm(s);
     const from = ruleFromForm(saved);
     const changed = rule.due_days !== from.due_days || rule.due_at !== from.due_at;
+    const body: Record<string, unknown> = { due_days: rule.due_days, move_existing: true };
+    if (rule.due_at !== from.due_at) body.due_at = rule.due_at;
     setMoving(true);
-    const data = await patch({ due_days: rule.due_days, due_at: rule.due_at, move_existing: true }, "Couldn't move the deadlines.");
+    const data = await patch(body, "Couldn't move the deadlines.");
     setMoving(false);
     if (!data) return;
     const next = applyAnswer(server, data);
@@ -760,6 +767,16 @@ export function AudienceCard({
     );
   }
 
+  /** Space mode means everyone: the pickers are cleared with it (the server drops the rules too), so the next targeted save starts from nothing. */
+  function chooseMode(mode: AudienceMode) {
+    set("audience_mode", mode);
+    if (mode !== "space") return;
+    set("groups", []);
+    set("people", []);
+    set("roles", []);
+    set("excludes", []);
+  }
+
   const targeted = (
     <div className="space-y-4">
       <div>
@@ -825,7 +842,7 @@ export function AudienceCard({
         label="Who must confirm"
         name={`${id}-audience`}
         value={s.audience_mode}
-        onChange={(mode) => set("audience_mode", mode)}
+        onChange={chooseMode}
         options={[
           {
             value: "space",
@@ -903,6 +920,10 @@ export function DeadlineCard({
   const id = useId();
   const today = ymd(new Date());
   const deadlineInvalid = Boolean(errors.due_days || errors.due_at);
+  // The stored fixed date has passed and nobody moved it (dueDateError
+  // judges only an edit, so the other cards still save): a hint under the
+  // field, as the Re-confirmation card's, saying what the rows get meanwhile.
+  const stale = Boolean(server.rule.due_at && server.rule.due_at < today);
 
   return (
     <Card
@@ -943,9 +964,12 @@ export function DeadlineCard({
             label: "Fixed date",
             description: "One date for everyone. Changing it moves every open deadline.",
             extra: (
-              <Field label="Due date" size="sm" error={errors.due_at}>
-                <TextInput type="date" min={today} value={s.due_at} onChange={(e) => set("due_at", e.target.value)} />
-              </Field>
+              <>
+                <Field label="Due date" size="sm" error={errors.due_at}>
+                  <TextInput type="date" min={today} value={s.due_at} onChange={(e) => set("due_at", e.target.value)} />
+                </Field>
+                {stale && <p className="mt-2 text-xs text-slate-500">{DUE_DATE_PASSED_HINT}</p>}
+              </>
             ),
           },
         ]}

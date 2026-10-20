@@ -840,4 +840,79 @@ describe("GET and PATCH /api/documents/[id]/ack-settings", () => {
     assert.deepEqual([stored?.due_days, stored?.due_at, stored?.nudge_every_days, stored?.owner_user_id], [null, day, 0, null]);
     assert.equal((await auditRows("ack.settings_changed", id)).length, 0);
   });
+
+  test("1.13.0: the deadline rule is written before the audience, so a row the same PATCH opens (rules + due_days in one call) takes the rule as that PATCH set it, and the move runs after both", async () => {
+    const route = await import("../src/app/api/documents/[id]/ack-settings/route");
+    const { id } = await newPolicy(`${STAMP} rule before audience`);
+    const url = `http://localhost/api/documents/${id}/ack-settings`;
+    const patch = (body: unknown) => call(route.PATCH as Handler, sessionRequest(url, adminSession, body, "PATCH"), id);
+    const dueOf = async (userId: number) => {
+      const r = await pool().query<{ due_at: string | null }>(
+        "SELECT due_at FROM policy_assignments WHERE document_id = $1 AND user_id = $2 AND removed_at IS NULL",
+        [id, userId]
+      );
+      return r.rows[0]?.due_at ?? null;
+    };
+    const DAY = 86_400_000;
+    const initial = await call(route.GET as Handler, sessionRequest(url, adminSession, undefined, "GET"), id);
+    const joinerDays: number = initial.body.defaults.values.new_joiner_days;
+    // A fixed date well apart from the joiner days, so the two instants can never coincide below.
+    const day = new Date(Date.now() + (joinerDays + 20) * DAY).toISOString().slice(0, 10);
+    const [y, m, d] = day.split("-").map(Number);
+    const fixedEnd = Date.UTC(y, m - 1, d, 23, 59, 59, 999);
+
+    // A fixed date (moves every open row to its end), then an audience that closes the admin's row.
+    const fixed = await patch({ due_at: day });
+    assert.equal(fixed.status, 200, JSON.stringify(fixed.body));
+    assert.ok(fixed.body.moved >= 1);
+    const narrowed = await patch({ audience_mode: "targeted", rules: [{ kind: "user", ref: viewerId }] });
+    assert.equal(narrowed.status, 200, JSON.stringify(narrowed.body));
+    assert.equal(await hasOpenAssignment(id, adminId), false);
+    assert.equal(await dueOf(adminId), null);
+
+    // One PATCH carries the rule back to days (the date cleared) and the
+    // admin re-admitted. The rule is written first, so the row the save
+    // re-opens is dated by the rule as it now stands (the days from the
+    // cascade: a person added to an audience gets the new-joiner days,
+    // counted from the re-open), never by the fixed date the same PATCH
+    // removed, which is what the audience-first order gave; and nothing
+    // asked for a move, so the viewer's open row keeps its date.
+    const both = await patch({ rules: [{ kind: "user", ref: viewerId }, { kind: "user", ref: adminId }], due_at: null, due_days: 30 });
+    assert.equal(both.status, 200, JSON.stringify(both.body));
+    assert.deepEqual([both.body.due_days, both.body.due_at, both.body.moved, both.body.added, both.body.reopened], [30, null, 0, 0, 1]);
+    const adminDue = new Date((await dueOf(adminId))!).getTime();
+    assert.ok(Math.abs(adminDue - fixedEnd) > 2 * DAY, `not the fixed date the PATCH removed: ${new Date(adminDue).toISOString()} vs ${day}`);
+    assert.ok(
+      Math.abs(adminDue - (Date.now() + joinerDays * DAY)) < 5 * 60_000,
+      `the re-opened row is due the new-joiner days (${joinerDays}) from the re-open: ${new Date(adminDue).toISOString()}`
+    );
+    const viewerDue = new Date((await dueOf(viewerId))!).getTime();
+    assert.ok(Math.abs(viewerDue - fixedEnd) <= 14 * 3_600_000, "an open row is not moved by a change to the days unless asked");
+    const dueAudits = await auditRows("ack.due_set", id);
+    const last = dueAudits[dueAudits.length - 1];
+    assert.deepEqual(
+      [last.details.due_days, last.details.due_at, last.details.moved_existing, last.details.moved],
+      [30, null, false, 0],
+      "the rule change is audited with no move"
+    );
+    assert.equal((await auditRows("ack.audience_set", id)).length, 2, "and the audience save is audited once more");
+
+    // Asked to move as well, in the same call as an audience change: the move
+    // runs after the save, so the row it opens is among the rows it dates.
+    const moved = await patch({ rules: [{ kind: "user", ref: viewerId }], move_existing: true });
+    assert.equal(moved.status, 200, JSON.stringify(moved.body));
+    assert.equal(await hasOpenAssignment(id, adminId), false);
+    const again = await patch({ rules: [{ kind: "user", ref: viewerId }, { kind: "user", ref: adminId }], due_days: 45, move_existing: true });
+    assert.equal(again.status, 200, JSON.stringify(again.body));
+    assert.deepEqual([again.body.due_days, again.body.reopened], [45, 1]);
+    assert.ok(again.body.moved >= 2, `both open rows moved, the re-opened one included: ${again.body.moved}`);
+    const cycleOf = async (userId: number) =>
+      (await pool().query<{ cycle_started_at: string; assigned_at: string }>("SELECT cycle_started_at, assigned_at FROM policy_assignments WHERE document_id = $1 AND user_id = $2", [id, userId])).rows[0];
+    const adminRow = await cycleOf(adminId);
+    const anchor = Math.max(new Date(adminRow.cycle_started_at).getTime(), new Date(adminRow.assigned_at).getTime());
+    assert.ok(
+      Math.abs(new Date((await dueOf(adminId))!).getTime() - (anchor + 45 * DAY)) < 5 * 60_000,
+      "the re-opened row is dated by the move from its own anchor plus the days the PATCH set"
+    );
+  });
 });

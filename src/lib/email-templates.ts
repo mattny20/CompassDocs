@@ -171,7 +171,7 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
       T("policy_title", "Policy title"),
       T("overdue_count", "How many people are overdue"),
       T("overdue_list", "The overdue people, one per line, with their due dates"),
-      T("portal_url", "Link to the policy in the compliance portal (the team view for group leads)"),
+      T("portal_url", "Link to the policy: its row in the compliance portal for an owner or approver who holds the Compliance section, else its Record tab; the document itself for a group lead"),
       T("org_name", "Workspace name"),
     ],
     text: ["policy_title", "overdue_list"],

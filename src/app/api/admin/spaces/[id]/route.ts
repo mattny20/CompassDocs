@@ -9,6 +9,7 @@ import {
   setSpaceSubscriptionGroups,
   setSpaceEditors,
   setSpaceEditorGroups,
+  canSeeSpace,
 } from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
@@ -92,12 +93,21 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   // sends any subset of the seven numbers and owner_user_id; null clears a
   // key (inherit from the workspace). Merged over what the space holds, so
   // a partial save keeps the rest; each key that moves is audited below.
+  // The owner hears who is overdue on this space's policies by name (E2),
+  // so they must be an active account that can see the space, judged
+  // against the space as it stands (the ack-settings route refuses a
+  // policy's own owner with the same sentence).
   let defaultsChanges: ReturnType<typeof diffLayers> = [];
   if (body?.policy_defaults !== undefined) {
     const parsed = parsePolicyDefaultsPatch(body.policy_defaults, { owner: true, prefix: "policy_defaults." });
     if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
-    if (parsed.patch.owner_user_id != null && !(await getUserById(parsed.patch.owner_user_id))) {
-      return NextResponse.json({ error: "Owner not found." }, { status: 400 });
+    if (parsed.patch.owner_user_id != null) {
+      if (!(await getUserById(parsed.patch.owner_user_id))) {
+        return NextResponse.json({ error: "Owner not found." }, { status: 400 });
+      }
+      if (!(await canSeeSpace(parsed.patch.owner_user_id, id))) {
+        return NextResponse.json({ error: "The owner must be an active account that can see this space." }, { status: 400 });
+      }
     }
     const before = sanitizeLayer(existing.policy_defaults);
     const next = mergeLayer(before, parsed.patch);

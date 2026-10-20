@@ -1084,3 +1084,40 @@ test("a live row links to the policy's Settings tab, counts the people enrolled 
     if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
   }
 });
+
+// 1.13.0 (D2): the roster inside the portal's expand row on a phone. Its
+// Show control grew to five choices (All / Pending / Overdue / Confirmed /
+// Exempt), which a Segmented cannot wrap, so the toolbar above the table
+// (View / Show / Filter people) must fit inside the card at the tightest
+// common width; the table itself scrolls inside its own wrapper, by design.
+test("at 375px the expanded policy row's roster toolbar fits without sideways scroll", async ({ browser }) => {
+  test.setTimeout(90_000);
+  const ctx = await browser.newContext({ viewport: { width: 375, height: 740 }, isMobile: true, hasTouch: true });
+  const page = await ctx.newPage();
+  await login(page, ADMIN);
+  const title = `E2E portal phone ${stamp()}`;
+  let docId: number | undefined;
+  try {
+    docId = await makePolicy(page, title);
+    test.skip(!(await portalLicensed(page)), "policy_ack is not licensed in this build; the EE rig runs the flow");
+    const on = await api(page, "/api/admin/compliance", { method: "POST", body: { docId, action: "request", notify: false } });
+    expect(on.status, "requested quietly").toBe(200);
+
+    await page.goto("/compliance/policies");
+    const row = page.locator("li", { hasText: title });
+    await expect(row).toBeVisible();
+    await row.locator("button[aria-expanded]").click();
+    const roster = page.locator(`[data-roster="${docId}"]`);
+    await expect(roster).toBeVisible();
+    const show = roster.getByRole("radiogroup", { name: "Show" });
+    await expect(show.getByRole("radio", { name: "Exempt", exact: true })).toBeVisible();
+    const toolbar = show.locator("..");
+    const overflow = await toolbar.evaluate((el) => el.scrollWidth - el.clientWidth);
+    expect(overflow, "the roster toolbar does not scroll sideways").toBeLessThanOrEqual(0);
+    const spill = await show.evaluate((el) => el.getBoundingClientRect().right - el.closest("[data-roster]")!.getBoundingClientRect().right);
+    expect(spill, "the Show control stays inside the roster's box").toBeLessThanOrEqual(0);
+  } finally {
+    if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
+    await ctx.close();
+  }
+});

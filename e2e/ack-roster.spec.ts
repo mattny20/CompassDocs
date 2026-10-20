@@ -7,8 +7,8 @@ import { ADMIN, login, api } from "./helpers";
 // until when; a per-person re-ask's reason; a snooze); the Show filter gains
 // Overdue and Exempt; a viewer who may act gets a leading checkbox column,
 // row actions as icon buttons (Extend due date…, Exempt…, Remove exemption,
-// Pause reminders until {date} / Unsnooze, Ask to re-confirm…) and a bulk
-// bar "{n} selected" with the same actions over the checked rows. Every
+// Snooze / Unsnooze, Ask to re-confirm…) and a bulk bar "{n} selected" with
+// the same actions, under the same labels, over the checked rows. Every
 // action tells and offers Undo (the inverse call); the re-ask offers none.
 //
 // The admin is the viewer (program_manage and the space key alike) and
@@ -169,8 +169,9 @@ test("the Record tab: Due and Exemption columns, the Overdue and Exempt filters,
     expect((await rosterRow(page, docId, person.username)).exempt).toBe(false);
 
     // Extend due date… with Undo: 7 days by default, the Due cell moves,
-    // Undo puts it back.
+    // Undo puts it back. A row action's tooltip is its accessible name.
     const dueBefore = (await rosterRow(page, docId, person.username)).due_at as string;
+    await expect(row.getByRole("button", { name: "Extend due date…" })).toHaveAttribute("data-tt", "Extend due date…");
     await row.getByRole("button", { name: "Extend due date…" }).click();
     const extendDialog = page.getByRole("dialog", { name: "Extend due date" });
     await expect(extendDialog).toBeVisible();
@@ -185,25 +186,42 @@ test("the Record tab: Due and Exemption columns, the Overdue and Exempt filters,
     await expect(status.getByText(`Extension undone: the deadline for ${PERSON} is back to its previous date.`)).toBeVisible();
     expect((await rosterRow(page, docId, person.username)).due_at, "back to the date before").toBe(dueBefore);
 
-    // Snooze (no dialog, a week) and Unsnooze: the Exemption cell says
-    // "Snoozed until …", the invariant is spelled out under the table,
-    // and nothing else about the row changes.
-    await row.getByRole("button", { name: /^Pause reminders until / }).click();
+    // Snooze (no dialog, a week; the date is in the toast and the Exemption
+    // cell, never the label) and Unsnooze: the Exemption cell says "Snoozed
+    // until …", the invariant is spelled out under the table, and nothing
+    // else about the row changes. Unsnooze's Undo re-snoozes for the days
+    // that were left, so the row's date comes back, not a week from then.
+    const snoozeButton = row.getByRole("button", { name: "Snooze", exact: true });
+    await expect(snoozeButton).toHaveAttribute("data-tt", "Snooze");
+    await snoozeButton.click();
     await expect(status.getByText(new RegExp(`^Snoozed reminders for ${PERSON} until `))).toBeVisible();
     await expect(row).toContainText("Snoozed until");
     await expect(row.getByText("Pending")).toHaveCount(1);
     await expect(main.getByText(/^Snoozing only pauses automatic reminders/)).toBeVisible();
-    expect((await rosterRow(page, docId, person.username)).snoozed_until).toBeTruthy();
-    await row.getByRole("button", { name: /^Unsnooze/ }).click();
+    const snoozedUntil = (await rosterRow(page, docId, person.username)).snoozed_until as string;
+    expect(snoozedUntil).toBeTruthy();
+    const unsnoozeButton = row.getByRole("button", { name: "Unsnooze", exact: true });
+    await expect(unsnoozeButton).toHaveAttribute("data-tt", "Unsnooze");
+    await unsnoozeButton.click();
     await expect(status.getByText(`Reminders resume for ${PERSON}.`)).toBeVisible();
     await expect(row.getByText(/Snoozed until/)).toHaveCount(0);
+    expect((await rosterRow(page, docId, person.username)).snoozed_until).toBeNull();
+    await undoOn(`Reminders resume for ${PERSON}.`).click();
+    await expect(status.getByText(new RegExp(`^Snoozed reminders for ${PERSON} until `)).last()).toBeVisible();
+    const resnoozed = (await rosterRow(page, docId, person.username)).snoozed_until as string;
+    expect(Math.abs(new Date(resnoozed).getTime() - new Date(snoozedUntil).getTime()), "back to the date it had").toBeLessThan(60_000);
+    await row.getByRole("button", { name: "Unsnooze", exact: true }).click();
+    await expect(status.getByText(`Reminders resume for ${PERSON}.`).last()).toBeVisible();
     expect((await rosterRow(page, docId, person.username)).snoozed_until).toBeNull();
 
     // Ask to re-confirm… on the admin's confirmed row: the dialog's question
     // and body, a short reason refused inline, then the toast, the row
     // Pending again with the "Asked again {date}" chip and the reason in
-    // the Exemption cell; the document marker stays where it was.
-    const markerBefore = (await api(page, `/api/documents/${docId}/ack`)).body?.version_id;
+    // the Exemption cell; the document marker (ack_revision_at, what GET
+    // /ack-settings answers as `marker`; no re-ask of any scope moves the
+    // version id) stays where it was.
+    const markerBefore = (await api(page, `/api/documents/${docId}/ack-settings`)).body?.marker;
+    expect(markerBefore, "the marker before the re-ask").toBeTruthy();
     await expect(mine).toContainText("Confirmed");
     await mine.getByRole("button", { name: "Ask to re-confirm…" }).click();
     const reaskDialog = page.getByRole("dialog", { name: /^Ask .* to re-confirm "/ });
@@ -224,23 +242,25 @@ test("the Record tab: Due and Exemption columns, the Overdue and Exempt filters,
     expect(adminAfter.acknowledged_at, "the confirmation lapsed for this person").toBeNull();
     expect(adminAfter.asked_again_at).toBeTruthy();
     expect(adminAfter.asked_again_reason).toBe("Please read the new travel section");
-    expect((await api(page, `/api/documents/${docId}/ack`)).body?.version_id, "the marker did not move").toBe(markerBefore);
+    expect((await api(page, `/api/documents/${docId}/ack-settings`)).body?.marker, "the marker did not move").toBe(markerBefore);
     expect((await rosterRow(page, docId, person.username)).asked_again_at, "nobody else was asked").toBeNull();
+    await expect(row.getByText(/Asked again/), "and carries no chip").toHaveCount(0);
 
-    // The bulk bar over two rows: both checked, "2 selected", Extend… over
-    // both, the toast counts two deadlines, Undo puts both back.
+    // The bulk bar over two rows: both checked, "2 selected", the rows'
+    // own labels, Extend due date… over both, the toast counts two
+    // deadlines, Undo puts both back.
     await row.getByRole("checkbox", { name: `Select ${PERSON}` }).check();
     await mine.getByRole("checkbox").check();
     const bar = main.getByRole("region", { name: "Selected people" });
     await expect(bar).toBeVisible();
     await expect(bar.getByText("2 selected")).toBeVisible();
-    for (const name of ["Extend…", "Exempt…", "Snooze"]) {
+    for (const name of ["Extend due date…", "Exempt…", "Snooze"]) {
       await expect(bar.getByRole("button", { name, exact: true })).toBeVisible();
     }
     await expect(bar.getByRole("button", { name: "Ask to re-confirm…" }), "nobody selected is confirmed").toHaveCount(0);
     const personDue = (await rosterRow(page, docId, person.username)).due_at as string;
     const adminDue = adminAfter.due_at as string;
-    await bar.getByRole("button", { name: "Extend…", exact: true }).click();
+    await bar.getByRole("button", { name: "Extend due date…", exact: true }).click();
     const bulkDialog = page.getByRole("dialog", { name: "Extend due dates for 2 people" });
     await expect(bulkDialog).toBeVisible();
     await bulkDialog.getByRole("button", { name: "Extend", exact: true }).click();

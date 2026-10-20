@@ -16,6 +16,7 @@
 
 import { useCallback, useEffect, useRef } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   ShieldOff,
   FileCheck,
@@ -154,6 +155,26 @@ export function PortalPolicies({ licensed, canManageLicense = false }: PortalPag
       if (moved == null) pendingFocus.current = null;
     });
   };
+
+  // The escalation notice's link (E2, 1.13.0): /compliance/policies?policy={id}
+  // opens that policy's roster and brings the row into view once the
+  // payload has loaded, with focus on its disclosure button, so the owner
+  // lands on the overdue people rather than on a folded list. Once per id:
+  // a row folded afterwards stays folded. A paused or retired policy has no
+  // roster here and is left alone.
+  const searchParams = useSearchParams();
+  const wanted = Number(searchParams.get("policy")) || null;
+  const wantedOpened = useRef<number | null>(null);
+  const { openRoster } = portal;
+  useEffect(() => {
+    if (wanted == null || !payload || wantedOpened.current === wanted) return;
+    if (!payload.docs.some((d) => d.id === wanted && d.status === "published" && d.ack_retired_at === null)) return;
+    wantedOpened.current = wanted;
+    void openRoster(wanted);
+    const el = rowFocus.current.get(wanted);
+    el?.scrollIntoView({ block: "start" });
+    el?.focus({ preventScroll: true });
+  }, [wanted, payload, openRoster]);
 
   if (!portal.data) return <PortalFallback licensed={licensed} canManageLicense={canManageLicense} portal={portal} />;
   const { data, isBusy, busy, open, rosters, candidate, setCandidate, previewing } = portal;

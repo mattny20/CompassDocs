@@ -4,13 +4,15 @@
 // Groups view and the export share, and the PDF and CSV that lead each
 // section with its heads.
 //
-// Run: npx tsx --tsconfig ./tsconfig.test.json --test test/directory-heads.test.ts
-// (needs no DATABASE_URL: nothing here reads the settings store.)
+// Run: DATABASE_URL=… npx tsx --tsconfig ./tsconfig.test.json --test test/directory-heads.test.ts
+// (the pure cases need no DATABASE_URL; the last describe, which drives the
+// field route, the zip and the vCard, skips itself without one.)
 
-import { test, describe, before } from "node:test";
+import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
 import Module from "node:module";
 import path from "node:path";
+import JSZip from "jszip";
 import {
   OPTION_HEADS_LIMIT,
   groupHeads,
@@ -344,19 +346,19 @@ describe("the export leads each section with its heads", () => {
       .trim()
       .split("\r\n");
 
-  test("the CSV: head rows first with no mark in the name cell, and a trailing 'Section head of' column on every row", () => {
+  test("the CSV: one row per person where their own value puts them (a cross-section head once, as a member, the column naming what they head; a head of their own section first), and a trailing 'Section head of' column on every row", () => {
     const lines = csvLines(preset());
     assert.equal(lines[0], "Group,Name,Title,Section head of");
     assert.deepEqual(lines.slice(1), [
-      "Engineering,Jane Smith,COO,Engineering; Design",
       "Engineering,Bob Ames,Engineer,",
       "Engineering,Dee Park,Engineer,",
-      "Design,Jane Smith,COO,Engineering; Design",
       "Design,Cy Vance,Design lead,Design",
       "Design,Eve Lu,Designer,",
       "Executive,Jane Smith,COO,Engineering; Design",
       "No department,Noel Ortiz,Temp,",
     ]);
+    // The vCard's rule, so the toggle changes nothing in a spreadsheet: the column says it.
+    assert.deepEqual(csvLines(preset({ section_heads: false })), lines);
     // After the Markers column; present without sectioning; absent for a registry without heads.
     const marked = exporter
       .renderDirectoryCsv({
@@ -400,5 +402,243 @@ describe("the export leads each section with its heads", () => {
       assert.notEqual(stable(page), stable(await render(layout, headless)), `the heads change the ${JSON.stringify(layout)} page`);
       assert.equal(stable(await render({ ...layout, section_heads: false })), stable(await render(layout, headless)));
     }
+  });
+
+  test("a preset stored before 1.13.0 (no section_heads key at all) renders the PDF and the CSV byte for byte as the default does: with heads against a registry that has them, the old page against one that has none", async () => {
+    const keyless = (patch: Partial<ExportPreset> = {}, registry = fields): ExportPreset => {
+      const p = { ...preset(patch, registry) } as Partial<ExportPreset> & { section_heads?: boolean };
+      delete p.section_heads;
+      return p as ExportPreset;
+    };
+    const pdf = (p: ExportPreset, registry = fields) =>
+      exporter.renderDirectoryPdf({ preset: p, people, fields: registry, company: "Acme", logo: null, printedOn: "Oct 20, 2026" });
+    assert.equal(stable(await pdf(keyless())), stable(await pdf(preset())), "the table, heads on");
+    assert.deepEqual(csvLines(keyless()), csvLines(preset()), "the CSV, heads on");
+    assert.equal(stable(await pdf(keyless({}, headless), headless)), stable(await pdf(preset({}, headless), headless)), "the table, no heads anywhere");
+    assert.deepEqual(csvLines(keyless({}, headless), headless), csvLines(preset({}, headless), headless), "the CSV, no heads anywhere");
+    for (const layout of [{ layout: "cards" as const }, { page_columns: 2 as const }]) {
+      assert.equal(stable(await pdf(keyless(layout))), stable(await pdf(preset(layout))), `the ${JSON.stringify(layout)} page`);
+    }
+  });
+
+  test("a file of a split export (the zip's one-file-per-section) prints the section's members and draws its heads from everyone the export covers", () => {
+    // Engineering's own file: Jane (Executive) leads it, marked, as she
+    // leads the Engineering section of the single-file export; her own
+    // section is not in the file, and the count is the file's rows.
+    const engineering = new Set([2, 4]);
+    const file = exporter.prepareExport({ preset: preset(), people, only: (p) => engineering.has(p.id), fields, company: "Acme" });
+    assert.deepEqual(
+      file.sections.map((s) => [s.label, names(s.rows), names(s.heads)]),
+      [["Engineering", ["Jane Smith", "Bob Ames", "Dee Park"], ["Jane Smith"]]]
+    );
+    assert.equal(file.total, 2);
+    assert.equal(exporter.sectionMeta(file.sections[0], file.nameFormat), " · Head: Jane Smith");
+    // Its CSV keeps the head row: Jane prints nowhere else in this file.
+    const lines = exporter
+      .renderDirectoryCsv({ preset: preset(), people, only: (p) => engineering.has(p.id), fields, company: "Acme" })
+      .replace(/^﻿/, "")
+      .trim()
+      .split("\r\n");
+    assert.deepEqual(lines.slice(1), [
+      "Engineering,Jane Smith,COO,Engineering; Design",
+      "Engineering,Bob Ames,Engineer,",
+      "Engineering,Dee Park,Engineer,",
+    ]);
+    // The preset's filter still bounds whom a head is drawn from (the single-file rule).
+    const filtered = exporter.prepareExport({
+      preset: preset({ filter: { key: "office", value: "Tucson" } }),
+      people,
+      only: (p) => engineering.has(p.id),
+      fields,
+      company: "Acme",
+    });
+    assert.deepEqual(filtered.sections.map((s) => [s.label, names(s.rows), names(s.heads)]), [["Engineering", ["Dee Park"], []]]);
+    // Without `only`, nothing changes.
+    assert.deepEqual(
+      exporter.prepareExport({ preset: preset(), people, fields, company: "Acme" }).sections.map((s) => s.label),
+      ["Engineering", "Design", "Executive", "No department"]
+    );
+  });
+});
+
+// --- Against the database ------------------------------------------------------
+// The field route's 400 by sentence (PATCH), the zip's per-section files and
+// the vCard need the database: the route reads the session, the office
+// config and the workspace settings live in the settings store. The route
+// handler is called directly, the way test/ack-reask.test.ts does it:
+// next/headers resolves to a stub that serves the request under test (its
+// session cookie). The admin is inserted with the ladder role, which the
+// compass_users_ladder_sync trigger mirrors into the Administrator role.
+
+describe("the field route, the zip and the vCard", { skip: process.env.DATABASE_URL ? false : "needs DATABASE_URL" }, () => {
+  let currentRequest: Request | null = null;
+  const HEADERS_STUB = path.join(__dirname, "stubs", "next-headers.directory-heads.virtual.js");
+  {
+    const jar = () => {
+      const out = new Map<string, string>();
+      for (const part of (currentRequest?.headers.get("cookie") ?? "").split(";")) {
+        const i = part.indexOf("=");
+        if (i > 0) out.set(part.slice(0, i).trim(), decodeURIComponent(part.slice(i + 1).trim()));
+      }
+      return out;
+    };
+    const headers = new Module(HEADERS_STUB);
+    headers.filename = HEADERS_STUB;
+    headers.loaded = true;
+    headers.exports = {
+      headers: async () => new Headers(currentRequest?.headers ?? {}),
+      cookies: async () => {
+        const c = jar();
+        return {
+          get: (name: string) => (c.has(name) ? { name, value: c.get(name) } : undefined),
+          getAll: () => [...c].map(([name, value]) => ({ name, value })),
+          has: (name: string) => c.has(name),
+        };
+      },
+      draftMode: async () => ({ isEnabled: false }),
+    };
+    require.cache[HEADERS_STUB] = headers;
+    const chained = resolver._resolveFilename;
+    resolver._resolveFilename = function (request: string, ...rest: unknown[]) {
+      return request === "next/headers" ? HEADERS_STUB : chained.call(this, request, ...rest);
+    };
+  }
+
+  const STAMP = `dirheads-${Date.now()}`;
+  let db: typeof import("../src/lib/db");
+  let dir: typeof import("../src/lib/directory");
+  let run: typeof import("../src/lib/directory-export-run");
+  let vcf: typeof import("../src/lib/directory-export-vcf");
+  let route: typeof import("../src/app/api/admin/directory/fields/[id]/route");
+  let adminId = 0;
+  let session = "";
+  let fieldId = 0;
+  const personIds: number[] = [];
+
+  before(async () => {
+    db = await import("../src/lib/db");
+    dir = await import("../src/lib/directory");
+    run = await import("../src/lib/directory-export-run");
+    vcf = await import("../src/lib/directory-export-vcf");
+    route = await import("../src/app/api/admin/directory/fields/[id]/route");
+    await db.getSetting("__schema_bootstrap__");
+    const { newToken } = await import("../src/lib/password");
+    const users = await db
+      .pool()
+      .query<{ id: number }>(`INSERT INTO users (username, name, email, role, status) VALUES ($1, 'Heads Admin', $2, 'admin', 'active') RETURNING id`, [
+        `${STAMP}-admin`,
+        `${STAMP}-admin@example.test`,
+      ]);
+    adminId = users.rows[0].id;
+    session = newToken();
+    await db.createSession(session, adminId, new Date(Date.now() + 3_600_000).toISOString());
+    for (let i = 1; i <= 6; i++) {
+      personIds.push((await dir.createPerson({ name: `${STAMP} Head ${i}`, email: `${STAMP}-h${i}@heads-test.example` })).id);
+    }
+    const made = await dir.createField({
+      label: `${STAMP} Department`,
+      key: `dh_${Date.now()}`,
+      group_by: true,
+      options: [{ value: "ENG", label: "Engineering" }],
+      value_format: "label",
+    });
+    fieldId = made.id;
+  });
+
+  after(async () => {
+    if (fieldId) await dir.deleteField(fieldId).catch(() => {});
+    await db.pool().query("DELETE FROM directory_people WHERE id = ANY($1::int[])", [personIds]);
+    await db.pool().query("DELETE FROM sessions WHERE user_id = $1", [adminId]);
+    await db.pool().query("DELETE FROM users WHERE id = $1", [adminId]);
+  });
+
+  async function patch(body: unknown): Promise<{ status: number; body: any }> {
+    const req = new Request(`http://localhost/api/admin/directory/fields/${fieldId}`, {
+      method: "PATCH",
+      headers: { cookie: `compass_session=${session}`, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    currentRequest = req;
+    try {
+      const res = await route.PATCH(req, { params: Promise.resolve({ id: String(fieldId) }) });
+      return { status: res.status, body: await res.json().catch(() => null) };
+    } finally {
+      currentRequest = null;
+    }
+  }
+
+  test("PATCH refuses six heads, a stranger and junk by name with 400, writes nothing, and saves five in order", async () => {
+    const six = await patch({ options: [{ value: "ENG", label: "Engineering", heads: personIds }] });
+    assert.equal(six.status, 400);
+    assert.deepEqual(six.body, { error: "Heads of ENG: up to 5 heads per option." });
+    const stranger = await patch({ options: [{ value: "ENG", label: "Engineering", heads: [personIds[0], 2_000_000_000] }] });
+    assert.equal(stranger.status, 400);
+    assert.deepEqual(stranger.body, { error: "A head must be a person in the directory." });
+    const junk = await patch({ options: [{ value: "ENG", label: "Engineering", heads: ["x"] }] });
+    assert.equal(junk.status, 400);
+    assert.deepEqual(junk.body, { error: `Heads of ENG: "x" is not a person's id.` });
+    const untouched = (await dir.listFields()).find((f) => f.id === fieldId)!;
+    assert.deepEqual(untouched.options.map((o) => o.heads ?? []), [[]], "a refused save changes nothing");
+
+    const five = personIds.slice(0, 5);
+    const saved = await patch({ options: [{ value: "ENG", label: "Engineering", heads: five }] });
+    assert.equal(saved.status, 200, JSON.stringify(saved.body));
+    assert.deepEqual(saved.body.field.options[0].heads, five);
+    assert.deepEqual((await dir.listFields()).find((f) => f.id === fieldId)!.options[0].heads, five);
+  });
+
+  const zipPreset = (patch: Partial<ExportPreset> = {}) =>
+    sanitizePreset(
+      { id: "zip", name: "Zip", columns: ["name", "title"], group_by: "department", split_by: "department", office_info: false, logo: false, ...patch },
+      fields
+    );
+
+  test("the zip's per-section files carry the head rows the single-file export has: Jane leads Engineering's file and Design's", async () => {
+    const file = await run.renderExportFile({ preset: zipPreset(), format: "csv", people, fields });
+    assert.equal(file.mime, "application/zip");
+    assert.equal(file.parts, 4, "Engineering, Design, Executive, No department");
+    const zip = await JSZip.loadAsync(file.body);
+    const part = async (suffix: string) => {
+      const name = Object.keys(zip.files).find((n) => n.endsWith(suffix));
+      assert.ok(name, `a file ending ${suffix} among ${Object.keys(zip.files).join(", ")}`);
+      return (await zip.files[name!].async("string")).replace(/^﻿/, "").trim().split("\r\n");
+    };
+    assert.deepEqual(await part("-engineering.csv"), [
+      "Group,Name,Title,Section head of",
+      "Engineering,Jane Smith,COO,Engineering; Design",
+      "Engineering,Bob Ames,Engineer,",
+      "Engineering,Dee Park,Engineer,",
+    ]);
+    assert.deepEqual(await part("-design.csv"), [
+      "Group,Name,Title,Section head of",
+      "Design,Jane Smith,COO,Engineering; Design",
+      "Design,Cy Vance,Design lead,Design",
+      "Design,Eve Lu,Designer,",
+    ]);
+    assert.deepEqual(await part("-executive.csv"), ["Group,Name,Title,Section head of", "Executive,Jane Smith,COO,Engineering; Design"]);
+    // Section heads first off: each file is its members alone.
+    const off = await JSZip.loadAsync((await run.renderExportFile({ preset: zipPreset({ section_heads: false }), format: "csv", people, fields })).body);
+    const eng = Object.keys(off.files).find((n) => n.endsWith("-engineering.csv"))!;
+    assert.deepEqual((await off.files[eng].async("string")).replace(/^﻿/, "").trim().split("\r\n").slice(1), [
+      "Engineering,Bob Ames,Engineer,",
+      "Engineering,Dee Park,Engineer,",
+    ]);
+    // The PDF zip renders every part.
+    const pdfs = await run.renderExportFile({ preset: zipPreset(), format: "pdf", people, fields });
+    assert.equal(pdfs.parts, 4);
+    const pdfZip = await JSZip.loadAsync(pdfs.body);
+    for (const name of Object.keys(pdfZip.files)) {
+      assert.equal((await pdfZip.files[name].async("nodebuffer")).subarray(0, 5).toString("latin1"), "%PDF-", name);
+    }
+  });
+
+  test("the vCard: one card per person where their own value puts them, so the file is the one it was before sections had heads; a head of their own section keeps exactly one card", async () => {
+    const one = (p: ExportPreset, registry = fields) => vcf.renderDirectoryVcf({ preset: p, people, fields: registry, company: "Acme", origin: "" });
+    const withHeads = await one(sanitizePreset({ id: "vcf", name: "Cards", columns: ["name", "title"], group_by: "department", office_info: false, logo: false }, fields));
+    const without = await one(sanitizePreset({ id: "vcf", name: "Cards", columns: ["name", "title"], group_by: "department", office_info: false, logo: false }, headless), headless);
+    assert.equal(withHeads, without);
+    assert.equal((withHeads.match(/BEGIN:VCARD/g) ?? []).length, 6, "one card per person");
+    assert.equal((withHeads.match(/FN:Cy Vance\r?\n/g) ?? []).length, 1, "Cy heads the section he sits in: one card");
+    assert.equal((withHeads.match(/FN:Jane Smith\r?\n/g) ?? []).length, 1, "Jane heads two sections and sits in a third: one card");
   });
 });

@@ -21,13 +21,18 @@ import {
   listVersions,
   complianceDocs,
   complianceUserSummary,
+  createGroup,
+  setGroupMembers,
+  setSpaceGroups,
 } from "../src/lib/db";
+import { isOverdue } from "../src/lib/ack-due";
 import { fixtureQuery } from "./support/retry";
 
 const STAMP = `ackportal-${Date.now()}`;
 const DAY = 86_400_000;
 
 let spaceId = 0;
+let groupId = 0;
 let anaId = 0;
 let benId = 0;
 const docIds: number[] = [];
@@ -36,8 +41,11 @@ const TEXT = Array.from({ length: 8 }, (_, i) => `Clause ${i + 1}: staff must fo
 
 /**
  * A published policy in the fixture space. setAckRequired's reconcile (D1)
- * enrols everyone active who can see the internal space, the two fixture
- * people among them; the INSERT keeps the fixture valid without it.
+ * enrols everyone active who can see the space, the two fixture people
+ * among them; the INSERT keeps the fixture valid without it. The space is
+ * private and granted to a group holding only the two, so another file's
+ * account hooks (a new account, a re-enabled one) cannot move the counts
+ * below while the suite runs files in parallel.
  */
 async function policy(title: string): Promise<{ id: number; v1: number }> {
   const doc = await createDocument({
@@ -95,7 +103,7 @@ async function workspaceGrace(): Promise<number> {
 before(async () => {
   await getSetting("__schema_bootstrap__");
   const sp = await fixtureQuery(
-    `INSERT INTO spaces (name, slug, icon, description, visibility) VALUES ($1, $2, '📁', '', 'internal') RETURNING id`,
+    `INSERT INTO spaces (name, slug, icon, description, visibility) VALUES ($1, $2, '📁', '', 'private') RETURNING id`,
     [`Ack Portal ${STAMP}`, STAMP]
   );
   spaceId = sp.rows[0].id;
@@ -108,6 +116,9 @@ before(async () => {
   );
   anaId = users.rows[0].id;
   benId = users.rows[1].id;
+  groupId = (await createGroup({ name: `${STAMP} readers` })).id;
+  await setGroupMembers(groupId, [anaId, benId]);
+  await setSpaceGroups(spaceId, [groupId]);
 });
 
 after(async () => {
@@ -124,6 +135,7 @@ after(async () => {
   await pool().query("DELETE FROM ack_notices WHERE document_id = ANY($1)", [docIds]).catch(() => {});
   await pool().query("DELETE FROM attested_texts WHERE document_id = ANY($1)", [docIds]);
   await pool().query("DELETE FROM documents WHERE id = ANY($1)", [docIds]);
+  await pool().query("DELETE FROM groups WHERE id = $1", [groupId]);
   await pool().query("DELETE FROM users WHERE id = ANY($1)", [userIds]);
   await pool().query("DELETE FROM spaces WHERE id = $1", [spaceId]);
 });
@@ -162,7 +174,8 @@ describe("the portal's overdue counts (E1)", () => {
     const { id } = await policy(`${STAMP} grace`);
     const grace = await workspaceGrace();
     // Two days past the due date (plus whatever the workspace allows).
-    await setRow(id, anaId, "due_at = $3", [new Date(Date.now() - (grace + 2) * DAY)]);
+    const past = new Date(Date.now() - (grace + 2) * DAY);
+    await setRow(id, anaId, "due_at = $3", [past]);
     assert.equal((await docRow(id)).overdue, 1, "overdue with the space's grace unset");
 
     await setSpaceDefaults({ overdue_grace_days: grace + 5 });
@@ -171,6 +184,20 @@ describe("the portal's overdue counts (E1)", () => {
 
     await setSpaceDefaults({ overdue_grace_days: 1 });
     assert.equal((await docRow(id)).overdue, grace + 2 > 1 ? 1 : 0, "a shorter grace: overdue again");
+
+    // The same rule in SQL and in JS at the boundary (invariant 8): with one
+    // day of grace, a deadline that ended one second more than a day ago is
+    // overdue on both sides, one second less is not, on the policy and on
+    // the person alike.
+    for (const delta of [-1000, 1000]) {
+      const due = new Date(Date.now() - DAY + delta);
+      await setRow(id, anaId, "due_at = $3", [due]);
+      const expected = isOverdue({ due_at: due }, { overdue_grace_days: 1 }) ? 1 : 0;
+      assert.equal(expected, delta < 0 ? 1 : 0, `isOverdue at ${delta}ms past the grace`);
+      assert.equal((await docRow(id)).overdue, expected, `complianceDocs agrees with isOverdue at ${delta}ms`);
+      assert.equal((await personRow(anaId)).overdue, expected, `complianceUserSummary agrees with isOverdue at ${delta}ms`);
+    }
+    await setRow(id, anaId, "due_at = $3", [past]);
     await setSpaceDefaults({});
     assert.equal((await docRow(id)).overdue, 1);
 

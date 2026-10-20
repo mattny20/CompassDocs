@@ -467,7 +467,7 @@ function OptionsEditor({ field, people, onSaved }: { field: DirectoryField; peop
                   value={o.heads ?? []}
                   onChange={(heads) => update(i, { heads: heads.length ? heads : undefined })}
                   label={`Heads of ${o.label || o.value}`}
-                  placeholder="Add a head…"
+                  placeholder="Search people…"
                 />
               </div>
             ))}

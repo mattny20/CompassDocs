@@ -37,6 +37,8 @@ import { storedReadSeconds } from "./read-evidence";
 import { RECERT_LEDGER_REASON, recertNoticeSentence, nextRecertDate } from "./ack-recert";
 import type { RecertFields, RecertPatch } from "./ack-recert";
 import { BUILT_IN, DUE_HISTORY_MAX, endOfDayIn, sanitizeLayer } from "./ack-due";
+import type { DueHistoryEntry } from "./ack-due";
+export type { DueHistoryEntry };
 import type { DueRule, PolicyDefaultsLayer } from "./ack-due";
 import {
   PA_OPEN,
@@ -3646,6 +3648,14 @@ export async function updateDocument(
       ]
     );
 
+    // A policy resumed from a pause (G2): a pause does not stop the clock,
+    // so the open rows whose deadline ran out while it was unpublished are
+    // re-armed from the cascade (E1, rearmAfterResume) before the sweeps
+    // see the policy again.
+    if (publishing && existing.ack_required === 1) {
+      await rearmAfterResume(client, id);
+    }
+
     // The version the decision is about: the row written now, or (publish
     // transition without a text change) the newest row already there.
     let versionId: number | null = null;
@@ -5890,7 +5900,14 @@ export async function complianceDocs(): Promise<ComplianceDocRow[]> {
   });
 }
 
-/** People the policy asks (open assignment rows of active accounts) who have NOT confirmed its current ask. */
+/**
+ * People the policy asks (open assignment rows of active accounts) who have
+ * NOT confirmed its current ask and can still see the space: the recipients
+ * of every event-driven notice (a request, the edit reset's 'updated'
+ * notice, the manual Remind, the recert cycle). The live visibility test is
+ * the ceiling between a grant revoked in Roles & permissions (not hooked)
+ * and the hourly reconcile that closes the row; the counts stay row-based.
+ */
 export async function compliancePendingUsers(
   docId: number
 ): Promise<{ id: number; name: string; username: string; email: string }[]> {
@@ -5899,7 +5916,8 @@ export async function compliancePendingUsers(
      FROM policy_assignments pa
      JOIN users u ON u.id = pa.user_id
      JOIN documents d ON d.id = pa.document_id
-     WHERE pa.document_id = $1 AND ${PA_OWES}
+     JOIN spaces s ON s.id = d.space_id
+     WHERE pa.document_id = $1 AND ${PA_OWES} AND ${ACK_VISIBILITY}
        AND NOT EXISTS (
          SELECT 1 FROM acknowledgements a
          WHERE a.document_id = d.id AND a.user_id = u.id AND ${ACK_CURRENT_PA}
@@ -6116,14 +6134,16 @@ export async function reconcilePolicyAssignments(
   docId: number,
   opts: { defaults?: AudienceDefaults; auto?: boolean; narrowing?: AudienceNarrowing; initial?: boolean } = {}
 ): Promise<ReconcileResult> {
-  if (client) return reconcilePolicyOn(client, docId, opts);
+  // The three counts only: who was told is saveAudienceRules' business.
+  const counts = (r: ReconcileResult): ReconcileResult => ({ added: r.added, closed: r.closed, reopened: r.reopened });
+  if (client) return counts(await reconcilePolicyOn(client, docId, opts));
   await ready();
   const own = await pool().connect();
   try {
     await own.query("BEGIN");
     const r = await reconcilePolicyOn(own, docId, opts);
     await own.query("COMMIT");
-    return r;
+    return counts(r);
   } catch (e) {
     await own.query("ROLLBACK").catch(() => {});
     throw e;
@@ -6696,6 +6716,22 @@ export async function hasOpenAssignment(docId: number, userId: number): Promise<
 }
 
 /**
+ * Can this account see this space right now: an active account that passes
+ * the audience's visibility rule (a public or internal space, space.read_all,
+ * or a space.member grant). The owner pickers' gate (E2 fix round: an
+ * escalation must never reach a person who cannot open the policy) and the
+ * same predicate escalationRecipients applies at the tick.
+ */
+export async function canSeeSpace(userId: number, spaceId: number): Promise<boolean> {
+  const r = await q<{ one: number }>(
+    `SELECT 1 AS one FROM users u JOIN spaces s ON s.id = $2
+      WHERE u.id = $1 AND u.status = 'active' AND ${ACK_VISIBILITY}`,
+    [userId, spaceId]
+  );
+  return r.length > 0;
+}
+
+/**
  * The policies a person owes right now: open rows of an active account on
  * published, required, unretired policies with no current confirmation,
  * earliest deadline first. The welcome notice lists these at delivery, so
@@ -6852,6 +6888,9 @@ export async function retirePolicy(docId: number, actor: AckActor, reason: strin
  */
 export async function unretirePolicy(docId: number): Promise<{ title: string; current: number; eligible: number } | null> {
   await ready();
+  // When it was retired, read before the flip clears it: the deadlines that
+  // ran out since then are the ones the resume re-arms.
+  const was = await q<{ retired_at: string | null }>("SELECT ack_retired_at::text AS retired_at FROM documents WHERE id = $1", [docId]);
   const r = await q<{ title: string }>(
     `UPDATE documents
        SET ack_required = 1, ack_retired_at = NULL, ack_retired_by = NULL,
@@ -6865,6 +6904,11 @@ export async function unretirePolicy(docId: number): Promise<{ title: string; cu
   // The audience (D1): retiring left the rows as they were; people who
   // joined or left while the policy was retired are brought in line now.
   await reconcilePolicyAssignments(null, docId, { auto: false });
+  // A pause does not stop the clock (E1): the deadlines that ran out while
+  // the policy was retired are re-armed from the cascade, so nobody is
+  // overdue and escalated at the first tick for a date that passed while
+  // nothing was asked.
+  await rearmAfterResume(null, docId, { since: was[0]?.retired_at ?? null });
   const counts = await ackCounts(pool(), docId);
   return { title: r[0].title, current: counts.current, eligible: counts.eligible };
 }
@@ -7342,6 +7386,9 @@ export interface AckFormerStaffRow {
  * accounts (user_id NULL, shown from the name snapshot) and disabled ones.
  * One row per person, their newest confirmation. Read separately so the
  * eligible-user joins above stay simple; never part of the denominator.
+ * `current` is measured the way every count measures it (D1/D4): against
+ * the later of the document marker and the person's open row's cycle
+ * start, the marker alone when they have no open row.
  */
 export async function ackFormerStaffRows(docId: number): Promise<AckFormerStaffRow[]> {
   return q(
@@ -7353,7 +7400,7 @@ export async function ackFormerStaffRows(docId: number): Promise<AckFormerStaffR
             COALESCE(u.role, '') AS role,
             CASE WHEN x.user_id IS NULL THEN 'left' ELSE 'disabled' END AS reason,
             x.acknowledged_at,
-            (x.acknowledged_at >= d.ack_revision_at) AS current,
+            (x.acknowledged_at >= GREATEST(d.ack_revision_at, COALESCE(pa.cycle_started_at, d.ack_revision_at))) AS current,
             x.version_id, x.content_sha256,
             ${VERSION_REV("x.version_id")} AS rev,
             ${VERSION_SOURCE("x.content_sha256")} AS version_source,
@@ -7364,6 +7411,7 @@ export async function ackFormerStaffRows(docId: number): Promise<AckFormerStaffR
        FROM acknowledgements a WHERE a.document_id = $1
      ) x
      JOIN documents d ON d.id = x.document_id
+     LEFT JOIN policy_assignments pa ON pa.document_id = x.document_id AND pa.user_id = x.user_id AND pa.removed_at IS NULL
      LEFT JOIN users u ON u.id = x.user_id
      WHERE x.user_id IS NULL OR u.status <> 'active'
      ORDER BY x.grp, x.acknowledged_at DESC, x.id DESC`,
@@ -7424,8 +7472,10 @@ export interface AssignmentResult<T extends AssignmentChange = AssignmentChange>
   changed: T[];
   /**
    * Ids given that no row answered: unknown, another document than the one
-   * named, removed, or already in the state asked for (exempting an exempt
-   * row, unsnoozing a row that is not snoozed, undoing with nothing to undo).
+   * named, removed, on a policy that no longer asks (ack_required = 0:
+   * stopped or retired; the levers take no such row), or already in the
+   * state asked for (exempting an exempt row, unsnoozing a row that is not
+   * snoozed, undoing with nothing to undo).
    */
   skipped: number[];
 }
@@ -7436,18 +7486,9 @@ export interface AssignmentDueChange extends AssignmentChange {
   to_at: string | null;
 }
 
-/** One entry of policy_assignments.due_history, newest last; the last 10 are kept. */
-export interface DueHistoryEntry {
-  /** 'extend' for the roster's Extend (undoExtension pops only these); other writers name their own kind. */
-  kind?: string;
-  from: string | null;
-  to: string | null;
-  /** Who moved it (the actor's name) and when. */
-  by: string;
-  by_id?: number | null;
-  at: string;
-  reason: string;
-}
+// DueHistoryEntry, the one shape both writers of policy_assignments.due_history
+// use (extendAssignments and moveDeadlines), is declared in lib/ack-due and
+// re-exported at the top of this module.
 
 /** An assignment row as the roster and the levers read it (open and exempt rows; removed rows are history). */
 export interface PolicyAssignmentRow {
@@ -7514,24 +7555,12 @@ async function workspaceDueDays(): Promise<number | null> {
   }
 }
 
-/**
- * The deadline a row gets back when its exemption ends (unexemptAssignments,
- * expireExemptions): the policy's fixed date while it is still ahead, else
- * now plus the days of the defaults cascade (E1): policy_settings.due_days,
- * the space's policy_defaults, the workspace ack_defaults (the parameter),
- * then the built-in 14. dueAtFor applies the same rule in TypeScript; it is
- * SQL here so one UPDATE re-arms every row it clears. Needs `ps`
- * (policy_settings, LEFT JOINed) and `s` (spaces) in the FROM list.
- */
-const PA_REARM_DUE = (workspaceParam: string) => `CASE
-      WHEN ps.due_at IS NOT NULL AND ps.due_at > CURRENT_DATE THEN ps.due_at::timestamptz
-      ELSE now() + make_interval(days => COALESCE(ps.due_days, (s.policy_defaults->>'due_days')::int, ${workspaceParam}::int, 14))
-    END`;
-
-/** The FROM list the re-arming statements share: the policy, its space and its settings row. */
-const PA_REARM_FROM = `FROM documents d
-    JOIN spaces s ON s.id = d.space_id
-    LEFT JOIN policy_settings ps ON ps.document_id = d.id`;
+// The deadline a row gets back when its clock restarts (an exemption ends,
+// a per-person re-ask, a policy resumes) is dueRearmSql, the one re-arm
+// fragment every writer shares with the reconcile and the re-confirmation
+// claim (E1): the policy's fixed date's last instant in the workspace zone
+// while it is still ahead, else now plus the days of the cascade. The
+// workspace's number and zone are read once per call (workspaceAudienceDefaults).
 
 /** The assignment rows of a policy the roster shows: open and exempt, removed rows left out. */
 export async function listAssignmentsForDocument(docId: number): Promise<PolicyAssignmentRow[]> {
@@ -7558,19 +7587,31 @@ export interface ExemptResult extends AssignmentResult {
 /**
  * Exempt open rows: the person leaves every denominator until the exemption
  * is removed or expires. `reason` is required by the routes and kept to
- * EXEMPT_REASON_MAX; `until` is a date (YYYY-MM-DD) or null for a standing
- * exemption. A snooze or an escalation on the row is moot while it is
- * exempt, so both are cleared. A manager cannot exempt their own row.
+ * EXEMPT_REASON_MAX; `until` is a calendar day (YYYY-MM-DD) or null for a
+ * standing exemption. The day is stored as its last instant in the
+ * workspace zone (endOfDayIn, the rule a fixed deadline follows), so the
+ * roster, the CSV and the audit row, which format the instant in that zone,
+ * name the day the manager chose, and expireExemptions clears it once that
+ * day has ended there; `timeZone` is the zone when the caller has read it,
+ * else it is read here, once. A snooze or an escalation on the row is moot
+ * while it is exempt, so both are cleared. A manager cannot exempt their own
+ * row, and a policy that no longer asks (ack_required = 0) takes no lever.
  */
 export async function exemptAssignments(
   docId: number | null,
   ids: number[],
   actor: AckActor,
-  opts: { reason: string; until: string | null }
+  opts: { reason: string; until: string | null; timeZone?: string }
 ): Promise<ExemptResult> {
   const wanted = uniqueIds(ids);
   if (!wanted.length) return { changed: [], skipped: [], self: [] };
   await ready();
+  let until: string | null = null;
+  if (opts.until) {
+    const timeZone = opts.timeZone ?? (await workspaceAudienceDefaults()).timeZone;
+    // A value that is not a day goes to Postgres as it is, which refuses it.
+    until = endOfDayIn(opts.until, timeZone)?.toISOString() ?? opts.until;
+  }
   if (actor.id != null) {
     const own = await q<{ id: number }>(
       `SELECT id FROM policy_assignments
@@ -7585,35 +7626,37 @@ export async function exemptAssignments(
             exempt_until = $6::timestamptz,
             snoozed_until = NULL, snoozed_by = NULL, escalated_at = NULL
        FROM documents d
-      WHERE d.id = pa.document_id AND pa.id = ANY($1) AND ($2::int IS NULL OR pa.document_id = $2)
+      WHERE d.id = pa.document_id AND d.ack_required = 1 AND pa.id = ANY($1) AND ($2::int IS NULL OR pa.document_id = $2)
         AND pa.removed_at IS NULL AND pa.exempt_at IS NULL
       RETURNING pa.id, pa.document_id, pa.user_id, d.title`,
-    [wanted, docId, actor.id, actor.name.slice(0, 200), opts.reason.trim().slice(0, EXEMPT_REASON_MAX), opts.until || null]
+    [wanted, docId, actor.id, actor.name.slice(0, 200), opts.reason.trim().slice(0, EXEMPT_REASON_MAX), until]
   );
   return { changed, skipped: skippedOf(wanted, changed), self: [] };
 }
 
 /**
  * Remove exemptions: the rows return to pending with a fresh deadline from
- * the cascade (PA_REARM_DUE), and the reminder and escalation stamps are
- * cleared so the new deadline gets its own reminders. The exemption's
- * history stays in the audit log; the row itself carries only its current
- * state.
+ * the cascade (dueRearmSql: the policy's fixed date's last instant in the
+ * workspace zone while it is still ahead, else now plus the days), and the
+ * reminder and escalation stamps are cleared so the new deadline gets its
+ * own reminders. The exemption's history stays in the audit log; the row
+ * itself carries only its current state. A policy that no longer asks
+ * takes no lever: its ids are skipped.
  */
 export async function unexemptAssignments(docId: number | null, ids: number[]): Promise<AssignmentResult<AssignmentDueChange>> {
   const wanted = uniqueIds(ids);
   if (!wanted.length) return { changed: [], skipped: [] };
-  const workspace = await workspaceDueDays();
+  const defaults = await workspaceAudienceDefaults();
   const changed = await q<AssignmentDueChange>(
     `UPDATE policy_assignments pa
         SET exempt_at = NULL, exempt_by = NULL, exempt_by_name = '', exempt_reason = '', exempt_until = NULL,
-            due_at = ${PA_REARM_DUE("$3")},
+            ${dueRearmSql("pa", { workspace: "$3", timeZone: "$4" })},
             reminded_at = NULL, escalated_at = NULL
-       ${PA_REARM_FROM}
-      WHERE d.id = pa.document_id AND pa.id = ANY($1) AND ($2::int IS NULL OR pa.document_id = $2)
+       FROM documents d
+      WHERE d.id = pa.document_id AND d.ack_required = 1 AND pa.id = ANY($1) AND ($2::int IS NULL OR pa.document_id = $2)
         AND pa.removed_at IS NULL AND pa.exempt_at IS NOT NULL
       RETURNING pa.id, pa.document_id, pa.user_id, d.title, NULL::text AS from_at, pa.due_at AS to_at`,
-    [wanted, docId, workspace]
+    [wanted, docId, defaults.due_days, defaults.timeZone]
   );
   return { changed, skipped: skippedOf(wanted, changed) };
 }
@@ -7623,8 +7666,10 @@ export async function unexemptAssignments(docId: number | null, ids: number[]): 
  * GREATEST(COALESCE(due_at, now()), now()) + days, so an overdue row counts
  * from today and a row still ahead keeps its lead. Clears the escalation
  * and any snooze (the new date starts clean) and appends {kind: 'extend',
- * from, to, by, at, reason} to due_history, keeping the last
- * DUE_HISTORY_KEEP. Exempt rows are skipped: they have no deadline to move.
+ * from, to, by_id, by_name, at, reason} (DueHistoryEntry, the shape
+ * moveDeadlines writes too) to due_history, keeping the last
+ * DUE_HISTORY_KEEP. Exempt rows are skipped: they have no deadline to move;
+ * so are the rows of a policy that no longer asks.
  */
 export async function extendAssignments(
   docId: number | null,
@@ -7648,9 +7693,9 @@ export async function extendAssignments(
                    'kind', 'extend',
                    'from', pa.due_at,
                    'to', GREATEST(COALESCE(pa.due_at, now()), now()) + make_interval(days => $3),
-                   'by', $5::text, 'by_id', $6::int, 'at', now(), 'reason', $4::text))
+                   'by_id', $6::int, 'by_name', $5::text, 'at', now(), 'reason', $4::text))
        FROM documents d
-      WHERE d.id = pa.document_id AND pa.id = ANY($1) AND ($2::int IS NULL OR pa.document_id = $2)
+      WHERE d.id = pa.document_id AND d.ack_required = 1 AND pa.id = ANY($1) AND ($2::int IS NULL OR pa.document_id = $2)
         AND pa.removed_at IS NULL AND pa.exempt_at IS NULL
       RETURNING pa.id, pa.document_id, pa.user_id, d.title,
                 pa.due_history -> -1 ->> 'from' AS from_at, pa.due_at AS to_at`,
@@ -7677,7 +7722,7 @@ export async function undoExtension(docId: number | null, ids: number[]): Promis
         SET due_at = (pa.due_history -> -1 ->> 'from')::timestamptz,
             due_history = pa.due_history - (-1)
        FROM last l, documents d
-      WHERE pa.id = l.id AND d.id = pa.document_id AND ($2::int IS NULL OR pa.document_id = $2)
+      WHERE pa.id = l.id AND d.id = pa.document_id AND d.ack_required = 1 AND ($2::int IS NULL OR pa.document_id = $2)
         AND pa.removed_at IS NULL AND pa.exempt_at IS NULL
         AND jsonb_typeof(pa.due_history) = 'array' AND jsonb_array_length(pa.due_history) > 0
         AND pa.due_history -> -1 ->> 'kind' = 'extend'
@@ -7706,7 +7751,7 @@ export async function snoozeAssignments(
     `UPDATE policy_assignments pa
         SET snoozed_until = now() + make_interval(days => $3), snoozed_by = $4
        FROM documents d
-      WHERE d.id = pa.document_id AND pa.id = ANY($1) AND ($2::int IS NULL OR pa.document_id = $2)
+      WHERE d.id = pa.document_id AND d.ack_required = 1 AND pa.id = ANY($1) AND ($2::int IS NULL OR pa.document_id = $2)
         AND pa.removed_at IS NULL AND pa.exempt_at IS NULL
       RETURNING pa.id, pa.document_id, pa.user_id, d.title, pa.snoozed_until`,
     [wanted, docId, clampDays(days, SNOOZE_DAYS_MAX), actor.id]
@@ -7722,7 +7767,7 @@ export async function unsnoozeAssignments(docId: number | null, ids: number[]): 
     `UPDATE policy_assignments pa
         SET snoozed_until = NULL, snoozed_by = NULL
        FROM documents d
-      WHERE d.id = pa.document_id AND pa.id = ANY($1) AND ($2::int IS NULL OR pa.document_id = $2)
+      WHERE d.id = pa.document_id AND d.ack_required = 1 AND pa.id = ANY($1) AND ($2::int IS NULL OR pa.document_id = $2)
         AND pa.removed_at IS NULL AND pa.snoozed_until IS NOT NULL
       RETURNING pa.id, pa.document_id, pa.user_id, d.title`,
     [wanted, docId]
@@ -7733,25 +7778,28 @@ export async function unsnoozeAssignments(docId: number | null, ids: number[]): 
 /**
  * The hourly sweep's half (complianceHourly runs it after reconciling):
  * exemptions whose `until` has passed are cleared and the rows re-armed
- * exactly as unexemptAssignments re-arms them. One UPDATE: a second
- * instance's statement re-reads each row after the lock, finds exempt_at
- * already NULL and matches nothing. Returns the rows it cleared so the
- * caller can audit each (ack.exemption_revoked by the system); standing
- * exemptions (no `until`) are never touched here.
+ * exactly as unexemptAssignments re-arms them (dueRearmSql). One UPDATE: a
+ * second instance's statement re-reads each row after the lock, finds
+ * exempt_at already NULL and matches nothing. Returns the rows it cleared
+ * so the caller can audit each (ack.exemption_revoked by the system);
+ * standing exemptions (no `until`) are never touched here. `documentIds`
+ * bounds the sweep to those policies (the tests; complianceHourly passes
+ * nothing and sweeps every policy).
  */
-export async function expireExemptions(): Promise<AssignmentDueChange[]> {
-  const workspace = await workspaceDueDays();
+export async function expireExemptions(opts: { documentIds?: number[] } = {}): Promise<AssignmentDueChange[]> {
+  const defaults = await workspaceAudienceDefaults();
   return q<AssignmentDueChange>(
     `UPDATE policy_assignments pa
         SET exempt_at = NULL, exempt_by = NULL, exempt_by_name = '', exempt_reason = '', exempt_until = NULL,
-            due_at = ${PA_REARM_DUE("$1")},
+            ${dueRearmSql("pa", { workspace: "$1", timeZone: "$2" })},
             reminded_at = NULL, escalated_at = NULL
-       ${PA_REARM_FROM}
+       FROM documents d
       WHERE d.id = pa.document_id
         AND pa.exempt_at IS NOT NULL AND pa.exempt_until IS NOT NULL AND pa.exempt_until < now()
         AND pa.removed_at IS NULL
+        AND ($3::int[] IS NULL OR pa.document_id = ANY($3::int[]))
       RETURNING pa.id, pa.document_id, pa.user_id, d.title, NULL::text AS from_at, pa.due_at AS to_at`,
-    [workspace]
+    [defaults.due_days, defaults.timeZone, opts.documentIds ?? null]
   );
 }
 
@@ -7881,7 +7929,12 @@ export interface AckLedgerRow {
  * superseded row is taken per document and person, so the filter must not
  * split a person's rows); `order` closes the statement. Served by
  * idx_ack_doc for one document; the every-document read is an export and
- * scans the table.
+ * scans the table. `current` and `superseded` measure a confirmation the
+ * way every count and the roster do (D1/D4): against the later of the
+ * document marker and the person's open assignment row's cycle start (a
+ * person with no row, or a closed one, keeps the marker, as currentAckRow
+ * does), so after a per-person re-ask the All confirmations view and the
+ * ledger CSV agree with the Current version view.
  */
 function ackLedgerSql(where: string, order: string): string {
   return `SELECT x.id, x.document_id,
@@ -7894,8 +7947,8 @@ function ackLedgerSql(where: string, order: string): string {
             COALESCE(u.role, '') AS role,
             (x.user_id IS NULL) AS account_removed,
             x.acknowledged_at,
-            (d.id IS NOT NULL AND x.acknowledged_at >= d.ack_revision_at) AS current,
-            (x.rn > 1 OR (d.id IS NOT NULL AND x.acknowledged_at < d.ack_revision_at)) AS superseded,
+            (d.id IS NOT NULL AND x.acknowledged_at >= GREATEST(d.ack_revision_at, COALESCE(pa.cycle_started_at, d.ack_revision_at))) AS current,
+            (x.rn > 1 OR (d.id IS NOT NULL AND x.acknowledged_at < GREATEST(d.ack_revision_at, COALESCE(pa.cycle_started_at, d.ack_revision_at)))) AS superseded,
             x.version_id, x.content_sha256,
             ${VERSION_REV("x.version_id")} AS rev,
             ${VERSION_SOURCE("x.content_sha256")} AS version_source,
@@ -7911,6 +7964,7 @@ function ackLedgerSql(where: string, order: string): string {
        FROM acknowledgements a${where}
      ) x
      LEFT JOIN documents d ON d.id = x.document_id
+     LEFT JOIN policy_assignments pa ON pa.document_id = x.document_id AND pa.user_id = x.user_id AND pa.removed_at IS NULL
      LEFT JOIN spaces s ON s.id = d.space_id
      LEFT JOIN users u ON u.id = x.user_id
      ORDER BY ${order}`;
@@ -9083,17 +9137,24 @@ export interface EscalationRecipient {
   via: EscalationVia;
 }
 
+/** The audience's visibility rule for the account in `userCol` against the space alias `s`: what every escalation recipient must pass. */
+const SEES_SPACE = (userCol: string) => `(s.visibility IN ('public', 'internal')
+            OR ${HOLDS_GLOBALLY("space.read_all", userCol)}
+            OR ${HOLDS_ON_SPACE("space.member", "s.id", userCol)})`;
+
 /**
  * Who hears that people are overdue on a policy, resolved once per policy:
- * the policy's owner (policy_settings.owner_user_id) when that account is
- * active, else whoever switched the requirement on (requested_by), else
- * the space's approvers (listApproverIdsForSpace); plus the leads of every
- * group the overdue people belong to, in one join over group_leads and
- * group_members, kept to leads who can see the policy's space (the same
- * visibility rule the audience uses: public or internal space, space.read_all,
- * or a space.member grant), so a lead of a broad group gets nothing about a
- * private-space policy. Owners and approvers can see the space by
- * construction. Active accounts only.
+ * the policy's owner (policy_settings.owner_user_id, else the space's
+ * policy_defaults.owner_user_id: the same cascade the Settings tab shows)
+ * when that account is active and can see the space, else whoever switched
+ * the requirement on (requested_by, under the same two tests), else the
+ * space's approvers (listApproverIdsForSpace, which tests visibility
+ * itself); plus the leads of every group the overdue people belong to, in
+ * one join over group_leads and group_members. Every rung is kept to
+ * accounts that can see the policy's space (the audience's rule: a public
+ * or internal space, space.read_all, or a space.member grant), so a lead of
+ * a broad group, or an owner picked before a grant was revoked, gets
+ * nothing about a private-space policy. Active accounts only.
  */
 export async function escalationRecipients(
   policies: { document_id: number; space_id: number; user_ids: number[] }[]
@@ -9103,9 +9164,15 @@ export async function escalationRecipients(
     const chosen = new Map<number, EscalationVia>();
     const settings = (
       await q<{ owner: number | null; requester: number | null }>(
-        `SELECT (SELECT o.id FROM users o WHERE o.id = ps.owner_user_id AND o.status = 'active') AS owner,
-                (SELECT r.id FROM users r WHERE r.id = ps.requested_by AND r.status = 'active') AS requester
-         FROM policy_settings ps WHERE ps.document_id = $1`,
+        `SELECT (SELECT o.id FROM users o
+                  WHERE o.id = COALESCE(ps.owner_user_id, (s.policy_defaults->>'owner_user_id')::int)
+                    AND o.status = 'active' AND ${SEES_SPACE("o.id")}) AS owner,
+                (SELECT r.id FROM users r
+                  WHERE r.id = ps.requested_by AND r.status = 'active' AND ${SEES_SPACE("r.id")}) AS requester
+         FROM documents d
+         JOIN spaces s ON s.id = d.space_id
+         LEFT JOIN policy_settings ps ON ps.document_id = d.id
+         WHERE d.id = $1`,
         [p.document_id]
       )
     )[0];
@@ -9119,9 +9186,7 @@ export async function escalationRecipients(
          JOIN group_members gm ON gm.group_id = gl.group_id AND gm.user_id = ANY($1::int[])
          JOIN users u ON u.id = gl.user_id AND u.status = 'active'
          JOIN spaces s ON s.id = $2
-         WHERE s.visibility IN ('public', 'internal')
-            OR ${HOLDS_GLOBALLY("space.read_all", "u.id")}
-            OR ${HOLDS_ON_SPACE("space.member", "s.id", "u.id")}`,
+         WHERE ${SEES_SPACE("u.id")}`,
         [p.user_ids, p.space_id]
       );
       for (const l of leads) if (!chosen.has(l.id)) chosen.set(l.id, "lead");
@@ -9146,17 +9211,20 @@ export async function escalationRecipients(
  * The portal's manual Remind stamps the rows it reaches (reminded_at,
  * reminder_count), so the automatic cadence counts from it and the row
  * subtitle reads "last reminded today": every open row of an active
- * account with no current confirmation, or the named people among them.
- * Returns how many rows were stamped.
+ * account with no current confirmation who can still see the space (the
+ * people compliancePendingUsers hands the drain: a row the Remind did not
+ * reach is not stamped), or the named people among them. Returns how many
+ * rows were stamped.
  */
 export async function stampAckReminded(docId: number, userIds: number[] | null = null): Promise<number> {
   const rows = await q<{ id: number }>(
     `UPDATE policy_assignments pa
      SET reminded_at = now(), reminder_count = pa.reminder_count + 1
-     FROM documents d, users u
+     FROM documents d JOIN spaces s ON s.id = d.space_id, users u
      WHERE d.id = pa.document_id AND u.id = pa.user_id AND pa.document_id = $1
        AND ($2::int[] IS NULL OR pa.user_id = ANY($2::int[]))
        AND pa.removed_at IS NULL AND pa.exempt_at IS NULL AND u.status = 'active'
+       AND ${ACK_VISIBILITY}
        AND ${SWEEP_UNCONFIRMED}
      RETURNING pa.id`,
     [docId, userIds]
@@ -9498,22 +9566,31 @@ export type ReconfirmClaim =
       asked_at: string;
       /** 'users': the people whose cycle restarted, the outbox row's list; [] for 'all'. */
       user_ids: number[];
-      /** 'users': the ids named that had no open row (exempt, removed, never assigned); [] for 'all'. */
+      /** 'users': the ids named that were not re-opened (exempt, removed, never assigned, or asked again within the hour); [] for 'all'. */
       skipped: number[];
+      /** 'users': the subset of `skipped` held back by the one-hour brake (asked again less than an hour ago); [] for 'all'. */
+      cooldown: number[];
     }
   | {
       claimed: false;
       /**
        * The stamp that refused the claim (a request, a reminder or a re-ask
-       * inside the hour); null when the document no longer takes
+       * inside the hour: for a per-person claim, the newest cycle stamp among
+       * the people held back); null when the document no longer takes
        * confirmations (unpublished, trashed, requirement off) or is gone.
        */
       last_asked_at: string | null;
       /**
-       * A per-person claim (D4) in which nobody named had an open row: the
+       * A per-person claim (D4) in which nobody named was re-opened: the
        * ids, so the route can say so. Absent on every other refusal.
        */
       skipped?: number[];
+      /**
+       * A per-person claim in which every open row named was asked again
+       * within the hour: those ids (the route answers 429 for them). Absent
+       * when nobody named had an open row at all.
+       */
+      cooldown?: number[];
     };
 
 export interface ReconfirmInput {
@@ -9668,6 +9745,7 @@ async function claimReconfirmationOn(client: Queryable, docId: number, opts: Rec
     asked_at: row.marker,
     user_ids: [],
     skipped: [],
+    cooldown: [],
   };
 }
 
@@ -9698,12 +9776,21 @@ async function claimReconfirmationOn(client: Queryable, docId: number, opts: Rec
  * starts today gets today's deadline from the cascade, so a person asked
  * again is not overdue and escalated at the next tick on a date they already
  * met; undefined leaves due_at as it is.
+ *
+ * `cooldown` is the claim's one-hour brake (the same hour the whole-audience
+ * claim and the portal's Remind keep): a row whose cycle was restarted by a
+ * re-ask or a re-open less than an hour ago (its stamp is later than both
+ * the document marker and the row's assignment) is left alone, so a double
+ * submit or a repeated call writes one ledger row and sends one notice. A
+ * row in its first cycle never counts: its stamp is the marker (the
+ * reconcile) or older than its assignment (the migration), so a person who
+ * confirmed in three seconds can be asked again at once.
  */
 export async function reopenAssignmentsFor(
   client: Queryable | null,
   docId: number,
   userIds: number[],
-  opts: { at?: string | null; dueAt?: "cascade" | Date | string | null } = {}
+  opts: { at?: string | null; dueAt?: "cascade" | Date | string | null; cooldown?: boolean } = {}
 ): Promise<number[]> {
   const ids = uniqueIds(userIds);
   if (ids.length === 0) return [];
@@ -9711,23 +9798,57 @@ export async function reopenAssignmentsFor(
   const params: unknown[] = [docId, ids, opts.at ?? null];
   let dueSet = "";
   if (opts.dueAt === "cascade") {
-    params.push(await workspaceDueDays());
-    dueSet = `, due_at = ${PA_REARM_DUE("$4")}`;
+    // The one re-arm fragment (E1): the policy's fixed date's last instant
+    // in the workspace zone while still ahead, else the stamp plus the days
+    // of the cascade; the workspace's number and zone are read once here.
+    const defaults = await workspaceAudienceDefaults();
+    params.push(defaults.due_days, defaults.timeZone);
+    dueSet = `, ${dueRearmSql("pa", { workspace: "$4", timeZone: "$5", from: "t.at" })}`;
   } else if (opts.dueAt !== undefined) {
     params.push(opts.dueAt instanceof Date ? opts.dueAt.toISOString() : opts.dueAt);
     dueSet = ", due_at = $4::timestamptz";
   }
+  // The brake's parameter is pushed last, so its number does not depend on
+  // what the re-arm pushed; the document is read through pa.document_id so
+  // the clause stands whatever the FROM list carries.
+  const brake = `$${params.push(opts.cooldown === true)}`;
   const r = await (client ?? pool()).query<{ user_id: number }>(
     `UPDATE policy_assignments pa
         SET cycle_started_at = t.at, reminded_at = NULL, escalated_at = NULL${dueSet}
-       ${PA_REARM_FROM},
+       FROM documents d,
             (SELECT COALESCE($3::timestamptz, clock_timestamp()) AS at) t
       WHERE pa.document_id = d.id AND d.id = $1 AND pa.user_id = ANY($2::int[])
         AND pa.removed_at IS NULL AND pa.exempt_at IS NULL
+        AND NOT (${brake}::boolean
+                 AND pa.cycle_started_at >= now() - interval '1 hour'
+                 AND pa.cycle_started_at > pa.assigned_at
+                 AND pa.cycle_started_at > (SELECT x.ack_revision_at FROM documents x WHERE x.id = pa.document_id))
       RETURNING pa.user_id`,
     params
   );
   return r.rows.map((x) => x.user_id);
+}
+
+/**
+ * Of the people a per-person claim named but did not re-open, those with an
+ * open row: the brake held them (the only other reason the statement leaves
+ * an open row alone), newest cycle first. `last_asked_at` is the newest
+ * stamp, what the route's "asked again N minutes ago" reads.
+ */
+async function cooledAssignments(
+  client: Queryable,
+  docId: number,
+  userIds: number[]
+): Promise<{ user_ids: number[]; last_asked_at: string | null }> {
+  if (userIds.length === 0) return { user_ids: [], last_asked_at: null };
+  const r = await client.query<{ user_id: number; at: string }>(
+    `SELECT pa.user_id, pa.cycle_started_at::text AS at
+       FROM policy_assignments pa
+      WHERE pa.document_id = $1 AND pa.user_id = ANY($2::int[]) AND ${PA_OPEN}
+      ORDER BY pa.cycle_started_at DESC, pa.user_id`,
+    [docId, userIds]
+  );
+  return { user_ids: r.rows.map((x) => x.user_id), last_asked_at: r.rows[0]?.at ?? null };
 }
 
 /**
@@ -9739,12 +9860,19 @@ export async function reopenAssignmentsFor(
  * deadline from the cascade, then the 'reset' ledger row (scope 'users',
  * confirmations_affected = the rows re-opened, eligible = the audience,
  * decided_at = the stamp) and the immediate 'updated' outbox row naming
- * only those people are written in the same transaction. No marker move,
- * no Remind stamp, no hour guard: asking one person again blocks nothing.
+ * only those people are written in the same transaction. No marker move
+ * and no Remind stamp: asking one person again blocks nobody else. The one
+ * brake is per person (reopenAssignmentsFor's `cooldown`): a person asked
+ * again within the hour is not re-opened, so a double submit or a repeated
+ * call cannot flood them with notices; they come back in `skipped` and in
+ * `cooldown`.
  *
  * Answers {claimed: false, last_asked_at: null} when the document does not
- * take confirmations, and the same with `skipped` (the ids) when nobody
- * named has an open row: nothing is written either way.
+ * take confirmations; the same with `skipped` (the ids) when nobody named
+ * has an open row; and {claimed: false, last_asked_at: <the newest cycle
+ * stamp>, skipped, cooldown} when nobody was re-opened because every open
+ * row named was asked again within the hour (the route answers 429).
+ * Nothing is written on any refusal.
  */
 async function claimPersonalReconfirmationOn(
   client: Queryable,
@@ -9766,10 +9894,15 @@ async function claimPersonalReconfirmationOn(
   if (ids.length === 0) return { claimed: false, last_asked_at: null, skipped: [] };
   const row = doc.rows[0];
   const at = (await client.query<{ at: string }>("SELECT clock_timestamp()::text AS at")).rows[0].at;
-  const reopened = await reopenAssignmentsFor(client, docId, ids, { at, dueAt: "cascade" });
-  if (reopened.length === 0) return { claimed: false, last_asked_at: null, skipped: ids };
+  const reopened = await reopenAssignmentsFor(client, docId, ids, { at, dueAt: "cascade", cooldown: true });
   const done = new Set(reopened);
   const skipped = ids.filter((id) => !done.has(id));
+  const cooled = await cooledAssignments(client, docId, skipped);
+  if (reopened.length === 0) {
+    return cooled.user_ids.length > 0
+      ? { claimed: false, last_asked_at: cooled.last_asked_at, skipped: ids, cooldown: cooled.user_ids }
+      : { claimed: false, last_asked_at: null, skipped: ids };
+  }
   // The audience for the ledger row; the rows re-opened are what the ask touched.
   const counts = await ackCounts(client, docId);
   const decisionId = await recordAckDecision(client, {
@@ -9807,6 +9940,7 @@ async function claimPersonalReconfirmationOn(
     asked_at: at,
     user_ids: reopened,
     skipped,
+    cooldown: cooled.user_ids,
   };
 }
 
@@ -10116,6 +10250,41 @@ export function dueRearmSql(row: string, opts: { workspace: string; timeZone: st
      WHERE d.id = ${row}.document_id)`;
 }
 
+/**
+ * A pause does not stop the clock: the audience predicate admits an
+ * unpublished policy, so rows opened while it is paused are dated from
+ * then, and the rows it already had keep running while the sweeps skip the
+ * policy (SWEEP_POLICY wants it published). So when a policy resumes (a
+ * republish from updateDocument, an un-retire) every open row whose
+ * deadline ran out meanwhile is re-armed from the cascade as of now
+ * (dueRearmSql) with its reminder and escalation stamps cleared, so nobody
+ * is overdue and escalated at the first tick for a date that passed while
+ * nothing was asked. `since` bounds it to the deadlines that passed on or
+ * after that instant: un-retire passes the retirement; a republish has no
+ * pause stamp and re-arms every deadline that has passed. Rows still ahead,
+ * rows without a date, exempt rows and closed rows are untouched. Answers
+ * how many rows it re-armed.
+ */
+export async function rearmAfterResume(
+  client: Queryable | null,
+  docId: number,
+  opts: { since?: string | null } = {}
+): Promise<number> {
+  if (!client) await ready();
+  const defaults = await workspaceAudienceDefaults();
+  const r = await (client ?? pool()).query(
+    `UPDATE policy_assignments pa
+        SET ${dueRearmSql("pa", { workspace: "$2", timeZone: "$3" })},
+            reminded_at = NULL, escalated_at = NULL
+      WHERE pa.document_id = $1 AND pa.removed_at IS NULL AND pa.exempt_at IS NULL
+        AND pa.due_at IS NOT NULL AND pa.due_at < now()
+        AND ($4::timestamptz IS NULL OR pa.due_at >= $4::timestamptz)
+      RETURNING pa.id`,
+    [docId, defaults.due_days, defaults.timeZone, opts.since ?? null]
+  );
+  return r.rowCount ?? 0;
+}
+
 /** The layers of one policy's cascade as stored, for resolvePolicyDefaults (lib/compliance). */
 export interface PolicyDefaultLayers {
   /** policy_settings' own numbers and owner (empty when the policy has no row yet). */
@@ -10181,16 +10350,21 @@ export async function assignmentDueDates(docId: number, userIds: number[] | null
 /**
  * "Also move existing deadlines" (E1): recompute the due date of every open
  * row of a policy from the rule as it now stands: the fixed date (its last
- * instant in the workspace zone) while it is still ahead, else each row's
- * cycle start plus the days (the rule's own, or `dueDays`, the number the
- * cascade resolves when the rule inherits). The old and new dates go onto
- * the row's due_history ({from, to, by, at, reason}, the last
- * DUE_HISTORY_MAX kept), an escalation stamp is cleared when the new date is
- * ahead so the escalation can fire again, and a row whose date would not
- * change is left alone (no history entry). Exempt and removed rows are not
- * touched. Returns the rows moved; the caller (movePolicyDeadlines in
- * lib/compliance) writes the audit row, and the toast's Undo is the exempt
- * agent's undoExtension over these ids.
+ * instant in the workspace zone) while it is still ahead, else the later of
+ * each row's cycle start and its assignment plus the days (the rule's own,
+ * or `dueDays`, the number the cascade resolves when the rule inherits).
+ * The anchor is GREATEST(cycle_started_at, assigned_at) so both shapes date
+ * forward: a row the 1.13.0 upgrade wrote carries the old document marker
+ * as its cycle (months old) and the upgrade as its assignment; a re-asked
+ * or returned row carries a cycle later than its assignment. The old and
+ * new dates go onto the row's due_history ({kind: 'moved', from, to, by_id,
+ * by_name, at, reason}: DueHistoryEntry, the shape extendAssignments writes
+ * too; the last DUE_HISTORY_MAX kept), an escalation stamp is cleared when
+ * the new date is ahead so the escalation can fire again, and a row whose
+ * date would not change is left alone (no history entry). Exempt and
+ * removed rows are not touched. Returns the rows moved; the caller
+ * (movePolicyDeadlines in lib/compliance) writes the audit row, and the
+ * toast's Undo is the exempt agent's undoExtension over these ids.
  */
 export async function moveDeadlines(
   docId: number,
@@ -10205,7 +10379,7 @@ export async function moveDeadlines(
     `WITH target AS (
        SELECT pa.id, pa.due_at AS from_due,
               CASE WHEN $2::timestamptz IS NOT NULL THEN $2::timestamptz
-                   ELSE pa.cycle_started_at + make_interval(days => $3::int) END AS to_due
+                   ELSE GREATEST(pa.cycle_started_at, pa.assigned_at) + make_interval(days => $3::int) END AS to_due
          FROM policy_assignments pa
         WHERE pa.document_id = $1 AND pa.removed_at IS NULL AND pa.exempt_at IS NULL
      )
@@ -10216,11 +10390,13 @@ export async function moveDeadlines(
               SELECT COALESCE(jsonb_agg(h.e ORDER BY h.i), '[]'::jsonb)
                 FROM (SELECT e, i FROM jsonb_array_elements(pa.due_history) WITH ORDINALITY AS x(e, i)
                        ORDER BY i DESC LIMIT $6::int - 1) AS h
-            ) || jsonb_build_array(jsonb_build_object('kind', 'moved', 'from', t.from_due, 'to', t.to_due, 'by', $4::int, 'at', now(), 'reason', $5::text))
+            ) || jsonb_build_array(jsonb_build_object(
+                   'kind', 'moved', 'from', t.from_due, 'to', t.to_due,
+                   'by_id', $4::int, 'by_name', $7::text, 'at', now(), 'reason', $5::text))
        FROM target t
       WHERE pa.id = t.id AND pa.due_at IS DISTINCT FROM t.to_due
       RETURNING pa.id`,
-    [docId, fixedAhead, days, opts.actor.id ?? null, reason, DUE_HISTORY_MAX]
+    [docId, fixedAhead, days, opts.actor.id ?? null, reason, DUE_HISTORY_MAX, opts.actor.name.slice(0, 200)]
   );
   return { moved: rows.length, ids: rows.map((r) => r.id) };
 }

@@ -26,6 +26,9 @@ import {
   assignmentDueDates,
   dueAtSql,
   dueRearmSql,
+  createGroup,
+  setGroupMembers,
+  setSpaceGroups,
 } from "../src/lib/db";
 import {
   resolvePolicyDefaults,
@@ -349,6 +352,7 @@ let lockClient: PoolClient | null = null;
 let savedDefaults: string | undefined;
 
 let spaceId = 0;
+let groupId = 0;
 let readerA = 0;
 let readerB = 0;
 let readerC = 0;
@@ -366,7 +370,15 @@ async function newUser(tag: string): Promise<number> {
   return r.rows[0].id;
 }
 
-/** A published policy that requires confirmation. The requirement is set by SQL, not setAckRequired, so no audience reconcile enrols the whole workspace: the rows are this file's. */
+/**
+ * A published policy that requires confirmation. The requirement is set by
+ * SQL, not setAckRequired, so no audience reconcile enrols the whole
+ * workspace: the rows are this file's. The space is private and granted to
+ * a group holding only this file's readers, so another file's account hooks
+ * (a new account, a re-enabled one; the policy has no settings row and so
+ * reads as space mode) cannot open rows on it while the suite runs files in
+ * parallel: the exact counts below hold.
+ */
 async function newPolicy(title: string): Promise<{ id: number; title: string }> {
   const full = `${STAMP} ${title}`;
   const doc = await createDocument({ space_id: spaceId, title: full, type: "policy", status: "published", content: TEXT, summary: "", tags: [], author: "test" });
@@ -443,13 +455,16 @@ before(async () => {
   await pool().query("DELETE FROM settings WHERE key = 'ack_defaults'");
 
   const sp = await fixtureQuery(
-    `INSERT INTO spaces (name, slug, icon, description, visibility) VALUES ($1, $2, '📁', '', 'internal') RETURNING id`,
+    `INSERT INTO spaces (name, slug, icon, description, visibility) VALUES ($1, $2, '📁', '', 'private') RETURNING id`,
     [`Ack Due ${STAMP}`, STAMP]
   );
   spaceId = sp.rows[0].id;
   readerA = await newUser("Reader A");
   readerB = await newUser("Reader B");
   readerC = await newUser("Reader C");
+  groupId = (await createGroup({ name: `${STAMP} readers` })).id;
+  await setGroupMembers(groupId, [readerA, readerB, readerC]);
+  await setSpaceGroups(spaceId, [groupId]);
 });
 
 after(async () => {
@@ -463,6 +478,7 @@ after(async () => {
   await pool().query("DELETE FROM policy_settings WHERE document_id = ANY($1)", [docIds]);
   await pool().query("DELETE FROM audit_log WHERE actor_name = $1", [STAMP]);
   await pool().query("DELETE FROM documents WHERE id = ANY($1)", [docIds]);
+  await pool().query("DELETE FROM groups WHERE id = $1", [groupId]);
   await pool().query("DELETE FROM users WHERE id = ANY($1)", [userIds]);
   await pool().query("DELETE FROM spaces WHERE id = $1", [spaceId]);
   if (lockClient) {
@@ -565,7 +581,9 @@ describe("moving deadlines", () => {
     assert.equal(a2.due_history[0].kind, "moved", "a rule move is never undone as an extension");
     assertSameInstant(a2.due_history[0].from, a.due_at, "history: from the old date");
     assertSameInstant(a2.due_history[0].to, a2.due_at, "history: to the new date");
-    assert.equal(a2.due_history[0].by, null);
+    assert.equal(a2.due_history[0].by_id, null, "nobody signed: the actor has no id");
+    assert.equal(a2.due_history[0].by_name, STAMP, "but the name is recorded (one shape with the roster's extend: by_id and by_name)");
+    assert.deepEqual(Object.keys(a2.due_history[0]).sort(), ["at", "by_id", "by_name", "from", "kind", "reason", "to"]);
     assert.equal(a2.due_history[0].reason, "Deadline rule changed to 30 days after assignment");
     assert.ok(Date.now() - new Date(a2.due_history[0].at).getTime() < 60_000);
     const b2 = (await assignRow(b.id))!;
@@ -598,14 +616,25 @@ describe("moving deadlines", () => {
     assert.equal(past.moved, 2);
     assertNear((await assignRow(a.id))!.due_at, new Date(new Date(a.cycle_started_at).getTime() + 14 * DAY), 5_000, "A: cycle start + the built-in 14");
 
-    // A removed row is never moved; a row whose new date is already past keeps its escalation stamp.
+    // A removed row is never moved. The anchor is the later of the cycle
+    // start and the assignment, so both shapes date forward: a row the
+    // upgrade wrote (its cycle the old document marker, months back; its
+    // assignment the upgrade) counts from the assignment, not into the
+    // past, and its stale escalation is cleared; a re-asked row (its cycle
+    // later than its assignment) keeps counting from its cycle.
     const removed = await assign(doc.id, readerC, { cycleAgoDays: 2, removed: true });
-    const stale = await assign(doc.id, readerB, { cycleAgoDays: 40, dueInDays: 1, escalated: true });
-    await movePolicyDeadlines(doc, { due_days: 20, due_at: null }, { actor });
+    const migrated = await assign(doc.id, readerB, { cycleAgoDays: 300, dueInDays: 1, escalated: true });
+    await pool().query("UPDATE policy_assignments SET assigned_at = now() WHERE id = $1", [migrated.id]);
+    const reasked = await assign(doc.id, readerA, { cycleAgoDays: 10, dueInDays: 1 });
+    await pool().query("UPDATE policy_assignments SET cycle_started_at = now() - interval '2 days' WHERE id = $1", [reasked.id]);
+    const shapes = await movePolicyDeadlines(doc, { due_days: 20, due_at: null }, { actor });
+    assert.equal(shapes.moved, 2);
     assert.deepEqual(await assignRow(removed.id), removed, "the removed row is untouched");
-    const stale2 = (await assignRow(stale.id))!;
-    assertNear(stale2.due_at, new Date(new Date(stale.cycle_started_at).getTime() + 20 * DAY), 5_000, "cycle start 40 days ago + 20: in the past");
-    assert.equal(stale2.escalated_at, stale.escalated_at, "an escalation that already fired for a date still past is kept");
+    const migrated2 = (await assignRow(migrated.id))!;
+    assertNear(migrated2.due_at, new Date(Date.now() + 20 * DAY), 5_000, "the migrated shape: the assignment (today) + 20, ahead, never the marker + 20");
+    assert.equal(migrated2.escalated_at, null, "its stale escalation is cleared: the new date is ahead");
+    const reasked2 = (await assignRow(reasked.id))!;
+    assertNear(reasked2.due_at, new Date(Date.now() + 18 * DAY), 5_000, "the re-ask shape: the cycle start (2 days ago) + 20");
   });
 
   test("due_history keeps the last ten moves, oldest first, newest last", async () => {
@@ -620,7 +649,7 @@ describe("moving deadlines", () => {
     const reasons = row.due_history.map((h) => h.reason);
     assert.equal(reasons[0], `Deadline rule changed to ${20 + 4} days after assignment`, "the first three moves fell off");
     assert.equal(reasons[DUE_HISTORY_MAX - 1], `Deadline rule changed to ${20 + DUE_HISTORY_MAX + 3} days after assignment`);
-    assert.ok(row.due_history.every((h) => h.by === readerB && h.kind === "moved"));
+    assert.ok(row.due_history.every((h) => h.by_id === readerB && h.by_name === "Mover" && h.kind === "moved"));
     for (let i = 1; i < row.due_history.length; i++) {
       assert.equal(row.due_history[i].from, row.due_history[i - 1].to, `entry ${i} starts where the previous ended`);
     }

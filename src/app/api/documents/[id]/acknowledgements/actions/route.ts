@@ -23,9 +23,10 @@ export const dynamic = "force-dynamic";
 // space scope (404, so a hidden document stays hidden), the draft rule
 // (404 for a draft the caller may not read), the licence (402),
 // document.ack_require on the space OR compliance.program_manage (403;
-// apiGuard takes one permission, so the OR is written out), then the body
-// (400 with the first problem named; 400 for the caller's own row on
-// exempt).
+// apiGuard takes one permission, so the OR is written out), a paused or
+// retired policy (400 with the sibling reconfirm route's sentence: its rows
+// take no lever), then the body (400 with the first problem named; 400 for
+// the caller's own row on exempt).
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const gate = await apiGuard("approver", "document.ack_require");
   if (gate instanceof NextResponse) return gate;
@@ -47,6 +48,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     (await userHolds(user, "compliance.program_manage", { legacyMin: "admin" }));
   if (!allowed) {
     return NextResponse.json({ error: "You don't have permission for that." }, { status: 403 });
+  }
+  // A paused (switched off) or retired policy asks nobody, so its rows take
+  // no lever. (The admin route reaches any policy and reports such ids in
+  // `skipped` instead.)
+  if (doc.ack_required !== 1 || doc.ack_retired_at) {
+    return NextResponse.json({ error: "This document doesn't ask for a read confirmation." }, { status: 400 });
   }
 
   let body: unknown;

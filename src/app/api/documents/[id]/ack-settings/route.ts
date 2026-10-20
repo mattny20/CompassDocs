@@ -13,6 +13,7 @@ import {
   updatePolicySettings,
   policyDefaultLayers,
   getUserById,
+  canSeeSpace,
 } from "@/lib/db";
 import type { AckSettingsPatch, PolicySettingsNumbersPatch } from "@/lib/db";
 import { apiGuard } from "@/lib/api-auth";
@@ -21,6 +22,7 @@ import { featureEnabled } from "@/lib/ee";
 import { audit, auditAck, actorFrom, ipFrom } from "@/lib/audit";
 import { getComplianceSettings } from "@/lib/compliance-settings";
 import { movePolicyDeadlines, resolvePolicyDefaults, workspaceDueDefaults } from "@/lib/compliance";
+import { requestOrigin } from "@/lib/oauth";
 import { validateRecertPatch } from "@/lib/ack-recert";
 import type { RecertPatch } from "@/lib/ack-recert";
 import { isAudienceMode, sanitizeRules } from "@/lib/audience";
@@ -87,6 +89,8 @@ const STATEMENT_MAX = 500;
 const AUDIENCE_EMPTY = "Name at least one group, person or role.";
 /** The card's date input has min=today; a stored fixed date that has passed is never re-sent by a save that did not touch it. */
 const DUE_DATE_PAST = "The deadline cannot be in the past.";
+/** An owner is told about overdue people by name, so they must be able to open the policy (the spaces route refuses the space layer's owner with the same sentence). */
+const OWNER_OUT_OF_SCOPE = "The owner must be an active account that can see this space.";
 
 type Check<V> = (v: unknown) => { ok: true; value: V } | { ok: false; error: string };
 
@@ -171,7 +175,9 @@ const FIELDS: { [K in keyof SettingsPatch]-?: Check<SettingsPatch[K]> } = {
   remind_every_days: dueNumber("remind_every_days"),
   escalate_after_days: dueNumber("escalate_after_days"),
   nudge_every_days: dueNumber("nudge_every_days"),
-  // Existence is judged in PATCH before anything is written ("Owner not found.").
+  // The account is judged in PATCH before anything is written: it must exist
+  // ("Owner not found.") and be an active account that can see the policy's
+  // space (the escalation never reaches anyone else).
   owner_user_id: (v) =>
     v === null || (typeof v === "number" && Number.isInteger(v) && v > 0)
       ? { ok: true, value: v as number | null }
@@ -367,7 +373,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   // written, so a 400 means nothing changed: a next date on a policy that
   // has no interval (and is given none here) has nothing to fire; a
   // targeted audience with no include rule asks nobody; an owner must be an
-  // account; and the replacement is judged by setSupersededBy itself, which
+  // active account that can see the space (E2: an escalation never reaches
+  // a person who cannot open the policy); and the replacement is judged by
+  // setSupersededBy itself, which
   // writes only when the target passes (published, live, in the caller's
   // scope). Past this point no setter refuses, so every write below reaches
   // its audit row.
@@ -388,8 +396,13 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       return NextResponse.json({ error: AUDIENCE_EMPTY }, { status: 400 });
     }
   }
-  if (typeof owner_user_id === "number" && !(await getUserById(owner_user_id))) {
-    return NextResponse.json({ error: "Owner not found." }, { status: 400 });
+  if (typeof owner_user_id === "number") {
+    if (!(await getUserById(owner_user_id))) {
+      return NextResponse.json({ error: "Owner not found." }, { status: 400 });
+    }
+    if (!(await canSeeSpace(owner_user_id, doc.space_id))) {
+      return NextResponse.json({ error: OWNER_OUT_OF_SCOPE }, { status: 400 });
+    }
   }
 
   // The audit row names what moved: every field is compared before and
@@ -445,12 +458,39 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     await auditAck("ack.settings_changed", doc, { actor, ip, source: "manual", details });
   }
 
+  // The deadline (E1): the rule is written before the audience, so the rows
+  // a save of the audience opens in the same PATCH already take it (the
+  // reconcile reads the stored rule); the open rows are moved after both,
+  // when asked (move_existing) or when a fixed date was set or changed (a
+  // fixed date is a promise to the audience, so it moves them; a change to
+  // the days applies to future assignments only unless asked). The stored
+  // rule is read directly, never through the per-request cache that
+  // resolvePolicyDefaults keeps, so the "from" rule is what the row held and
+  // the move resolves the cascade after the write.
+  let due: { fromRule: DueRule; toRule: DueRule; ruleChanged: boolean; shouldMove: boolean } | null = null;
+  if (due_days !== undefined || due_at !== undefined || move_existing !== undefined) {
+    const before = await getPolicySettings(doc.id);
+    const fromRule: DueRule = { due_days: before?.due_days ?? null, due_at: before?.due_at ?? null };
+    const rulePatch: PolicySettingsNumbersPatch = {};
+    if (due_days !== undefined) rulePatch.due_days = due_days;
+    if (due_at !== undefined) rulePatch.due_at = due_at;
+    const after = Object.keys(rulePatch).length > 0 ? await updatePolicySettings(doc.id, rulePatch) : before;
+    const toRule: DueRule = { due_days: after?.due_days ?? null, due_at: after?.due_at ?? null };
+    const ruleChanged = fromRule.due_days !== toRule.due_days || fromRule.due_at !== toRule.due_at;
+    const fixedChanged = toRule.due_at !== null && toRule.due_at !== fromRule.due_at;
+    due = { fromRule, toRule, ruleChanged, shouldMove: move_existing === true || fixedChanged };
+  }
+
   // Who must confirm (D1): one save writes the mode, the rules and the two
   // switches and reconciles the rows in the same transaction, so the toast's
-  // counts are what the save did. Newly added people are pending, so the
-  // next request or reminder reaches them; the save itself sends nothing.
+  // counts are what the save did; the people it adds are told through the
+  // outbox (one 'request' row limited to them, worded per recipient).
   if (audienceTouched) {
-    const saved = await saveAudienceRules(doc.id, { audience_mode, rules, exclude_stewards, assign_new_members });
+    const saved = await saveAudienceRules(
+      doc.id,
+      { audience_mode, rules, exclude_stewards, assign_new_members },
+      { actor: ackActor, origin: requestOrigin(req) }
+    );
     if (!saved) return NextResponse.json({ error: "Not found." }, { status: 404 });
     extras.added = saved.added;
     extras.closed = saved.closed;
@@ -475,24 +515,10 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     });
   }
 
-  // The deadline (E1): the rule is written first; then the open rows are
-  // moved when asked (move_existing) or when a fixed date was set or
-  // changed (a fixed date is a promise to the audience, so it moves them;
-  // a change to the days applies to future assignments only unless asked).
-  // The stored rule is read directly, never through the per-request cache
-  // that resolvePolicyDefaults keeps, so the "from" rule is what the row
-  // held and the move resolves the cascade after the write.
-  if (due_days !== undefined || due_at !== undefined || move_existing !== undefined) {
-    const before = await getPolicySettings(doc.id);
-    const fromRule: DueRule = { due_days: before?.due_days ?? null, due_at: before?.due_at ?? null };
-    const rulePatch: PolicySettingsNumbersPatch = {};
-    if (due_days !== undefined) rulePatch.due_days = due_days;
-    if (due_at !== undefined) rulePatch.due_at = due_at;
-    const after = Object.keys(rulePatch).length > 0 ? await updatePolicySettings(doc.id, rulePatch) : before;
-    const toRule: DueRule = { due_days: after?.due_days ?? null, due_at: after?.due_at ?? null };
-    const ruleChanged = fromRule.due_days !== toRule.due_days || fromRule.due_at !== toRule.due_at;
-    const fixedChanged = toRule.due_at !== null && toRule.due_at !== fromRule.due_at;
-    const shouldMove = move_existing === true || fixedChanged;
+  // The move (E1), after the audience: the rows the save opened are among
+  // the open rows it dates, and the audit row names what the PATCH did.
+  if (due) {
+    const { fromRule, toRule, ruleChanged, shouldMove } = due;
     let moved = 0;
     if (shouldMove) {
       moved = (await movePolicyDeadlines(doc, toRule, { fromRule, actor: ackActor, ip })).moved;

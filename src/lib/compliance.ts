@@ -165,7 +165,10 @@ export async function requestAcknowledgement(
   try {
     await lock.query("BEGIN");
     await lock.query("SELECT pg_advisory_xact_lock($1::int, $2::int)", [ACK_REQUEST_LOCK_CLASS, doc.id]);
-    const { switched_on } = await setAckRequired(doc.id, true);
+    // The actor is the policy's requester (policy_settings.requested_by, E2):
+    // the escalation's stand-in for a policy with no owner. The first
+    // requester is kept across a later switch-on.
+    const { switched_on } = await setAckRequired(doc.id, true, { requestedBy: actor.id });
     if (!switched_on || !opts.notify) return { queued: 0, outbox_id: null, switched_on };
     const pending = await compliancePendingUsers(doc.id);
     const outboxId = await insertAckOutbox(null, {
@@ -1486,11 +1489,25 @@ async function deliverDue(row: ClaimedAckOutboxRow, plan: DueBundlePlan, ctx: Sw
 }
 
 /**
+ * Where an escalation recipient is sent: a page they can open. A group lead
+ * opens the policy itself (the team view is not in this release); an owner,
+ * requester or approver opens the policy's row in the compliance portal
+ * when they hold the Compliance section (the portal's pages answer
+ * not-found to anyone else), else the policy's Record tab.
+ */
+async function escalationLink(docId: number, userId: number, via: EscalationVia | undefined): Promise<string> {
+  if (via === "lead") return `/doc/${docId}`;
+  const u = await getUserById(userId);
+  const { canAccessSection } = await import("./section-access");
+  if (u && (await canAccessSection(u, "compliance"))) return `/compliance/policies?policy=${docId}`;
+  return `/doc/${docId}/acknowledgements`;
+}
+
+/**
  * One 'escalation' row: the recipients it names (the owner or their
  * stand-ins, and the overdue people's group leads), each told once about
- * this policy, leads linked to their team view and the others to the
- * policy in the portal (two messages at most), the record under kind
- * 'escalation'.
+ * this policy, linked to a page they can open (escalationLink; one message
+ * per distinct link), the record under kind 'escalation'.
  */
 async function deliverEscalation(row: ClaimedAckOutboxRow, ctx: SweepCtx): Promise<GroupOutcome> {
   const none: GroupOutcome = { deliverable: false, pending: 0, skippedRecent: 0, emailed: 0, noticed: 0, errors: [] };
@@ -1503,7 +1520,7 @@ async function deliverEscalation(row: ClaimedAckOutboxRow, ctx: SweepCtx): Promi
   for (const u of recipients) {
     const had = already.get(u.id);
     if (recordDone(had)) continue;
-    const link = via.get(u.id) === "lead" ? "/compliance/team" : `/compliance/policies?policy=${doc.id}`;
+    const link = await escalationLink(doc.id, u.id, via.get(u.id));
     const targets = byLink.get(link) ?? [];
     targets.push({
       ...u,
@@ -1694,12 +1711,15 @@ export async function escalateOverdueAcks(
  * then the re-confirmation cycles. The workspace defaults are read once and
  * passed into every claim. Each step has its own catch, tagged
  * [compliance], so one failing step never stops the others; every step is
- * an atomic claim, so every instance may run this at once.
+ * an atomic claim, so every instance may run this at once. `documentIds`
+ * limits every step to those policies (the tests, which share a database);
+ * the tick passes nothing.
  */
-export async function complianceHourly(): Promise<void> {
+export async function complianceHourly(opts: { documentIds?: number[] } = {}): Promise<void> {
   if (!(await featureEnabled("policy_ack"))) return;
   const layer = await workspaceDueDefaults();
   const defaults = sweepDefaults(layer);
+  const documentIds = opts.documentIds;
   const step = async (name: string, run: () => Promise<unknown>) => {
     try {
       await run();
@@ -1707,11 +1727,11 @@ export async function complianceHourly(): Promise<void> {
       console.error(`[compliance] ${name} failed:`, e);
     }
   };
-  await step("audience reconcile", () => reconcileAllPolicies());
+  await step("audience reconcile", () => reconcileAllPolicies({ documentIds }));
   // An exemption that ran out is revoked by the clock: the same audit key
   // the manager's revocation writes, by the system, with the re-armed date.
   await step("expired exemptions", async () => {
-    for (const row of await expireExemptions()) {
+    for (const row of await expireExemptions({ documentIds })) {
       await auditAck("ack.exemption_revoked", { id: row.document_id, title: row.title }, {
         actor: { id: null, name: "system" },
         source: "system",
@@ -1719,7 +1739,7 @@ export async function complianceHourly(): Promise<void> {
       });
     }
   });
-  await step("reminders", () => remindDueAcks({ defaults }));
-  await step("escalation", () => escalateOverdueAcks({ defaults }));
-  await step("re-confirmation", () => recertifyDueAcks({ defaults: layer }));
+  await step("reminders", () => remindDueAcks({ defaults, documentIds }));
+  await step("escalation", () => escalateOverdueAcks({ defaults, documentIds }));
+  await step("re-confirmation", () => recertifyDueAcks({ defaults: layer, documentIds }));
 }

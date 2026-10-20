@@ -324,6 +324,17 @@ describe("listMyPolicies: one person's standing on every policy in scope", () =>
     assert.equal(await countOverdueAcksFor(editorId, scope), 0, "the editor's row on the same policy keeps its own deadline");
     assert.equal(await countPendingAcksFor(readerId, scope), dashboard.length, "the badge counts it among the pending ones, not twice");
 
+    // An exempt row leaves every denominator (invariant 6), the overdue one
+    // included: the dashboard's "· 1 overdue" reads 0 and the row is off
+    // the pending list and the page while the exemption stands.
+    await fixtureQuery("UPDATE policy_assignments SET exempt_at = now() WHERE document_id = $1 AND user_id = $2", [late.id, readerId]);
+    assert.equal(await countOverdueAcksFor(readerId, scope), 0, "an exempt overdue row is not overdue");
+    assert.ok(!(await listPendingAcksFor(readerId, scope)).some((d) => d.id === late.id), "and not pending on the dashboard");
+    assert.equal(await stateOf(), undefined, "and absent from My policies");
+    assert.equal(await countPendingAcksFor(readerId, scope), dashboard.length - 1, "the badge drops it");
+    await fixtureQuery("UPDATE policy_assignments SET exempt_at = NULL WHERE document_id = $1 AND user_id = $2", [late.id, readerId]);
+    assert.equal(await countOverdueAcksFor(readerId, scope), 1, "back once the exemption is removed");
+
     // The grace from the cascade (policy_settings carries no grace column,
     // so it starts at the space): the space's policy_defaults (a junk or
     // out-of-range value there reads as unset), else the workspace's

@@ -53,6 +53,14 @@ export interface ExportInput {
    *  an export of the people on screen still shows an assistant's phone when
    *  the assistant is off screen. Defaults to `people`. */
   lookup?: DirectoryPerson[];
+  /**
+   * The rows this file prints, among the people the preset covers; absent,
+   * all of them. The zip's one-file-per-section passes the section's
+   * members here with the whole population in `people`, so the file's
+   * section heads are drawn from everyone the export covers and lead the
+   * file as they lead the single-file export.
+   */
+  only?: (p: DirectoryPerson) => boolean;
   fields: DirectoryField[];
   company: string;
   /** A data: URL of a PNG or JPEG logo, when the preset wants one and one exists. */
@@ -142,7 +150,11 @@ function matchesFilter(p: DirectoryPerson, filter: ExportPreset["filter"], field
 /** Filter, sort, group and size the table — shared by the PDF and the CSV. */
 export function prepareExport(input: Omit<ExportInput, "logo" | "printedOn">): PreparedExport {
   const { preset, fields } = input;
-  const visible = input.people.filter((p) => p.hidden !== 1 && matchesFilter(p, preset.filter, fields));
+  // Everyone the export covers (the filter, the ids and the viewer's scope
+  // apply), then the rows this file prints among them (`only`: the same
+  // list unless one export is being split into files).
+  const covered = input.people.filter((p) => p.hidden !== 1 && matchesFilter(p, preset.filter, fields));
+  const visible = input.only ? covered.filter(input.only) : covered;
   const sorted = [...visible].sort(
     compareByKeys(fields, [
       { key: preset.sort, dir: preset.sort_dir === "desc" ? -1 : 1 },
@@ -155,12 +167,13 @@ export function prepareExport(input: Omit<ExportInput, "logo" | "printedOn">): P
   if (pinned.length) sections.push({ label: "Key contacts", rows: pinned, heads: [] });
   const groupField = preset.group_by ? fields.find((f) => f.key === preset.group_by && f.group_by) : undefined;
   if (groupField) {
-    // A section's heads lead it, drawn from the people this export prints
-    // (a head the filter or the ids leave out is not in the file), unless
-    // the preset switched Section heads first off. A field without any
-    // heads makes the sections it always made.
+    // A section's heads lead it, drawn from the people this export covers
+    // (a head the filter or the ids leave out is not in the file; a file of
+    // a split export draws from the whole export), unless the preset
+    // switched Section heads first off. A field without any heads makes the
+    // sections it always made.
     const headsOn = (preset.section_heads ?? true) && groupField.options.some((o) => (o.heads?.length ?? 0) > 0);
-    const printed = new Map(visible.map((p) => [p.id, p]));
+    const printed = new Map(covered.map((p) => [p.id, p]));
     // The field's own order (options first, then the rest alphabetically,
     // "No <field>" last), with the preset's section order moved to the
     // front; an empty order leaves it as it is.
@@ -711,7 +724,9 @@ export async function renderDirectoryPdf(input: ExportInput): Promise<Buffer> {
  * notary; Partner". Once any sections field has a head, every row also
  * ends with "Section head of", the sections the person heads
  * ("Engineering; Design"), sectioned or not; a head row's name cell
- * carries no mark, the column says it.
+ * carries no mark, the column says it, and a head prints once, where their
+ * own value puts them (the vCard's rule: a head whose own value is the
+ * section they head keeps that one row, at its top).
  */
 export function renderDirectoryCsv(input: Omit<ExportInput, "logo" | "printedOn">): string {
   const prepared = prepareExport(input);
@@ -729,8 +744,14 @@ export function renderDirectoryCsv(input: Omit<ExportInput, "logo" | "printedOn"
       .map(cell)
       .join(",")
   );
+  // A section's head rows (the first `heads` of its rows) are skipped when
+  // the person also prints as an ordinary row elsewhere: the column already
+  // names what they head, and a spreadsheet wants one row per person.
+  const own = new Set<number>();
+  for (const s of prepared.sections) s.rows.slice(s.heads.length).forEach((p) => own.add(p.id));
   for (const s of prepared.sections) {
-    for (const p of s.rows) {
+    for (const [i, p] of s.rows.entries()) {
+      if (i < s.heads.length && own.has(p.id)) continue;
       lines.push(
         [
           ...(grouped ? [s.label ?? ""] : []),

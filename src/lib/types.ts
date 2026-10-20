@@ -1,4 +1,4 @@
-import type { PolicyDefaultsLayer } from "./ack-due";
+import type { DueHistoryEntry, PolicyDefaultsLayer } from "./ack-due";
 
 export type DocType = "sop" | "technical" | "policy" | "knowledge";
 export type DocStatus = "draft" | "published";
@@ -475,7 +475,8 @@ export interface PolicyAssignment {
   /** The person's own cycle start: a confirmation counts only from the later of this and the document marker. */
   cycle_started_at: string;
   due_at: string | null;
-  due_history: { from: string | null; to: string | null; by: number | null; at: string; reason: string }[];
+  /** The deadline's moves, oldest first (one shape for every writer: lib/ack-due's DueHistoryEntry). */
+  due_history: DueHistoryEntry[];
   reminded_at: string | null;
   reminder_count: number;
   escalated_at: string | null;

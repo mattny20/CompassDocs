@@ -288,4 +288,19 @@ describe("the export follows the section order", () => {
       assert.notEqual(stable(withOrder), stable(await render(layout)), `the order changes the ${JSON.stringify(layout)} page`);
     }
   });
+
+  test("a preset stored before 1.13.0 (no section_order key at all) renders the PDF and the CSV byte for byte as the field's order does", async () => {
+    const keyless = (patch: Partial<ExportPreset> = {}): ExportPreset => {
+      const p = { ...preset(patch) } as Partial<ExportPreset> & { section_order?: string[] };
+      delete p.section_order;
+      return p as ExportPreset;
+    };
+    const pdf = (p: ExportPreset) => exporter.renderDirectoryPdf({ preset: p, people, fields, company: "Acme", logo: null, printedOn: "Oct 20, 2026" });
+    const csv = (p: ExportPreset) => exporter.renderDirectoryCsv({ preset: p, people, fields, company: "Acme" });
+    assert.equal(stable(await pdf(keyless())), stable(await pdf(preset())), "the table");
+    assert.equal(csv(keyless()), csv(preset()), "the CSV");
+    for (const layout of [{ layout: "cards" as const }, { page_columns: 2 as const }, { page_columns: 3 as const }]) {
+      assert.equal(stable(await pdf(keyless(layout))), stable(await pdf(preset(layout))), `the ${JSON.stringify(layout)} page`);
+    }
+  });
 });

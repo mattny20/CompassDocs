@@ -165,6 +165,10 @@ let spaceP = 0; // private, granted to group G1
 let spaceW = 0; // internal, the welcome and migration fixtures
 let g1 = 0;
 let g2 = 0;
+// The two private-space policies (space mode, then targeted): the ceiling
+// assertions on the account hooks name them.
+let closedId = 0;
+let ceilingId = 0;
 const people: Record<string, number> = {};
 const userIds: number[] = [];
 const docIds: number[] = [];
@@ -213,20 +217,45 @@ function mine(ids: number[]): string[] {
 
 async function row(docId: number, userId: number) {
   const r = await pool().query(
-    `SELECT id, source, removed_at, removed_reason, exempt_at, exempt_reason, cycle_started_at, due_at
+    `SELECT id, source, removed_at, removed_reason, exempt_at, exempt_reason, cycle_started_at, due_at, reminded_at, escalated_at
      FROM policy_assignments WHERE document_id = $1 AND user_id = $2`,
     [docId, userId]
   );
   // Timestamps come back as ISO text (lib/db's type parsers), so they are compared through Date.parse.
   return r.rows[0] as
-    | { id: number; source: string; removed_at: string | null; removed_reason: string; exempt_at: string | null; exempt_reason: string; cycle_started_at: string; due_at: string | null }
+    | {
+        id: number;
+        source: string;
+        removed_at: string | null;
+        removed_reason: string;
+        exempt_at: string | null;
+        exempt_reason: string;
+        cycle_started_at: string;
+        due_at: string | null;
+        reminded_at: string | null;
+        escalated_at: string | null;
+      }
     | undefined;
+}
+
+/** The open 'request' outbox rows a save queued for a policy (the people it added), oldest first. */
+async function requestRows(docId: number): Promise<{ id: number; user_ids: number[]; source: string }[]> {
+  const r = await pool().query(
+    "SELECT id, user_ids, source FROM ack_outbox WHERE document_id = $1 AND mode = 'request' AND done_at IS NULL ORDER BY id",
+    [docId]
+  );
+  return r.rows;
 }
 
 const at = (iso: string | null | undefined): number => (iso ? Date.parse(iso) : NaN);
 
 async function ledgerCount(docId: number): Promise<number> {
   return (await pool().query("SELECT COUNT(*)::int AS n FROM acknowledgements WHERE document_id = $1", [docId])).rows[0].n;
+}
+
+/** The document marker (ack_revision_at), as ISO text. */
+async function marker(docId: number): Promise<string> {
+  return (await pool().query("SELECT ack_revision_at FROM documents WHERE id = $1", [docId])).rows[0].ack_revision_at;
 }
 
 before(async () => {
@@ -253,6 +282,8 @@ after(async () => {
   await pool().query("DELETE FROM notifications WHERE user_id = ANY($1)", [userIds]);
   await pool().query("DELETE FROM ack_notices WHERE document_id = ANY($1) OR user_id = ANY($2)", [docIds, userIds]);
   await pool().query("DELETE FROM ack_outbox WHERE document_id = ANY($1)", [docIds]);
+  // A welcome row is keyed to the joiner's earliest-due policy, which may be another file's: by person too.
+  for (const id of userIds) await pool().query("DELETE FROM ack_outbox WHERE user_ids @> $1::jsonb", [JSON.stringify([id])]);
   await pool().query("DELETE FROM acknowledgements WHERE document_id = ANY($1)", [docIds]);
   await pool().query("DELETE FROM ack_decisions WHERE document_id = ANY($1) OR document_title LIKE $2", [docIds, `${STAMP}%`]);
   await pool().query(
@@ -319,6 +350,7 @@ describe("space mode: the old rule, as rows", () => {
 
     // A private space: only the people its grants reach (G1 = alice).
     const closed = await newPolicy("space private", spaceP);
+    closedId = closed.id;
     const named = mine((await ackStatusForDocument(closed.id)).map((r) => r.id));
     assert.deepEqual(named, ["alice"], "a private space: the granted group's members");
     assert.equal(await hasOpenAssignment(closed.id, people.bob), false);
@@ -372,6 +404,7 @@ describe("targeted mode: rules, exclusions and the ceiling", () => {
     assert.ok(saved!.closed >= 4, `everyone else is closed (${saved!.closed})`);
     assert.deepEqual(mine((await ackStatusForDocument(id)).map((r) => r.id)), ["alice", "carol"]);
     assert.equal((await row(id, people.alice))!.source, "space", "an open row keeps its source");
+    assert.deepEqual(await requestRows(id), [], "a save that adds nobody tells nobody");
     const bob = (await row(id, people.bob))!;
     assert.ok(bob.removed_at, "bob's row is closed, not deleted");
     assert.equal(bob.removed_reason, "audience_narrowed");
@@ -391,17 +424,69 @@ describe("targeted mode: rules, exclusions and the ceiling", () => {
     assert.deepEqual(mine((await ackStatusForDocument(id)).map((r) => r.id)), ["alice"]);
     assert.equal(await ledgerCount(id), before, "closing rows never touches the ledger");
 
-    // Back to space mode: the closed rows re-open (the same rows), with a fresh cycle.
-    const widened = await saveAudienceRules(id, { audience_mode: "space", rules: [] });
+    // Back to space mode: the closed rows re-open (the same rows), with a
+    // fresh cycle; the rules go with the mode (space mode means everyone,
+    // so no stored exclusion keeps carol out) although the save sent none;
+    // and the people the save re-opened are told, in one request row
+    // limited to them (alice, who stayed open, is not on it).
+    const widened = await saveAudienceRules(id, { audience_mode: "space" });
     assert.equal(widened!.added, 0);
     assert.ok(widened!.reopened >= 5, `the closed rows re-open (${widened!.reopened})`);
+    assert.deepEqual(widened!.rules, [], "the answer carries no rules");
+    assert.deepEqual(await listAudienceRules(id), [], "space mode cleared the stored rules, the exclusion included");
     assert.equal((await row(id, people.bob))!.id, bob.id, "the same row, re-opened");
     assert.equal((await row(id, people.bob))!.removed_at, null);
     assert.equal((await row(id, people.bob))!.removed_reason, "");
+    assert.equal(await hasOpenAssignment(id, people.carol), true, "carol is back: the exclusion is gone with the rules");
+    const told = await requestRows(id);
+    assert.equal(told.length, 1, "one request row for the people the save re-opened");
+    assert.equal(told[0].source, "manual");
+    assert.equal(told[0].user_ids.length, widened!.reopened, "limited to them");
+    assert.ok(told[0].user_ids.includes(people.bob) && told[0].user_ids.includes(people.carol));
+    assert.ok(!told[0].user_ids.includes(people.alice), "alice stayed open and is not told again");
+    await pool().query("DELETE FROM ack_outbox WHERE id = $1", [told[0].id]);
+
+    // An exclude rule is a targeted-mode rule: in space mode (a hand-written
+    // row, or the preview of a draft) it keeps nobody out.
+    const spaceWide = await previewAudience(id, { audience_mode: "space", rules: [], exclude_stewards: false });
+    const spaceWithExclude = await previewAudience(id, {
+      audience_mode: "space",
+      rules: sanitizeRules([{ kind: "user", ref: people.carol, effect: "exclude" }]),
+      exclude_stewards: false,
+    });
+    assert.equal(spaceWithExclude.count, spaceWide.count, "an exclude rule is ignored in space mode");
+    const targetedWithExclude = await previewAudience(id, {
+      audience_mode: "targeted",
+      rules: sanitizeRules([{ kind: "group", ref: g1 }, { kind: "user", ref: people.carol }, { kind: "user", ref: people.carol, effect: "exclude" }]),
+      exclude_stewards: false,
+    });
+    assert.equal(targetedWithExclude.count, 1, "and applied in targeted mode (alice only)");
+  });
+
+  test("a save tells the people it adds: one 'request' row limited to them, none when nobody was added", async () => {
+    const { id } = await newPolicy("told");
+    const narrowed = await saveAudienceRules(id, { audience_mode: "targeted", rules: sanitizeRules([{ kind: "user", ref: people.alice }]) });
+    assert.equal(narrowed!.added + narrowed!.reopened, 0);
+    assert.deepEqual(await requestRows(id), [], "nothing added, nobody told");
+    const widened = await saveAudienceRules(id, {
+      rules: sanitizeRules([{ kind: "user", ref: people.alice }, { kind: "user", ref: people.carol }]),
+    });
+    assert.deepEqual({ added: widened!.added, reopened: widened!.reopened }, { added: 0, reopened: 1 }, "carol's closed row re-opens");
+    const told = await requestRows(id);
+    assert.equal(told.length, 1);
+    assert.deepEqual(told[0].user_ids, [people.carol], "carol alone: alice was asked already");
+    await pool().query("DELETE FROM ack_outbox WHERE id = $1", [told[0].id]);
+    // The same rules again: nothing moves, nothing is queued.
+    const same = await saveAudienceRules(id, {
+      rules: sanitizeRules([{ kind: "user", ref: people.alice }, { kind: "user", ref: people.carol }]),
+    });
+    assert.equal(same!.added + same!.reopened, 0);
+    assert.deepEqual(await requestRows(id), []);
   });
 
   test("a person a rule names who cannot see the space is not enrolled and counts as 'no access' in the preview; a grant brings them in through the space hook", async () => {
     const { id } = await newPolicy("ceiling", spaceP);
+    ceilingId = id;
     const rules = sanitizeRules([{ kind: "user", ref: people.bob }, { kind: "role", ref: "approver" }]);
     const preview = await previewAudience(id, { audience_mode: "targeted", rules, exclude_stewards: false });
     assert.equal(preview.count, 0, "neither bob nor dave can see the private space");
@@ -441,14 +526,19 @@ describe("targeted mode: rules, exclusions and the ceiling", () => {
 });
 
 describe("people who leave and come back", () => {
-  test("leaving a group closes the row with 'left_group' and rejoining re-opens the same row, exemption history kept, with a fresh cycle and deadline", async () => {
+  test("leaving a group closes the row with 'left_group' and rejoining re-opens the same row, exemption history kept, with a fresh cycle and deadline and the reminder and escalation stamps cleared", async () => {
     const { id } = await newPolicy("rejoin");
     await saveAudienceRules(id, { audience_mode: "targeted", rules: sanitizeRules([{ kind: "group", ref: g1 }]) });
     const first = (await row(id, people.alice))!;
     assert.equal(first.source, "space", "the row from the switch-on stays, and keeps its source");
-    // What an exemption writes on the row (D2), by hand here so this file does not depend on that path.
+    // What an exemption writes on the row (D2), by hand here so this file
+    // does not depend on that path; and the stamps the sweeps leave (E2) on
+    // a row that was reminded and escalated in the old cycle.
     await pool().query(
-      "UPDATE policy_assignments SET exempt_at = now(), exempt_reason = 'On leave', exempt_by_name = 'Manager' WHERE id = $1",
+      `UPDATE policy_assignments
+       SET exempt_at = now(), exempt_reason = 'On leave', exempt_by_name = 'Manager',
+           reminded_at = now() - interval '2 days', escalated_at = now() - interval '1 day', reminder_count = 2
+       WHERE id = $1`,
       [first.id]
     );
     assert.equal(await hasOpenAssignment(id, people.alice), false, "an exempt row is not open");
@@ -470,7 +560,14 @@ describe("people who leave and come back", () => {
     assert.equal(back.exempt_reason, "On leave", "the exemption history survives");
     assert.ok(back.exempt_at, "and the person is still excused (the roster shows Exempt)");
     assert.ok(at(back.cycle_started_at) > at(first.cycle_started_at), "a fresh cycle");
-    assert.ok(at(back.due_at) > Date.now() + 13 * 86_400_000, "a fresh deadline from the cascade (14 days built in)");
+    assert.ok(at(back.due_at) > Date.now() + 13 * 86_400_000, "a fresh deadline from the cascade (the new-joiner days, 14 built in)");
+    assert.equal(back.reminded_at, null, "the old cycle's reminder stamp is cleared: the new cycle is reminded on its own");
+    assert.equal(back.escalated_at, null, "and its escalation stamp, so a late return is escalated again");
+    assert.equal(
+      (await pool().query("SELECT reminder_count FROM policy_assignments WHERE id = $1", [first.id])).rows[0].reminder_count,
+      2,
+      "the reminder history stays"
+    );
     assert.equal(await ledgerCount(id), before, "the ledger is untouched");
 
     // The sync path (setGroupMembers) reconciles too and tallies for the report.
@@ -506,6 +603,11 @@ describe("people who leave and come back", () => {
     assert.equal(await getCurrentAck(id, people.frank), undefined, "the earlier confirmation does not count for the new cycle");
     assert.equal((await listMyPolicies(people.frank, asScope([spaceA]))).find((r) => r.id === id)!.state, "reconfirm");
     assert.ok((await compliancePendingUsers(id)).some((u) => u.id === people.frank));
+    // The ceiling on the status hook: frank cannot see the private space, so
+    // re-enabling him opens nothing there (invariant 2).
+    assert.equal(await hasOpenAssignment(closedId, people.frank), false, "no row on the private space's policy");
+    assert.equal(await hasOpenAssignment(ceilingId, people.frank), false);
+    assert.equal(await row(closedId, people.frank), undefined, "not even a closed one");
   });
 });
 
@@ -558,8 +660,16 @@ describe("new accounts and the welcome notice", () => {
     const r1 = (await row(w1.id, newbie.id))!;
     assert.equal(r1.source, "new_member");
     assert.ok(at(r1.due_at) > Date.now() + 13 * 86_400_000, "due the new-joiner days from now");
+    assert.equal(at(r1.cycle_started_at), at(await marker(w1.id)), "a fresh row's cycle is the policy's (the marker), not the enrolment");
+    // The ceiling on the account hook (invariant 2): a viewer with no grant
+    // cannot see the private space, so the hook opens nothing on its two
+    // policies and the welcome does not name them.
+    assert.equal(await hasOpenAssignment(closedId, newbie.id), false, "a private space the joiner cannot see");
+    assert.equal(await hasOpenAssignment(ceilingId, newbie.id), false);
+    assert.equal(await row(closedId, newbie.id), undefined, "no row at all, open or closed");
     const owed = await listOwedPoliciesFor(newbie.id);
     assert.ok(owed.some((p) => p.id === w1.id) && owed.some((p) => p.id === w2.id) && !owed.some((p) => p.id === w3.id));
+    assert.ok(owed.every((p) => ![closedId, ceilingId].includes(p.id)), "the welcome's list keeps to what they can see");
     assert.ok(owed.length >= 2);
 
     const enrolled = (
@@ -578,7 +688,13 @@ describe("new accounts and the welcome notice", () => {
     ).rows;
     assert.equal(queued.length, 1, "one welcome row");
     assert.deepEqual(queued[0].user_ids, [newbie.id]);
-    assert.ok(docIds.includes(queued[0].document_id), "keyed to one of the policies");
+    // Keyed to the first policy the hook opened (earliest due, then title),
+    // which the drain only uses to find the row: the list is resolved again
+    // at delivery. Among equal due dates the hook and listOwedPoliciesFor
+    // break the tie by title under different collations (JS and the
+    // database's), so the key is pinned as one of the policies owed, which
+    // may be another file's (the after() hook deletes the row by person).
+    assert.ok(owed.some((p) => p.id === queued[0].document_id), "keyed to one of the policies they owe");
 
     // Deliver it: one email naming every policy owed, one inbox line, one record row per policy.
     const sent: { to: string[]; subject: string; text: string }[] = [];
@@ -621,25 +737,96 @@ describe("new accounts and the welcome notice", () => {
     const again = await autoAssignPolicies(newbie.id);
     assert.deepEqual(again, { policies: [], outbox_id: null });
   });
+
+  test("a failing reconcile never fails the write it decorates: the account is created and the membership stands, with no row (invariant 9)", async () => {
+    // A trigger that refuses every assignment row of one username, so the
+    // other files' hooks are untouched: what a lock timeout or a bad rule
+    // would do to this person's enrolment.
+    const fn = `ackaud_hookfail_${Date.now()}`;
+    const username = `${STAMP}-hookfail`;
+    await pool().query(
+      `CREATE FUNCTION ${fn}() RETURNS trigger AS $$
+       BEGIN
+         IF NEW.user_id IN (SELECT id FROM users WHERE username = '${username}') THEN
+           RAISE EXCEPTION 'ackaud: the hook is made to fail';
+         END IF;
+         RETURN NEW;
+       END $$ LANGUAGE plpgsql`
+    );
+    await pool().query(`CREATE TRIGGER ${fn} BEFORE INSERT ON policy_assignments FOR EACH ROW EXECUTE FUNCTION ${fn}()`);
+    const errors: string[] = [];
+    const origError = console.error;
+    console.error = (...a: unknown[]) => {
+      errors.push(a.map(String).join(" "));
+    };
+    try {
+      const { hash, salt } = hashPassword("Hookfail!12345");
+      const user = await createUser({
+        username,
+        name: `Hookfail ${STAMP}`,
+        email: `${username}@example.test`,
+        role: "viewer",
+        passwordHash: hash,
+        passwordSalt: salt,
+      });
+      userIds.push(user.id);
+      assert.ok(user.id > 0, "the account is created although its enrolment failed");
+      assert.equal((await pool().query("SELECT COUNT(*)::int AS n FROM policy_assignments WHERE user_id = $1", [user.id])).rows[0].n, 0);
+      assert.ok(errors.some((e) => e.includes("[ack] could not enrol the new account")), `the failure is logged: ${errors.join(" | ")}`);
+      assert.equal((await pool().query("SELECT 1 FROM ack_outbox WHERE user_ids @> $1::jsonb", [JSON.stringify([user.id])])).rowCount, 0, "no welcome");
+
+      // The group writers: G1 reaches the 'rejoin' policy by rule and the
+      // private space by grant, so each write tries to enrol the person.
+      await addGroupMember(g1, user.id);
+      const members = async () => (await pool().query("SELECT user_id FROM group_members WHERE group_id = $1 ORDER BY user_id", [g1])).rows.map((r) => r.user_id);
+      assert.ok((await members()).includes(user.id), "the membership is written");
+      assert.ok(errors.some((e) => e.includes("[ack] could not reconcile policy")), "the policy's failure is logged and the loop goes on");
+      await setGroupMembers(g1, [people.alice, user.id]);
+      assert.deepEqual(await members(), [people.alice, user.id].sort((a, b) => a - b), "the sync's membership stands");
+      assert.equal((await pool().query("SELECT COUNT(*)::int AS n FROM policy_assignments WHERE user_id = $1", [user.id])).rows[0].n, 0, "still no row");
+      assert.equal(await hasOpenAssignment(ceilingId, people.alice), false, "alice (G1, not named by the ceiling policy's rules) is untouched by the failures");
+      await removeGroupMember(g1, user.id);
+      assert.ok(!(await members()).includes(user.id));
+    } finally {
+      console.error = origError;
+      await pool().query(`DROP TRIGGER IF EXISTS ${fn} ON policy_assignments`);
+      await pool().query(`DROP FUNCTION IF EXISTS ${fn}()`);
+      await setGroupMembers(g1, [people.alice]);
+    }
+  });
 });
 
 describe("the hourly safety net and the migration", () => {
-  test("reconcileAllPolicies heals a missing settings row and a missing row, and audits only when something moved", async () => {
-    const { id, title } = await newPolicy("heal", spaceW);
+  test("reconcileAllPolicies heals a missing settings row and a missing row, keeps a confirmation made before the heal current, and audits only when something moved", async () => {
+    const { id, title, v1 } = await newPolicy("heal", spaceW);
     await pool().query("DELETE FROM policy_settings WHERE document_id = $1", [id]);
     const quiet = await reconcileAllPolicies({ documentIds: [id] });
     assert.equal(quiet.policies, 1);
-    assert.deepEqual({ added: quiet.added, closed: quiet.closed, reopened: quiet.reopened }, { added: 0, closed: 0, reopened: 0 });
+    assert.deepEqual({ added: quiet.added, closed: quiet.closed, reopened: quiet.reopened, failed: quiet.failed }, { added: 0, closed: 0, reopened: 0, failed: 0 });
     assert.ok(await getPolicyAudience(id), "the settings row is back");
     const audited = async () =>
       (await pool().query("SELECT COUNT(*)::int AS n FROM audit_log WHERE action = 'ack.audience_reconciled' AND target_id = $1", [String(id)])).rows[0].n;
     assert.equal(await audited(), 0, "nothing moved, nothing audited");
 
-    // A row that a rolled-back 1.12.0 binary never wrote comes back.
+    // What a rolled-back 1.12.0 binary leaves (invariant 12): carol confirmed
+    // under it, with no row and no settings row. The heal writes her row
+    // with the policy's cycle (the marker), so the confirmation she made
+    // before the heal still counts everywhere.
+    await recordAcknowledgement(id, people.carol, "", v1);
+    const current = (await ackSummary(id)).current;
+    assert.equal(current, 1);
     await pool().query("DELETE FROM policy_assignments WHERE document_id = $1 AND user_id = $2", [id, people.carol]);
+    await pool().query("DELETE FROM policy_settings WHERE document_id = $1", [id]);
     const healed = await reconcileAllPolicies({ documentIds: [id] });
     assert.equal(healed.added, 1);
     assert.equal(await hasOpenAssignment(id, people.carol), true);
+    const carol = (await row(id, people.carol))!;
+    assert.equal(at(carol.cycle_started_at), at(await marker(id)), "the healed row's cycle is the marker, not the heal");
+    assert.ok(await getCurrentAck(id, people.carol), "the reader's card still shows her confirmation");
+    assert.equal((await ackSummary(id)).current, current, "the summary did not move");
+    assert.ok((await ackStatusForDocument(id)).find((r) => r.id === people.carol)!.acknowledged_at, "the roster keeps the confirmation");
+    assert.equal((await listMyPolicies(people.carol, asScope([spaceW]))).find((r) => r.id === id)!.state, "confirmed");
+    assert.ok(!(await compliancePendingUsers(id)).some((u) => u.id === people.carol), "and no notice reaches her");
     assert.equal(await audited(), 1);
     const details = (await pool().query("SELECT details, target_label FROM audit_log WHERE action = 'ack.audience_reconciled' AND target_id = $1", [String(id)])).rows[0];
     assert.equal(details.target_label, title);

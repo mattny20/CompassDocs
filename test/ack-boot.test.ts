@@ -34,10 +34,20 @@ function urlFor(db: string): string {
   return u.toString();
 }
 
+/** The init chain (test/support/boot.ts) in a child process against `db`. */
 function boot(db: string): { ok: boolean; out: string } {
+  return run("test/support/boot.ts", db);
+}
+
+/** The hourly audience safety net (reconcileAllPolicies, test/support/reconcile.ts) in a child process against `db`: what the first tick after an upgrade does. */
+function reconcile(db: string): { ok: boolean; out: string } {
+  return run("test/support/reconcile.ts", db);
+}
+
+function run(script: string, db: string): { ok: boolean; out: string } {
   const r = spawnSync(
     process.execPath,
-    [path.join(process.cwd(), "node_modules", "tsx", "dist", "cli.mjs"), "--tsconfig", "tsconfig.test.json", "test/support/boot.ts"],
+    [path.join(process.cwd(), "node_modules", "tsx", "dist", "cli.mjs"), "--tsconfig", "tsconfig.test.json", script],
     {
       env: {
         ...process.env,
@@ -996,6 +1006,26 @@ describe("the 1.10.1 additions against a 1.10.0 database, booted twice", () => {
       "SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conrelid = 'policy_audience_rules'::regclass AND contype = 'u'"
     );
     assert.deepEqual(rulesUnique.rows.map((r) => r.def), ["UNIQUE (document_id, kind, ref, effect)"]);
+    // The FK ON DELETE rules: what keeps a 1.12.0 binary's deleteUser and
+    // document purge from failing on the new tables during a rollback
+    // (cascade), and a deleted owner or requester reading as nobody.
+    const fks = await db.query<{ t: string; conname: string; confdeltype: string }>(
+      `SELECT conrelid::regclass::text AS t, conname, confdeltype FROM pg_constraint
+       WHERE contype = 'f' AND conrelid IN ('policy_settings'::regclass, 'policy_audience_rules'::regclass, 'policy_assignments'::regclass)
+       ORDER BY 1, 2`
+    );
+    assert.deepEqual(
+      fks.rows.map((r) => [r.t, r.conname, r.confdeltype]),
+      [
+        ["policy_assignments", "policy_assignments_document_id_fkey", "c"],
+        ["policy_assignments", "policy_assignments_user_id_fkey", "c"],
+        ["policy_audience_rules", "policy_audience_rules_document_id_fkey", "c"],
+        ["policy_settings", "policy_settings_document_id_fkey", "c"],
+        ["policy_settings", "policy_settings_owner_user_id_fkey", "n"],
+        ["policy_settings", "policy_settings_requested_by_fkey", "n"],
+      ],
+      "the six FKs: CASCADE for the three document_id and the user_id, SET NULL for the owner and the requester"
+    );
     const partial = await db.query<{ indexdef: string }>(
       "SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'idx_policy_assign_due'"
     );
@@ -1046,6 +1076,33 @@ describe("the 1.10.1 additions against a 1.10.0 database, booted twice", () => {
     // boot must leave it closed: the materialisation is one-shot.
     const second = (await db.query("SELECT id FROM users WHERE username = 'boot110_second'")).rows[0].id;
     await db.query("UPDATE policy_assignments SET removed_at = now(), removed_reason = 'audience_narrowed' WHERE document_id = $1 AND user_id = $2", [quiet, second]);
+    // And a rollback (invariant 12): a 1.12.0 binary running on this
+    // database between the boots creates an account, switches a policy on
+    // (no settings row, no rows: it knows none of the tables) and records
+    // a confirmation under it. The second boot's migration is flag-guarded,
+    // so the hourly sweep heals these after the re-upgrade.
+    const rolledUser = (
+      await db.query<{ id: number }>(
+        "INSERT INTO users (username, name, email, role, status) VALUES ('boot110_rolled', 'Rolled Reader', 'rolled@boot110.test', 'viewer', 'active') RETURNING id"
+      )
+    ).rows[0].id;
+    const rolled = (
+      await db.query<{ id: number }>(
+        `INSERT INTO documents (space_id, title, slug, type, status, content, author, ack_required, ack_revision_at)
+         VALUES ($1, 'Boot 1.13 rolled-back policy', 'boot-113-rolled', 'policy', 'published', 'rolled text', 'boot', 1, now() - interval '1 day') RETURNING id`,
+        [spaceId]
+      )
+    ).rows[0].id;
+    await db.query("INSERT INTO doc_versions (document_id, title, content, author, note) VALUES ($1, 'Boot 1.13 rolled-back policy', 'rolled text', 'boot', 'Created')", [rolled]);
+    await db.query(
+      `INSERT INTO acknowledgements (document_id, user_id, acknowledged_at, ip, user_name, user_email, document_title)
+       VALUES ($1, $2, now() - interval '1 hour', '10.0.0.5', 'Rolled Reader', 'rolled@boot110.test', 'Boot 1.13 rolled-back policy')`,
+      [rolled, rolledUser]
+    );
+    const rolledLegacy = (await db.query(LEGACY)).rows.filter((r) => r.document_id === rolled);
+    assert.ok(rolledLegacy.length >= 2, "1.12.0 asked everyone active in the internal space");
+    assert.ok(rolledLegacy.some((r) => r.user_id === rolledUser && r.current), "and showed the rolled-back confirmation as current");
+    assert.equal((await db.query("SELECT 1 FROM policy_assignments WHERE document_id = $1", [rolled])).rowCount, 0, "no row yet: 1.12.0 wrote none");
     const between = (await db.query(AFTER)).rows;
     const reboot = boot(DB);
     assert.ok(reboot.ok, `the second boot succeeds:\n${reboot.out}`);
@@ -1055,6 +1112,29 @@ describe("the 1.10.1 additions against a 1.10.0 database, booted twice", () => {
       (await db.query("SELECT removed_reason FROM policy_assignments WHERE document_id = $1 AND user_id = $2", [quiet, second])).rows[0].removed_reason,
       "audience_narrowed",
       "the closed row stays closed"
+    );
+
+    // The re-upgraded binary's first hourly tick: the rolled-back policy
+    // gets its settings row and its rows, each dated from the marker (the
+    // policy's cycle, not the heal), so the roster 1.12.0 showed and the
+    // currency of every confirmation made under it are what 1.13.0 shows.
+    const healed = reconcile(DB);
+    assert.ok(healed.ok, `the sweep runs:\n${healed.out}`);
+    const rolledAfter = (await db.query(AFTER)).rows.filter((r) => r.document_id === rolled);
+    assert.deepEqual(rolledAfter, rolledLegacy, "the rolled-back policy's roster is identical, confirmation by confirmation");
+    assert.ok(rolledAfter.some((r) => r.user_id === rolledUser && r.current), "the confirmation recorded under 1.12.0 is still current");
+    const healedShape = (
+      await db.query<{ n: number; from_marker: boolean; open: boolean }>(
+        `SELECT COUNT(*)::int AS n, bool_and(pa.cycle_started_at = d.ack_revision_at) AS from_marker, bool_and(pa.removed_at IS NULL) AS open
+         FROM policy_assignments pa JOIN documents d ON d.id = pa.document_id WHERE pa.document_id = $1`,
+        [rolled]
+      )
+    ).rows[0];
+    assert.deepEqual(healedShape, { n: rolledLegacy.length, from_marker: true, open: true }, "every healed row takes the policy's cycle");
+    assert.equal(
+      (await db.query("SELECT audience_mode FROM policy_settings WHERE document_id = $1", [rolled])).rows[0]?.audience_mode,
+      "space",
+      "and the settings row is back, in space mode"
     );
     await assertSchema1101(db, "1.13.0 (D1) second boot");
   });

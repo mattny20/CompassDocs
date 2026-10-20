@@ -18,6 +18,10 @@ const BODY = "## Policy\n\nShort policy text for the settings tab. Read it and c
 
 const NEXT_DATE_PAST = "The next re-confirmation date cannot be in the past.";
 const REASON_TOO_SHORT = "Give a reason of at least 10 characters.";
+/** The route's refusal of an edited fixed deadline before today (PolicySettingsPanel.DUE_DATE_PAST). */
+const DUE_DATE_PAST = "The deadline cannot be in the past.";
+/** The hint under a stored fixed deadline that has passed (PolicySettingsPanel.DUE_DATE_PASSED_HINT), word for word. */
+const DUE_DATE_PASSED_HINT = "This date has passed; new assignments use the inherited days until you set another date.";
 /** The rule line under the People picker (1.13.0), word for word (PolicySettingsPanel.PEOPLE_ACCESS_RULE). */
 const PEOPLE_ACCESS_RULE =
   'People must be able to see this document\'s space. Someone who cannot is shown as "No access" in the preview and is not required until access is granted in Space settings.';
@@ -514,6 +518,7 @@ test("1.13.0: the Deadline radio round-trips and moves deadlines, the Reminders 
     expect(Math.abs(new Date(mine.due_at).getTime() - Date.UTC(y, m - 1, d, 23, 59, 59, 999)), "the fixed date, as the row holds it").toBeLessThanOrEqual(
       14 * 3_600_000
     );
+    await expect(page.getByText(DUE_DATE_PASSED_HINT), "a date still ahead carries no hint").toHaveCount(0);
 
     // The Reminders card: a blank field says what it inherits; a typed one saves.
     await expect(page.getByText(/^(Inherited from (workspace|.+ space)|Built-in) \(\d+\)$/).first()).toBeVisible();
@@ -576,6 +581,26 @@ test("1.13.0: the Deadline radio round-trips and moves deadlines, the Reminders 
     await expect(panel.getByRole("link", { name: "All settings" })).toHaveAttribute("href", `/doc/${docId}/acknowledgements/settings`);
     await expect(panel.getByRole("switch", { name: "Require readers to confirm" })).toBeVisible();
     await page.keyboard.press("Escape");
+
+    // The stored fixed date once it has passed (the browser's clock run 60
+    // days ahead; the server's is real, and no API writes a past date): the
+    // hint under the field, and "Also move existing deadlines" leaves the
+    // stored date out of its PATCH, so the route does not refuse it as past
+    // and moves from the rule it already applies. Last, because the faked
+    // clock stays with the page.
+    await page.clock.setFixedTime(new Date(Date.now() + 60 * 86_400_000));
+    await page.goto(`/doc/${docId}/acknowledgements/settings`);
+    await expect(page.getByRole("radiogroup", { name: "Deadline" }).getByRole("radio", { name: "Fixed date" })).toBeChecked();
+    await expect(page.getByText(DUE_DATE_PASSED_HINT)).toBeVisible();
+    const [moveRequest] = await Promise.all([
+      page.waitForRequest((r) => r.method() === "PATCH" && r.url().includes(`/api/documents/${docId}/ack-settings`)),
+      page.getByRole("button", { name: "Also move existing deadlines" }).click(),
+    ]);
+    expect(moveRequest.postDataJSON(), "the stored date is left out of the move").toEqual({ due_days: null, move_existing: true });
+    await expect(toasts.getByText(/^(Moved \d+ deadlines?|No deadlines to move\.)$/).last()).toBeVisible();
+    await expect(toasts.getByText(DUE_DATE_PAST)).toHaveCount(0);
+    settings = await api(page, `/api/documents/${docId}/ack-settings`);
+    expect(settings.body?.due_at, "the stored rule is untouched by the move").toBe(day);
   } finally {
     await restoreRecertDefault(page, recertDefaultBefore);
     if (viewerId) await api(page, `/api/admin/users/${viewerId}`, { method: "DELETE" });

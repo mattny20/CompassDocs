@@ -38,6 +38,9 @@ import {
   unsnoozeAssignments,
   expireExemptions,
   reaskableAssignments,
+  createGroup,
+  setGroupMembers,
+  setSpaceGroups,
   EXEMPT_REASON_MAX,
   SNOOZE_DAYS_MAX,
   EXTEND_DAYS_MAX,
@@ -45,6 +48,7 @@ import {
   ACK_REASON_MIN,
 } from "../src/lib/db";
 import type { PolicyAssignmentRow } from "../src/lib/db";
+import { endOfDayIn } from "../src/lib/ack-due";
 import { runAssignmentAction } from "../src/lib/ack-assignment-actions";
 import {
   parseAssignmentRequest,
@@ -67,6 +71,7 @@ const DAY = 86_400_000;
 const HOUR = 3_600_000;
 
 let spaceId = 0;
+let groupId = 0;
 let anaId = 0;
 let benId = 0;
 let miaId = 0;
@@ -132,6 +137,11 @@ function assertNear(actual: string | null, expected: Date, ms: number, label: st
   assert.ok(diff <= ms, `${label}: ${actual} is within ${ms}ms of ${expected.toISOString()} (off by ${diff}ms)`);
 }
 
+/** The workspace's zone as the cascade reads it (settings.timezone, else UTC): a fixed day, and an exemption's end, end in it. */
+async function workspaceZone(): Promise<string> {
+  return (await getSetting("timezone"))?.trim() || "UTC";
+}
+
 /** The workspace's default deadline as the cascade reads it (ack_defaults.due_days, else the built-in 14). */
 async function workspaceDueDaysOrBuiltIn(): Promise<number> {
   const raw = await getSetting("ack_defaults");
@@ -153,8 +163,12 @@ const auditRows = async (action: string, docId: number) =>
 
 before(async () => {
   await getSetting("__schema_bootstrap__");
+  // A private space granted to one group holding only this file's people:
+  // another file's account hooks (a new account, a re-enabled one) cannot
+  // enrol anyone into these policies while the suite runs files in
+  // parallel, so the exact counts below hold.
   const sp = await fixtureQuery(
-    `INSERT INTO spaces (name, slug, icon, description, visibility) VALUES ($1, $2, '📁', '', 'internal') RETURNING id`,
+    `INSERT INTO spaces (name, slug, icon, description, visibility) VALUES ($1, $2, '📁', '', 'private') RETURNING id`,
     [`Ack Exempt ${STAMP}`, STAMP]
   );
   spaceId = sp.rows[0].id;
@@ -176,6 +190,9 @@ before(async () => {
   anaId = users.rows[0].id;
   benId = users.rows[1].id;
   miaId = users.rows[2].id;
+  groupId = (await createGroup({ name: `${STAMP} readers` })).id;
+  await setGroupMembers(groupId, [anaId, benId, miaId]);
+  await setSpaceGroups(spaceId, [groupId]);
 });
 
 after(async () => {
@@ -192,6 +209,7 @@ after(async () => {
   await pool().query("DELETE FROM ack_notices WHERE document_id = ANY($1)", [docIds]).catch(() => {});
   await pool().query("DELETE FROM attested_texts WHERE document_id = ANY($1)", [docIds]);
   await pool().query("DELETE FROM documents WHERE id = ANY($1)", [docIds]);
+  await pool().query("DELETE FROM groups WHERE id = $1", [groupId]);
   await pool().query("DELETE FROM users WHERE id = ANY($1)", [userIds]);
   await pool().query("DELETE FROM spaces WHERE id = $1", [spaceId]);
 });
@@ -248,7 +266,11 @@ describe("exemptions", () => {
     assert.equal(row.exempt_reason, "On leave");
     assert.equal(row.exempt_by_name, "Mia Manager");
     assert.ok(row.exempt_at);
-    assertNear(row.exempt_until, new Date(Date.UTC(2099, 11, 1)), DAY, "exempt_until");
+    // The day the manager typed is stored as its last instant in the
+    // workspace zone (the rule a fixed deadline follows), so the roster and
+    // the CSV, which format it in that zone, name 1 Dec and the sweep clears
+    // it once 1 Dec has ended there.
+    assert.equal(row.exempt_until, endOfDayIn("2099-12-01", await workspaceZone())!.toISOString(), "exempt_until: the day's end in the workspace zone");
     assert.equal(row.snoozed_until, null, "a snooze is moot while exempt");
     assert.equal(row.asked_again_at, null, "a row assigned after the marker was not asked again: its cycle simply began then");
     assert.equal(rows.indexOf(row), rows.length - 1, "exempt rows sort last");
@@ -359,9 +381,13 @@ describe("exemptions", () => {
 
     // A fixed date still ahead wins over every days rule; one that passed falls back to it.
     await pool().query("UPDATE policy_settings SET due_days = 5, due_at = CURRENT_DATE + 20 WHERE document_id = $1", [id]);
+    const fixedDay = (await pool().query<{ day: string }>("SELECT due_at::text AS day FROM policy_settings WHERE document_id = $1", [id])).rows[0].day;
     assert.equal((await exemptAssignments(null, [ana.id], manager(), { reason: "Contractor", until: null })).changed.length, 1);
     const fixed = (await unexemptAssignments(null, [ana.id])).changed[0].to_at!;
-    assertNear(fixed, new Date(Date.now() + 20 * DAY), DAY, "the fixed date, at its midnight");
+    // The one re-arm fragment (dueRearmSql): the fixed day's last instant in
+    // the workspace zone, to the millisecond, as the reconcile, the
+    // re-confirmation cycle and a moved deadline write it.
+    assert.equal(fixed, endOfDayIn(fixedDay, await workspaceZone())!.toISOString(), "the fixed date: its last instant in the workspace zone");
     await pool().query("UPDATE policy_settings SET due_at = CURRENT_DATE - 1 WHERE document_id = $1", [id]);
     assert.equal((await exemptAssignments(null, [ana.id], manager(), { reason: "Contractor", until: null })).changed.length, 1);
     assertNear((await unexemptAssignments(null, [ana.id])).changed[0].to_at, new Date(Date.now() + 5 * DAY), HOUR, "a fixed date in the past: the policy's days");
@@ -382,7 +408,11 @@ describe("exemptions", () => {
     assert.equal((await exemptAssignments(null, [mia.id], { id: anaId, name: "Ana Ruiz" }, { reason: "Future", until: "2099-01-01" })).changed.length, 1);
     const eligible = (await ackSummary(id)).eligible;
 
-    const expired = await expireExemptions();
+    // The sweep is bounded to this file's policies (complianceHourly passes
+    // nothing and sweeps every policy); bounded to another id it clears nothing.
+    assert.deepEqual(await expireExemptions({ documentIds: [-1] }), [], "a bound that names no policy here clears nothing");
+    assert.ok((await rowOf(id, anaId)).exempt_at, "Ana's dated exemption still stands");
+    const expired = await expireExemptions({ documentIds: docIds });
     const mine = expired.filter((e) => e.document_id === id);
     assert.deepEqual(mine.map((e) => e.id), [ana.id], "only the dated exemption that passed");
     assert.equal(mine[0].title, `${STAMP} expiry`);
@@ -396,7 +426,7 @@ describe("exemptions", () => {
     assert.ok((await rowOf(id, benId)).exempt_at, "the standing exemption stays");
     assert.ok((await rowOf(id, miaId)).exempt_at, "the future one stays");
     assert.equal((await ackSummary(id)).eligible, eligible + 1, "Ana is counted again");
-    assert.equal((await expireExemptions()).filter((e) => e.document_id === id).length, 0, "nothing left to expire");
+    assert.equal((await expireExemptions({ documentIds: docIds })).filter((e) => e.document_id === id).length, 0, "nothing left to expire");
   });
 });
 
@@ -433,8 +463,9 @@ describe("extensions", () => {
     assert.equal(entry.kind, "extend");
     assertNear(entry.from, anaDue, 1000, "due_history.from");
     assert.equal(new Date(entry.to!).getTime(), new Date(row.due_at!).getTime(), "due_history.to is the new date");
-    assert.equal(entry.by, "Mia Manager");
+    assert.equal(entry.by_name, "Mia Manager", "one shape for every writer: by_id and by_name");
     assert.equal(entry.by_id, miaId);
+    assert.deepEqual(Object.keys(entry).sort(), ["at", "by_id", "by_name", "from", "kind", "reason", "to"]);
     assert.equal(entry.reason, "Travelling");
     assertNear(entry.at, new Date(), HOUR, "due_history.at");
     assert.deepEqual((await rowOf(id, miaId)).due_history[0].from, null);
@@ -580,6 +611,35 @@ describe("the document bound and the request rules", () => {
     const mixed = await snoozeAssignments(a.id, [anaOnA.id, benOnB.id], 7, manager());
     assert.deepEqual(mixed.changed.map((c) => c.id), [anaOnA.id]);
     assert.deepEqual(mixed.skipped, [benOnB.id]);
+  });
+
+  test("a policy that no longer asks (stopped or retired: ack_required = 0) takes no lever: its ids come back as skipped and nothing of theirs changes", async () => {
+    const { id } = await policy(`${STAMP} stopped`);
+    const ana = await rowOf(id, anaId);
+    const ben = await rowOf(id, benId);
+    // Rows in every state a lever could act on: an extension to undo, a
+    // snooze to lift, an exemption to remove.
+    assert.equal((await extendAssignments(null, [ana.id], 2, "", manager())).changed.length, 1);
+    assert.equal((await snoozeAssignments(null, [ana.id], 3, manager())).changed.length, 1);
+    assert.equal((await exemptAssignments(null, [ben.id], manager(), { reason: "Leave", until: null })).changed.length, 1);
+    await setAckRequired(id, false);
+    const anaBefore = await rowOf(id, anaId);
+    const benBefore = await rowOf(id, benId);
+
+    assert.deepEqual(await exemptAssignments(null, [ana.id], manager(), { reason: "Leave", until: null }), { changed: [], skipped: [ana.id], self: [] });
+    assert.deepEqual(await unexemptAssignments(null, [ben.id]), { changed: [], skipped: [ben.id] });
+    assert.deepEqual(await extendAssignments(null, [ana.id], 7, "", manager()), { changed: [], skipped: [ana.id] });
+    assert.deepEqual(await undoExtension(null, [ana.id]), { changed: [], skipped: [ana.id] });
+    assert.deepEqual(await snoozeAssignments(null, [ana.id], 7, manager()), { changed: [], skipped: [ana.id] });
+    assert.deepEqual(await unsnoozeAssignments(null, [ana.id]), { changed: [], skipped: [ana.id] });
+    assert.deepEqual(await reaskableAssignments(null, [ana.id]), [], "a re-ask is bounded the same way");
+    assert.deepEqual(await rowOf(id, anaId), anaBefore, "Ana's row is untouched");
+    assert.deepEqual(await rowOf(id, benId), benBefore, "Ben's exemption stands");
+
+    // Asked again, the same ids answer.
+    await pool().query("UPDATE documents SET ack_required = 1 WHERE id = $1", [id]);
+    assert.deepEqual((await unsnoozeAssignments(null, [ana.id])).changed.map((c) => c.id), [ana.id]);
+    assert.deepEqual((await unexemptAssignments(null, [ben.id])).changed.map((c) => c.id), [ben.id]);
   });
 
   test("the request rules the routes answer 400 with: the action, the 200-id cap, the days bounds, the exemption reason and date, the re-ask reason", () => {
@@ -736,5 +796,146 @@ describe("the per-person re-ask through the assignments route (D4)", () => {
     assert.equal(refused.status, 400);
     assert.deepEqual(refused.body, { error: SELF_EXEMPTION_ERROR });
     assert.equal((await rowOf(p.id, miaId)).exempt_at, null, "and nothing was written");
+  });
+});
+
+// --- The space-scoped twin on a paused or retired policy ----------------------
+// The twin (POST /api/documents/{id}/acknowledgements/actions) answers 400 with
+// the sibling reconfirm route's sentence when the policy is paused
+// (ack_required = 0) or retired (ack_retired_at set) and writes nothing; live,
+// the same request is 200. The handler is called directly, the way
+// test/ack-reask.test.ts does it: next/headers resolves to a stub serving the
+// request under test (Mia's session cookie; an approver holds
+// document.ack_require through the ladder's Approver role) and lib/ee to a
+// stub that grants policy_ack. Both are installed in `before`, before the
+// route is imported, so nothing above this line is touched.
+
+describe("the space-scoped twin refuses a paused or retired policy", () => {
+  const SENTENCE = "This document doesn't ask for a read confirmation.";
+  let currentRequest: Request | null = null;
+  let route: typeof import("../src/app/api/documents/[id]/acknowledgements/actions/route");
+  let session = "";
+
+  before(async () => {
+    const Module = (await import("node:module")).default;
+    const path = (await import("node:path")).default;
+    const HEADERS_STUB = path.join(__dirname, "stubs", "next-headers.ack-exempt.virtual.js");
+    const EE_STUB = path.join(__dirname, "stubs", "ee.ack-exempt.virtual.js");
+    const EE_REAL = path.join(__dirname, "..", "src", "lib", "ee");
+    const jar = () => {
+      const out = new Map<string, string>();
+      for (const part of (currentRequest?.headers.get("cookie") ?? "").split(";")) {
+        const i = part.indexOf("=");
+        if (i > 0) out.set(part.slice(0, i).trim(), decodeURIComponent(part.slice(i + 1).trim()));
+      }
+      return out;
+    };
+    const headers = new Module(HEADERS_STUB);
+    headers.filename = HEADERS_STUB;
+    headers.loaded = true;
+    headers.exports = {
+      headers: async () => new Headers(currentRequest?.headers ?? {}),
+      cookies: async () => {
+        const c = jar();
+        return {
+          get: (name: string) => (c.has(name) ? { name, value: c.get(name) } : undefined),
+          getAll: () => [...c].map(([name, value]) => ({ name, value })),
+          has: (name: string) => c.has(name),
+        };
+      },
+      draftMode: async () => ({ isEnabled: false }),
+    };
+    require.cache[HEADERS_STUB] = headers;
+    const edition = { present: true, features: ["policy_ack"] };
+    const ee = new Module(EE_STUB);
+    ee.filename = EE_STUB;
+    ee.loaded = true;
+    ee.exports = {
+      ee: () => edition,
+      eePresent: () => true,
+      featureEnabled: async (feature: string) => edition.features.includes(feature),
+    };
+    require.cache[EE_STUB] = ee;
+    const loader = Module as unknown as {
+      _resolveFilename: (request: string, parent: { filename?: string } | null, ...rest: unknown[]) => string;
+    };
+    const resolveFilename = loader._resolveFilename;
+    loader._resolveFilename = function (request: string, parent: { filename?: string } | null, ...rest: unknown[]) {
+      if (request === "next/headers") return HEADERS_STUB;
+      if (request === "@/lib/ee") return EE_STUB;
+      if (request === "./ee" && parent?.filename && path.resolve(path.dirname(parent.filename), "ee") === EE_REAL) return EE_STUB;
+      return resolveFilename.call(this, request, parent, ...rest);
+    };
+    route = await import("../src/app/api/documents/[id]/acknowledgements/actions/route");
+    const { createSession } = await import("../src/lib/db");
+    const { newToken } = await import("../src/lib/password");
+    session = newToken();
+    await createSession(session, miaId, new Date(Date.now() + HOUR).toISOString());
+  });
+
+  after(async () => {
+    await pool().query("DELETE FROM sessions WHERE user_id = $1", [miaId]);
+  });
+
+  async function post(docId: number, body: unknown): Promise<{ status: number; body: any }> {
+    const req = new Request(`http://localhost/api/documents/${docId}/acknowledgements/actions`, {
+      method: "POST",
+      headers: { cookie: `compass_session=${session}`, "content-type": "application/json", "x-forwarded-for": "203.0.113.9" },
+      body: JSON.stringify(body),
+    });
+    currentRequest = req;
+    try {
+      const res = await route.POST(req, { params: Promise.resolve({ id: String(docId) }) });
+      return { status: res.status, body: await res.json().catch(() => null) };
+    } finally {
+      currentRequest = null;
+    }
+  }
+
+  test("every lever answers 400 with the sibling's sentence on a paused policy and on a retired one, and nothing is written; live, the same request is 200", async () => {
+    const p = await policy(`${STAMP} twin paused`);
+    const ana = await rowOf(p.id, anaId);
+    const levers: Record<string, unknown>[] = [
+      { action: "exempt", assignment_ids: [ana.id], reason: "On leave" },
+      { action: "unexempt", assignment_ids: [ana.id] },
+      { action: "extend", assignment_ids: [ana.id], days: 3 },
+      { action: "undo_extend", assignment_ids: [ana.id] },
+      { action: "snooze", assignment_ids: [ana.id], days: 2 },
+      { action: "unsnooze", assignment_ids: [ana.id] },
+      { action: "reask", assignment_ids: [ana.id], reason: "Please read the new travel section" },
+    ];
+    const snapshot = async () => {
+      const r = await rowOf(p.id, anaId);
+      return { exempt_at: r.exempt_at, due_at: r.due_at, snoozed_until: r.snoozed_until, cycle: r.cycle_started_at, history: JSON.stringify(r.due_history) };
+    };
+
+    // Paused: the requirement switched off.
+    await setAckRequired(p.id, false, { editDefault: null, recertMonths: null });
+    const before = await snapshot();
+    for (const body of levers) {
+      const r = await post(p.id, body);
+      assert.equal(r.status, 400, `${body.action} on a paused policy: ${JSON.stringify(r.body)}`);
+      assert.deepEqual(r.body, { error: SENTENCE });
+    }
+    assert.deepEqual(await snapshot(), before, "nothing was written");
+    for (const action of ["ack.exempted", "ack.due_extended", "ack.snoozed", "ack.reconfirmation_requested"]) {
+      assert.equal((await auditRows(action, p.id)).length, 0, `no ${action} row`);
+    }
+
+    // Retired: the stamp alone refuses, whatever ack_required says.
+    await setAckRequired(p.id, true, { editDefault: null, recertMonths: null });
+    await pool().query("UPDATE documents SET ack_retired_at = now() WHERE id = $1", [p.id]);
+    const retired = await post(p.id, levers[4]);
+    assert.equal(retired.status, 400, JSON.stringify(retired.body));
+    assert.deepEqual(retired.body, { error: SENTENCE });
+    assert.equal((await rowOf(p.id, anaId)).snoozed_until, null);
+
+    // Live again: the same request works.
+    await pool().query("UPDATE documents SET ack_retired_at = NULL WHERE id = $1", [p.id]);
+    const live = await post(p.id, levers[4]);
+    assert.equal(live.status, 200, JSON.stringify(live.body));
+    assert.deepEqual(live.body.changed, [ana.id]);
+    assert.ok((await rowOf(p.id, anaId)).snoozed_until, "the snooze was recorded");
+    assert.equal((await unsnoozeAssignments(null, [ana.id])).changed.length, 1);
   });
 });
