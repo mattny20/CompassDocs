@@ -577,6 +577,118 @@ test("a preset's section order: previewed with counts, saved, moved in the edito
   }
 });
 
+// 1.13.0: section heads. A head who sits in another section leads the
+// section they head on the files and in the Groups view, the CSV names the
+// section in a column, the sections route and the Section order list name
+// the head, and the preset's Section heads first toggle puts them back.
+test("section heads: a head in another section leads it on the files and in the Groups view; the toggle off puts them back", async ({ page }) => {
+  await login(page, ADMIN);
+  const stamp = Date.now();
+  const key = `e2e_dept_${stamp}`;
+  const presets = (await api(page, "/api/admin/directory/export-presets")).body.presets as any[];
+  const field = (await api(page, "/api/admin/directory/fields", {
+    method: "POST",
+    body: { label: `E2E Dept ${stamp}`, key, kind: "choice", group_by: true, value_format: "label", options: [{ value: "ENG", label: "Engineering" }, { value: "EXEC", label: "Executive" }] },
+  })).body.field;
+  const mk = (name: string, value: string) => api(page, "/api/admin/directory/people", { method: "POST", body: { name, title: "Staff", custom: { [key]: value } } });
+  const jane = (await mk(`E2E Head Jane ${stamp}`, "EXEC")).body.person;
+  const bob = (await mk(`E2E Head Bob ${stamp}`, "ENG")).body.person;
+  const id = `e2e-heads-${stamp}`;
+  const csvRows = async (body: Record<string, unknown>) => {
+    const text = await page.evaluate(async (body) => {
+      const res = await fetch("/api/directory/export", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      return await res.text();
+    }, body);
+    return text.replace(/^﻿/, "").trim().split("\r\n");
+  };
+  try {
+    // Jane, in Executive, heads Engineering.
+    const headed = await api(page, `/api/admin/directory/fields/${field.id}`, {
+      method: "PATCH",
+      body: { options: [{ value: "ENG", label: "Engineering", heads: [jane.id] }, { value: "EXEC", label: "Executive" }] },
+    });
+    expect(headed.status).toBe(200);
+    // The sections route names the head under its section only.
+    const sections = await api(page, `/api/admin/directory/export-presets/sections?field=${key}`);
+    expect(sections.body.sections).toEqual([
+      { value: "ENG", label: "Engineering", count: 1, heads: [{ id: jane.id, name: jane.name }] },
+      { value: "EXEC", label: "Executive", count: 1 },
+    ]);
+
+    // A preset sectioned by the field: Section heads first is on by default and round-trips.
+    const saved = await api(page, "/api/admin/directory/export-presets", {
+      method: "PUT",
+      body: { presets: [...presets, { id, name: `E2E Heads ${stamp}`, columns: ["name"], group_by: key, office_info: false, filename: id }] },
+    });
+    expect(saved.status).toBe(200);
+    expect(saved.body.presets.find((p: any) => p.id === id).section_heads).toBe(true);
+
+    // The PDF answers %PDF.
+    const pdf = await page.evaluate(async (id) => {
+      const res = await fetch(`/api/directory/export?preset=${id}&format=pdf`);
+      const buf = new Uint8Array(await res.arrayBuffer());
+      return { status: res.status, head: String.fromCharCode(...buf.slice(0, 5)), size: buf.length };
+    }, id);
+    expect(pdf.status).toBe(200);
+    expect(pdf.head).toBe("%PDF-");
+    expect(pdf.size).toBeGreaterThan(1500);
+
+    // The CSV: Jane first in Engineering with no mark in the name cell, the
+    // "Section head of" column naming it on each of her rows, and Jane again
+    // as an ordinary row in Executive.
+    const lines = await csvRows({ preset: id, format: "csv", ids: [jane.id, bob.id] });
+    expect(lines[0]).toBe("Group,Name,Section head of");
+    expect(lines.slice(1)).toEqual([`Engineering,${jane.name},Engineering`, `Engineering,${bob.name},`, `Executive,${jane.name},Engineering`]);
+    // The toggle off as an override: the head prints only where her value puts her; the column stays.
+    const off = await csvRows({ preset: id, format: "csv", ids: [jane.id, bob.id], section_heads: false });
+    expect(off.slice(1)).toEqual([`Engineering,${bob.name},`, `Executive,${jane.name},Engineering`]);
+
+    // The Groups view: Engineering leads with Jane and her Head chip, the
+    // heading names her; Executive lists her as an ordinary tile.
+    await page.goto("/directory");
+    await page.getByRole("button", { name: "Groups" }).click();
+    await page.getByLabel("Group by").selectOption(key);
+    await page.fill('input[aria-label="Search people"]', `E2E Head`);
+    const eng = page.locator("h2", { hasText: /Engineering/ });
+    await expect(eng).toBeVisible();
+    await expect(eng).toContainText(`Head: ${jane.name}`);
+    await expect(eng).toContainText("(2)");
+    const engTiles = eng.locator("xpath=following-sibling::div[1]").getByRole("link");
+    await expect(engTiles).toHaveCount(2);
+    await expect(engTiles.first()).toContainText(jane.name);
+    await expect(engTiles.first().getByText("Head", { exact: true })).toBeVisible();
+    await expect(engTiles.nth(1).getByText("Head", { exact: true })).toHaveCount(0);
+    const exec = page.locator("h2", { hasText: /Executive/ });
+    await expect(exec).not.toContainText("Head:");
+    const execTiles = exec.locator("xpath=following-sibling::div[1]").getByRole("link");
+    await expect(execTiles).toHaveCount(1);
+    await expect(execTiles.first().getByText("Head", { exact: true })).toHaveCount(0);
+
+    // The editor: the toggle under Sections by, the Section order list
+    // naming the head under its count; off, the line goes and Save stores it.
+    await page.goto("/admin/directory/export");
+    await page.getByRole("button", { name: `E2E Heads ${stamp}` }).click();
+    const toggle = page.getByRole("switch", { name: "Section heads first" });
+    await expect(toggle).toBeVisible();
+    await expect(toggle).toHaveAttribute("aria-checked", "true");
+    const list = page.getByRole("group", { name: "Section order" });
+    await expect(list.getByText(`Head: ${jane.name}`)).toBeVisible();
+    await toggle.click();
+    await expect(list.getByText(`Head: ${jane.name}`)).toHaveCount(0);
+    const save = page.getByRole("button", { name: "Save presets" });
+    await expect(save).toBeEnabled();
+    await save.click();
+    await expect(page.getByText("Export presets saved.")).toBeVisible();
+    expect((await api(page, "/api/admin/directory/export-presets")).body.presets.find((p: any) => p.id === id).section_heads).toBe(false);
+    const stored = await csvRows({ preset: id, format: "csv", ids: [jane.id, bob.id] });
+    expect(stored.slice(1)).toEqual([`Engineering,${bob.name},`, `Executive,${jane.name},Engineering`]);
+  } finally {
+    await api(page, "/api/admin/directory/export-presets", { method: "PUT", body: { presets } });
+    for (const p of [jane, bob]) await api(page, `/api/admin/directory/people/${p.id}`, { method: "DELETE" });
+    await api(page, `/api/admin/directory/fields/${field.id}`, { method: "DELETE" });
+  }
+});
+
 // 1.11.2: the Directory page defaults (list columns, the Groups view's field,
 // Sort names by) are the Display page, one card with one Save.
 test("the Display page holds the Directory page defaults and saves them", async ({ page }) => {
