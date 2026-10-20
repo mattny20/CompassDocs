@@ -416,7 +416,12 @@ focus):
   `@md:` / `@2xl:` variants, because the pane, 18rem narrower than the
   column, is the width they share (§Scaling). `PresetList` /
   `PresetEditor` (`components/directory-admin/export/`) are the worked
-  example.
+  example. A set inside a card that is only put in order, never added to
+  or taken from (the Order and filter card's **Section order**, 1.13.0),
+  is the same `OrderedKeyList` with `removable={false}` in a fieldset with
+  a legend, one row per item with a `text-2xs text-slate-500` count as its
+  `extra`, a `LoadingRow` while its route answers, a `SectionEmpty` when
+  it has no rows, and one secondary **Reset …** button under the help.
 - **A short table of definitions edited in place** (export markers, 1.11.2)
   is a `padding="none"` `Card` holding a `Table` whose rows are dense
   controls (`TextInput` / `Select` with `dense` and an `aria-label` naming
