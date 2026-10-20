@@ -123,15 +123,17 @@ function ruleMatch(a: AudienceSqlAliases, effect: AudienceRuleEffect, kind?: Aud
 
 /**
  * Boolean: the policy's audience admits this person. Space mode admits
- * everyone; targeted mode needs an include rule; an exclude rule or, when
- * the policy says so, being its author or an approver takes them out. The
- * account's status and the visibility ceiling are the caller's AND: they
- * apply in both modes and are not a matter of rules.
+ * everyone (the rules, exclusions included, apply in targeted mode only:
+ * "Everyone who can see this space" means what it says, and lib/db clears
+ * the rules on a save in space mode); targeted mode needs an include rule
+ * and no exclude rule. In both modes, when the policy says so, being its
+ * author or an approver takes them out. The account's status and the
+ * visibility ceiling are the caller's AND: they apply in both modes and
+ * are not a matter of rules.
  */
 export function audienceAdmitsSql(a: AudienceSqlAliases): string {
   return `(
-      (${a.mode} = 'space' OR ${ruleMatch(a, "include")})
-      AND NOT ${ruleMatch(a, "exclude")}
+      (${a.mode} = 'space' OR (${ruleMatch(a, "include")} AND NOT ${ruleMatch(a, "exclude")}))
       AND NOT ((${a.excludeStewards}) AND ${a.steward})
     )`;
 }

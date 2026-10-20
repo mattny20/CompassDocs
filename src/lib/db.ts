@@ -5535,7 +5535,7 @@ async function workspaceAckDefaults(): Promise<{ edit_default: AckEditDefault; r
 export async function setAckRequired(
   docId: number,
   required: boolean,
-  opts: { editDefault?: AckEditDefault | null; recertMonths?: number | null } = {}
+  opts: { editDefault?: AckEditDefault | null; recertMonths?: number | null; requestedBy?: number | null } = {}
 ): Promise<{ switched_on: boolean; edit_default: AckEditDefault }> {
   if (!required) {
     const r = await q<{ ack_edit_default: string }>(
@@ -5579,8 +5579,19 @@ export async function setAckRequired(
     // unless it already had one) and a row for everyone its audience names,
     // in one transaction, so the first count after a switch-on is right.
     // Only the call that flipped the requirement does this; the loser of a
-    // race changes nothing.
-    await reconcilePolicyAssignments(null, docId, { auto: false });
+    // race changes nothing. `requestedBy` (the actor of the route or the
+    // portal's Request) is the escalation's stand-in for a policy with no
+    // owner (E2); the first requester is kept across a later switch-on.
+    if (opts.requestedBy != null) {
+      await q(
+        `INSERT INTO policy_settings (document_id, requested_by, requested_at) VALUES ($1, $2, now())
+         ON CONFLICT (document_id) DO UPDATE
+           SET requested_by = COALESCE(policy_settings.requested_by, EXCLUDED.requested_by),
+               requested_at = COALESCE(policy_settings.requested_at, EXCLUDED.requested_at)`,
+        [docId, opts.requestedBy]
+      );
+    }
+    await reconcilePolicyAssignments(null, docId, { auto: false, initial: true });
     return { switched_on: true, edit_default: editDefaultOf(r[0]) };
   }
   const cur = await q<{ ack_edit_default: string }>("SELECT ack_edit_default FROM documents WHERE id = $1", [docId]);
@@ -6024,9 +6035,23 @@ export async function workspaceAudienceDefaults(): Promise<AudienceDefaults> {
   return { due_days, new_joiner_days, timeZone };
 }
 
+/**
+ * The byline names this account: the person's own display name, or any
+ * name in their directory aliases (the directory person they are linked to
+ * and every account linked to it, what the directory profile credits
+ * through listLinkedUserNames), so a renamed author is still matched
+ * through the directory and never by bare name equality alone.
+ */
+const ACK_AUTHOR = `(
+    u.name = d.author
+    OR (u.directory_person_id IS NOT NULL AND (
+         EXISTS (SELECT 1 FROM directory_people p WHERE p.id = u.directory_person_id AND p.name = d.author)
+         OR EXISTS (SELECT 1 FROM users a WHERE a.directory_person_id = u.directory_person_id AND a.name <> '' AND a.name = d.author)))
+  )`;
+
 /** The author and approvers of a policy (aliases d, s, u): what "Exempt the document's author and approvers" takes out. */
 const ACK_STEWARD = `(
-    u.name = d.author
+    ${ACK_AUTHOR}
     OR EXISTS (SELECT 1 FROM doc_versions v WHERE v.document_id = d.id AND v.published_by = u.id)
     OR ${HOLDS_GLOBALLY("change_request.read", "u.id")}
     OR ${HOLDS_ON_SPACE("change_request.read", "s.id", "u.id")}
@@ -6081,12 +6106,15 @@ const NO_CHANGE: ReconcileResult = { added: 0, closed: 0, reopened: 0 };
  * inside the caller's transaction (a save of the rules); null runs it in
  * one of its own. `auto` marks the automatic paths (see the header):
  * nothing is added to a policy with assign_new_members off. `defaults` is
- * the workspace layer; a sweep loads it once and passes it in.
+ * the workspace layer; a sweep loads it once and passes it in. `initial`
+ * is the switch-on's first audience, dated by the policy's deadline rule
+ * (due_days); every later add or re-open is a person added to the audience
+ * and gets the new-joiner days, as the card's help says.
  */
 export async function reconcilePolicyAssignments(
   client: Queryable | null,
   docId: number,
-  opts: { defaults?: AudienceDefaults; auto?: boolean; narrowing?: AudienceNarrowing } = {}
+  opts: { defaults?: AudienceDefaults; auto?: boolean; narrowing?: AudienceNarrowing; initial?: boolean } = {}
 ): Promise<ReconcileResult> {
   if (client) return reconcilePolicyOn(client, docId, opts);
   await ready();
@@ -6107,8 +6135,8 @@ export async function reconcilePolicyAssignments(
 async function reconcilePolicyOn(
   client: Queryable,
   docId: number,
-  opts: { defaults?: AudienceDefaults; auto?: boolean; narrowing?: AudienceNarrowing }
-): Promise<ReconcileResult> {
+  opts: { defaults?: AudienceDefaults; auto?: boolean; narrowing?: AudienceNarrowing; initial?: boolean }
+): Promise<ReconcileResult & { told: number[] }> {
   const defaults = opts.defaults ?? (await workspaceAudienceDefaults());
   // Self-healing: a policy switched on by a 1.12.0 binary during a rolling
   // deploy has no settings row; it gets one here, in space mode.
@@ -6125,7 +6153,7 @@ async function reconcilePolicyOn(
     [docId]
   );
   const h = head.rows[0];
-  if (!h || !h.live) return { ...NO_CHANGE };
+  if (!h || !h.live) return { ...NO_CHANGE, told: [] };
   const closed = await client.query(
     `UPDATE policy_assignments pa
      SET removed_at = now(), removed_reason = ${audienceRemovedReasonSql(SAVED_AUDIENCE, opts.narrowing)}
@@ -6135,17 +6163,20 @@ async function reconcilePolicyOn(
        AND NOT (${IN_AUDIENCE})`,
     [docId]
   );
-  if (opts.auto && !h.auto_on) return { added: 0, closed: closed.rowCount ?? 0, reopened: 0 };
-  const opened = await client.query<{ inserted: boolean }>(
+  if (opts.auto && !h.auto_on) return { added: 0, closed: closed.rowCount ?? 0, reopened: 0, told: [] };
+  // The switch-on dates its first audience by the policy's rule; anyone
+  // added later gets the new-joiner days (the cascade from the space down).
+  const key = opts.initial ? "due_days" : "new_joiner_days";
+  const opened = await client.query<{ user_id: number; inserted: boolean; asks: boolean }>(
     `INSERT INTO policy_assignments (document_id, user_id, source, due_at, cycle_started_at)
      SELECT d.id, u.id, ${audienceSourceSql(SAVED_AUDIENCE)},
-            ${dueAtSql({ from: "now()", workspace: "$2", timeZone: "$3" })},
+            ${dueAtSql({ from: "now()", workspace: "$2", timeZone: "$3", key })},
             d.ack_revision_at
      FROM ${AUDIENCE_FROM}, users u
      WHERE d.id = $1 AND ${IN_AUDIENCE}
      ${AUDIENCE_REOPEN}
-     RETURNING (xmax = 0) AS inserted`,
-    [docId, defaults.due_days, defaults.timeZone]
+     RETURNING user_id, (xmax = 0) AS inserted, (exempt_at IS NULL) AS asks`,
+    [docId, opts.initial ? defaults.due_days : defaults.new_joiner_days, defaults.timeZone]
   );
   let added = 0;
   let reopened = 0;
@@ -6153,7 +6184,9 @@ async function reconcilePolicyOn(
     if (r.inserted) added++;
     else reopened++;
   }
-  return { added, closed: closed.rowCount ?? 0, reopened };
+  // The people this reconcile started asking (a re-opened exempt row asks nobody): what a save tells.
+  const told = opened.rows.filter((r) => r.asks).map((r) => r.user_id);
+  return { added, closed: closed.rowCount ?? 0, reopened, told };
 }
 
 /** One policy a user-scoped reconcile opened or re-opened, for the welcome notice and the audit row. */
@@ -6167,8 +6200,10 @@ export interface EnrolledPolicy {
  * The user-scoped form: the same predicates over every live policy for one
  * person. Closes their rows where the target no longer names them (when
  * `close` is set: a status flip), opens or re-opens rows where it does.
- * 'new_member' rows take the new-joiner days from the cascade (the space,
- * the workspace, the built-in) instead of the policy's deadline rule.
+ * Every row it opens is a person added to an audience after the switch-on
+ * (a new account, a re-enabled one), so it takes the new-joiner days from
+ * the cascade (the space, the workspace, the built-in) rather than the
+ * policy's deadline rule; a fixed date still ahead wins in both cases.
  */
 async function reconcileUserOn(
   client: Queryable,
@@ -6190,7 +6225,7 @@ async function reconcileUserOn(
   }
   const joiner = opts.source === "new_member";
   const source = joiner ? "'new_member'" : audienceSourceSql(SAVED_AUDIENCE);
-  const due = dueAtSql({ from: "now()", workspace: "$2", timeZone: "$3", key: joiner ? "new_joiner_days" : "due_days" });
+  const due = dueAtSql({ from: "now()", workspace: "$2", timeZone: "$3", key: "new_joiner_days" });
   const opened = await client.query<{ document_id: number; due_at: string | null; inserted: boolean }>(
     `INSERT INTO policy_assignments (document_id, user_id, source, due_at, cycle_started_at)
      SELECT d.id, u.id, ${source}, ${due}, d.ack_revision_at
@@ -6200,7 +6235,7 @@ async function reconcileUserOn(
        AND ${IN_AUDIENCE}
      ${AUDIENCE_REOPEN}
      RETURNING document_id, due_at, (xmax = 0) AS inserted`,
-    [userId, joiner ? opts.defaults.new_joiner_days : opts.defaults.due_days, opts.defaults.timeZone, opts.auto]
+    [userId, opts.defaults.new_joiner_days, opts.defaults.timeZone, opts.auto]
   );
   let added = 0;
   let reopened = 0;
@@ -6238,17 +6273,28 @@ async function auditAudienceMoved(doc: { id: number; title: string }, r: Reconci
   }
 }
 
+/**
+ * Reconcile each policy in its own transaction, one after the other. A
+ * policy whose reconcile throws (a lock timeout, a bad rule) is logged and
+ * counted in `failed`; the rest of the list still runs, and the hourly
+ * sweep is the safety net for the one that did not.
+ */
 async function reconcileEach(
   docs: { id: number; title: string }[],
   opts: { defaults: AudienceDefaults; auto: boolean; narrowing?: AudienceNarrowing }
-): Promise<ReconcileResult> {
-  const total: ReconcileResult = { added: 0, closed: 0, reopened: 0 };
+): Promise<ReconcileResult & { failed: number }> {
+  const total: ReconcileResult & { failed: number } = { added: 0, closed: 0, reopened: 0, failed: 0 };
   for (const d of docs) {
-    const r = await reconcilePolicyAssignments(null, d.id, opts);
-    total.added += r.added;
-    total.closed += r.closed;
-    total.reopened += r.reopened;
-    await auditAudienceMoved(d, r);
+    try {
+      const r = await reconcilePolicyAssignments(null, d.id, opts);
+      total.added += r.added;
+      total.closed += r.closed;
+      total.reopened += r.reopened;
+      await auditAudienceMoved(d, r);
+    } catch (e) {
+      total.failed++;
+      console.error(`[ack] could not reconcile policy ${d.id}:`, e);
+    }
   }
   return total;
 }
@@ -6258,11 +6304,12 @@ async function reconcileEach(
  * every live policy against its audience, so a role granted or revoked in
  * Roles & permissions (not hooked: too many writers) takes effect within
  * the hour, and a settings row missing after a rolling deploy heals. One
- * ack.audience_reconciled row per policy whose rows moved.
+ * ack.audience_reconciled row per policy whose rows moved; `failed` counts
+ * the policies whose reconcile threw (logged, the others still ran).
  */
 export async function reconcileAllPolicies(
   opts: { documentIds?: number[] } = {}
-): Promise<ReconcileResult & { policies: number }> {
+): Promise<ReconcileResult & { policies: number; failed: number }> {
   await ready();
   const defaults = await workspaceAudienceDefaults();
   // `documentIds` limits the sweep (tests sharing a database); the tick passes nothing.
@@ -6290,8 +6337,10 @@ export function drainAudienceSyncTally(): { added: number; closed: number } {
 /**
  * A group's membership changed (a manual edit, an Entra or Google sync):
  * the policies with a rule naming the group, and every policy in a private
- * space (membership there reaches people through space.member and
- * space.read_all grants to groups, whichever role carries them).
+ * space the group reaches (a space.member grant on that space, or
+ * space.read_all held globally, whichever role carries them). A private
+ * space the group holds nothing on is left to the hourly sweep: a sync of
+ * many groups must not reconcile every private-space policy per group.
  */
 export async function reconcilePoliciesForGroup(groupId: number): Promise<ReconcileResult> {
   await ready();
@@ -6299,11 +6348,15 @@ export async function reconcilePoliciesForGroup(groupId: number): Promise<Reconc
   const docs = await q<{ id: number; title: string }>(
     `SELECT d.id, d.title FROM documents d JOIN spaces s ON s.id = d.space_id
      WHERE ${AUDIENCE_POLICY}
-       AND (s.visibility = 'private'
+       AND ((s.visibility = 'private'
+             AND (EXISTS (SELECT 1 FROM (${GRANT_SUBJECTS("space.member")}) g WHERE g.space_id = s.id AND g.group_id = $2::int)
+                  OR EXISTS (SELECT 1 FROM role_assignments ra
+                             JOIN role_permissions rp ON rp.role_id = ra.role_id AND rp.permission = 'space.read_all'
+                             WHERE ra.scope_type = 'global' AND ra.group_id = $2::int)))
             OR EXISTS (SELECT 1 FROM policy_audience_rules r
                        WHERE r.document_id = d.id AND r.kind = 'group' AND r.ref = $1::text))
      ORDER BY d.id`,
-    [String(groupId)]
+    [String(groupId), groupId]
   );
   const total = await reconcileEach(docs, { defaults, auto: true, narrowing: "left_group" });
   audienceSyncTally.added += total.added + total.reopened;
@@ -6517,13 +6570,21 @@ export async function updatePolicySettings(
  * Save a policy's audience (PATCH /ack-settings with audience_mode, rules,
  * exclude_stewards, assign_new_members) and reconcile its rows in the same
  * transaction, so the toast's counts are what the save did. `rules` must
- * already be sanitizeRules' output. Answers the audience as stored with the
- * counts, or null when the document is gone. The caller audits
- * ack.audience_set {mode, rules, added, closed}.
+ * already be sanitizeRules' output. Space mode means everyone who can see
+ * the space: a save in space mode deletes the policy's rules, whatever the
+ * patch carries, so a later move to targeted mode starts from nothing and
+ * no stored exclusion keeps anyone out of "everyone". A save tells the
+ * people it adds: one 'request' outbox row limited to the rows it opened
+ * or re-opened (the drain words it per recipient and their due date; a
+ * paused policy's row is dropped at delivery), queued in the same
+ * transaction. Answers the audience as stored with the counts, or null
+ * when the document is gone. The caller audits ack.audience_set {mode,
+ * rules, added, closed}; `actor` and `origin` go on the outbox row.
  */
 export async function saveAudienceRules(
   docId: number,
-  patch: PolicyAudiencePatch
+  patch: PolicyAudiencePatch,
+  opts: { actor?: AckActor | null; origin?: string } = {}
 ): Promise<(PolicyAudience & ReconcileResult) | null> {
   await ready();
   const client = await pool().connect();
@@ -6538,12 +6599,13 @@ export async function saveAudienceRules(
       "INSERT INTO policy_settings (document_id) VALUES ($1) ON CONFLICT (document_id) DO NOTHING",
       [docId]
     );
-    await client.query(
+    const saved = await client.query<{ audience_mode: string }>(
       `UPDATE policy_settings
        SET audience_mode = COALESCE($2::text, audience_mode),
            exclude_stewards = COALESCE($3::int, exclude_stewards),
            assign_new_members = COALESCE($4::int, assign_new_members)
-       WHERE document_id = $1`,
+       WHERE document_id = $1
+       RETURNING audience_mode`,
       [
         docId,
         patch.audience_mode ?? null,
@@ -6551,19 +6613,30 @@ export async function saveAudienceRules(
         patch.assign_new_members === undefined ? null : patch.assign_new_members ? 1 : 0,
       ]
     );
-    if (patch.rules) {
+    const rules = saved.rows[0]?.audience_mode === "space" ? [] : patch.rules;
+    if (rules) {
       await client.query("DELETE FROM policy_audience_rules WHERE document_id = $1", [docId]);
-      if (patch.rules.length > 0) {
+      if (rules.length > 0) {
         await client.query(
           `INSERT INTO policy_audience_rules (document_id, kind, ref, effect)
            SELECT $1, r.kind, r.ref, r.effect
            FROM jsonb_to_recordset($2::jsonb) AS r(kind text, ref text, effect text)
            ON CONFLICT DO NOTHING`,
-          [docId, JSON.stringify(patch.rules)]
+          [docId, JSON.stringify(rules)]
         );
       }
     }
-    const counts = await reconcilePolicyOn(client, docId, { auto: false });
+    const { told, ...counts } = await reconcilePolicyOn(client, docId, { auto: false });
+    if (told.length > 0) {
+      await insertAckOutbox(client, {
+        document_id: docId,
+        mode: "request",
+        source: "manual",
+        actor: opts.actor ?? null,
+        user_ids: told,
+        origin: opts.origin ?? "",
+      });
+    }
     const state = await policyAudienceOn(client, docId);
     await client.query("COMMIT");
     return { ...(state as PolicyAudience), ...counts };
