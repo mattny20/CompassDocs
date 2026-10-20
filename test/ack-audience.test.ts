@@ -40,7 +40,6 @@ import {
   pool,
   getSetting,
   createDocument,
-  setAckRequired,
   listVersions,
   recordAcknowledgement,
   getCurrentAck,
@@ -66,6 +65,7 @@ import {
   previewAudience,
   reconcilePolicyAssignments,
   reconcileAllPolicies,
+  reconcilePoliciesForUser,
   autoAssignPolicies,
   listOwedPoliciesFor,
   drainAudienceSyncTally,
@@ -77,8 +77,8 @@ import { sanitizeRules, audienceSavedToast } from "../src/lib/audience";
 import { deliverAckNotices, notifyWelcome, noticeCopy } from "../src/lib/compliance";
 import type { Mailer } from "../src/lib/compliance";
 import { audienceReportLine } from "../src/lib/directory-schedule";
-import { fixtureQuery } from "./support/retry";
-import { assignEveryone } from "./support/assign";
+import { fixtureQuery, isTeardownRace, retryOnTeardownRace } from "./support/retry";
+import { assignEveryone, switchOn } from "./support/assign";
 
 // --- The request scope outside Next ------------------------------------------
 
@@ -211,7 +211,7 @@ async function newPolicy(title: string, space = spaceA, author = "test"): Promis
     author,
   });
   // editDefault / recertMonths null: never read the shared workspace setting.
-  await setAckRequired(doc.id, true, { editDefault: null, recertMonths: null });
+  await switchOn(doc.id, { editDefault: null, recertMonths: null });
   docIds.push(doc.id);
   return { id: doc.id, title: full, v1: (await listVersions(doc.id))[0].id };
 }
@@ -266,6 +266,31 @@ async function ledgerCount(docId: number): Promise<number> {
 /** The document marker (ack_revision_at), as ISO text. */
 async function marker(docId: number): Promise<string> {
   return (await pool().query("SELECT ack_revision_at FROM documents WHERE id = $1", [docId])).rows[0].ack_revision_at;
+}
+
+/**
+ * A provisioning write whose audience hook swallows its own failure
+ * (invariant 9). Under the parallel suite the hook's one statement, over
+ * every live policy for the person, can lose a race with another file's
+ * teardown (retry.ts, isTeardownRace); the hook logs it, and the hook's
+ * step is then repeated by hand, so what the test proves is the hook's
+ * effect either way. Any other error the hook logs is let through.
+ */
+async function hooked<T>(write: () => Promise<T>, repeat: (result: T) => Promise<unknown>): Promise<T> {
+  let raced = false;
+  const orig = console.error;
+  console.error = (...a: unknown[]) => {
+    if (typeof a[0] === "string" && a[0].startsWith("[ack]") && isTeardownRace(a[1])) raced = true;
+    else orig(...a);
+  };
+  let result: T;
+  try {
+    result = await write();
+  } finally {
+    console.error = orig;
+  }
+  if (raced) await retryOnTeardownRace(() => repeat(result));
+  return result;
 }
 
 before(async () => {
@@ -382,8 +407,12 @@ describe("space mode: the old rule, as rows", () => {
     assert.equal(owedBy(people.alice), owedBy(people.bob) + 1, "alice owes the private one on top");
     assert.equal(owedBy(people.carol), owedBy(people.bob), "carol, like bob, is not granted the private space");
 
-    // Reconciling again moves nothing.
-    assert.deepEqual(await reconcilePolicyAssignments(null, open.id), { added: 0, closed: 0, reopened: 0 });
+    // Reconciling again moves nothing of this file's. On the internal policy
+    // the accounts the other files inserted since the switch-on (a raw
+    // INSERT fires no hook) are added, which is the hourly sweep's job; on
+    // the private one nothing moves.
+    await retryOnTeardownRace(() => reconcilePolicyAssignments(null, open.id));
+    assert.deepEqual(mine((await ackStatusForDocument(open.id)).map((r) => r.id)), ["alice", "bob", "carol", "dave", "erin", "frank"]);
     assert.deepEqual(await assignEveryone(closed.id), { added: 0, closed: 0, reopened: 0 });
   });
 
@@ -451,7 +480,7 @@ describe("targeted mode: rules, exclusions and the ceiling", () => {
     // so no stored exclusion keeps carol out) although the save sent none;
     // and the people the save re-opened are told, in one request row
     // limited to them (alice, who stayed open, is not on it).
-    const widened = await saveAudienceRules(id, { audience_mode: "space" });
+    const widened = await retryOnTeardownRace(() => saveAudienceRules(id, { audience_mode: "space" }));
     assert.equal(widened!.added, 0);
     assert.ok(widened!.reopened >= 5, `the closed rows re-open (${widened!.reopened})`);
     assert.deepEqual(widened!.rules, [], "the answer carries no rules");
@@ -556,7 +585,7 @@ describe("targeted mode: rules, exclusions and the ceiling", () => {
     const preview = await previewAudience(id, { audience_mode: "space", rules: [], exclude_stewards: true });
     assert.ok(preview.count >= 4);
     assert.equal(preview.no_access, 0, "never counted in space mode");
-    const saved = await saveAudienceRules(id, { exclude_stewards: true });
+    const saved = await retryOnTeardownRace(() => saveAudienceRules(id, { exclude_stewards: true }));
     assert.equal(saved!.exclude_stewards, true);
     const after = mine((await ackStatusForDocument(id)).map((r) => r.id));
     assert.ok(!after.includes("erin"), "the author (the byline) is out");
@@ -627,7 +656,9 @@ describe("people who leave and come back", () => {
     const { id, v1 } = await newPolicy("status flip");
     await recordAcknowledgement(id, people.frank, "", v1);
     const first = (await row(id, people.frank))!;
-    await updateUser(people.frank, { status: "disabled" });
+    const flip = (status: "active" | "disabled") =>
+      hooked(() => updateUser(people.frank, { status }), () => reconcilePoliciesForUser(people.frank));
+    await flip("disabled");
     const off = (await row(id, people.frank))!;
     assert.equal(off.id, first.id);
     assert.ok(off.removed_at);
@@ -635,7 +666,7 @@ describe("people who leave and come back", () => {
     assert.ok(!(await compliancePendingUsers(id)).some((u) => u.id === people.frank));
     assert.ok(!(await ackStatusForDocument(id)).some((r) => r.id === people.frank), "off the roster");
 
-    await updateUser(people.frank, { status: "active" });
+    await flip("active");
     const on = (await row(id, people.frank))!;
     assert.equal(on.id, first.id, "the same row");
     assert.equal(on.removed_at, null);
@@ -686,16 +717,20 @@ describe("new accounts and the welcome notice", () => {
     const w1 = await newPolicy("welcome 1");
     const w2 = await newPolicy("welcome 2");
     const w3 = await newPolicy("welcome off");
-    await saveAudienceRules(w3.id, { assign_new_members: false });
+    await retryOnTeardownRace(() => saveAudienceRules(w3.id, { assign_new_members: false }));
     const { hash, salt } = hashPassword("Newbie!12345");
-    const newbie = await createUser({
-      username: `${STAMP}-newbie`,
-      name: `Newbie ${STAMP}`,
-      email: `${STAMP}-newbie@example.test`,
-      role: "viewer",
-      passwordHash: hash,
-      passwordSalt: salt,
-    });
+    const newbie = await hooked(
+      () =>
+        createUser({
+          username: `${STAMP}-newbie`,
+          name: `Newbie ${STAMP}`,
+          email: `${STAMP}-newbie@example.test`,
+          role: "viewer",
+          passwordHash: hash,
+          passwordSalt: salt,
+        }),
+      (u) => autoAssignPolicies(u.id)
+    );
     userIds.push(newbie.id);
     people.newbie = newbie.id;
 

@@ -6,9 +6,27 @@
 // (a raw INSERT INTO users, which fires no provisioning hook) calls this to
 // bring the policy's rows in line, the way the hourly sweep would.
 
-import { reconcilePolicyAssignments } from "../../src/lib/db";
+import { reconcilePolicyAssignments, setAckRequired } from "../../src/lib/db";
+import { isTeardownRace, retryOnTeardownRace } from "./retry";
 
-/** Reconcile one policy's rows with its audience: everyone active who can see the space (space mode), or the rules. Answers the counts. */
+/** Reconcile one policy's rows with its audience: everyone active who can see the space (space mode), or the rules. Answers the counts. Repeated when another file's teardown races it (retry.ts). */
 export function assignEveryone(docId: number): Promise<{ added: number; closed: number; reopened: number }> {
-  return reconcilePolicyAssignments(null, docId, { auto: false });
+  return retryOnTeardownRace(() => reconcilePolicyAssignments(null, docId, { auto: false }));
+}
+
+/**
+ * setAckRequired(docId, true, opts) for a fixture whose space every active
+ * account can see: the switch-on's reconcile inserts a row for each of
+ * them, and another file may delete one of its accounts mid-statement
+ * (retry.ts, isTeardownRace). The flip commits before the reconcile, so a
+ * switch-on that lost that race is repeated as the reconcile alone, the way
+ * the switch-on runs it (not automatic, the first audience's deadline).
+ */
+export async function switchOn(docId: number, opts: Parameters<typeof setAckRequired>[2] = {}): Promise<void> {
+  try {
+    await setAckRequired(docId, true, opts);
+  } catch (e) {
+    if (!isTeardownRace(e)) throw e;
+    await retryOnTeardownRace(() => reconcilePolicyAssignments(null, docId, { auto: false, initial: true }));
+  }
 }
