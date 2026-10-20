@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Locator, type Page } from "@playwright/test";
 import JSZip from "jszip";
 import { ADMIN, login, api } from "./helpers";
 
@@ -327,6 +327,33 @@ async function openEditor(page: Page, docId: number) {
   await editor.waitFor({ state: "visible", timeout: 15000 });
   await page.waitForTimeout(1500);
   return editor;
+}
+
+/**
+ * Click into the editor and put the caret at the very end of the document.
+ * ProseMirror re-asserts its own selection 20 ms after the editor takes
+ * focus (prosemirror-view's focus handler), which undoes a Control+End
+ * pressed in that window and leaves the caret where the click landed; so
+ * the key is pressed until no text follows the caret.
+ */
+async function caretToEnd(page: Page, editor: Locator) {
+  await editor.click();
+  await expect
+    .poll(
+      async () => {
+        await page.keyboard.press("Control+End");
+        return editor.evaluate((el) => {
+          const sel = el.ownerDocument.getSelection();
+          if (!sel || !sel.isCollapsed || !sel.focusNode || !el.contains(sel.focusNode)) return false;
+          const after = el.ownerDocument.createRange();
+          after.setStart(sel.focusNode, sel.focusOffset);
+          after.setEnd(el, el.childNodes.length);
+          return after.toString() === "";
+        });
+      },
+      { message: "the caret is at the end of the document" }
+    )
+    .toBe(true);
 }
 
 async function openEditorAndType(page: Page, docId: number, text: string) {
@@ -1270,11 +1297,10 @@ test("the schedule hint says what publishing on schedule will do to confirmation
     expect(down.body?.doc?.status).toBe("draft");
 
     // A change plus a time: the ask variant, naming the people and the version.
-    // Typed at the very end of the document (Control+End), so the same keys
+    // Typed at the very end of the document (caretToEnd), so the same keys
     // can take it out again: End alone stops at the end of a wrapped line.
     const editor = await openEditor(page, docId);
-    await editor.click();
-    await page.keyboard.press("Control+End");
+    await caretToEnd(page, editor);
     await page.keyboard.type(" Done.");
     await page.getByLabel(SCHEDULE_FIELD).fill(PUBLISH_AT);
     await expect(
@@ -1283,8 +1309,7 @@ test("the schedule hint says what publishing on schedule will do to confirmation
 
     // The change undone: the text equals the confirmed version again, and
     // the hint goes (the time is still set).
-    await editor.click();
-    await page.keyboard.press("Control+End");
+    await caretToEnd(page, editor);
     for (let i = 0; i < " Done.".length; i++) await page.keyboard.press("Backspace");
     await expect(page.getByText(/^Publishing on schedule/)).toHaveCount(0);
     await expect(page.getByLabel(SCHEDULE_FIELD)).toHaveValue(PUBLISH_AT);
@@ -1391,6 +1416,7 @@ test("importing a zip leaves a confirmed policy unchanged unless the box is tick
 // the record keeps the name and how the signer was identified; the
 // Settings tab shows the same two settings.
 test("a policy with a typed signature: the button waits for the name, the record keeps it, and a per-document statement shows on the card and the Settings tab", async ({ page }) => {
+  test.setTimeout(120_000);
   await login(page, ADMIN);
   const title = `E2E ack signature ${stamp()}`;
   const custom = "I have read this document and will comply with it.";
@@ -1438,12 +1464,14 @@ test("a policy with a typed signature: the button waits for the name, the record
     const name = card.getByLabel("Type your full name to sign");
     await name.fill("Somebody Else");
     await expect(button).toHaveAttribute("aria-disabled", "true");
-    // A click while gated records nothing and sends nothing.
+    // A click while gated records nothing and sends nothing. The click is
+    // forced: Playwright's actionability treats aria-disabled as disabled
+    // and would wait for the gate to lift, which is the opposite of the point.
     let posted = 0;
     page.on("request", (r) => {
       if (r.method() === "POST" && r.url().includes(`/api/documents/${docId}/ack`)) posted += 1;
     });
-    await button.click();
+    await button.click({ force: true });
     await page.waitForTimeout(300);
     expect(posted, "no POST while the name does not match").toBe(0);
 

@@ -150,8 +150,12 @@ test("the Record tab: Show filters, the people filter count, the All confirmatio
     await expect(main.getByText(new RegExp(`^1 of ${total} people$`))).toBeVisible();
     await expect(rows).toHaveCount(1);
     await expect(rows.first()).toContainText("Confirmed");
-    await expect(rows.first(), "the current view cites the newest confirmation").toContainText("v2");
-    await expect(main.locator("tbody tr", { hasText: /\bv1\b/ }), "and never the superseded one").toHaveCount(0);
+    // The rows whose Version cell reads exactly this: a row's text runs its
+    // cells together ("v2" straight into the IP in the ledger view), so a
+    // word-boundary regex over the row cannot find the version.
+    const withVersion = (v: string) => rows.filter({ has: page.getByRole("cell", { name: v, exact: true }) });
+    await expect(withVersion("v2"), "the current view cites the newest confirmation").toHaveCount(1);
+    await expect(withVersion("v1"), "and never the superseded one").toHaveCount(0);
     // The Signed column exists; this policy asks for no signature, so the cell is blank.
     await expect(main.getByRole("columnheader", { name: "Signed" })).toBeVisible();
 
@@ -164,8 +168,8 @@ test("the Record tab: Show filters, the people filter count, the All confirmatio
     await expect(view.getByRole("radio", { name: "All confirmations" })).toHaveAttribute("aria-checked", "true");
     await expect(main.getByRole("radiogroup", { name: "Show" })).toHaveCount(0);
     await expect(rows).toHaveCount(2);
-    await expect(main.locator("tbody tr", { hasText: /\bv2\b/ })).toHaveCount(1);
-    await expect(main.locator("tbody tr", { hasText: /\bv1\b/ }), "the superseded confirmation is on the record").toHaveCount(1);
+    await expect(withVersion("v2")).toHaveCount(1);
+    await expect(withVersion("v1"), "the superseded confirmation is on the record").toHaveCount(1);
     await expect(main.getByRole("columnheader", { name: "IP" })).toBeVisible();
     await expect(main.getByText(new RegExp(`^2 of \\d+ people$`))).toBeVisible();
     // Escape clears the filter; the count agrees.
