@@ -1202,6 +1202,17 @@ describe("the 1.10.1 additions against a 1.10.0 database, booted twice", () => {
     );
     assert.equal(index.rows.length, 1, "idx_policy_set_docs_doc exists");
     assert.match(index.rows[0].indexdef, /USING btree \(document_id\)/);
+    // 1.14.0 fix round: the partial index under the rules' SET NULL reference
+    // (dropped above with the column, so the upgrade boot is what builds it).
+    const rulesBySet = async () =>
+      (
+        await db.query<{ indexdef: string }>(
+          "SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'idx_policy_rules_set'"
+        )
+      ).rows;
+    const bySet = await rulesBySet();
+    assert.equal(bySet.length, 1, "idx_policy_rules_set exists");
+    assert.match(bySet[0].indexdef, /ON (public\.)?policy_audience_rules USING btree \(set_id\) WHERE \(set_id IS NOT NULL\)/);
     assert.equal((await db.query("SELECT COUNT(*)::int AS n FROM policy_sets")).rows[0].n, 0, "the upgrade creates no set");
 
     // A 1.13.0-shaped rule insert (what a rolled-back binary writes: no
@@ -1227,6 +1238,7 @@ describe("the 1.10.1 additions against a 1.10.0 database, booted twice", () => {
     assert.ok(second.ok, `the second boot succeeds:\n${second.out}`);
     assert.deepEqual(await shape(), expected, "the second boot leaves the shape alone");
     assert.deepEqual(await fks(), expectedFks, "the references are still there");
+    assert.deepEqual(await rulesBySet(), bySet, "the second boot leaves the index alone");
     const kept = await db.query<{ name: string; active: number; assign_new_members: number; members: number; tagged: number }>(
       `SELECT p.name, p.active, p.assign_new_members,
               (SELECT COUNT(*)::int FROM policy_set_docs sd WHERE sd.set_id = p.id) AS members,

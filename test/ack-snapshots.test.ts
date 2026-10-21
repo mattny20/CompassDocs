@@ -34,7 +34,22 @@ import {
   listComplianceSnapshots,
   getComplianceSnapshot,
   ackLedgerBatch,
+  exemptAssignments,
+  insertAckNotices,
+  runDbMaintenance,
+  complianceReportCounts,
+  saveAudienceRules,
+  createPolicySet,
+  assignPolicySet,
+  autoAssignPolicies,
+  createRole,
+  assignRole,
+  createSession,
 } from "../src/lib/db";
+import { sanitizeRules } from "../src/lib/audience";
+import { isoWeekId } from "../src/lib/periodic";
+import { newToken } from "../src/lib/password";
+import type { Mailer } from "../src/lib/compliance";
 import {
   SNAPSHOT_FORMAT,
   buildComplianceSnapshot,
@@ -53,7 +68,6 @@ import {
 import { sha256Hex, csvLine, manifestFor, rewriteSnapshotText, hashCsv, STREAM_BATCH } from "../src/lib/evidence";
 import { LEDGER_CSV_HEADER, ledgerCsvCells } from "../src/lib/read-evidence";
 import { parseAckReportPatch, validateReportRecipients, readComplianceSettings, REPORT_RECIPIENTS_MAX } from "../src/lib/compliance-settings";
-import { getSmtpConfig, smtpConfigured } from "../src/lib/smtp-config";
 import { parseCsv } from "../src/lib/csv";
 import { fixtureQuery, retryOnTeardownRace } from "./support/retry";
 
@@ -69,7 +83,9 @@ let disabledId = 0;
 const userIds: number[] = [];
 const docIds: number[] = [];
 const snapshotIds: number[] = [];
-/** The monthly periods this file claims (far in the past, so no real tick ever takes them). */
+const setIds: number[] = [];
+const extraGroupIds: number[] = [];
+/** The monthly and weekly periods this file claims (far in the past, so no real tick ever takes them). */
 const periods: string[] = [];
 
 const TEXT = Array.from({ length: 20 }, (_, i) => `Clause ${i + 1}: staff must follow the procedure described here.`).join("\n\n");
@@ -100,6 +116,29 @@ function pastPeriod(): { period: string; at: Date } {
   const period = at.toISOString().slice(0, 7);
   periods.push(period);
   return { period, at };
+}
+
+/** An ISO week no real tick ever claims, unique to this run (the weekly report's period). */
+function pastWeek(): { week: string; at: Date } {
+  const at = new Date(Date.UTC(1971 + Math.floor(Math.random() * 20), Math.floor(Math.random() * 12), 10, 9));
+  const week = isoWeekId(at);
+  periods.push(week);
+  return { week, at };
+}
+
+/** A person of this file's own, active, with an address. */
+async function newUser(tag: string, name: string, createdAt?: string): Promise<number> {
+  const r = await fixtureQuery(
+    `INSERT INTO users (username, name, email, role, status, created_at) VALUES ($1, $2, $3, 'viewer', 'active', COALESCE($4::timestamptz, now())) RETURNING id`,
+    [`${STAMP}-${tag}`, name, `${STAMP}-${tag}@example.test`, createdAt ?? null]
+  );
+  userIds.push(r.rows[0].id);
+  return r.rows[0].id;
+}
+
+/** The assignment row of a person on a policy. */
+async function rowOf(docId: number, userId: number): Promise<{ id: number; source: string }> {
+  return (await pool().query("SELECT id, source FROM policy_assignments WHERE document_id = $1 AND user_id = $2", [docId, userId])).rows[0];
 }
 
 async function unzip(buffer: Buffer): Promise<{ zip: JSZip; names: string[]; text: (name: string) => Promise<string>; bytes: (name: string) => Promise<Buffer> }> {
@@ -154,14 +193,29 @@ after(async () => {
       [snapshotIds, docIds, periods]
     )
   ).rows.map((r) => r.id);
+  // Each id list paired with the target_type it names: documents, snapshots
+  // and sets are separate sequences, so a bare target_id would also match
+  // another file's row on another table with the same number.
   await fixtureQuery(
-    `DELETE FROM audit_log WHERE action LIKE 'ack.%'
-       AND (target_id = ANY($1) OR target_label = ANY($2) OR (details->>'snapshot_id')::int = ANY($3) OR details->>'user_id' = $4)`,
-    [docIds.map(String).concat(snaps.map(String)), periods, snaps, String(readerId)]
+    `DELETE FROM audit_log WHERE action LIKE 'ack.%' AND (
+          (target_type = 'document' AND target_id = ANY($1))
+       OR (target_type = 'compliance' AND (target_id = ANY($2) OR target_label = ANY($3) OR (details->>'snapshot_id')::int = ANY($4)))
+       OR (target_type = 'compliance_snapshot' AND (target_id = ANY($2) OR details->>'user_id' = $5))
+       OR (target_type = 'policy_set' AND target_id = ANY($6))
+       OR (target_type = 'user' AND target_id = ANY($7)))`,
+    [docIds.map(String), snaps.map(String), periods, snaps, String(readerId), setIds.map(String), userIds.map(String)]
   );
   await fixtureQuery("DELETE FROM compliance_snapshots WHERE id = ANY($1)", [snaps]);
   await fixtureQuery("DELETE FROM ack_notices WHERE document_id = ANY($1) OR user_id = ANY($2)", [docIds, userIds]);
   await fixtureQuery("DELETE FROM ack_outbox WHERE document_id = ANY($1)", [docIds]);
+  // A joiner's welcome row (notifyWelcome: mode 'welcome', or 'request' for
+  // one policy, naming that one person) is keyed to their earliest-due
+  // policy, which may be another file's: by person too, and only a row that
+  // names one of these people alone.
+  for (const id of userIds) {
+    await fixtureQuery("DELETE FROM ack_outbox WHERE mode IN ('welcome', 'request') AND user_ids = $1::jsonb", [JSON.stringify([id])]);
+  }
+  await fixtureQuery("DELETE FROM policy_sets WHERE id = ANY($1)", [setIds]);
   await fixtureQuery("DELETE FROM acknowledgements WHERE document_id = ANY($1) OR user_id = ANY($2) OR document_title LIKE $3", [
     docIds,
     userIds,
@@ -171,7 +225,7 @@ after(async () => {
   await fixtureQuery("DELETE FROM attested_texts WHERE document_id = ANY($1)", [docIds]);
   await fixtureQuery("DELETE FROM policy_assignments WHERE document_id = ANY($1) OR user_id = ANY($2)", [docIds, userIds]);
   await fixtureQuery("DELETE FROM documents WHERE id = ANY($1)", [docIds]);
-  await fixtureQuery("DELETE FROM groups WHERE id = $1", [groupId]);
+  await fixtureQuery("DELETE FROM groups WHERE id = ANY($1)", [[groupId, ...extraGroupIds]]);
   await fixtureQuery("DELETE FROM users WHERE id = ANY($1)", [userIds]);
   await fixtureQuery("DELETE FROM spaces WHERE id = $1", [spaceId]);
 });
@@ -263,6 +317,30 @@ describe("the snapshot text", () => {
     const strip = (t: string) => t.replace(/"generated_at": "[^"]+"/, '"generated_at": "-"');
     assert.notEqual(later.sha256, a.sha256);
     assert.equal(strip(later.text), strip(a.text));
+
+    // Exempt rows stay outside the counts (beside them), and a snooze hides
+    // nothing: Evi Other is exempted, Mia Manager is long overdue with her
+    // reminders snoozed.
+    const exempted = await exemptAssignments(id, [(await rowOf(id, otherId)).id], { id: readerId, name: "Evi Reader" }, { reason: "On leave", until: null });
+    assert.equal(exempted.changed.length, 1);
+    await pool().query(
+      "UPDATE policy_assignments SET due_at = now() - interval '100 days', snoozed_until = now() + interval '7 days' WHERE document_id = $1 AND user_id = $2",
+      [id, managerId]
+    );
+    const now = JSON.parse((await buildComplianceSnapshot({ documentId: id })).text);
+    const q = now.policies[0];
+    assert.equal(q.exempt, 1, "the exempt row is counted beside the others");
+    assert.equal(q.overdue, 1, "the snoozed row is overdue all the same");
+    assert.equal(q.confirmed, 1);
+    assert.equal(q.pending, q.required - 1, "the exempt row is not in required");
+    const live = now.matrix.filter((r: { account_status: string; removed_at: string | null }) => r.account_status === "active" && !r.removed_at);
+    assert.equal(q.required + q.exempt, live.length, "every live row is required or exempt, never both");
+    const cell = (userId: number) => now.matrix.find((r: { user_id: number }) => r.user_id === userId);
+    assert.equal(cell(otherId).status, "exempt");
+    assert.equal(cell(managerId).status, "overdue");
+    assert.ok(cell(managerId).snoozed_until, "the snooze is on the row");
+    assert.equal(now.totals.exempt, 1);
+    assert.equal(now.totals.overdue, 1);
   });
 
   test("Verify recomputes the hash over the stored text and detects a changed row", async () => {
@@ -382,6 +460,29 @@ describe("the audit package", () => {
     await recordAcknowledgement(a.id, readerId, "", a.v1);
     await recordAcknowledgement(b.id, readerId, "", b.v1);
     await recordAcknowledgement(b.id, otherId, "", b.v1);
+    // An exemption, a notice and an audit row on each policy: A's package
+    // carries A's and nothing of B's in the three org-wide files too.
+    const by = { id: readerId, name: "Evi Reader" };
+    for (const p of [a, b]) {
+      const ex = await exemptAssignments(p.id, [(await rowOf(p.id, managerId)).id], by, { reason: "On leave", until: null });
+      assert.equal(ex.changed.length, 1);
+      await fixtureQuery(
+        `INSERT INTO audit_log (actor_name, action, target_type, target_id, target_label, details)
+         VALUES ('system', 'ack.export', 'document', $1, $2, '{}'::jsonb)`,
+        [String(p.id), `${STAMP} audit ${p.id}`]
+      );
+    }
+    await insertAckNotices(
+      [a, b].map((p) => ({
+        user_id: otherId,
+        user_name: "Evi Other",
+        user_email: `${STAMP}-other@example.test`,
+        document_id: p.id,
+        document_title: p === a ? `${STAMP} only A` : `${STAMP} only B`,
+        kind: "reminder" as const,
+        channels: ["email" as const],
+      }))
+    );
     const { buffer } = await buildCompliancePackageBuffer({ documentId: a.id });
     const z = await unzip(buffer);
     assert.ok(z.names.some((n) => n.startsWith(`policies/${a.id}/`)));
@@ -399,6 +500,16 @@ describe("the audit package", () => {
     assert.ok(summary.current_acks.every((r: { policy_id: number }) => r.policy_id === a.id));
     const decisions = parseCsv(await z.text("decisions.csv"));
     assert.ok(decisions.rows.every((r) => r[decisions.header.indexOf("policy_id")] === String(a.id)));
+    const waivers = parseCsv(await z.text("waivers.csv"));
+    assert.ok(waivers.rows.length >= 1, "A's exemption is there");
+    assert.ok(waivers.rows.every((r) => r[waivers.header.indexOf("policy_id")] === String(a.id)), "no exemption of B");
+    const notices = parseCsv(await z.text("notices.csv"));
+    assert.ok(notices.rows.length >= 1, "A's notice is there");
+    assert.ok(notices.rows.every((r) => r[notices.header.indexOf("policy_id")] === String(a.id)), "no notice of B");
+    const extract = parseCsv(await z.text("audit-extract.csv"));
+    const tid = extract.header.indexOf("target_id");
+    assert.ok(extract.rows.some((r) => r[tid] === String(a.id)), "A's audit row is there");
+    assert.ok(extract.rows.every((r) => r[tid] === String(a.id)), "no audit row of B");
   });
 
   test("the ledger CSV streams more rows than fit one page, in id order, and the snapshot's hash is the file's", async () => {
@@ -553,6 +664,9 @@ describe("the programme report", () => {
     assert.ok(counts.policies >= 1);
     assert.ok(counts.pct >= 0 && counts.pct <= 100);
     assert.equal(counts.confirmed + counts.pending, counts.pending + counts.confirmed);
+    // The exempt and the snoozed-overdue rows of 'the snapshot text' above.
+    assert.ok(counts.exempt >= 1, "exempt rows are reported beside the counts");
+    assert.ok(counts.overdue >= 1, "a snoozed row that is overdue is reported overdue");
     assert.ok(counts.lowest.length <= 5);
     if (counts.lowest.length) {
       assert.ok(markdown.includes("Lowest compliance:"));
@@ -593,24 +707,113 @@ describe("the programme report", () => {
     await setSetting("ack_report", JSON.stringify({ enabled: true, cadence: "monthly", recipients: { users: [managerId, 0], groups: [3] } }));
     assert.deepEqual((await readComplianceSettings()).ack_report, { enabled: true, cadence: "monthly", recipients: [managerId] });
 
-    // Weekly, enabled, a recipient: without SMTP nothing is sent and the
-    // week's claim is not taken, so a workspace that configures SMTP later
-    // in the week still gets that week's report.
+    // Weekly, enabled, a recipient: without SMTP (mailer null, whatever the
+    // test database's SMTP settings) nothing is sent and the week's claim is
+    // not taken, so a workspace that configures SMTP later in the week still
+    // gets that week's report.
     await setSetting("ack_report", JSON.stringify({ enabled: true, cadence: "weekly", recipients: [managerId] }));
     await pool().query("DELETE FROM settings WHERE key = 'ack_report_week'");
-    if (!smtpConfigured(await getSmtpConfig())) {
-      await weeklyComplianceReport(new Date("2026-10-20T09:00:00.000Z"));
-      assert.equal(await getSetting("ack_report_week"), undefined, "the claim was not burnt");
-      assert.equal(
-        (await pool().query("SELECT COUNT(*)::int AS n FROM audit_log WHERE action = 'ack.report_sent' AND target_label = '2026-W43'")).rows[0].n,
-        0,
-        "nothing was sent"
-      );
-    }
+    await weeklyComplianceReport(new Date("2026-10-20T09:00:00.000Z"), { mailer: null });
+    assert.equal(await getSetting("ack_report_week"), undefined, "the claim was not burnt");
+    assert.equal(
+      (await pool().query("SELECT COUNT(*)::int AS n FROM audit_log WHERE action = 'ack.report_sent' AND target_label = '2026-W43'")).rows[0].n,
+      0,
+      "nothing was sent"
+    );
     // Disabled: nothing either way.
     await setSetting("ack_report", JSON.stringify({ enabled: false, cadence: "weekly", recipients: [managerId] }));
     await weeklyComplianceReport(new Date("2026-10-20T09:00:00.000Z"));
     assert.equal(await getSetting("ack_report_week"), undefined);
+  });
+
+  test("the weekly report: a list nobody on it can receive burns nothing; two instances in parallel send once and audit once; a third finds the week taken", async () => {
+    const { week, at } = pastWeek();
+    const sent: string[] = [];
+    const mailer: Mailer = async (to) => {
+      sent.push(...to);
+    };
+    const reportsSent = async () =>
+      (
+        await pool().query<{ details: { period: string; cadence: string; recipients: number[]; sent: number } }>(
+          "SELECT details FROM audit_log WHERE action = 'ack.report_sent' AND target_type = 'compliance' AND target_label = $1",
+          [week]
+        )
+      ).rows;
+
+    // Every recipient deactivated since the save (stored directly: both
+    // routes refuse it): nothing is sent and the week is not claimed.
+    await setSetting("ack_report", JSON.stringify({ enabled: true, cadence: "weekly", recipients: [disabledId] }));
+    await pool().query("DELETE FROM settings WHERE key = 'ack_report_week'");
+    await weeklyComplianceReport(at, { mailer });
+    assert.deepEqual(sent, []);
+    assert.equal(await getSetting("ack_report_week"), undefined, "the week is not burnt with nobody to mail");
+    assert.equal((await reportsSent()).length, 0);
+
+    // One active recipient beside the disabled one: two ticks at once mail once.
+    await setSetting("ack_report", JSON.stringify({ enabled: true, cadence: "weekly", recipients: [managerId, disabledId] }));
+    await Promise.all([weeklyComplianceReport(at, { mailer }), weeklyComplianceReport(at, { mailer })]);
+    assert.deepEqual(sent, [`${STAMP}-manager@example.test`], "one mail, to the active recipient");
+    assert.equal(await getSetting("ack_report_week"), week);
+    const audited = await reportsSent();
+    assert.equal(audited.length, 1, "one ack.report_sent row");
+    assert.deepEqual(
+      { period: audited[0].details.period, cadence: audited[0].details.cadence, recipients: audited[0].details.recipients, sent: audited[0].details.sent },
+      { period: week, cadence: "weekly", recipients: [managerId], sent: 1 }
+    );
+    await weeklyComplianceReport(at, { mailer });
+    assert.equal(sent.length, 1, "a third call finds the week taken");
+    assert.equal((await reportsSent()).length, 1);
+  });
+
+  test("new joiners are counted by the account: one admitted by an onboarding set counts, an older account a set admits does not", async () => {
+    // A window no other file's rows fall in: a month in the 1960s.
+    const y = 1960 + Math.floor(Math.random() * 10);
+    const m = Math.floor(Math.random() * 12);
+    const from = new Date(Date.UTC(y, m, 1));
+    const to = new Date(Date.UTC(y, m + 1, 1));
+    const inside = new Date(Date.UTC(y, m, 15, 12)).toISOString();
+
+    // An onboarding set (auto-assign on) over a targeted policy whose rules
+    // name a group nobody is in, and a space-mode policy beside it.
+    const nobody = (await createGroup({ name: `${STAMP} nobody` })).id;
+    extraGroupIds.push(nobody);
+    const targeted = await policy(`${STAMP} onboarding`);
+    await saveAudienceRules(targeted.id, { audience_mode: "targeted", rules: sanitizeRules([{ kind: "group", ref: nobody }]) });
+    const spaceWide = await policy(`${STAMP} space joiner`);
+    const set = await createPolicySet(
+      { name: `${STAMP} New starter onboarding`, description: "", doc_ids: [targeted.id], assign_new_members: true },
+      { id: managerId, name: "Mia Manager" }
+    );
+    setIds.push(set.id);
+
+    // Two joiners (accounts created now, backdated into the window below)
+    // and an account from long before, all able to read the space.
+    const viaSet = await newUser("joiner-set", "Jo Set");
+    const viaSpace = await newUser("joiner-space", "Jo Space");
+    const older = await newUser("older", "Old Hand", "1950-01-01T00:00:00Z");
+    // Straight into the group (as test/ack-sets.test.ts adds its joiners), so
+    // the rows below are the ones autoAssignPolicies and the set write.
+    for (const id of [viaSet, viaSpace, older]) {
+      await fixtureQuery("INSERT INTO group_members (group_id, user_id) VALUES ($1, $2)", [groupId, id]);
+    }
+    await retryOnTeardownRace(() => autoAssignPolicies(viaSet));
+    await retryOnTeardownRace(() => autoAssignPolicies(viaSpace));
+    const assigned = await assignPolicySet(set.id, { user_ids: [older], group_ids: [], everyone: false }, { id: managerId, name: "Mia Manager" });
+    assert.equal(assigned.added >= 1, true, JSON.stringify(assigned));
+    assert.equal((await rowOf(targeted.id, viaSet)).source, "set", "the set admitted the joiner");
+    assert.equal((await rowOf(spaceWide.id, viaSpace)).source, "new_member", "the space admitted the other joiner");
+    assert.equal((await rowOf(targeted.id, older)).source, "set", "the set admitted the older account");
+
+    await pool().query("UPDATE users SET created_at = $2 WHERE id = ANY($1)", [[viaSet, viaSpace], inside]);
+    for (const [doc, user] of [
+      [targeted.id, viaSet],
+      [spaceWide.id, viaSpace],
+      [targeted.id, older],
+    ]) {
+      await pool().query("UPDATE policy_assignments SET assigned_at = $3 WHERE document_id = $1 AND user_id = $2", [doc, user, inside]);
+    }
+    const counts = await complianceReportCounts(from.toISOString(), to.toISOString());
+    assert.equal(counts.new_joiners, 2, "the set's joiner and the space's joiner; not the older account");
   });
 });
 
@@ -620,6 +823,9 @@ describe("erasure and the pure rules", () => {
     await recordAcknowledgement(id, readerId, "", v1);
     const snap = await takeComplianceSnapshot("manual", { by: { id: managerId, name: "Mia Manager" }, documentId: id });
     snapshotIds.push(snap!.id);
+    // And one the reader took themself: its taker's name is personal data too.
+    const byReader = await takeComplianceSnapshot("manual", { by: { id: readerId, name: "Evi Reader" }, documentId: id });
+    snapshotIds.push(byReader!.id);
     const before = await getComplianceSnapshot(snap!.id);
     assert.ok(before!.data.includes('"Evi Reader"'), "the snapshot names the reader");
     assert.ok(before!.data.includes(`${STAMP}-reader@example.test`));
@@ -647,6 +853,11 @@ describe("erasure and the pure rules", () => {
     ).rows;
     assert.equal(audited.length, 1, "one ack.snapshot_rewritten row for the snapshot");
     assert.deepEqual(audited[0].details, { snapshot_id: snap!.id, user_id: readerId, previous_sha256: before!.sha256, sha256: after!.sha256 });
+    // The Evidence page's "by {name}" (taken_by_name) follows the erasure;
+    // another person's snapshot keeps its taker.
+    const listed = await listComplianceSnapshots(500);
+    assert.equal(listed.find((s) => s.id === byReader!.id)?.taken_by_name, `Former staff #${readerId}`);
+    assert.equal(listed.find((s) => s.id === snap!.id)?.taken_by_name, "Mia Manager");
     // A second erasure finds nothing left to rewrite in it.
     const again = await anonymiseComplianceRecord(readerId);
     assert.equal((await getComplianceSnapshot(snap!.id))!.sha256, after!.sha256, "idempotent");
@@ -708,5 +919,152 @@ describe("erasure and the pure rules", () => {
         { name: "b.csv", sha256: "deadbeef" },
       ],
     });
+  });
+});
+
+describe("housekeeping", () => {
+  test("runDbMaintenance drops a deadline claim whose policy is gone, and keeps one whose policy exists and any other key", async () => {
+    const { id } = await policy(`${STAMP} housekeeping`);
+    // An id no document has (documents.id is an int4 and the test database holds far fewer).
+    const gone = `ack_deadline_hook_${2_000_000_000 + Math.floor(Math.random() * 100_000_000)}`;
+    const kept = `ack_deadline_hook_${id}`;
+    const other = `ack_deadline_hook_${STAMP}`;
+    try {
+      for (const key of [gone, kept, other]) await setSetting(key, "2026-10-21");
+      await runDbMaintenance();
+      assert.equal(await getSetting(gone), undefined, "the purged policy's claim is gone");
+      assert.equal(await getSetting(kept), "2026-10-21", "a live policy's claim stays");
+      assert.equal(await getSetting(other), "2026-10-21", "a key without a numeric suffix is not touched");
+    } finally {
+      await pool().query("DELETE FROM settings WHERE key = ANY($1)", [[gone, kept, other]]);
+    }
+  });
+});
+
+// --- The per-policy package's gate -----------------------------------------------
+// GET /api/documents/{id}/acknowledgements is called directly, as
+// test/team-policies.test.ts calls its route: next/headers resolves to a stub
+// serving the request under test (a session cookie per person), lib/ee to the
+// licensed stub installed above. The package carries the IP and user agent of
+// every confirmation, so it takes compliance.export exactly as the ledger CSV:
+// the roster permission and document.ack_require on the space are not enough.
+
+describe("GET /api/documents/{id}/acknowledgements?format=package", () => {
+  let currentRequest: Request | null = null;
+  let route: typeof import("../src/app/api/documents/[id]/acknowledgements/route");
+  const sessions = new Map<number, string>();
+  const roleIds: number[] = [];
+  let stewardId = 0;
+  let exporterId = 0;
+
+  before(async () => {
+    const Module = (await import("node:module")).default;
+    const path = (await import("node:path")).default;
+    const HEADERS_STUB = path.join(__dirname, "stubs", "next-headers.ack-snapshots.virtual.js");
+    const jar = () => {
+      const out = new Map<string, string>();
+      for (const part of (currentRequest?.headers.get("cookie") ?? "").split(";")) {
+        const i = part.indexOf("=");
+        if (i > 0) out.set(part.slice(0, i).trim(), decodeURIComponent(part.slice(i + 1).trim()));
+      }
+      return out;
+    };
+    const headers = new Module(HEADERS_STUB);
+    headers.filename = HEADERS_STUB;
+    headers.loaded = true;
+    headers.exports = {
+      headers: async () => new Headers(currentRequest?.headers ?? {}),
+      cookies: async () => {
+        const c = jar();
+        return {
+          get: (name: string) => (c.has(name) ? { name, value: c.get(name) } : undefined),
+          getAll: () => [...c].map(([name, value]) => ({ name, value })),
+          has: (name: string) => c.has(name),
+        };
+      },
+      draftMode: async () => ({ isEnabled: false }),
+    };
+    require.cache[HEADERS_STUB] = headers;
+    const loader = Module as unknown as {
+      _resolveFilename: (request: string, parent: { filename?: string } | null, ...rest: unknown[]) => string;
+    };
+    const resolveFilename = loader._resolveFilename;
+    loader._resolveFilename = function (request: string, parent: { filename?: string } | null, ...rest: unknown[]) {
+      if (request === "next/headers") return HEADERS_STUB;
+      return resolveFilename.call(this, request, parent, ...rest);
+    };
+    route = await import("../src/app/api/documents/[id]/acknowledgements/route");
+
+    // Two viewers who read the space (the group's grant): a steward holding
+    // the roster permission and document.ack_require, and an exporter who
+    // also holds compliance.export.
+    stewardId = await newUser("steward", "Stu Steward");
+    exporterId = await newUser("exporter", "Exa Exporter");
+    for (const id of [stewardId, exporterId]) {
+      await fixtureQuery("INSERT INTO group_members (group_id, user_id) VALUES ($1, $2)", [groupId, id]);
+    }
+    const steward = await createRole({ name: `Steward ${STAMP}`, permissions: ["document.ack_roster_read", "document.ack_require"] });
+    const exporter = await createRole({ name: `Exporter ${STAMP}`, permissions: ["compliance.export"] });
+    assert.ok("id" in steward && "id" in exporter, "the custom roles exist");
+    roleIds.push((steward as { id: number }).id, (exporter as { id: number }).id);
+    await assignRole({ roleId: roleIds[0], userId: stewardId });
+    await assignRole({ roleId: roleIds[0], userId: exporterId });
+    await assignRole({ roleId: roleIds[1], userId: exporterId });
+    for (const id of [stewardId, exporterId]) {
+      const token = newToken();
+      await createSession(token, id, new Date(Date.now() + 3_600_000).toISOString());
+      sessions.set(id, token);
+    }
+  });
+
+  after(async () => {
+    await pool().query("DELETE FROM sessions WHERE user_id = ANY($1)", [[stewardId, exporterId]]);
+    if (roleIds.length) await pool().query("DELETE FROM roles WHERE id = ANY($1)", [roleIds]);
+  });
+
+  async function get(as: number, docId: number, query: string): Promise<Response> {
+    const req = new Request(`http://localhost/api/documents/${docId}/acknowledgements?${query}`, {
+      headers: { cookie: `compass_session=${sessions.get(as)}`, "x-forwarded-for": "203.0.113.9" },
+    });
+    currentRequest = req;
+    try {
+      return await route.GET(req, { params: Promise.resolve({ id: String(docId) }) });
+    } finally {
+      currentRequest = null;
+    }
+  }
+
+  test("the roster permission and document.ack_require open the record but not the package; compliance.export opens it", async () => {
+    const { id, v1 } = await policy(`${STAMP} package gate`);
+    await recordAcknowledgement(id, readerId, "198.51.100.7", v1, { userAgent: "Mozilla/5.0 (gate)" });
+
+    let res = await get(stewardId, id, "format=csv");
+    assert.equal(res.status, 200, "the steward reads the record");
+    await res.text();
+    for (const format of ["package", "ledger"]) {
+      res = await get(stewardId, id, `format=${format}`);
+      assert.equal(res.status, 403, `format=${format} needs compliance.export`);
+      assert.deepEqual(await res.json(), { error: "You don't have permission for that." });
+    }
+
+    res = await get(exporterId, id, "format=package");
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get("content-type"), "application/zip");
+    const z = await unzip(Buffer.from(await res.arrayBuffer()));
+    assert.ok(z.names.includes(`policies/${id}/roster.csv`), "the policy's own package");
+    const acks = parseCsv(await z.text("acknowledgements.csv"));
+    assert.equal(acks.rows[0][acks.header.indexOf("ip")], "198.51.100.7", "the personal data the gate protects");
+    // Audited once the stream has closed.
+    let audited = 0;
+    for (let i = 0; i < 20 && audited === 0; i++) {
+      audited = (
+        await pool().query<{ n: number }>(
+          "SELECT COUNT(*)::int AS n FROM audit_log WHERE action = 'ack.audit_export' AND target_type = 'document' AND target_id = $1",
+          [String(id)]
+        )
+      ).rows[0].n;
+      if (audited === 0) await new Promise((r) => setTimeout(r, 50));
+    }
+    assert.equal(audited, 1, "ack.audit_export");
   });
 });

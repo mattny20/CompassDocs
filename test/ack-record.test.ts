@@ -3,7 +3,10 @@
 // every row; a group lead sees members of groups they lead, only for
 // policies in spaces they can read, with a count of the rest and never a
 // private-space title; a space roster reader sees only the spaces they hold
-// document.ack_roster_read on; a stranger gets null (404). The IP travels
+// document.ack_roster_read on, and opens only people with a row there; a
+// compliance.team_read holder opens any group member; a policy that stopped
+// asking keeps its rows as closed rows marked stopped; a stranger gets null
+// (404). The IP travels
 // only where the viewer may see it; the inferred version flag rides along;
 // the CSV has 21 columns; every CSV download writes ack.record_exported
 // before the response streams; `me` is the viewer's own record.
@@ -438,7 +441,7 @@ describe("the per-person compliance record (F3)", () => {
     ]);
 
     const expires = new Date(Date.now() + 3_600_000).toISOString();
-    for (const id of [ana, program, stranger]) {
+    for (const id of [ana, program, stranger, roster]) {
       const token = newToken();
       await createSession(token, id, expires);
       sessions.set(id, token);
@@ -454,6 +457,7 @@ describe("the per-person compliance record (F3)", () => {
     await pool().query("DELETE FROM ack_outbox WHERE document_id = ANY($1)", [docIds]);
     await pool().query("DELETE FROM audit_log WHERE actor_id = ANY($1)", [userIds]);
     await pool().query("DELETE FROM documents WHERE id = ANY($1)", [docIds]);
+    if (roleIds.length) await pool().query("DELETE FROM roles WHERE id = ANY($1)", [roleIds]);
     await pool().query("DELETE FROM users WHERE id = ANY($1)", [userIds]);
     await pool().query("DELETE FROM groups WHERE id = ANY($1)", [groupIds]);
     await pool().query("DELETE FROM spaces WHERE id = ANY($1)", [[pubSpace, pub2Space, privSpace]]);
@@ -659,5 +663,117 @@ describe("the per-person compliance record (F3)", () => {
     // A JSON read writes no audit row.
     const again = await pool().query("SELECT COUNT(*)::int AS n FROM audit_log WHERE action = 'ack.record_exported' AND actor_id = ANY($1)", [userIds]);
     assert.equal(again.rows[0].n, 1);
+  });
+
+  // --- Fix round (1.14.0) ---------------------------------------------------------
+
+  test("a policy that stopped asking keeps the person's rows: a closed row marked stopped with the standing frozen (confirmed, or pending on a paused one), 'no longer required' in the CSV", async () => {
+    // Confirmed, then "Stop requiring": the row stays open, the confirmation stands.
+    const stopped = await policy(pubSpace, `${STAMP} Stopped policy`);
+    assert.equal((await recordAcknowledgement(stopped.id, ana, IP, stopped.v1)).recorded, true);
+    await setAckRequired(stopped.id, false);
+    // Required, never confirmed, then unpublished (paused) with the requirement on.
+    const paused = await policy(pubSpace, `${STAMP} Paused policy`);
+    await pool().query("UPDATE documents SET status = 'draft' WHERE id = $1", [paused.id]);
+
+    const t = await record(ana);
+    assert.equal(byTitle(t.current, stopped), undefined, "no longer a current requirement");
+    assert.equal(byTitle(t.current, paused), undefined);
+    const row = byTitle(t.history, stopped, "closed");
+    assert.ok(row, "the stopped policy's row is on the record");
+    assert.equal(row.stopped, true);
+    assert.equal(row.status, "confirmed", "the standing when it stopped");
+    assert.equal(row.removed_at, null, "nothing closed the row");
+    assert.equal(row.version, 1);
+    assert.ok(row.acknowledged_at && row.assignment_id && row.assigned_at);
+    assert.equal(byTitle(t.history, stopped, "superseded"), undefined, "the confirmation is not counted twice");
+    const pausedRow = byTitle(t.history, paused, "closed")!;
+    assert.equal(pausedRow.stopped, true);
+    assert.equal(pausedRow.status, "pending", "never overdue on a policy that stopped");
+    assert.equal(byTitle(t.history, leftPolicy, "closed")!.stopped, false, "a row the audience closed is not 'stopped'");
+    assert.ok(t.history.filter((r) => r.record !== "closed").every((r) => r.stopped === false));
+    assert.ok(t.current.every((r) => r.stopped === false));
+
+    const cells = recordCsvCells(row);
+    assert.equal(cells.length, 21);
+    assert.equal(cells[2], "confirmed");
+    assert.equal(cells[5], "", "no removed_at");
+    assert.equal(cells[8], "v1");
+    assert.equal(cells[20], RECORD_STOPPED_CELL);
+    assert.equal(RECORD_STOPPED_CELL, "no longer required");
+    assert.equal(recordCsvCells(byTitle(t.history, leftPolicy, "closed")!)[20], "", "a plain closed row's last cell stays blank");
+
+    // The programme sees it with the address, as on any confirmed row.
+    const p = await record(program);
+    assert.equal(byTitle(p.history, stopped, "closed")!.ip, IP);
+  });
+
+  test("a space roster reader opens a record only when the person has a row on a policy in the reader's spaces; anyone else is the stranger's 404, and a global roster grant still opens anyone", async () => {
+    assert.equal(await userPolicyTranscript(stranger, viewer(roster)), null, "no row of Sam's in the reader's space");
+    const other = await newUser("other", "Oli Other");
+    const ackRow = (doc: Policy) =>
+      pool().query(
+        "INSERT INTO acknowledgements (document_id, user_id, acknowledged_at, ip, version_id, content_sha256) VALUES ($1, $2, now(), '', $3, NULL)",
+        [doc.id, other, doc.v1]
+      );
+    await ackRow(pub2Policy);
+    assert.equal(await userPolicyTranscript(other, viewer(roster)), null, "a row in a space the reader holds no roster permission on");
+    // A confirmation alone (no assignment row) in the reader's space admits them.
+    await ackRow(oldPolicy);
+    const t = await userPolicyTranscript(other, viewer(roster));
+    assert.ok(t);
+    assert.equal(t.viewer_kind, "roster");
+    assert.ok(t.hidden >= 1, "the second space's policy is counted, not shown");
+    assert.ok(!JSON.stringify(t).includes(pub2Policy.title));
+
+    // The route answers the same 404 body as an unknown id.
+    const route = await import("../src/app/api/admin/compliance/people/[id]/route");
+    const url = `https://docs.example.test/api/admin/compliance/people/${stranger}`;
+    const denied = await call(route.GET as Handler, sessionRequest(url, sessions.get(roster)!), String(stranger));
+    assert.deepEqual([denied.status, denied.body], [404, { error: "No such person." }]);
+    const allowed = await call(route.GET as Handler, sessionRequest(url.replace(String(stranger), String(ana)), sessions.get(roster)!), String(ana));
+    assert.equal(allowed.status, 200);
+    assert.equal(allowed.body.viewer_kind, "roster");
+
+    // The approver preset held globally reads every space's roster: it opens anyone.
+    const everywhere = await newUser("everywhere", "Eve Everywhere");
+    await fixtureQuery(
+      `INSERT INTO role_assignments (role_id, user_id, scope_type, space_id)
+       SELECT r.id, $1, 'global', NULL FROM roles r WHERE r.key = 'approver'`,
+      [everywhere]
+    );
+    assert.equal(await rosterReadSpaceIdsFor(viewer(everywhere)), "all");
+    assert.equal((await userPolicyTranscript(stranger, viewer(everywhere)))?.viewer_kind, "roster");
+  });
+
+  test("a compliance.team_read holder opens any group member's record, as the team page links it, through the spaces they can read; a plain lead still needs the setting; someone in no group is a stranger's null", async () => {
+    await writeLeadsSeePolicies(false);
+    assert.equal(await userPolicyTranscript(ana, viewer(lead)), null, "a lead without compliance.team_read: the setting is off");
+
+    const reader = await newUser("teamread", "Tia Teamread");
+    const role = await createRole({ name: `Team reader ${STAMP}`, permissions: ["compliance.team_read"] });
+    assert.ok("id" in role, "the role exists");
+    roleIds.push(role.id);
+    assert.deepEqual(await assignRole({ roleId: role.id, userId: reader }), { ok: true });
+    // The reader leads no group of Ana's and can read the first space only
+    // (a direct grant: setSpaceGroups would reconcile the space's policies
+    // and re-open Ana's closed row).
+    await fixtureQuery(
+      `INSERT INTO role_assignments (role_id, user_id, scope_type, space_id)
+       SELECT r.id, $1, 'space', $2 FROM roles r WHERE r.key = 'space-member'`,
+      [reader, pubSpace]
+    );
+
+    const t = await userPolicyTranscript(ana, viewer(reader));
+    assert.ok(t, "team_read opens a group member's record whatever group they are in");
+    assert.equal(t.viewer_kind, "lead");
+    const own = (rows: PolicyTranscriptRow[]) => rows.filter((r) => r.document_id != null && docIds.includes(r.document_id));
+    assert.deepEqual(titles(own(t.current)), titles([pubPolicy, oldPolicy]), "only what the reader can read");
+    assert.ok(t.hidden >= 2, "the private and second spaces' policies are counted");
+    const json = JSON.stringify(t);
+    assert.ok(!json.includes(PRIVATE_TITLE));
+    assert.ok(!json.includes(pub2Policy.title));
+
+    assert.equal(await userPolicyTranscript(stranger, viewer(reader)), null, "Sam is in no group: the team page never lists him");
   });
 });

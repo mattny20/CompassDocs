@@ -403,6 +403,23 @@ describe("the needs-attention queue (F1)", () => {
     assert.deepEqual(await queue([id]), { rows: [], total: 0, snoozed: 0 }, "a retired policy asks nobody");
     assert.deepEqual(await extras([id]), { due_7d: 0, escalated: 0, snoozed: 0 });
   });
+
+  test("the drifted row and the Drifted tile agree at the threshold: the queue compares the drift the tile compares, and only the detail rounds", async () => {
+    // The tile counts complianceDocs' drift_pct >= RESET_MIN_PCT (the portal
+    // route); the queue must name exactly those policies. 4.94 and 4.96 are
+    // stored at one decimal (change_pct numeric(5,1)): either side of it.
+    let counted = 0;
+    for (const pct of [RESET_MIN_PCT - 0.1, RESET_MIN_PCT - 0.06, RESET_MIN_PCT - 0.04, RESET_MIN_PCT]) {
+      const { id } = await policy(`${STAMP} drift ${pct}`);
+      await keptRow(id, pct, false);
+      const tile = (await docRow(id)).drift_pct >= RESET_MIN_PCT;
+      const listed = rowOf((await queue([id])).rows, id, null);
+      assert.equal(Boolean(listed), tile, `${pct}%: the queue lists it exactly when the tile counts it`);
+      if (listed) assert.match(listed.detail ?? "", /^\d+(\.\d)?% since /, "the detail rounds to one decimal");
+      if (tile) counted++;
+    }
+    assert.equal(counted, 2, "4.96 (stored 5.0) and 5 are drifted; 4.9 and 4.94 (stored 4.9) are not");
+  });
 });
 
 describe("the KPI extras (F1)", () => {

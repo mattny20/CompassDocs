@@ -7,7 +7,11 @@
 // everyone who can see its space is left alone (a set never narrows); a new
 // account lands on an active auto-assign set's targeted policies through a
 // rule naming them; deactivating stops auto-assign and leaves every row;
-// deleting leaves the rules (untagged) and the rows; the name is unique
+// a policy edited out of a set has its rules untagged (the Settings tab's
+// then), and a Settings-tab save keeps a member's tagged rules; the
+// visibility ceiling holds a set's joiner and named person out of a private
+// space; deleting leaves the rules (untagged), the rows and the
+// confirmations; the name is unique
 // among active sets, case-insensitively (409).
 //
 // Fixtures live in a private space granted to a group of this file's own

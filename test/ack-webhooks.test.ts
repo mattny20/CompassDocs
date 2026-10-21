@@ -269,8 +269,13 @@ after(async () => {
   await fixtureQuery("DELETE FROM compliance_snapshots WHERE document_id = ANY($1)", [docIds]);
   await fixtureQuery("DELETE FROM acknowledgements WHERE document_id = ANY($1)", [docIds]);
   await fixtureQuery("DELETE FROM ack_decisions WHERE document_id = ANY($1) OR document_title LIKE $2", [docIds, `POLICY %${STAMP}`]);
+  // Each id list paired with its target type: documents, users and sets are
+  // separate sequences, so a bare target_id would delete another file's row.
   await fixtureQuery(
-    "DELETE FROM audit_log WHERE (action LIKE 'ack.%' OR action LIKE 'document.ack%') AND (target_id = ANY($1) OR target_id = ANY($2) OR target_id = ANY($3))",
+    `DELETE FROM audit_log WHERE (action LIKE 'ack.%' OR action LIKE 'document.ack%')
+       AND ((target_type = 'document' AND target_id = ANY($1))
+            OR (target_type = 'user' AND target_id = ANY($2))
+            OR (target_type = 'policy_set' AND target_id = ANY($3)))`,
     [docIds.map(String), userIds.map(String), setIds.map(String)]
   );
   await fixtureQuery("DELETE FROM policy_sets WHERE id = ANY($1) OR name LIKE $2", [setIds, `${STAMP}%`]);
@@ -492,6 +497,32 @@ describe("lib/compliance-webhooks: the emits and the per-space filter", () => {
     assert.equal(onTargeted[0].body.policy.counts.required, 2, "bob and alice");
   });
 
+  test("an audience save that adds people emits once after the commit with the count it added; a save that adds nobody emits nothing", async () => {
+    const id = await newDoc("Remote access");
+    // Narrowed to bob: three rows close, nobody is added, the channel hears nothing.
+    await saveAudienceRules(id, { audience_mode: "targeted", rules: sanitizeRules([{ kind: "user", ref: people.bob }]) }, { actor: actor() });
+    await settle();
+    assert.equal(postsTo("all", id).length, 0, "a narrowing asks nobody");
+    // Widened to the group again: the three are asked again, in one event.
+    const saved = await saveAudienceRules(
+      id,
+      { audience_mode: "targeted", rules: sanitizeRules([{ kind: "group", ref: group }]) },
+      { actor: actor(), origin: "https://docs.example.test" }
+    );
+    assert.equal(saved!.added + saved!.reopened, 3);
+    const got = await waitFor(() => postsTo("all", id), 1);
+    assert.equal(got.length, 1, "one event per save, not one per person");
+    assert.equal(got[0].body.event, "policy.requested");
+    assert.equal(got[0].body.policy.people, 3, "the people the save started asking");
+    assert.equal(got[0].body.actor, actor().name);
+    assert.equal(got[0].body.url, `https://docs.example.test/compliance/policies?policy=${id}`);
+    assert.equal(postsTo("q", id).length, 0, "the per-space filter applies");
+    // The same save again changes nothing.
+    await saveAudienceRules(id, { audience_mode: "targeted", rules: sanitizeRules([{ kind: "group", ref: group }]) }, { actor: actor() });
+    await settle();
+    assert.equal(postsTo("all", id).length, 1);
+  });
+
   test("the escalation sweep emits once per policy that escalated someone, with the count and the days", async () => {
     const id = await newDoc("Data handling");
     await pool().query("UPDATE policy_assignments SET due_at = now() - interval '20 days' WHERE document_id = $1", [id]);
@@ -561,6 +592,53 @@ describe("lib/compliance-webhooks: the emits and the per-space filter", () => {
     );
     assert.deepEqual(await emitPolicyDeadlines({ documentIds: [id], defaults: D }), { policies: 1, announced: 1, skipped: null });
     assert.equal(postsTo("all", id).length, 3);
+  });
+
+  test("a deadline no subscribed hook covers burns no claim: with only a hook scoped to another space nothing is claimed, and an unscoped hook added later announces it", async () => {
+    const id = await newDoc("Remote work");
+    await pool().query("UPDATE policy_assignments SET due_at = now() + interval '2 days' WHERE document_id = $1", [id]);
+    // Only hookQ (scoped to space Q) listens; the policy is in space P.
+    for (const h of [hookAll, hookMd, hookP]) await deleteWebhook(h);
+    try {
+      assert.deepEqual(await emitPolicyDeadlines({ documentIds: [id], defaults: D }), { policies: 1, announced: 0, skipped: null });
+      assert.equal(await getSetting(`${DEADLINE_HOOK_CLAIM_PREFIX}${id}`), undefined, "nothing is claimed");
+      assert.equal(postsTo("q", id).length, 0);
+      // A hook scoped to the policy's own space covers it.
+      hookP = await hook("p", POLICY_EVENTS, { spaceIds: [spaceP] });
+      assert.deepEqual(await emitPolicyDeadlines({ documentIds: [id], defaults: D }), { policies: 1, announced: 1, skipped: null });
+      assert.equal(postsTo("p", id).length, 1);
+      assert.ok(await getSetting(`${DEADLINE_HOOK_CLAIM_PREFIX}${id}`), "claimed once a hook covers it");
+
+      // Again, on a second policy: the unscoped hook added later hears it.
+      const other = await newDoc("Clean desk");
+      await pool().query("UPDATE policy_assignments SET due_at = now() + interval '2 days' WHERE document_id = $1", [other]);
+      await deleteWebhook(hookP);
+      assert.deepEqual(await emitPolicyDeadlines({ documentIds: [other], defaults: D }), { policies: 1, announced: 0, skipped: null });
+      assert.equal(await getSetting(`${DEADLINE_HOOK_CLAIM_PREFIX}${other}`), undefined);
+      hookAll = await hook("all", POLICY_EVENTS);
+      assert.deepEqual(await emitPolicyDeadlines({ documentIds: [other], defaults: D }), { policies: 1, announced: 1, skipped: null });
+      assert.equal(postsTo("all", other).length, 1);
+      assert.equal(postsTo("all", other)[0].body.event, "policy.deadline_approaching");
+      assert.equal(postsTo("q", other).length, 0);
+    } finally {
+      // Back to the four hooks the later tests read.
+      for (const h of [hookAll, hookP]) await deleteWebhook(h).catch(() => {});
+      hookAll = await hook("all", POLICY_EVENTS);
+      hookMd = await hook("md", POLICY_EVENTS, { format: "webex" });
+      hookP = await hook("p", POLICY_EVENTS, { spaceIds: [spaceP] });
+    }
+  });
+
+  test("two deadline passes at once (two instances' ticks) announce a due date once: the claim decides", async () => {
+    const id = await newDoc("Visitors policy");
+    await pool().query("UPDATE policy_assignments SET due_at = now() + interval '2 days' WHERE document_id = $1", [id]);
+    const [c, d] = await Promise.all([
+      emitPolicyDeadlines({ documentIds: [id], defaults: D }),
+      emitPolicyDeadlines({ documentIds: [id], defaults: D }),
+    ]);
+    assert.equal(c.announced + d.announced, 1);
+    assert.equal(postsTo("all", id).length, 1);
+    assert.equal(postsTo("p", id).length, 1);
   });
 
   test("retirePolicy emits 'retired by, replaced by' with the counts frozen at retirement", async () => {
@@ -641,6 +719,20 @@ describe("lib/compliance-webhooks: the emits and the per-space filter", () => {
     assert.equal(later.sent, 1);
     assert.equal(postsTo("wk2").length, 1);
     await deleteWebhook(wk2);
+  });
+
+  test("two weekly summaries at once (two instances' ticks) send once: the claim decides", async () => {
+    const wk = await hook("wkpar", ["policy.weekly_summary"]);
+    try {
+      const now = new Date();
+      const period = `${STAMP}w4`;
+      const [a, b] = await Promise.all([weeklyPolicyChannelSummary({ now, period }), weeklyPolicyChannelSummary({ now, period })]);
+      assert.equal([a, b].filter((r) => r.skipped === null).length, 1, "one instance sends");
+      assert.equal([a, b].filter((r) => r.skipped === "claimed").length, 1, "the other finds the week claimed");
+      assert.equal(postsTo("wkpar").length, 1);
+    } finally {
+      await deleteWebhook(wk);
+    }
   });
 
   test("an unlicensed workspace emits nothing", async () => {

@@ -3,7 +3,8 @@
 // writes (remind queues outbox rows and skips a policy inside the hour;
 // set_deadline writes due_history on every open row; the owner and the
 // cadence through the Settings tab's setter; reask runs the atomic reset per
-// policy and skips the guarded one; add_to_set through the set's membership
+// policy, skips the guarded one and emits policy.requested once per policy
+// it reset; add_to_set through the set's membership
 // update; remind_people writes one bundled 'due' row per policy naming the
 // people; the three people levers through the assignments dispatcher); the
 // 200 cap; one summary audit row per call; nothing in the request sends
@@ -40,8 +41,11 @@ import {
   assignRole,
   createSession,
   getAckOutboxRow,
+  createWebhook,
+  deleteWebhook,
 } from "../src/lib/db";
-import { deliverAckNotices, DUE_BUNDLE_OVER } from "../src/lib/compliance";
+// lib/compliance is loaded in before(), after the stubs below: it imports
+// lib/compliance-webhooks, whose emits must see the licence the stub grants.
 import type { Mailer } from "../src/lib/compliance";
 import { newToken } from "../src/lib/password";
 import { ASSIGNMENT_IDS_MAX, SELF_EXEMPTION_ERROR } from "../src/lib/ack-assignments";
@@ -162,6 +166,24 @@ const sessions: string[] = [];
 
 type Bulk = typeof import("../src/lib/ack-bulk");
 let lib: Bulk;
+let compliance: typeof import("../src/lib/compliance");
+
+// The chat channel (H3): one hook of this file's own, the transport stubbed
+// (lib/webhooks' seam, as test/ack-webhooks.test.ts does), so the events the
+// actions emit are read back and nothing opens a socket.
+const HOOK_URL = `https://hooks.example.test/${STAMP}/bulk`;
+let hookId = 0;
+const posts: { url: string; body: any }[] = [];
+const requestedFor = (docId: number) =>
+  posts.filter((p) => p.url === HOOK_URL && p.body?.event === "policy.requested" && p.body?.policy?.id === docId);
+async function waitFor<T>(read: () => T[], n: number, ms = 8000): Promise<T[]> {
+  const until = Date.now() + ms;
+  for (;;) {
+    const got = read();
+    if (got.length >= n || Date.now() > until) return got;
+    await new Promise((r) => setTimeout(r, 60));
+  }
+}
 
 const TEXT = Array.from({ length: 12 }, (_, i) => `Clause ${i + 1}: staff must follow the procedure described here.`).join("\n\n");
 const mine = () => [anaId, benId, miaId];
@@ -268,6 +290,13 @@ const ymdIn = (days: number) => new Date(Date.now() + days * DAY).toISOString().
 before(async () => {
   await getSetting("__schema_bootstrap__");
   lib = await import("../src/lib/ack-bulk");
+  compliance = await import("../src/lib/compliance");
+  const { webhookTransport } = await import("../src/lib/webhooks");
+  webhookTransport.post = async (url, body) => {
+    posts.push({ url, body: JSON.parse(body) });
+    return { ok: true, status: 200 };
+  };
+  hookId = (await createWebhook({ name: `${STAMP} bulk`, url: HOOK_URL, format: "generic", events: ["policy.requested"] })).id;
   const sp = await fixtureQuery(
     "INSERT INTO spaces (name, slug, icon, description, visibility) VALUES ($1, $2, '📁', '', 'private') RETURNING id",
     [`Ack Bulk ${STAMP}`, STAMP]
@@ -322,6 +351,7 @@ before(async () => {
 });
 
 after(async () => {
+  if (hookId) await deleteWebhook(hookId).catch(() => {});
   for (const id of setIds) await deletePolicySet(id).catch(() => {});
   await fixtureQuery("DELETE FROM sessions WHERE user_id = ANY($1)", [userIds]);
   await fixtureQuery("DELETE FROM notifications WHERE user_id = ANY($1)", [userIds]);
@@ -331,7 +361,13 @@ after(async () => {
   await fixtureQuery("DELETE FROM policy_settings WHERE document_id = ANY($1)", [docIds]);
   await fixtureQuery("DELETE FROM acknowledgements WHERE document_id = ANY($1) OR user_id = ANY($2)", [docIds, userIds]);
   await fixtureQuery("DELETE FROM ack_decisions WHERE document_id = ANY($1) OR document_title LIKE $2", [docIds, `${STAMP}%`]);
-  await fixtureQuery("DELETE FROM audit_log WHERE actor_id = ANY($1) OR target_id = ANY($2)", [userIds, docIds.map(String)]);
+  // Only this file's own writes: its people's actions, and rows on its
+  // documents (target_type paired, so another file's user, set or snapshot
+  // with the same number keeps its row).
+  await fixtureQuery("DELETE FROM audit_log WHERE actor_id = ANY($1) OR (target_type = 'document' AND target_id = ANY($2))", [
+    userIds,
+    docIds.map(String),
+  ]);
   await fixtureQuery("DELETE FROM attested_texts WHERE document_id = ANY($1)", [docIds]);
   await fixtureQuery("DELETE FROM documents WHERE id = ANY($1)", [docIds]);
   if (roleId) await fixtureQuery("DELETE FROM roles WHERE id = $1", [roleId]);
@@ -463,7 +499,7 @@ describe("the policy actions", () => {
       sent.push(to);
     };
     for (let i = 0; i < 6 && !(await getAckOutboxRow(rowsA[0].id))?.done_at; i++) {
-      await deliverAckNotices({ origin: ORIGIN, mailer, limit: 50, documentIds: [a.id] });
+      await compliance.deliverAckNotices({ origin: ORIGIN, mailer, limit: 50, documentIds: [a.id] });
     }
     assert.ok((await getAckOutboxRow(rowsA[0].id))?.done_at, "the drain completed the row");
     assert.ok((await noticesFor(a.id)) >= 3, "the notice log has a row per person");
@@ -642,6 +678,17 @@ describe("the policy actions", () => {
     const sums = await summaries("ack.bulk_reasked");
     assert.equal(sums.length, 1);
     assert.deepEqual({ scope: sums[0].details.scope, policies: sums[0].details.policies, reset: sums[0].details.reset }, { scope: "all", policies: 1, reset: 1 });
+
+    // H3: the whole-audience re-ask tells the channel once per policy it
+    // reset, as the single-policy route does; the skipped ones say nothing.
+    const told = await waitFor(() => requestedFor(e.id), 1);
+    assert.equal(told.length, 1, "one policy.requested for E");
+    assert.equal(told[0].body.policy.people, body.queued, "the people asked again");
+    assert.equal(told[0].body.actor, "Mia Manager");
+    assert.equal(told[0].body.url, `${ORIGIN}/compliance/policies?policy=${e.id}`);
+    await new Promise((r) => setTimeout(r, 400));
+    assert.equal(requestedFor(e.id).length, 1, "not one per person");
+    assert.equal(requestedFor(f.id).length + requestedFor(g.id).length, 0, "a skipped policy tells no channel");
   });
 
   test("add_to_set: the set's membership update, a member already in it skipped, a non-policy skipped, an unknown set 404, a deactivated set 409, nobody assigned", async () => {
@@ -726,7 +773,7 @@ describe("the people actions", () => {
 
     // The drain: Ana, on four rows (more than DUE_BUNDLE_OVER), gets one
     // notice listing her policies and one mail; Ben, on three, one per policy.
-    assert.equal(DUE_BUNDLE_OVER, 3);
+    assert.equal(compliance.DUE_BUNDLE_OVER, 3);
     const sent: string[][] = [];
     const mailer: Mailer = async (to) => {
       sent.push(to);
@@ -734,7 +781,7 @@ describe("the people actions", () => {
     for (let i = 0; i < 6; i++) {
       const open = await pool().query("SELECT COUNT(*)::int AS n FROM ack_outbox WHERE document_id = ANY($1) AND mode = 'due' AND done_at IS NULL", [docs.map((x) => x.id)]);
       if (open.rows[0].n === 0) break;
-      await deliverAckNotices({ origin: ORIGIN, mailer, limit: 50, documentIds: docs.map((x) => x.id) });
+      await compliance.deliverAckNotices({ origin: ORIGIN, mailer, limit: 50, documentIds: docs.map((x) => x.id) });
     }
     const patMail = sent.filter((to) => to[0] === `${STAMP}-pat@example.test`).length;
     const samMail = sent.filter((to) => to[0] === `${STAMP}-sam@example.test`).length;
