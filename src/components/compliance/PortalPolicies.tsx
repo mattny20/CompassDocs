@@ -468,7 +468,7 @@ export function PortalPolicies({ licensed, canManageLicense = false }: PortalPag
               const drift = driftChip(d);
               const editDefault = d.ack_edit_default ?? d.edit_default;
               return (
-                <li key={d.id} aria-selected={can.manage ? selection.has(d.id) : undefined}>
+                <li key={d.id}>
                   <div className="flex flex-wrap items-center gap-3 px-4 py-3">
                     {can.manage && (
                       // The row's checkbox (F5): the click notes Shift
