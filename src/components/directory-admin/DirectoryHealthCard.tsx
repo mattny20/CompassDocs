@@ -41,7 +41,7 @@ export function DirectoryHealthCard({ findings }: { findings: HealthFinding[] })
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-slate-800">
                   {f.title}
-                  {f.samples?.length ? <span className="ml-2 text-xs font-normal text-slate-500" data-tt={f.samples.join(" · ")}>e.g. {f.samples.slice(0, 3).join(", ")}{f.samples.length > 3 ? ", …" : ""}</span> : null}
+                  {f.samples?.length ? <span className="ml-2 text-xs font-normal text-slate-500" data-tt={f.samples.join(" · ")}>e.g. {f.samples.slice(0, 3).join(" · ")}{f.samples.length > 3 ? " · …" : ""}</span> : null}
                 </p>
                 <p className="text-xs text-slate-500">{f.detail}</p>
               </div>

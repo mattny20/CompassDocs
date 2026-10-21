@@ -71,7 +71,7 @@ export function syncReportEmail(input: {
     if (s?.warning && !s.blocked) lines.push("", `Warning: ${s.warning}`);
     if (input.unresolved?.length) {
       lines.push("", "People references that matched nobody:");
-      for (const u of input.unresolved) lines.push(`  - ${u.field}: ${u.count} — e.g. ${u.samples.join(", ")}`);
+      for (const u of input.unresolved) lines.push(`  - ${u.field}: ${u.count} — e.g. ${u.samples.join("; ")}`);
     }
   }
   if (input.origin) lines.push("", `Sync page: ${input.origin}/admin/directory/sync`);

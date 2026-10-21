@@ -10,7 +10,7 @@ import "server-only";
 // provider owns the columns); one that matches nobody becomes a manual row.
 
 import { parseCsv } from "./csv";
-import { createPerson, listFields, listPeople, updatePerson, type DirectoryField, type DirectoryPerson } from "./directory";
+import { createPerson, listFields, listPeople, providerRecordsById, updatePerson, type DirectoryField, type DirectoryPerson } from "./directory";
 import { buildPeopleIndex } from "./directory-people-resolve";
 import { BUILTIN_COLUMN_KEYS } from "./directory-display";
 
@@ -90,7 +90,12 @@ export async function importCsv(
   const fields = await listFields();
   const byKey = new Map(fields.map((f) => [f.key, f]));
   const people = await listPeople({ includeHidden: true });
-  const index = buildPeopleIndex(people.map((p) => ({ id: p.id, external_id: p.external_id, email: p.email, name: p.name, record: null })));
+  // The stored provider records carry the handles a people column may name
+  // (sign-in names, on-premises DN, aliases), as the sync's index does.
+  const records = await providerRecordsById();
+  const index = buildPeopleIndex(
+    people.map((p) => ({ id: p.id, external_id: p.external_id, email: p.email, name: p.name, record: records.get(p.id) ?? null }))
+  );
   const byId = new Map(people.map((p) => [p.id, p]));
   const targets = new Map<number, string>();
   for (const [col, key] of Object.entries(mapping)) {

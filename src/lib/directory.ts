@@ -1144,6 +1144,29 @@ export interface AppliedRecord {
   columns: Partial<Record<"title" | "department" | "office", string>>;
 }
 
+/**
+ * Every person's stored provider record by id: the handles the people
+ * resolver indexes (sign-in names, on-premises DN, aliases). The CSV import
+ * builds its index with these, as the sync does (1.14.1).
+ */
+export async function providerRecordsById(): Promise<Map<number, Record<string, unknown>>> {
+  const r = await pool().query<{ id: number; provider_record: Record<string, unknown> }>(
+    "SELECT id, provider_record FROM directory_people WHERE provider_record IS NOT NULL"
+  );
+  return new Map(r.rows.map((row) => [row.id, row.provider_record]));
+}
+
+/** Values joined with `sep`, as many whole values as fit in `max` characters (the first is cut only when it alone is longer). */
+function joinWhole(values: string[], sep: string, max: number): string {
+  let out = "";
+  for (const v of values) {
+    const next = out ? `${out}${sep}${v}` : v;
+    if (next.length > max) return out || v.slice(0, max);
+    out = next;
+  }
+  return out;
+}
+
 export function applyFieldMappings(fields: DirectoryField[], provider: ProviderKey, record: ProviderRecord): AppliedRecord {
   const synced: Record<string, string> = {};
   const columns: AppliedRecord["columns"] = {};
@@ -1152,7 +1175,12 @@ export function applyFieldMappings(fields: DirectoryField[], provider: ProviderK
     if (!m) continue;
     const values = applyMapping(m, record);
     if (values.length === 0) continue;
-    const joined = (f.multi || f.kind === "people" ? values : [values[0]]).join(", ").slice(0, 500);
+    // A people field's values are joined with "; ", the separator the
+    // resolver reads as "next person" (1.14.1): a comma also appears inside
+    // a "Last, First" name and inside every distinguished name. Cut at whole
+    // values, never through a DN.
+    const joined =
+      f.kind === "people" ? joinWhole(values, "; ", 500) : (f.multi ? values : [values[0]]).join(", ").slice(0, 500);
     if (f.builtin && (f.key === "title" || f.key === "department" || f.key === "office")) {
       columns[f.key] = joined;
     } else {
