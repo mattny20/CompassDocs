@@ -85,7 +85,7 @@ export default async function DirectorySyncPage() {
           <ul className="mt-1 list-disc pl-4">
             {googleReport.unresolved.map((u) => (
               <li key={u.field}>
-                <span className="font-mono">{u.field}</span>: {u.count} unresolved — e.g. {u.samples.join(", ")}
+                <span className="font-mono">{u.field}</span>: {u.count} unresolved — e.g. {u.samples.join(" · ")}
               </li>
             ))}
           </ul>

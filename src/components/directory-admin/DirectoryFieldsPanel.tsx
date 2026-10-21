@@ -319,7 +319,7 @@ function MappingEditor({
                 <ul className="mt-2 space-y-0.5 text-xs text-slate-600">
                   {preview.samples.map((s) => (
                     <li key={s.name}>
-                      <span className="text-slate-500">{s.name}:</span> {s.values.join(", ")}
+                      <span className="text-slate-500">{s.name}:</span> {s.values.join(" · ")}
                     </li>
                   ))}
                 </ul>

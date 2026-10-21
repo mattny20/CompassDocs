@@ -10,7 +10,7 @@ import "server-only";
 // provider owns the columns); one that matches nobody becomes a manual row.
 
 import { parseCsv } from "./csv";
-import { createPerson, listFields, listPeople, updatePerson, type DirectoryField, type DirectoryPerson } from "./directory";
+import { createPerson, listFields, listPeople, providerRecordsById, updatePerson, type DirectoryField, type DirectoryPerson } from "./directory";
 import { buildPeopleIndex } from "./directory-people-resolve";
 import { BUILTIN_COLUMN_KEYS } from "./directory-display";
 
@@ -90,7 +90,15 @@ export async function importCsv(
   const fields = await listFields();
   const byKey = new Map(fields.map((f) => [f.key, f]));
   const people = await listPeople({ includeHidden: true });
+  // Rows match existing people by email, then by name, as they always have.
   const index = buildPeopleIndex(people.map((p) => ({ id: p.id, external_id: p.external_id, email: p.email, name: p.name, record: null })));
+  // A people column may also name someone by a handle only the stored
+  // provider record carries (sign-in names, on-premises DN, aliases): it
+  // resolves against those too, as the sync does (1.14.1).
+  const records = await providerRecordsById();
+  const peopleIndex = buildPeopleIndex(
+    people.map((p) => ({ id: p.id, external_id: p.external_id, email: p.email, name: p.name, record: records.get(p.id) ?? null }))
+  );
   const byId = new Map(people.map((p) => [p.id, p]));
   const targets = new Map<number, string>();
   for (const [col, key] of Object.entries(mapping)) {
@@ -141,7 +149,7 @@ export async function importCsv(
           const f = byKey.get(key);
           if (!f || f.builtin) continue;
           if (f.kind === "people") {
-            const ids = resolveNames(index, v);
+            const ids = resolveNames(peopleIndex, v);
             const cur = (existing.links[key] ?? []).map((l) => l.id).sort((a, b) => a - b);
             if (ids.join(",") !== cur.join(",")) {
               changes.push(key);
@@ -176,7 +184,7 @@ export async function importCsv(
           for (const [key, v] of Object.entries(values)) {
             const f = byKey.get(key);
             if (!f || f.builtin || !v) continue;
-            if (f.kind === "people") links[key] = resolveNames(index, v);
+            if (f.kind === "people") links[key] = resolveNames(peopleIndex, v);
             else custom[key] = v;
           }
           const created = await createPerson({

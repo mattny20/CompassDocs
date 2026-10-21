@@ -21,7 +21,7 @@
 
 import { pool, getSetting, setSetting } from "./db";
 import type { ProviderKey } from "./identity-provider";
-import { buildPeopleIndex } from "./directory-people-resolve";
+import { buildPeopleIndex, MICROSOFT_RESOLVER_PROPERTIES } from "./directory-people-resolve";
 import { normalizePhoto } from "./directory-photos";
 import { parseVisibility, parseColumnVisibility, type Visibility, type ColumnVisibility } from "./directory-visibility";
 import {
@@ -1138,10 +1138,33 @@ export async function getSyncReport(source: Exclude<PersonSource, "manual">): Pr
 
 /** The result of running every mapping for one provider over one record. */
 export interface AppliedRecord {
-  /** Custom (jsonb) values, multi joined with ", ". People tokens included under their key. */
+  /** Custom (jsonb) values, multi joined with ", "; a people field's tokens under its key, joined with "; " (1.14.1). */
   synced: Record<string, string>;
   /** Built-in columns a mapping overrides (office composed from two properties, …). */
   columns: Partial<Record<"title" | "department" | "office", string>>;
+}
+
+/**
+ * Every person's stored provider record by id: the handles the people
+ * resolver indexes (sign-in names, on-premises DN, aliases). The CSV import
+ * builds its index with these, as the sync does (1.14.1).
+ */
+export async function providerRecordsById(): Promise<Map<number, Record<string, unknown>>> {
+  const r = await pool().query<{ id: number; provider_record: Record<string, unknown> }>(
+    "SELECT id, provider_record FROM directory_people WHERE provider_record IS NOT NULL"
+  );
+  return new Map(r.rows.map((row) => [row.id, row.provider_record]));
+}
+
+/** Values joined with `sep`, as many whole values as fit in `max` characters (the first is cut only when it alone is longer). */
+function joinWhole(values: string[], sep: string, max: number): string {
+  let out = "";
+  for (const v of values) {
+    const next = out ? `${out}${sep}${v}` : v;
+    if (next.length > max) return out || v.slice(0, max);
+    out = next;
+  }
+  return out;
 }
 
 export function applyFieldMappings(fields: DirectoryField[], provider: ProviderKey, record: ProviderRecord): AppliedRecord {
@@ -1152,7 +1175,13 @@ export function applyFieldMappings(fields: DirectoryField[], provider: ProviderK
     if (!m) continue;
     const values = applyMapping(m, record);
     if (values.length === 0) continue;
-    const joined = (f.multi || f.kind === "people" ? values : [values[0]]).join(", ").slice(0, 500);
+    // A people field's values are joined with "; ", the separator the
+    // resolver reads as "next person" (1.14.1): a comma also appears inside
+    // a "Last, First" name and inside every distinguished name. They are
+    // tokens for the resolver, not display text, so they keep up to 4,000
+    // characters and are cut only between whole values.
+    const joined =
+      f.kind === "people" ? joinWhole(values, "; ", 4000) : (f.multi ? values : [values[0]]).join(", ").slice(0, 500);
     if (f.builtin && (f.key === "title" || f.key === "department" || f.key === "office")) {
       columns[f.key] = joined;
     } else {
@@ -1164,10 +1193,25 @@ export function applyFieldMappings(fields: DirectoryField[], provider: ProviderK
 
 /** Top-level properties the fetch layer must request for this provider. */
 export async function providerSelectProperties(provider: ProviderKey): Promise<string[]> {
+  return selectPropertiesFor(provider, await listFields());
+}
+
+/**
+ * The top-level properties the fetch must request for these fields: what
+ * every mapping reads, plus (1.14.1) the handles the people resolver indexes
+ * whenever a people field is mapped from Microsoft. Graph returns those only
+ * when asked by $select, and without them an assistant written as a DN or a
+ * SAM account name could match only by display name.
+ */
+export function selectPropertiesFor(provider: ProviderKey, fields: DirectoryField[]): string[] {
   const out = new Set<string>();
-  for (const f of await listFields()) {
-    for (const p of mappingProperties(effectiveMapping(f, provider))) out.add(p);
+  let people = false;
+  for (const f of fields) {
+    const m = effectiveMapping(f, provider);
+    for (const p of mappingProperties(m)) out.add(p);
+    if (m && f.kind === "people") people = true;
   }
+  if (provider === "microsoft" && people) for (const p of MICROSOFT_RESOLVER_PROPERTIES) out.add(p);
   return [...out];
 }
 

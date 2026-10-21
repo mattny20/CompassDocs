@@ -9,6 +9,33 @@
 // says so, rather than guessing.
 //
 // Pure module: build an index once per sync, resolve each token against it.
+//
+// Distinguished names (1.14.1). AD's own `assistant` attribute holds the
+// assistant's DN, and a CN in the "Last, First" form is escaped in it:
+// `CN=Ruiz\, Dana,OU=Staff,DC=firm,DC=com` (or `\2C`, or the older quoted
+// `CN="Ruiz, Dana"`). The CN is read with those escapes (RFC 4514); a
+// person's own on-premises DN is indexed, compared in one canonical form
+// whatever escape spelling either side used, so a DN names the account it
+// points at even when the CN differs from the Entra display name or two
+// people share a name; a DN that is nobody's own (an assistant who moved OU
+// while the attribute kept the old DN, a shortened DN) falls back to its CN
+// as a display name, as before; several DNs in one value are told apart, and
+// one that matches nobody is reported whole. Letter case never matters:
+// every handle and token is lowercased.
+
+/**
+ * The Microsoft Graph user properties the index reads besides the base set
+ * (id, mail, userPrincipalName, displayName). Graph returns them only when
+ * asked by $select, so the sync asks for them whenever a people field is
+ * mapped from Microsoft (directory.ts providerSelectProperties).
+ */
+export const MICROSOFT_RESOLVER_PROPERTIES = [
+  "mailNickname",
+  "onPremisesSamAccountName",
+  "onPremisesUserPrincipalName",
+  "onPremisesDistinguishedName",
+  "proxyAddresses",
+] as const;
 
 export interface ResolvablePerson {
   id: number;
@@ -24,11 +51,13 @@ export type Resolution = { id: number } | { ambiguous: number } | undefined;
 export interface PeopleIndex {
   resolve(token: string): Resolution;
   /**
-   * Resolve a whole attribute value. Semicolons always separate people; a
-   * comma separates people only when the text on either side is not one
-   * person's name — "Ruiz, Dana" is one assistant, "Dana Ruiz, Sam Chen" is
-   * two, and "CN=Dana Ruiz,OU=Staff" is one. The whole part is tried first,
-   * then its comma pieces.
+   * Resolve a whole attribute value. Semicolons and line breaks separate
+   * people (an escaped `\;` inside a DN does not); a comma separates people
+   * only when the text on either side is not one person's name: "Ruiz, Dana"
+   * is one assistant, "Dana Ruiz, Sam Chen" is two, "CN=Dana Ruiz,OU=Staff"
+   * is one, and "CN=Ruiz\, Dana,…,DC=com, CN=Chen\, Sam,…,DC=com" is two
+   * DNs. The whole part is tried first, then its comma pieces; a value led
+   * by a DN is cut into its DNs first.
    */
   resolveList(value: string): { token: string; hit: Resolution }[];
 }
@@ -50,18 +79,211 @@ function nameForms(raw: string): string[] {
   return [...out];
 }
 
+// --- Distinguished names (RFC 4514) -------------------------------------------------
+
+/** A value that reads as a distinguished name: `CN=…`, `cn = …`, or the CN's OID `2.5.4.3=…`. */
+export function isDistinguishedName(value: string): boolean {
+  return /^\s*(cn|2\.5\.4\.3)\s*=/i.test(value);
+}
+
+/** Is the character at `i` escaped, i.e. preceded by an odd run of backslashes? */
+function escapedAt(s: string, i: number): boolean {
+  let n = 0;
+  for (let j = i - 1; j >= 0 && s[j] === "\\"; j--) n++;
+  return n % 2 === 1;
+}
+
+/** Trim leading whitespace, and trailing whitespace that is not escaped (`Name\ ` keeps its space). */
+function trimRdn(s: string): string {
+  let out = s.replace(/^\s+/, "");
+  while (out.length && /\s/.test(out[out.length - 1]) && !escapedAt(out, out.length - 1)) out = out.slice(0, -1);
+  return out;
+}
+
+/**
+ * Split a DN into its RDNs at the commas that are not escaped and not inside
+ * a quoted value; empty RDNs (a doubled comma) are dropped. Escapes are kept
+ * as typed.
+ */
+function splitRdns(dn: string): string[] {
+  const out: string[] = [];
+  let cur = "";
+  let quoted = false;
+  for (let i = 0; i < dn.length; i++) {
+    const c = dn[i];
+    if (c === "\\" && i + 1 < dn.length) {
+      cur += c + dn[i + 1];
+      i++;
+      continue;
+    }
+    if (c === '"') quoted = !quoted;
+    if (c === "," && !quoted) {
+      if (trimRdn(cur)) out.push(trimRdn(cur));
+      cur = "";
+      continue;
+    }
+    cur += c;
+  }
+  if (trimRdn(cur)) out.push(trimRdn(cur));
+  return out;
+}
+
+/** An RDN value with its escapes undone: `Ruiz\, Dana`, `Ruiz\2C Dana` and `"Ruiz, Dana"` are all "Ruiz, Dana". */
+function unescapeRdnValue(raw: string): string {
+  let v = raw;
+  if (v.length >= 2 && v.startsWith('"') && v.endsWith('"') && !escapedAt(v, v.length - 1)) v = v.slice(1, -1);
+  const bytes: number[] = [];
+  let out = "";
+  const flush = () => {
+    if (bytes.length) {
+      // TextDecoder, not Buffer: this module is pure and runs anywhere.
+      out += new TextDecoder().decode(new Uint8Array(bytes));
+      bytes.length = 0;
+    }
+  };
+  for (let i = 0; i < v.length; i++) {
+    const c = v[i];
+    if (c === "\\" && i + 1 < v.length) {
+      const hex = v.slice(i + 1, i + 3);
+      if (/^[0-9a-f]{2}$/i.test(hex)) {
+        bytes.push(parseInt(hex, 16));
+        i += 2;
+        continue;
+      }
+      flush();
+      out += v[i + 1];
+      i++;
+      continue;
+    }
+    flush();
+    out += c;
+  }
+  flush();
+  return out;
+}
+
+/** The common attribute types by OID, so `2.5.4.3=` reads as `cn=`. */
+const RDN_OIDS: Record<string, string> = {
+  "2.5.4.3": "cn",
+  "2.5.4.11": "ou",
+  "2.5.4.10": "o",
+  "2.5.4.6": "c",
+  "2.5.4.7": "l",
+  "0.9.2342.19200300.100.1.25": "dc",
+  "0.9.2342.19200300.100.1.1": "uid",
+};
+
+/** One RDN as `type` and unescaped `value`; null when it is not `attr=value`. */
+function parseRdn(rdn: string): { type: string; value: string } | null {
+  const m = /^([A-Za-z][A-Za-z0-9-]*|\d+(?:\.\d+)*)\s*=([\s\S]*)$/.exec(rdn);
+  if (!m) return null;
+  const type = m[1].toLowerCase();
+  return { type: RDN_OIDS[type] ?? type, value: unescapeRdnValue(trimRdn(m[2].replace(/^\s+/, ""))) };
+}
+
+/**
+ * One DN in the form both sides of a comparison share, whatever escape
+ * spelling each used: each RDN as `type=value` with the value unescaped,
+ * lowercased and its whitespace collapsed, joined with a separator no value
+ * can contain. "" when the text is not a DN.
+ */
+export function canonicalDn(dn: string): string {
+  const rdns = splitRdns(String(dn ?? "").trim()).map(parseRdn);
+  if (rdns.length === 0 || rdns.some((r) => r === null)) return "";
+  return (rdns as { type: string; value: string }[])
+    .map((r) => `${r.type}=${r.value.toLowerCase().replace(/\s+/g, " ").trim()}`)
+    .join("\u0001");
+}
+
+/** The CN of a DN, unescaped; "" when the first RDN is not a CN. */
+export function commonNameOf(dn: string): string {
+  const first = parseRdn(splitRdns(String(dn ?? "").trim())[0] ?? "");
+  return first && first.type === "cn" ? first.value.trim() : "";
+}
+
+/**
+ * Cut a value that starts with a DN into its DNs and any plain pieces after
+ * them. A new DN starts where a `CN=` RDN follows an RDN that is not a CN
+ * (`…,DC=com, CN=…`; `CN=Dana,CN=Users,DC=…` stays one DN); a piece that is
+ * not `attr=value` (an address, a name) ends the DN before it.
+ */
+function splitDnLed(part: string): { text: string; dn: boolean }[] {
+  const out: { text: string; dn: boolean }[] = [];
+  let cur: string[] = [];
+  let lastType = "";
+  const close = () => {
+    if (cur.length) out.push({ text: cur.join(","), dn: true });
+    cur = [];
+    lastType = "";
+  };
+  for (const rdn of splitRdns(part)) {
+    const parsed = parseRdn(rdn);
+    if (!parsed) {
+      close();
+      if (rdn) out.push({ text: rdn, dn: false });
+      continue;
+    }
+    if (parsed.type === "cn" && cur.length > 0 && lastType !== "cn") close();
+    cur.push(rdn);
+    lastType = parsed.type;
+  }
+  close();
+  return out;
+}
+
+/** Split at the commas that are not escaped, each piece trimmed, empty pieces dropped. */
+function splitCommas(part: string): string[] {
+  const out: string[] = [];
+  let cur = "";
+  for (let i = 0; i < part.length; i++) {
+    if (part[i] === "," && !escapedAt(part, i)) {
+      out.push(cur);
+      cur = "";
+      continue;
+    }
+    cur += part[i];
+  }
+  out.push(cur);
+  return out.map((s) => s.trim()).filter(Boolean);
+}
+
+/**
+ * Split a whole value at semicolons and line breaks. A `\;` is an escape
+ * only inside a distinguished name; anywhere else the semicolon separates,
+ * as it always has.
+ */
+function splitPeople(value: string): string[] {
+  const out: string[] = [];
+  let cur = "";
+  for (let i = 0; i < value.length; i++) {
+    const c = value[i];
+    if ((c === ";" && !(escapedAt(value, i) && isDistinguishedName(cur))) || c === "\n" || c === "\r") {
+      out.push(cur);
+      cur = "";
+      continue;
+    }
+    cur += c;
+  }
+  out.push(cur);
+  return out.map((s) => s.trim()).filter(Boolean);
+}
+
+// --- The index ---------------------------------------------------------------------
+
 /** What a token might be, in the order to try: the most specific first. */
-function tokenCandidates(token: string): { exact: string[]; names: string[] } {
+function tokenCandidates(token: string): { exact: string[]; names: string[]; dn: boolean } {
   let t = token.trim();
-  if (!t) return { exact: [], names: [] };
+  if (!t) return { exact: [], names: [], dn: false };
   // "Dana Ruiz <dana@firm.com>" — the address is the reliable part.
   const angled = /<([^<>]+)>\s*$/.exec(t);
   if (angled) t = angled[1];
-  // A distinguished name: the CN is the display name.
-  const cn = /^cn=([^,]+)/i.exec(t);
-  if (cn) return { exact: [], names: nameForms(cn[1]) };
-  const exact = [norm(t)];
-  return { exact, names: nameForms(t) };
+  // A distinguished name: the person whose own DN it is, else the CN as a
+  // display name (AD's CN is usually the display name, in either order).
+  if (isDistinguishedName(t)) {
+    const dn = canonicalDn(t);
+    return { exact: dn ? [dn] : [], names: nameForms(commonNameOf(t)), dn: true };
+  }
+  return { exact: [norm(t)], names: nameForms(t), dn: false };
 }
 
 function str(v: unknown): string {
@@ -69,16 +291,29 @@ function str(v: unknown): string {
 }
 
 /**
- * Index people by every handle a token could carry. Exact handles (object
- * id, email, sign-in name, mail nickname, SAM account name) are unique to a
- * person by construction; names can collide and are tracked as a list.
+ * Index people by every handle a token could carry. Unique handles map to
+ * one person: the primary ones (object id, email, sign-in name, mail) for
+ * everyone first, then the secondary ones (on-premises sign-in name,
+ * aliases, the on-premises DN), so a secondary handle never takes an
+ * address from the person whose primary address it is. A SAM account name
+ * or mail nickname is unique only within one AD domain, and a name can be
+ * shared, so those are tracked as sets and one two people hold resolves to
+ * nobody.
  */
 export function buildPeopleIndex(people: ResolvablePerson[]): PeopleIndex {
   const exact = new Map<string, number>();
+  const shared = new Map<string, Set<number>>();
   const names = new Map<string, Set<number>>();
   const addExact = (key: string, id: number) => {
     const k = norm(key);
     if (k && !exact.has(k)) exact.set(k, id);
+  };
+  const addShared = (key: string, id: number) => {
+    const k = norm(key);
+    if (!k) return;
+    const set = shared.get(k) ?? new Set<number>();
+    set.add(id);
+    shared.set(k, set);
   };
   const addName = (raw: string, id: number) => {
     for (const form of nameForms(raw)) {
@@ -91,9 +326,18 @@ export function buildPeopleIndex(people: ResolvablePerson[]): PeopleIndex {
     if (p.external_id) addExact(p.external_id, p.id);
     if (p.email) addExact(p.email, p.id);
     const r = p.record ?? {};
-    for (const k of ["userPrincipalName", "mail", "mailNickname", "onPremisesSamAccountName", "primaryEmail"]) {
+    for (const k of ["userPrincipalName", "mail", "primaryEmail"]) {
       const v = str(r[k]);
       if (v) addExact(v, p.id);
+    }
+  }
+  for (const p of people) {
+    const r = p.record ?? {};
+    const onPremUpn = str(r["onPremisesUserPrincipalName"]);
+    if (onPremUpn) addExact(onPremUpn, p.id);
+    for (const k of ["mailNickname", "onPremisesSamAccountName"]) {
+      const v = str(r[k]);
+      if (v) addShared(v, p.id);
     }
     const aliases = r["proxyAddresses"];
     if (Array.isArray(aliases)) {
@@ -102,21 +346,34 @@ export function buildPeopleIndex(people: ResolvablePerson[]): PeopleIndex {
         if (v) addExact(v, p.id);
       }
     }
+    // The person's own on-premises DN: what AD's DN-valued attributes
+    // (assistant, secretary, manager) hold when they name this person.
+    const dn = canonicalDn(str(r["onPremisesDistinguishedName"]));
+    if (dn && !exact.has(dn)) exact.set(dn, p.id);
     if (p.name) addName(p.name, p.id);
     const display = str(r["displayName"]);
     if (display && norm(display) !== norm(p.name)) addName(display, p.id);
   }
+  // A shared handle held by one person is as good as a unique one.
+  const fromSet = (set: Set<number> | undefined): Resolution =>
+    !set || set.size === 0 ? undefined : set.size === 1 ? { id: [...set][0] } : { ambiguous: set.size };
+
   const resolve = (token: string): Resolution => {
-    const { exact: exactKeys, names: nameKeys } = tokenCandidates(token);
+    const { exact: exactKeys, names: nameKeys, dn } = tokenCandidates(token);
     for (const k of exactKeys) {
       const id = exact.get(k);
       if (id !== undefined) return { id };
     }
+    if (!dn) {
+      for (const k of exactKeys) {
+        const hit = fromSet(shared.get(k));
+        if (hit) return hit;
+      }
+    }
+    // A DN that is nobody's own (moved OU, shortened) falls back to its CN.
     for (const n of nameKeys) {
-      const set = names.get(n);
-      if (!set || set.size === 0) continue;
-      if (set.size === 1) return { id: [...set][0] };
-      return { ambiguous: set.size };
+      const hit = fromSet(names.get(n));
+      if (hit) return hit;
     }
     return undefined;
   };
@@ -124,14 +381,35 @@ export function buildPeopleIndex(people: ResolvablePerson[]): PeopleIndex {
     resolve,
     resolveList(value: string) {
       const out: { token: string; hit: Resolution }[] = [];
-      for (const part of String(value ?? "").split(/[;\n]/).map((s) => s.trim()).filter(Boolean)) {
-        const whole = resolve(part);
+      for (const part of splitPeople(String(value ?? ""))) {
+        // "Name <CN=…>": the DN in the brackets is one person, never cut.
+        const angled = /<([^<>]+)>\s*$/.exec(part);
+        if (angled && isDistinguishedName(angled[1])) {
+          out.push({ token: part, hit: resolve(part) });
+          continue;
+        }
+        // A value led by a DN: its DNs one by one, each whole (a DN's
+        // commas separate RDNs, never people), then any plain pieces.
+        if (isDistinguishedName(part)) {
+          for (const seg of splitDnLed(part)) out.push({ token: seg.text, hit: resolve(seg.text) });
+          continue;
+        }
+        // Several "Name <address>" entries: never resolve them as one.
+        const angledEntries = (part.match(/</g) ?? []).length;
+        const whole = angledEntries > 1 ? undefined : resolve(part);
         if (whole || !part.includes(",")) {
           out.push({ token: part, hit: whole });
           continue;
         }
-        for (const piece of part.split(",").map((s) => s.trim()).filter(Boolean)) {
-          out.push({ token: piece, hit: resolve(piece) });
+        // The comma pieces, at the commas that are not escaped; a DN later
+        // in the value is read whole, with whatever follows it.
+        const pieces = splitCommas(part);
+        for (let i = 0; i < pieces.length; i++) {
+          if (isDistinguishedName(pieces[i])) {
+            for (const seg of splitDnLed(pieces.slice(i).join(","))) out.push({ token: seg.text, hit: resolve(seg.text) });
+            break;
+          }
+          out.push({ token: pieces[i], hit: resolve(pieces[i]) });
         }
       }
       return out;
