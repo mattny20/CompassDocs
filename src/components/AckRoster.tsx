@@ -36,7 +36,7 @@
 // can reload its own copy of the rows.
 //
 // 1.14.0 (F3): the person cell links to the person's compliance record
-// (/compliance/person/{id}) when the caller passes `recordHref`; the three
+// (/compliance/person/{id}) when the caller passes `recordLinks`; the three
 // questions (Exempt…, Extend due date…, Ask to re-confirm…) are exported as
 // `exemptDialog`, `extendDialog` and `reaskDialog`, so the record page asks
 // them in the same words.
@@ -504,7 +504,7 @@ export function AckRoster({
   can,
   grace = 0,
   onChanged,
-  recordHref,
+  recordLinks,
 }: {
   docId: number;
   /** The document's title for the dialogs and toasts ("this document" when absent). */
@@ -535,12 +535,14 @@ export function AckRoster({
   /** After a successful action or Undo: the caller reloads its rows (the portal). Without it the route is refreshed (a server page). */
   onChanged?: () => void;
   /**
-   * The person's compliance record (F3, 1.14.0): the person cell of the
-   * current view links to `recordHref(userId)` (/compliance/person/{id})
-   * when given. The caller decides, since the record's own rule admits a
-   * roster reader for the spaces they read and a programme reader for all.
+   * The person's compliance record (F3, 1.14.0): when true, the person cell
+   * of the current view links to /compliance/person/{id}. The caller
+   * decides, since the record's own rule admits a roster reader for the
+   * spaces they read and a programme reader for all. A boolean, not a
+   * function: the Record tab is a server page, and a function cannot cross
+   * into this client component.
    */
-  recordHref?: (userId: number) => string;
+  recordLinks?: boolean;
 }) {
   const [show, setShow] = useState<Show>("all");
   const [view, setView] = useState<View>("current");
@@ -1015,7 +1017,7 @@ export function AckRoster({
             onTogglePage={togglePage}
             registerRow={registerRow}
             actions={{ extend, exempt, unexempt, snooze, unsnooze, reask }}
-            recordHref={recordHref}
+            recordLinks={recordLinks}
           />
         )}
       </div>
@@ -1051,7 +1053,7 @@ function CurrentTable({
   onTogglePage,
   registerRow,
   actions,
-  recordHref,
+  recordLinks,
 }: {
   rows: AckRosterRow[];
   fmt: AppSettings;
@@ -1067,7 +1069,7 @@ function CurrentTable({
   onTogglePage: () => void;
   registerRow: (id: number) => (el: HTMLTableRowElement | null) => void;
   actions: RowActions;
-  recordHref?: (userId: number) => string;
+  recordLinks?: boolean;
 }) {
   const f = (iso: string) => formatDate(iso, fmt);
   const selectable = rows.some((r) => r.assignment_id != null);
@@ -1134,7 +1136,7 @@ function CurrentTable({
                 </Td>
               )}
               <Td>
-                <PersonCell name={r.name} username={r.username} email={r.email} href={recordHref?.(r.id)} />
+                <PersonCell name={r.name} username={r.username} email={r.email} href={recordLinks ? `/compliance/person/${r.id}` : undefined} />
               </Td>
               <Td className="text-slate-500">{r.role ?? ""}</Td>
               <Td fit>
