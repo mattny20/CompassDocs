@@ -4,12 +4,768 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.14.0] - 2026-10-21
+
+Read confirmation, part six: program operations and evidence. The portal
+says what to do next (a needs-attention queue, seven tiles and stacked
+bars), the programme is snapshotted every month with a SHA-256 an auditor
+can verify, bundled as one audit package and summarised in a scheduled
+report, every person has one compliance record, group leads see where
+their team stands and get one weekly digest for both programmes,
+compliance managers act in bulk across policies and people, policies are
+grouped into sets for onboarding and the annual cycle, and five policy
+events reach chat channels with counts only (Enterprise, `policy_ack`).
+
+### Added
+- **The portal knows what to do next: a Needs attention queue on
+  Compliance › Overview.** Under the tiles, one row per person and reason
+  over the live policies (published, required, not retired), computed in
+  one set-based pass and worked to zero: the person (linking to their
+  compliance record), the policy (linking to its Record tab) and a reason
+  chip, decided in this order: **Overdue · 29 Oct 2026** (the due date and
+  the policy's grace have passed), **Escalated** (the escalation has fired
+  and still stands), **Never opened** (asked more than 14 days ago and no
+  view of the document since the ask), **Opened, not confirmed** (asked
+  more than 14 days ago, opened since, still unconfirmed); plus every
+  **Standing exemption · review** (an exemption with no end date that has
+  stood for more than twelve months, with its reason) and two policy-level
+  rows from the decisions ledger that lead the list: **Confirmed text
+  drifted 7.8% since v12** (kept edits moved the text past the re-ask
+  threshold, the drift measured against the version people confirmed) and
+  **Kept against the suggestion 3 times** (three or more kept edits since
+  the last ask went against the heuristic's advice), each with **Ask
+  everyone to re-confirm…** as its action. The people follow in the order
+  above (overdue by due date, the rest by how long they have waited), up
+  to 200 rows; the header counts what is hidden: **showing 12 of 19 · 7
+  snoozed** (**showing 19 of 19** when nothing is cut; no count line on
+  an empty queue). Compliance managers act per row: **Remind**, **Extend 7
+  days** (with Undo), **Snooze** (out of the queue and no automatic
+  reminders for a week, with Undo; nothing else changes), **Exempt…** (the
+  roster's reason and optional end date, with Undo) and, on a standing
+  exemption, **Remove exemption** (with Undo). An empty queue reads
+  **Nothing needs attention.** In the API, `GET /api/admin/compliance`
+  carries `attention: { rows, total, snoozed }` with `reason` one of
+  `overdue`, `escalated`, `never_opened`, `opened_not_confirmed`,
+  `standing_exemption`, `drifted`, `kept_n`, and `total` counted before
+  the limit. A person's latest view is read through `idx_views_doc_user`,
+  one index probe per row, never a scan of the document's view history.
+- **Snooze hides a row from the queue, and nothing else.** A row whose
+  snooze is still running leaves `attention.rows` and is counted in
+  `attention.snoozed`. It stays in every number: the Overdue tile, the
+  policy's and the person's overdue counts, the roster, the exports and
+  the snapshot never look at a snooze, so nobody can snooze the
+  organisation to zero overdue. The Overview's Snooze tooltip reads **Hide
+  from this queue for 7 days**, and while a snooze hides rows the card
+  ends with the sentence that it changes nothing else.
+- **Seven tiles on the Overview, and the people behind Overdue.** The
+  tiles are **Policies**, **Compliance** (%), **Overdue** (in the error
+  ink above zero, with **17 people** under the number), **Due in 7 days**,
+  **Pending** and **Exempt**, over the live policies, with
+  **Re-confirmation due in 30 days** kept as a seventh; the grid holds
+  seven across on a Wide page and five and two on a Normal one. `kpis`
+  gains `overdue_people` (the people with at least one overdue row),
+  `due_7d` (open, unconfirmed rows whose deadline falls inside the next
+  seven days), `pending` (the new name of `outstanding`, which stays),
+  `exempt` (exempt rows of active accounts on the live policies, outside
+  every denominator), `escalated`, `snoozed` and `drifted` (live policies
+  whose confirmed text drifted past the re-ask threshold). Paused and
+  retired policies are outside every new sum, as they are outside the old
+  ones.
+- **A stacked bar on every live Policies row.** Confirmed (accent),
+  pending (slate), overdue (red) and exempt (hatched, beside the
+  denominator, so it reads in dark mode and on paper), with the legend
+  **312 confirmed · 88 pending · 12 overdue · 4 exempt** under it and the
+  same four numbers as the bar's accessible name. `docs` rows of the
+  portal payload carry `confirmed`, `pending`, `overdue` and `exempt`
+  (confirmed and pending partition the people the policy asks; overdue is
+  the late part of pending; exempt sits outside the denominator), plus
+  `last_reminded_at` (the manual Remind or the sweep's newest stamp,
+  whichever is later), `owner_user_id` / `owner_name` (the policy's own
+  owner, else the space's Policy owner, else whoever switched the
+  requirement on, passing over anyone who is not an active account),
+  `edit_default` (`ask` | `material` | `reset`), `overdue_grace_days`,
+  `kept_since_reset` and `set_names`; `users` rows carry `exempt` beside
+  `overdue`.
+- **Sort, "In set" and a filter above the Policies rows.** **Sort** offers
+  Most overdue (the default), Lowest compliance, Due soonest and Title
+  A-Z; **In set** appears once any live policy belongs to a set and
+  narrows the list to that set's policies; **Filter policies** narrows by
+  title, space, owner or set name with its live **3 of 28 policies**
+  count.
+- **The owner, the kept edits and the set on the Policies row.** The first
+  meta line ends **· owner Priya Shah**; the second ends **· 3 edits kept
+  since v12** once an editor has kept an edit since everyone was last
+  asked; each set a policy belongs to is a neutral chip with the set icon,
+  **New starter onboarding**, beside the edit-default chip.
+- **One Export menu on Policy progress.** For `compliance.export` holders,
+  **Export** opens a menu: **Matrix CSV**, **Ledger CSV**, **Audit package
+  (ZIP)** and **Print…** last. Each download is an audit row, as before.
+- **Standing, Show and a filter on Compliance › People.** Each person's
+  row ends with a Standing chip: **Compliant**, **3 outstanding** or **2
+  overdue**; a **Show** control (All / Outstanding / Overdue / Compliant)
+  and **Filter people** (name, username or role) with its live count sit
+  above the table, which pages past 50 rows. The person's name links to
+  their compliance record (`/compliance/person/{id}`).
+- **The matrix CSV says where everyone stands.** `GET
+  /api/admin/compliance?format=csv` ends every row with two new columns
+  after the five of 1.13.0: `status` (`confirmed` | `pending` | `overdue`
+  | `exempt`, the same rule as the tiles and the bars, with the policy's
+  grace applied; a former-staff row reads `confirmed`) and `set` (the
+  policy's sets, joined with "; "); the per-policy CSV appends `set`.
+- **Tamper-evident snapshots of the read confirmation programme, on
+  Compliance › Evidence.** A snapshot is the whole programme serialised
+  once to stable JSON text (`format: compassdocs-compliance-snapshot/1`:
+  the settings in effect, the totals the Overview's tiles show, every
+  policy with the version people are asked to confirm and its SHA-256,
+  the matrix (one cell per policy and person with status, source, dates,
+  deadline, snooze, exemption and removal), every current confirmation
+  with its version, hash, signature, identity proof, statement, reading
+  evidence, IP and user agent, the decision ledger, the notice log folded
+  per person, and the row count and SHA-256 of the full ledger, hashed but
+  not embedded). Keys are in a fixed order, arrays by id, dates ISO, so
+  the same data serialises to the same bytes; the SHA-256 is computed over
+  exactly that text, stored verbatim (`compliance_snapshots.data`) and
+  downloaded verbatim with the hash in `X-Content-SHA256`, so `sha256sum`
+  on the file reproduces it. Three kinds: **manual** (**Take snapshot
+  now** for `compliance.program_manage`, toast "Snapshot stored · sha256
+  {prefix}"; `POST /api/admin/compliance/snapshots` answers `{ ok, id,
+  sha256 }`), **monthly** (the hourly orchestrator takes one per calendar
+  month, UTC, claimed through a partial unique index so exactly one
+  instance stores it) and **retirement** (one per policy, scoped to it,
+  written by Retire policy after its commit; a snapshot that fails never
+  fails the retire and is audited as `ack.snapshot_failed`). The Evidence
+  page (`/compliance/evidence`, for `compliance.export` holders; the tab
+  sits after Sets) lists every stored snapshot newest first: Taken (and
+  who took it, or "automatic"), Kind (Monthly with its period, Manual,
+  Retirement with the policy's title), the SHA-256 prefix with a copy
+  control for the whole hash, **Verify** (`GET …/snapshots/{id}?verify=1`
+  recomputes the hash over the stored text: "Hash matches", or "Hash does
+  not match the stored record") and a download named for the row
+  ("Download snapshot 2026-09"); paged at 25 rows; "Monthly snapshots
+  start automatically; take one now for a point-in-time record." until
+  the first one; the controls hide on paper and the record stays. `GET
+  /api/admin/compliance/snapshots` lists the newest 100. Every snapshot is
+  audited as `ack.snapshot` {snapshot_id, kind, sha256, period |
+  document_id}.
+- **The audit package: one ZIP, streamed, with a hash manifest.** `GET
+  /api/admin/compliance/audit-package` (`compliance.export`; **Audit
+  package (ZIP)** on the Evidence page, with the latest monthly snapshot's
+  SHA-256 prefix printed beside it, the latest of any kind until a month
+  has passed) bundles everything an auditor asks for: `summary.json` (a
+  snapshot of the same instant), `matrix.csv`, `acknowledgements.csv`
+  (the full ledger, written from a cursor 500 rows at a time and never
+  built in memory), `decisions.csv`, `waivers.csv` (the exemptions),
+  `notices.csv`, `audit-extract.csv` (every `ack.*` audit row plus the
+  three legacy `document.acknowledge` / `document.ack_required` /
+  `document.ack_removed` keys), one folder per policy
+  (`policies/{id}/policy.json` with the settings in effect, `roster.csv`,
+  `history.csv`, `waivers.csv`, `decisions.csv` and `versions/v{N}.md` for
+  every version a current confirmation or a decision cites, read from the
+  version history or, for a purged policy, from the archived texts, so
+  its SHA-256 in the manifest equals the rows' `content_sha256`), every
+  stored snapshot under `snapshots/` and `manifest.json` last
+  ({generated_at, app_version, workspace, files: [{name, sha256}],
+  generated_by}), so `sha256sum -c` against the manifest verifies the
+  whole bundle and the manifest's hash of `acknowledgements.csv` equals
+  `summary.json`'s `ledger_sha256`. The audit row `ack.audit_export`
+  {format: "package", bytes, policies} is written once the stream has
+  closed, with the size that went out.
+- **A policy's own package.** `GET
+  /api/documents/{id}/acknowledgements?format=package` is the same ZIP
+  scoped to one policy (its rows, its ledger, its decisions and notices,
+  its audit rows, its retirement snapshot and the texts its confirmations
+  cite), so an exporter can hand an auditor one policy's bundle. It
+  takes the roster permission the record page takes plus
+  `compliance.export`, exactly as the ledger CSV does (the file carries
+  IPs and user agents); audited as `ack.audit_export` {format:
+  "package", document_id, bytes, policies: 1}.
+- **The scheduled programme report, from a card on Program settings.**
+  Settings key `ack_report` = `{ enabled, cadence: "weekly" | "monthly",
+  recipients: [user ids] }`, read and written through `GET` / `PUT
+  /api/admin/compliance/report` (`compliance.export` to read,
+  `compliance.program_manage` to write; the GET names the recipients and
+  when the report last went out; the PUT takes any subset, refuses the
+  first problem with 400 before anything is written (an unknown key, a
+  wrong type, "weekly or monthly", up to 50 recipients, "Every recipient
+  must be an active account."), and audits each changed key as
+  `ack.report_settings` {key, from, to}); `PUT
+  /api/admin/compliance/settings` accepts the same `ack_report` object
+  with the same checks, "Every recipient must be an active account."
+  included, before anything is written. The **Compliance report** card
+  under Compliance › Settings (**Send the compliance report**, **Weekly
+  (Monday)** / **Monthly (with the snapshot)**, a Recipients picker over
+  active accounts, with when the report last went out) saves through the
+  report's own route inside the page's one Save; a report that is on
+  needs at least one recipient before Save enables. Weekly, the first
+  hourly tick of each ISO week (UTC) sends it, claiming the week
+  (`ack_report_week`) only after SMTP is found configured and at least
+  one recipient is still an active account with an address, so neither
+  an unconfigured workspace nor a list whose accounts were all
+  deactivated since the save burns the week; monthly, it rides with the
+  monthly snapshot and carries that snapshot's hash. The body is the new
+  editable template **Compliance programme report** (`ack_program_report`:
+  `period`, `summary`, `snapshot_sha256`, `snapshot_label`, `portal_url`,
+  `org_name`), the summary being "- **28** policies · **94%** compliance
+  (1,412 confirmed, 61 pending, 23 overdue, 9 exempt)", "- **17** people
+  overdue · **4** escalations this period · **6** new joiners enrolled ·
+  **3** exemptions granted · **4** standing exemptions older than a year"
+  (a new joiner is an account created in the period and enrolled in it,
+  whether the space or an onboarding set admitted them), "Lowest
+  compliance:" (the five live policies with the lowest share confirmed)
+  and "Deadlines in the next 14 days:" (per policy, how many people and
+  the earliest date). Each send is audited as `ack.report_sent` {period,
+  cadence, recipients, sent, snapshot_sha256}.
+- **Erasure reaches the snapshots.** Anonymising a person's compliance
+  record now also rewrites every stored snapshot that named them (their
+  own rows by id: name, username, address, signature, IP and user agent;
+  and any value equal to their name or address anywhere in the text), in
+  the same transaction, re-serialised the way snapshots are written and
+  re-hashed; each rewrite writes `ack.snapshot_rewritten` {snapshot_id,
+  user_id, previous_sha256, sha256}, saying the original hash no longer
+  applies, and `ack.anonymised` carries the count as
+  `snapshots_rewritten`. The name of whoever took a manual snapshot
+  (`taken_by_name`, the Evidence page's "by {name}") becomes the alias
+  too, and the person's own confirmations now lose their typed signature
+  and their browser's user agent as well as their name, address and IP
+  (the ledger CSV carries both; an unsigned row still reads unsigned).
+- **A per-person compliance record.** `/compliance/person/{id}`, and
+  `/compliance/person/me` for your own: everything one person must
+  confirm, has confirmed and was told. **Current requirements** is one row
+  per open or exempt assignment on a live policy: the policy, its space
+  and sets, the standing `confirmed` / `pending` / `overdue` / `exempt`,
+  how and when the person was assigned ("by group", "named person", "by
+  role", "by hand", "new joiner", "Onboarding set", "everyone in
+  Security space", "re-confirmation cycle"), the deadline, the current
+  confirmation with its version (marked "(inferred)" for confirmations
+  from before 1.10.0, through `version_source`), hash, typed signature,
+  identity proof, read time and reached-end report, the IP where the
+  viewer may see it, the exemption, a snooze and a per-person re-ask with
+  its reason; **Prior confirmations** are the confirmations a later cycle
+  replaced, each with what replaced it ("Superseded by: v13 on 3 Sep
+  2026 - "Section 4 now covers contractors"", "annual re-confirmation on
+  1 Oct 2026", or the person's own later confirmation), assignments
+  closed when the person left an audience ("Required 1 Mar to 30 Sep
+  (left Engineering)"), open rows on a policy that stopped asking (its
+  requirement switched off, or the policy paused or trashed with it on),
+  marked **No longer required** and reading "Required from 1 Mar 2026"
+  with the standing frozen when it stopped, so a confirmation the ledger
+  still carries stays on the record, and rows on retired policies with
+  the standing frozen at retirement; **Notices** is the notice log for the
+  person, newest first.
+  CSV beside Print; the printed page carries "Generated {date} by {viewer}
+  · CompassDocs {version}". The API is `GET
+  /api/admin/compliance/people/{id}`, answering `{ person, current,
+  history, notices, hidden, viewer_kind }` (`{id}` may be `me`; any
+  signed-in account may ask; 402 without the licence); `?format=csv`
+  downloads the same rows as a 21-column file (`policy, set, status,
+  source, assigned_at, removed_at, due_at, acknowledged_at, version,
+  version_id, version_source, content_sha256, signed_name,
+  identity_proof, read_seconds, reached_end, ip, exempt_reason,
+  exempt_by, exempt_until, superseded_by`; a row whose policy stopped
+  asking reads "no longer required" in the last), and every download writes
+  `ack.record_exported` ("Exported a person's compliance record") with the
+  person, the number of rows, the viewer's kind and the hidden count,
+  before the response streams.
+- **Who sees whose record, decided in SQL.** Four kinds of viewer, in this
+  order: the person themselves and holders of the Compliance section see
+  every row; a lead of a group the person belongs to (when the Program
+  setting **Group leads see policy standing** is on) and a holder of
+  `compliance.team_read` (for anyone in a group, as the team page lists
+  them, so its links never answer 404) see the person's policies in
+  spaces they can read; a holder of `document.ack_roster_read` on a space
+  opens the record of someone with an assignment or a confirmation on a
+  policy in that space and sees the person's policies there (a global
+  grant opens anyone's); anyone else is answered 404 "No such person."
+  (Page not found), the same answer an unknown id gets. The filter runs
+  inside every query (the current rows, the history, the notices), so a
+  lead's page, JSON and CSV never carry a private-space
+  policy's title, address or row: a policy the viewer may not see counts
+  only in `hidden` ("2 policies you can't view"). The recorded IP address
+  is carried only on rows whose space the viewer holds
+  `document.ack_roster_read` on, or when the viewer holds
+  `compliance.export`; it is `null` otherwise, for the person's own record
+  too.
+- **Actions on the record** (`compliance.program_manage`): **Remind about
+  everything outstanding** (one bundled reminder through the bulk
+  endpoint's `remind_people` over every open row, in one call; a policy
+  that reminded them within the hour is skipped), **Ask to re-confirm…**,
+  **Exempt from…**, **Extend…** and **Remove exemption**, each over the
+  policies it applies to, asking in the same words as the Record tab and
+  offering Undo in the toast; administrators who may delete accounts also
+  see **Anonymise compliance record…** here.
+- **Links to the record**: the Record tab's and the portal's roster rows,
+  the People page, the needs-attention queue, the team view, the Users
+  page's **Compliance record** button, **View your record** on the
+  confirmed card at the end of a policy, and **Your record** on My
+  policies.
+- **A team view for group leads: Compliance › Team.** Leading a group (the
+  same group leads Training uses) now opens where that group's members
+  stand on the policies that ask them: one card per led group ("{n}
+  members · {m} confirmed · {k} open", with an **{x} overdue** chip when
+  anyone is), a table of Person (a link to the person's compliance
+  record), Policy, Status (Confirmed / Pending / Overdue / Exempt), Due
+  and Actions, and a **Show** control (All / Open / Overdue), scoped to
+  the spaces the lead can read: a policy a member owes in a space the
+  lead cannot see is a count on the member's row (`hidden_count`, "and 2
+  policies you can't view") and never a title; a member with nothing to
+  confirm still appears once. `GET /api/compliance/team` answers
+  `{ groups: [{ id, name, members, confirmed, open, overdue }], rows }`,
+  each row with its status, due date, confirmation date, last reminder
+  and `may_remind` (whether this viewer may remind it). The **Team** tab
+  appears in the Compliance section's row for anyone the page opens for:
+  leads when Program settings allow, and `compliance.team_read` holders
+  (who see every group; with no groups in the workspace they read "You
+  don't lead any groups yet."). The view is an **opt-in for upgraded
+  workspaces**: Program settings → *Group leads see policy standing*
+  (`ack_defaults.leads_see_policies`) is off for a workspace that had
+  saved program settings before 1.14.0 and on for a new install, because
+  widening what every existing lead can see is a permissions change.
+- **`compliance.team_read`** ("Read team policies": see policy standing
+  for groups you lead), the policy twin of `training.team_read`: held by
+  the Compliance manager role, grantable to any role, and opening every
+  group for a holder, setting or not. In the catalog under `compliance`.
+- **A lead's Remind, one person at a time.** `POST /api/compliance/team
+  { assignment_id }` queues one reminder for that person through the
+  outbox (a manual reminder from the lead, delivered within the minute,
+  never coalesced), stamps the row's reminder date and count, and is
+  audited `ack.reminder_sent` with `{ by: "lead", user_id, assignment_id
+  }`. It is governed by the row's own cadence, not the portal's
+  per-document hour: inside the policy's *days between reminders* (the
+  policy's number, else the space's, else the workspace's, else 7) it
+  answers 429 "{Name} was reminded {n} days ago." ("earlier today" on the
+  day), which the page shows as its toast; the success toast reads
+  "Reminder queued for Ana Ruiz.". A lead reminds only members of groups
+  they lead (403 "You can only remind members of groups you lead."); a
+  programme manager may remind anyone the view shows. On a row the
+  viewer may not remind (a `compliance.team_read` holder who is neither
+  the group's lead nor a programme manager) the page shows **Remind**
+  disabled, with **Only the group's lead or a programme manager can
+  remind**. A row in a space
+  the viewer cannot read reads as absent (404); a confirmed or exempt row
+  is 400 with the reason.
+- **"You lead a team. See your team's policies"** on My policies: a
+  lead's banner above the standing line (and above the empty state for a
+  lead with nothing to confirm), only for someone the team page opens
+  for. `GET /api/compliance/mine` answers `lead_team: boolean` by the
+  page's own rule.
+- **Program settings → Team leads**: the card with the toggle **Group
+  leads see policy standing** ("Leads of a group see where its members
+  stand on policies in spaces they can read, and get the weekly
+  summary."), saved with the page's one Save. A first save keeps it on.
+- **The Team leads block on the compliance Overview** (programme
+  managers): the same block Training's Overview shows (now one shared
+  component, `TeamLeadsBlock`), with the policy sentence ("Leads see a
+  scoped view of their group's policies (and training, if licensed) and
+  get a weekly summary."), a picker per group (an account without a
+  display name listed by its username), and a notice with the link
+  to Program settings while leads do not yet see policy standing. It
+  reads and writes `GET` / `PUT /api/compliance/leads` (the Compliance
+  section; `program_manage` to write; 402 without the licence), so a
+  compliance manager need not hold the Training section or its licence.
+  The leads are one list for both programmes: a lead named on either page
+  is a lead on both.
+- **The weekly team digest covers policies, from a neutral scheduler.**
+  The lead digest moved out of the training sweep into its own module
+  (`lib/team-digest`), called by the new periodic orchestrator
+  (`lib/periodic`, one `[periodic]` step in the hourly tick after the
+  compliance sweep), so a workspace licensed for read confirmations alone
+  gets it. One email per lead: a **Training** section when training is
+  licensed and a **Policies** section when read confirmations are
+  licensed and leads see policy standing ("- **Engineering**: 38 confirmed
+  · 6 open · **2 overdue**", then the three most overdue people within the
+  lead's scope, "Ana Ruiz · Code of conduct · due 3 Oct 2026"). The
+  template key stays `training_team_digest` so an existing override
+  survives; it gains the tag `{{policy_summary}}` and a neutral default
+  subject "[{{org_name}}] Your team this week" (the label is now "Team
+  digest (leads)"). A digest that carried the Policies section writes one
+  notice-log row per lead (kind `digest`), so a lead's record shows it
+  was sent.
+- **`lib/periodic`**: `runPeriodic()` runs, in order and each in its own
+  catch, the team digest, the monthly compliance evidence, the weekly
+  compliance report and the weekly channel summary; `isoWeekId(d)` and
+  `monthId(d)` key the claims; `claimPeriod(key, period)` (lib/db) is the
+  settings-table claim the weekly steps share, true once per period
+  across instances.
+- **Policy sets: onboarding and the annual cycle as one unit, on
+  Compliance › Sets.** A set is a named, ordered bundle of policies
+  (`policy_sets`, `policy_set_docs`) a compliance manager assigns to
+  **people and groups, or to everyone**, in one go, and that **every new
+  account lands on on day one** when the set auto-assigns (on by default).
+  The **Sets** tab (after People, `/compliance/sets`,
+  `compliance.program_read` to open) lists every set with its ordered
+  members as chips ("1. Acceptable Use"), its standing over the members'
+  open rows ("87% · 6 overdue", "Nobody asked yet"), an **Auto-assign**
+  chip while new joiners get it and an **Inactive** chip once
+  deactivated. **New set** (`compliance.program_manage`) opens a form
+  above the list: **Set name** (for example "New starter onboarding"), an
+  optional description, the policies in order (a search box over every
+  published, unretired document that appends, and the reordering list of
+  the directory export's Section order recipe with move-up / move-down /
+  remove, each row naming its space and whether it is "not yet required")
+  and the **Auto-assign to new joiners** switch. **Assign** opens a dialog
+  with **Add people…** and **Add groups…** pickers, says beforehand
+  which members will start requiring confirmation ("These 2 documents
+  will start requiring confirmation: …") and which already ask everyone
+  who can see their space and will not be narrowed, and offers **Assign
+  set** or
+  **Assign to everyone** (behind "Assign "New starter onboarding" (8
+  policies) to every active member?"); the toast carries the answer's
+  counts ("Set assigned: 8 policies, 412 people · 2 switched on").
+  Assigning a set writes the same include rules onto every member policy
+  (each rule tagged with the set, so a row it admits reads source `set`),
+  moves a member to targeted mode unless it already asks everyone who can
+  see its space (a set never narrows: such a member is left as it is and
+  reported), **switches on a member that did not yet require
+  confirmation** with the workspace defaults, and reconciles each member
+  exactly as saving its audience does, so every count keeps reading the
+  assignment rows; the people a member starts asking get one request
+  notice per policy through the shared outbox. Assigning to everyone puts
+  each member in space mode with its rules cleared. A new account's
+  auto-assign writes the onboarding set's rule naming them on each
+  targeted member and admits them past a member policy's own "Enrol new
+  joiners automatically" switch: the set is the explicit instruction.
+  **Deactivate** stops auto-assign and assignment and changes no row
+  (reversible, "Set deactivated · Undo"; its name is free while it is
+  deactivated); **Delete** asks with "Policies and confirmations stay;
+  only the set is removed. This cannot be undone." (and, for a set that
+  auto-assigns, wants the set's name typed) and leaves the rules it wrote
+  (untagged) and every assignment. Editing a policy out of a set does the
+  same for that policy in the same save: the rules the set wrote on it
+  lose their tag and stay as plain rules the Settings tab can then edit,
+  and its people keep their rows. Names are unique among active sets,
+  case-insensitively. A program_read-only viewer sees the sets and no
+  control. The API: `GET` / `POST /api/admin/compliance/sets`, `PATCH` /
+  `DELETE` / `POST /api/admin/compliance/sets/{id}` (`{ user_ids?,
+  group_ids?, everyone? }`, up to 200 ids each, answering `{ policies,
+  people, added, switched_on, not_narrowed }`). Audited as
+  `ack.set_created` ("Created policy set"), `ack.set_updated`,
+  `ack.set_deactivated`, `ack.set_deleted` and `ack.set_assigned`
+  ("Assigned policy set") with the set, the people, the policies and the
+  members switched on.
+- **My policies groups the rows by set.** Under To confirm, the rows of a
+  set sit under their own label, "New starter onboarding · 3 of 8 done"
+  (the person's rows in that set over every state), in the set's order; a
+  policy in two sets appears under the first; rows in no set follow under
+  no label. `GET /api/compliance/mine` rows carry `set_names` and
+  `set_position`.
+- New tests: `test/ack-attention.test.ts` (the queue's reasons, order,
+  limit and numbers; a snoozed overdue row staying in the counts and
+  leaving the queue; paused and retired policies absent; the docs row's
+  bar numbers, owner cascade, last reminder, edit default and set names;
+  the matrix header), `test/ack-retention.test.ts` (the matrix header's
+  two new columns), `test/ack-snapshots.test.ts` (byte-stable text hashed
+  over exactly its bytes; Verify detecting a changed row; the manifest
+  hashes equal to the files and the manifest last; the per-policy package
+  carrying only that policy's rows; the ledger streamed across more rows
+  than one page; the monthly claim won once across two concurrent calls;
+  a retire writing its snapshot; an erasure rewriting and re-hashing with
+  its audit row and the snapshot taker's name; the report's bullets,
+  windows and settings validation, an exempt and a snoozed overdue row in
+  the counts, the per-policy package's waivers, notices and audit
+  extract, the weekly run never burning the week without SMTP or with
+  nobody to mail and sending once across two parallel runs, new joiners
+  admitted by an onboarding set, the per-policy package refused without
+  `compliance.export`, and the housekeeping of the deadline claims),
+  `test/ack-boot.test.ts` (the tables, the indexes and the column after
+  an upgrade boot; a second boot moving nothing),
+  `test/ack-record.test.ts` (the four viewer kinds, the hidden count, the
+  IP rule, the 21 columns, the CSV's audit row, `me`, the 404s and the
+  401), `test/team-policies.test.ts` (the rule; a lead of a broad group
+  getting a count, not a title; the per-row remind cadence; 403 outside
+  the lead's groups), `test/team-digest.test.ts` (training unlicensed
+  with the Policies section still sending; training alone licensed;
+  both sections in one email; two `runPeriodic` calls in parallel
+  sending once; a failing step reported while the next still runs; the
+  week 1.13.0's key already holds not sent again; an override without
+  `{{policy_summary}}` rendering without the section),
+  `test/ack-sets.test.ts` (create, order, update; assign writing one rule
+  per policy and reconciling with source `set`; a member switched on;
+  space-mode members not narrowed; a new account landing on an
+  auto-assign set's policies on day one; deactivate, delete and the name
+  409); e2e specs `compliance-evidence`, `compliance-record`,
+  `compliance-team`, `compliance-sets` and the portal spec's new cases
+  (the orchestrator runs them on the licensed rig).
+- **Bulk actions on Compliance › Policies.** Every live row has a checkbox
+  and the toolbar a **Select all shown** checkbox that respects the filter
+  and the sort (shift-click selects a range in that order). While anything
+  is checked a bar reads **3 policies selected** with **Clear selection**
+  and the actions over the checked policies: **Remind** (asks "Remind 2,118
+  people?" with the policies it acts on and the ones skipped because they
+  were reminded within the hour, then toasts **Reminders queued for 2,118
+  people · 1 policy skipped**), **Set deadline…** (the Settings tab's
+  Deadline choices, with "Also move existing deadlines"), **Set owner…** (a
+  person, or Clear owner), **Set reminders…** (the four reminder numbers; a
+  blank field is left as each policy has it unless you clear the blanks so
+  they inherit again), **Ask everyone to re-confirm…** (one question naming
+  the policies, the confirmations it resets and the people it notifies,
+  with the reason inside it), **Add to set…** (an active set; nobody is
+  assigned) and, for `compliance.export` holders, **Export CSV (selected)**
+  (the matrix narrowed to the checked policies). Deadline, owner and
+  reminders tell and offer **Undo**, which re-sends what each policy held.
+  On both bars a finished action clears the selection and puts focus on
+  **Select all shown**.
+- **Bulk actions on Compliance › People.** A checkbox per person, **Select
+  all shown** over what Show and the filter leave, and a bar **3 people
+  selected** with **Remind about everything outstanding** (one notice per
+  person listing every policy they still need to confirm; the outbox
+  bundles them), **Ask to re-confirm…** (their confirmed rows on every
+  policy, with a reason), **Exempt from…** (the policies the selected
+  people owe, a reason and an optional end date) and **Extend due…** (days
+  and an optional reason). Exempt and Extend offer **Undo**, which
+  reverts every row they changed, in calls of 200 rows.
+- **`POST /api/admin/compliance/bulk`** (`compliance.program_manage`): one
+  endpoint behind both bars and the record page. `{ action, doc_ids?,
+  user_ids?, assignment_ids?, params }` with the actions `remind`,
+  `set_deadline`, `set_owner`, `set_reminders`, `reask`, `add_to_set` (over
+  up to 200 `doc_ids`) and `remind_people`, `reask_people`, `exempt_people`,
+  `extend_people` (over up to 200 `user_ids`, or `assignment_ids` for the
+  named rows only). It answers `{ done, queued, skipped: [{ id, title,
+  reason }] }` in the shape of `/api/documents/bulk`, plus `previous` (the
+  values each policy held, for Undo) on the three reversible policy actions
+  and `changed` (the assignment ids) on the people actions; 400 names the
+  first problem. Every action composes the programme's existing writes
+  (the portal's reminder, the deadline mover, the Settings tab's setters,
+  the re-confirmation claim, the set's membership update, the assignments
+  dispatcher) and every notice is an outbox row delivered by the minute
+  tick: nothing in the request sends mail. `GET
+  /api/admin/compliance/bulk?user_ids=1,2` lists the live policies the
+  named people owe (what **Exempt from…** offers).
+- **`GET /api/admin/compliance?format=csv&doc_ids=1,2,3`** narrows the
+  matrix CSV to those policies; the `ack.export` row names them.
+- **Audit keys.** One summary row per bulk call: `ack.bulk_remind`,
+  `ack.bulk_due_set`, `ack.bulk_owner_set`, `ack.bulk_reminders_set`,
+  `ack.bulk_reasked`, `ack.bulk_added_to_set`, `ack.bulk_people_reminded`,
+  `ack.bulk_exempted` (and 1.13.0's `ack.bulk_extended` for Extend due…),
+  beside the per-policy and per-row rows the underlying writes keep
+  writing (`ack.due_set`, `ack.defaults_set`,
+  `ack.reconfirmation_requested`,
+  `ack.set_updated`, `ack.exempted`, `ack.due_extended`, …).
+- **Five compliance events for outgoing webhooks (Enterprise,
+  `policy_ack`).** The org-level webhooks (Settings → Notifications) can
+  now carry the read-confirmation programme's news to a #compliance or a
+  team channel, with the counts and the policy title and never the names of
+  the people who owe a confirmation (those reach owners and leads through
+  the outbox): `policy.requested` ("**Priya Shah** asked 412 people to
+  confirm **“Acceptable Use Policy”** by 29 Oct 2026.", from the portal's
+  and the shield's Request with notice, a whole-audience "Ask everyone to
+  re-confirm…" (one per policy from the Policies bar's bulk re-ask too),
+  an audience save that adds people, a policy set assignment, and an
+  annual cycle as "Annual re-confirmation of **“…”** started: 412 people
+  to confirm."),
+  `policy.deadline_approaching` ("**“…”** is due in 3 days: 88 people
+  still to confirm.", once per policy per due date, inside the policy's
+  *days before due* window), `policy.escalated` ("7 people are more than a
+  week overdue on **“…”**.", from the escalation sweep, once per policy per
+  sweep that escalated someone), `policy.weekly_summary` ("Policy
+  compliance this week: 94% · 23 overdue across 4 policies · lowest: Data
+  Handling 71%.", plus "Monthly snapshot sha256 a1b2c3…" when the month's
+  evidence snapshot was taken, one message per hook per ISO week) and
+  `policy.retired` ("**“Travel policy”** was retired by Priya Shah; replaced
+  by **“Expenses and travel”**."). Each event is sent once per policy, after
+  the notice to the people themselves has been queued, and never waits on
+  the channel: a slow endpoint never slows a Request or a retire. The
+  per-space filter applies (the event carries the policy's space); the
+  weekly summary goes only to hooks with no space filter, since a scoped
+  hook asked for one space's news. The generic JSON envelope carries a
+  `policy` object (`{ id, title, due_at, due_label, counts: { required,
+  acked, overdue }, people, days?, cycle?, superseded_by? }`) and, on the
+  summary, a `summary` object; the Webex, Teams, Slack and email formats
+  carry the sentence. The checklist on Settings → Notifications → Webhooks
+  lists the five under a **Compliance** heading while read confirmations are
+  licensed; a hook saved with one keeps it either way.
+- **`lib/compliance-webhooks`**: `emitPolicyRequested`,
+  `emitPolicyEscalated`, `emitPolicyRetired`, `emitPolicyDeadlines` (the
+  hourly sweep's deadline pass, claim `ack_deadline_hook_{docId}` on the
+  deadline's day) and `weeklyPolicyChannelSummary()` (claim
+  `ack_weekly_hook`, run by `lib/periodic`); everything gated on the
+  licence, and nothing claimed while no hook subscribes (for a deadline,
+  while no subscribed hook covers the policy's space: every one scoped
+  elsewhere claims nothing), so a hook added later still hears a deadline
+  that is still ahead and a week nobody listened to is not burned. The
+  hourly housekeeping drops an `ack_deadline_hook_{docId}` row once its
+  policy is purged.
+
+### Changed
+- `complianceDocs` resolves each policy's owner and grace and counts its
+  exempt rows in the same seven set-based reads it already made (no
+  per-policy query was added); `complianceUserSummary` counts a person's
+  exempt rows in a subquery of its own, so the open-row join and its three
+  counts are untouched.
+- **The Overview's tile labels are shorter.** "Policies requiring
+  confirmation" is **Policies**, "Overall compliance" is **Compliance**,
+  "Outstanding confirmations" is **Pending** and "Overdue confirmations"
+  is **Overdue**; "Fully compliant people" is no longer a tile (the People
+  page's Standing chip and Show control carry it).
+- **The People page's Overdue column is a number.** The count reads in
+  the error ink above zero; the **2 overdue** chip moved to the Standing
+  column, where it is the person's state rather than a measurement.
+- **The drift chip reads "7.8% drift since v12".** The edits count it
+  used to carry ("Edited 3 times since v12 without re-asking") is now the
+  subtitle's **3 edits kept since v12**; the chip shows only while
+  something has drifted, in amber once the drift reaches the re-ask
+  threshold (when the Overview's queue lists the policy).
+- **The Policy progress card's "Export CSV" link is the Export menu's
+  "Matrix CSV".** Same route, same file name, same audit row.
+- **The Compliance tab row reads Overview, Policies, People, Sets,
+  Evidence, Team, Settings.** Sets opens with `compliance.program_read`;
+  Evidence with `compliance.export` (the same key as every CSV;
+  `compliance.program_read` alone gets the not-found page on
+  `/compliance/evidence`); Team for leads the page opens for and
+  `compliance.team_read` holders; Settings with
+  `compliance.program_manage`.
+- The Record tab's roster rows link each person to their compliance
+  record.
+- `sha256Hex` and the CSV line writer moved to `src/lib/evidence.ts`,
+  which both audit packages share (`manifestFor`, `addStreamedCsv`,
+  `hashCsv`); `lib/training-audit` still exports `sha256Hex`.
+- `ack_report.recipients` is a list of user ids (the key was reserved in
+  1.10.1 with a `{users, groups}` shape that nothing wrote; a stored
+  object of that shape reads as its users).
+- The training sweep (`trainingHourly`) no longer sends the weekly team
+  digest; `lib/periodic` does, under the claim key `team_digest_week`
+  (1.13.0's key `training_team_digest_week` is read before the claim and
+  written after a won one, so the upgrade week is sent once). Every
+  weekly step checks what it needs (a licence, leads
+  with an email, SMTP) before claiming the week, so a tick that can send
+  nothing does not burn it.
+- `claimTrainingPeriod` (lib/db) is now `claimPeriod`; the old name is
+  kept as an alias for one release.
+- The training-only digest reads as it did in 1.13.0 (no headings); with
+  both sections the two are headed **Training** and **Policies**. The
+  digest's link goes to `/compliance/team` when the Policies section is
+  present, else to `/training/team`.
+- `PUT /api/admin/compliance/settings` accepts
+  `ack_defaults.leads_see_policies` (true or false; refused otherwise) and
+  audits a change as `settings.compliance` like the other program
+  settings. The first save that writes `ack_defaults` on a workspace that
+  never saved one stores `leads_see_policies` as the value it read (on),
+  whatever keys the save names, so a script's save never turns it off.
+- Training's Overview renders the shared `TeamLeadsBlock` with its own
+  sentence against `/api/training/leads`; nothing it shows or saves
+  changed. Its "No groups yet" line is the house `SectionEmpty`.
+- `PUT /api/compliance/leads` audits `training.leads_set` (the key the
+  training route writes, because the list is one) with
+  `via: "compliance"`.
+- **The assignment source `set`.** A row admitted by a rule a set wrote
+  reads `source = 'set'` (before `user`, `group` and `role`; `space` still
+  wins in space mode); a new account's row reads `set` when the
+  onboarding set's rule names them, else `new_member`. The hourly sweep,
+  the Settings tab's save and every other writer are unchanged.
+- **The Deadline and Reminders fields are shared.** The Settings tab's
+  Deadline radio cards and the four reminder fields now come from one
+  module (`components/PolicyFields`) that the bulk dialogs use too; the
+  Settings tab looks and behaves as before.
+- **A bulk Remind skips rather than refuses.** A policy reminded within the
+  hour is reported as skipped with the minutes ("reminded 20 minutes ago"),
+  as is one with nobody pending; the rest are queued. A bulk re-ask treats
+  the hour guard the same way ("asked again 12 minutes ago") and skips a
+  policy nobody has confirmed yet.
+- `lib/periodic`'s `policy_channel_summary` step now imports
+  `lib/compliance-webhooks` statically (the dynamic-specifier placeholder
+  of wave 1 is gone), so the production bundle carries it.
+- `lib/webhooks`: the JSON transport sits behind `webhookTransport.post`
+  (the same SSRF-guarded fetch, now a swappable seam the tests use); the
+  six existing events' envelopes and formats are byte for byte as before.
+
+### Upgrading
+- **Schema additions, all metadata-only.** One new table,
+  `compliance_snapshots` (id, taken_at, kind, period, document_id SET
+  NULL, taken_by SET NULL, taken_by_name, sha256, data), its partial
+  unique index `idx_compliance_snapshots_monthly ON (period) WHERE kind =
+  'monthly'` (the monthly claim) and two partial indexes under the SET
+  NULL references (`idx_compliance_snapshots_doc`,
+  `idx_compliance_snapshots_taken_by`), so purging a policy or deleting
+  an account never scans the snapshots; two more, `policy_sets` and
+  `policy_set_docs`, with the index `idx_policy_set_docs_doc`; and one
+  nullable column, `policy_audience_rules.set_id` (`ON DELETE SET NULL`),
+  with the partial index `idx_policy_rules_set` under it so deleting a
+  set never scans the rules. All behind the usual catalog guards: no
+  one-shot migration, no count moves, nothing backfilled. The first
+  monthly snapshot is taken by the first hourly tick after the upgrade,
+  labelled with the current month; from then on one is taken by the
+  first tick of each calendar month (UTC). The report is off until an
+  admin turns it on.
+- **Nothing to run for the queue and the numbers.** They read
+  `policy_assignments`, `doc_views` (through `idx_views_doc_user`, in
+  SCHEMA_SQL since 1.11.0) and `ack_decisions` as they stand. A workspace
+  upgraded from 1.13.0 whose rows carry no due date shows no overdue,
+  escalated or due-in-seven-days rows until deadlines are set; "never
+  opened" and "opened, not confirmed" start naming people 14 days after
+  they were asked, which for the rows the 1.13.0 migration wrote is 14
+  days after the policy's last ask. The queue's **Remind** is a
+  per-person reminder (the bulk endpoint's `remind_people` over that
+  row; a person reminded within the hour is skipped), never the policy's
+  whole audience.
+- **Leads see nothing new until an admin opts in.** One new settings key
+  under `ack_defaults`, `leads_see_policies`: a workspace upgraded with a
+  saved `ack_defaults` row reads *Group leads see policy standing* as
+  off, so `/compliance/team`, the My policies banner, a lead's access to
+  a member's record and the digest's Policies section stay closed to
+  leads until the toggle is turned on under Program settings → Team leads
+  (or `PUT /api/admin/compliance/settings` with `{ "ack_defaults": {
+  "leads_see_policies": true } }`). A workspace with no saved program
+  settings reads it as on, and a first save keeps it on. Evidence
+  appears for whoever already holds `compliance.export`; the compliance
+  report stays off until an admin turns it on and names its recipients.
+- **Existing `training_team_digest` overrides must add
+  `{{policy_summary}}`** to show the Policies section; without it the
+  override renders exactly as before (the Training lines only). The
+  default subject changed from "Your team's training this week" to "Your
+  team this week"; an override keeps its own.
+- The `compliance.team_read` permission is added to the Compliance
+  manager role on boot, as every seeded role is refreshed; a custom role
+  gains it only when granted.
+- **Audit log.** New keys `ack.snapshot_failed`, `ack.snapshot_rewritten`,
+  `ack.report_settings`, `ack.report_sent`, `ack.record_exported`,
+  `ack.set_created`, `ack.set_updated`, `ack.set_deactivated`,
+  `ack.set_deleted` and `ack.set_assigned`; `ack.snapshot` and
+  `ack.audit_export` (labelled since 1.10.1) are now written;
+  `ack.reminder_sent` is also written for a lead's Remind (`by: "lead"`);
+  `ack.anonymised` carries `snapshots_rewritten`. Existing keys are
+  unchanged; `training.leads_set` is now labelled "Set team leads" (was
+  "Set training leads"), since the leads list is shared.
+- **Payloads and files.** The portal payload's new keys (`attention`, the
+  seven `kpis` keys, the docs and users row fields) and the mine route's
+  `set_names`, `set_position` and `lead_team` are additive; a client
+  built against 1.13.x ignores them, and the pages fall back to the
+  1.13.0 keys where one is missing. The matrix CSV grew two columns at
+  the end (32 columns now) and the per-policy CSV one (`set`, 35);
+  scripts that read by column name are unaffected, scripts that count
+  columns need the new totals. `set_names` on a record's rows is filled
+  once sets exist in the workspace; `[]` otherwise. The bulk endpoint
+  composes existing writes and outbox rows: reminders sent in bulk are
+  queued and delivered within a minute or two, as the portal's Remind
+  already is, and **Remind about everything outstanding** queues one
+  `due` row per policy naming the people, so a person on more than three
+  policies gets one notice listing them (the 1.13.0 bundling) and the
+  notice log attributes those rows to the system, as it does the sweep's.
+  The record page's **Remind about everything outstanding** goes through
+  the same bulk action (`remind_people`): one bundled reminder.
+- **Rollback to 1.13.0 is supported.** A 1.13.0 binary on a 1.14.0
+  database ignores the three tables and the column (its `UNIQUE
+  (document_id, kind, ref, effect)` on the rules still holds); a set
+  assigned to people writes rules a rolled-back binary reads as a
+  manager's. Snapshots taken on 1.14.0 stay in the table and are listed
+  again after the re-upgrade; the report does not send while rolled back.
+  The compliance events are new values in the `webhooks.events` list, and
+  two settings-table claim keys (`ack_weekly_hook`,
+  `ack_deadline_hook_{docId}`) appear as the sweeps first claim them; a
+  1.13.0 binary ignores a hook row that names a policy event (it never
+  fires them) and the keys.
+- **Nothing is sent until a hook subscribes.** Existing hooks keep their
+  events; an administrator ticks the compliance events on a hook (or adds
+  one) to start receiving them. A hook with no space filter then hears the
+  titles of policies in private spaces too, exactly as `document.published`
+  does today: scope a hook to a space when its channel should not.
+
 ## [1.13.0] - 2026-10-20
 
 Read confirmation, part five: who must confirm (a policy's audience), a due
 date for every person with a policy, space and workspace cascade, automatic
 reminders and escalation from the hourly sweep, exemptions, extensions and
-snooze on the roster, and asking one person to re-confirm (Enterprise, `policy_ack`), plus two directory requests in core: section order and section heads on exports.
+snooze on the roster, and asking one person to re-confirm (Enterprise,
+`policy_ack`), plus two directory requests in core: section order and
+section heads on exports.
 
 ### Added
 - **Who must confirm: a policy's audience.** A policy asks either **everyone
