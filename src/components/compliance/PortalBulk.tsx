@@ -252,6 +252,7 @@ export function PolicyBulkBar({
   canExport,
   onClear,
   onDone,
+  focusAfter,
 }: {
   /** The live rows checked, in the list's order. */
   selected: DocRow[];
@@ -767,6 +768,7 @@ export function PeopleBulkBar({
   selected,
   onClear,
   onDone,
+  focusAfter,
 }: {
   /** The people checked, in the table's order. */
   selected: PersonRow[];

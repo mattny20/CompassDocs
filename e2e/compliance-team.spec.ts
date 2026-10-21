@@ -120,6 +120,8 @@ type TeamRow = {
   status: string | null;
   reminded_at: string | null;
   hidden_count: number;
+  /** Whether POST would let this viewer remind the row (leads one of the member's groups, or compliance.program_manage). */
+  may_remind: boolean;
 };
 type TeamPayload = { groups: { id: number; name: string; members: number; confirmed: number; open: number; overdue: number }[]; rows: TeamRow[] };
 
@@ -191,7 +193,7 @@ test("a lead with the setting on sees their group with a count for a private-spa
       expect(group).toMatchObject({ name: groupName, members: 1, confirmed: 0, open: 1, overdue: 0 });
       const rows = payload.rows.filter((r) => r.group_id === groupId);
       expect(rows.length, "one row for the one policy the lead can read").toBe(1);
-      expect(rows[0]).toMatchObject({ user_id: memberId, document_id: docId, title, status: "pending", hidden_count: 1 });
+      expect(rows[0]).toMatchObject({ user_id: memberId, document_id: docId, title, status: "pending", hidden_count: 1, may_remind: true });
       expect(JSON.stringify(payload), "the private title never leaves the server").not.toContain(privateTitle);
       const assignmentId = rows[0].assignment_id;
       expect(assignmentId).toBeTruthy();
@@ -318,11 +320,24 @@ test("a compliance.team_read holder who leads nothing sees every group; a plain 
       expect(team.status, "a compliance.team_read holder reads every group").toBe(200);
       const payload = team.body as TeamPayload;
       expect(payload.groups.some((g) => g.id === groupId), "the new group is listed").toBe(true);
-      expect(payload.rows.some((r) => r.group_id === groupId && r.user_id === memberId && r.document_id === docId)).toBe(true);
+      const theirs = payload.rows.find((r) => r.group_id === groupId && r.user_id === memberId && r.document_id === docId);
+      expect(theirs, "the member's row").toBeTruthy();
+      // The holder leads none of the member's groups and manages no
+      // programme: the row says so, and the POST refuses as it always did.
+      expect(theirs!.may_remind, "a team_read holder who leads nothing may not remind").toBe(false);
+      const refusedRemind = await api(hpage, "/api/compliance/team", { method: "POST", body: { assignment_id: theirs!.assignment_id } });
+      expect(refusedRemind.status).toBe(403);
+      expect(refusedRemind.body?.error).toBe("You can only remind members of groups you lead.");
       await hpage.goto("/compliance/team");
       await expect(hpage.getByRole("heading", { name: "Your team's policies" })).toBeVisible();
       await expect(subnav(hpage).getByRole("link", { name: "Team", exact: true })).toHaveAttribute("aria-current", "page");
       await expect(hpage.getByRole("heading", { name: groupName })).toBeVisible();
+      // The page offers no control that would fail: Remind is disabled and
+      // its wrapper says why (the Tooltip's note, named by the sentence).
+      const holderCard = hpage.locator("section", { has: hpage.getByRole("heading", { name: groupName }) });
+      const holderRow = holderCard.getByRole("row").filter({ hasText: "E2E Team Member B" });
+      await expect(holderRow.getByRole("button", { name: "Remind", exact: true })).toBeDisabled();
+      await expect(holderRow.getByRole("note", { name: "Only the group's lead or a programme manager can remind" })).toBeVisible();
       // The holder leads nothing, so My policies says nothing about a team
       // (the Team tab is their way in); the API agrees.
       expect((await api(hpage, "/api/compliance/mine")).body?.lead_team).toBe(false);
