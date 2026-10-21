@@ -57,10 +57,11 @@ describe("a people field's values on their way to the resolver", () => {
     assert.deepEqual(ids(first.synced.secretary), [gone, 2], "an unknown first DN is reported whole and the second still links");
   });
 
-  test("a long list is cut between values, never through a DN", () => {
-    const many = Array.from({ length: 12 }, (_, i) => `CN=Person\\, Number ${i},OU=Staff,DC=firm,DC=local`);
+  test("a long list keeps up to 4,000 characters and is cut between values, never through a DN", () => {
+    // 50 values at most come out of a mapping; long OU paths take them past 4,000 characters.
+    const many = Array.from({ length: 50 }, (_, i) => `CN=Person\\, Number ${i},OU=Litigation Support,OU=Regional Offices,OU=Staff,DC=firm,DC=local`);
     const v = applyFieldMappings([secretary], "microsoft", { extension_abc123_secretary: many }).synced.secretary;
-    assert.ok(v.length <= 500);
+    assert.ok(v.length <= 4000 && v.length > 3500, String(v.length));
     assert.ok(v.split("; ").every((dn) => many.includes(dn)), "every stored entry is a whole DN");
   });
 

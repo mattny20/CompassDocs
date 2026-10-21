@@ -1138,7 +1138,7 @@ export async function getSyncReport(source: Exclude<PersonSource, "manual">): Pr
 
 /** The result of running every mapping for one provider over one record. */
 export interface AppliedRecord {
-  /** Custom (jsonb) values, multi joined with ", ". People tokens included under their key. */
+  /** Custom (jsonb) values, multi joined with ", "; a people field's tokens under its key, joined with "; " (1.14.1). */
   synced: Record<string, string>;
   /** Built-in columns a mapping overrides (office composed from two properties, …). */
   columns: Partial<Record<"title" | "department" | "office", string>>;
@@ -1177,10 +1177,11 @@ export function applyFieldMappings(fields: DirectoryField[], provider: ProviderK
     if (values.length === 0) continue;
     // A people field's values are joined with "; ", the separator the
     // resolver reads as "next person" (1.14.1): a comma also appears inside
-    // a "Last, First" name and inside every distinguished name. Cut at whole
-    // values, never through a DN.
+    // a "Last, First" name and inside every distinguished name. They are
+    // tokens for the resolver, not display text, so they keep up to 4,000
+    // characters and are cut only between whole values.
     const joined =
-      f.kind === "people" ? joinWhole(values, "; ", 500) : (f.multi ? values : [values[0]]).join(", ").slice(0, 500);
+      f.kind === "people" ? joinWhole(values, "; ", 4000) : (f.multi ? values : [values[0]]).join(", ").slice(0, 500);
     if (f.builtin && (f.key === "title" || f.key === "department" || f.key === "office")) {
       columns[f.key] = joined;
     } else {

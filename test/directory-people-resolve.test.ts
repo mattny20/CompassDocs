@@ -138,9 +138,31 @@ describe("distinguished names: the review cases (1.14.1)", () => {
     assert.deepEqual(twins.resolve("CN=Park\\2C Lee,OU=Sales,DC=emea,DC=firm,DC=local"), { id: 22 });
   });
 
-  test("a DN that is nobody's own names nobody, even when its CN matches someone whose own DN is known", () => {
-    assert.equal(twins.resolve("CN=Bell\\, Jo,OU=Disabled,DC=firm,DC=local"), undefined, "a departed namesake in another OU");
-    assert.deepEqual(twins.resolve("Jo Bell"), { id: 23 }, "the plain name still names her");
+  test("a DN that is nobody's own (moved OU, shortened) falls back to its CN, as before 1.14.1", () => {
+    assert.deepEqual(twins.resolve("CN=Bell\\, Jo,OU=OldDept,DC=firm,DC=local"), { id: 23 }, "she moved OU; the attribute kept the old DN");
+    assert.deepEqual(twins.resolve("CN=Bell\\, Jo"), { id: 23 }, "a bare CN");
+    assert.deepEqual(twins.resolve("CN=Park\\, Lee,OU=Old,DC=firm,DC=local"), { ambiguous: 2 }, "a shared name stays ambiguous");
+  });
+
+  test("a DN after other entries is read whole; a doubled comma and an OID type still name the person", () => {
+    const hits = (v: string) => twins.resolveList(v).map((r) => (r.hit && "id" in r.hit ? r.hit.id : r.token));
+    assert.deepEqual(hits("jo.bell@firm.test, CN=Park\\, Lee,OU=Sales,DC=firm,DC=local"), [23, 21]);
+    assert.deepEqual(hits("Jo Bell, CN=Park\\, Lee,OU=Sales,DC=firm,DC=local"), [23, 21]);
+    assert.deepEqual(twins.resolve("CN=Park\\, Lee,,OU=Sales,DC=firm,DC=local"), { id: 21 });
+    assert.deepEqual(twins.resolve("2.5.4.3=Park\\, Lee,OU=Sales,0.9.2342.19200300.100.1.25=firm,DC=local"), { id: 21 });
+  });
+
+  test("several angled entries in one value are not resolved as one", () => {
+    const hits = (v: string) => twins.resolveList(v).map((r) => (r.hit && "id" in r.hit ? r.hit.id : r.token));
+    assert.deepEqual(hits("Jo Bell <jo.bell@firm.test>, Lee Park <lee.park@firm.test>"), [23, 21]);
+  });
+
+  test("a secondary handle never takes a primary address from its owner", () => {
+    const idx = buildPeopleIndex([
+      { id: 51, external_id: "q51", email: "druiz1234@firm.onmicrosoft.com", name: "Dana Ruiz", record: { onPremisesUserPrincipalName: "druiz@firm.com" } },
+      { id: 52, external_id: "q52", email: "druiz@firm.com", name: "Dan Ruiz", record: { userPrincipalName: "druiz@firm.com" } },
+    ]);
+    assert.deepEqual(idx.resolve("druiz@firm.com"), { id: 52 });
   });
 
   test("a SAM account name two domains share names nobody and says so; a unique one names its holder", () => {
@@ -158,7 +180,7 @@ describe("distinguished names: the review cases (1.14.1)", () => {
     assert.deepEqual(hits(`${gone}, ${b}`), [gone, 23], "an unknown first DN does not hide the second");
     assert.deepEqual(hits(`${a}; ${b}`), [21, 23]);
     assert.deepEqual(hits(`${gone}, jo.bell@firm.test`), [gone, 23], "a DN then an address");
-    assert.deepEqual(hits("CN=Bell\\, Jo,CN=Users,DC=firm,DC=local"), ["CN=Bell\\, Jo,CN=Users,DC=firm,DC=local"], "a CN container is part of the DN, not a second person");
+    assert.deepEqual(hits("CN=Bell\\, Jo,CN=Users,DC=firm,DC=local"), [23], "a CN container is part of one DN, not a second person (its CN names her)");
   });
 
   test("separators: an escaped backslash before a semicolon still separates; an angled DN stays whole", () => {

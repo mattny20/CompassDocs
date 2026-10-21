@@ -14,11 +14,12 @@ Directory: an assistant written as an AD distinguished name with a
   links.** AD's `assistant` attribute, synced through a directory
   extension, holds the assistant's distinguished name, and a CN in the
   "Last, First" form is escaped in it: `CN=Ruiz\, Dana,OU=Staff,…`. The
-  resolver cut the name at the escaped comma, matched nobody and listed the
-  pieces (`CN=Ruiz\`, `Dana`, `OU=Staff`) as unresolved, so assistants with
-  a "First Last" CN linked and those with a "Last, First" CN did not. The
-  CN is now read with its escapes (`\,`, the hex form `\2C`, and the older
-  quoted `CN="Ruiz, Dana"`).
+  resolver cut the name at the escaped comma and read the pieces on their
+  own, so such an assistant linked nobody, or, when a piece such as `Dana`
+  happened to be someone's mail nickname or SAM account name, the wrong
+  person; assistants with a "First Last" CN were unaffected. The CN is now
+  read with its escapes (`\,`, the hex form `\2C`, the older quoted
+  `CN="Ruiz, Dana"`, and the CN's OID `2.5.4.3=`).
 - **A distinguished name matches the exact account it points at.** Whenever
   a people field is mapped from Microsoft, the sync also asks Graph for each
   person's `onPremisesDistinguishedName`, `onPremisesSamAccountName`,
@@ -27,23 +28,25 @@ Directory: an assistant written as an AD distinguished name with a
   DN, compared in one canonical form whatever escape spelling either side
   used. A DN now names its account even when two people share the name or
   the CN is not the Entra display name, and an assistant given as an
-  on-premises sign-in name resolves too. A DN that is nobody's own, whose
-  CN matches someone whose own DN is known and different (a departed
-  namesake in another OU), links nobody rather than the namesake.
+  on-premises sign-in name resolves too. A DN that is nobody's own (an
+  assistant who moved OU while the attribute kept the old DN, a shortened
+  DN) still falls back to its CN as a display name, as before.
 - **Several distinguished names in one value are told apart.** A
   multi-valued people attribute (AD's `secretary`, a multi-valued
-  extension) is now stored with "; " between its values, cut between
-  values rather than through one, and a value led by DNs is read DN by DN:
-  each is linked or reported on its own, and one that matches nobody is
-  reported once, whole.
-- **A SAM account name or mail nickname two people hold links nobody.** They
-  are unique only within one AD domain; such a value is reported as shared,
-  like a shared display name, instead of linking whichever person came
-  first.
-- The CSV import resolves people columns with the same stored handles as
-  the sync, and the sync panel, the health card and the sync report email
-  separate unresolved samples with " · " or "; ", so a DN's commas no longer
-  run into the next sample.
+  extension) is now stored with "; " between its values and keeps up to
+  4,000 characters, cut only between values; a value is read DN by DN,
+  including a DN after an address or a name, and a DN that matches nobody
+  is reported once, whole, instead of as its pieces.
+- **A SAM account name or mail nickname two people hold links nobody.**
+  They are unique only within one AD domain; such a value is reported as
+  shared, like a shared display name, instead of linking whichever person
+  came first. An on-premises sign-in name or alias never takes an address
+  from the person whose primary address it is.
+- People columns in a CSV import resolve with the same stored handles as
+  the sync (rows still match existing people by email, then by name). The
+  sync panel, the health card, the sync report email and a mapping's
+  preview separate their samples with " · " or "; ", so a DN's commas no
+  longer run into the next sample.
 - Letter case was never the cause and is unchanged: every handle and value
   is compared lowercased, so a case-only difference between AD and Entra
   (which Entra Connect does not carry over) cannot break a link. The
@@ -54,8 +57,10 @@ Directory: an assistant written as an AD distinguished name with a
   extra properties and fills the missing links; until then the stored
   records match "Last, First" DNs by name. A multi-valued people field
   shows its values with "; " between them once, in the next sync's preview.
-  No schema change; rollback to 1.14.0 is supported (the extra properties
-  are ignored and such DNs stop matching again).
+  A value that linked an arbitrary one of two people sharing a SAM account
+  name or nickname is reported as shared instead. No schema change;
+  rollback to 1.14.0 is supported (the extra properties are ignored and
+  such DNs stop matching again).
 
 ## [1.14.0] - 2026-10-21
 
