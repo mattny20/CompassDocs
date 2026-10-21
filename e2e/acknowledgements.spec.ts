@@ -200,9 +200,9 @@ test("admin requires confirmation; the reader is pointed to the card, confirms t
     await expect(page.locator('[role="status"]').getByText("Confirmation recorded.")).toBeVisible();
     await expect(card.getByRole("heading", { name: "Confirmation recorded" })).toBeVisible();
     await expect(card.getByText(CONFIRMED)).toBeVisible();
-    // No "View your record" link this release: /compliance bounces readers
-    // without the Compliance section; the link returns with My policies.
-    await expect(card.getByRole("link", { name: "View your record" })).toHaveCount(0);
+    // 1.14.0 (F3): the confirmed card links the reader's own record, the one
+    // page every reader can open for themselves.
+    await expect(card.getByRole("link", { name: "View your record" })).toHaveAttribute("href", "/compliance/person/me");
     await expect(card).toBeFocused();
     await expect(page.getByRole("button", { name: CONFIRM })).toHaveCount(0);
     await expect(page.getByRole("region", { name: "Document bar" }).getByText(/^Confirmed /)).toBeVisible();
@@ -230,7 +230,7 @@ test("admin requires confirmation; the reader is pointed to the card, confirms t
     await expect(page.getByText(CONFIRMED).first()).toBeVisible();
     await expect(page.getByRole("link", { name: "Jump to confirmation" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: CONFIRM })).toHaveCount(0);
-    await expect(page.locator("#confirm-reading").getByRole("link", { name: "View your record" })).toHaveCount(0);
+    await expect(page.locator("#confirm-reading").getByRole("link", { name: "View your record" })).toHaveAttribute("href", "/compliance/person/me");
   } finally {
     if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
   }
