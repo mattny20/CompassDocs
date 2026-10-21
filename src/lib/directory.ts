@@ -21,7 +21,7 @@
 
 import { pool, getSetting, setSetting } from "./db";
 import type { ProviderKey } from "./identity-provider";
-import { buildPeopleIndex } from "./directory-people-resolve";
+import { buildPeopleIndex, MICROSOFT_RESOLVER_PROPERTIES } from "./directory-people-resolve";
 import { normalizePhoto } from "./directory-photos";
 import { parseVisibility, parseColumnVisibility, type Visibility, type ColumnVisibility } from "./directory-visibility";
 import {
@@ -1164,10 +1164,25 @@ export function applyFieldMappings(fields: DirectoryField[], provider: ProviderK
 
 /** Top-level properties the fetch layer must request for this provider. */
 export async function providerSelectProperties(provider: ProviderKey): Promise<string[]> {
+  return selectPropertiesFor(provider, await listFields());
+}
+
+/**
+ * The top-level properties the fetch must request for these fields: what
+ * every mapping reads, plus (1.14.1) the handles the people resolver indexes
+ * whenever a people field is mapped from Microsoft. Graph returns those only
+ * when asked by $select, and without them an assistant written as a DN or a
+ * SAM account name could match only by display name.
+ */
+export function selectPropertiesFor(provider: ProviderKey, fields: DirectoryField[]): string[] {
   const out = new Set<string>();
-  for (const f of await listFields()) {
-    for (const p of mappingProperties(effectiveMapping(f, provider))) out.add(p);
+  let people = false;
+  for (const f of fields) {
+    const m = effectiveMapping(f, provider);
+    for (const p of mappingProperties(m)) out.add(p);
+    if (m && f.kind === "people") people = true;
   }
+  if (provider === "microsoft" && people) for (const p of MICROSOFT_RESOLVER_PROPERTIES) out.add(p);
   return [...out];
 }
 

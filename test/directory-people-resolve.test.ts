@@ -44,3 +44,70 @@ describe("buildPeopleIndex", () => {
     assert.equal(index.resolve(""), undefined);
   });
 });
+
+// 1.14.1: AD's assistant attribute holds a distinguished name, and a CN in
+// the "Last, First" form is escaped in it. Letter case never matters.
+describe("distinguished names and letter case (1.14.1)", () => {
+  const ad = buildPeopleIndex([
+    {
+      id: 10,
+      external_id: "aaaa-1010",
+      email: "dana.ruiz@firm.test",
+      name: "Dana Ruiz",
+      record: {
+        userPrincipalName: "dana.ruiz@firm.test",
+        onPremisesUserPrincipalName: "DRuiz@firm.local",
+        onPremisesSamAccountName: "DRUIZ",
+        onPremisesDistinguishedName: "CN=Ruiz\\, Dana,OU=Finance,OU=Staff,DC=firm,DC=local",
+        displayName: "Dana Ruiz",
+      },
+    },
+    // Two people named Lee Park: a name cannot tell them apart, their DNs can.
+    { id: 11, external_id: "aaaa-1111", email: "lee.park@firm.test", name: "Lee Park", record: { onPremisesDistinguishedName: "CN=Park\\, Lee,OU=Sales,DC=firm,DC=local", displayName: "Lee Park" } },
+    { id: 12, external_id: "aaaa-1212", email: "lee.park2@firm.test", name: "Lee Park", record: { onPremisesDistinguishedName: "CN=Park\\, Lee (IT),OU=IT,DC=firm,DC=local", displayName: "Lee Park" } },
+    // A CN that differs from the display name: only the DN names her.
+    { id: 13, external_id: "aaaa-1313", email: "ana.lopez@firm.test", name: "Ana López", record: { onPremisesDistinguishedName: "CN=alopez,OU=Staff,DC=firm,DC=local", displayName: "Ana López" } },
+    { id: 14, external_id: "aaaa-1414", email: "sam.chen@firm.test", name: "Chen, Sam", record: { displayName: "Chen, Sam" } },
+  ]);
+  const ids = (v: string) => ad.resolveList(v).map((r) => (r.hit && "id" in r.hit ? r.hit.id : r.hit ?? r.token));
+
+  test("an escaped comma in the CN, as AD writes it, in every escape form and any letter case", () => {
+    for (const t of [
+      "CN=Ruiz\\, Dana,OU=Finance,OU=Staff,DC=firm,DC=local",
+      "cn=ruiz\\, dana,ou=finance,ou=staff,dc=firm,dc=local",
+      "CN=RUIZ\\, DANA, OU=Finance, OU=Staff, DC=firm, DC=local",
+      "CN=Ruiz\\2C Dana,OU=Elsewhere,DC=firm,DC=local",
+      'CN="Ruiz, Dana",OU=Elsewhere,DC=firm,DC=local',
+      "CN = Ruiz\\, Dana , OU=Finance,OU=Staff,DC=firm,DC=local",
+    ]) {
+      assert.deepEqual(ad.resolve(t), { id: 10 }, t);
+      assert.deepEqual(ids(t), [10], `${t} as a whole value`);
+    }
+  });
+
+  test("a person's own DN names them exactly, even when the name is shared or the CN is not the display name", () => {
+    assert.deepEqual(ad.resolve("Lee Park"), { ambiguous: 2 }, "the name alone is shared");
+    assert.deepEqual(ad.resolve("CN=Park\\, Lee,OU=Sales,DC=firm,DC=local"), { id: 11 });
+    assert.deepEqual(ad.resolve("cn=park\\, lee (it),ou=it,dc=firm,dc=local"), { id: 12 });
+    assert.deepEqual(ad.resolve("CN=alopez,OU=Staff,DC=firm,DC=local"), { id: 13 }, "the CN is a SAM name, not her display name");
+  });
+
+  test("sign-in names differ only by case and still match: cloud UPN, on-premises UPN, SAM account", () => {
+    for (const t of ["DANA.RUIZ@FIRM.TEST", "Dana.Ruiz@firm.test", "druiz@FIRM.LOCAL", "druiz", "DRuiz"]) {
+      assert.deepEqual(ad.resolve(t), { id: 10 }, t);
+    }
+    assert.deepEqual(ad.resolve("CHEN, SAM"), { id: 14 });
+  });
+
+  test("an unresolved DN is reported whole, once, never as its RDN pieces", () => {
+    const r = ad.resolveList("CN=Nobody\\, Known,OU=Staff,DC=firm,DC=local");
+    assert.equal(r.length, 1);
+    assert.equal(r[0].token, "CN=Nobody\\, Known,OU=Staff,DC=firm,DC=local");
+    assert.equal(r[0].hit, undefined);
+  });
+
+  test("several DNs in one value split at semicolons, not at the commas inside them", () => {
+    assert.deepEqual(ids("CN=Ruiz\\, Dana,OU=Finance,OU=Staff,DC=firm,DC=local; CN=Park\\, Lee,OU=Sales,DC=firm,DC=local"), [10, 11]);
+    assert.deepEqual(ids("CN=Ruiz\\, Dana,OU=Finance,OU=Staff,DC=firm,DC=local\nsam.chen@firm.test"), [10, 14]);
+  });
+});

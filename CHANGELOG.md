@@ -4,6 +4,42 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.14.1] - 2026-10-21
+
+Directory: an assistant written as an AD distinguished name with a
+"Last, First" name now links to the right person.
+
+### Fixed
+- **An assistant named by a distinguished name with a comma in it now
+  links.** AD's `assistant` attribute, synced through a directory
+  extension, holds the assistant's distinguished name, and a CN in the
+  "Last, First" form is escaped in it: `CN=Ruiz\, Dana,OU=Staff,…`. The
+  resolver cut the name at the escaped comma, matched nobody and listed the
+  pieces (`CN=Ruiz\`, `Dana`, `OU=Staff`) as unresolved, so assistants with
+  a "First Last" CN linked and those with a "Last, First" CN did not. The
+  CN is now read with its escapes (`\,`, the hex form `\2C`, and the older
+  quoted `CN="Ruiz, Dana"`), and a DN that matches nobody is reported once,
+  whole.
+- **A distinguished name matches the exact account it points at.** Whenever
+  a people field is mapped from Microsoft, the sync also asks Graph for each
+  person's `onPremisesDistinguishedName`, `onPremisesSamAccountName`,
+  `onPremisesUserPrincipalName`, `mailNickname` and `proxyAddresses` (Graph
+  returns them only when asked), and the resolver indexes the person's own
+  DN and on-premises sign-in name. A DN now resolves even when two people
+  share the name or the CN is not the Entra display name, and an assistant
+  given as a SAM account name or an on-premises UPN resolves too.
+- Letter case was never the cause and is unchanged: every handle and value
+  is compared lowercased, so a case-only difference between AD and Entra
+  (which Entra Connect does not carry over) cannot break a link. The
+  directory guide now says so.
+
+### Upgrading
+- Nothing to do. The first directory sync after the upgrade fetches the
+  extra properties and fills the missing links; until then the stored
+  records match "Last, First" DNs by name. No schema change; rollback to
+  1.14.0 is supported (the extra properties are ignored and such DNs stop
+  matching again).
+
 ## [1.14.0] - 2026-10-21
 
 Read confirmation, part six: program operations and evidence. The portal
