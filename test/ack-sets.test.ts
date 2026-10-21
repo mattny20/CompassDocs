@@ -36,6 +36,9 @@ import {
   saveAudienceRules,
   getPolicyAudience,
   autoAssignPolicies,
+  recordAcknowledgement,
+  listVersions,
+  ackSummary,
   listMyPolicies,
   listPolicySets,
   getPolicySet,
@@ -305,8 +308,13 @@ after(async () => {
   for (const id of userIds) await fixtureQuery("DELETE FROM ack_outbox WHERE user_ids @> $1::jsonb", [JSON.stringify([id])]);
   await fixtureQuery("DELETE FROM acknowledgements WHERE document_id = ANY($1)", [docIds]);
   await fixtureQuery("DELETE FROM ack_decisions WHERE document_id = ANY($1) OR document_title LIKE $2", [docIds, `${STAMP}%`]);
+  // Each id list paired with its target type: documents, users and sets are
+  // separate sequences, so a bare target_id would delete another file's row.
   await fixtureQuery(
-    "DELETE FROM audit_log WHERE (action LIKE 'ack.%' OR action LIKE 'document.ack%') AND (target_id = ANY($1) OR target_id = ANY($2) OR target_id = ANY($3))",
+    `DELETE FROM audit_log WHERE (action LIKE 'ack.%' OR action LIKE 'document.ack%')
+       AND ((target_type = 'document' AND target_id = ANY($1))
+            OR (target_type = 'user' AND target_id = ANY($2))
+            OR (target_type = 'policy_set' AND target_id = ANY($3)))`,
     [docIds.map(String), userIds.map(String), setIds.map(String)]
   );
   await fixtureQuery("DELETE FROM policy_sets WHERE id = ANY($1) OR name LIKE $2", [setIds, `${STAMP}%`]);
@@ -483,6 +491,68 @@ describe("assigning a set", () => {
     assert.deepEqual(await requestRows(docs.exp), [{ user_ids: null, source: "manual" }]);
   });
 
+  test("a Settings-tab save keeps the set's rules: the manager's rules are replaced, the tagged ones stay, and dropping the manager's rule closes only the people it alone admitted", async () => {
+    // What the card sends: the manager's rule only (the set's are not on it).
+    await saveAudienceRules(docs.sec, { audience_mode: "targeted", rules: sanitizeRules([{ kind: "group", ref: g1 }]) });
+    const byRef = (rs: { kind: string; ref: string; set_id: number | null }[]) =>
+      rs.map((r) => [r.kind, r.ref, r.set_id]).sort((a, b) => `${a[0]}${a[1]}`.localeCompare(`${b[0]}${b[1]}`));
+    assert.deepEqual(
+      byRef(await rules(docs.sec)),
+      byRef([
+        { kind: "group", ref: String(g1), set_id: null },
+        { kind: "user", ref: String(people.carol), set_id: s2 },
+        { kind: "group", ref: String(g2), set_id: s2 },
+      ]),
+      "the manager's rule rewritten untagged; the set's two kept with their tag"
+    );
+    assert.equal((await row(docs.sec, people.carol))!.removed_at, null, "carol stays asked through the set");
+    assert.equal((await row(docs.sec, people.bob))!.removed_at, null, "bob stays asked through the set's group");
+
+    // The manager drops their own rule: alice (G1 only) goes; the set's people stay.
+    await saveAudienceRules(docs.sec, { audience_mode: "targeted", rules: [] });
+    assert.deepEqual(byRef(await rules(docs.sec)), byRef([
+      { kind: "user", ref: String(people.carol), set_id: s2 },
+      { kind: "group", ref: String(g2), set_id: s2 },
+    ]));
+    assert.ok((await row(docs.sec, people.alice))!.removed_at, "alice's row is closed");
+    assert.equal((await row(docs.sec, people.bob))!.removed_at, null);
+    assert.equal((await row(docs.sec, people.carol))!.removed_at, null);
+  });
+
+  test("editing a policy out of a set untags that policy's rules in the same save (its people stay as plain rules); a member kept keeps its tags; rows and sources are untouched", async () => {
+    const changed = await updatePolicySet(s2, { doc_ids: [docs.aup, docs.exp] });
+    assert.deepEqual(changed!.after.docs.map((d) => d.id), [docs.aup, docs.exp]);
+    assert.deepEqual(
+      (await rules(docs.sec)).map((r) => [r.kind, r.ref, r.set_id]),
+      [
+        ["user", String(people.carol), null],
+        ["group", String(g2), null],
+      ],
+      "Security left the set: its rules are the Settings tab's now"
+    );
+    assert.deepEqual(
+      (await rules(docs.exp)).map((r) => [r.kind, r.ref, r.set_id]),
+      [
+        ["user", String(people.carol), s2],
+        ["group", String(g2), s2],
+      ],
+      "Expenses is still a member: its rules keep the tag"
+    );
+    assert.equal((await row(docs.sec, people.bob))!.removed_at, null, "the rows stay");
+    assert.equal((await row(docs.sec, people.bob))!.source, "set", "an open row keeps its source");
+    assert.equal((await row(docs.sec, people.carol))!.removed_at, null);
+    assert.deepEqual((await policySetNames([docs.sec])).get(docs.sec), [`${STAMP} Onboarding`], "Security names only the set it is still in");
+
+    // Now a plain rule, the Settings tab can drop it: carol goes.
+    await saveAudienceRules(docs.sec, { audience_mode: "targeted", rules: sanitizeRules([{ kind: "group", ref: g2 }]) });
+    assert.ok((await row(docs.sec, people.carol))!.removed_at, "an untagged rule is the card's to remove");
+    assert.equal((await row(docs.sec, people.bob))!.removed_at, null);
+
+    // Back in the set (the later tests assign it with three members); re-adding does not re-tag.
+    await updatePolicySet(s2, { doc_ids: [docs.aup, docs.sec, docs.exp] });
+    assert.ok((await rules(docs.sec)).every((r) => r.set_id === null));
+  });
+
   test("assigning to everyone puts a targeted member in space mode with its rules cleared, changes nothing on one already there, and never lists a narrowing", async () => {
     const r = await retryOnTeardownRace(() => assignPolicySet(s2, { user_ids: [], group_ids: [], everyone: true }, actor()));
     assert.equal(r.policies, 3);
@@ -558,6 +628,27 @@ describe("new accounts, deactivation and deletion", () => {
     assert.deepEqual(await policySetNames([]), new Map());
   });
 
+  test("the visibility ceiling: a joiner who cannot see a member's private space gets no row through an auto-assign set, and a named person who cannot see it gets none through an assignment", async () => {
+    // Outside G3: no group of theirs is granted the fixture space.
+    const out = await newPerson("outsider");
+    const enrolled = await retryOnTeardownRace(() => autoAssignPolicies(out));
+    const ids = enrolled.policies.map((p) => p.id);
+    for (const tag of ["coc", "handbook", "notauto"]) {
+      assert.ok(!ids.includes(docs[tag]), `${tag}: not enrolled`);
+      assert.equal(await row(docs[tag], out), undefined, `${tag}: no row`);
+    }
+    // The set's rule names them on its targeted member; the ceiling, not the rule, keeps them out.
+    assert.ok((await rules(docs.coc)).some((r) => r.kind === "user" && r.ref === String(out) && r.set_id === s3));
+
+    // Named in an assignment of a set whose member is targeted (Optional reading: G1).
+    const r = await retryOnTeardownRace(() => assignPolicySet(s4, { user_ids: [out], group_ids: [], everyone: false }, actor()));
+    assert.equal(r.policies, 1);
+    assert.equal(r.people, 1, "an active account, so counted as named");
+    assert.equal(r.added, 0, "nobody was asked");
+    assert.equal(await row(docs.notauto, out), undefined);
+    assert.ok(!(await requestRows(docs.notauto)).some((q) => (q.user_ids ?? []).includes(out)), "nobody is told");
+  });
+
   test("deactivating stops auto-assign and leaves every row; the name is free while deactivated and must be free again to reactivate", async () => {
     const off = await updatePolicySet(s3, { active: false });
     assert.equal(off!.after.active, 0);
@@ -594,18 +685,27 @@ describe("new accounts, deactivation and deletion", () => {
   });
 
   test("deleting a set leaves its rules (untagged) and every row; policies and confirmations stay", async () => {
+    // Erin confirms Code of conduct first, so there is a confirmation to keep.
+    const v1 = (await listVersions(docs.coc))[0].id;
+    assert.equal((await recordAcknowledgement(docs.coc, people.erin, "", v1)).recorded, true);
+    assert.equal((await ackSummary(docs.coc)).current, 1);
+
     assert.deepEqual(await deletePolicySet(s3), { name: `${STAMP} New starter onboarding`, policies: 2 });
     assert.equal(await deletePolicySet(s3), null, "gone");
     assert.equal(await getPolicySet(s3), null);
     assert.equal((await pool().query("SELECT COUNT(*)::int AS n FROM policy_set_docs WHERE set_id = $1", [s3])).rows[0].n, 0);
     assert.deepEqual(
       (await rules(docs.coc)).filter((r) => r.kind === "user"),
-      [{ kind: "user", ref: String(people.erin), effect: "include", set_id: null }],
-      "the rule keeps its place, untagged"
+      [
+        { kind: "user", ref: String(people.erin), effect: "include", set_id: null },
+        { kind: "user", ref: String(people.outsider), effect: "include", set_id: null },
+      ],
+      "the rules keep their place, untagged"
     );
     assert.equal((await row(docs.coc, people.erin))!.source, "set", "the row is as it was");
     assert.equal((await row(docs.coc, people.erin))!.removed_at, null);
     assert.equal((await pool().query("SELECT ack_required FROM documents WHERE id = $1", [docs.coc])).rows[0].ack_required, 1);
+    assert.equal((await ackSummary(docs.coc)).current, 1, "erin's confirmation stands");
   });
 });
 

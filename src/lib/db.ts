@@ -4030,12 +4030,13 @@ export async function runDbMaintenance(): Promise<{ sessions: number; oauthCodes
   // The deadline notice's per-policy claim (H3, 1.14.0: one settings row
   // 'ack_deadline_hook_{docId}' per policy a subscribed hook heard about)
   // outlives a purged policy: a key whose suffix names no document goes.
+  // Up to 18 digits, so the cast never overflows; nothing else is touched.
   await pool().query(
     `DELETE FROM settings
-     WHERE key ~ '^ack_deadline_hook_[0-9]+$'
+     WHERE key ~ '^ack_deadline_hook_[0-9]{1,18}$'
        AND NOT EXISTS (
          SELECT 1 FROM documents d
-         WHERE d.id = substring(key from '^ack_deadline_hook_([0-9]+)$')::bigint)`
+         WHERE d.id = substring(key from '^ack_deadline_hook_([0-9]{1,18})$')::bigint)`
   );
   return { sessions: sessions.rowCount ?? 0, oauthCodes: codes.rowCount ?? 0 };
 }

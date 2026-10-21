@@ -40,12 +40,14 @@ import {
   setGroupLeads,
   setSpaceGroups,
   createSession,
+  createRole,
+  assignRole,
   userPolicyTranscript,
   rosterReadSpaceIdsFor,
 } from "../src/lib/db";
 import type { PolicyTranscript, PolicyTranscriptRow } from "../src/lib/db";
 import { recordNotices } from "../src/lib/compliance";
-import { RECORD_CSV_HEADER, recordCsvCells, supersededByText } from "../src/lib/read-evidence";
+import { RECORD_CSV_HEADER, RECORD_STOPPED_CELL, recordCsvCells, supersededByText } from "../src/lib/read-evidence";
 import { newToken } from "../src/lib/password";
 import type { SessionUser } from "../src/lib/types";
 import { fixtureQuery } from "./support/retry";
@@ -164,6 +166,7 @@ let stranger = 0;
 const userIds: number[] = [];
 const groupIds: number[] = [];
 const docIds: number[] = [];
+const roleIds: number[] = [];
 const sessions = new Map<number, string>();
 
 interface Policy {
