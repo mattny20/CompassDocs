@@ -182,6 +182,13 @@ export interface BulkContext {
   audit: { actor: AuditActor; ip: string | null };
   /** The request's origin, kept on every outbox row for its links. */
   origin: string;
+  /**
+   * Test scope only (the route never sets it): the people actions over
+   * `user_ids` reach only these policies' rows. The integration files share
+   * one database, and "everything outstanding" for a file's people would
+   * otherwise include, and act on, another file's policies.
+   */
+  documentIds?: number[];
 }
 
 // --- Parsing --------------------------------------------------------------------
@@ -732,7 +739,7 @@ export async function runBulkAction(req: BulkRequest, ctx: BulkContext): Promise
   const byRows = req.assignment_ids.length > 0;
   const rows = await bulkRows({
     userIds: byRows ? null : req.user_ids,
-    docIds: req.action === "exempt_people" && !byRows ? req.doc_ids : null,
+    docIds: req.action === "exempt_people" && !byRows ? req.doc_ids : (ctx.documentIds ?? null),
     assignmentIds: byRows ? req.assignment_ids : null,
     grace,
   });

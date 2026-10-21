@@ -188,10 +188,14 @@ async function waitFor<T>(read: () => T[], n: number, ms = 8000): Promise<T[]> {
 const TEXT = Array.from({ length: 12 }, (_, i) => `Clause ${i + 1}: staff must follow the procedure described here.`).join("\n\n");
 const mine = () => [anaId, benId, miaId];
 const team2 = () => [patId, samId, quinnId, miaId];
+// documentIds scopes the people actions to this file's policies: its people
+// can also owe another file's internal-space policies, and "everything
+// outstanding" must neither count nor act on those (lib/ack-bulk).
 const ctx = () => ({
   actor: { id: miaId, name: "Mia Manager" },
   audit: { actor: { id: miaId, name: "Mia Manager", role: "admin" }, ip: "203.0.113.9" },
   origin: ORIGIN,
+  documentIds: [...docIds],
 });
 
 /**
