@@ -758,6 +758,12 @@ events reach chat channels with counts only (Enterprise, `policy_ack`).
   titles of policies in private spaces too, exactly as `document.published`
   does today: scope a hook to a space when its channel should not.
 
+### Security
+- Dependency update for an advisory published this week: markdown-it
+  14.3.3 (CVE-2026-111758, quadratic-time rendering of a single
+  multi-line link reference definition), transitive through the editor's
+  Markdown support (tiptap-markdown and prosemirror-markdown).
+
 ## [1.13.0] - 2026-10-20
 
 Read confirmation, part five: who must confirm (a policy's audience), a due
