@@ -17,16 +17,31 @@
 // resuming a retired policy asks once because it puts the policy back on
 // everyone's list. Each posts to the policy's own route
 // (/api/documents/[id]/ack/retire, …/unretire), not to the portal's POST.
+//
+// The Needs attention queue (F1, 1.14.0) acts per row through the
+// assignments route (/api/admin/compliance/assignments, the roster's
+// dispatcher): Extend 7 days, Snooze and Exempt… tell and offer Undo as the
+// inverse call; Remove exemption likewise. Remind is the portal's own
+// per-policy reminder (it asks "Remind N people?" because mail cannot be
+// undone): no route reminds one person for a programme manager yet, so the
+// row's Remind reaches everyone still pending on that policy, this person
+// among them.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { MouseEvent as ReactMouseEvent } from "react";
 import { confirmDialog, formDialog } from "@/components/Dialog";
 import { toast } from "@/components/Toasts";
 import { requireAckDialog } from "@/components/RequireAckDialog";
 import { askReconfirm, RECONFIRM_LABEL, RECONFIRM_REASON_TOO_SHORT } from "@/components/ReconfirmButton";
-import type { AckRosterRow } from "@/components/AckRoster";
+import { exemptDialog, type AckRosterRow } from "@/components/AckRoster";
+import { useFormatDate } from "@/components/SettingsProvider";
 import { people } from "@/components/compliance/copy";
 import type { EditDefault } from "@/lib/compliance-settings";
+import { EXTEND_DAYS_DEFAULT, SNOOZE_DAYS_DEFAULT } from "@/lib/ack-assignments";
+import type { PolicyAttentionReason, PolicyAttentionRow } from "@/lib/types";
 import { useAction } from "@/lib/use-action";
+
+export type { PolicyAttentionReason, PolicyAttentionRow };
 
 // ── The GET payload, as src/app/api/admin/compliance/route.ts answers it ────
 
@@ -86,6 +101,26 @@ export interface DocRow {
    * row, which reminds nobody.
    */
   reminder?: { last_reminded_at: string | null; next_reminder_at: string | null } | null;
+  /**
+   * The stacked bar's four numbers (F1, 1.14.0): `confirmed` (= acked) and
+   * `pending` (= required - acked, the overdue rows included) partition
+   * `required`; `overdue` above is the late part of `pending`; `exempt`
+   * counts the policy's exempt rows, outside the denominator.
+   */
+  confirmed?: number;
+  pending?: number;
+  exempt?: number;
+  /** When the policy's people were last reminded: the manual Remind or the sweep's newest stamp, whichever is later. */
+  last_reminded_at?: string | null;
+  /** The policy's owner for the row subtitle ("owner Priya Shah"): its own, else the space's, else whoever switched it on; null when none is an active account. */
+  owner_user_id?: number | null;
+  owner_name?: string | null;
+  /** The resolved edit default once more under the 1.14.0 name (the same values as ack_edit_default). */
+  edit_default?: EditDefault;
+  /** The grace the overdue count applied (the space's, else the workspace's, else 0). */
+  overdue_grace_days?: number;
+  /** The policy sets this policy belongs to (D3, 1.14.0), by name; empty when none. */
+  set_names?: string[];
 }
 
 export interface DecisionBrief {
@@ -105,6 +140,15 @@ export interface PersonRow {
   acked: number;
   /** Of the required policies, those past their due date and the grace with no current confirmation (E1, 1.13.0). */
   overdue?: number;
+  /** The person's exempt rows on live policies (F1, 1.14.0); outside `required`. */
+  exempt?: number;
+}
+
+/** The Needs attention queue (F1, 1.14.0): `rows` cut at 200, `total` counted before the cut, `snoozed` the rows a running snooze hides. */
+export interface AttentionQueue {
+  rows: PolicyAttentionRow[];
+  total: number;
+  snoozed: number;
 }
 
 export interface CandidateDoc {
@@ -127,7 +171,23 @@ export interface CompliancePayload {
     recert_due_30: number;
     /** Open rows past their due date and the grace with no current confirmation, over the live policies (E1, 1.13.0). */
     overdue?: number;
+    /**
+     * The six tiles of 1.14.0 (F1), all over the live policies: the people
+     * with an overdue row (the Overdue tile's sub-line), the rows due inside
+     * seven days, pending (the new name of outstanding), the exempt rows,
+     * the rows whose escalation fired, the rows under a running snooze and
+     * the policies whose confirmed text drifted past the re-ask threshold.
+     */
+    overdue_people?: number;
+    due_7d?: number;
+    pending?: number;
+    exempt?: number;
+    escalated?: number;
+    snoozed?: number;
+    drifted?: number;
   };
+  /** The Needs attention queue (F1, 1.14.0); absent from a server without it. */
+  attention?: AttentionQueue;
   docs: DocRow[];
   users: PersonRow[];
   candidates: CandidateDoc[];
@@ -158,7 +218,29 @@ interface PostResult {
   /** POST /ack/retire: the marker version's number; POST /ack/unretire: the confirmations current after the switch. */
   rev?: number | null;
   current?: number;
+  /** The assignments route (D2): the rows it changed and skipped, and a snooze's end. */
+  changed?: number[];
+  skipped?: number[];
+  until?: string | null;
 }
+
+/** What POST /api/admin/compliance/bulk answers to remind_people (lib/ack-bulk BulkAnswer, the part the queue reads: rows reminded, and who was skipped and why). */
+interface BulkRemindAnswer {
+  done?: number;
+  queued?: number;
+  skipped?: { id: number; title: string; reason: string }[];
+}
+
+/** The queue's per-person reasons: the rows whose actions are Remind, Extend 7 days, Snooze and Exempt…. */
+export const ATTENTION_PERSON_REASONS: ReadonlySet<PolicyAttentionReason> = new Set([
+  "overdue",
+  "escalated",
+  "never_opened",
+  "opened_not_confirmed",
+]);
+
+/** The error toast when the assignments route changed nothing for the row (it came back skipped). */
+export const QUEUE_NOTHING_CHANGED = "Nothing changed: this row was skipped (exempt, removed or already in that state).";
 
 /** The props every routed portal page takes from its server page. */
 export interface PortalPageProps {
@@ -171,8 +253,97 @@ export function pageOf<T>(rows: T[], page: number, size: number): T[] {
   return rows.slice(page * size, (page + 1) * size);
 }
 
+/**
+ * The checkbox columns' selection behind the Policies and People bulk bars
+ * (F5, 1.14.0): a set of ids, a row toggle with shift-click range selection
+ * (the range runs between the last row clicked and this one in the list's
+ * current order, so it respects the filter and the sort), a header toggle
+ * over the rows shown, and Clear. The selection only ever names rows that
+ * are still on the page: a reload prunes it (a successful action clears it
+ * explicitly). `existing` is every selectable id the page holds right now.
+ */
+export function useBulkSelection(existing: number[]) {
+  const [selected, setSelected] = useState<Set<number>>(() => new Set());
+  const anchor = useRef<number | null>(null);
+  const shift = useRef(false);
+  const existingKey = existing.join(",");
+  useEffect(() => {
+    const keep = new Set(existingKey ? existingKey.split(",").map(Number) : []);
+    setSelected((s) => {
+      let dropped = false;
+      const next = new Set<number>();
+      for (const id of s) {
+        if (keep.has(id)) next.add(id);
+        else dropped = true;
+      }
+      return dropped ? next : s;
+    });
+  }, [existingKey]);
+
+  /** On the checkbox's click, before its change: whether Shift was held. */
+  const markShift = useCallback((e: ReactMouseEvent) => {
+    shift.current = e.shiftKey;
+  }, []);
+
+  /** Toggle one row; with Shift held, every row between the last one clicked and this one (in `ordered`) takes this row's new state. */
+  const toggle = useCallback((id: number, ordered: number[]) => {
+    setSelected((s) => {
+      const next = new Set(s);
+      const on = !s.has(id);
+      let range = [id];
+      const from = anchor.current;
+      if (shift.current && from != null && from !== id) {
+        const a = ordered.indexOf(from);
+        const b = ordered.indexOf(id);
+        if (a >= 0 && b >= 0) range = ordered.slice(Math.min(a, b), Math.max(a, b) + 1);
+      }
+      for (const x of range) {
+        if (on) next.add(x);
+        else next.delete(x);
+      }
+      return next;
+    });
+    anchor.current = id;
+    shift.current = false;
+  }, []);
+
+  /** The header checkbox: select every id shown, or clear them when they all are. */
+  const toggleAll = useCallback((ids: number[]) => {
+    setSelected((s) => {
+      const next = new Set(s);
+      const all = ids.length > 0 && ids.every((id) => s.has(id));
+      for (const id of ids) {
+        if (all) next.delete(id);
+        else next.add(id);
+      }
+      return next;
+    });
+    anchor.current = null;
+  }, []);
+
+  const clear = useCallback(() => {
+    setSelected(new Set());
+    anchor.current = null;
+  }, []);
+
+  return {
+    selected,
+    size: selected.size,
+    has: (id: number) => selected.has(id),
+    allOf: (ids: number[]) => ids.length > 0 && ids.every((id) => selected.has(id)),
+    someOf: (ids: number[]) => ids.some((id) => selected.has(id)),
+    markShift,
+    toggle,
+    toggleAll,
+    clear,
+  };
+}
+
+export type BulkSelection = ReturnType<typeof useBulkSelection>;
+
 export function usePortal(licensed: boolean) {
   const { run, isBusy, busy } = useAction();
+  const fmt = useFormatDate();
   const [data, setData] = useState<CompliancePayload | null>(null);
   const [loadError, setLoadError] = useState("");
   const [open, setOpen] = useState<number | null>(null);
@@ -207,8 +378,8 @@ export function usePortal(licensed: boolean) {
   }, []);
 
   /** One POST through useAction: the server's error or the fallback is toasted; the body comes back on success. */
-  async function postTo(key: string, url: string, body: Record<string, unknown>, fallback: string): Promise<PostResult | null> {
-    const box: { result?: PostResult } = {};
+  async function postTo<T = PostResult>(key: string, url: string, body: Record<string, unknown>, fallback: string): Promise<T | null> {
+    const box: { result?: T } = {};
     const ok = await run(
       key,
       async () => {
@@ -217,12 +388,12 @@ export function usePortal(licensed: boolean) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
-        if (res.ok) box.result = (await res.clone().json().catch(() => ({}))) as PostResult;
+        if (res.ok) box.result = (await res.clone().json().catch(() => ({}))) as T;
         return res;
       },
       { fallback, refresh: false }
     );
-    return ok ? (box.result ?? {}) : null;
+    return ok ? (box.result ?? ({} as T)) : null;
   }
 
   /** The portal's own POST (request, remind, stop). */
@@ -270,19 +441,24 @@ export function usePortal(licensed: boolean) {
     await load();
   }
 
-  async function remind(d: DocRow) {
+  // Resolves true once the reminders are queued and the list reloaded, false
+  // when the question was cancelled or the server refused (the toast said
+  // so), so a caller that moves focus afterwards knows whether anything
+  // happened.
+  async function remind(d: DocRow): Promise<boolean> {
     const pending = Math.max(0, d.required - d.acked);
     const answer = await confirmDialog({
       title: `Remind ${people(pending)}?`,
       body: `Everyone who has not confirmed "${d.title}" yet gets a notice and, unless they opted out, an email. This cannot be undone.`,
       confirmLabel: "Send reminders",
     });
-    if (answer !== true) return;
+    if (answer !== true) return false;
     const r = await post(`remind-${d.id}`, { docId: d.id, action: "remind" }, "Couldn't send reminders.");
-    if (!r) return;
+    if (!r) return false;
     toast("ok", `Reminders queued for ${people(r.queued ?? pending)}.`);
     dropRoster(d.id);
     await load();
+    return true;
   }
 
   // Reversible, so it tells rather than asks (STYLEGUIDE §Feedback): the
@@ -396,6 +572,142 @@ export function usePortal(licensed: boolean) {
     return d.id;
   }
 
+  // ── The Needs attention queue's row actions (F1, 1.14.0) ──────────────────
+  //
+  // Each takes the queue row, posts to the assignments route (Remind: the
+  // bulk route's remind_people) with its assignment id, toasts the roster's
+  // sentence for one person and reloads the payload (the row leaves the
+  // queue or changes reason). Every one resolves true when something
+  // changed, false when cancelled, refused or skipped, so the page can move
+  // focus to the row's neighbour only when the row is gone. The reversible
+  // ones carry Undo as the inverse call.
+
+  /** One POST to the assignments route; null when refused (already toasted) or when the row came back skipped (toasted here). */
+  async function assignment(key: string, body: Record<string, unknown>, fallback: string): Promise<PostResult | null> {
+    const r = await postTo(key, "/api/admin/compliance/assignments", body, fallback);
+    if (!r) return null;
+    if (!r.changed || r.changed.length === 0) {
+      toast("error", QUEUE_NOTHING_CHANGED);
+      return null;
+    }
+    return r;
+  }
+
+  const nameOf = (row: PolicyAttentionRow) => row.user_name || people(1);
+
+  /**
+   * Remind: one reminder for this person on this policy through the bulk
+   * route's remind_people (the row's assignment id), so a programme manager
+   * reminds the one person the row names rather than everyone pending on
+   * the policy. The server's hour applies per row: inside it, or with
+   * nothing outstanding, the answer's skipped reason is the toast and
+   * nothing reloads (false). The row stays in the queue (a reminder settles
+   * nothing), so the page keeps focus where it is.
+   */
+  async function remindFor(row: PolicyAttentionRow): Promise<boolean> {
+    if (row.assignment_id == null) return false;
+    const r = await postTo<BulkRemindAnswer>(
+      `remind-person-${row.assignment_id}`,
+      "/api/admin/compliance/bulk",
+      { action: "remind_people", assignment_ids: [row.assignment_id] },
+      "Couldn't send the reminder."
+    );
+    if (!r) return false;
+    if (!r.done) {
+      const first = r.skipped?.[0];
+      toast("error", first ? `Nothing changed. ${first.title}: ${first.reason}.` : "Nothing changed.");
+      return false;
+    }
+    toast("ok", `Reminder queued for ${nameOf(row)}.`);
+    dropRoster(row.document_id);
+    await load();
+    return true;
+  }
+
+  /** Extend 7 days: the deadline pushed out a week (escalation and snooze cleared), with Undo. */
+  async function extendWeek(row: PolicyAttentionRow): Promise<boolean> {
+    if (row.assignment_id == null) return false;
+    const id = row.assignment_id;
+    const r = await assignment(`extend-${id}`, { action: "extend", assignment_ids: [id], days: EXTEND_DAYS_DEFAULT }, "Couldn't extend the due date.");
+    if (!r) return false;
+    toast("ok", `Extended the deadline for ${nameOf(row)} by ${EXTEND_DAYS_DEFAULT} days`, {
+      action: { label: "Undo", onClick: () => void undoExtendFor(row, r.changed!) },
+    });
+    await load();
+    return true;
+  }
+
+  async function undoExtendFor(row: PolicyAttentionRow, ids: number[]) {
+    const r = await assignment(`undo-extend-${ids[0]}`, { action: "undo_extend", assignment_ids: ids }, "Couldn't undo the extension.");
+    if (!r) return;
+    toast("ok", `Extension undone: the deadline for ${nameOf(row)} is back to its previous date.`);
+    await load();
+  }
+
+  /** Snooze: out of this queue and no automatic reminders for a week; nothing else moves (the D2 invariant). With Undo. */
+  async function snoozeWeek(row: PolicyAttentionRow): Promise<boolean> {
+    if (row.assignment_id == null) return false;
+    const id = row.assignment_id;
+    const r = await assignment(`snooze-${id}`, { action: "snooze", assignment_ids: [id], days: SNOOZE_DAYS_DEFAULT }, "Couldn't snooze this row.");
+    if (!r) return false;
+    const until = r.until ? fmt.date(r.until) : `${SNOOZE_DAYS_DEFAULT} days from now`;
+    toast("ok", `Snoozed ${nameOf(row)} until ${until}: out of this queue, automatic reminders paused.`, {
+      action: { label: "Undo", onClick: () => void unsnoozeFor(row, r.changed!) },
+    });
+    await load();
+    return true;
+  }
+
+  async function unsnoozeFor(row: PolicyAttentionRow, ids: number[]) {
+    const r = await assignment(`unsnooze-${ids[0]}`, { action: "unsnooze", assignment_ids: ids }, "Couldn't resume reminders.");
+    if (!r) return;
+    toast("ok", `Snooze undone: ${nameOf(row)} is back in the queue and reminders resume.`);
+    await load();
+  }
+
+  /** Exempt…: the roster's question (a reason, an optional end date; the queue spans policies, so it names this one), then the row leaves every count. With Undo. */
+  async function exemptFor(row: PolicyAttentionRow): Promise<boolean> {
+    if (row.assignment_id == null) return false;
+    const id = row.assignment_id;
+    // Awaited before anything is busy (STYLEGUIDE §Overlays): Cancel leaves the row idle.
+    const values = await exemptDialog(nameOf(row), `"${row.title}"`);
+    if (!values) return false;
+    return exemptWith(row, [id], values.reason, values.until);
+  }
+
+  async function exemptWith(row: PolicyAttentionRow, ids: number[], reason: string, until: string | null, opts: { undo?: boolean } = {}): Promise<boolean> {
+    const r = await assignment(`exempt-${ids[0]}`, { action: "exempt", assignment_ids: ids, reason, until }, "Couldn't record the exemption.");
+    if (!r) return false;
+    const text = `Exempted ${nameOf(row)} from "${row.title}"`;
+    if (opts.undo) toast("ok", text);
+    else toast("ok", text, { action: { label: "Undo", onClick: () => void unexemptWith(row, r.changed!, { undo: true }) } });
+    await load();
+    return true;
+  }
+
+  /** Remove exemption (a standing exemption under review): pending again with a fresh due date; Undo exempts again with the same reason. */
+  async function unexemptFor(row: PolicyAttentionRow): Promise<boolean> {
+    if (row.assignment_id == null) return false;
+    return unexemptWith(row, [row.assignment_id]);
+  }
+
+  async function unexemptWith(row: PolicyAttentionRow, ids: number[], opts: { undo?: boolean } = {}): Promise<boolean> {
+    const r = await assignment(`unexempt-${ids[0]}`, { action: "unexempt", assignment_ids: ids }, "Couldn't remove the exemption.");
+    if (!r) return false;
+    if (opts.undo) {
+      toast("ok", `Exemption undone: ${nameOf(row)} is pending again.`);
+    } else {
+      // The exemption's reason travels on a standing-exemption row as its
+      // detail (an exemption needs a reason; the date was open-ended).
+      const reason = row.detail || "Exemption restored";
+      toast("ok", `Removed the exemption for ${nameOf(row)}: pending again with a fresh due date.`, {
+        action: { label: "Undo", onClick: () => void exemptWith(row, r.changed!, reason, null, { undo: true }) },
+      });
+    }
+    await load();
+    return true;
+  }
+
   /** One read of a policy's roster JSON: the rows and the resolved grace (the route's `defaults`, 1.13.0). */
   const fetchRoster = useCallback(async (docId: number): Promise<RosterCache> => {
     const res = await fetch(`/api/documents/${docId}/acknowledgements`);
@@ -469,6 +781,8 @@ export function usePortal(licensed: boolean) {
     unretire,
     toggleRoster,
     openRoster,
+    /** The Needs attention queue's row actions (F1, 1.14.0). */
+    attention: { remind: remindFor, extendWeek, snoozeWeek, exempt: exemptFor, unexempt: unexemptFor },
   };
 }
 

@@ -202,6 +202,25 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
       "[Open My policies]({{portal_url}}) to read each one and confirm at the end that you have read and understood it.",
   },
   {
+    key: "ack_program_report",
+    label: "Compliance programme report",
+    description:
+      "Sent weekly or monthly to the recipients chosen under Compliance → Settings when the scheduled report is enabled: where read confirmations stand, with the hash of the latest monthly snapshot so it is anchored outside the database.",
+    tags: [
+      T("period", "The report period (2026-W42 or 2026-10)"),
+      T("summary", "The report body (compliance, overdue people, lowest policies, deadlines)"),
+      T("snapshot_sha256", "SHA-256 of the latest monthly snapshot (empty before the first)"),
+      T("snapshot_label", "Which monthly snapshot the hash belongs to (2026-10)"),
+      T("portal_url", "Link to Compliance → Evidence"),
+      T("org_name", "Workspace name"),
+    ],
+    subject: "[{{org_name}}] Compliance report: {{period}}",
+    body:
+      "Here's where read confirmations stand for **{{period}}**:\n\n{{summary}}\n\n" +
+      "Latest monthly snapshot {{snapshot_label}}: `{{snapshot_sha256}}`\n\n" +
+      "[Open Compliance → Evidence]({{portal_url}}) to verify the snapshot or download the audit package.",
+  },
+  {
     key: "training_assigned",
     label: "Training assigned",
     description:
@@ -253,18 +272,19 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
   },
   {
     key: "training_team_digest",
-    label: "Team training digest (leads)",
+    label: "Team digest (leads)",
     description:
-      "Sent weekly to each group lead summarizing where their team stands on assigned training.",
+      "Sent weekly to each group lead summarizing where their team stands: training when it is licensed, policies to confirm when read confirmations are licensed and Program settings let leads see them. An override saved before 1.14.0 must add {{policy_summary}} to show the policies section.",
     tags: [
       T("lead_name", "The lead's name"),
-      T("summary", "Per-team status lines"),
+      T("summary", "Per-team training lines (blank when training is not licensed)"),
+      T("policy_summary", "Per-team policy lines with the most overdue people (blank when not licensed or leads do not see policies)"),
       T("team_url", "Link to the team view"),
       T("org_name", "Workspace name"),
     ],
-    subject: "[{{org_name}}] Your team's training this week",
+    subject: "[{{org_name}}] Your team this week",
     body:
-      "Hi {{lead_name}} — here's where your team stands:\n\n{{summary}}\n\n" +
+      "Hi {{lead_name}} — here's where your team stands:\n\n{{summary}}\n\n{{policy_summary}}\n\n" +
       "[Open your team view]({{team_url}}) to see who's behind and nudge them along.",
   },
   {
@@ -325,8 +345,11 @@ export const SAMPLE_VARS: Record<string, Record<string, string>> = {
   },
   training_team_digest: {
     lead_name: "Dana Whitfield",
-    summary: "- **Support**: 14 done · 3 open · **2 overdue**\n- **Field ops**: 9 done · 1 open",
-    team_url: "https://docs.example.com/training/team",
+    summary: "**Training**\n- **Support**: 14 done · 3 open · **2 overdue**\n- **Field ops**: 9 done · 1 open",
+    policy_summary:
+      "**Policies**\n- **Support**: 38 confirmed · 6 open · **2 overdue**\n- **Field ops**: 12 confirmed · 1 open\n\n" +
+      "Most overdue:\n- Ana Ruiz · Code of conduct · due 3 Oct 2026\n- Ben Lo · Acceptable use · due 9 Oct 2026",
+    team_url: "https://docs.example.com/compliance/team",
   },
   doc_update: {
     doc_title: "Remote Work Policy",
@@ -386,6 +409,17 @@ export const SAMPLE_VARS: Record<string, Record<string, string>> = {
     count: "3",
     policy_list: "- Code of Conduct (due 3 Nov 2026)\n- Acceptable Use Policy (due 3 Nov 2026)\n- Remote Work Policy (due 3 Nov 2026)",
     portal_url: "/compliance",
+  },
+  ack_program_report: {
+    period: "2026-W42",
+    summary:
+      "- **28** policies · **94%** compliance (1,412 confirmed, 61 pending, 23 overdue, 9 exempt)\n" +
+      "- **17** people overdue · **4** escalations this period · **6** new joiners enrolled · **3** exemptions granted · **4** standing exemptions older than a year\n\n" +
+      "Lowest compliance:\n- Travel policy: 71% (12 overdue)\n- Expense policy: 82% (6 overdue)\n\n" +
+      "Deadlines in the next 14 days:\n- Acceptable Use Policy: 40 people due by 29 Oct 2026",
+    snapshot_sha256: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+    snapshot_label: "2026-09",
+    portal_url: "/compliance/evidence",
   },
   workflow_event: {
     event: "Change approved",

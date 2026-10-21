@@ -275,20 +275,22 @@ describe("attestation retention", () => {
   test("anonymising replaces who a record names; counts, dates, versions and hashes stay", async () => {
     const person = await newUser("anon");
     const { id, v1 } = await newPolicy(`${STAMP} anon`);
-    await recordAcknowledgement(id, person, "203.0.113.9", v1);
+    await recordAcknowledgement(id, person, "203.0.113.9", v1, { signedName: "Ret anon", userAgent: "Mozilla/5.0 (test)" });
     const before = (await getCurrentAck(id, person))!;
 
     const result = await anonymiseComplianceRecord(person);
     assert.deepEqual(result, { rows: 1, snapshots_rewritten: 0 });
 
     const row = await pool().query(
-      "SELECT user_id, user_name, user_email, ip, acknowledged_at, version_id, content_sha256 FROM acknowledgements WHERE user_id = $1",
+      "SELECT user_id, user_name, user_email, ip, signed_name, user_agent, acknowledged_at, version_id, content_sha256 FROM acknowledgements WHERE user_id = $1",
       [person]
     );
     assert.equal(row.rows.length, 1);
     assert.equal(row.rows[0].user_name, `Former staff #${person}`);
     assert.equal(row.rows[0].user_email, "");
     assert.equal(row.rows[0].ip, "");
+    assert.equal(row.rows[0].signed_name, "", "the typed signature is the person's name: blank (1.14.0)");
+    assert.equal(row.rows[0].user_agent, "", "and the browser string goes with it");
     assert.equal(new Date(row.rows[0].acknowledged_at).getTime(), new Date(before.acknowledged_at).getTime());
     assert.equal(row.rows[0].version_id, v1);
     assert.equal(row.rows[0].content_sha256, before.content_sha256);
@@ -315,6 +317,8 @@ describe("CSV headers and the personal-data rule", () => {
   const SIX = ",statement,signed_name,identity_proof,recert_months,effective_at,next_recert_at";
   /** The five 1.13.0 (D2) columns: after the six, on both files. */
   const FIVE = ",exempt_reason,exempt_by,exempt_until,snoozed_until,due_at";
+  /** The two 1.14.0 columns (F1 status, D3 set): after the five, on the matrix. */
+  const TWO = ",status,set";
 
   const ledgerRow: LedgerCsvRow = {
     document_title: "Expenses",
@@ -340,13 +344,14 @@ describe("CSV headers and the personal-data rule", () => {
     account_removed: false,
   };
 
-  test("both export headers keep their legacy prefix, then the six 1.12.0 columns, then the five 1.13.0 columns", () => {
+  test("both export headers keep their legacy prefix, then the six 1.12.0 columns, then the five 1.13.0 columns; the matrix then the two of 1.14.0", () => {
     assert.ok(ROSTER_CSV_HEADER.startsWith(ROSTER_1110), "the roster header starts with the 1.11.0 columns");
     assert.ok(ROSTER_CSV_HEADER.startsWith(ROSTER_1110 + SIX), "the 1.12.0 columns are still in place");
-    assert.equal(ROSTER_CSV_HEADER, ROSTER_1110 + SIX + FIVE);
+    assert.equal(ROSTER_CSV_HEADER, ROSTER_1110 + SIX + FIVE + ",set", "the 1.14.0 roster appends the policy's sets");
     assert.ok(MATRIX_CSV_HEADER.startsWith(MATRIX_1101), "the matrix header starts with the 1.10.1 columns");
     assert.ok(MATRIX_CSV_HEADER.startsWith(MATRIX_1101 + SIX));
-    assert.equal(MATRIX_CSV_HEADER, MATRIX_1101 + SIX + FIVE);
+    assert.ok(MATRIX_CSV_HEADER.startsWith(MATRIX_1101 + SIX + FIVE), "the 1.13.0 columns are still in place");
+    assert.equal(MATRIX_CSV_HEADER, MATRIX_1101 + SIX + FIVE + TWO);
     assert.equal(`,${ATTESTATION_CSV_COLUMNS}`, SIX);
     assert.equal(`,${EXEMPTION_CSV_COLUMNS}`, FIVE);
   });
@@ -380,7 +385,8 @@ describe("CSV headers and the personal-data rule", () => {
     );
     const header = ROSTER_CSV_HEADER.split(",");
     assert.equal(header.indexOf("exempt_reason"), header.indexOf("next_recert_at") + 1, "the five follow the six");
-    assert.equal(header[header.length - 1], "due_at");
+    assert.equal(header[header.length - 2], "due_at", "the five close 1.13.0's line");
+    assert.equal(header[header.length - 1], "set", "the policy's sets close the line since 1.14.0 (D3)");
   });
 
   test("the ledger header is the documented one, and a ledger line has one cell per column", () => {

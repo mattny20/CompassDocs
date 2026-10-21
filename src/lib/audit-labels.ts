@@ -106,8 +106,30 @@ export const AUDIT_LABELS: Record<string, string> = {
   "ack.due_moved": "Moved read confirmation deadlines",
   "ack.defaults_set": "Changed policy defaults",
   "ack.snapshot": "Took read confirmation snapshot",
+  "ack.snapshot_failed": "Could not take read confirmation snapshot",
+  "ack.snapshot_rewritten": "Rewrote read confirmation snapshot for an erasure",
   "ack.audit_export": "Exported read confirmation evidence",
+  "ack.report_settings": "Changed compliance report settings",
+  "ack.report_sent": "Sent compliance report",
   "ack.retention_purge": "Purged read confirmation records past retention",
+  "ack.record_exported": "Exported a person's compliance record",
+  // Policy sets (D3, 1.14.0)
+  "ack.set_created": "Created policy set",
+  "ack.set_updated": "Edited policy set",
+  "ack.set_deactivated": "Deactivated policy set",
+  "ack.set_deleted": "Deleted policy set",
+  "ack.set_assigned": "Assigned policy set",
+  // Bulk actions across policies and people (F5, 1.14.0): one summary row
+  // per call beside the per-policy and per-row rows the writes emit
+  // (ack.bulk_extended, above, is the dispatcher's since 1.13.0).
+  "ack.bulk_remind": "Sent read confirmation reminders in bulk",
+  "ack.bulk_due_set": "Set read confirmation deadlines in bulk",
+  "ack.bulk_owner_set": "Set policy owners in bulk",
+  "ack.bulk_reminders_set": "Set policy reminders in bulk",
+  "ack.bulk_reasked": "Asked to re-confirm in bulk",
+  "ack.bulk_added_to_set": "Added policies to a set",
+  "ack.bulk_people_reminded": "Reminded people about everything outstanding",
+  "ack.bulk_exempted": "Exempted people from read confirmation in bulk",
 
   // Spaces and categories
   "space.create": "Created space",
@@ -183,7 +205,7 @@ export const AUDIT_LABELS: Record<string, string> = {
   "training.snoozed": "Snoozed training reminder",
   "training.reminded": "Sent training reminder",
   "training.due_extended": "Extended training due date",
-  "training.leads_set": "Set training leads",
+  "training.leads_set": "Set team leads",
   "training.report_settings": "Updated training report settings",
   "training.snapshot": "Took training snapshot",
   "training.audit_export": "Exported training records",

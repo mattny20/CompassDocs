@@ -12,6 +12,9 @@
 // confirmation route and the tests share one definition of the threshold,
 // the labels and the body parsing.
 
+import { isOverdue } from "./ack-due";
+import { POLICY_SET_CSV_COLUMN } from "./policy-sets";
+
 /** Reading speed the "typical read" of a document is measured at. */
 export const WORDS_PER_MINUTE = 200;
 
@@ -48,23 +51,56 @@ export const EXEMPTION_CSV_COLUMNS = "exempt_reason,exempt_by,exempt_until,snooz
  * The roster CSV header (GET /api/documents/[id]/acknowledgements?format=csv).
  * Existing columns stay in place and new ones are appended, never renamed:
  * the two evidence columns follow the provenance pair, the six attestation
- * and re-confirmation columns (1.12.0) follow those, and the five exemption
- * and deadline columns (1.13.0) close the line.
+ * and re-confirmation columns (1.12.0) follow those, the five exemption
+ * and deadline columns (1.13.0) follow, and the policy's sets (1.14.0, D3:
+ * the names joined with "; ", the same on every row, blank when none) close
+ * the line.
  */
-export const ROSTER_CSV_HEADER = `${ROSTER_CSV_HEADER_1110},${ATTESTATION_CSV_COLUMNS},${EXEMPTION_CSV_COLUMNS}`;
+export const ROSTER_CSV_HEADER = `${ROSTER_CSV_HEADER_1110},${ATTESTATION_CSV_COLUMNS},${EXEMPTION_CSV_COLUMNS},${POLICY_SET_CSV_COLUMN}`;
 
 /** The matrix header as 1.10.1 shipped it (GET /api/admin/compliance?format=csv). */
 const MATRIX_CSV_HEADER_1101 =
   "document,space,revision_as_of,name,username,email,role,acknowledged_at,version,version_id,content_sha256,version_source,former_staff,asked_at,asked_by,reason,kept_since_asked,version_published_by,version_approved_by";
 
-/** The matrix CSV header: the 1.10.1 columns in place, the same six (1.12.0) and the same five (1.13.0) appended. */
-export const MATRIX_CSV_HEADER = `${MATRIX_CSV_HEADER_1101},${ATTESTATION_CSV_COLUMNS},${EXEMPTION_CSV_COLUMNS}`;
+/**
+ * The two columns 1.14.0 appends to the matrix after the five (the roster
+ * has had its own status column at position 5 since 1.11.0): the person's
+ * standing on the policy as the portal's tiles and bars count it (F1:
+ * confirmed | pending | overdue | exempt, matrixStatus below) and the
+ * policy sets the policy belongs to (D3: the names joined with "; ", blank
+ * when none). The F1 spec also named due_at, snoozed_until and
+ * exempt_reason, which have been on the line since 1.13.0 (EXEMPTION_CSV_COLUMNS).
+ */
+export const STANDING_CSV_COLUMNS = "status,set";
+
+/** The matrix CSV header: the 1.10.1 columns in place, the same six (1.12.0), the same five (1.13.0) and the two of 1.14.0 appended. */
+export const MATRIX_CSV_HEADER = `${MATRIX_CSV_HEADER_1101},${ATTESTATION_CSV_COLUMNS},${EXEMPTION_CSV_COLUMNS},${STANDING_CSV_COLUMNS}`;
 
 /** The roster's status column: 'exempt' outranks the confirmation, since an exempt row is in no denominator. */
 export type RosterStatus = "acknowledged" | "pending" | "exempt";
 export function rosterStatus(row: { acknowledged_at: string | null; exempt?: boolean | null }): RosterStatus {
   if (row.exempt) return "exempt";
   return row.acknowledged_at ? "acknowledged" : "pending";
+}
+
+/**
+ * The matrix's status column (F1, 1.14.0), the four states the Overview's
+ * tiles and the stacked bars count: 'exempt' outranks everything (the row
+ * is in no denominator), a current confirmation is 'confirmed', a deadline
+ * past the policy's grace with none is 'overdue' (isOverdue, the same rule
+ * the SQL counts apply), the rest 'pending'. `graceDays` is the policy's
+ * resolved grace (ComplianceDocRow.overdue_grace_days). A former-staff row
+ * (no assignment: no due_at, never exempt) reads 'confirmed'.
+ */
+export type MatrixStatus = "confirmed" | "pending" | "overdue" | "exempt";
+export function matrixStatus(
+  row: { acknowledged_at: string | null; exempt?: boolean | null; due_at?: string | Date | null },
+  graceDays: number,
+  now: Date = new Date()
+): MatrixStatus {
+  if (row.exempt) return "exempt";
+  if (row.acknowledged_at) return "confirmed";
+  return isOverdue({ due_at: row.due_at ?? null }, { overdue_grace_days: graceDays }, now) ? "overdue" : "pending";
 }
 
 /** A timestamp column as the CSV writes it: ISO whether pg handed back a Date or a string; blank when null. */
@@ -301,5 +337,102 @@ export function ledgerCsvCells(row: LedgerCsvRow, canExport: boolean): (string |
     ...evidence,
     ...personalDataCells(row, canExport),
     row.account_removed ? "yes" : "no",
+  ];
+}
+
+/**
+ * The per-person record CSV (1.14.0, F3): GET
+ * /api/admin/compliance/people/[id]?format=csv, one line per row of the
+ * record (the current requirements, then the prior confirmations, the closed
+ * assignments and the rows on retired policies), through the same viewer
+ * filter as the page, so a lead's file never carries a private-space policy.
+ * 21 columns: `status` is confirmed | pending | overdue | exempt on an
+ * assignment row and superseded on a prior confirmation; `removed_at` is
+ * filled on a closed assignment; `superseded_by` on a prior confirmation
+ * (supersededByText), and reads "no longer required" on a row whose policy
+ * stopped asking (`stopped`: the status is the standing frozen then);
+ * `ip` only where the viewer may see it.
+ */
+export const RECORD_CSV_HEADER =
+  "policy,set,status,source,assigned_at,removed_at,due_at,acknowledged_at,version,version_id,version_source,content_sha256,signed_name,identity_proof,read_seconds,reached_end,ip,exempt_reason,exempt_by,exempt_until,superseded_by";
+
+/** What replaced a superseded confirmation (the db's TranscriptSuccessor satisfies this). */
+export interface RecordSuccessor {
+  version: number | null;
+  at: string;
+  reason: string;
+  kind: "reset" | "recert" | "confirmation";
+}
+
+/** One record row as the CSV needs it (the db's PolicyTranscriptRow satisfies this). */
+export interface RecordCsvRow {
+  title: string;
+  set_names: string[];
+  status: string;
+  source: string;
+  assigned_at: string | Date | null;
+  removed_at: string | Date | null;
+  due_at: string | Date | null;
+  acknowledged_at: string | Date | null;
+  version: number | null;
+  version_id: number | null;
+  version_source: string | null;
+  content_sha256: string | null;
+  signed_name: string | null;
+  identity_proof: string | null;
+  read_seconds: number | null;
+  reached_end: boolean | null;
+  ip: string | null;
+  exempt: boolean;
+  exempt_reason: string;
+  exempt_by_name: string;
+  exempt_until: string | Date | null;
+  superseded_by: RecordSuccessor | null;
+  /** The policy stopped asking while the row stayed open (a 'closed' row with no removed_at): the last cell says so. */
+  stopped?: boolean;
+}
+
+/** The last cell of a row whose policy stopped asking (the page's "No longer required"). */
+export const RECORD_STOPPED_CELL = "no longer required";
+
+/**
+ * What follows "Superseded by:" on the record page, and the CSV's last
+ * column: 'v13 on 3 Sep 2026 - "Section 4 now covers contractors"' (a
+ * decision asked everyone again), "annual re-confirmation on 1 Oct 2026"
+ * (the cycle) or "v13 on 3 Sep 2026" (the person confirmed again with no
+ * decision between). Dates go through `fmt` (ISO in the CSV, the
+ * workspace's format on the page).
+ */
+export function supersededByText(s: RecordSuccessor, fmt: (iso: string) => string = (iso) => iso): string {
+  if (s.kind === "recert") return `annual re-confirmation on ${fmt(s.at)}`;
+  const head = `${s.version ? `v${s.version} ` : ""}on ${fmt(s.at)}`;
+  return s.kind === "reset" && s.reason ? `${head} - "${s.reason}"` : head;
+}
+
+/** The cells of one record CSV line, in RECORD_CSV_HEADER's order and before csvCell. */
+export function recordCsvCells(row: RecordCsvRow): (string | number)[] {
+  const confirmed = Boolean(row.acknowledged_at);
+  return [
+    row.title,
+    row.set_names.join("; "),
+    row.status,
+    row.source,
+    stampCell(row.assigned_at),
+    stampCell(row.removed_at),
+    stampCell(row.due_at),
+    stampCell(row.acknowledged_at),
+    row.version ? `v${row.version}` : "",
+    row.version_id ?? "",
+    row.version_source ?? "",
+    row.content_sha256 ?? "",
+    confirmed ? (row.signed_name ?? "") : "",
+    confirmed ? (row.identity_proof ?? "") : "",
+    confirmed ? (row.read_seconds ?? "") : "",
+    confirmed ? (row.reached_end ? "yes" : "no") : "",
+    row.ip ?? "",
+    row.exempt ? row.exempt_reason : "",
+    row.exempt ? row.exempt_by_name : "",
+    row.exempt ? stampCell(row.exempt_until) : "",
+    row.superseded_by ? supersededByText(row.superseded_by) : row.stopped ? RECORD_STOPPED_CELL : "",
   ];
 }

@@ -1,5 +1,6 @@
 import { requireSettingsSection } from "@/lib/auth";
 import { listWebhooks, listSpaces } from "@/lib/db";
+import { featureEnabled } from "@/lib/ee";
 import { WebhooksPanel } from "@/components/WebhooksPanel";
 import { EVERY_SPACE_UNFILTERED } from "@/lib/space-scope";
 
@@ -19,9 +20,17 @@ function maskUrl(url: string): string {
 
 export default async function WebhooksPage() {
   await requireSettingsSection("/admin/notifications");
-  const [hooks, spaces] = await Promise.all([listWebhooks(), listSpaces(EVERY_SPACE_UNFILTERED)]);
+  // The five compliance events (H3, 1.14.0) are offered only while read
+  // confirmations are licensed; the route validates against WEBHOOK_EVENTS
+  // either way, so a hook saved with one keeps it.
+  const [hooks, spaces, licensed] = await Promise.all([
+    listWebhooks(),
+    listSpaces(EVERY_SPACE_UNFILTERED),
+    featureEnabled("policy_ack"),
+  ]);
   return (
     <WebhooksPanel
+      licensed={licensed}
       spaces={spaces.map((sp) => ({ id: sp.id, name: sp.name }))}
       initial={hooks.map((h) => ({
         id: h.id,

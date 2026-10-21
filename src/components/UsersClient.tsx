@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { PASSWORD_HELP, passwordProblem } from "@/lib/password-policy";
 import { buttonClass } from "@/components/Button";
 import { Chip, labelCase } from "@/components/Chip";
@@ -21,6 +22,7 @@ export function UsersClient({
   extraRoles,
   attestations,
   canAnonymise = false,
+  recordLinks = false,
 }: {
   users: User[];
   currentUserId: number;
@@ -35,6 +37,8 @@ export function UsersClient({
   attestations?: Record<number, number>;
   /** Whether the viewer may anonymise compliance records (licence + user.delete + compliance.program_manage). */
   canAnonymise?: boolean;
+  /** Each row links to the person's compliance record (F3, 1.14.0): policy_ack licensed and the viewer opens the Compliance section. */
+  recordLinks?: boolean;
 }) {
   // The filter state sits here so the ListFilter's count and the table rows
   // always agree.
@@ -77,6 +81,7 @@ export function UsersClient({
         extraRoles={extraRoles}
         attestations={attestations}
         canAnonymise={canAnonymise}
+        recordLinks={recordLinks}
         users={visible}
         currentUserId={currentUserId}
         filtered={needle.length > 0}
@@ -89,6 +94,7 @@ function UserTable({
   extraRoles,
   attestations,
   canAnonymise,
+  recordLinks,
   users,
   currentUserId,
   filtered,
@@ -96,6 +102,7 @@ function UserTable({
   extraRoles?: Record<number, string[]>;
   attestations?: Record<number, number>;
   canAnonymise: boolean;
+  recordLinks: boolean;
   users: User[];
   currentUserId: number;
   filtered: boolean;
@@ -299,6 +306,11 @@ function UserTable({
                   >
                     {u.status === "active" ? "Disable" : "Enable"}
                   </button>
+                  {recordLinks && (
+                    <Link href={`/compliance/person/${u.id}`} className={buttonClass("secondary", "sm")}>
+                      Compliance record
+                    </Link>
+                  )}
                   {canAnonymise && u.id !== currentUserId && (attestations?.[u.id] ?? 0) > 0 && (
                     <button
                       onClick={() => anonymise(u)}

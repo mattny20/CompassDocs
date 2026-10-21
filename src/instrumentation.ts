@@ -48,6 +48,17 @@ export async function register() {
     } catch (e) {
       console.error("[compliance] scheduler error:", e);
     }
+    // The neutral weekly and monthly work (1.14.0): the team digest for
+    // group leads, the monthly compliance evidence, the weekly compliance
+    // report and the weekly channel summary, each gated inside on its
+    // licence and claimed once per period (the settings table or a unique
+    // index), so every instance may run this; each step has its own catch.
+    try {
+      const { runPeriodic } = await import("./lib/periodic");
+      await runPeriodic();
+    } catch (e) {
+      console.error("[periodic] scheduler error:", e);
+    }
     // Scheduled directory syncs (Enterprise): each provider on its own
     // schedule, one instance at a time, with an emailed report.
     try {

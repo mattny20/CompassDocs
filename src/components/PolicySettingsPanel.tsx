@@ -34,6 +34,8 @@ import { Card } from "@/components/Card";
 import { confirmDialog, formDialog } from "@/components/Dialog";
 import { EntityPicker, type PickerOption } from "@/components/EntityPicker";
 import { Field, Select, Textarea, TextInput, Toggle, rangeError } from "@/components/form";
+import { DeadlineFields, RadioCards, ReminderFields, REMINDER_FIELDS, reminderError } from "@/components/PolicyFields";
+import type { DueMode, ReminderKey } from "@/components/PolicyFields";
 import { SaveRow } from "@/components/SaveRow";
 import { useFormatDate } from "@/components/SettingsProvider";
 import { toast } from "@/components/Toasts";
@@ -79,15 +81,11 @@ export interface ResolvedForCard {
   origin: Record<PolicyDefaultsKey, DefaultsOrigin>;
 }
 
-/** The four reminder numbers the Reminders card edits (policy_settings' columns). */
-export type ReminderKey = "remind_before_days" | "remind_every_days" | "escalate_after_days" | "nudge_every_days";
-/** The spec's labels, the unit in brackets (TextInput has no suffix). */
-export const REMINDER_FIELDS: readonly { key: ReminderKey; label: string }[] = [
-  { key: "remind_before_days", label: "Remind before due (days)" },
-  { key: "remind_every_days", label: "Remind every (days while overdue)" },
-  { key: "escalate_after_days", label: "Escalate after (days overdue)" },
-  { key: "nudge_every_days", label: "Nudge without a deadline every (days, 0 = never)" },
-];
+// The reminder keys, their labels and the deadline mode live in
+// components/PolicyFields since 1.14.0 (F5): the portal's bulk dialogs edit
+// the same fields. Re-exported here for the panel's older importers.
+export { REMINDER_FIELDS } from "@/components/PolicyFields";
+export type { ReminderKey, DueMode } from "@/components/PolicyFields";
 const REMINDER_KEYS: readonly ReminderKey[] = REMINDER_FIELDS.map((f) => f.key);
 
 /** What the page hands the panel: the document's own values and what the cards need to show them. */
@@ -136,9 +134,6 @@ export interface PolicySettingsInitial {
   /** Whoever switched the requirement on: the owner picker's placeholder. */
   requested_by: { id: number; name: string } | null;
 }
-
-/** The Deadline card's radio. */
-export type DueMode = "inherit" | "days" | "fixed";
 
 /** The form as edited; '' for the statement means "use the default", '' for a date or a number means none / inherit. */
 export interface PolicySettingsForm {
@@ -330,11 +325,6 @@ function dueDateError(s: PolicySettingsForm, saved: PolicySettingsForm): string 
   if (!s.due_at) return "Enter a date.";
   if (s.due_at === saved.due_at) return undefined;
   return s.due_at < ymd(new Date()) ? DUE_DATE_PAST : undefined;
-}
-
-/** A blank reminder field inherits; anything typed must be a whole number in the key's range. */
-function reminderError(key: ReminderKey, value: string): string | undefined {
-  return value === "" ? undefined : rangeError(value, DUE_RANGES[key].min, DUE_RANGES[key].max);
 }
 
 /** The plain hint under a stored next date that has already passed. */
@@ -639,63 +629,8 @@ export function StatementCard({ model, statementDefault }: { model: PolicySettin
   );
 }
 
-/**
- * A stacked radio group (STYLEGUIDE §Overlays' radio-card recipe, outside a
- * dialog): a label and one description sentence per card, the chosen card
- * tinted, and the card's own controls (a number, a date) shown under its
- * description while it is chosen. The radio and the extra control are
- * siblings, never nested in one label, so each keeps one accessible name.
- */
-function RadioCards<T extends string>({
-  label,
-  name,
-  value,
-  onChange,
-  options,
-}: {
-  /** The group's accessible name (the card's title). */
-  label: string;
-  name: string;
-  value: T;
-  onChange: (next: T) => void;
-  options: { value: T; label: string; description: string; extra?: ReactNode }[];
-}) {
-  const id = useId();
-  return (
-    <div role="radiogroup" aria-label={label} className="space-y-2">
-      {options.map((o) => {
-        const checked = o.value === value;
-        const rid = `${id}-${o.value}`;
-        return (
-          <div
-            key={o.value}
-            className={`flex gap-3 rounded-lg border p-3 transition ${checked ? "border-compass-300 bg-compass-50/60" : "border-slate-200 hover:bg-slate-50"}`}
-          >
-            <input
-              type="radio"
-              id={rid}
-              name={name}
-              value={o.value}
-              checked={checked}
-              onChange={() => onChange(o.value)}
-              aria-describedby={`${rid}-desc`}
-              className="mt-0.5 h-4 w-4 shrink-0"
-            />
-            <div className="min-w-0 flex-1">
-              <label htmlFor={rid} className="block cursor-pointer text-sm font-medium text-slate-800">
-                {o.label}
-              </label>
-              <span id={`${rid}-desc`} className="block text-xs text-slate-500">
-                {o.description}
-              </span>
-              {checked && o.extra && <div className="mt-3">{o.extra}</div>}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
+// RadioCards (the stacked radio-card group the Audience and Deadline cards
+// use) lives in components/PolicyFields since 1.14.0 (F5).
 
 /** The Field's label recipe around a composite picker (STYLEGUIDE §Forms: a picker keeps its own markup). */
 function PickerLabel({ children }: { children: ReactNode }) {
@@ -930,49 +865,16 @@ export function DeadlineCard({
       title="Deadline"
       description="How long people have to confirm this policy. A deadline never blocks the document: an overdue person can still read and confirm it."
     >
-      <RadioCards<DueMode>
-        label="Deadline"
+      {/* The three choices are the shared DeadlineFields (components/PolicyFields,
+          1.14.0): the portal's "Set deadline…" shows the same cards. */}
+      <DeadlineFields
         name={`${id}-due`}
-        value={s.due_mode}
-        onChange={(mode) => set("due_mode", mode)}
-        options={[
-          {
-            value: "inherit",
-            label: inheritLabel(server.inherited, server.defaults.space?.name),
-            description: "Follows the space's or the workspace's rule, and moves with it when that changes.",
-          },
-          {
-            value: "days",
-            label: "Days after assignment",
-            description: "Each person's own deadline, counted from the day they are asked. A change applies to future assignments.",
-            extra: (
-              <Field label="Days" size="xs" error={errors.due_days}>
-                <TextInput
-                  type="number"
-                  inputMode="numeric"
-                  min={DUE_RANGES.due_days.min}
-                  max={DUE_RANGES.due_days.max}
-                  step={1}
-                  value={s.due_days}
-                  onChange={(e) => set("due_days", e.target.value)}
-                />
-              </Field>
-            ),
-          },
-          {
-            value: "fixed",
-            label: "Fixed date",
-            description: "One date for everyone. Changing it moves every open deadline.",
-            extra: (
-              <>
-                <Field label="Due date" size="sm" error={errors.due_at}>
-                  <TextInput type="date" min={today} value={s.due_at} onChange={(e) => set("due_at", e.target.value)} />
-                </Field>
-                {stale && <p className="mt-2 text-xs text-slate-500">{DUE_DATE_PASSED_HINT}</p>}
-              </>
-            ),
-          },
-        ]}
+        value={{ due_mode: s.due_mode, due_days: s.due_days, due_at: s.due_at }}
+        onChange={(key, value) => set(key, value as PolicySettingsForm[typeof key])}
+        errors={{ due_days: errors.due_days, due_at: errors.due_at }}
+        inheritLabel={inheritLabel(server.inherited, server.defaults.space?.name)}
+        today={today}
+        fixedHint={stale ? <p className="mt-2 text-xs text-slate-500">{DUE_DATE_PASSED_HINT}</p> : undefined}
       />
 
       {/* The stored rule, as the current audience has it; the day formatter for a fixed 'YYYY-MM-DD'. */}
@@ -1034,22 +936,20 @@ export function RemindersCard({ model, server }: { model: PolicySettingsModel; s
       title="Reminders"
       description="When people are reminded about this policy and when it is escalated. A blank field inherits the space's or the workspace's number."
     >
-      <div className="grid gap-4 sm:grid-cols-2">
-        {REMINDER_FIELDS.map((f) => (
-          <Field key={f.key} label={f.label} help={s[f.key] === "" ? inheritedHelp(server, f.key) : helpByKey[f.key]} error={errors[f.key]}>
-            <TextInput
-              type="number"
-              inputMode="numeric"
-              min={DUE_RANGES[f.key].min}
-              max={DUE_RANGES[f.key].max}
-              step={1}
-              placeholder={String(server.inherited.values[f.key])}
-              value={s[f.key]}
-              onChange={(e) => set(f.key, e.target.value)}
-            />
-          </Field>
-        ))}
-      </div>
+      {/* The four numbers are the shared ReminderFields (components/PolicyFields,
+          1.14.0): the portal's "Set reminders…" shows the same grid. */}
+      <ReminderFields
+        values={{
+          remind_before_days: s.remind_before_days,
+          remind_every_days: s.remind_every_days,
+          escalate_after_days: s.escalate_after_days,
+          nudge_every_days: s.nudge_every_days,
+        }}
+        onChange={(key, value) => set(key, value)}
+        errors={errors}
+        placeholders={server.inherited.values}
+        help={(key) => (s[key] === "" ? inheritedHelp(server, key) : helpByKey[key])}
+      />
 
       {/* A composite picker keeps its own markup (STYLEGUIDE §Forms): the
           Lifecycle card's "Replaced by" recipe, a chip with its clear button

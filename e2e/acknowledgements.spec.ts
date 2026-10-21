@@ -24,6 +24,22 @@ const STATEMENT = "I confirm that I have read and understood this document.";
 const CONFIRM = "I've read and understood this";
 const CONFIRMED = /You confirmed (version \d+|reading this document) on /;
 
+// Every policy a test makes, with the page that made it. Each test deletes
+// its own in a `finally`, but a timed-out test's body is abandoned and its
+// page closed before that `finally` runs, so the DELETE never left (the
+// signature test left three required policies in space 1 that way, and every
+// later run's members owed them). The afterEach hook runs before the page's
+// teardown and deletes through the context's request API, which a stuck page
+// cannot block; a policy the `finally` already deleted answers 404.
+const madePolicies = new Map<number, Page>();
+
+test.afterEach(async () => {
+  for (const [id, owner] of madePolicies) {
+    await owner.request.delete(`/api/documents/${id}`).catch(() => undefined);
+  }
+  madePolicies.clear();
+});
+
 async function makePolicy(page: Page, title: string): Promise<number> {
   const made = await api(page, "/api/documents", {
     method: "POST",
@@ -32,6 +48,7 @@ async function makePolicy(page: Page, title: string): Promise<number> {
   expect(made.status, "policy created").toBe(201);
   const id = made.body?.doc?.id;
   expect(id, "policy id").toBeTruthy();
+  madePolicies.set(id, page);
   return id;
 }
 
@@ -200,9 +217,9 @@ test("admin requires confirmation; the reader is pointed to the card, confirms t
     await expect(page.locator('[role="status"]').getByText("Confirmation recorded.")).toBeVisible();
     await expect(card.getByRole("heading", { name: "Confirmation recorded" })).toBeVisible();
     await expect(card.getByText(CONFIRMED)).toBeVisible();
-    // No "View your record" link this release: /compliance bounces readers
-    // without the Compliance section; the link returns with My policies.
-    await expect(card.getByRole("link", { name: "View your record" })).toHaveCount(0);
+    // 1.14.0 (F3): the confirmed card links the reader's own record, the one
+    // page every reader can open for themselves.
+    await expect(card.getByRole("link", { name: "View your record" })).toHaveAttribute("href", "/compliance/person/me");
     await expect(card).toBeFocused();
     await expect(page.getByRole("button", { name: CONFIRM })).toHaveCount(0);
     await expect(page.getByRole("region", { name: "Document bar" }).getByText(/^Confirmed /)).toBeVisible();
@@ -230,7 +247,7 @@ test("admin requires confirmation; the reader is pointed to the card, confirms t
     await expect(page.getByText(CONFIRMED).first()).toBeVisible();
     await expect(page.getByRole("link", { name: "Jump to confirmation" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: CONFIRM })).toHaveCount(0);
-    await expect(page.locator("#confirm-reading").getByRole("link", { name: "View your record" })).toHaveCount(0);
+    await expect(page.locator("#confirm-reading").getByRole("link", { name: "View your record" })).toHaveAttribute("href", "/compliance/person/me");
   } finally {
     if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
   }

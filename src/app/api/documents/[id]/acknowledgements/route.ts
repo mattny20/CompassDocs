@@ -17,6 +17,8 @@ import { auditAck, actorFrom, ipFrom } from "@/lib/audit";
 import type { SessionUser } from "@/lib/types";
 import { versionProvenance, provenanceCells } from "@/lib/version-provenance";
 import { csvCell } from "@/lib/csv";
+import { policySetNames } from "@/lib/db";
+import { policySetCsvCell } from "@/lib/policy-sets";
 import {
   ROSTER_CSV_HEADER,
   LEDGER_CSV_HEADER,
@@ -167,6 +169,42 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     return csvResponse(csv, `acknowledgements-ledger-doc-${doc.id}.csv`);
   }
 
+  if (format === "package") {
+    // The one-policy audit package (F2, 1.14.0): the same ZIP the programme
+    // exports, scoped to this policy (its rows, its ledger, its decisions,
+    // its notices, its audit rows, its retirement snapshot and the texts
+    // its confirmations cite). The roster permission opened the record; the
+    // file carries the IP and the user agent of every confirmation, the
+    // recipients' addresses and the actors' IPs, so it takes
+    // compliance.export, exactly as the ledger CSV above. Audited as
+    // ack.audit_export once the stream has closed, with the bytes sent.
+    if (!canExport) {
+      return NextResponse.json({ error: "You don't have permission for that." }, { status: 403 });
+    }
+    const { buildCompliancePackage } = await import("@/lib/compliance-audit");
+    const pkg = await buildCompliancePackage({ documentId: doc.id, by: user.name || user.username });
+    const actor = actorFrom(user);
+    const ip = ipFrom(req);
+    pkg.done
+      .then(({ bytes, policies }) =>
+        auditAck("ack.audit_export", doc, {
+          actor,
+          ip,
+          version_id: version.version_id,
+          version: version.rev,
+          details: { format: "package", document_id: doc.id, bytes, policies },
+        })
+      )
+      .catch((e) => console.error(`[ack] audit package of document ${doc.id}:`, e));
+    return new Response(pkg.stream, {
+      headers: {
+        "content-type": "application/zip",
+        "content-disposition": `attachment; filename="${pkg.filename}"`,
+        "cache-control": "no-store",
+      },
+    });
+  }
+
   if (view === "all") {
     // The ledger as JSON for the All confirmations view: every row, with
     // the two personal-data fields blank unless the caller may export.
@@ -199,6 +237,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 
   if (format === "csv") {
     const provenance = await versionProvenance(doc.id);
+    // The policy's sets (D3, 1.14.0): the last column, the same on every row.
+    const setCell = esc(policySetCsvCell((await policySetNames([doc.id])).get(doc.id) ?? []));
     const asked = [
       esc(doc.ack_revision_at),
       esc(lastReset?.decided_by_name ?? ""),
@@ -231,6 +271,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
           ...attestationCsvCells(r).map(esc),
           ...recert,
           ...exemptionCsvCells(r).map(esc),
+          setCell,
         ].join(",")
       ),
       ...former.map((r) =>
@@ -256,6 +297,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
           ...recert,
           // No assignment row travels with a former staff member: five blanks.
           ...exemptionCsvCells({}).map(esc),
+          setCell,
         ].join(",")
       ),
     ].join("\n");

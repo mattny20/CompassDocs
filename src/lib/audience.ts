@@ -89,14 +89,19 @@ export interface AudienceSqlAliases {
   steward: string;
 }
 
-/** The saved rules of the document whose id `docIdExpr` names. */
+/**
+ * The saved rules of the document whose id `docIdExpr` names. `set_id`
+ * (D3, 1.14.0) is the policy set that wrote the rule, NULL for a rule a
+ * manager wrote on the Settings tab: the source of a row it admits reads
+ * 'set' (audienceSourceSql), nothing else about the rule differs.
+ */
 export function audienceRulesFromTable(docIdExpr: string): string {
-  return `SELECT r.kind, r.ref, r.effect FROM policy_audience_rules r WHERE r.document_id = ${docIdExpr}`;
+  return `SELECT r.kind, r.ref, r.effect, r.set_id FROM policy_audience_rules r WHERE r.document_id = ${docIdExpr}`;
 }
 
-/** Rules from a jsonb parameter ([{kind, ref, effect}], as sanitizeRules shapes them). */
+/** Rules from a jsonb parameter ([{kind, ref, effect}], as sanitizeRules shapes them); a draft is never a set's. */
 export function audienceRulesFromJson(param: string): string {
-  return `SELECT x->>'kind' AS kind, x->>'ref' AS ref, COALESCE(x->>'effect', 'include') AS effect
+  return `SELECT x->>'kind' AS kind, x->>'ref' AS ref, COALESCE(x->>'effect', 'include') AS effect, NULL::int AS set_id
           FROM jsonb_array_elements(${param}::jsonb) x`;
 }
 
@@ -104,14 +109,20 @@ export function audienceRulesFromJson(param: string): string {
  * EXISTS over the rules: a user rule names the person, a group rule one of
  * their groups, a role rule their ladder role. The numeric refs go through
  * CASE so a stray non-numeric ref (a hand edit) compares as NULL instead of
- * failing the statement; sanitizeRules never writes one.
+ * failing the statement; sanitizeRules never writes one. `set` limits the
+ * match to rules a policy set wrote (set_id set).
  */
-function ruleMatch(a: AudienceSqlAliases, effect: AudienceRuleEffect, kind?: AudienceRuleKind): string {
+function ruleMatch(
+  a: AudienceSqlAliases,
+  effect: AudienceRuleEffect,
+  kind?: AudienceRuleKind,
+  opts: { set?: boolean } = {}
+): string {
   const u = a.user;
   const num = `CASE WHEN r.ref ~ '^[0-9]{1,10}$' THEN r.ref::bigint END`;
   return `EXISTS (
       SELECT 1 FROM (${a.rules}) r
-      WHERE r.effect = '${effect}'${kind ? ` AND r.kind = '${kind}'` : ""}
+      WHERE r.effect = '${effect}'${kind ? ` AND r.kind = '${kind}'` : ""}${opts.set ? " AND r.set_id IS NOT NULL" : ""}
         AND (
           (r.kind = 'user' AND ${num} = ${u}.id)
           OR (r.kind = 'group' AND EXISTS (
@@ -138,12 +149,28 @@ export function audienceAdmitsSql(a: AudienceSqlAliases): string {
     )`;
 }
 
-/** The source an admitted person's row records: 'space', else the first include rule that names them (user, group, role). */
+/**
+ * The source an admitted person's row records: 'space', else 'set' when an
+ * include rule a policy set wrote names them (D3, 1.14.0), else the first
+ * include rule that names them (user, group, role).
+ */
 export function audienceSourceSql(a: AudienceSqlAliases): string {
   return `CASE WHEN ${a.mode} = 'space' THEN 'space'
+                 WHEN ${ruleMatch(a, "include", undefined, { set: true })} THEN 'set'
                  WHEN ${ruleMatch(a, "include", "user")} THEN 'user'
                  WHEN ${ruleMatch(a, "include", "group")} THEN 'group'
                  ELSE 'role' END`;
+}
+
+/**
+ * The source of a new account's rows (autoAssignPolicies): 'set' when an
+ * include rule a policy set wrote names them (the onboarding set's rule,
+ * written just before the reconcile), else 'new_member'. In space mode the
+ * joiner is admitted as everyone is, so a set rule there reads 'set' only
+ * when one was written: lib/db writes them on targeted policies alone.
+ */
+export function audienceJoinerSourceSql(a: AudienceSqlAliases): string {
+  return `CASE WHEN ${ruleMatch(a, "include", undefined, { set: true })} THEN 'set' ELSE 'new_member' END`;
 }
 
 /** What a reconcile writes as removed_reason when neither the account nor the access changed: the trigger says which. */

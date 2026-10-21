@@ -34,7 +34,7 @@ import { enqueueAckNotice, deliverAckNotices, noticeCopy, recordNotices } from "
 import type { Mailer } from "../src/lib/compliance";
 import { notify } from "../src/lib/notifications";
 import { fixtureQuery } from "./support/retry";
-import { assignEveryone } from "./support/assign";
+import { assignEveryone, switchOn } from "./support/assign";
 // E2 (1.13.0): the sweep's deliveries.
 import { listAckNotices as listNoticesE2 } from "../src/lib/db";
 import { DUE_BUNDLE_OVER } from "../src/lib/compliance";
@@ -75,8 +75,10 @@ async function newPolicy(title: string, content = LONG_TEXT): Promise<{ id: numb
     tags: [],
     author: "test",
   });
-  await setAckRequired(doc.id, true);
   docIds.push(doc.id);
+  // The space is 'internal': the switch-on enrols every active account,
+  // and another file may delete one mid-statement (support/retry).
+  await switchOn(doc.id);
   return { id: doc.id, title: full, v1: (await listVersions(doc.id))[0].id };
 }
 
