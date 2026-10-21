@@ -190,12 +190,26 @@ test("a lead with the setting on sees their group with a count for a private-spa
       const payload = team.body as TeamPayload;
       const group = payload.groups.find((g) => g.id === groupId);
       expect(group, "the led group").toBeTruthy();
-      expect(group).toMatchObject({ name: groupName, members: 1, confirmed: 0, open: 1, overdue: 0 });
+      // One row per member and policy: a policy another spec left asking
+      // everyone in a space the lead reads is a row of its own (and counts in
+      // the header), so the counts are read against the group's own rows and
+      // this policy's row is found by its id.
       const rows = payload.rows.filter((r) => r.group_id === groupId);
-      expect(rows.length, "one row for the one policy the lead can read").toBe(1);
-      expect(rows[0]).toMatchObject({ user_id: memberId, document_id: docId, title, status: "pending", hidden_count: 1, may_remind: true });
+      const count = (status: string) => rows.filter((r) => r.assignment_id !== null && r.status === status).length;
+      expect(group).toMatchObject({
+        name: groupName,
+        members: 1,
+        confirmed: count("confirmed"),
+        open: count("pending") + count("overdue"),
+        overdue: count("overdue"),
+      });
+      expect(rows.every((r) => r.user_id === memberId && r.hidden_count === 1), "every row is the member's, with the private policy as a count").toBe(true);
+      expect(rows.some((r) => r.document_id === privateId), "no row for the policy the lead cannot read").toBe(false);
+      const ours = rows.filter((r) => r.document_id === docId);
+      expect(ours.length, "one row for the policy the lead can read").toBe(1);
+      expect(ours[0]).toMatchObject({ user_id: memberId, document_id: docId, title, status: "pending", hidden_count: 1, may_remind: true });
       expect(JSON.stringify(payload), "the private title never leaves the server").not.toContain(privateTitle);
-      const assignmentId = rows[0].assignment_id;
+      const assignmentId = ours[0].assignment_id;
       expect(assignmentId).toBeTruthy();
 
       // The page: the lit Team tab beside My policies (no section grant),
@@ -210,21 +224,26 @@ test("a lead with the setting on sees their group with a count for a private-spa
       await expect(lpage.getByText("Where the groups you lead stand. You also get a weekly summary by email.")).toBeVisible();
       const card = lpage.locator("section", { has: lpage.getByRole("heading", { name: groupName }) });
       await expect(card).toBeVisible();
-      await expect(card.getByText("1 member · 0 confirmed · 1 open")).toBeVisible();
-      await expect(card.getByText(/\d+ overdue/)).toHaveCount(0);
-      const row = card.getByRole("row").filter({ hasText: memberName });
+      // The header carries the server's numbers (1 open when this policy is the only one asking).
+      await expect(card.getByText(`1 member · ${group!.confirmed} confirmed · ${group!.open} open`)).toBeVisible();
+      if (group!.overdue === 0) await expect(card.getByText(/\d+ overdue/)).toHaveCount(0);
+      else await expect(card.getByText(`${group!.overdue} overdue`)).toBeVisible();
+      // The member has one row per policy: this policy's row is the one with its title.
+      const row = card.getByRole("row").filter({ hasText: memberName }).filter({ hasText: title });
       await expect(row).toHaveCount(1);
       await expect(row.getByRole("link", { name: memberName })).toHaveAttribute("href", `/compliance/person/${memberId}`);
       await expect(row.getByRole("link", { name: title })).toHaveAttribute("href", `/doc/${docId}`);
       await expect(row.getByText("Pending", { exact: true })).toBeVisible();
-      await expect(row.getByText("and 1 policy you can't view")).toBeVisible();
+      // The count of what the lead cannot see, once per member (on their first shown row).
+      await expect(card.getByText("and 1 policy you can't view")).toHaveCount(1);
       await expect(lpage.getByText(privateTitle)).toHaveCount(0);
 
-      // Show: Overdue empties the card (nobody is), All brings the row back.
+      // Show: Overdue takes this pending row away (and empties the card when
+      // nobody is overdue), All brings the row back.
       const show = lpage.getByRole("radiogroup", { name: "Show" });
       await show.getByRole("radio", { name: "Overdue" }).click();
-      await expect(card.getByRole("row").filter({ hasText: memberName })).toHaveCount(0);
-      await expect(card.getByText("Nobody is overdue.")).toBeVisible();
+      await expect(row).toHaveCount(0);
+      if (group!.overdue === 0) await expect(card.getByText("Nobody is overdue.")).toBeVisible();
       await show.getByRole("radio", { name: "All" }).click();
       await expect(row).toHaveCount(1);
 
@@ -335,7 +354,8 @@ test("a compliance.team_read holder who leads nothing sees every group; a plain 
       // The page offers no control that would fail: Remind is disabled and
       // its wrapper says why (the Tooltip's note, named by the sentence).
       const holderCard = hpage.locator("section", { has: hpage.getByRole("heading", { name: groupName }) });
-      const holderRow = holderCard.getByRole("row").filter({ hasText: "E2E Team Member B" });
+      // One row per policy the member owes: this policy's row is the one with its title.
+      const holderRow = holderCard.getByRole("row").filter({ hasText: "E2E Team Member B" }).filter({ hasText: title });
       await expect(holderRow.getByRole("button", { name: "Remind", exact: true })).toBeDisabled();
       await expect(holderRow.getByRole("note", { name: "Only the group's lead or a programme manager can remind" })).toBeVisible();
       // The holder leads nothing, so My policies says nothing about a team

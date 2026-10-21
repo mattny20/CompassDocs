@@ -236,12 +236,10 @@ export function PolicySets({ licensed, canManageLicense = false, canManage, peop
       )}
 
       {rows.length === 0 ? (
-        <EmptyState
-          icon={<Layers />}
-          title="No sets yet"
-          body="Create one for onboarding or the annual cycle."
-          action={canManage && !creating ? { onClick: () => setCreating(true), label: "New set", icon: <Plus /> } : undefined}
-        />
+        // No action of its own: the intro row's New set is the page's one
+        // primary (STYLEGUIDE §Vocabulary: one primary create action per list
+        // page, nothing primary below it), and it sits right above this card.
+        <EmptyState icon={<Layers />} title="No sets yet" body="Create one for onboarding or the annual cycle." />
       ) : (
         <div className="space-y-4">
           {rows.map((set) => (

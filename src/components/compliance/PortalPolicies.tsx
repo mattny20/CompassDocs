@@ -488,7 +488,12 @@ export function PortalPolicies({ licensed, canManageLicense = false }: PortalPag
                         className="h-4 w-4 shrink-0 print:hidden"
                       />
                     )}
-                    <div className="min-w-0 flex-1">
+                    {/* From sm the title column keeps 12rem: at flex-1's
+                        zero basis the bar and the six actions took the whole
+                        line at 1280px and squeezed the title and both meta
+                        lines to one word per line. With the floor, the
+                        actions wrap under the row instead. */}
+                    <div className="min-w-0 flex-1 sm:min-w-48">
                       <button
                         ref={registerFocus(d.id)}
                         type="button"
@@ -599,7 +604,9 @@ export function PortalPolicies({ licensed, canManageLicense = false }: PortalPag
                     {(can.manage || can.export) && (
                       // Five controls do not fit beside the title on a
                       // phone: under sm the group takes the row's width
-                      // and wraps; from sm it keeps the one-line layout.
+                      // and wraps; from sm it stays on one line, beside
+                      // the bar when the card is wide enough and on its
+                      // own line under the title when it is not.
                       <div className="flex w-full flex-wrap items-center gap-1.5 print:hidden sm:w-auto sm:shrink-0">
                         {can.manage && !complete && (
                           <Button

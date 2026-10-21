@@ -347,10 +347,17 @@ test("Program settings: the compliance report block saves through its own route 
     const saved = await api(page, "/api/admin/compliance/report");
     expect(saved.body?.settings).toEqual({ enabled: true, cadence: "monthly", recipients: [me.id] });
     expect((saved.body?.recipients ?? []).map((r: { username: string }) => r.username)).toEqual([ADMIN.username]);
-    // Each changed key is audited as ack.report_settings.
+    // Each changed key is audited as ack.report_settings: the row's target is
+    // the setting's full key, its details {key, from, to} name the field
+    // inside ack_report (the action already says which setting, as
+    // ack.defaults_set's details do).
     const audited = await auditRows(page, (r) => r.action === "ack.report_settings");
-    for (const key of ["ack_report.enabled", "ack_report.cadence", "ack_report.recipients"]) {
-      expect(audited.some((r) => r.details?.key === key), key).toBe(true);
+    for (const field of ["enabled", "cadence", "recipients"]) {
+      const key = `ack_report.${field}`;
+      expect(
+        audited.some((r: { target_id?: string; details: any }) => r.target_id === key && r.details?.key === field),
+        key
+      ).toBe(true);
     }
 
     // It reads back after a reload, with the page clean.
