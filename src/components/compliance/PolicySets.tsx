@@ -239,7 +239,7 @@ export function PolicySets({ licensed, canManageLicense = false, canManage, peop
         <EmptyState
           icon={<Layers />}
           title="No sets yet"
-          body="Create one for onboarding or the annual pack."
+          body="Create one for onboarding or the annual cycle."
           action={canManage && !creating ? { onClick: () => setCreating(true), label: "New set", icon: <Plus /> } : undefined}
         />
       ) : (

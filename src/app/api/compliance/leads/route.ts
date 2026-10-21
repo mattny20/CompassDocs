@@ -34,7 +34,8 @@ export async function GET() {
       leads,
       users: users
         .filter((u) => u.status === "active")
-        .map((u) => ({ id: u.id, label: u.name, sublabel: `${u.username} · ${u.role}` })),
+        // The username when an account has no display name, as every other picker falls back (an empty option reads as nobody).
+        .map((u) => ({ id: u.id, label: u.name || u.username, sublabel: `${u.username} · ${u.role}` })),
       leads_see_policies: settings.ack_defaults.leads_see_policies,
     },
     { headers: { "Cache-Control": "no-store" } }

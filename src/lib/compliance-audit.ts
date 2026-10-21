@@ -56,6 +56,7 @@ import { getAppSettings } from "@/lib/settings-store";
 import { currentVersion } from "@/lib/version";
 import { readComplianceSettings } from "@/lib/compliance-settings";
 import type { ComplianceSettings } from "@/lib/compliance-settings";
+import type { Mailer } from "@/lib/compliance";
 import { audit } from "@/lib/audit";
 import type { AuditActor } from "@/lib/audit";
 import { featureEnabled } from "@/lib/ee";
@@ -915,10 +916,44 @@ export async function complianceReportSummary(period: string, opts: { now?: Date
   return { markdown: lines.join("\n"), counts };
 }
 
+/** A recipient as resolved at send time: an active account with an address. */
+interface ReportRecipient {
+  id: number;
+  email: string;
+}
+
+/**
+ * The configured recipients that can be mailed now: the stored ids that
+ * are active accounts with an address (one deactivated or deleted since
+ * the list was saved, or without an address, drops out). The weekly path
+ * resolves them BEFORE its claim, so a list nobody on it can receive never
+ * burns the week; the monthly path, which has no claim of its own, at send.
+ */
+async function activeReportRecipients(ack_report: ComplianceSettings["ack_report"]): Promise<ReportRecipient[]> {
+  if (ack_report.recipients.length === 0) return [];
+  const wanted = new Set(ack_report.recipients);
+  return (await listUsers())
+    .filter((u) => wanted.has(u.id) && u.status === "active" && u.email)
+    .map((u) => ({ id: u.id, email: u.email }));
+}
+
+/** The SMTP settings' mailer, or null when SMTP is not configured (nothing can be sent). */
+async function defaultReportMailer(): Promise<Mailer | null> {
+  return smtpConfigured(await getSmtpConfig()) ? sendMail : null;
+}
+
+/** What the weekly entry point takes beside `now` (tests inject a mailer; the tick passes nothing). */
+export interface ComplianceReportOptions {
+  /** Omit for the SMTP settings; null for no mail at all (nothing is sent and the week is not claimed); a function to inject one. */
+  mailer?: Mailer | null;
+}
+
 /**
  * Send the report to the configured recipients (active accounts with an
- * address) when the report is enabled and SMTP is configured; answers how
+ * address) when the report is enabled and a mailer exists; answers how
  * many were mailed (0 when nothing went out). Audited as ack.report_sent.
+ * The weekly path hands over the recipients and the mailer it resolved
+ * before its claim; the monthly path lets this resolve both.
  */
 async function sendComplianceReport(input: {
   period: string;
@@ -926,15 +961,17 @@ async function sendComplianceReport(input: {
   snapshotSha256: string;
   snapshotLabel?: string;
   now?: Date;
+  recipients?: ReportRecipient[];
+  mailer?: Mailer | null;
 }): Promise<number> {
   const { ack_report } = await readComplianceSettings();
   if (!ack_report.enabled || ack_report.recipients.length === 0) return 0;
-  if (!smtpConfigured(await getSmtpConfig())) {
+  const mailer = input.mailer === undefined ? await defaultReportMailer() : input.mailer;
+  if (!mailer) {
     console.error("[periodic] compliance report: SMTP is not configured, nothing sent");
     return 0;
   }
-  const wanted = new Set(ack_report.recipients);
-  const recipients = (await listUsers()).filter((u) => wanted.has(u.id) && u.status === "active" && u.email);
+  const recipients = input.recipients ?? (await activeReportRecipients(ack_report));
   if (recipients.length === 0) return 0;
   const settings = await getAppSettings();
   const origin = settings.custom_domain ? `https://${settings.custom_domain}` : "";
@@ -951,7 +988,7 @@ async function sendComplianceReport(input: {
   for (const u of recipients) {
     const { subject, text, html } = await renderEmail("ack_program_report", vars, origin);
     try {
-      await sendMail([u.email], subject, text, html);
+      await mailer([u.email], subject, text, html);
       sent += 1;
     } catch (e) {
       console.error(`[periodic] compliance report to user #${u.id} failed:`, e);
@@ -1010,14 +1047,21 @@ export async function monthlyComplianceEvidence(now: Date = new Date()): Promise
 /**
  * Weekly: when the report is enabled on a weekly cadence with recipients
  * and SMTP is configured, claim the ISO week ('ack_report_week') and send,
- * with the latest monthly snapshot's hash in the body. SMTP is checked
- * before the claim, so an unconfigured workspace does not burn the week.
+ * with the latest monthly snapshot's hash in the body. Everything that
+ * could leave nothing to send is checked before the claim: the recipients
+ * as they stand now (active accounts with an address) and SMTP (or the
+ * injected mailer), so neither an unconfigured workspace nor a list whose
+ * accounts were all deactivated since the save burns the week. Idempotent
+ * across instances: the claim is the only gate.
  */
-export async function weeklyComplianceReport(now: Date = new Date()): Promise<void> {
+export async function weeklyComplianceReport(now: Date = new Date(), opts: ComplianceReportOptions = {}): Promise<void> {
   if (!(await featureEnabled("policy_ack"))) return;
   const { ack_report } = await readComplianceSettings();
   if (!ack_report.enabled || ack_report.cadence !== "weekly" || ack_report.recipients.length === 0) return;
-  if (!smtpConfigured(await getSmtpConfig())) return;
+  const recipients = await activeReportRecipients(ack_report);
+  if (recipients.length === 0) return;
+  const mailer = opts.mailer === undefined ? await defaultReportMailer() : opts.mailer;
+  if (!mailer) return;
   const period = isoWeekId(now);
   if (!(await claimPeriod("ack_report_week", period))) return;
   const latest = (await listComplianceSnapshots(100)).find((s) => s.kind === "monthly");
@@ -1027,5 +1071,7 @@ export async function weeklyComplianceReport(now: Date = new Date()): Promise<vo
     snapshotSha256: latest?.sha256 ?? "",
     snapshotLabel: latest?.period,
     now,
+    recipients,
+    mailer,
   });
 }

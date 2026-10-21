@@ -173,14 +173,12 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     // The one-policy audit package (F2, 1.14.0): the same ZIP the programme
     // exports, scoped to this policy (its rows, its ledger, its decisions,
     // its notices, its audit rows, its retirement snapshot and the texts
-    // its confirmations cite), so a space steward can hand an auditor one
-    // policy's bundle. The roster permission opened the record; the file
-    // carries IPs and user agents, so it takes compliance.export or
-    // document.ack_require on the policy's own space. Audited as
+    // its confirmations cite). The roster permission opened the record; the
+    // file carries the IP and the user agent of every confirmation, the
+    // recipients' addresses and the actors' IPs, so it takes
+    // compliance.export, exactly as the ledger CSV above. Audited as
     // ack.audit_export once the stream has closed, with the bytes sent.
-    const mayRequire =
-      canExport || (await userHolds(user, "document.ack_require", { spaceId: doc.space_id, legacyMin: "approver" }));
-    if (!mayRequire) {
+    if (!canExport) {
       return NextResponse.json({ error: "You don't have permission for that." }, { status: 403 });
     }
     const { buildCompliancePackage } = await import("@/lib/compliance-audit");

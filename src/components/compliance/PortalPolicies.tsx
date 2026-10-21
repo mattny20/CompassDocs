@@ -440,8 +440,10 @@ export function PortalPolicies({ licensed, canManageLicense = false }: PortalPag
             {can.manage && selection.size > 0 && (
               // The bulk bar (F5): the actions over the checked policies;
               // a successful action clears the selection, forgets the
-              // cached rosters of the policies it touched and reloads.
-              <div className="border-b border-slate-100 px-4 py-3">
+              // cached rosters of the policies it touched, reloads, then
+              // focuses Select all shown (the control the bar grew from).
+              // Off the paper with its band.
+              <div className="border-b border-slate-100 px-4 py-3 print:hidden">
                 <PolicyBulkBar
                   selected={selectedRows}
                   users={data.users}
@@ -451,6 +453,7 @@ export function PortalPolicies({ licensed, canManageLicense = false }: PortalPag
                     for (const d of selectedRows) portal.dropRoster(d.id);
                     await portal.load();
                   }}
+                  focusAfter={() => headCheck.current?.focus()}
                 />
               </div>
             )}

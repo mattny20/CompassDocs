@@ -349,7 +349,9 @@ export function ledgerCsvCells(row: LedgerCsvRow, canExport: boolean): (string |
  * 21 columns: `status` is confirmed | pending | overdue | exempt on an
  * assignment row and superseded on a prior confirmation; `removed_at` is
  * filled on a closed assignment; `superseded_by` on a prior confirmation
- * (supersededByText); `ip` only where the viewer may see it.
+ * (supersededByText), and reads "no longer required" on a row whose policy
+ * stopped asking (`stopped`: the status is the standing frozen then);
+ * `ip` only where the viewer may see it.
  */
 export const RECORD_CSV_HEADER =
   "policy,set,status,source,assigned_at,removed_at,due_at,acknowledged_at,version,version_id,version_source,content_sha256,signed_name,identity_proof,read_seconds,reached_end,ip,exempt_reason,exempt_by,exempt_until,superseded_by";
@@ -386,7 +388,12 @@ export interface RecordCsvRow {
   exempt_by_name: string;
   exempt_until: string | Date | null;
   superseded_by: RecordSuccessor | null;
+  /** The policy stopped asking while the row stayed open (a 'closed' row with no removed_at): the last cell says so. */
+  stopped?: boolean;
 }
+
+/** The last cell of a row whose policy stopped asking (the page's "No longer required"). */
+export const RECORD_STOPPED_CELL = "no longer required";
 
 /**
  * What follows "Superseded by:" on the record page, and the CSV's last
@@ -426,6 +433,6 @@ export function recordCsvCells(row: RecordCsvRow): (string | number)[] {
     row.exempt ? row.exempt_reason : "",
     row.exempt ? row.exempt_by_name : "",
     row.exempt ? stampCell(row.exempt_until) : "",
-    row.superseded_by ? supersededByText(row.superseded_by) : "",
+    row.superseded_by ? supersededByText(row.superseded_by) : row.stopped ? RECORD_STOPPED_CELL : "",
   ];
 }

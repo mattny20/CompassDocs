@@ -275,20 +275,22 @@ describe("attestation retention", () => {
   test("anonymising replaces who a record names; counts, dates, versions and hashes stay", async () => {
     const person = await newUser("anon");
     const { id, v1 } = await newPolicy(`${STAMP} anon`);
-    await recordAcknowledgement(id, person, "203.0.113.9", v1);
+    await recordAcknowledgement(id, person, "203.0.113.9", v1, { signedName: "Ret anon", userAgent: "Mozilla/5.0 (test)" });
     const before = (await getCurrentAck(id, person))!;
 
     const result = await anonymiseComplianceRecord(person);
     assert.deepEqual(result, { rows: 1, snapshots_rewritten: 0 });
 
     const row = await pool().query(
-      "SELECT user_id, user_name, user_email, ip, acknowledged_at, version_id, content_sha256 FROM acknowledgements WHERE user_id = $1",
+      "SELECT user_id, user_name, user_email, ip, signed_name, user_agent, acknowledged_at, version_id, content_sha256 FROM acknowledgements WHERE user_id = $1",
       [person]
     );
     assert.equal(row.rows.length, 1);
     assert.equal(row.rows[0].user_name, `Former staff #${person}`);
     assert.equal(row.rows[0].user_email, "");
     assert.equal(row.rows[0].ip, "");
+    assert.equal(row.rows[0].signed_name, "", "the typed signature is the person's name: blank (1.14.0)");
+    assert.equal(row.rows[0].user_agent, "", "and the browser string goes with it");
     assert.equal(new Date(row.rows[0].acknowledged_at).getTime(), new Date(before.acknowledged_at).getTime());
     assert.equal(row.rows[0].version_id, v1);
     assert.equal(row.rows[0].content_sha256, before.content_sha256);

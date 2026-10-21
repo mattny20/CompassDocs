@@ -14,8 +14,10 @@
 // §Feedback): the deadline, the owner and the reminders re-send what each
 // policy held (the answer's `previous`), the exemption and the extension
 // are the inverse call on the assignments route over the answer's
-// `changed` ids, as the roster's are. A successful action clears the
-// selection and reloads the payload.
+// `changed` ids, as the roster's are, in calls of the assignments route's
+// cap. A successful action clears the selection, reloads the payload and
+// moves focus to the header checkbox the bar grew from (`focusAfter`: the
+// bar unmounts with the selection, and the button that had focus with it).
 
 import { useCallback, useEffect, useId, useState, type ReactNode } from "react";
 import { BellRing, CalendarClock, CalendarPlus, Download, Layers, RotateCcw, UserCog, UserMinus, X } from "lucide-react";
@@ -92,10 +94,17 @@ function skippedNote(skipped: BulkSkipped[], noun: "policies" | "people"): strin
 /** The error toast when the server changed nothing: the first skipped item says why. */
 function nothingChanged(r: BulkAnswer): void {
   const first = r.skipped[0];
-  toast("error", first ? `Nothing changed: ${first.title}: ${first.reason}.` : "Nothing changed.");
+  toast("error", first ? `Nothing changed. ${first.title}: ${first.reason}.` : "Nothing changed.");
 }
 
 const withinHour = (iso: string | null | undefined) => Boolean(iso) && Date.now() - new Date(iso!).getTime() < HOUR;
+
+/** Ids in calls of the assignments route's cap: an Undo over an answer's `changed` (up to 200 people across several policies) can exceed it. */
+function chunked(ids: number[]): number[][] {
+  const out: number[][] = [];
+  for (let i = 0; i < ids.length; i += ASSIGNMENT_IDS_MAX) out.push(ids.slice(i, i + ASSIGNMENT_IDS_MAX));
+  return out;
+}
 
 /** One POST through useAction (the server's error or the fallback is toasted); the answer comes back on success. */
 function useBulkPost() {
@@ -252,15 +261,21 @@ export function PolicyBulkBar({
   onClear: () => void;
   /** After a successful action: the page reloads its payload. */
   onDone: () => Promise<void> | void;
+  /** After the reload: where focus goes (the header checkbox the bar grew from), since clearing the selection unmounts the bar and the button that had it. */
+  focusAfter: () => void;
 }) {
   const { bulk, busy } = useBulkPost();
   const [modal, setModal] = useState<PolicyModal>(null);
   const ids = selected.map((d) => d.id);
   const n = selected.length;
   const close = () => setModal(null);
+  // STYLEGUIDE §Settings pages: focus never falls to <body>. The selection
+  // clears first (the bar goes), the payload reloads, then the control the
+  // bar grew from takes focus.
   const finished = async () => {
     onClear();
     await onDone();
+    focusAfter();
   };
 
   // Remind: the question carries the counts the server will act on (from
@@ -364,6 +379,7 @@ export function PolicyBulkBar({
     }
     if (restored > 0) toast("ok", `Deadline restored on ${policies(restored)}`);
     await onDone();
+    focusAfter();
   }
 
   async function setOwner(ownerId: number | null, ownerName: string | null) {
@@ -389,6 +405,7 @@ export function PolicyBulkBar({
     }
     if (restored > 0) toast("ok", `Owner restored on ${policies(restored)}`);
     await onDone();
+    focusAfter();
   }
 
   async function setReminders(cadence: Partial<Record<ReminderKey, number | null>>) {
@@ -419,6 +436,7 @@ export function PolicyBulkBar({
     }
     if (restored > 0) toast("ok", `Reminders restored on ${policies(restored)}`);
     await onDone();
+    focusAfter();
   }
 
   async function addToSet(set: { id: number; name: string }) {
@@ -754,6 +772,8 @@ export function PeopleBulkBar({
   selected: PersonRow[];
   onClear: () => void;
   onDone: () => Promise<void> | void;
+  /** After the reload: the header checkbox the bar grew from (see PolicyBulkBar). */
+  focusAfter: () => void;
 }) {
   const { bulk, assignments, busy } = useBulkPost();
   const [exemptOpen, setExemptOpen] = useState(false);
@@ -762,7 +782,27 @@ export function PeopleBulkBar({
   const finished = async () => {
     onClear();
     await onDone();
+    focusAfter();
   };
+  const reloadThenFocus = () => void Promise.resolve(onDone()).then(focusAfter);
+
+  /**
+   * An Undo over the answer's `changed` ids: the inverse call on the
+   * assignments route in calls of its cap (exempt_people / extend_people
+   * over 200 people and several policies can change more rows than one
+   * call takes), the changed counts summed for the toast. A refused call
+   * ends the loop (its sentence is the toast, what went through stays
+   * undone); null when nothing was reverted.
+   */
+  async function revert(action: "unexempt" | "undo_extend", changed: number[], fallback: string): Promise<number | null> {
+    let reverted = 0;
+    for (const part of chunked(changed)) {
+      const u = await assignments(`bulk-${action}-${part[0]}`, { action, assignment_ids: part }, fallback);
+      if (!u) return reverted > 0 ? reverted : null;
+      reverted += (u.changed ?? []).length;
+    }
+    return reverted;
+  }
 
   // Remind about everything outstanding: one notice per person listing
   // their open policies (the outbox bundles them), so it asks first (mail).
@@ -809,10 +849,10 @@ export function PeopleBulkBar({
       action: {
         label: "Undo",
         onClick: () =>
-          void assignments(`bulk-unexempt-${changed[0]}`, { action: "unexempt", assignment_ids: changed }, "Couldn't remove the exemptions.").then((u) => {
-            if (!u) return;
-            toast("ok", "Exemptions undone: pending again with a fresh due date.");
-            void onDone();
+          void revert("unexempt", changed, "Couldn't remove the exemptions.").then((reverted) => {
+            if (reverted === null) return;
+            toast("ok", `${reverted} ${reverted === 1 ? "exemption" : "exemptions"} undone: pending again with a fresh due date.`);
+            reloadThenFocus();
           }),
       },
     });
@@ -834,10 +874,10 @@ export function PeopleBulkBar({
       action: {
         label: "Undo",
         onClick: () =>
-          void assignments(`bulk-undo-extend-${changed[0]}`, { action: "undo_extend", assignment_ids: changed }, "Couldn't undo the extensions.").then((u) => {
-            if (!u) return;
-            toast("ok", `Extension undone: ${(u.changed ?? []).length} ${(u.changed ?? []).length === 1 ? "deadline is" : "deadlines are"} back to the previous date.`);
-            void onDone();
+          void revert("undo_extend", changed, "Couldn't undo the extensions.").then((reverted) => {
+            if (reverted === null) return;
+            toast("ok", `Extension undone: ${reverted} ${reverted === 1 ? "deadline is" : "deadlines are"} back to the previous date.`);
+            reloadThenFocus();
           }),
       },
     });

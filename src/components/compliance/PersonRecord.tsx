@@ -13,12 +13,14 @@
 //     policy.
 //   Prior confirmations (n): superseded confirmations with what replaced
 //     them, closed assignments ("Required 1 Mar to 30 Sep (left
-//     Engineering)") and rows on retired policies.
+//     Engineering)"), open rows on a policy that stopped asking ("No
+//     longer required", the standing frozen) and rows on retired policies.
 //   Notices (n): the person's notice log (E3): when, what kind, which
 //     policy, which channels, by whom.
 //   Actions (compliance.program_manage, off paper): Remind about everything
-//     outstanding (one reminder per outstanding policy through the team
-//     route, until the bulk route lands), Ask to re-confirm…, Exempt from…,
+//     outstanding (every open row in one call to the bulk route's
+//     remind_people: one notice listing the policies, the rows stamped),
+//     Ask to re-confirm…, Exempt from…,
 //     Extend… and Remove exemption, each a menu over the policies it
 //     applies to, asking in the roster's words (AckRoster's dialogs) and
 //     posting to the admin assignments route; admins who may erase also see
@@ -52,15 +54,28 @@ import type { NoticeRow, PolicyTranscript, PolicyTranscriptRow } from "@/lib/db"
 
 /** What the viewer may do on this record (the server page decides). */
 export interface RecordAbilities {
-  /** compliance.program_manage: the Actions section. */
+  /** compliance.program_manage: the Actions section, Remind included (the bulk route's guard is the same right). */
   manage: boolean;
-  /** The team route's rule (compliance.team_read, or a lead with the setting on): Remind sends. */
-  remind: boolean;
+  /**
+   * No longer read (1.14.0's fix round): Remind goes through the bulk
+   * route, whose guard is compliance.program_manage, so `manage` is the
+   * whole gate. Optional for the server page that still computes it; it
+   * may stop.
+   */
+  remind?: boolean;
   /** user.delete and compliance.program_manage, on someone else's record: Anonymise compliance record…. */
   anonymise: boolean;
 }
 
 const ASSIGNMENTS = "/api/admin/compliance/assignments";
+const BULK = "/api/admin/compliance/bulk";
+
+/** What the bulk route answers to remind_people (lib/ack-bulk BulkAnswer, the part this page reads: rows reminded, and who was skipped and why). */
+interface BulkRemindAnswer {
+  done?: number;
+  queued?: number;
+  skipped?: { id: number; title: string; reason: string }[];
+}
 
 /** The tooltip on "(inferred)" (A1); the footnote under the table repeats it because the table scrolls sideways. */
 const INFERRED_TIP = "Version inferred from the confirmation time; confirmations before 1.10.0 did not record it";
@@ -95,25 +110,25 @@ function policies(n: number): string {
   return `${n} ${n === 1 ? "policy" : "policies"}`;
 }
 
-/** How the person came to owe the policy (policy_assignments.source), after the assignment date. */
+/** How the person came to owe the policy (policy_assignments.source), after the assignment date: phrases a reader can parse ("12 Oct 2026 by group", "named person"); the docs' examples use the same words. */
 function sourceText(r: PolicyTranscriptRow): string {
   switch (r.source) {
     case "space":
       return r.space_name ? `everyone in ${r.space_name} space` : "everyone in the space";
     case "group":
-      return "group";
+      return "by group";
     case "new_member":
       return "new joiner";
     case "set":
       return r.set_names.length > 0 ? `${r.set_names[0]} set` : "set";
     case "user":
-      return "named";
+      return "named person";
     case "role":
-      return "role";
+      return "by role";
     case "recert":
       return "re-confirmation cycle";
     case "manual":
-      return "manual";
+      return "by hand";
     default:
       return "";
   }
@@ -199,12 +214,15 @@ function exemptionNote(r: PolicyTranscriptRow, date: (iso: string) => string, no
   return parts.filter(Boolean).join(" · ");
 }
 
-/** What a history row says about itself: the successor, the closed span, or nothing (the chips say the rest). */
+/** What a history row says about itself: the successor, the closed span, the start of a requirement that stopped asking, or nothing (the chips say the rest). */
 function historyText(r: PolicyTranscriptRow, date: (iso: string | null) => string): string {
   if (r.record === "superseded") {
     return r.superseded_by ? `Superseded by: ${supersededByText(r.superseded_by, (iso) => date(iso))}` : "Superseded";
   }
   if (r.record === "closed") {
+    // An open row on a policy that stopped asking (removed_at null, the
+    // standing frozen): the chip beside it reads "No longer required".
+    if (r.stopped) return `Required from ${date(r.assigned_at)}`;
     const reason = r.removed_reason ? ` (${r.removed_reason.replace(/_/g, " ")})` : "";
     return `Required ${date(r.assigned_at)} to ${date(r.removed_at)}${reason}`;
   }
@@ -270,6 +288,12 @@ function PolicyMenu({
           <MenuItem
             key={`${id}-${row.assignment_id}`}
             onClick={() => {
+              // Focus back on the menu button before the question opens:
+              // the menu unmounts with the close, and the dialog snapshots
+              // its opener in an effect, so the button is what it finds and
+              // where focus returns on close or Cancel (STYLEGUIDE
+              // §Overlays: never <body>).
+              trigger.current?.focus();
               setOpen(false);
               onPick(row);
             }}
@@ -433,49 +457,45 @@ export function PersonRecord({
   }
 
   /**
-   * Remind about everything outstanding: one reminder per open policy
-   * through the team route (one person, the policy's own cadence, audited),
-   * until the bulk route bundles them into one notice. Sending mail asks
-   * first (STYLEGUIDE §Feedback). A policy refused inside its cadence is
-   * reported in the toast, not retried.
+   * Remind about everything outstanding: every open row's id in one POST to
+   * the bulk route's remind_people (1.14.0), which queues one notice per
+   * policy naming this person (the drain bundles several into one mail),
+   * stamps the rows and audits the summary; its guard is
+   * compliance.program_manage, the Actions card's own. Sending mail asks
+   * first (STYLEGUIDE §Feedback). A row reminded within the hour is
+   * skipped by the server; when nothing went out, the answer's reason
+   * ("reminded 20 minutes ago", "nothing outstanding") is the toast.
    */
   async function remindAll() {
     if (outstanding.length === 0) return;
     const ok = await confirmDialog({
       title: `Remind ${name} about ${policies(outstanding.length)}?`,
-      body: "One reminder per outstanding policy goes out now. A policy reminded inside its cadence is skipped.",
+      body: "One notice listing every outstanding policy goes out now. A policy reminded within the hour is skipped. This cannot be undone.",
       confirmLabel: "Send reminders",
     });
     if (ok !== true) return;
-    let sent = 0;
-    const problems: string[] = [];
-    await run(
+    const box: { result?: BulkRemindAnswer } = {};
+    const sent = await run(
       "remind",
       async () => {
-        for (const row of outstanding) {
-          const res = await fetch("/api/compliance/team", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ assignment_id: row.assignment_id }),
-          });
-          if (res.ok) sent++;
-          else {
-            const data = (await res.json().catch(() => ({}))) as { error?: string };
-            problems.push(data?.error || `Couldn't remind about "${row.title}".`);
-          }
-        }
-        if (sent > 0) return;
-        // Nothing went out: the first refusal is the toast, through run()'s own path.
-        return new Response(JSON.stringify({ error: problems[0] ?? "Couldn't send the reminders." }), {
-          status: 400,
-          headers: { "content-type": "application/json" },
+        const res = await fetch(BULK, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "remind_people", assignment_ids: outstanding.map((r) => r.assignment_id) }),
         });
+        if (res.ok) box.result = (await res.clone().json().catch(() => ({}))) as BulkRemindAnswer;
+        return res;
       },
       { fallback: "Couldn't send the reminders." }
     );
-    if (sent > 0) {
-      toast("ok", `Reminded ${name} about ${policies(sent)}.${problems.length > 0 ? ` ${problems[0]}` : ""}`);
+    if (!sent) return;
+    const r = box.result ?? {};
+    if (!r.done) {
+      const first = r.skipped?.[0];
+      toast("error", first ? `Nothing changed. ${first.title}: ${first.reason}.` : "Nothing changed.");
+      return;
     }
+    toast("ok", `Reminded ${name} about ${policies(r.done)}.`);
   }
 
   // The erasure path (C5): the Users page's question, verbatim, so the two
@@ -500,10 +520,10 @@ export function PersonRecord({
       variant="secondary"
       icon={<BellRing />}
       busy={busy}
-      disabled={!can.remind || outstanding.length === 0}
+      disabled={outstanding.length === 0}
       onClick={() => void remindAll()}
-      data-tt={can.remind && outstanding.length > 0 ? "Send a reminder for each outstanding policy now" : undefined}
-      data-tt-wrap={can.remind && outstanding.length > 0 ? "" : undefined}
+      data-tt={outstanding.length > 0 ? "Send one reminder now listing every outstanding policy" : undefined}
+      data-tt-wrap={outstanding.length > 0 ? "" : undefined}
     >
       Remind about everything outstanding
     </Button>
@@ -598,7 +618,7 @@ export function PersonRecord({
       <section aria-labelledby="record-history" className="mt-8">
         <SectionHeading id="record-history">Prior confirmations ({history.length})</SectionHeading>
         <p className="-mt-2 mb-3 text-xs text-slate-500">
-          Confirmations a later cycle replaced, assignments that ended, and policies since retired.
+          Confirmations a later cycle replaced, assignments that ended, policies that stopped asking, and policies since retired.
         </p>
         <Card padding="none">
           {history.length === 0 ? (
@@ -625,6 +645,7 @@ export function PersonRecord({
                       <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
                         {historyText(r, date) && <span>{historyText(r, date)}</span>}
                         {r.record === "closed" && r.status === "exempt" && <span className={chipClass("neutral", "sm")}>Exempt</span>}
+                        {r.record === "closed" && r.stopped && <span className={chipClass("neutral", "sm")}>No longer required</span>}
                         {r.retired_at && <span className={chipClass("neutral", "sm")}>Retired {date(r.retired_at)}</span>}
                         {r.purged && <span className={chipClass("neutral", "sm")}>Policy removed</span>}
                       </span>
@@ -702,15 +723,7 @@ export function PersonRecord({
               Each action asks before it sends or changes anything; reversible ones offer Undo in the toast.
             </p>
             <div className="flex flex-wrap items-center gap-2">
-              {can.remind ? (
-                outstanding.length === 0 ? (
-                  <Tooltip label="Nothing is outstanding.">{remindButton}</Tooltip>
-                ) : (
-                  remindButton
-                )
-              ) : (
-                <Tooltip label="Reminding one person needs the Read team policies permission.">{remindButton}</Tooltip>
-              )}
+              {outstanding.length === 0 ? <Tooltip label="Nothing is outstanding.">{remindButton}</Tooltip> : remindButton}
               <PolicyMenu
                 id="reask"
                 label="Ask to re-confirm…"

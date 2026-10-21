@@ -145,8 +145,13 @@ export function Evidence({ licensed, canManageLicense = false, canManage }: Evid
   // (the report email carries the same), or the latest of any kind until a
   // month has passed. Printed, not a control, so it survives paper.
   const anchor = rows.find((s) => s.kind === "monthly") ?? rows[0] ?? null;
+  // Off the paper, with the bands that hold it (STYLEGUIDE §Print: the
+  // record stays, the controls go; a printed record past one page shows
+  // one page's rows and no paging buttons).
   const pager =
-    rows.length > SNAPSHOT_PAGE ? <Pager page={page} limit={SNAPSHOT_PAGE} total={rows.length} onPage={setPage} /> : null;
+    rows.length > SNAPSHOT_PAGE ? (
+      <Pager page={page} limit={SNAPSHOT_PAGE} total={rows.length} onPage={setPage} className="print:hidden" />
+    ) : null;
 
   return (
     <div className="space-y-5">
@@ -185,7 +190,7 @@ export function Evidence({ licensed, canManageLicense = false, canManage }: Evid
         />
       ) : (
         <Card title="Snapshots" icon={<Camera />} padding="none">
-          {pager && <div className="border-b border-slate-100 px-4 py-2">{pager}</div>}
+          {pager && <div className="border-b border-slate-100 px-4 py-2 print:hidden">{pager}</div>}
           <Table scroll>
             <thead className={TABLE_HEAD_ROW}>
               <tr>
@@ -247,7 +252,7 @@ export function Evidence({ licensed, canManageLicense = false, canManage }: Evid
             Verify recomputes the hash over the stored record. A download is that record byte for byte, with the hash in
             its X-Content-SHA256 header, so sha256sum on the file reproduces it.
           </p>
-          {pager && <div className="border-t border-slate-100 px-4 py-2">{pager}</div>}
+          {pager && <div className="border-t border-slate-100 px-4 py-2 print:hidden">{pager}</div>}
         </Card>
       )}
     </div>

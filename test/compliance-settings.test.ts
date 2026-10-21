@@ -5,10 +5,14 @@
 //
 // Run: DATABASE_URL=… npx tsx --tsconfig ./tsconfig.test.json --test test/compliance-settings.test.ts
 
+// lib/ee as a licensed build sees it, installed before the route loads.
+import "./support/ee-stub";
 import { test, before, after, describe } from "node:test";
 import assert from "node:assert/strict";
 import type { PoolClient } from "pg";
-import { pool, getSetting, setSetting } from "../src/lib/db";
+import { pool, getSetting, setSetting, createRole, assignRole, createSession } from "../src/lib/db";
+import { newToken } from "../src/lib/password";
+import { fixtureQuery } from "./support/retry";
 import {
   COMPLIANCE_DEFAULTS,
   getComplianceSettings,
@@ -237,13 +241,21 @@ describe("program settings", () => {
     assert.equal(settings.ack_defaults.recert_months, 12);
     assert.deepEqual(changes, [{ key: "ack_defaults.recert_months", from: null, to: 12 }]);
     assert.equal((await readComplianceSettings()).ack_defaults.recert_months, 12, "a fresh read returns what was saved");
-    assert.deepEqual(JSON.parse((await getSetting("ack_defaults"))!), { recert_months: 12 });
+    assert.deepEqual(
+      JSON.parse((await getSetting("ack_defaults"))!),
+      { leads_see_policies: true, recert_months: 12 },
+      "the first write of the row pins leads_see_policies to what the workspace read (F4)"
+    );
     assert.equal(settings.ack_defaults.edit_default, "ask", "the siblings keep their defaults");
 
     const back = await saveComplianceSettings({ ack_defaults: { recert_months: null } }, { actor });
     assert.equal(back.settings.ack_defaults.recert_months, null);
     assert.deepEqual(back.changes, [{ key: "ack_defaults.recert_months", from: 12, to: null }]);
-    assert.deepEqual(JSON.parse((await getSetting("ack_defaults"))!), { recert_months: null }, "never is stored as null, not dropped");
+    assert.deepEqual(
+      JSON.parse((await getSetting("ack_defaults"))!),
+      { leads_see_policies: true, recert_months: null },
+      "never is stored as null, not dropped"
+    );
 
     // The route refuses 7 (parseComplianceSettingsPatch); a hand edit of 7
     // in the settings row is read as the default, like an unknown edit_default.
@@ -255,5 +267,170 @@ describe("program settings", () => {
     assert.equal(read.ack_defaults.edit_default, "material", "a valid sibling still counts");
     await clearKeys();
     await pool().query("DELETE FROM audit_log WHERE action = 'settings.compliance' AND actor_name = $1", [STAMP]);
+  });
+
+  test("a first save without the key keeps leads on; a row without the key reads off and a later save leaves it so", async () => {
+    await clearKeys();
+    assert.equal((await readComplianceSettings()).ack_defaults.leads_see_policies, true, "no row: a new install reads on");
+    const first = await saveComplianceSettings({ ack_defaults: { recert_months: 12 } }, { actor });
+    assert.equal(first.settings.ack_defaults.leads_see_policies, true, "the first save of another key keeps it on");
+    assert.deepEqual(first.changes.map((c) => c.key), ["ack_defaults.recert_months"], "the pinned key is not a change");
+    assert.deepEqual(JSON.parse((await getSetting("ack_defaults"))!), { leads_see_policies: true, recert_months: 12 });
+    const off = await saveComplianceSettings({ ack_defaults: { leads_see_policies: false } }, { actor });
+    assert.equal(off.settings.ack_defaults.leads_see_policies, false);
+    assert.deepEqual(off.changes, [{ key: "ack_defaults.leads_see_policies", from: true, to: false }]);
+
+    // An upgraded workspace: a row without the key reads off, and a save of
+    // another key merges over the row as it is (no key is seeded).
+    await setSetting("ack_defaults", JSON.stringify({ edit_default: "material" }));
+    assert.equal((await readComplianceSettings()).ack_defaults.leads_see_policies, false);
+    await saveComplianceSettings({ ack_defaults: { recert_months: 6 } }, { actor });
+    assert.deepEqual(JSON.parse((await getSetting("ack_defaults"))!), { edit_default: "material", recert_months: 6 });
+    assert.equal((await readComplianceSettings()).ack_defaults.leads_see_policies, false, "still off until an admin turns it on");
+    await clearKeys();
+    await pool().query("DELETE FROM audit_log WHERE action = 'settings.compliance' AND actor_name = $1", [STAMP]);
+  });
+});
+
+// --- The route ----------------------------------------------------------------
+// PUT /api/admin/compliance/settings is called directly, as
+// test/team-policies.test.ts calls its route: next/headers resolves to a stub
+// serving the request under test, lib/ee to the licensed stub installed
+// above. The report block (F2) is writable here as through PUT
+// /api/admin/compliance/report, and with the same rule: every recipient an
+// active account, checked before anything is written.
+
+describe("PUT /api/admin/compliance/settings", () => {
+  let currentRequest: Request | null = null;
+  let route: typeof import("../src/app/api/admin/compliance/settings/route");
+  let managerId = 0;
+  let activeId = 0;
+  let disabledId = 0;
+  let roleId = 0;
+  let token = "";
+  let savedReport: string | undefined;
+
+  before(async () => {
+    const client = await pool().connect();
+    await client.query("SELECT pg_advisory_lock($1)", [SETTINGS_LOCK]);
+    lockClient = client;
+    savedReport = await getSetting("ack_report");
+    await pool().query("DELETE FROM settings WHERE key = 'ack_report'");
+
+    const Module = (await import("node:module")).default;
+    const path = (await import("node:path")).default;
+    const HEADERS_STUB = path.join(__dirname, "stubs", "next-headers.compliance-settings.virtual.js");
+    const jar = () => {
+      const out = new Map<string, string>();
+      for (const part of (currentRequest?.headers.get("cookie") ?? "").split(";")) {
+        const i = part.indexOf("=");
+        if (i > 0) out.set(part.slice(0, i).trim(), decodeURIComponent(part.slice(i + 1).trim()));
+      }
+      return out;
+    };
+    const headers = new Module(HEADERS_STUB);
+    headers.filename = HEADERS_STUB;
+    headers.loaded = true;
+    headers.exports = {
+      headers: async () => new Headers(currentRequest?.headers ?? {}),
+      cookies: async () => {
+        const c = jar();
+        return {
+          get: (name: string) => (c.has(name) ? { name, value: c.get(name) } : undefined),
+          getAll: () => [...c].map(([name, value]) => ({ name, value })),
+          has: (name: string) => c.has(name),
+        };
+      },
+      draftMode: async () => ({ isEnabled: false }),
+    };
+    require.cache[HEADERS_STUB] = headers;
+    const loader = Module as unknown as {
+      _resolveFilename: (request: string, parent: { filename?: string } | null, ...rest: unknown[]) => string;
+    };
+    const resolveFilename = loader._resolveFilename;
+    loader._resolveFilename = function (request: string, parent: { filename?: string } | null, ...rest: unknown[]) {
+      if (request === "next/headers") return HEADERS_STUB;
+      return resolveFilename.call(this, request, parent, ...rest);
+    };
+    route = await import("../src/app/api/admin/compliance/settings/route");
+
+    const users = await fixtureQuery(
+      `INSERT INTO users (username, name, email, role, status) VALUES
+         ($1, $2, $3, 'viewer', 'active'),
+         ($4, $5, $6, 'viewer', 'active'),
+         ($7, $8, $9, 'viewer', 'disabled')
+       RETURNING id`,
+      [
+        `${STAMP}-mgr`,
+        `Mgr ${STAMP}`,
+        `${STAMP}-mgr@example.test`,
+        `${STAMP}-active`,
+        `Active ${STAMP}`,
+        `${STAMP}-active@example.test`,
+        `${STAMP}-gone`,
+        `Gone ${STAMP}`,
+        `${STAMP}-gone@example.test`,
+      ]
+    );
+    [managerId, activeId, disabledId] = users.rows.map((r: { id: number }) => r.id);
+    const role = await createRole({ name: `Programme manager ${STAMP}`, permissions: ["compliance.program_read", "compliance.program_manage"] });
+    assert.ok("id" in role, "the custom role exists");
+    roleId = (role as { id: number }).id;
+    await assignRole({ roleId, userId: managerId });
+    token = newToken();
+    await createSession(token, managerId, new Date(Date.now() + 3_600_000).toISOString());
+  });
+
+  after(async () => {
+    await pool().query("DELETE FROM settings WHERE key = 'ack_report'");
+    if (savedReport !== undefined) await setSetting("ack_report", savedReport);
+    await pool().query("DELETE FROM audit_log WHERE action = 'ack.report_settings' AND actor_id = $1", [managerId]);
+    await pool().query("DELETE FROM sessions WHERE user_id = $1", [managerId]);
+    if (roleId) await pool().query("DELETE FROM roles WHERE id = $1", [roleId]);
+    await pool().query("DELETE FROM users WHERE id = ANY($1)", [[managerId, activeId, disabledId]]);
+    if (lockClient) {
+      await lockClient.query("SELECT pg_advisory_unlock($1)", [SETTINGS_LOCK]).catch(() => {});
+      lockClient.release();
+      lockClient = null;
+    }
+  });
+
+  async function put(body: unknown): Promise<{ status: number; body: any }> {
+    const req = new Request("http://localhost/api/admin/compliance/settings", {
+      method: "PUT",
+      headers: { cookie: `compass_session=${token}`, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    currentRequest = req;
+    try {
+      const res = await route.PUT(req);
+      return { status: res.status, body: await res.json().catch(() => null) };
+    } finally {
+      currentRequest = null;
+    }
+  }
+
+  test("a report recipient that is not an active account is refused before anything is written; active ones save", async () => {
+    let r = await put({ ack_report: { enabled: true, recipients: [disabledId] } });
+    assert.equal(r.status, 400, JSON.stringify(r.body));
+    assert.equal(r.body.error, "Every recipient must be an active account.");
+    assert.equal(await getSetting("ack_report"), undefined, "nothing was written");
+    r = await put({ ack_report: { recipients: [activeId, 999_999_999] } });
+    assert.equal(r.status, 400, "an id no account has");
+    assert.equal(await getSetting("ack_report"), undefined);
+
+    r = await put({ ack_report: { enabled: true, recipients: [activeId] } });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.deepEqual(r.body.settings.ack_report, { enabled: true, cadence: "weekly", recipients: [activeId] });
+    assert.deepEqual(r.body.changed, ["ack_report.enabled", "ack_report.recipients"]);
+    assert.deepEqual(JSON.parse((await getSetting("ack_report"))!), { enabled: true, cadence: "weekly", recipients: [activeId] });
+
+    // A body without recipients does not run the check; an empty list clears them.
+    r = await put({ ack_report: { cadence: "monthly" } });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.deepEqual(r.body.changed, ["ack_report.cadence"]);
+    r = await put({ ack_report: { recipients: [] } });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.deepEqual(r.body.settings.ack_report, { enabled: true, cadence: "monthly", recipients: [] });
   });
 });

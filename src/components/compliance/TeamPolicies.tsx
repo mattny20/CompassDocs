@@ -11,7 +11,10 @@
 // you can't view"), never a title. Show narrows every table to the open or
 // the overdue rows. Remind queues one reminder for one person through POST
 // /api/compliance/team; the server's refusal (the row's cadence, "Ben Lo
-// was reminded 3 days ago.") is the toast, through useAction.
+// was reminded 3 days ago.") is the toast, through useAction. A row the
+// POST would refuse (a compliance.team_read holder who leads none of the
+// member's groups and manages no programme: `may_remind` false) shows the
+// control disabled inside a Tooltip saying why, never one that fails.
 //
 // The section header and the tab row are the layout's, so the title here
 // is a section heading (the page's h1 is "Compliance"), as the Settings
@@ -29,8 +32,10 @@ import { Segmented, type SegmentedOption } from "@/components/Segmented";
 import { LoadingRow } from "@/components/Spinner";
 import { Table, TABLE_HEAD_ROW, TR, Td, Th } from "@/components/Table";
 import { useFormatDate } from "@/components/SettingsProvider";
+import { Tooltip } from "@/components/Tooltip";
 import { useAction } from "@/lib/use-action";
 import type { TeamPolicyRow, TeamPolicyStatus } from "@/lib/db";
+import type { TeamViewRow } from "@/lib/team-access";
 
 /** The route's group summary: distinct active members, confirmed rows, open (pending + overdue) rows and overdue rows. */
 export interface TeamGroup {
@@ -44,7 +49,8 @@ export interface TeamGroup {
 
 export interface TeamPayload {
   groups: TeamGroup[];
-  rows: TeamPolicyRow[];
+  /** The route's rows, each with `may_remind` (whether POST would let this viewer remind it). */
+  rows: TeamViewRow[];
 }
 
 type Show = "all" | "open" | "overdue";
@@ -56,6 +62,8 @@ const SHOW_OPTIONS: SegmentedOption<Show>[] = [
 ];
 
 const LOAD_FAILED = "Couldn't load your team's policies.";
+/** The tooltip on a Remind the POST would refuse (the route's 403 for a viewer who leads none of the member's groups). */
+const CANNOT_REMIND_TIP = "Only the group's lead or a programme manager can remind";
 
 /** "3 policies" / "1 policy": the count's noun (STYLEGUIDE §Vocabulary). */
 function policies(n: number): string {
@@ -103,7 +111,7 @@ export function TeamPolicies() {
   }, [load]);
 
   const rowsByGroup = useMemo(() => {
-    const m = new Map<number, TeamPolicyRow[]>();
+    const m = new Map<number, TeamViewRow[]>();
     for (const r of data?.rows ?? []) m.set(r.group_id, [...(m.get(r.group_id) ?? []), r]);
     return m;
   }, [data]);
@@ -187,7 +195,7 @@ function GroupCard({
   onRemind,
 }: {
   group: TeamGroup;
-  rows: TeamPolicyRow[];
+  rows: TeamViewRow[];
   show: Show;
   date: (iso: string | null) => string;
   busy: (r: TeamPolicyRow) => boolean;
@@ -270,7 +278,7 @@ function GroupCard({
                         {r.due_at && r.status !== "exempt" ? date(r.due_at) : ""}
                       </Td>
                       <Td fit align="right" className="print:hidden">
-                        {canRemind && (
+                        {canRemind && r.may_remind && (
                           <Button
                             size="sm"
                             variant="secondary"
@@ -281,6 +289,16 @@ function GroupCard({
                           >
                             Remind
                           </Button>
+                        )}
+                        {canRemind && !r.may_remind && (
+                          // Disabled, with the reason as the wrapper's tooltip
+                          // and accessible name (a disabled button takes no
+                          // hover or focus of its own; the Tooltip takes both).
+                          <Tooltip label={CANNOT_REMIND_TIP}>
+                            <Button size="sm" variant="secondary" icon={<BellRing />} disabled>
+                              Remind
+                            </Button>
+                          </Tooltip>
                         )}
                       </Td>
                     </>

@@ -21,9 +21,9 @@ import type { DueNumberKey } from "./ack-due";
 // card; 1.12.0 adds the Re-confirmation card (G1: `ack_defaults.recert_months`,
 // the interval a policy receives when it is first set to required). Deadlines
 // and Reminders (E1/E2), the typed-signature toggle (C2) and Evidence (F2/C5)
-// add their keys here when they ship; `ack_report` is read with its default
-// now so the sweeps have one place to look, but the API refuses to write it
-// until F2's card exists.
+// add their keys here when they ship; `ack_report` (F2, 1.14.0) is written
+// through PUT /api/admin/compliance/report and the settings route alike,
+// both of which check the recipients are active accounts first.
 
 export const EDIT_DEFAULTS = ["ask", "material", "reset"] as const;
 /** What a policy does when its text changes: ask the editor each time, ask
@@ -351,8 +351,13 @@ export async function saveComplianceSettings(
       }
     }
     if (changes.length) {
-      const stored = parseJsonObject(await getSetting("ack_defaults")) ?? {};
-      await setSetting("ack_defaults", JSON.stringify({ ...stored, ...patch.ack_defaults }));
+      const stored = parseJsonObject(await getSetting("ack_defaults"));
+      // The first write of the row pins leads_see_policies to what the
+      // workspace reads now (F4: no row reads as on, a row without the key
+      // as off), so a save of any other key never moves what leads can see.
+      // A row that exists is merged over as it is.
+      const seed = stored === null ? { leads_see_policies: before.ack_defaults.leads_see_policies } : {};
+      await setSetting("ack_defaults", JSON.stringify({ ...seed, ...(stored ?? {}), ...patch.ack_defaults }));
     }
   }
 

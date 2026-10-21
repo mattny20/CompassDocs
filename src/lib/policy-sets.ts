@@ -38,7 +38,8 @@ export const SET_TARGET_INTEGERS = "user_ids and group_ids must be positive inte
 
 export const SET_PAGE_INTRO =
   "Group policies into a set, assigned to every new joiner automatically or to people and groups as one unit.";
-export const SET_NAME_PLACEHOLDER = "Set name (e.g. New starter onboarding)";
+/** An example only: the Field carries the label "Set name" (STYLEGUIDE §Forms: a placeholder never repeats the label). */
+export const SET_NAME_PLACEHOLDER = "New starter onboarding";
 export const SET_PICKER_PLACEHOLDER = "Add policies in order…";
 export const SET_AUTO_ASSIGN_LABEL = "Auto-assign to new joiners";
 export const SET_ASSIGN_PEOPLE_PLACEHOLDER = "Add people…";

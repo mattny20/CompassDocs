@@ -205,7 +205,7 @@ export const AUDIT_LABELS: Record<string, string> = {
   "training.snoozed": "Snoozed training reminder",
   "training.reminded": "Sent training reminder",
   "training.due_extended": "Extended training due date",
-  "training.leads_set": "Set training leads",
+  "training.leads_set": "Set team leads",
   "training.report_settings": "Updated training report settings",
   "training.snapshot": "Took training snapshot",
   "training.audit_export": "Exported training records",

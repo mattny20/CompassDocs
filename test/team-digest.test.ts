@@ -31,16 +31,23 @@ import { fixtureQuery } from "./support/retry";
 import { switchOn } from "./support/assign";
 import { saveTemplateOverride, resetTemplate, templateDef, SAMPLE_VARS, renderEmail } from "../src/lib/email-templates";
 import { runPeriodic, isoWeekId, monthId } from "../src/lib/periodic";
-import { weeklyTeamDigest, TEAM_DIGEST_CLAIM_KEY, policySummaryLines, trainingSummaryLines } from "../src/lib/team-digest";
+import {
+  weeklyTeamDigest,
+  TEAM_DIGEST_CLAIM_KEY,
+  LEGACY_TEAM_DIGEST_CLAIM_KEY,
+  policySummaryLines,
+  trainingSummaryLines,
+} from "../src/lib/team-digest";
 import type { Mailer } from "../src/lib/compliance";
 
 const STAMP = `teamdig-${Date.now()}`;
 const SETTINGS_LOCK = 728342;
 const TEXT = Array.from({ length: 8 }, (_, i) => `Clause ${i + 1}: staff must follow the procedure described here.`).join("\n\n");
 
-let internalSpaceId = 0;
-let privateSpaceId = 0;
+let visibleSpaceId = 0; // private, granted to the led group and the lead's own group: the lead reads it, no other file's account does
+let privateSpaceId = 0; // private, granted to the led group alone: hidden from the lead
 let groupId = 0;
+let leadGroupId = 0;
 let leadId = 0;
 let m1 = 0;
 let m2 = 0;
@@ -51,6 +58,7 @@ const userIds: number[] = [];
 let lockClient: PoolClient | null = null;
 let savedDefaults: string | undefined;
 let savedClaim: string | undefined;
+let savedLegacyClaim: string | undefined;
 let savedOverride: string | undefined;
 let periods = 0;
 
@@ -113,13 +121,17 @@ before(async () => {
   lockClient = client;
   savedDefaults = await getSetting("ack_defaults");
   savedClaim = await getSetting(TEAM_DIGEST_CLAIM_KEY);
+  savedLegacyClaim = await getSetting(LEGACY_TEAM_DIGEST_CLAIM_KEY);
   savedOverride = await getSetting("email_tpl_training_team_digest");
 
-  const internal = await fixtureQuery(
-    `INSERT INTO spaces (name, slug, icon, description, visibility) VALUES ($1, $2, '📁', '', 'internal') RETURNING id`,
-    [`Digest ${STAMP}`, `${STAMP}-int`]
+  // Both spaces are private: an internal one would enrol every viewer another
+  // file switches on, and their rows would reach the group line and the
+  // Most overdue list.
+  const visible = await fixtureQuery(
+    `INSERT INTO spaces (name, slug, icon, description, visibility) VALUES ($1, $2, '📁', '', 'private') RETURNING id`,
+    [`Digest ${STAMP}`, `${STAMP}-vis`]
   );
-  internalSpaceId = internal.rows[0].id;
+  visibleSpaceId = visible.rows[0].id;
   const priv = await fixtureQuery(
     `INSERT INTO spaces (name, slug, icon, description, visibility) VALUES ($1, $2, '🔒', '', 'private') RETURNING id`,
     [`Digest private ${STAMP}`, `${STAMP}-priv`]
@@ -133,9 +145,15 @@ before(async () => {
   await addGroupMember(groupId, m1);
   await addGroupMember(groupId, m2);
   await setGroupLeads(groupId, [leadId]);
+  // The lead leads the group without being in it: a one-person group of the
+  // lead's own opens the visible space to the lead; the private space stays
+  // the group's alone.
+  leadGroupId = (await createGroup({ name: `${STAMP} lead` })).id;
+  await addGroupMember(leadGroupId, leadId);
+  await setSpaceGroups(visibleSpaceId, [groupId, leadGroupId]);
   await setSpaceGroups(privateSpaceId, [groupId]);
 
-  policyA = await policy(internalSpaceId, `${STAMP} Code of conduct`);
+  policyA = await policy(visibleSpaceId, `${STAMP} Code of conduct`);
   policyB = await policy(privateSpaceId, `${STAMP} Private handling`);
   // Both members overdue on A (Ben the longer), nobody confirmed anything.
   await pool().query("UPDATE policy_assignments SET due_at = now() - interval '20 days' WHERE document_id = $1 AND user_id = $2", [policyA, m1]);
@@ -148,13 +166,15 @@ after(async () => {
   await pool().query("DELETE FROM ack_notices WHERE document_id = ANY($1) OR user_id = ANY($2)", [docIds, userIds]);
   await pool().query("DELETE FROM ack_outbox WHERE document_id = ANY($1)", [docIds]);
   await pool().query("DELETE FROM documents WHERE id = ANY($1)", [docIds]);
-  await pool().query("DELETE FROM groups WHERE id = $1", [groupId]);
+  await pool().query("DELETE FROM groups WHERE id = ANY($1)", [[groupId, leadGroupId]]);
   await pool().query("DELETE FROM users WHERE id = ANY($1)", [userIds]);
-  await pool().query("DELETE FROM spaces WHERE id = ANY($1)", [[internalSpaceId, privateSpaceId]]);
+  await pool().query("DELETE FROM spaces WHERE id = ANY($1)", [[visibleSpaceId, privateSpaceId]]);
   if (savedDefaults === undefined) await pool().query("DELETE FROM settings WHERE key = 'ack_defaults'");
   else await setSetting("ack_defaults", savedDefaults);
   if (savedClaim === undefined) await pool().query("DELETE FROM settings WHERE key = $1", [TEAM_DIGEST_CLAIM_KEY]);
   else await setSetting(TEAM_DIGEST_CLAIM_KEY, savedClaim);
+  if (savedLegacyClaim === undefined) await pool().query("DELETE FROM settings WHERE key = $1", [LEGACY_TEAM_DIGEST_CLAIM_KEY]);
+  else await setSetting(LEGACY_TEAM_DIGEST_CLAIM_KEY, savedLegacyClaim);
   if (savedOverride === undefined) await pool().query("DELETE FROM settings WHERE key = 'email_tpl_training_team_digest'");
   else await setSetting("email_tpl_training_team_digest", savedOverride);
   if (lockClient) {
@@ -241,6 +261,21 @@ describe("lib/periodic (pure)", () => {
       ].join("\n")
     );
     assert.equal(policySummaryLines([], [], (iso) => iso), "**Policies**\n- No policies to confirm.");
+  });
+
+  test("runPeriodic never throws: a step that fails is reported and the next still runs", async () => {
+    const r = await runPeriodic({
+      only: ["team_digest", "weekly_report"],
+      steps: {
+        team_digest: async () => {
+          throw new Error("boom");
+        },
+        weekly_report: async () => {},
+      },
+    });
+    assert.deepEqual(r.failed, [{ step: "team_digest", error: "boom" }]);
+    assert.deepEqual(r.ran, ["weekly_report"]);
+    await assert.doesNotReject(runPeriodic({ only: ["team_digest"], steps: { team_digest: () => Promise.reject(new Error("x")) } }));
   });
 });
 
@@ -363,5 +398,38 @@ describe("the weekly team digest", () => {
     assert.equal(r.skipped, null);
     assert.equal(r.sent, 0);
     assert.equal((await digestNotices()).length, before, "no notice row for a mail that was not accepted");
+  });
+
+  test("training alone licensed: the Training section sends, no Policies section and no notice row", async () => {
+    edition.features = ["training"];
+    const sent: Sent[] = [];
+    const before = (await digestNotices()).length;
+    const r = await weeklyTeamDigest({ mailer: mailer(sent), leadIds: [leadId], period: period() });
+    assert.equal(r.skipped, null, JSON.stringify(r));
+    assert.deepEqual(r.sections, { training: true, policies: false });
+    assert.equal(sent.length, 1);
+    assert.match(sent[0].text, /done · /);
+    assert.doesNotMatch(sent[0].text, /Policies|overdue/, "nothing of the policies without the licence, setting or not");
+    assert.match(sent[0].text, /\/training\/team/);
+    assert.equal((await digestNotices()).length, before, "no notice row without the policies section");
+    edition.features = ["policy_ack"];
+  });
+
+  test("the week 1.13.0's sweep already sent is not sent again; a won claim writes the old key too", async () => {
+    edition.features = ["policy_ack"];
+    const sent: Sent[] = [];
+    const p = period();
+    await setSetting(LEGACY_TEAM_DIGEST_CLAIM_KEY, p);
+    const r = await weeklyTeamDigest({ mailer: mailer(sent), leadIds: [leadId], period: p });
+    assert.equal(r.skipped, "claimed", "the old key holding the period is a week the old sweep sent");
+    assert.equal(sent.length, 0);
+    assert.notEqual(await getSetting(TEAM_DIGEST_CLAIM_KEY), p, "the new key is untouched");
+
+    const next = period();
+    const won = await weeklyTeamDigest({ mailer: mailer(sent), leadIds: [leadId], period: next });
+    assert.equal(won.skipped, null, JSON.stringify(won));
+    assert.equal(sent.length, 1);
+    assert.equal(await getSetting(TEAM_DIGEST_CLAIM_KEY), next);
+    assert.equal(await getSetting(LEGACY_TEAM_DIGEST_CLAIM_KEY), next, "a 1.13.0 instance finds the week taken under its own key");
   });
 });

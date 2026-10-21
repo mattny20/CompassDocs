@@ -1251,6 +1251,9 @@ const SCHEMA_SQL = `
   );
   CREATE INDEX IF NOT EXISTS idx_policy_set_docs_doc ON policy_set_docs(document_id);
   ALTER TABLE policy_audience_rules ADD COLUMN IF NOT EXISTS set_id integer REFERENCES policy_sets(id) ON DELETE SET NULL;
+  -- The SET NULL action and the "rules of this set" lookups (a member edited
+  -- out of a set) never scan the rules table (1.14.0, metadata-only).
+  CREATE INDEX IF NOT EXISTS idx_policy_rules_set ON policy_audience_rules(set_id) WHERE set_id IS NOT NULL;
 
   -- Training decks (enterprise "training" entitlement): a published document
   -- becomes a slide deck (split on ---) that can be assigned to users with a
@@ -4024,6 +4027,16 @@ export async function runDbMaintenance(): Promise<{ sessions: number; oauthCodes
   await pool().query(
     "DELETE FROM ack_outbox WHERE done_at IS NOT NULL AND done_at < now() - interval '30 days'"
   );
+  // The deadline notice's per-policy claim (H3, 1.14.0: one settings row
+  // 'ack_deadline_hook_{docId}' per policy a subscribed hook heard about)
+  // outlives a purged policy: a key whose suffix names no document goes.
+  await pool().query(
+    `DELETE FROM settings
+     WHERE key ~ '^ack_deadline_hook_[0-9]+$'
+       AND NOT EXISTS (
+         SELECT 1 FROM documents d
+         WHERE d.id = substring(key from '^ack_deadline_hook_([0-9]+)$')::bigint)`
+  );
   return { sessions: sessions.rowCount ?? 0, oauthCodes: codes.rowCount ?? 0 };
 }
 
@@ -6293,8 +6306,11 @@ export async function policyNeedsAttention(limit = 200, opts: { documentIds?: nu
       due_at: null,
       since: k.ack_revision_at,
     };
-    const pct = Math.round((driftBy.get(k.document_id)?.pct ?? 0) * 10) / 10;
-    if (pct >= RESET_MIN_PCT) {
+    // The raw drift is compared, as the Drifted tile compares it (the route
+    // filters complianceDocs' drift_pct); only the detail rounds.
+    const raw = driftBy.get(k.document_id)?.pct ?? 0;
+    if (raw >= RESET_MIN_PCT) {
+      const pct = Math.round(raw * 10) / 10;
       policyRows.push({
         ...base,
         reason: "drifted",
@@ -7064,6 +7080,10 @@ export async function saveAudienceRules(
     }
     const state = await policyAudienceOn(client, docId);
     await client.query("COMMIT");
+    // H3: policy.requested (1.14.0), after the commit so the event reads the
+    // rows, for the people this save started asking (counts only, one event
+    // per save); nothing when it added nobody, as the set path does.
+    if (told.length > 0) emitPolicyRequestedLater(docId, { actor: opts.actor?.name ?? "", people: told.length, origin: opts.origin });
     return { ...(state as PolicyAudience), ...counts };
   } catch (e) {
     await client.query("ROLLBACK").catch(() => {});
@@ -7414,7 +7434,17 @@ export async function updatePolicySet(
         patch.active === undefined ? null : patch.active ? 1 : 0,
       ]
     );
-    if (patch.doc_ids) await writeSetDocs(client, id, patch.doc_ids);
+    if (patch.doc_ids) {
+      await writeSetDocs(client, id, patch.doc_ids);
+      // A policy edited out of the set keeps its people as plain rules the
+      // Settings tab can then edit: the rules this set wrote on it are
+      // untagged in the same transaction (rows and confirmations untouched,
+      // as a delete of the set leaves them); a member kept keeps its tags.
+      await client.query("UPDATE policy_audience_rules SET set_id = NULL WHERE set_id = $1 AND document_id <> ALL($2::int[])", [
+        id,
+        patch.doc_ids,
+      ]);
+    }
     await client.query("COMMIT");
   } catch (e) {
     await client.query("ROLLBACK").catch(() => {});
@@ -9223,9 +9253,14 @@ export async function anonymiseComplianceRecord(
   const client = await pool().connect();
   try {
     await client.query("BEGIN");
+    // The typed signature (C2) is the person's name and the user agent
+    // their browser: both blank on the person's rows (the record page and
+    // the ledger CSV print them).
     const res = await client.query(
       `UPDATE acknowledgements
-       SET user_name = $2, user_email = '', ip = ''
+       SET user_name = $2, user_email = '', ip = '',
+           signed_name = CASE WHEN signed_name IS NULL THEN NULL ELSE '' END,
+           user_agent = ''
        WHERE user_id = $1`,
       [userId, alias]
     );
@@ -9250,6 +9285,13 @@ export async function anonymiseComplianceRecord(
     // on actor_id); its error column never carries an address (the drain
     // writes "Email to user #id"), so the name is all there is to rewrite.
     const outbox = await client.query(`UPDATE ack_outbox SET actor_name = $2 WHERE actor_id = $1`, [
+      userId,
+      alias,
+    ]);
+    // A manual snapshot names whoever took it (compliance_snapshots.taken_by_name,
+    // F2): the Evidence page prints "by {name}" from it, so it follows the
+    // same rule (taken_by itself is SET NULL only when the account goes).
+    const taken = await client.query(`UPDATE compliance_snapshots SET taken_by_name = $2 WHERE taken_by = $1`, [
       userId,
       alias,
     ]);
@@ -9294,7 +9336,7 @@ export async function anonymiseComplianceRecord(
     }
     await client.query("COMMIT");
     return {
-      rows: (res.rowCount ?? 0) + (decisions.rowCount ?? 0) + (notices.rowCount ?? 0) + (outbox.rowCount ?? 0),
+      rows: (res.rowCount ?? 0) + (decisions.rowCount ?? 0) + (notices.rowCount ?? 0) + (outbox.rowCount ?? 0) + (taken.rowCount ?? 0),
       snapshots_rewritten: snapshotsRewritten,
     };
   } catch (e) {
@@ -9370,6 +9412,13 @@ export interface PolicyTranscriptRow {
   /** When and why the row was closed ('closed' rows: "Required {assigned_at} to {removed_at} ({removed_reason})"). */
   removed_at: string | null;
   removed_reason: string;
+  /**
+   * A 'closed' row whose policy stopped asking (the requirement switched off,
+   * or the policy paused or trashed with it on) while the row stayed open:
+   * removed_at is null, the status is the standing frozen when it stopped,
+   * and the page reads "No longer required". False on every other row.
+   */
+  stopped: boolean;
   /** The confirmation on this row: the current one on an assignment row, the superseded one on a 'superseded' row; null while pending. */
   acknowledged_at: string | null;
   /** The confirmed version's Version-history number ("v12"); null while pending or when the version is gone. */
@@ -9410,7 +9459,7 @@ export interface PolicyTranscript {
   person: { id: number; name: string; username: string; email: string; status: "active" | "disabled" };
   /** Open and exempt rows of live policies, unconfirmed first (soonest deadline first), then confirmed, then exempt. */
   current: PolicyTranscriptRow[];
-  /** Prior confirmations, closed assignments and rows on retired policies, newest first. */
+  /** Prior confirmations, closed assignments, rows on retired policies and rows on policies that stopped asking (`stopped`), newest first. */
   history: PolicyTranscriptRow[];
   /** Notices sent to the person, newest first, through the same filter (at most 500). */
   notices: NoticeRow[];
@@ -9461,17 +9510,39 @@ async function transcriptAccess(userId: number, viewer: SessionUser): Promise<Tr
   if (viewer.id === userId) return { kind: "self", ...base };
   if (await canAccessSection(viewer, "compliance")) return { kind: "program", ...base };
   const lead = (
-    await q<{ leads: boolean; team_read: boolean }>(
+    await q<{ leads: boolean; team_read: boolean; in_group: boolean }>(
       `SELECT EXISTS (
          SELECT 1 FROM group_leads gl JOIN group_members gm ON gm.group_id = gl.group_id
          WHERE gl.user_id = $1 AND gm.user_id = $2
        ) AS leads,
-       ${HOLDS_GLOBALLY("compliance.team_read", "$1")} AS team_read`,
+       ${HOLDS_GLOBALLY("compliance.team_read", "$1")} AS team_read,
+       EXISTS (SELECT 1 FROM group_members gm WHERE gm.user_id = $2) AS in_group`,
       [viewer.id, userId]
     )
   )[0];
-  if (lead?.leads && (lead.team_read || (await leadsSeePolicies()))) return { kind: "lead", ...base };
-  if (roster === "all" || roster.length > 0) return { kind: "roster", ...base };
+  // compliance.team_read opens every group's members, as the team page
+  // lists them (one reading for F3 and F4, so its links never 404); a lead
+  // of one of the person's groups needs the Program setting.
+  if (lead && ((lead.team_read && lead.in_group) || (lead.leads && (await leadsSeePolicies())))) return { kind: "lead", ...base };
+  if (roster === "all") return { kind: "roster", ...base };
+  if (roster.length > 0) {
+    // A space-scoped roster reader opens a record only when the person has a
+    // row (an assignment or a confirmation) on a policy in one of those
+    // spaces that the reader can read; otherwise the same null as a
+    // stranger, so the route's 404 never says whether the account exists.
+    const hit = (
+      await q<{ ok: boolean }>(
+        `SELECT EXISTS (
+           SELECT 1 FROM documents d
+           WHERE d.space_id = ANY($3::int[]) AND d.space_id IN (${readableSpaceIdsSql("$1")})
+             AND (EXISTS (SELECT 1 FROM policy_assignments pa WHERE pa.user_id = $2 AND pa.document_id = d.id)
+                  OR EXISTS (SELECT 1 FROM acknowledgements a WHERE a.user_id = $2 AND a.document_id = d.id))
+         ) AS ok`,
+        [viewer.id, userId, roster]
+      )
+    )[0];
+    if (hit?.ok) return { kind: "roster", ...base };
+  }
   return null;
 }
 
@@ -9539,7 +9610,7 @@ function transcriptAckCols(a: string, ipVisible: string): string {
 function transcriptAssignmentSql(
   p: ReturnType<typeof transcriptParams>,
   record: TranscriptRecord,
-  opts: { overdue: boolean; where: string; order: string }
+  opts: { overdue: boolean; where: string; order: string; stopped?: boolean }
 ): string {
   const user = p.user();
   const ipVisible = p.ipVisible();
@@ -9550,7 +9621,7 @@ function transcriptAssignmentSql(
                        ELSE 'pending' END`;
   return `SELECT '${record}' AS record, d.id AS document_id, d.title, d.space_id, s.name AS space_name, s.icon AS space_icon,
                  pa.id AS assignment_id, pa.source, pa.assigned_at, pa.cycle_started_at, pa.due_at,
-                 pa.removed_at, COALESCE(pa.removed_reason, '') AS removed_reason,
+                 pa.removed_at, COALESCE(pa.removed_reason, '') AS removed_reason, ${opts.stopped ? "true" : "false"} AS stopped,
                  ${status} AS status,
                  ${transcriptAckCols("a", ipVisible)},
                  (pa.exempt_at IS NOT NULL) AS exempt, COALESCE(pa.exempt_reason, '') AS exempt_reason,
@@ -9595,7 +9666,7 @@ function transcriptSupersededSql(p: ReturnType<typeof transcriptParams>): string
                  d.space_id, COALESCE(s.name, '') AS space_name, COALESCE(s.icon, '') AS space_icon,
                  NULL::int AS assignment_id, '' AS source, NULL::timestamptz AS assigned_at,
                  NULL::timestamptz AS cycle_started_at, NULL::timestamptz AS due_at,
-                 NULL::timestamptz AS removed_at, '' AS removed_reason,
+                 NULL::timestamptz AS removed_at, '' AS removed_reason, false AS stopped,
                  'superseded' AS status,
                  ${transcriptAckCols("x", ipVisible)},
                  false AS exempt, '' AS exempt_reason, '' AS exempt_by_name, NULL::timestamptz AS exempt_at,
@@ -9675,7 +9746,7 @@ export async function userPolicyTranscript(userId: number, viewer: SessionUser):
     return q<RawTranscriptRow>(sql, p.values);
   };
 
-  const [current, superseded, closed, retired] = await Promise.all([
+  const [current, superseded, closed, retired, stopped] = await Promise.all([
     run((p) =>
       transcriptAssignmentSql(p, "current", {
         overdue: true,
@@ -9697,6 +9768,18 @@ export async function userPolicyTranscript(userId: number, viewer: SessionUser):
         overdue: false,
         where: `pa.removed_at IS NULL AND d.ack_retired_at IS NOT NULL`,
         order: `d.ack_retired_at DESC, d.id DESC`,
+      })
+    ),
+    // Open rows on a policy that no longer asks and is not retired ("Stop
+    // requiring" leaves the rows open; so do pausing and trashing with the
+    // requirement on): 'closed' with the standing frozen and `stopped`, so a
+    // confirmation the ledger and the roster still carry stays on the record.
+    run((p) =>
+      transcriptAssignmentSql(p, "closed", {
+        overdue: false,
+        stopped: true,
+        where: `pa.removed_at IS NULL AND d.ack_retired_at IS NULL AND NOT (${MY_POLICY_DOC})`,
+        order: `d.updated_at DESC, d.id DESC`,
       })
     ),
   ]);
@@ -9723,10 +9806,15 @@ export async function userPolicyTranscript(userId: number, viewer: SessionUser):
 
   // Newest first by the date that put the row in history: when the
   // assignment was closed, when the policy was retired, or when the
-  // superseded confirmation was made.
+  // superseded confirmation was made; a stopped row (nothing records when
+  // the policy stopped asking) takes its confirmation, else its assignment.
   const stamp = (r: RawTranscriptRow) =>
-    (r.record === "closed" ? r.removed_at : r.record === "retired" ? r.retired_at : r.acknowledged_at) ?? "";
-  const history = [...superseded, ...closed, ...retired].sort((x, y) => stamp(y).localeCompare(stamp(x)));
+    (r.record === "closed"
+      ? (r.removed_at ?? r.acknowledged_at ?? r.assigned_at)
+      : r.record === "retired"
+        ? r.retired_at
+        : r.acknowledged_at) ?? "";
+  const history = [...superseded, ...closed, ...retired, ...stopped].sort((x, y) => stamp(y).localeCompare(stamp(x)));
   const docIds = [...new Set([...current, ...history].map((r) => r.document_id).filter((id): id is number => id != null))];
   const sets = await transcriptSetNames(docIds);
   return {
@@ -10252,7 +10340,8 @@ export interface AckNoticeInput {
   user_id: number;
   user_name: string;
   user_email: string;
-  document_id: number;
+  /** The policy; null for a notice that names none (the weekly team digest). An id that matches no document is stored as NULL too. */
+  document_id: number | null;
   document_title: string;
   kind: AckNoticeKind;
   channels: AckNoticeChannel[];
@@ -13188,7 +13277,13 @@ export async function attestedTextsFor(versionIds: number[]): Promise<AttestedTe
   );
 }
 
-/** The period counts of the programme report (complianceReportSummary), over the live policies, for [from, to). */
+/**
+ * The period counts of the programme report (complianceReportSummary), over
+ * the live policies, for [from, to). A new joiner is an account created in
+ * the period and enrolled in it, whether the space admitted them (source
+ * 'new_member') or an onboarding set did (source 'set', D3); an existing
+ * account a set admits is an assignment, not a joiner.
+ */
 export async function complianceReportCounts(from: string, to: string): Promise<{
   escalations: number;
   new_joiners: number;
@@ -13197,12 +13292,15 @@ export async function complianceReportCounts(from: string, to: string): Promise<
 }> {
   const r = await q<{ escalations: number; new_joiners: number; exemptions_granted: number; standing_exemptions_old: number }>(
     `SELECT COUNT(*) FILTER (WHERE pa.escalated_at >= $1::timestamptz AND pa.escalated_at < $2::timestamptz)::int AS escalations,
-            COUNT(DISTINCT pa.user_id) FILTER (WHERE pa.source = 'new_member' AND pa.assigned_at >= $1::timestamptz AND pa.assigned_at < $2::timestamptz)::int AS new_joiners,
+            COUNT(DISTINCT pa.user_id) FILTER (WHERE pa.source IN ('new_member', 'set')
+                                                 AND pa.assigned_at >= $1::timestamptz AND pa.assigned_at < $2::timestamptz
+                                                 AND u.created_at >= $1::timestamptz AND u.created_at < $2::timestamptz)::int AS new_joiners,
             COUNT(*) FILTER (WHERE pa.exempt_at >= $1::timestamptz AND pa.exempt_at < $2::timestamptz)::int AS exemptions_granted,
             COUNT(*) FILTER (WHERE pa.removed_at IS NULL AND pa.exempt_at IS NOT NULL AND pa.exempt_until IS NULL
                                AND pa.exempt_at < now() - interval '12 months')::int AS standing_exemptions_old
      FROM policy_assignments pa
      JOIN documents d ON d.id = pa.document_id
+     LEFT JOIN users u ON u.id = pa.user_id
      WHERE d.ack_required = 1 AND d.status = 'published' AND d.deleted_at IS NULL AND d.branch_of IS NULL
        AND d.ack_retired_at IS NULL`,
     [from, to]

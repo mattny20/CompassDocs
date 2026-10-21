@@ -192,13 +192,18 @@ export function PortalOverview({ licensed, canManageLicense = false }: PortalPag
                       <span className="flex w-full flex-wrap items-center gap-1 print:hidden sm:w-auto sm:shrink-0">
                         {person && r.assignment_id != null && (
                           <>
+                            {/* The row stays after a reminder (nothing is
+                                settled by it), so the button keeps focus:
+                                Remind is not wired through focusAfter, which
+                                would note a neighbour for a row that never
+                                leaves. */}
                             <Button
                               variant="secondary"
                               size="sm"
                               icon={<BellRing />}
-                              onClick={() => focusAfter(queue.rows, i, () => attention.remind(r))}
+                              onClick={() => void attention.remind(r)}
                               disabled={busy}
-                              busy={isBusy(`remind-${r.document_id}`)}
+                              busy={isBusy(`remind-person-${r.assignment_id}`)}
                               data-tt={REMIND_TIP}
                               data-tt-wrap=""
                             >

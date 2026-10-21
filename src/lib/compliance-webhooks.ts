@@ -151,17 +151,32 @@ function policyInfo(
   return info;
 }
 
-/** Every enabled hook subscribed to the event. */
-async function hooksFor(event: WebhookEvent): Promise<{ scoped: number; unscoped: number }> {
+/** The enabled hooks subscribed to the event: how many carry a space filter, how many none, and the spaces the scoped ones cover. */
+interface SubscribedHooks {
+  scoped: number;
+  unscoped: number;
+  spaces: Set<number>;
+}
+
+async function hooksFor(event: WebhookEvent): Promise<SubscribedHooks> {
   const hooks = await listWebhooks();
   let scoped = 0;
   let unscoped = 0;
+  const spaces = new Set<number>();
   for (const h of hooks) {
     if (h.enabled !== 1 || !(h.events ?? []).includes(event)) continue;
-    if ((h.space_ids ?? []).length > 0) scoped++;
-    else unscoped++;
+    const ids = h.space_ids ?? [];
+    if (ids.length > 0) {
+      scoped++;
+      for (const id of ids) spaces.add(id);
+    } else unscoped++;
   }
-  return { scoped, unscoped };
+  return { scoped, unscoped, spaces };
+}
+
+/** Whether a subscribed hook would receive a policy in this space (an unscoped one, or one scoped to it): notifyWebhooks' filter, asked ahead of a claim. */
+function hooksCover(hooks: SubscribedHooks, spaceId: number): boolean {
+  return hooks.unscoped > 0 || hooks.spaces.has(spaceId);
 }
 
 /** Runs one emit to completion and logs instead of throwing: every caller may `void` it. */
@@ -317,8 +332,9 @@ interface DeadlineRow {
  * calendar day (the workspace's zone), so the people asked on one day share
  * one notice however their timestamps differ, and a later deadline (a new
  * cohort, an extension) is announced in its turn. Nothing is claimed when
- * no hook subscribes, so a hook added later still hears a deadline that is
- * still ahead.
+ * no hook subscribes, or when every subscribed hook is scoped to other
+ * spaces than the policy's, so a hook added later still hears a deadline
+ * that is still ahead.
  */
 export async function emitPolicyDeadlines(opts: DeadlineSweepOptions = {}): Promise<DeadlineSweepResult> {
   const none: DeadlineSweepResult = { policies: 0, announced: 0, skipped: null };
@@ -364,6 +380,9 @@ export async function emitPolicyDeadlines(opts: DeadlineSweepOptions = {}): Prom
   // endpoint costs the tick one timeout, not one per policy.
   const sends: Promise<boolean>[] = [];
   for (const row of r.rows) {
+    // Nothing is claimed for a policy no hook covers (every subscribed hook
+    // scoped to other spaces), so a hook added later still hears it.
+    if (!hooksCover(hooks, row.space_id)) continue;
     const period = calendarDay(row.next_due, settings.timezone);
     if (!(await claimPeriod(`${DEADLINE_HOOK_CLAIM_PREFIX}${row.id}`, period))) continue;
     const people = Math.max(0, row.required - row.acked);

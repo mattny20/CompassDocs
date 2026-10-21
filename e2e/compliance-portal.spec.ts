@@ -1297,7 +1297,8 @@ test("the Overview's tiles carry the server's numbers, an exempt row counts in E
 
     await page.reload();
     const queue = page.locator("#needs-attention");
-    await expect(queue.getByText(/^(showing \d+ of \d+|\d+)( · \d+ snoozed)?$/)).toBeVisible();
+    // The count line keeps its noun when nothing is cut ("showing 19 of 19").
+    await expect(queue.getByText(/^showing \d+ of \d+( · \d+ snoozed)?$/)).toBeVisible();
     const row = queue.locator("li", { hasText: title });
     await expect(row).toHaveCount(1);
     await expect(row.getByText(`Confirmed text drifted ${queued!.detail}`)).toBeVisible();

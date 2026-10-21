@@ -887,7 +887,10 @@ text-slate-500` before them ("Notary · Phoenix").
   is `print:hidden`. A bulk action over more than the server's cap (200) is
   disabled inside `Tooltip("Up to 200 people at a time.")`. Selection is
   per page: the header checkbox selects the rows on the page, and a
-  successful action clears it.
+  successful action clears it. The portal's Policies list and People
+  table (1.14.0) select everything the filter and the sort show, across
+  pages, labelled "Select all shown" and capped by the "Up to 200 ... at a
+  time." tooltip; the roster keeps per-page selection.
 - **A stacked progress bar** (1.14.0, `PortalPolicies` is the worked
   example): a `role="img"` `div` carrying the numbers as its `aria-label`
   ("312 confirmed, 88 pending, 12 overdue, 4 exempt"), `flex h-1.5

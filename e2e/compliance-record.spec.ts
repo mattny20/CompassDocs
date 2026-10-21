@@ -15,8 +15,9 @@ import { ADMIN, login, api } from "./helpers";
 // Read confirmation is entitlement-gated (policy_ack). CI runs the community
 // build, so each test skips itself when the portal answers 402 and runs in
 // full on the EE rig (as e2e/compliance-portal.spec.ts does). The lead case
-// sets the lead through the training leads API and skips when training is
-// not licensed either.
+// names the lead through the compliance leads API (PUT /api/compliance/leads),
+// which needs the policy_ack licence alone. The admin case also stops the
+// policy and finds the row under Prior confirmations as "No longer required".
 
 const stamp = () => `${Date.now()}${Math.floor(Math.random() * 1000)}`;
 
@@ -237,6 +238,18 @@ test("a person opens their own record, the admin opens it with the Actions secti
     await expect(section(page, "Current requirements").locator("tr", { hasText: title })).toBeVisible();
     await page.emulateMedia({ media: "screen" });
 
+    // Stop requiring the policy: the open row leaves Current requirements
+    // and joins Prior confirmations as "No longer required" (its standing
+    // frozen) instead of vanishing from the record.
+    const stopped = await api(page, "/api/admin/compliance", { method: "POST", body: { docId, action: "stop" } });
+    expect(stopped.status, "stopped requiring").toBe(200);
+    await page.reload();
+    await expect(section(page, "Current requirements").locator("tr", { hasText: title })).toHaveCount(0);
+    const prior = section(page, /^Prior confirmations/).locator("tr", { hasText: title });
+    await expect(prior).toHaveCount(1);
+    await expect(prior.getByText("No longer required", { exact: true })).toBeVisible();
+    await expect(prior.getByText(/^Required from \S/)).toBeVisible();
+
     // A stranger: a signed-in viewer with no relation to the person is not
     // found, on the page and on the API, the same answer an unknown id gets.
     const sctx = await browser.newContext();
@@ -288,9 +301,8 @@ test("a group lead with the setting on opens a member's record scoped to their o
     // in no group that reads the private space.
     readersGroup = await makeGroup(page, `E2E record readers ${suffix}`, [memberId]);
     teamGroup = await makeGroup(page, `E2E record team ${suffix}`, [memberId]);
-    const leads = await api(page, "/api/training/leads", { method: "PUT", body: { group_id: teamGroup, user_ids: [leadId] } });
-    test.skip(leads.status === 402, "training is not licensed in this build, so no API names a group lead; the EE rig runs the flow");
-    expect(leads.status, "the lead named").toBe(200);
+    const leads = await api(page, "/api/compliance/leads", { method: "PUT", body: { group_id: teamGroup, user_ids: [leadId] } });
+    expect(leads.status, "the lead named through the compliance leads route").toBe(200);
 
     spaceId = await makePrivateSpace(page, `E2E record space ${suffix}`, [readersGroup]);
     privateId = await makePolicy(page, privateTitle, spaceId);

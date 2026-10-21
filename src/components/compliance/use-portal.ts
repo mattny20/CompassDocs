@@ -224,6 +224,13 @@ interface PostResult {
   until?: string | null;
 }
 
+/** What POST /api/admin/compliance/bulk answers to remind_people (lib/ack-bulk BulkAnswer, the part the queue reads: rows reminded, and who was skipped and why). */
+interface BulkRemindAnswer {
+  done?: number;
+  queued?: number;
+  skipped?: { id: number; title: string; reason: string }[];
+}
+
 /** The queue's per-person reasons: the rows whose actions are Remind, Extend 7 days, Snooze and Exempt…. */
 export const ATTENTION_PERSON_REASONS: ReadonlySet<PolicyAttentionReason> = new Set([
   "overdue",
@@ -371,8 +378,8 @@ export function usePortal(licensed: boolean) {
   }, []);
 
   /** One POST through useAction: the server's error or the fallback is toasted; the body comes back on success. */
-  async function postTo(key: string, url: string, body: Record<string, unknown>, fallback: string): Promise<PostResult | null> {
-    const box: { result?: PostResult } = {};
+  async function postTo<T = PostResult>(key: string, url: string, body: Record<string, unknown>, fallback: string): Promise<T | null> {
+    const box: { result?: T } = {};
     const ok = await run(
       key,
       async () => {
@@ -381,12 +388,12 @@ export function usePortal(licensed: boolean) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
-        if (res.ok) box.result = (await res.clone().json().catch(() => ({}))) as PostResult;
+        if (res.ok) box.result = (await res.clone().json().catch(() => ({}))) as T;
         return res;
       },
       { fallback, refresh: false }
     );
-    return ok ? (box.result ?? {}) : null;
+    return ok ? (box.result ?? ({} as T)) : null;
   }
 
   /** The portal's own POST (request, remind, stop). */
@@ -434,19 +441,24 @@ export function usePortal(licensed: boolean) {
     await load();
   }
 
-  async function remind(d: DocRow) {
+  // Resolves true once the reminders are queued and the list reloaded, false
+  // when the question was cancelled or the server refused (the toast said
+  // so), so a caller that moves focus afterwards knows whether anything
+  // happened.
+  async function remind(d: DocRow): Promise<boolean> {
     const pending = Math.max(0, d.required - d.acked);
     const answer = await confirmDialog({
       title: `Remind ${people(pending)}?`,
       body: `Everyone who has not confirmed "${d.title}" yet gets a notice and, unless they opted out, an email. This cannot be undone.`,
       confirmLabel: "Send reminders",
     });
-    if (answer !== true) return;
+    if (answer !== true) return false;
     const r = await post(`remind-${d.id}`, { docId: d.id, action: "remind" }, "Couldn't send reminders.");
-    if (!r) return;
+    if (!r) return false;
     toast("ok", `Reminders queued for ${people(r.queued ?? pending)}.`);
     dropRoster(d.id);
     await load();
+    return true;
   }
 
   // Reversible, so it tells rather than asks (STYLEGUIDE §Feedback): the
@@ -562,12 +574,13 @@ export function usePortal(licensed: boolean) {
 
   // ── The Needs attention queue's row actions (F1, 1.14.0) ──────────────────
   //
-  // Each takes the queue row, posts to the assignments route with its
-  // assignment id, toasts the roster's sentence for one person and reloads
-  // the payload (the row leaves the queue or changes reason). Every one
-  // resolves true when something changed, false when cancelled, refused or
-  // skipped, so the page can move focus to the row's neighbour only when
-  // the row is gone. The reversible ones carry Undo as the inverse call.
+  // Each takes the queue row, posts to the assignments route (Remind: the
+  // bulk route's remind_people) with its assignment id, toasts the roster's
+  // sentence for one person and reloads the payload (the row leaves the
+  // queue or changes reason). Every one resolves true when something
+  // changed, false when cancelled, refused or skipped, so the page can move
+  // focus to the row's neighbour only when the row is gone. The reversible
+  // ones carry Undo as the inverse call.
 
   /** One POST to the assignments route; null when refused (already toasted) or when the row came back skipped (toasted here). */
   async function assignment(key: string, body: Record<string, unknown>, fallback: string): Promise<PostResult | null> {
@@ -582,14 +595,32 @@ export function usePortal(licensed: boolean) {
 
   const nameOf = (row: PolicyAttentionRow) => row.user_name || people(1);
 
-  /** Remind: the portal's per-policy reminder for the row's policy (the question and the hour apply). */
+  /**
+   * Remind: one reminder for this person on this policy through the bulk
+   * route's remind_people (the row's assignment id), so a programme manager
+   * reminds the one person the row names rather than everyone pending on
+   * the policy. The server's hour applies per row: inside it, or with
+   * nothing outstanding, the answer's skipped reason is the toast and
+   * nothing reloads (false). The row stays in the queue (a reminder settles
+   * nothing), so the page keeps focus where it is.
+   */
   async function remindFor(row: PolicyAttentionRow): Promise<boolean> {
-    const d = data?.docs.find((x) => x.id === row.document_id);
-    if (!d) {
-      toast("error", "This policy is no longer on the list.");
+    if (row.assignment_id == null) return false;
+    const r = await postTo<BulkRemindAnswer>(
+      `remind-person-${row.assignment_id}`,
+      "/api/admin/compliance/bulk",
+      { action: "remind_people", assignment_ids: [row.assignment_id] },
+      "Couldn't send the reminder."
+    );
+    if (!r) return false;
+    if (!r.done) {
+      const first = r.skipped?.[0];
+      toast("error", first ? `Nothing changed. ${first.title}: ${first.reason}.` : "Nothing changed.");
       return false;
     }
-    await remind(d);
+    toast("ok", `Reminder queued for ${nameOf(row)}.`);
+    dropRoster(row.document_id);
+    await load();
     return true;
   }
 

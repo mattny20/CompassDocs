@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server";
 import { apiGuard } from "@/lib/api-auth";
 import { featureEnabled } from "@/lib/ee";
-import { userLeadGroups, listGroups, teamPolicyRows, leadMayRemind, stampAckReminded } from "@/lib/db";
-import { grantsFor, admits } from "@/lib/authz";
+import { listGroups, teamPolicyRows, leadMayRemind, stampAckReminded } from "@/lib/db";
 import { userHolds } from "@/lib/access";
-import { getComplianceSettings } from "@/lib/compliance-settings";
+import { teamViewAccess, type TeamViewRow } from "@/lib/team-access";
 import { enqueueAckNotice, sweepDefaults, workspaceDueDefaults } from "@/lib/compliance";
 import { teamGroupSummaries, remindedAgoSentence, daysSince } from "@/lib/team-digest";
 import { auditAck, actorFrom, ipFrom } from "@/lib/audit";
@@ -17,16 +16,18 @@ export const dynamic = "force-dynamic";
 // groups this person leads stand on the policies that ask them, the policy
 // twin of /api/training/team.
 //
-// Who may open it: leading a group (group_leads) when Program settings let
-// leads see policy standing (ack_defaults.leads_see_policies: an opt-in,
-// because widening what every existing lead can see is a permissions
-// change), or compliance.team_read, which opens every group (a role grant:
-// the Compliance manager role holds it, and an administrator can be given
-// it to debug a lead's view). The rows are scoped in SQL to the viewer's
-// readable spaces (teamPolicyRows): a lead of a broad group reads "2
-// policies you can't view" as a count, never a private-space title.
+// Who may open it is lib/team-access's rule (one copy, shared with the
+// section layout, the team page and the mine route): leading a group
+// (group_leads) when Program settings let leads see policy standing, or
+// compliance.team_read, which opens every group. The rows are scoped in SQL
+// to the viewer's readable spaces (teamPolicyRows): a lead of a broad group
+// reads "2 policies you can't view" as a count, never a private-space title.
 //
-// GET  → { groups: [{ id, name, members, confirmed, open, overdue }], rows: TeamPolicyRow[] }
+// GET  → { groups: [{ id, name, members, confirmed, open, overdue }], rows: TeamViewRow[] }
+//   each row with `may_remind`: whether POST would let this viewer remind it
+//   (the viewer leads one of the member's groups, or holds
+//   compliance.program_manage), so the page disables Remind where the POST
+//   would answer 403 instead of offering a control that fails.
 // POST { assignment_id } → one reminder for that person, queued through the
 //   outbox as a manual reminder from the lead, stamped on the row, audited
 //   ack.reminder_sent { by: 'lead', user_id }; governed by the row's own
@@ -36,28 +37,12 @@ export const dynamic = "force-dynamic";
 //   (403 otherwise); a programme manager (compliance.program_manage) may
 //   remind anyone the view shows, as the portal already lets them.
 
-const NO_GROUPS = "You don't lead any groups.";
-const LEADS_OFF = "Group leads don't see policy standing in this workspace.";
 const NOT_YOUR_GROUP = "You can only remind members of groups you lead.";
 const NO_ROW = "No such requirement.";
 
 async function licence(): Promise<NextResponse | null> {
   if (await featureEnabled("policy_ack")) return null;
   return NextResponse.json({ error: "Read confirmations are not included in your license." }, { status: 402 });
-}
-
-/**
- * The rule, once: a permission holder sees every group; a lead sees theirs
- * when the setting is on. Neither: 403 with the reason.
- */
-async function teamAccess(
-  userId: number
-): Promise<{ allowed: true; every: boolean; groups: { id: number; name: string }[] } | { allowed: false; reason: string }> {
-  const [groups, grants, settings] = await Promise.all([userLeadGroups(userId), grantsFor(userId), getComplianceSettings()]);
-  const every = admits(grants, "compliance.team_read");
-  const asLead = groups.length > 0 && settings.ack_defaults.leads_see_policies;
-  if (every || asLead) return { allowed: true, every, groups };
-  return { allowed: false, reason: groups.length ? LEADS_OFF : NO_GROUPS };
 }
 
 export async function GET() {
@@ -69,17 +54,27 @@ export async function GET() {
   const denied = await licence();
   if (denied) return denied;
 
-  const access = await teamAccess(user.id);
+  const access = await teamViewAccess(user.id);
   if (!access.allowed) return NextResponse.json({ error: access.reason }, { status: 403 });
   // A permission holder's view is built from the full group list, never by
   // passing "all" through the group filter (one way to express scope).
   const groups = access.every ? (await listGroups()).map((g) => ({ id: g.id, name: g.name })) : access.groups;
-  const rows = await teamPolicyRows(
-    groups.map((g) => g.id),
-    user.id
-  );
+  const [rows, programManage] = await Promise.all([
+    teamPolicyRows(
+      groups.map((g) => g.id),
+      user.id
+    ),
+    userHolds(user, "compliance.program_manage", { legacyMin: "admin" }),
+  ]);
+  // may_remind, the POST's rule per row (leadMayRemind's `leads`: the member
+  // is in a group this viewer leads; the rows list every member of every
+  // group shown, so a member of a led group is found among them), or the
+  // programme right. A lead sees only led groups, so every row is theirs.
+  const led = new Set(access.groups.map((g) => g.id));
+  const ledMembers = new Set(rows.filter((r) => led.has(r.group_id)).map((r) => r.user_id));
+  const view: TeamViewRow[] = rows.map((r) => ({ ...r, may_remind: programManage || ledMembers.has(r.user_id) }));
   return NextResponse.json(
-    { groups: teamGroupSummaries(groups, rows), rows },
+    { groups: teamGroupSummaries(groups, rows), rows: view },
     { headers: { "Cache-Control": "no-store" } }
   );
 }
@@ -102,7 +97,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Send the assignment_id of the row to remind." }, { status: 400 });
   }
 
-  const access = await teamAccess(user.id);
+  const access = await teamViewAccess(user.id);
   if (!access.allowed) return NextResponse.json({ error: access.reason }, { status: 403 });
 
   // The cadence resolves as the sweep resolves it: the policy's own number,

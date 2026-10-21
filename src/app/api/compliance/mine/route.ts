@@ -3,7 +3,7 @@ import { apiGuard } from "@/lib/api-auth";
 import { spaceScopeFor } from "@/lib/access";
 import { featureEnabled } from "@/lib/ee";
 import { listMyPolicies } from "@/lib/db";
-import { teamViewAccess } from "@/app/(app)/compliance/portal-page";
+import { teamViewAccess } from "@/lib/team-access";
 import type { SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";

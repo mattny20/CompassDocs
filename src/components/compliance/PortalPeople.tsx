@@ -132,9 +132,16 @@ export function PortalPeople({ licensed, canManageLicense = false }: PortalPageP
           </div>
           {can.manage && selection.size > 0 && (
             // The bulk bar (F5): the actions over the checked people; a
-            // successful action clears the selection and reloads.
-            <div className="border-b border-slate-100 px-4 py-3">
-              <PeopleBulkBar selected={selectedPeople} onClear={selection.clear} onDone={() => portal.load()} />
+            // successful action clears the selection, reloads, then focuses
+            // Select all shown (the control the bar grew from). Off the
+            // paper with its band.
+            <div className="border-b border-slate-100 px-4 py-3 print:hidden">
+              <PeopleBulkBar
+                selected={selectedPeople}
+                onClear={selection.clear}
+                onDone={() => portal.load()}
+                focusAfter={() => headCheck.current?.focus()}
+              />
             </div>
           )}
           {pager && <div className="border-b border-slate-100 px-4 py-2">{pager}</div>}

@@ -1,5 +1,5 @@
 import "server-only";
-import { claimPeriod, listTrainingDigestLeads, teamTrainingRows, teamPolicyRows } from "./db";
+import { claimPeriod, getSetting, setSetting, listTrainingDigestLeads, teamTrainingRows, teamPolicyRows } from "./db";
 import type { TeamPolicyRow, TeamTrainingRow } from "./db";
 import { renderEmail } from "./email-templates";
 import { sendMail } from "./mailer";
@@ -29,15 +29,21 @@ import { isoWeekId } from "./periodic";
 // table (claimPeriod 'team_digest_week'), AFTER the checks that could make
 // the tick send nothing (a licence, leads with email, SMTP), so a week is
 // never burnt by a tick that had nothing to send; the claim is the only
-// gate, so every instance may run this at once. Each digest that carried
-// the Policies section writes one ack_notices row per lead (kind 'digest').
+// gate, so every instance may run this at once. 1.13.0's trainingHourly
+// claimed the same week under 'training_team_digest_week': that key is read
+// before the claim (a week it holds was sent by the old sweep, so the
+// upgrade week goes out once) and written after a won one (a 1.13.0
+// instance still running beside this one, or restored by a rollback, finds
+// its own key taken). Each digest that carried the Policies section writes
+// one ack_notices row per lead (kind 'digest').
 
 /** The settings-table key the weekly claim is stored under. */
 export const TEAM_DIGEST_CLAIM_KEY = "team_digest_week";
+/** The key 1.13.0's training sweep claimed the same week under: read before the claim, written after a won one. */
+export const LEGACY_TEAM_DIGEST_CLAIM_KEY = "training_team_digest_week";
 /** How many overdue people the Policies section names after the group lines. */
 export const DIGEST_MOST_OVERDUE = 3;
-/** A digest names no policy: insertAckNotices resolves an id that matches no document to NULL. */
-const DIGEST_NO_DOCUMENT = 0;
+/** A digest names no policy (its notice row carries a NULL document_id). */
 const DIGEST_DOCUMENT_TITLE = "Weekly team digest";
 
 const DAY = 86_400_000;
@@ -212,7 +218,13 @@ export async function weeklyTeamDigest(opts: TeamDigestOptions = {}): Promise<Te
   // SMTP before the claim: a tick that can send nothing must not burn the week.
   const mailer = opts.mailer === undefined ? await defaultMailer() : opts.mailer;
   if (!mailer) return skip("no_smtp", sections, leads.length);
+  // A week 1.13.0's sweep already sent (its key still holds the period
+  // after the upgrade) is not sent again.
+  if ((await getSetting(LEGACY_TEAM_DIGEST_CLAIM_KEY)) === period) return skip("claimed", sections, leads.length);
   if (!(await claimPeriod(TEAM_DIGEST_CLAIM_KEY, period))) return skip("claimed", sections, leads.length);
+  // And a 1.13.0 instance (a rolling deploy, a rollback) finds the week
+  // taken under the key it reads.
+  await setSetting(LEGACY_TEAM_DIGEST_CLAIM_KEY, period);
 
   const settings = await getAppSettings();
   const origin = settings.custom_domain ? `https://${settings.custom_domain}` : "";
@@ -264,7 +276,7 @@ export async function weeklyTeamDigest(opts: TeamDigestOptions = {}): Promise<Te
           user_id: lead.user_id,
           user_name: lead.name,
           user_email: lead.email,
-          document_id: DIGEST_NO_DOCUMENT,
+          document_id: null,
           document_title: DIGEST_DOCUMENT_TITLE,
           kind: "digest",
           channels: ["email"],

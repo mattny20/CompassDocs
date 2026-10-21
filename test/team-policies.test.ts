@@ -43,17 +43,18 @@ const SETTINGS_LOCK = 728342;
 
 const TEXT = Array.from({ length: 8 }, (_, i) => `Clause ${i + 1}: staff must follow the procedure described here.`).join("\n\n");
 
-let internalSpaceId = 0;
-let privateSpaceId = 0;
+let visibleSpaceId = 0; // private, granted to both groups and the lead's own: the lead reads it, no other file's account does
+let privateSpaceId = 0; // private, granted to the led group alone: hidden from the lead
 let groupId = 0; // led by the lead
 let otherGroupId = 0; // led by nobody the test knows
+let leadGroupId = 0; // the lead alone: what opens the visible space to the lead
 let leadId = 0;
 let strangerId = 0;
 let holderId = 0;
 let m1 = 0;
 let m2 = 0;
 let m3 = 0;
-let policyA = 0; // internal space: the lead can read it
+let policyA = 0; // the visible space: the lead can read it
 let policyB = 0; // private space granted to the group: the lead cannot
 let roleId = 0;
 const docIds: number[] = [];
@@ -109,11 +110,13 @@ before(async () => {
   lockClient = client;
   savedDefaults = await getSetting("ack_defaults");
 
-  const internal = await fixtureQuery(
-    `INSERT INTO spaces (name, slug, icon, description, visibility) VALUES ($1, $2, '📁', '', 'internal') RETURNING id`,
-    [`Team ${STAMP}`, `${STAMP}-int`]
+  // Both spaces are private: an internal one would enrol every viewer another
+  // file switches on, and their rows would reach the exact counts below.
+  const visible = await fixtureQuery(
+    `INSERT INTO spaces (name, slug, icon, description, visibility) VALUES ($1, $2, '📁', '', 'private') RETURNING id`,
+    [`Team ${STAMP}`, `${STAMP}-vis`]
   );
-  internalSpaceId = internal.rows[0].id;
+  visibleSpaceId = visible.rows[0].id;
   const priv = await fixtureQuery(
     `INSERT INTO spaces (name, slug, icon, description, visibility) VALUES ($1, $2, '🔒', '', 'private') RETURNING id`,
     [`Team private ${STAMP}`, `${STAMP}-priv`]
@@ -133,11 +136,16 @@ before(async () => {
   await addGroupMember(groupId, m2);
   await addGroupMember(otherGroupId, m3);
   // The lead leads the group without being in it, so the private space
-  // granted to the group is one the lead cannot read.
+  // granted to the group is one the lead cannot read; a one-person group of
+  // the lead's own opens the visible space to the lead (and the other group
+  // reads it too, so Cy is asked by policy A as before).
   await setGroupLeads(groupId, [leadId]);
+  leadGroupId = (await createGroup({ name: `${STAMP} lead` })).id;
+  await addGroupMember(leadGroupId, leadId);
+  await setSpaceGroups(visibleSpaceId, [groupId, otherGroupId, leadGroupId]);
   await setSpaceGroups(privateSpaceId, [groupId]);
 
-  policyA = await policy(internalSpaceId, `${STAMP} Code of conduct`);
+  policyA = await policy(visibleSpaceId, `${STAMP} Code of conduct`);
   policyB = await policy(privateSpaceId, `${STAMP} Private handling`);
 
   // Ana confirmed A; Ben is overdue on A (a deadline long past, whatever the grace).
@@ -162,9 +170,9 @@ after(async () => {
   await pool().query("DELETE FROM documents WHERE id = ANY($1)", [docIds]);
   await pool().query("DELETE FROM sessions WHERE user_id = ANY($1)", [userIds]);
   if (roleId) await pool().query("DELETE FROM roles WHERE id = $1", [roleId]);
-  await pool().query("DELETE FROM groups WHERE id = ANY($1)", [[groupId, otherGroupId]]);
+  await pool().query("DELETE FROM groups WHERE id = ANY($1)", [[groupId, otherGroupId, leadGroupId]]);
   await pool().query("DELETE FROM users WHERE id = ANY($1)", [userIds]);
-  await pool().query("DELETE FROM spaces WHERE id = ANY($1)", [[internalSpaceId, privateSpaceId]]);
+  await pool().query("DELETE FROM spaces WHERE id = ANY($1)", [[visibleSpaceId, privateSpaceId]]);
   if (savedDefaults === undefined) await pool().query("DELETE FROM settings WHERE key = 'ack_defaults'");
   else await setSetting("ack_defaults", savedDefaults);
   if (lockClient) {
@@ -206,8 +214,8 @@ describe("teamPolicyRows (the lead's scope in SQL)", () => {
         [`${STAMP} Private handling`, "pending", 0],
       ].sort()
     );
-    // Cy is in the other group and can see the internal space, so A asks him
-    // (space mode enrols everyone who can see the space).
+    // Cy is in the other group, which is granted the visible space, so A asks
+    // him (space mode enrols everyone who can see the space).
     const cy = rows.filter((r) => r.user_id === m3);
     assert.equal(cy.length, 1);
     assert.equal(cy[0].group_id, otherGroupId);

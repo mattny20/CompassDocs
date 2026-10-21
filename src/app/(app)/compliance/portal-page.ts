@@ -5,9 +5,6 @@ import { requireUser } from "@/lib/auth";
 import { canAccessSection } from "@/lib/section-access";
 import { userHolds } from "@/lib/access";
 import { featureEnabled } from "@/lib/ee";
-import { userLeadGroups } from "@/lib/db";
-import { admits, grantsFor } from "@/lib/authz";
-import { getComplianceSettings } from "@/lib/compliance-settings";
 import type { PortalPageProps } from "@/components/compliance/use-portal";
 import type { EvidencePageProps } from "@/components/compliance/Evidence";
 
@@ -46,22 +43,8 @@ export async function evidencePageProps(): Promise<EvidencePageProps> {
   return { licensed, canManageLicense, canManage };
 }
 
-/**
- * The team view's rule (F4, 1.14.0), exactly as GET /api/compliance/team
- * decides it: compliance.team_read opens every group; leading a group opens
- * the led ones when Program settings let leads see policy standing. Read by
- * the section layout (the Team tab), the team page (its guard, then
- * notFound()) and GET /api/compliance/mine (`lead_team`, the My policies
- * banner: `allowed` and `leads`, because "You lead a team" is said only to
- * someone who does), so the three can never disagree about who may open
- * the page.
- */
-export async function teamViewAccess(userId: number): Promise<{ allowed: boolean; leads: boolean }> {
-  const [groups, grants, settings] = await Promise.all([userLeadGroups(userId), grantsFor(userId), getComplianceSettings()]);
-  const leads = groups.length > 0;
-  return { allowed: admits(grants, "compliance.team_read") || (leads && settings.ack_defaults.leads_see_policies), leads };
-}
-
-export async function teamViewAllowed(userId: number): Promise<boolean> {
-  return (await teamViewAccess(userId)).allowed;
-}
+// The team view's rule (F4, 1.14.0) lives in lib/team-access, the one copy
+// the team route, the mine route, the section layout (the Team tab) and the
+// team page share; re-exported here so the layout and the page keep their
+// import beside the other page guards.
+export { teamViewAccess, teamViewAllowed } from "@/lib/team-access";

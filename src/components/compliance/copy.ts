@@ -53,8 +53,8 @@ export const EDIT_DEFAULT_CHIP: Record<EditDefault, string> = {
 /** The section-level line when the queue is empty. */
 export const ATTENTION_EMPTY = "Nothing needs attention.";
 
-/** The queue's Remind: the portal's per-policy reminder, which reaches everyone still pending on the policy (no per-person route for a programme manager yet). */
-export const REMIND_TIP = "Send a reminder now to everyone still pending on this policy";
+/** The queue's Remind: one reminder for this person on this policy (the bulk route's remind_people, 1.14.0). */
+export const REMIND_TIP = "Send a reminder now";
 /** The queue's Snooze: the row leaves the queue and the person's automatic reminders pause; nothing else changes. */
 export const SNOOZE_TIP = "Hide from this queue for 7 days";
 /** The queue's "Extend 7 days". */
@@ -99,9 +99,16 @@ export function attentionChip(
   }
 }
 
-/** The queue header's count line: "showing 12 of 19 · 7 snoozed", the bare total when nothing is cut, the snoozed part only when a snooze hides rows. */
-export function attentionCount(shown: number, total: number, snoozed: number): string {
-  const head = shown < total ? `showing ${shown} of ${total}` : `${total}`;
+/**
+ * The queue header's count line: "showing 12 of 19 · 7 snoozed"; "showing 19
+ * of 19" when nothing is cut (the training queue's wording: a count keeps its
+ * noun, never a bare digit); the snoozed part only when a snooze hides rows;
+ * nothing at all on an empty queue, where "Nothing needs attention." is the
+ * one line.
+ */
+export function attentionCount(shown: number, total: number, snoozed: number): string | undefined {
+  if (total === 0) return undefined;
+  const head = `showing ${shown} of ${total}`;
   return snoozed > 0 ? `${head} · ${snoozed} snoozed` : head;
 }
 

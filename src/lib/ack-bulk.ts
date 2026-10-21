@@ -665,6 +665,12 @@ export async function runBulkAction(req: BulkRequest, ctx: BulkContext): Promise
           via: "bulk",
         },
       });
+      // H3: policy.requested, once per policy, as the reconfirm route emits
+      // it for a whole-audience re-ask; never awaited, so a slow channel
+      // never slows the request (lib/compliance-webhooks is loaded lazily).
+      void import("./compliance-webhooks")
+        .then((m) => m.emitPolicyRequested(doc.id, { actor: ctx.actor.name, people: claim.eligible, origin: ctx.origin }))
+        .catch((e) => console.error("[ack] policy.requested channel event:", e));
       done++;
       queued += claim.eligible;
       reset += claim.confirmations_reset;

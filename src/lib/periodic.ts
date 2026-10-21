@@ -54,6 +54,8 @@ export interface PeriodicOptions {
   only?: PeriodicStep[];
   /** Passed through to weeklyTeamDigest (an injected mailer, a period, the leads to consider). */
   digest?: TeamDigestOptions;
+  /** A step's body in place of its module (tests: a step that throws proves the next still runs). The tick passes nothing. */
+  steps?: Partial<Record<PeriodicStep, () => Promise<unknown>>>;
 }
 
 export interface PeriodicResult {
@@ -75,7 +77,7 @@ export async function runPeriodic(opts: PeriodicOptions = {}): Promise<PeriodicR
   const step = async (name: PeriodicStep, run: () => Promise<unknown>) => {
     if (only && !only.has(name)) return;
     try {
-      await run();
+      await (opts.steps?.[name] ?? run)();
       result.ran.push(name);
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e);
