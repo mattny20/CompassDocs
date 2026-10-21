@@ -56,13 +56,6 @@ import type { NoticeRow, PolicyTranscript, PolicyTranscriptRow } from "@/lib/db"
 export interface RecordAbilities {
   /** compliance.program_manage: the Actions section, Remind included (the bulk route's guard is the same right). */
   manage: boolean;
-  /**
-   * No longer read (1.14.0's fix round): Remind goes through the bulk
-   * route, whose guard is compliance.program_manage, so `manage` is the
-   * whole gate. Optional for the server page that still computes it; it
-   * may stop.
-   */
-  remind?: boolean;
   /** user.delete and compliance.program_manage, on someone else's record: Anonymise compliance record…. */
   anonymise: boolean;
 }

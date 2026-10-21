@@ -5,8 +5,7 @@ import { ClipboardCheck, Download } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { featureEnabled } from "@/lib/ee";
 import { userHolds } from "@/lib/access";
-import { getComplianceSettings } from "@/lib/compliance-settings";
-import { userLeadGroups, userPolicyTranscript } from "@/lib/db";
+import { userPolicyTranscript } from "@/lib/db";
 import type { PolicyTranscript } from "@/lib/db";
 import type { SessionUser } from "@/lib/types";
 import { currentVersion } from "@/lib/version";
@@ -52,19 +51,17 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 
 /**
  * What the Actions section may do: the programme right for the section
- * itself; the team route's own rule for Remind (compliance.team_read, or a
- * lead with the setting on: the route refuses anyone else); the erasure
- * right (user.delete, with the programme right) on someone else's record,
- * as the Users page gates it.
+ * itself, Remind included (it goes through the bulk route, whose guard is
+ * the same right); the erasure right (user.delete, with the programme
+ * right) on someone else's record, as the Users page gates it.
  */
 async function abilities(user: SessionUser, personId: number): Promise<RecordAbilities> {
   const manage = await userHolds(user, "compliance.program_manage", { legacyMin: "admin" });
-  if (!manage) return { manage: false, remind: false, anonymise: false };
+  if (!manage) return { manage: false, anonymise: false };
   const { grantsFor, admits, legacyAuthzEnforcement } = await import("@/lib/authz");
-  const [grants, leads, settings] = await Promise.all([grantsFor(user.id), userLeadGroups(user.id), getComplianceSettings()]);
-  const remind = admits(grants, "compliance.team_read") || (leads.length > 0 && settings.ack_defaults.leads_see_policies);
+  const grants = await grantsFor(user.id);
   const anonymise = personId !== user.id && (legacyAuthzEnforcement() || admits(grants, "user.delete"));
-  return { manage, remind, anonymise };
+  return { manage, anonymise };
 }
 
 /** The back link: where this viewer came from, by the kind of viewer the rule admitted. */
