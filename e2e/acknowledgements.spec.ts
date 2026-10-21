@@ -24,6 +24,22 @@ const STATEMENT = "I confirm that I have read and understood this document.";
 const CONFIRM = "I've read and understood this";
 const CONFIRMED = /You confirmed (version \d+|reading this document) on /;
 
+// Every policy a test makes, with the page that made it. Each test deletes
+// its own in a `finally`, but a timed-out test's body is abandoned and its
+// page closed before that `finally` runs, so the DELETE never left (the
+// signature test left three required policies in space 1 that way, and every
+// later run's members owed them). The afterEach hook runs before the page's
+// teardown and deletes through the context's request API, which a stuck page
+// cannot block; a policy the `finally` already deleted answers 404.
+const madePolicies = new Map<number, Page>();
+
+test.afterEach(async () => {
+  for (const [id, owner] of madePolicies) {
+    await owner.request.delete(`/api/documents/${id}`).catch(() => undefined);
+  }
+  madePolicies.clear();
+});
+
 async function makePolicy(page: Page, title: string): Promise<number> {
   const made = await api(page, "/api/documents", {
     method: "POST",
@@ -32,6 +48,7 @@ async function makePolicy(page: Page, title: string): Promise<number> {
   expect(made.status, "policy created").toBe(201);
   const id = made.body?.doc?.id;
   expect(id, "policy id").toBeTruthy();
+  madePolicies.set(id, page);
   return id;
 }
 

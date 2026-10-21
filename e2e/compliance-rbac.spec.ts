@@ -256,7 +256,9 @@ test("a program_read-only role reads the portal and nothing more; unknown action
       await rpage.goto("/compliance/overview");
       const main = rpage.locator("#main");
       await expect(main.getByRole("heading", { name: /^Compliance/ })).toBeVisible();
-      await expect(main.getByText("Policies requiring confirmation")).toBeVisible();
+      // 1.14.0 shortened the tile labels ("Policies requiring confirmation"
+      // became "Policies"); the label is the tile's <dt>.
+      await expect(main.getByRole("term").filter({ hasText: /^Policies$/ })).toBeVisible();
       await expect(main.getByRole("link", { name: "Settings", exact: true })).toHaveCount(0);
       await rpage.goto("/compliance/policies");
       await expect(main.getByRole("heading", { name: /^Compliance/ })).toBeVisible();
@@ -380,7 +382,8 @@ test("a program_read-only role reads the portal and nothing more; unknown action
       // re-confirmation settings (none set here).
       const statementAt = header.indexOf("statement");
       expect(statementAt, "statement follows the evidence pair").toBe(reachedAt + 1);
-      expect(header.slice(statementAt), "the six columns in order, then the five of 1.13.0 (D2), last").toEqual([
+      // 1.14.0 (D3) appends `set`, the policy's sets.
+      expect(header.slice(statementAt), "the six columns in order, then the five of 1.13.0 (D2) and the set of 1.14.0, last").toEqual([
         "statement",
         "signed_name",
         "identity_proof",
@@ -392,6 +395,7 @@ test("a program_read-only role reads the portal and nothing more; unknown action
         "exempt_until",
         "snoozed_until",
         "due_at",
+        "set",
       ]);
       expect(adminLine![header.indexOf("exempt_reason")], "the admin is not exempt").toBe("");
       expect(adminLine![header.indexOf("snoozed_until")], "nor snoozed").toBe("");
@@ -546,10 +550,11 @@ test("a program_read-only role reads the portal and nothing more; unknown action
     expect(matrixExport[0].details).toMatchObject({ format: "matrix", doc_id: "all", with_ip: false });
     expect(typeof matrixExport[0].details?.rows).toBe("number");
     // The matrix carries the same six columns (C4, 1.12.0) and, after them,
-    // the same five exemption and deadline columns (D2, 1.13.0) at the end:
+    // the same five exemption and deadline columns (D2, 1.13.0), then the
+    // status and set columns (F1, D3, 1.14.0) at the end:
     // MATRIX_CSV_HEADER in src/lib/read-evidence.ts.
     const matrixHeader = cells(matrix.text.trim().split("\n")[0]);
-    expect(matrixHeader.slice(-11)).toEqual([
+    expect(matrixHeader.slice(-13)).toEqual([
       "statement",
       "signed_name",
       "identity_proof",
@@ -561,6 +566,8 @@ test("a program_read-only role reads the portal and nothing more; unknown action
       "exempt_until",
       "snoozed_until",
       "due_at",
+      "status",
+      "set",
     ]);
 
     // The ledgers (C4, 1.12.0): the workspace file from the portal route and
@@ -928,7 +935,12 @@ test("assignment actions: a steward of one space cannot reach another space's ro
     expect(snoozed.body?.changed).toEqual([personRow.assignment_id]);
     expect(snoozed.body?.until, "the answer says when reminders resume").toBeTruthy();
     const after = await api(page, "/api/admin/compliance");
-    expect(after.body?.kpis, "the Overview's numbers do not move").toEqual(before.body?.kpis);
+    // 1.14.0 (F1): `kpis.snoozed` counts the running snoozes, so it is the
+    // one number a snooze moves, by design; every other number stays.
+    const { snoozed: snoozedBefore, ...kpisBefore } = before.body?.kpis ?? {};
+    const { snoozed: snoozedAfter, ...kpisAfter } = after.body?.kpis ?? {};
+    expect(kpisAfter, "the Overview's numbers do not move").toEqual(kpisBefore);
+    expect(snoozedAfter, "the snoozed count is the one that moves").toBe(snoozedBefore + 1);
     const rowAfter = (after.body?.docs ?? []).find((d: { id: number }) => d.id === docId);
     expect({ required: rowAfter?.required, acked: rowAfter?.acked }).toEqual({ required: rowBefore?.required, acked: rowBefore?.acked });
     const csvAfter = await fetchText(page, `/api/documents/${docId}/acknowledgements?format=csv`);

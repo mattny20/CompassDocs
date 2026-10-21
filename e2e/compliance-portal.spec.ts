@@ -1039,7 +1039,10 @@ test("a live row links to the policy's Settings tab, counts the people enrolled 
     await expect(row.locator('[data-tt="Read confirmation settings"]')).toHaveCount(1);
     // 1.14.0 appends "· owner {name}" to this line when the server names one.
     await expect(row.getByText(/· Due \d+ days after assignment( · owner .+)?$/)).toBeVisible();
-    await expect(row.getByText(/\d+ overdue/)).toHaveCount(0);
+    // No overdue suffix on the deadline rule; the 1.14.0 bar legend (F1)
+    // always carries the overdue count, here 0.
+    await expect(row.getByText(/after assignment · \d+ overdue/)).toHaveCount(0);
+    await expect(row.getByText(/^\d+ confirmed · \d+ pending · 0 overdue · 0 exempt$/)).toBeVisible();
     await expect(row.getByText(/^never reminded · next automatic reminder \S/)).toBeVisible();
     await settings.click();
     await page.waitForURL(`**/doc/${docId}/acknowledgements/settings`);
