@@ -109,7 +109,10 @@ test("a signed-out visitor signs in, the file downloads on the landing page, and
       .filter((r) => r.action === "directory.exported")
       .map((r) => (typeof r.details === "string" ? JSON.parse(r.details) : r.details))
       .filter((d) => d?.preset === id);
-    expect(details.map((d) => d.format).sort(), "both of the link's exports are in the audit log").toEqual(["csv", "pdf"]);
+    // Distinct formats, not a row count: with tracing on (retain-on-failure)
+    // Playwright fetches a response body a second time, which the server
+    // audits as a second export. A visit without tracing makes one request.
+    expect([...new Set(details.map((d) => d.format))].sort(), "both of the link's exports are in the audit log").toEqual(["csv", "pdf"]);
     expect(details.every((d) => d.via === "link")).toBe(true);
   });
 });
