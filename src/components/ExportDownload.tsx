@@ -44,29 +44,39 @@ let reloadPending = (() => {
   }
 })();
 
-function rememberedDownload(api: string): string | null {
+type Mark = { api: string; filename?: string; direct?: boolean };
+
+/** What this history entry remembers of an earlier download of `api`, if anything. */
+function rememberedDownload(api: string): Mark | null {
   if (reloadPending) {
+    // A reload asks for the file again: the mark is dropped (not just
+    // skipped once), so development's double effect finds none either.
     reloadPending = false;
+    forgetDownload();
     return null;
   }
   try {
-    const mark = (window.history.state as Record<string, unknown> | null)?.[HISTORY_KEY] as
-      | { api?: string; filename?: string }
-      | undefined;
-    return mark?.api === api ? (mark.filename ?? "") : null;
+    const mark = (window.history.state as Record<string, unknown> | null)?.[HISTORY_KEY] as Mark | undefined;
+    return mark?.api === api ? mark : null;
   } catch {
     return null;
   }
 }
 
-function rememberDownload(api: string, filename: string) {
+function writeHistory(mark: Mark | undefined) {
   try {
     // Next keeps its own keys in history.state; they are carried over.
-    window.history.replaceState({ ...(window.history.state ?? {}), [HISTORY_KEY]: { api, filename } }, "");
+    const state = { ...((window.history.state as Record<string, unknown> | null) ?? {}) };
+    if (mark) state[HISTORY_KEY] = mark;
+    else delete state[HISTORY_KEY];
+    window.history.replaceState(state, "");
   } catch {
     // Remembering is a convenience: without it, Back downloads again.
   }
 }
+
+const rememberDownload = (mark: Mark) => writeHistory(mark);
+const forgetDownload = () => writeHistory(undefined);
 
 export function ExportDownload({
   presetId,
@@ -83,9 +93,10 @@ export function ExportDownload({
 }) {
   const [state, setState] = useState<State>({ kind: "working" });
   const inflight = useRef<AbortController | null>(null);
-  // Set when the visitor pressed Try again / Download again: that button
-  // goes while the file is made, so focus moves to the status once it lands.
-  const retried = useRef(false);
+  // Set when the control the visitor used goes with the state change (Try
+  // again / Download again while the file is made, the direct link once
+  // taken): focus moves to the status if it fell to <body>.
+  const refocus = useRef(false);
   const statusRef = useRef<HTMLDivElement>(null);
   const api = exportLinkApiPath(presetId, format);
 
@@ -145,13 +156,14 @@ export function ExportDownload({
     // Long enough for the browser to have taken the bytes.
     setTimeout(() => URL.revokeObjectURL(href), 60_000);
     inflight.current = null;
-    rememberDownload(api, filename);
+    rememberDownload({ api, filename });
     setState({ kind: "done", filename });
   }, [api, fallbackName]);
 
   useEffect(() => {
     const earlier = rememberedDownload(api);
-    if (earlier !== null) setState({ kind: "done", filename: earlier || undefined });
+    if (earlier?.direct) setState({ kind: "direct" });
+    else if (earlier) setState({ kind: "done", filename: earlier.filename || undefined });
     else void run();
     // Leaving the page stops a file still being made. (Development's double
     // effect aborts the first request here and the second one downloads.)
@@ -159,8 +171,8 @@ export function ExportDownload({
   }, [api, run]);
 
   useEffect(() => {
-    if (state.kind === "working" || !retried.current) return;
-    retried.current = false;
+    if (state.kind === "working" || !refocus.current) return;
+    refocus.current = false;
     // Only when the button that had focus went with the work: never take
     // focus from a control the visitor has since moved to.
     const active = document.activeElement;
@@ -168,16 +180,18 @@ export function ExportDownload({
   }, [state.kind]);
 
   function retry() {
-    retried.current = true;
+    refocus.current = true;
     void run();
   }
 
   /** The direct link was used: the browser fetches the file itself, so the page's own request stops. */
   function tookDirect() {
     if (state.kind !== "working") return;
-    retried.current = false;
+    refocus.current = true;
     inflight.current?.abort();
     inflight.current = null;
+    // Back to this page shows the same, rather than fetching another copy.
+    rememberDownload({ api, direct: true });
     setState({ kind: "direct" });
   }
 

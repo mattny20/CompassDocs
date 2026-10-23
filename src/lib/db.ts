@@ -4312,14 +4312,17 @@ export async function setSetting(key: string, value: string): Promise<void> {
  * Run `fn` inside a transaction that holds a transaction-scoped advisory
  * lock on `name`, so concurrent callers of the same job run one after the
  * other (1.15.0: saving export presets, whose two settings must move
- * together). Reads through the pool see what an earlier holder committed;
- * writes that must land together go through `client`.
+ * together). `fn` sends EVERY query through `client`: a caller waiting for
+ * the lock holds a pool connection, so a holder that asked the pool for a
+ * second one could wait forever once the pool is full. A wait longer than
+ * 15 seconds fails with Postgres's lock_timeout (code 55P03) instead.
  */
 export async function withAdvisoryLock<T>(name: string, fn: (client: Queryable) => Promise<T>): Promise<T> {
   await ready();
   const client = await pool().connect();
   try {
     await client.query("BEGIN");
+    await client.query("SET LOCAL lock_timeout = '15s'");
     await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [name]);
     const out = await fn(client);
     await client.query("COMMIT");

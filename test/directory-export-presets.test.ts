@@ -124,3 +124,19 @@ test("two saves at once both land their retirements (saves run one at a time)", 
   const live = new Set((await listExportPresets()).map((p) => p.id));
   for (const id of ["x1", "y1"]) assert.ok(live.has(id) !== retired.has(id), `${id} is either live or retired, never both or neither`);
 });
+
+test("more saves at once than the pool has connections all finish (each save uses one connection)", async () => {
+  await saveExportPresets([{ id: "keep", name: "Keep", is_default: true }]);
+  const n = 8; // above the default pool of 5: a save that read through the pool while holding the lock's connection deadlocked here
+  const outs = await Promise.all(
+    Array.from({ length: n }, (_, i) => saveExportPresets([{ id: "keep", name: "Keep", is_default: true }, { name: `Burst ${i}` }]))
+  );
+  assert.equal(outs.length, n);
+  // Each save replaced the list: the last one to run left its own preset; all the others' were retired.
+  const live = await listExportPresets();
+  assert.equal(live.length, 2);
+  const retired = await retiredPresetIds();
+  const burstIds = outs.map((o) => o[1].id);
+  assert.equal(new Set(burstIds).size, n, `every save named its preset afresh: ${burstIds.join(", ")}`);
+  assert.equal(burstIds.filter((id) => retired.has(id)).length, n - 1);
+});

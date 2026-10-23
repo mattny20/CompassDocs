@@ -265,17 +265,32 @@ test("taking the direct link while the file is made hands the download to the br
     await expect(status).not.toContainText("Downloaded");
     await expect(page.getByRole("button", { name: "Download again" })).toBeVisible();
     release();
+    // Back to the page from home says the same and fetches nothing more.
+    await page.unroute(/\/api\/directory\/export\?/);
+    let again = false;
+    page.on("request", (r) => { if (r.url().includes("/api/directory/export")) again = true; });
+    await page.getByRole("link", { name: "Back to home" }).click();
+    await page.waitForURL(/\/$/);
+    await page.goBack();
+    await expect(page.getByRole("status")).toContainText("Downloading in your browser");
+    await page.waitForTimeout(800);
+    expect(again, "Back does not export the file again").toBe(false);
   });
 });
 
 test("recipients typed into Send to are saved by the Save shortcut while the box still has focus", async ({ page }) => {
   await login(page, ADMIN);
-  await withPreset(page, {}, async (id, name) => {
+  // Already scheduled: the recipients are the only change, so typing them
+  // must be what wakes Save and its shortcut.
+  const schedule = { frequency: "weekly", day: 1, hour: 6, recipients: ["reception@e2e.test"], format: "pdf" };
+  await withPreset(page, { schedule }, async (id, name) => {
     await page.goto("/admin/directory/export");
     await page.getByRole("button", { name: new RegExp(name) }).click();
-    await page.getByRole("combobox", { name: "How often" }).selectOption("weekly");
     const to = page.getByRole("textbox", { name: "Send to" });
+    await expect(to).toHaveValue("reception@e2e.test");
+    await expect(page.getByRole("button", { name: "Save presets" })).toBeDisabled();
     await to.fill("reception@e2e.test, desk@e2e.test");
+    await expect(page.getByRole("button", { name: "Save presets" })).toBeEnabled();
     await page.keyboard.press("Control+s");
     await expect(page.getByText("Export presets saved.")).toBeVisible();
     // The box shows what was saved, and the saved preset carries both addresses.

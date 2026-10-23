@@ -272,8 +272,16 @@ export function DirectoryExportPanel({
     marginShown: (side) => marginShown(cur, side),
     setMargin,
     recipientsText: recipientsText[cur.id],
-    setRecipientsText: (text) => setRecipientsText({ ...recipientsText, [cur.id]: text }),
-    commitRecipients: (raw) => updateSchedule({ recipients: parseRecipients(raw) }),
+    // Typing counts as a change at once (Save and its shortcut wake up, the
+    // leave guard asks); leaving the box commits only a real change.
+    setRecipientsText: (text) => {
+      setRecipientsText((t) => ({ ...t, [cur.id]: text }));
+      setDirty(true);
+    },
+    commitRecipients: (raw) => {
+      const next = parseRecipients(raw);
+      if (next.join("\n") !== cur.schedule.recipients.join("\n")) updateSchedule({ recipients: next });
+    },
     smtpConfigured,
     lastRun: runLog[cur.id],
     linkOrigin,
