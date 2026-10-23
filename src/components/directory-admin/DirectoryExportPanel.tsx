@@ -26,7 +26,7 @@ import { jsonFetch } from "./shared";
 import { MarkersCard } from "./export/MarkersCard";
 import { PresetList } from "./export/PresetList";
 import { PresetEditor, type PresetEditorModel } from "./export/PresetEditor";
-import { LIMIT_MAX, LIMIT_MIN, MARGIN_SIDES, PRESET_BLANK, marginError, type MarginSide } from "./export/preset-rules";
+import { DRAFT_PREFIX, LIMIT_MAX, LIMIT_MIN, MARGIN_SIDES, PRESET_BLANK, isDraftId, marginError, parseRecipients, type MarginSide } from "./export/preset-rules";
 
 export function DirectoryExportPanel({
   fields,
@@ -34,6 +34,7 @@ export function DirectoryExportPanel({
   initialMarkers = [],
   smtpConfigured = false,
   runLog = {},
+  linkOrigin,
 }: {
   fields: DirectoryField[];
   initialPresets: ExportPreset[];
@@ -43,6 +44,8 @@ export function DirectoryExportPanel({
   smtpConfigured?: boolean;
   /** When each preset last went out on its schedule. */
   runLog?: Record<string, { at: string; ok: boolean; detail?: string }>;
+  /** What download links are built on: the custom domain, when one is set (else this browser's origin). */
+  linkOrigin?: string;
 }) {
   const available = useMemo(() => availableColumns(fields), [fields]);
   const groupFields = useMemo(() => fields.filter((f) => f.group_by), [fields]);
@@ -185,18 +188,23 @@ export function DirectoryExportPanel({
       delete next[id];
       return next;
     });
+    setRecipientsText((t) => {
+      const next = { ...t };
+      delete next[id];
+      return next;
+    });
   }
 
   function addPreset(from?: ExportPreset) {
     const base = from ? { ...from, is_default: false } : { ...PRESET_BLANK };
     const name = from ? `${from.name} (copy)` : "New export";
-    // Until Save the id is the list row's React key, so it must not repeat
-    // an unsaved one: the suffix counts past the ids in use, not from the
-    // array's length, which a deletion shrinks.
-    const stem = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+    // Until Save the id is a draft id: the list row's React key, never a
+    // saved id (a saved id is a slug, and "~" is not in one), so an unsaved
+    // preset never shows a deleted one's download link. Save sends it
+    // without an id and the server names it (saveExportPresets).
     let n = presets.length + 1;
-    while (presets.some((p) => p.id === `${stem}-${n}`)) n++;
-    const id = `${stem}-${n}`;
+    while (presets.some((p) => p.id === `${DRAFT_PREFIX}${n}`)) n++;
+    const id = `${DRAFT_PREFIX}${n}`;
     setPresets((ps) => [...ps, { ...base, id, name }]);
     setSelected(presets.length);
     setDirty(true);
@@ -217,16 +225,28 @@ export function DirectoryExportPanel({
   }
   async function savePresets() {
     setSavingPresets(true);
-    const r = await jsonFetch("/api/admin/directory/export-presets", { method: "PUT", body: JSON.stringify({ presets }) });
+    // A new preset goes without an id: the server gives it one from its name
+    // that no live or deleted preset has had (download links carry it). A
+    // saved preset keeps its id.
+    // Recipients still being typed (Save by its shortcut leaves the box
+    // focused, so it never blurred) go out as typed, not as last committed.
+    const outgoing = presets.map((p) => {
+      const typed = recipientsText[p.id];
+      const withTyped = typed === undefined ? p : { ...p, schedule: { ...p.schedule, recipients: parseRecipients(typed) } };
+      return isDraftId(p.id) ? { ...withTyped, id: "" } : withTyped;
+    });
+    const r = await jsonFetch("/api/admin/directory/export-presets", { method: "PUT", body: JSON.stringify({ presets: outgoing }) });
     setSavingPresets(false);
     if (!r.ok) {
       toast("error", r.data?.error || "Could not save the presets.");
       return;
     }
     setPresets(r.data.presets);
-    // The inputs now show what was saved, not what was typed.
+    // The inputs now show what was saved, not what was typed (keyed by id,
+    // and a new preset's id has just changed).
     setMarginText({});
     setTouched({});
+    setRecipientsText({});
     setDirty(false);
     toast("ok", "Export presets saved.");
   }
@@ -252,10 +272,20 @@ export function DirectoryExportPanel({
     marginShown: (side) => marginShown(cur, side),
     setMargin,
     recipientsText: recipientsText[cur.id],
-    setRecipientsText: (text) => setRecipientsText({ ...recipientsText, [cur.id]: text }),
-    commitRecipients: (raw) => updateSchedule({ recipients: raw.split(/[,;\s]+/).map((s) => s.trim()).filter(Boolean) }),
+    // Typing counts as a change at once (Save and its shortcut wake up, the
+    // leave guard asks); leaving the box commits only a real change.
+    setRecipientsText: (text) => {
+      setRecipientsText((t) => ({ ...t, [cur.id]: text }));
+      setDirty(true);
+    },
+    commitRecipients: (raw) => {
+      const next = parseRecipients(raw);
+      if (next.join("\n") !== cur.schedule.recipients.join("\n")) updateSchedule({ recipients: next });
+    },
     smtpConfigured,
     lastRun: runLog[cur.id],
+    linkOrigin,
+    saved: !isDraftId(cur.id),
   };
 
   return (

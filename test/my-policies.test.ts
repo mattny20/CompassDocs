@@ -23,7 +23,6 @@ import {
   getSetting,
   createDocument,
   updateDocument,
-  setAckRequired,
   recordAcknowledgement,
   claimReconfirmation,
   listVersions,
@@ -36,6 +35,7 @@ import {
 } from "../src/lib/db";
 import { asScope } from "../src/lib/space-scope";
 import { fixtureQuery } from "./support/retry";
+import { switchOn } from "./support/assign";
 
 const STAMP = `mypol-${Date.now()}`;
 
@@ -64,7 +64,7 @@ async function newPolicy(title: string, space = spaceId): Promise<{ id: number; 
   // Both null: leave the edit default and the interval columns alone rather
   // than read the workspace settings row, which another test file may be
   // writing (a default interval there would give the fixture a cycle).
-  await setAckRequired(doc.id, true, { editDefault: null, recertMonths: null });
+  await switchOn(doc.id, { editDefault: null, recertMonths: null });
   docIds.push(doc.id);
   return { id: doc.id, v1: (await listVersions(doc.id))[0].id };
 }

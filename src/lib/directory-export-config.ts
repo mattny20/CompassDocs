@@ -10,7 +10,9 @@ import { sanitizeSchedule, stampSchedule, SCHEDULE_OFF, type ExportSchedule } fr
 import { COLUMN_LIMIT, MARGIN_INCHES, MARGIN_PRESETS, type MarginBox, type MarginPreset } from "./directory-export-layout";
 import { NAME_FORMAT_KEYS, NAME_SORT_KEYS, assistantDetailKeys, type NameFormat } from "./directory-display";
 import { MARKER_LIMIT, listMarkers, type ExportMarker } from "./directory-markers";
-import { getSetting, setSetting } from "./db";
+import { getSetting, withAdvisoryLock, type Queryable } from "./db";
+import { openSecret } from "./secretbox";
+import { presetIdFor } from "./directory-export-link";
 import { listFields, validColumnKeys, type DirectoryField } from "./directory";
 
 export const PAPER_SIZES = ["letter", "a4", "legal"] as const;
@@ -135,6 +137,25 @@ export const PRESET_DEFAULTS: Omit<ExportPreset, "id" | "name"> = {
 
 const SETTING = "directory_export_presets";
 const MAX_PRESETS = 20;
+// Every preset id ever deleted (1.15.0): a download link names a preset by
+// id, so a preset made later must not take a deleted one's id and start
+// answering its links. Capped; the oldest drop off first.
+const RETIRED_SETTING = "directory_export_retired_ids";
+const RETIRED_MAX = 1000;
+
+/** The ids of presets deleted so far, which a new preset is never given. */
+export async function retiredPresetIds(): Promise<Set<string>> {
+  return parseRetired(await getSetting(RETIRED_SETTING));
+}
+
+function parseRetired(raw: string | undefined): Set<string> {
+  try {
+    const parsed = JSON.parse(raw ?? "[]");
+    return new Set(Array.isArray(parsed) ? parsed.map(String) : []);
+  } catch {
+    return new Set();
+  }
+}
 /** A section order lists at most this many values, each at most SECTION_VALUE_MAX characters (an option's length). */
 export const SECTION_ORDER_LIMIT = 200;
 const SECTION_VALUE_MAX = 120;
@@ -284,35 +305,40 @@ async function markerIdSet(fields: DirectoryField[], markers?: ExportMarker[]): 
 export async function listExportPresets(fields?: DirectoryField[], markers?: ExportMarker[]): Promise<ExportPreset[]> {
   const all = fields ?? (await listFields());
   const raw = await getSetting(SETTING);
-  let presets: ExportPreset[] = [];
-  if (raw) {
+  const stored = raw ? storedPresets(raw, all, await markerIdSet(all, markers)) : [];
+  return finishPresets(stored.length ? stored : [defaultPreset(await getSetting("directory_print_columns"), all)]);
+}
+
+/** The presets in the setting's stored value, sanitized; none when it holds none. */
+function storedPresets(raw: string | undefined, all: DirectoryField[], markerIds: Set<string>): ExportPreset[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.map((p, i) => sanitizePreset(p, all, `preset-${i + 1}`, markerIds)) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** With no presets stored: the default one, carrying the column list an admin may have set before presets existed. */
+function defaultPreset(legacy: string | undefined, all: DirectoryField[]): ExportPreset {
+  let columns = [...PRESET_DEFAULTS.columns];
+  if (legacy) {
     try {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        const ids = await markerIdSet(all, markers);
-        presets = parsed.map((p, i) => sanitizePreset(p, all, `preset-${i + 1}`, ids));
-      }
+      const parsed = JSON.parse(legacy);
+      if (Array.isArray(parsed) && parsed.length) columns = parsed.map(String);
     } catch {}
   }
-  if (presets.length === 0) {
-    // Migrate: the one column list an admin may have set before presets existed.
-    let columns = [...PRESET_DEFAULTS.columns];
-    const legacy = await getSetting("directory_print_columns");
-    if (legacy) {
-      try {
-        const parsed = JSON.parse(legacy);
-        if (Array.isArray(parsed) && parsed.length) columns = parsed.map(String);
-      } catch {}
-    }
-    presets = [
-      sanitizePreset({ ...PRESET_DEFAULTS, id: "phone-directory", name: "Phone directory", columns, is_default: true }, all),
-    ];
-  }
-  // Exactly one default, and unique ids.
+  return sanitizePreset({ ...PRESET_DEFAULTS, id: "phone-directory", name: "Phone directory", columns, is_default: true }, all);
+}
+
+/** Exactly one default, and unique ids. */
+function finishPresets(list: ExportPreset[]): ExportPreset[] {
   const seen = new Set<string>();
-  presets = presets.map((p, i) => {
+  const presets = list.map((p, i) => {
     let id = p.id;
-    while (seen.has(id)) id = `${p.id}-${i + 1}`;
+    let n = i + 1;
+    while (seen.has(id)) id = `${p.id}-${n++}`;
     seen.add(id);
     return { ...p, id };
   });
@@ -320,25 +346,73 @@ export async function listExportPresets(fields?: DirectoryField[], markers?: Exp
   return presets;
 }
 
+/** Is this preset, as sent, a new one to name? No id, or an editor draft id ("~draft-N", which is never kept as an id). */
+function isFreshPresetId(raw: unknown): boolean {
+  const id = String((raw as Record<string, unknown> | null)?.id ?? "").trim();
+  return !id || id.startsWith("~");
+}
+
 export async function saveExportPresets(raw: unknown, fields?: DirectoryField[]): Promise<ExportPreset[]> {
   const all = fields ?? (await listFields());
   if (!Array.isArray(raw) || raw.length === 0) throw new Error("At least one export preset is required.");
-  const markers = await listMarkers(all);
-  const ids = await markerIdSet(all, markers);
+  // The markers are not what the lock guards: read before it.
+  const ids = await markerIdSet(all);
+  // One save at a time (1.15.0): the presets and the retired-id list are
+  // read and written together, so two admins saving at once can neither
+  // lose a deleted id from the list nor hand one to a new preset.
+  try {
+    return await withAdvisoryLock(SETTING, (client) => savePresetsLocked(raw, all, ids, client));
+  } catch (e) {
+    if ((e as { code?: string })?.code === "55P03") {
+      throw new Error("Another save of the export presets is still running. Try again in a moment.");
+    }
+    throw e;
+  }
+}
+
+async function savePresetsLocked(raw: unknown[], all: DirectoryField[], ids: Set<string>, client: Queryable): Promise<ExportPreset[]> {
+  // Inside the lock every query goes through the lock's own connection: a
+  // save waiting for the lock holds one too, so reads through the pool
+  // could starve it.
+  const got = new Map(
+    (
+      await client.query<{ key: string; value: string }>("SELECT key, value FROM settings WHERE key = ANY($1)", [
+        [SETTING, RETIRED_SETTING, "directory_print_columns"],
+      ])
+    ).rows.map((r) => [r.key, openSecret(r.value)])
+  );
+  const stored = storedPresets(got.get(SETTING), all, ids);
   // A schedule that was just set, or moved, starts from now: its first send
   // is the next slot, not the one that already passed this period.
-  const before = new Map((await listExportPresets(all, markers)).map((p) => [p.id, p]));
+  const before = new Map(
+    finishPresets(stored.length ? stored : [defaultPreset(got.get("directory_print_columns"), all)]).map((p) => [p.id, p])
+  );
+  const retired = parseRetired(got.get(RETIRED_SETTING));
   const now = new Date();
-  const presets = raw.slice(0, MAX_PRESETS).map((p, i) => {
-    const s = sanitizePreset(p, all, `preset-${i + 1}`, ids);
-    return { ...s, schedule: stampSchedule(s.schedule, before.get(s.id)?.schedule, now) };
-  });
+  const list = raw.slice(0, MAX_PRESETS);
+  // A preset sent without an id is new (the editor sends its new presets
+  // so): it is given one below, from its name. One sent with an id keeps it.
+  const fresh = list.map(isFreshPresetId);
+  const sanitized = list.map((p, i) => sanitizePreset(p, all, `preset-${i + 1}`, ids));
   const seen = new Set<string>();
-  const unique = presets.map((p, i) => {
+  const explicit = sanitized.map((p, i) => {
+    if (fresh[i]) return p;
     let id = p.id;
-    while (seen.has(id)) id = `${p.id}-${i + 1}`;
+    // Counts on past a suffix that is itself taken (["a", "a-3", "a"] used
+    // to retry "a-3" forever). A renumbered duplicate is a new id, so it
+    // also passes over live and retired ones.
+    let n = i + 1;
+    while (seen.has(id) || (id !== p.id && (before.has(id) || retired.has(id)))) id = `${p.id}-${n++}`;
     seen.add(id);
     return { ...p, id };
+  });
+  // A new preset's id avoids every live id, every id in this save and every
+  // id deleted before (1.15.0, download links).
+  const taken = new Set<string>([...before.keys(), ...retired, ...seen]);
+  const unique = explicit.map((p, i) => {
+    const id = fresh[i] ? presetIdFor(p.name, taken) : p.id;
+    taken.add(id);
+    return { ...p, id, schedule: stampSchedule(p.schedule, before.get(id)?.schedule, now) };
   });
   let defaults = unique.filter((p) => p.is_default).length;
   const normalized = unique.map((p) => {
@@ -349,7 +423,19 @@ export async function saveExportPresets(raw: unknown, fields?: DirectoryField[])
     return p;
   });
   if (!normalized.some((p) => p.is_default)) normalized[0] = { ...normalized[0], is_default: true };
-  await setSetting(SETTING, JSON.stringify(normalized));
+  // The ids this save removed join the retired list; an id that is live
+  // again (put back through the API) leaves it. Both settings are written
+  // in the lock's transaction, so they land together.
+  const live = new Set(normalized.map((p) => p.id));
+  const removed = [...before.keys()].filter((id) => !live.has(id));
+  const nextRetired = [...retired, ...removed].filter((id, i, a) => !live.has(id) && a.indexOf(id) === i).slice(-RETIRED_MAX);
+  const rows: string[] = [SETTING, JSON.stringify(normalized)];
+  if (removed.length || nextRetired.length !== retired.size) rows.push(RETIRED_SETTING, JSON.stringify(nextRetired));
+  await client.query(
+    `INSERT INTO settings (key, value) VALUES ${rows.length === 2 ? "($1,$2)" : "($1,$2),($3,$4)"}
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+    rows
+  );
   return normalized;
 }
 

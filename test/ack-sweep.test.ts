@@ -85,6 +85,7 @@ import {
   escalationBody,
   escalationList,
 } from "../src/lib/ack-remind";
+import { switchOn } from "./support/assign";
 
 const STAMP = `acksweep-${Date.now()}`;
 const DAY = 86_400_000;
@@ -109,7 +110,7 @@ async function confirmedPolicy(title: string): Promise<{ id: number; v1: number 
   });
   // editDefault null and recertMonths null: leave both columns alone rather
   // than read the workspace settings another test file may be writing.
-  await setAckRequired(doc.id, true, { editDefault: null, recertMonths: null });
+  await switchOn(doc.id, { editDefault: null, recertMonths: null });
   docIds.push(doc.id);
   const v1 = (await listVersions(doc.id))[0].id;
   await recordAcknowledgement(doc.id, readerId, "", v1);
@@ -550,7 +551,7 @@ describe("the workspace default interval on the first switch-on", () => {
     // Never: no cycle, still dated.
     await setSetting("ack_defaults", JSON.stringify({ recert_months: null }));
     const quiet = await newPolicy(`${STAMP} default never`);
-    await setAckRequired(quiet, true, { editDefault: null });
+    await switchOn(quiet, { editDefault: null });
     const q = await recertRow(quiet);
     assert.deepEqual([q.ack_recert_months, q.ack_next_recert_at], [null, null]);
     assertToday(q.ack_effective_at, "dated even without a cycle");
@@ -558,14 +559,14 @@ describe("the workspace default interval on the first switch-on", () => {
     // A value the build does not offer reads as never; an explicit option applies instead of the workspace's; null leaves the columns alone.
     await setSetting("ack_defaults", JSON.stringify({ recert_months: 7 }));
     const seven = await newPolicy(`${STAMP} default seven`);
-    await setAckRequired(seven, true, { editDefault: null });
+    await switchOn(seven, { editDefault: null });
     assert.equal((await recertRow(seven)).ack_recert_months, null, "7 is not an option: no cycle");
     await setSetting("ack_defaults", JSON.stringify({ recert_months: 24 }));
     const explicit = await newPolicy(`${STAMP} explicit six`);
-    await setAckRequired(explicit, true, { editDefault: null, recertMonths: 6 });
+    await switchOn(explicit, { editDefault: null, recertMonths: 6 });
     assert.equal((await recertRow(explicit)).ack_recert_months, 6);
     const alone = await newPolicy(`${STAMP} left alone`);
-    await setAckRequired(alone, true, { editDefault: null, recertMonths: null });
+    await switchOn(alone, { editDefault: null, recertMonths: null });
     assert.equal((await recertRow(alone)).ack_recert_months, null, "recertMonths null never reads the workspace");
     assertToday((await recertRow(alone)).ack_effective_at, "but the switch-on still dates it");
   });
@@ -742,7 +743,7 @@ describe("the reminder sweep (E2)", () => {
       tags: [],
       author: "test",
     });
-    await setAckRequired(doc.id, true, { editDefault: null, recertMonths: null });
+    await switchOn(doc.id, { editDefault: null, recertMonths: null });
     await pool().query("DELETE FROM policy_assignments WHERE document_id = $1", [doc.id]);
     docIds.push(doc.id);
     e2Docs.push(doc.id);

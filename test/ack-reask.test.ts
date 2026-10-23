@@ -46,6 +46,7 @@ import {
 import { newToken } from "../src/lib/password";
 import { endOfDayIn } from "../src/lib/ack-due";
 import { fixtureQuery } from "./support/retry";
+import { switchOn } from "./support/assign";
 
 // --- The request scope outside Next ------------------------------------------
 
@@ -184,7 +185,7 @@ async function newPolicy(title: string): Promise<{ id: number; title: string; v1
   docIds.push(doc.id);
   // Both null: leave the columns alone rather than reading the workspace
   // settings row, which another test file may be writing.
-  await setAckRequired(doc.id, true, { editDefault: null, recertMonths: null });
+  await switchOn(doc.id, { editDefault: null, recertMonths: null });
   return { id: doc.id, title: full, v1: (await listVersions(doc.id))[0].id };
 }
 

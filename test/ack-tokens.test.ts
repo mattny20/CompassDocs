@@ -55,7 +55,6 @@ import {
   createDocument,
   getDocument,
   updateDocument,
-  setAckRequired,
   listVersions,
   listAckDecisions,
   ackSummary,
@@ -75,6 +74,7 @@ import { importFromZip, IMPORT_POLICY_SKIPPED } from "../src/lib/transfer";
 import { createUploadTicket, imageAltText } from "../src/lib/image-intake";
 import { newToken } from "../src/lib/password";
 import { fixtureQuery } from "./support/retry";
+import { switchOn } from "./support/assign";
 
 // --- The request scope outside Next ------------------------------------------
 
@@ -197,7 +197,9 @@ async function confirmedPolicy(title: string): Promise<{ id: number; v1: number 
     author: "test",
   });
   docIds.push(doc.id);
-  await setAckRequired(doc.id, true, { editDefault: null });
+  // An internal-space switch-on asks every account; another file's teardown
+  // can delete one mid-statement (test/support/assign).
+  await switchOn(doc.id, { editDefault: null });
   const v1 = (await listVersions(doc.id))[0].id;
   await recordAcknowledgement(doc.id, adminId, "", v1);
   return { id: doc.id, v1 };
@@ -227,7 +229,9 @@ before(async () => {
   });
   docId = doc.id;
   docIds.push(docId);
-  await setAckRequired(docId, true, { editDefault: null });
+  // An internal-space switch-on asks every account; another file's teardown
+  // can delete one mid-statement (test/support/assign).
+  await switchOn(docId, { editDefault: null });
   versionId = (await listVersions(docId))[0].id;
   apiToken = (await createApiToken(adminId, `${STAMP} token`, ["read", "write"])).token;
   oauthClientId = (await registerOAuthClient(`${STAMP} client`, ["http://localhost/callback"])).client_id;

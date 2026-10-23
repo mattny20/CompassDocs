@@ -1,9 +1,10 @@
 "use client";
 
 // The right pane of the Export page: the selected preset's name and actions,
-// then its controls in five cards, each one job: what the document is called,
+// then its controls in six cards, each one job: what the document is called,
 // how the page is set, which columns it carries, who is in it and in what
-// order, and whether it emails itself. The state and the rules live in
+// order, whether it emails itself, and the download link that hands it out
+// (1.15.0). The state and the rules live in
 // DirectoryExportPanel (the Save row waits on every preset, not just this
 // one); this file only lays the controls out.
 //
@@ -12,7 +13,7 @@
 // grids use `@md:` / `@2xl:` variants (STYLEGUIDE §Scaling; nothing in this
 // subtree overlays the page).
 
-import { useId } from "react";
+import { useId, useState } from "react";
 import { Copy, Download, Trash2 } from "lucide-react";
 import { Card } from "@/components/Card";
 import { CardTitle } from "@/components/Heading";
@@ -27,6 +28,8 @@ import { NAME_FORMATS, headsLabel, isNameFormat, orderGroups, type SectionSummar
 import type { ExportPreset } from "@/lib/directory-export-config";
 import type { ExportMarker } from "@/lib/directory-marker-rules";
 import { describeSchedule, WEEKDAYS, type ExportSchedule } from "@/lib/directory-export-schedule-rules";
+import type { ExportLinkFormat } from "@/lib/directory-export-link";
+import { ExportLinkFields, useLinkOrigin } from "@/components/ExportLinkFields";
 import { OrderedKeyList, type KeyOption } from "../shared";
 import { LIMIT_MAX, LIMIT_MIN, MARGIN_LABEL, MARGIN_MAX, MARGIN_MIN, MARGIN_SIDES, marginError, type MarginSide } from "./preset-rules";
 
@@ -63,6 +66,10 @@ export interface PresetEditorModel {
   commitRecipients: (raw: string) => void;
   smtpConfigured: boolean;
   lastRun?: { at: string; ok: boolean; detail?: string };
+  /** The custom domain's origin, when one is set: download links are built on it. */
+  linkOrigin?: string;
+  /** This preset has been saved, so its download link works. */
+  saved: boolean;
 }
 
 export function PresetEditor({
@@ -85,7 +92,7 @@ export function PresetEditor({
   const { cur } = model;
   return (
     <div className="@container min-w-0 space-y-4">
-      {/* The header is a plain card title, an h3 like the five cards under
+      {/* The header is a plain card title, an h3 like the six cards under
           it: the lit row and the Default chip say which preset is open, and
           an h2 here would sit after the Markers and Presets h3s in the
           outline. */}
@@ -146,6 +153,8 @@ export function PresetEditor({
       <ColumnsCard m={model} />
       <OrderCard m={model} />
       <ScheduleCard m={model} />
+      {/* Keyed so the file type picked for one preset doesn't carry to the next. */}
+      <LinkCard key={cur.id} m={model} dirty={dirty} />
     </div>
   );
 }
@@ -522,6 +531,30 @@ function OrderCard({ m }: { m: PresetEditorModel }) {
           </Select>
         </Field>
       </div>
+    </Card>
+  );
+}
+
+/** A link to this preset's file for an email or an intranet page (1.15.0). */
+function LinkCard({ m, dirty }: { m: PresetEditorModel; dirty: boolean }) {
+  const { cur } = m;
+  const origin = useLinkOrigin(m.linkOrigin);
+  const [format, setFormat] = useState<ExportLinkFormat>("pdf");
+  return (
+    <Card
+      id="link"
+      className="scroll-mt-6"
+      title="Download link"
+      description="Paste it into an email or an intranet page. Whoever opens it signs in, and the file downloads straight away, made from what their own account can see."
+    >
+      {m.saved ? (
+        <>
+          <ExportLinkFields presetId={cur.id} split={Boolean(cur.split_by)} origin={origin} format={format} onFormat={setFormat} />
+          {dirty && <p className="mt-2 text-xs text-slate-500">The link serves this preset as last saved.</p>}
+        </>
+      ) : (
+        <SectionEmpty>Save this preset to get its link.</SectionEmpty>
+      )}
     </Card>
   );
 }

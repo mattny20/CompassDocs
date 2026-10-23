@@ -62,3 +62,19 @@ export const PRESET_BLANK: Omit<ExportPreset, "id" | "name"> = {
   name_format: "as_written",
   is_default: false,
 };
+
+/**
+ * A preset made in the editor carries a draft id until it is saved (1.15.0):
+ * "~draft-N", which no saved id can be (the server names a preset sent with
+ * an id starting "~" as a new one), so an unsaved preset never matches a
+ * saved or deleted one. Save sends it without an id and the server names it.
+ */
+export const DRAFT_PREFIX = "~draft-";
+export function isDraftId(id: string): boolean {
+  return id.startsWith(DRAFT_PREFIX);
+}
+
+/** The schedule's "Send to" box, as addresses: commas, semicolons or spaces between them. */
+export function parseRecipients(raw: string): string[] {
+  return raw.split(/[,;\s]+/).map((s) => s.trim()).filter(Boolean);
+}

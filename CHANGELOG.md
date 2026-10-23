@@ -4,6 +4,74 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.15.0] - 2026-10-23
+
+Directory: download links. Copy a link to an export, put it in an email or
+on an intranet page, and whoever clicks it signs in and gets the file.
+
+### Added
+- **A download link for every export preset.** Settings → Directory → Export
+  has a new **Download link** card under each preset: pick PDF, CSV or
+  contact cards (.vcf), then **Copy link**, or open it in a new tab to try
+  it. A preset that makes one file per section sends its PDF and CSV as a
+  ZIP, and the picker says so. On the
+  Directory page, **Export → Copy download link…** does the same for
+  anyone who can export, with the preset to pick. The link is built on the
+  workspace's custom domain when one is set.
+- **Clicking the link signs you in, then downloads the file.** The link
+  opens `/directory/download/<preset>`: a signed-out visitor goes through
+  sign-in (password, SSO) and comes back to it, and the page starts the
+  download at once. It says "Preparing your PDF…" while the file is made,
+  then "Downloaded" with the file name once it is in the downloads folder,
+  with **Back to home** to the dashboard and **Download again**. A direct
+  link sits under the status, while the file is made and after, for a
+  browser that blocks the automatic download; taking it hands the download
+  to the browser, which reports it. Coming Back to the page from home shows
+  "Downloaded" again rather than downloading a second copy; reloading the
+  page, or opening the link again, downloads a fresh one.
+- The file is made for whoever opens the link, from what their own
+  account can see: the same columns, people and restrictions as their own
+  Export menu, never the copying admin's. A link carries no secret and
+  grants nothing; an account that cannot read the directory is told so.
+- A link to a preset that has since been deleted says "This download link
+  no longer works" with a way to the directory, instead of quietly serving
+  the default preset. A refusal (the export rate limit) or a transfer cut
+  off half way is said in words with **Try again**; a session that expired
+  goes back through sign-in.
+- The audit log's "Exported directory" entry carries `via: "link"` for an
+  export made through a link.
+
+### Changed
+- A new preset made in the editor is given its id by the server when it is
+  first saved, from its name, so its link reads
+  `/directory/download/front-desk-list` rather than the placeholder it had
+  before ("new-export-3"). The id avoids every live preset's id and every
+  deleted one (the workspace now keeps a list of the last thousand deleted
+  preset ids), so a link to a deleted preset never starts serving a preset
+  made later. A saved preset keeps its id for good: renaming it never
+  breaks a link already sent. Through the API, a preset sent without an
+  `id` is named the same way; one sent with an id keeps it, which can bring
+  a deleted id, and its links, back on purpose. Saves of the presets now
+  run one at a time.
+
+### Fixed
+- Saving presets whose ids repeated in a particular way (`a`, `a-3`, `a`)
+  no longer hangs the save: the duplicate is numbered past a suffix that is
+  itself taken.
+- Recipients typed into a preset's **Send to** box count as an unsaved
+  change at once, so **Save** (and Ctrl/Cmd+S, even with the box still
+  focused) saves them.
+
+### Security
+- Next.js 16.4.2 (from 16.3.8): fixes two critical advisories,
+  unauthenticated remote code execution in the image optimization API with
+  SVG files (GHSA-2464-fhr4-w9xw) and in `use cache` functions returning
+  typed arrays (GHSA-673q-mjm6-r5xr), and a denial of service through
+  Server Actions (GHSA-p3m5-59mp-jv5r).
+- DOMPurify 3.4.17 (through Mermaid): fixes a critical SAFE_FOR_TEMPLATES
+  bypass in shadow-root content (GHSA-cg2g-xh64-v4q7) and a high IN_PLACE
+  hook issue (GHSA-mrv2-3pqr-j5jr).
+
 ## [1.14.1] - 2026-10-21
 
 Directory: an assistant written as an AD distinguished name with a

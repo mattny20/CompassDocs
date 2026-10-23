@@ -15,7 +15,6 @@ import {
   pool,
   getSetting,
   createDocument,
-  setAckRequired,
   recordAcknowledgement,
   ackStatusForDocument,
   ackFormerStaffRows,
@@ -35,6 +34,7 @@ import {
   evidenceCsvCells,
 } from "../src/lib/read-evidence";
 import { fixtureQuery } from "./support/retry";
+import { switchOn } from "./support/assign";
 
 const STAMP = `ackevi-${Date.now()}`;
 
@@ -58,7 +58,7 @@ async function newPolicy(title: string, content = TEXT): Promise<{ id: number; v
     tags: [],
     author: "test",
   });
-  await setAckRequired(doc.id, true, { editDefault: null });
+  await switchOn(doc.id, { editDefault: null });
   docIds.push(doc.id);
   return { id: doc.id, v1: (await listVersions(doc.id))[0].id };
 }

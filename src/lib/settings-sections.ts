@@ -157,6 +157,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
           { href: "/admin/directory/export#columns", label: "Export › Columns", keywords: "columns in order wrap after assistant details mark people with markers photos" },
           { href: "/admin/directory/export#order", label: "Export › Order and filter", keywords: "sections by section order section heads first sort by then by pinned people first only people where filter one file per zip" },
           { href: "/admin/directory/export#schedule", label: "Export › Schedule", keywords: "email schedule weekly monthly recipients smtp attachment" },
+          { href: "/admin/directory/export#link", label: "Export › Download link", keywords: "download link copy url share email intranet sign in file" },
         ] },
     ],
   },

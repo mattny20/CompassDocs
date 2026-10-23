@@ -24,7 +24,6 @@ import {
   createDocument,
   getDocument,
   updateDocument,
-  setAckRequired,
   recordAcknowledgement,
   getCurrentAck,
   listVersions,
@@ -49,6 +48,7 @@ import {
 } from "../src/lib/ack-decision";
 import { ackOutcomeSentence, crResolvedBody } from "../src/lib/notifications";
 import { fixtureQuery } from "./support/retry";
+import { switchOn } from "./support/assign";
 
 const STAMP = `ackdec-${Date.now()}`;
 
@@ -84,7 +84,7 @@ async function confirmedPolicy(title: string, content = LONG_TEXT): Promise<{ id
   });
   // editDefault null: leave the column at 'ask' rather than reading the
   // workspace setting, which another test file may be writing.
-  await setAckRequired(doc.id, true, { editDefault: null });
+  await switchOn(doc.id, { editDefault: null });
   docIds.push(doc.id);
   const v1 = (await listVersions(doc.id))[0].id;
   await recordAcknowledgement(doc.id, readerId, "", v1);

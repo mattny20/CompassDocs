@@ -13,7 +13,6 @@ import {
   pool,
   getSetting,
   createDocument,
-  setAckRequired,
   recordAcknowledgement,
   claimReconfirmation,
   ackStatusForDocument,
@@ -24,6 +23,7 @@ import {
   purgeDocument,
   listVersions,
 } from "../src/lib/db";
+import { switchOn } from "./support/assign";
 
 const STAMP = `ackledv-${Date.now()}`;
 
@@ -80,7 +80,7 @@ describe("the confirmation ledger (All confirmations view, ledger exports)", () 
     // Both null: leave the edit default and the interval columns alone rather
     // than read the workspace settings row, which another test file may be
     // writing (a default interval there would give the fixture a cycle).
-    await setAckRequired(docId, true, { editDefault: null, recertMonths: null });
+    await switchOn(docId, { editDefault: null, recertMonths: null });
     v1 = (await listVersions(docId))[0].id;
   });
 

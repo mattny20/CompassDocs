@@ -93,6 +93,22 @@ async function othersOwed(userId: number): Promise<number> {
   return r.rows[0].n;
 }
 
+/**
+ * Her complianceUserSummary total less what other files' policies add,
+ * read between two equal othersOwed counts: another file's switch-ons and
+ * teardowns can land between any two reads, so the subtraction is only
+ * taken when nothing moved around the summary.
+ */
+async function ownRequired(userId: number): Promise<number> {
+  for (let i = 0; i < 10; i++) {
+    const o1 = await othersOwed(userId);
+    const user = (await complianceUserSummary()).find((u) => u.id === userId);
+    const o2 = await othersOwed(userId);
+    if (o1 === o2) return (user?.required ?? 0) - o1;
+  }
+  throw new Error("other files' policies kept changing around the summary");
+}
+
 const TEXT = Array.from({ length: 12 }, (_, i) => `Clause ${i + 1}: staff must follow the procedure described here.`).join("\n\n");
 const manager = () => ({ id: miaId, name: "Mia Manager" });
 const scope = () => asScope([spaceId]);
@@ -243,7 +259,7 @@ describe("exemptions", () => {
       pendingCount: await countPendingAcksFor(anaId, scope()),
       mine: await listMyPolicies(anaId, scope()),
       user: (await complianceUserSummary()).find((u) => u.id === anaId),
-      others: await othersOwed(anaId),
+      ownRequired: await ownRequired(anaId),
     };
     assert.ok(before.pendingUsers.some((u) => u.id === anaId), "before: Ana is pending");
     assert.ok(before.pendingDocs.some((d) => d.id === id), "before: the policy is on Ana's pending list");
@@ -269,14 +285,14 @@ describe("exemptions", () => {
     assert.equal(doc.acked, before.doc.acked, "complianceDocs.acked");
     assert.ok(!(await compliancePendingUsers(id)).some((u) => u.id === anaId), "compliancePendingUsers");
     assert.ok(!(await listPendingAcksFor(anaId, scope())).some((d) => d.id === id), "listPendingAcksFor");
-    // The two per-person totals span every policy she owes, and another file
-    // may switch an internal-space policy on between the two reads (which
-    // enrols her too): count only this file's change.
-    const drift = (await othersOwed(anaId)) - before.others;
-    assert.equal(await countPendingAcksFor(anaId, scope()), before.pendingCount - 1 + drift, "countPendingAcksFor");
+    // countPendingAcksFor is scoped to this file's space, so other files'
+    // policies never reach it.
+    assert.equal(await countPendingAcksFor(anaId, scope()), before.pendingCount - 1, "countPendingAcksFor");
     assert.ok(!(await listMyPolicies(anaId, scope())).some((d) => d.id === id), "listMyPolicies");
-    const user = (await complianceUserSummary()).find((u) => u.id === anaId);
-    assert.equal(user?.required ?? 0, before.user!.required - 1 + drift, "complianceUserSummary.required");
+    // The summary spans every policy she owes, and another file may switch
+    // an internal-space policy on (or tear one down) between the two reads:
+    // count only this file's change.
+    assert.equal(await ownRequired(anaId), before.ownRequired - 1, "complianceUserSummary.required");
 
     // The roster keeps the row, last, as 'exempt', in plain text.
     const rows = await ackStatusForDocument(id);

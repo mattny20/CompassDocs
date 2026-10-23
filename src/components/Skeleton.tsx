@@ -111,6 +111,16 @@ export function DirectorySkeleton() {
   );
 }
 
+/** A directory download link's landing page (1.15.0): one centred card. */
+export function DownloadSkeleton() {
+  return (
+    <Frame label="Loading your download">
+      <Title />
+      <Skeleton className="h-56 w-full rounded-xl" />
+    </Frame>
+  );
+}
+
 export function AnalyticsSkeleton() {
   return (
     <Frame label="Loading analytics">

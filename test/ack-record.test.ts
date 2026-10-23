@@ -282,10 +282,19 @@ function viewer(id: number): SessionUser {
   };
 }
 
+/** This file's rows only: a policy another test file requires in an internal space asks every active account, Ana included, if it switches on while this file runs. A purged policy's row keeps its title snapshot, which starts with STAMP. */
+const ownRow = (r: { document_id: number | null; title: string }) =>
+  r.document_id != null ? docIds.includes(r.document_id) : r.title.startsWith(STAMP);
+
 async function record(viewerId: number): Promise<PolicyTranscript> {
   const t = await userPolicyTranscript(ana, viewer(viewerId));
   assert.ok(t, `user ${viewerId} may open the record`);
-  return t;
+  return {
+    ...t,
+    current: t.current.filter(ownRow),
+    history: t.history.filter(ownRow),
+    notices: t.notices.filter((n) => n.document_id != null && docIds.includes(n.document_id)),
+  };
 }
 
 const byTitle = (rows: PolicyTranscriptRow[], p: Policy, record?: PolicyTranscriptRow["record"]) =>
@@ -654,7 +663,7 @@ describe("the per-person compliance record (F3)", () => {
     assert.equal(me.status, 200);
     assert.equal(me.body.person.id, ana);
     assert.equal(me.body.viewer_kind, "self");
-    assert.equal(me.body.current.length, 4);
+    assert.equal((me.body.current as PolicyTranscriptRow[]).filter(ownRow).length, 4);
 
     const denied = await call(route.GET as Handler, sessionRequest(url(String(ana)), sessions.get(stranger)!), String(ana));
     assert.equal(denied.status, 404);

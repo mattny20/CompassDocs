@@ -28,7 +28,6 @@ import {
   createDocument,
   getDocument,
   updateDocument,
-  setAckRequired,
   recordAcknowledgement,
   getCurrentAck,
   listVersions,
@@ -49,6 +48,7 @@ import {
   ACK_OUTBOX_CANCELLED_RETIRED,
 } from "../src/lib/db";
 import { fixtureQuery } from "./support/retry";
+import { switchOn } from "./support/assign";
 
 const STAMP = `ackretire-${Date.now()}`;
 
@@ -85,7 +85,9 @@ async function policy(title: string, opts: { confirm?: boolean; status?: "publis
   // Both null: leave the edit default and the interval columns alone rather
   // than read the workspace settings row, which another test file may be
   // writing (a default interval there would give the fixture a cycle).
-  await setAckRequired(doc.id, true, { editDefault: null, recertMonths: null });
+  // An internal-space switch-on asks every account; another file's teardown
+  // can delete one mid-statement (test/support/assign).
+  await switchOn(doc.id, { editDefault: null, recertMonths: null });
   const v1 = (await listVersions(doc.id))[0].id;
   if (opts.confirm !== false) await recordAcknowledgement(doc.id, readerId, "", v1);
   return { id: doc.id, v1 };

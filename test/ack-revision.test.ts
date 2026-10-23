@@ -76,6 +76,7 @@ import { createUploadTicket, withImagePlaced } from "../src/lib/image-intake";
 import { ackDecisionRequired } from "../src/lib/ack-decision";
 import { POST as dropFile } from "../src/app/api/upload-tickets/[token]/route";
 import { fixtureQuery } from "./support/retry";
+import { switchOn } from "./support/assign";
 
 const STAMP = `ackrev-${Date.now()}`;
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");
@@ -99,7 +100,7 @@ async function newPolicy(title: string, content = "Policy body"): Promise<number
   });
   // editDefault null: leave the column at 'ask' rather than reading the
   // workspace setting, which another test file may be writing.
-  await setAckRequired(doc.id, true, { editDefault: null });
+  await switchOn(doc.id, { editDefault: null });
   docIds.push(doc.id);
   return doc.id;
 }
@@ -543,7 +544,7 @@ describe("updateDocument decides what happens to confirmations (A2)", () => {
     assert.equal(row.rows[0].ack_version_id, v2, "the marker followed the text silently");
     assert.notEqual(row.rows[0].ack_version_id, v1);
     assert.equal((await listAckDecisions(id)).length, 0, "no decision row while the requirement is off");
-    await setAckRequired(id, true, { editDefault: null });
+    await switchOn(id, { editDefault: null });
     assert.equal(await acked(id), 0, "never 100% for unread text");
     assert.equal(await getCurrentAck(id, readerId), undefined);
   });
@@ -717,7 +718,7 @@ describe("the other text writers take the same decisions (approval, schedule)", 
     assert.notEqual(v2, v1);
     assert.equal((await pool().query(stamps, [id])).rows[0].ack_version_id, v2, "the marker followed the text");
     assert.equal((await listAckDecisions(id)).length, 0, "no decision row while the requirement is off");
-    await setAckRequired(id, true, { editDefault: null });
+    await switchOn(id, { editDefault: null });
     assert.equal(await getCurrentAck(id, readerId), undefined, "never 100% for unread text");
 
     // Required again, confirmed at v2; a request that lands as a draft keeps the marker.

@@ -170,8 +170,11 @@ describe("the notice outbox", () => {
       assert.equal(row.error, null);
       assert.ok(row.claimed_at);
     }
+    // Only rows that still name an account: one another file deleted while
+    // the drain wrote keeps its snapshot with a NULL user_id (insertAckNotices),
+    // and GROUP BY would count two such strangers as one person twice.
     const dup = await pool().query(
-      "SELECT document_id, user_id FROM ack_notices WHERE outbox_id = ANY($1) GROUP BY 1, 2 HAVING COUNT(*) > 1",
+      "SELECT document_id, user_id FROM ack_notices WHERE outbox_id = ANY($1) AND user_id IS NOT NULL GROUP BY 1, 2 HAVING COUNT(*) > 1",
       [ids]
     );
     assert.equal(dup.rows.length, 0, "nobody has two notices for one row");
