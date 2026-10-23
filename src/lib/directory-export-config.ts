@@ -10,7 +10,7 @@ import { sanitizeSchedule, stampSchedule, SCHEDULE_OFF, type ExportSchedule } fr
 import { COLUMN_LIMIT, MARGIN_INCHES, MARGIN_PRESETS, type MarginBox, type MarginPreset } from "./directory-export-layout";
 import { NAME_FORMAT_KEYS, NAME_SORT_KEYS, assistantDetailKeys, type NameFormat } from "./directory-display";
 import { MARKER_LIMIT, listMarkers, type ExportMarker } from "./directory-markers";
-import { getSetting, setSetting } from "./db";
+import { getSetting, withAdvisoryLock, type Queryable } from "./db";
 import { presetIdFor } from "./directory-export-link";
 import { listFields, validColumnKeys, type DirectoryField } from "./directory";
 
@@ -336,9 +336,26 @@ export async function listExportPresets(fields?: DirectoryField[], markers?: Exp
   return presets;
 }
 
+/** Is this preset, as sent, a new one to name? No id, or an editor draft id ("~draft-N", which is never kept as an id). */
+function isFreshPresetId(raw: unknown): boolean {
+  const id = String((raw as Record<string, unknown> | null)?.id ?? "").trim();
+  return !id || id.startsWith("~");
+}
+
 export async function saveExportPresets(raw: unknown, fields?: DirectoryField[]): Promise<ExportPreset[]> {
   const all = fields ?? (await listFields());
   if (!Array.isArray(raw) || raw.length === 0) throw new Error("At least one export preset is required.");
+  // One save at a time (1.15.0): the presets and the retired-id list are
+  // read and written together, so two admins saving at once can neither
+  // lose a deleted id from the list nor hand one to a new preset.
+  return withAdvisoryLock(SETTING, (client) => savePresetsLocked(raw, all, client));
+}
+
+async function savePresetsLocked(
+  raw: unknown[],
+  all: DirectoryField[],
+  client: Queryable
+): Promise<ExportPreset[]> {
   const markers = await listMarkers(all);
   const ids = await markerIdSet(all, markers);
   // A schedule that was just set, or moved, starts from now: its first send
@@ -349,16 +366,17 @@ export async function saveExportPresets(raw: unknown, fields?: DirectoryField[])
   const list = raw.slice(0, MAX_PRESETS);
   // A preset sent without an id is new (the editor sends its new presets
   // so): it is given one below, from its name. One sent with an id keeps it.
-  const fresh = list.map((p) => !String((p as Record<string, unknown> | null)?.id ?? "").trim());
+  const fresh = list.map(isFreshPresetId);
   const sanitized = list.map((p, i) => sanitizePreset(p, all, `preset-${i + 1}`, ids));
   const seen = new Set<string>();
   const explicit = sanitized.map((p, i) => {
     if (fresh[i]) return p;
     let id = p.id;
     // Counts on past a suffix that is itself taken (["a", "a-3", "a"] used
-    // to retry "a-3" forever).
+    // to retry "a-3" forever). A renumbered duplicate is a new id, so it
+    // also passes over live and retired ones.
     let n = i + 1;
-    while (seen.has(id)) id = `${p.id}-${n++}`;
+    while (seen.has(id) || (id !== p.id && (before.has(id) || retired.has(id)))) id = `${p.id}-${n++}`;
     seen.add(id);
     return { ...p, id };
   });
@@ -379,13 +397,19 @@ export async function saveExportPresets(raw: unknown, fields?: DirectoryField[])
     return p;
   });
   if (!normalized.some((p) => p.is_default)) normalized[0] = { ...normalized[0], is_default: true };
-  await setSetting(SETTING, JSON.stringify(normalized));
   // The ids this save removed join the retired list; an id that is live
-  // again (put back through the API) leaves it.
+  // again (put back through the API) leaves it. Both settings are written
+  // in the lock's transaction, so they land together.
   const live = new Set(normalized.map((p) => p.id));
   const removed = [...before.keys()].filter((id) => !live.has(id));
   const nextRetired = [...retired, ...removed].filter((id, i, a) => !live.has(id) && a.indexOf(id) === i).slice(-RETIRED_MAX);
-  if (removed.length || nextRetired.length !== retired.size) await setSetting(RETIRED_SETTING, JSON.stringify(nextRetired));
+  const rows: string[] = [SETTING, JSON.stringify(normalized)];
+  if (removed.length || nextRetired.length !== retired.size) rows.push(RETIRED_SETTING, JSON.stringify(nextRetired));
+  await client.query(
+    `INSERT INTO settings (key, value) VALUES ${rows.length === 2 ? "($1,$2)" : "($1,$2),($3,$4)"}
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+    rows
+  );
   return normalized;
 }
 

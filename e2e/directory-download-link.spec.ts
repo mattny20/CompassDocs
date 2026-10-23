@@ -238,3 +238,49 @@ test("a new preset never takes a deleted preset's id, so the old link stays dead
     await api(page, "/api/admin/directory/export-presets", { method: "PUT", body: { presets } });
   }
 });
+
+test("taking the direct link while the file is made hands the download to the browser and claims nothing", async ({ page }) => {
+  await login(page, ADMIN);
+  await withPreset(page, {}, async (id) => {
+    // Hold the page's own request so the direct link is taken first.
+    let release: () => void = () => {};
+    const held = new Promise<void>((r) => (release = r));
+    let first = true;
+    await page.route(/\/api\/directory\/export\?/, async (route) => {
+      if (route.request().resourceType() === "fetch" && first) {
+        first = false;
+        await held;
+        // The page has already dropped this request.
+        return route.abort().catch(() => {});
+      }
+      return route.continue();
+    });
+    await page.goto(`/directory/download/${id}`);
+    const status = page.getByRole("status");
+    await expect(status).toContainText("Preparing your PDF");
+    const download = page.waitForEvent("download");
+    await page.getByRole("link", { name: "Download it directly" }).click();
+    expect((await download).suggestedFilename()).toBe(`${id}.pdf`);
+    await expect(status).toContainText("Downloading in your browser");
+    await expect(status).not.toContainText("Downloaded");
+    await expect(page.getByRole("button", { name: "Download again" })).toBeVisible();
+    release();
+  });
+});
+
+test("recipients typed into Send to are saved by the Save shortcut while the box still has focus", async ({ page }) => {
+  await login(page, ADMIN);
+  await withPreset(page, {}, async (id, name) => {
+    await page.goto("/admin/directory/export");
+    await page.getByRole("button", { name: new RegExp(name) }).click();
+    await page.getByRole("combobox", { name: "How often" }).selectOption("weekly");
+    const to = page.getByRole("textbox", { name: "Send to" });
+    await to.fill("reception@e2e.test, desk@e2e.test");
+    await page.keyboard.press("Control+s");
+    await expect(page.getByText("Export presets saved.")).toBeVisible();
+    // The box shows what was saved, and the saved preset carries both addresses.
+    await expect(to).toHaveValue("reception@e2e.test, desk@e2e.test");
+    const stored = ((await api(page, "/api/admin/directory/export-presets")).body.presets as any[]).find((p) => p.id === id);
+    expect(stored.schedule.recipients).toEqual(["reception@e2e.test", "desk@e2e.test"]);
+  });
+});

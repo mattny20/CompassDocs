@@ -961,10 +961,12 @@ text-slate-500` before them ("Notary · Phoenix").
   `error` and **Try again**). **Back to home** is always there and becomes
   the primary once the work is done; a small direct link (`link`, "Nothing
   happening?" while it runs, "Not in your downloads?" after) is the
-  fallback, and using it stops the page's own request. A retry moves focus
-  to the status region (`tabIndex={-1}`), since the button that had it goes
-  while the work runs. The history entry remembers that the job is done, so
-  Back to the page shows the result instead of doing it again. Whatever the page can tell
+  fallback, and using it stops the page's own request and shows a neutral
+  "in your browser" state, never a success the page cannot see. A retry
+  moves focus to the status region (`tabIndex={-1}`) when the button that
+  had it went with the work and focus fell to `<body>`. The history entry
+  remembers that the job is done, so Back to the page shows the result
+  instead of doing it again; a reload does it again. Whatever the page can tell
   before starting (no access, a link to something deleted) is an
   `EmptyState` with a way on, never a failed download. Its route has its
   own `loading.tsx` (`DownloadSkeleton`) so a parent's skeleton does not

@@ -4308,6 +4308,30 @@ export async function setSetting(key: string, value: string): Promise<void> {
   );
 }
 
+/**
+ * Run `fn` inside a transaction that holds a transaction-scoped advisory
+ * lock on `name`, so concurrent callers of the same job run one after the
+ * other (1.15.0: saving export presets, whose two settings must move
+ * together). Reads through the pool see what an earlier holder committed;
+ * writes that must land together go through `client`.
+ */
+export async function withAdvisoryLock<T>(name: string, fn: (client: Queryable) => Promise<T>): Promise<T> {
+  await ready();
+  const client = await pool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [name]);
+    const out = await fn(client);
+    await client.query("COMMIT");
+    return out;
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
 export async function getApprovalMode(): Promise<ApprovalMode> {
   return (await getSetting("approval_mode")) === "open" ? "open" : "strict";
 }

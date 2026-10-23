@@ -26,7 +26,7 @@ import { jsonFetch } from "./shared";
 import { MarkersCard } from "./export/MarkersCard";
 import { PresetList } from "./export/PresetList";
 import { PresetEditor, type PresetEditorModel } from "./export/PresetEditor";
-import { DRAFT_PREFIX, LIMIT_MAX, LIMIT_MIN, MARGIN_SIDES, PRESET_BLANK, isDraftId, marginError, type MarginSide } from "./export/preset-rules";
+import { DRAFT_PREFIX, LIMIT_MAX, LIMIT_MIN, MARGIN_SIDES, PRESET_BLANK, isDraftId, marginError, parseRecipients, type MarginSide } from "./export/preset-rules";
 
 export function DirectoryExportPanel({
   fields,
@@ -228,7 +228,13 @@ export function DirectoryExportPanel({
     // A new preset goes without an id: the server gives it one from its name
     // that no live or deleted preset has had (download links carry it). A
     // saved preset keeps its id.
-    const outgoing = presets.map((p) => (isDraftId(p.id) ? { ...p, id: "" } : p));
+    // Recipients still being typed (Save by its shortcut leaves the box
+    // focused, so it never blurred) go out as typed, not as last committed.
+    const outgoing = presets.map((p) => {
+      const typed = recipientsText[p.id];
+      const withTyped = typed === undefined ? p : { ...p, schedule: { ...p.schedule, recipients: parseRecipients(typed) } };
+      return isDraftId(p.id) ? { ...withTyped, id: "" } : withTyped;
+    });
     const r = await jsonFetch("/api/admin/directory/export-presets", { method: "PUT", body: JSON.stringify({ presets: outgoing }) });
     setSavingPresets(false);
     if (!r.ok) {
@@ -267,7 +273,7 @@ export function DirectoryExportPanel({
     setMargin,
     recipientsText: recipientsText[cur.id],
     setRecipientsText: (text) => setRecipientsText({ ...recipientsText, [cur.id]: text }),
-    commitRecipients: (raw) => updateSchedule({ recipients: raw.split(/[,;\s]+/).map((s) => s.trim()).filter(Boolean) }),
+    commitRecipients: (raw) => updateSchedule({ recipients: parseRecipients(raw) }),
     smtpConfigured,
     lastRun: runLog[cur.id],
     linkOrigin,

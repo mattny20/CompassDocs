@@ -25,8 +25,10 @@ on an intranet page, and whoever clicks it signs in and gets the file.
   then "Downloaded" with the file name once it is in the downloads folder,
   with **Back to home** to the dashboard and **Download again**. A direct
   link sits under the status, while the file is made and after, for a
-  browser that blocks the automatic download. Coming Back to the page from
-  home shows "Downloaded" again rather than downloading a second copy.
+  browser that blocks the automatic download; taking it hands the download
+  to the browser, which reports it. Coming Back to the page from home shows
+  "Downloaded" again rather than downloading a second copy; reloading the
+  page, or opening the link again, downloads a fresh one.
 - The file is made for whoever opens the link, from what their own
   account can see: the same columns, people and restrictions as their own
   Export menu, never the copying admin's. A link carries no secret and
@@ -43,12 +45,14 @@ on an intranet page, and whoever clicks it signs in and gets the file.
 - A new preset made in the editor is given its id by the server when it is
   first saved, from its name, so its link reads
   `/directory/download/front-desk-list` rather than the placeholder it had
-  before ("new-export-3"). The id avoids every live preset's and every id
-  ever deleted (the workspace now keeps a list of deleted preset ids), so a
-  link to a deleted preset never starts serving a new one. A saved preset
-  keeps its id for good: renaming it never breaks a link already sent.
-  Through the API, a preset sent without an `id` is named the same way;
-  one sent with an id keeps it.
+  before ("new-export-3"). The id avoids every live preset's id and every
+  deleted one (the workspace now keeps a list of the last thousand deleted
+  preset ids), so a link to a deleted preset never starts serving a preset
+  made later. A saved preset keeps its id for good: renaming it never
+  breaks a link already sent. Through the API, a preset sent without an
+  `id` is named the same way; one sent with an id keeps it, which can bring
+  a deleted id, and its links, back on purpose. Saves of the presets now
+  run one at a time.
 
 ### Fixed
 - Saving presets whose ids repeated in a particular way (`a`, `a-3`, `a`)

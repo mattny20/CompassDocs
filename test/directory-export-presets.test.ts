@@ -17,6 +17,9 @@ const saved = new Map<string, string | undefined>();
 before(async () => {
   await getSetting("__schema_bootstrap__");
   for (const k of KEYS) saved.set(k, await getSetting(k));
+  // Start from no presets and no retired ids, whatever the database holds
+  // (an earlier interrupted run leaves its own behind); after() restores.
+  await pool().query("DELETE FROM settings WHERE key = ANY($1)", [KEYS]);
 });
 
 after(async () => {
@@ -88,4 +91,36 @@ test("the retired list keeps every id a save removes, and drops one that is live
   retired = await retiredPresetIds();
   assert.equal(retired.has("b1"), false);
   assert.ok(retired.has("c1"));
+});
+
+test("a duplicated id renumbered by the save passes over retired ids, and a '~' draft id is named like a new preset", async () => {
+  await saveExportPresets([
+    { id: "dup", name: "Dup", is_default: true },
+    { id: "dup-2", name: "Dup two" },
+  ]);
+  await saveExportPresets([{ id: "dup", name: "Dup", is_default: true }]);
+  assert.ok((await retiredPresetIds()).has("dup-2"));
+  const out = await saveExportPresets([
+    { id: "dup", name: "Dup", is_default: true },
+    { id: "dup", name: "Dup again" },
+    { id: "~draft-1", name: "Reception" },
+  ]);
+  assert.deepEqual(out.map((p) => p.id), ["dup", "dup-3", "reception"]);
+});
+
+test("two saves at once both land their retirements (saves run one at a time)", async () => {
+  await saveExportPresets([
+    { id: "keep", name: "Keep", is_default: true },
+    { id: "x1", name: "X1" },
+    { id: "y1", name: "Y1" },
+  ]);
+  await Promise.all([
+    saveExportPresets([{ id: "keep", name: "Keep", is_default: true }, { id: "y1", name: "Y1" }]),
+    saveExportPresets([{ id: "keep", name: "Keep", is_default: true }, { id: "x1", name: "X1" }]),
+  ]);
+  const retired = await retiredPresetIds();
+  // Whichever ran second removed the id the first kept; both removals are recorded.
+  assert.ok(retired.has("x1") || retired.has("y1"));
+  const live = new Set((await listExportPresets()).map((p) => p.id));
+  for (const id of ["x1", "y1"]) assert.ok(live.has(id) !== retired.has(id), `${id} is either live or retired, never both or neither`);
 });

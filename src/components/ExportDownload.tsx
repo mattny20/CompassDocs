@@ -10,11 +10,13 @@
 // sign-in. A plain link to the same file sits under the status, while the
 // file is made and after, for a browser that blocks the automatic download
 // (or with JavaScript off); using it stops the page's own request, so the
-// file comes once.
+// file comes once, and the page then makes no claim it cannot see (the
+// browser's own download reports itself).
 //
 // Once a visit has downloaded, the history entry remembers it: Back to this
 // page from home shows "Downloaded" again instead of fetching another copy.
-// Opening the link afresh (a new history entry) downloads as usual.
+// Opening the link afresh (a new history entry), or reloading the page,
+// downloads as usual.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CircleCheck, Download, Home, RotateCcw, TriangleAlert } from "lucide-react";
@@ -25,14 +27,28 @@ import { loginHref } from "@/lib/return-to";
 
 type State =
   | { kind: "working" }
-  /** `filename` is unknown when the visitor took the direct link. */
   | { kind: "done"; filename?: string }
+  /** The visitor took the direct link: the browser fetches the file itself. */
+  | { kind: "direct" }
   | { kind: "error"; message: string };
 
 /** The key this page keeps in its history entry once it has downloaded. */
 const HISTORY_KEY = "compassDirectoryDownload";
 
+/** True only for the first page mounted in a document that the visitor reloaded: a reload asks for the file again. */
+let reloadPending = (() => {
+  try {
+    return (performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined)?.type === "reload";
+  } catch {
+    return false;
+  }
+})();
+
 function rememberedDownload(api: string): string | null {
+  if (reloadPending) {
+    reloadPending = false;
+    return null;
+  }
   try {
     const mark = (window.history.state as Record<string, unknown> | null)?.[HISTORY_KEY] as
       | { api?: string; filename?: string }
@@ -145,7 +161,10 @@ export function ExportDownload({
   useEffect(() => {
     if (state.kind === "working" || !retried.current) return;
     retried.current = false;
-    statusRef.current?.focus({ preventScroll: true });
+    // Only when the button that had focus went with the work: never take
+    // focus from a control the visitor has since moved to.
+    const active = document.activeElement;
+    if (!active || active === document.body) statusRef.current?.focus({ preventScroll: true });
   }, [state.kind]);
 
   function retry() {
@@ -156,10 +175,10 @@ export function ExportDownload({
   /** The direct link was used: the browser fetches the file itself, so the page's own request stops. */
   function tookDirect() {
     if (state.kind !== "working") return;
+    retried.current = false;
     inflight.current?.abort();
     inflight.current = null;
-    rememberDownload(api, "");
-    setState({ kind: "done" });
+    setState({ kind: "direct" });
   }
 
   return (
@@ -194,6 +213,15 @@ export function ExportDownload({
             </p>
           </>
         )}
+        {state.kind === "direct" && (
+          <>
+            <Download className="h-8 w-8 text-slate-400" aria-hidden />
+            <p className="text-base font-semibold text-slate-800">Downloading in your browser</p>
+            <p className="text-sm text-slate-500">
+              Your browser is fetching the file itself; it shows in your downloads when it is ready.
+            </p>
+          </>
+        )}
         {state.kind === "error" && (
           <>
             <TriangleAlert className="h-8 w-8 text-amber-600" aria-hidden />
@@ -213,7 +241,7 @@ export function ExportDownload({
           </Button>
         )}
       </div>
-      {state.kind !== "error" && (
+      {(state.kind === "working" || state.kind === "done") && (
         <p className="mt-4 text-xs text-slate-500">
           {state.kind === "working" ? "Nothing happening?" : "Not in your downloads?"}{" "}
           <a href={api} download onClick={tookDirect} className="link font-medium">
