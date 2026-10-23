@@ -26,6 +26,7 @@ import {
   Cake,
   PartyPopper,
   Network,
+  Link2,
 } from "lucide-react";
 import type { DirectoryPerson, DirectoryField } from "@/lib/directory";
 import {
@@ -58,6 +59,7 @@ import { managerField } from "@/lib/directory-org";
 import { FieldChips } from "./TagBadges";
 import { toast } from "./Toasts";
 import { iconButtonClass } from "./Button";
+import { ExportLinkDialog } from "./directory/ExportLinkDialog";
 
 // w-auto: these sit in a flex-wrap toolbar at their intrinsic width.
 const field = controlClass(false, "w-auto");
@@ -149,6 +151,7 @@ export function DirectoryClient({
   focus,
   hiddenColumns = [],
   presence = false,
+  linkOrigin,
 }: {
   initialPeople: DirectoryPerson[];
   fields: DirectoryField[];
@@ -169,6 +172,8 @@ export function DirectoryClient({
   hiddenColumns?: string[];
   /** Teams presence is on for this workspace (Enterprise): poll it for synced people. */
   presence?: boolean;
+  /** Download links are built on the custom domain when one is set. */
+  linkOrigin?: string;
 }) {
   // Presence for everyone the Microsoft sync owns, refreshed while the tab is open.
   const presenceIds = useMemo(() => initialPeople.filter((p) => p.source === "graph").map((p) => p.id), [initialPeople]);
@@ -182,6 +187,7 @@ export function DirectoryClient({
   const [cols, setCols] = useState<string[]>(defaultColumns);
   const [colsOpen, setColsOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [linkOpen, setLinkOpen] = useState(false);
   const colsBtnRef = useRef<HTMLButtonElement>(null);
   const exportBtnRef = useRef<HTMLButtonElement>(null);
   const [sortBy, setSortBy] = useState("name");
@@ -814,10 +820,18 @@ export function DirectoryClient({
               <span className="text-2xs font-semibold uppercase tracking-wider text-slate-500">PDF</span>
             </label>
             <MenuSeparator />
+            <MenuItem
+              icon={<Link2 />}
+              onClick={() => { setExportOpen(false); setLinkOpen(true); }}
+              data-tt="For an email or an intranet page: whoever opens it gets the file"
+            >
+              Copy download link…
+            </MenuItem>
             <MenuItem icon={<Printer />} onClick={() => { setExportOpen(false); window.print(); }}>
               Print…
             </MenuItem>
           </Popover>
+          <ExportLinkDialog open={linkOpen} onClose={() => setLinkOpen(false)} presets={presets} linkOrigin={linkOrigin} />
         </div>
 
         <span className="ml-auto text-sm text-slate-500">

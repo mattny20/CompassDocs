@@ -4,6 +4,51 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.15.0] - 2026-10-23
+
+Directory: download links. Copy a link to an export, put it in an email or
+on an intranet page, and whoever clicks it signs in and gets the file.
+
+### Added
+- **A download link for every export preset.** Settings → Directory → Export
+  has a new **Download link** card under each preset: pick PDF (a ZIP of
+  PDFs when the preset makes one file per section), CSV or contact cards
+  (.vcf), then **Copy link**, or open it in a new tab to try it. On the
+  Directory page, **Export → Copy download link…** does the same for
+  anyone who can export, with the preset to pick. The link is built on the
+  workspace's custom domain when one is set.
+- **Clicking the link signs you in, then downloads the file.** The link
+  opens `/directory/download/<preset>`: a signed-out visitor goes through
+  sign-in (password, SSO) and comes back to it, and the page starts the
+  download at once. It says "Preparing your PDF…" while the file is made,
+  then "Downloaded" with the file name once it is in the downloads folder,
+  with **Back to home** to the dashboard and **Download again**. If the
+  browser blocks the automatic download, a direct link is under the
+  status.
+- The file is made for whoever opens the link, from what their own
+  account can see: the same columns, people and restrictions as their own
+  Export menu, never the copying admin's. A link carries no secret and
+  grants nothing; an account that cannot read the directory is told so.
+- A link to a preset that has since been deleted says "This download link
+  no longer works" with a way to the directory, instead of quietly serving
+  the default preset. A refusal (the export rate limit, a session that
+  expired) is said in words with **Try again**, or goes back through
+  sign-in.
+- The audit log's "Exported directory" entry carries `via: "link"` for an
+  export made through a link.
+
+### Changed
+- A new preset takes its id from its name when it is first saved, so its
+  link reads `/directory/download/front-desk-list` rather than the
+  placeholder it had in the editor. A saved preset keeps its id for good:
+  renaming it never breaks a link already sent, and an id deleted in the
+  same session is not handed to a new preset.
+
+### Fixed
+- Saving presets whose ids repeated in a particular way (`a`, `a-3`, `a`)
+  no longer hangs the save: the duplicate is numbered past a suffix that is
+  itself taken.
+
 ## [1.14.1] - 2026-10-21
 
 Directory: an assistant written as an AD distinguished name with a

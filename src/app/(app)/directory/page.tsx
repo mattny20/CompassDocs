@@ -65,6 +65,7 @@ export default async function DirectoryPage({ searchParams }: { searchParams: Pr
           focus={Number.isInteger(focus) && focus > 0 ? focus : undefined}
           hiddenColumns={hiddenColumns}
           presence={presence}
+          linkOrigin={settings.custom_domain ? `https://${settings.custom_domain}` : undefined}
         />
       </div>
 

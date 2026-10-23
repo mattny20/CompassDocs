@@ -336,7 +336,10 @@ export async function saveExportPresets(raw: unknown, fields?: DirectoryField[])
   const seen = new Set<string>();
   const unique = presets.map((p, i) => {
     let id = p.id;
-    while (seen.has(id)) id = `${p.id}-${i + 1}`;
+    // Counts on past a suffix that is itself taken (["a", "a-3", "a"] used
+    // to retry "a-3" forever).
+    let n = i + 1;
+    while (seen.has(id)) id = `${p.id}-${n++}`;
     seen.add(id);
     return { ...p, id };
   });

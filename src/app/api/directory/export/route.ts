@@ -1,7 +1,8 @@
 // Directory export — PDF or CSV, for any signed-in user who can read the
 // directory. Two ways in:
 //
-//   GET  ?preset=<id>&format=pdf|csv           an admin preset, as published
+//   GET  ?preset=<id>&format=pdf|csv|vcf       an admin preset, as published
+//        (&via=link: from a download link's landing page, 1.15.0)
 //   POST { preset?, format?, ids?, ...overrides } "export what I see": the
 //        directory page sends the ids it is showing and the columns / grouping
 //        / sort it has on screen, and the file matches the screen.
@@ -44,9 +45,19 @@ async function run(user: SessionUser, req: Request, params: Record<string, unkno
   // prints from them.
   const markers = markersForViewer(await listMarkers(fields), scope.hidden);
   const markerIds = new Set(markers.map((m) => m.id));
-  const base = params.preset
-    ? (await getExportPreset(String(params.preset), fields, markers)) ?? (await defaultExportPreset(fields, markers))
-    : await defaultExportPreset(fields, markers);
+  // A download link (1.15.0, lib/directory-export-link) names one preset and
+  // says so with via=link: when that preset has since been deleted the link
+  // is dead, and handing over the default preset under its name would be a
+  // different file from the one the link promised.
+  const viaLink = params.via === "link";
+  const named = params.preset ? await getExportPreset(String(params.preset), fields, markers) : undefined;
+  if (viaLink && !named) {
+    return NextResponse.json(
+      { error: "This download link no longer works: the export it points to was removed. Ask whoever sent it for a new link." },
+      { status: 404 }
+    );
+  }
+  const base = named ?? (await defaultExportPreset(fields, markers));
 
   // Overrides ride on top of the chosen preset; sanitizePreset drops anything
   // that is not a real column or option.
@@ -123,7 +134,12 @@ async function run(user: SessionUser, req: Request, params: Record<string, unkno
   // order, with each office's address and main line on its people.
   if (format === "vcf") {
     const { renderDirectoryVcf } = await import("@/lib/directory-export-vcf");
-    await audit({ actor: actorFrom(user), action: "directory.exported", details: { format, preset: preset.id, people: people.length }, ip: ipFrom(req) });
+    await audit({
+      actor: actorFrom(user),
+      action: "directory.exported",
+      details: { format, preset: preset.id, people: people.length, ...(viaLink ? { via: "link" } : {}) },
+      ip: ipFrom(req),
+    });
     const domain = (await getSetting("custom_domain"))?.trim();
     const text = await renderDirectoryVcf({ preset, people, fields, company, origin: domain ? `https://${domain}` : new URL(req.url).origin });
     return new Response(text, {
@@ -139,7 +155,7 @@ async function run(user: SessionUser, req: Request, params: Record<string, unkno
   await audit({
     actor: actorFrom(user),
     action: "directory.exported",
-    details: { format, preset: preset.id, people: people.length, ad_hoc: Object.keys(overrides).length > 0 },
+    details: { format, preset: preset.id, people: people.length, ad_hoc: Object.keys(overrides).length > 0, ...(viaLink ? { via: "link" } : {}) },
     ip: ipFrom(req),
   });
 

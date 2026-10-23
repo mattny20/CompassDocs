@@ -946,6 +946,24 @@ text-slate-500` before them ("Notary · Phoenix").
 - **Copying a value** is `<CopyButton text label iconOnly>` from
   `components/CopyButton`: Copy → Copied with a check and a polite
   announcement, back after two seconds. Never a hand-rolled copy handler.
+  **A link to hand out** (1.15.0, the directory's download links) is the
+  link as a read-only, select-on-focus `TextInput` in a `Field`, with
+  **Copy link** and a bordered open-in-new-tab icon button *beside* the
+  field, never inside it (a `Field` is a `<label>`, which holds one
+  control): `components/ExportLinkFields`.
+- **A page that does its job on arrival** (1.15.0, `/directory/download/
+  <preset>`, the landing page a download link opens after sign-in) is an
+  ordinary signed-in page: `PageContainer` and `PageHeader`, then one card
+  that starts the work at once and is one `role="status"` region saying
+  where it is (a `lg` spinner and "Preparing your PDF…", then a check and
+  "Downloaded" with the file name, or a warning icon, the server's own
+  `error` and **Try again**). **Back to home** is always there and becomes
+  the primary once the work is done; while it runs, a small "Nothing
+  happening?" direct link is the fallback. Whatever the page can tell
+  before starting (no access, a link to something deleted) is an
+  `EmptyState` with a way on, never a failed download. Its route has its
+  own `loading.tsx` (`DownloadSkeleton`) so a parent's skeleton does not
+  flash the wrong shape.
 - Action results use **toasts** (bottom-right, auto-dismiss, ok/error
   styling) — not top-of-page notices that scroll out of view.
 - **Reversible actions tell, they don't ask.** Moving to the Trash,

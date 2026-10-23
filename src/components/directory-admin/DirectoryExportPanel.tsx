@@ -26,7 +26,7 @@ import { jsonFetch } from "./shared";
 import { MarkersCard } from "./export/MarkersCard";
 import { PresetList } from "./export/PresetList";
 import { PresetEditor, type PresetEditorModel } from "./export/PresetEditor";
-import { LIMIT_MAX, LIMIT_MIN, MARGIN_SIDES, PRESET_BLANK, marginError, type MarginSide } from "./export/preset-rules";
+import { LIMIT_MAX, LIMIT_MIN, MARGIN_SIDES, PRESET_BLANK, marginError, presetIdFor, type MarginSide } from "./export/preset-rules";
 
 export function DirectoryExportPanel({
   fields,
@@ -34,6 +34,7 @@ export function DirectoryExportPanel({
   initialMarkers = [],
   smtpConfigured = false,
   runLog = {},
+  linkOrigin,
 }: {
   fields: DirectoryField[];
   initialPresets: ExportPreset[];
@@ -43,6 +44,8 @@ export function DirectoryExportPanel({
   smtpConfigured?: boolean;
   /** When each preset last went out on its schedule. */
   runLog?: Record<string, { at: string; ok: boolean; detail?: string }>;
+  /** What download links are built on: the custom domain, when one is set (else this browser's origin). */
+  linkOrigin?: string;
 }) {
   const available = useMemo(() => availableColumns(fields), [fields]);
   const groupFields = useMemo(() => fields.filter((f) => f.group_by), [fields]);
@@ -70,6 +73,9 @@ export function DirectoryExportPanel({
   const [selected, setSelected] = useState(0);
   const [savingPresets, setSavingPresets] = useState(false);
   const [dirty, setDirty] = useState(false);
+  // The ids that have been saved: only those have a working download link,
+  // and only an id not yet among them is renamed after its preset on Save.
+  const [savedIds, setSavedIds] = useState<Set<string>>(() => new Set(initialPresets.map((p) => p.id)));
   // The markers as saved: what a preset may tick. The card's own unsaved
   // rows count for the page's leave guard too.
   const [markers, setMarkers] = useState<ExportMarker[]>(initialMarkers);
@@ -217,13 +223,25 @@ export function DirectoryExportPanel({
   }
   async function savePresets() {
     setSavingPresets(true);
-    const r = await jsonFetch("/api/admin/directory/export-presets", { method: "PUT", body: JSON.stringify({ presets }) });
+    // A preset saved for the first time takes its id from its name (the
+    // download link carries it); a saved one keeps the id it has. An id
+    // saved earlier and deleted since is not handed to a new preset, so a
+    // link to the old one does not start serving a different list.
+    const taken = new Set(savedIds);
+    const outgoing = presets.map((p) => {
+      if (savedIds.has(p.id)) return p;
+      const id = presetIdFor(p.name, taken);
+      taken.add(id);
+      return { ...p, id };
+    });
+    const r = await jsonFetch("/api/admin/directory/export-presets", { method: "PUT", body: JSON.stringify({ presets: outgoing }) });
     setSavingPresets(false);
     if (!r.ok) {
       toast("error", r.data?.error || "Could not save the presets.");
       return;
     }
     setPresets(r.data.presets);
+    setSavedIds(new Set((r.data.presets as ExportPreset[]).map((p) => p.id)));
     // The inputs now show what was saved, not what was typed.
     setMarginText({});
     setTouched({});
@@ -256,6 +274,8 @@ export function DirectoryExportPanel({
     commitRecipients: (raw) => updateSchedule({ recipients: raw.split(/[,;\s]+/).map((s) => s.trim()).filter(Boolean) }),
     smtpConfigured,
     lastRun: runLog[cur.id],
+    linkOrigin,
+    saved: savedIds.has(cur.id),
   };
 
   return (

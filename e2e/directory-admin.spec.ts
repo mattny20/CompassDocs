@@ -8,8 +8,8 @@ import { ADMIN, login, api } from "./helpers";
 
 const STAMP = Date.now();
 
-/** The five cards the preset editor groups its controls into, in order. */
-const PRESET_CARDS = ["Document", "Page", "Columns", "Order and filter", "Schedule"] as const;
+/** The six cards the preset editor groups its controls into, in order (Download link since 1.15.0). */
+const PRESET_CARDS = ["Document", "Page", "Columns", "Order and filter", "Schedule", "Download link"] as const;
 
 test("each directory settings job is a page under one header", async ({ page }) => {
   await login(page, ADMIN);
@@ -249,7 +249,7 @@ test("a preset keeps column limits, assistant details, custom margins and a firs
 
     // The editor shows what was saved: the name sort, the per-column limit,
     // the margins and their inches, the assistant's ticked field. The preset
-    // is a row in the list; its editor is the five group cards. At the
+    // is a row in the list; its editor is the six group cards. At the
     // Normal page width the editor pane is about 240px of inner width: the
     // cards' grids follow the pane (container queries), so no card spills
     // sideways and the Density select keeps a readable width.
