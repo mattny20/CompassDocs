@@ -15,13 +15,13 @@ import {
   getSetting,
   createDocument,
   updateDocument,
-  setAckRequired,
   recordAcknowledgement,
   getCurrentAck,
   getLatestAck,
   listVersions,
 } from "../src/lib/db";
 import { fixtureQuery } from "./support/retry";
+import { switchOn } from "./support/assign";
 
 const STAMP = `ackreader-${Date.now()}`;
 
@@ -45,7 +45,7 @@ async function newPolicy(title: string): Promise<{ id: number; v1: number }> {
     tags: [],
     author: "test",
   });
-  await setAckRequired(doc.id, true, { editDefault: null });
+  await switchOn(doc.id, { editDefault: null });
   docIds.push(doc.id);
   return { id: doc.id, v1: (await listVersions(doc.id))[0].id };
 }

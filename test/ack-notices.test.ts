@@ -37,6 +37,7 @@ import {
 } from "../src/lib/compliance";
 import type { Mailer } from "../src/lib/compliance";
 import { fixtureQuery } from "./support/retry";
+import { switchOn } from "./support/assign";
 
 const STAMP = `acknot-${Date.now()}`;
 const ORIGIN = "https://docs.example.test";
@@ -285,7 +286,7 @@ describe("the per-person notice log", () => {
 
   test("free text in a notice is rendered as written in the email: a change note cannot add a link or a tag", async () => {
     const doc = await newDoc("escape & *stars*");
-    await setAckRequired(doc.id, true);
+    await switchOn(doc.id);
     const reason = 'See [x](https://evil.example) and <img src=x onerror="alert(1)"> **now** & "soon"';
     const outboxId = await enqueueAckNotice(null, {
       document_id: doc.id,
@@ -321,7 +322,7 @@ describe("the per-person notice log", () => {
     const leaver = await newUser("Leaver");
     const asker = await newUser("Asker");
     const doc = await newDoc("leaver");
-    await setAckRequired(doc.id, true);
+    await switchOn(doc.id);
     const outboxId = await enqueueAckNotice(null, {
       document_id: doc.id,
       mode: "request",
@@ -410,7 +411,7 @@ describe("the per-person notice log", () => {
     });
     docIds.push(created.id);
     const doc = { id: created.id, title: created.title };
-    await setAckRequired(doc.id, true, { editDefault: null, recertMonths: null });
+    await switchOn(doc.id, { editDefault: null, recertMonths: null });
     assert.equal(await hasOpenAssignment(doc.id, watcher), true, "enrolled through space.read_all");
 
     // The grant goes in Roles & permissions, which is not hooked: the row
