@@ -1,26 +1,30 @@
-// Saving export presets keeps every id distinct (1.15.0): download links name
-// a preset by id, so two presets must never share one, and the de-duplication
-// must finish. ["a", "a-3", "a"] used to retry "a-3" for the third preset
-// forever, hanging the save.
+// Saving export presets (1.15.0): download links name a preset by id, so two
+// presets must never share one (and the de-duplication must finish: ["a",
+// "a-3", "a"] used to retry "a-3" for the third preset forever), a preset
+// sent without an id is named from its name, and an id once deleted is never
+// given to a new preset.
 //
 // Run: npx tsx --tsconfig ./tsconfig.test.json --test test/directory-export-presets.test.ts
 
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { getSetting, setSetting, pool } from "../src/lib/db";
-import { getExportPreset, listExportPresets, saveExportPresets } from "../src/lib/directory-export-config";
+import { getExportPreset, listExportPresets, retiredPresetIds, saveExportPresets } from "../src/lib/directory-export-config";
 
-const KEY = "directory_export_presets";
-let saved: string | undefined;
+const KEYS = ["directory_export_presets", "directory_export_retired_ids"];
+const saved = new Map<string, string | undefined>();
 
 before(async () => {
   await getSetting("__schema_bootstrap__");
-  saved = await getSetting(KEY);
+  for (const k of KEYS) saved.set(k, await getSetting(k));
 });
 
 after(async () => {
-  await pool().query("DELETE FROM settings WHERE key = $1", [KEY]);
-  if (saved !== undefined) await setSetting(KEY, saved);
+  for (const k of KEYS) {
+    await pool().query("DELETE FROM settings WHERE key = $1", [k]);
+    const v = saved.get(k);
+    if (v !== undefined) await setSetting(k, v);
+  }
 });
 
 test("a repeated id is numbered past a suffix that is itself taken, and the save finishes", async () => {
@@ -43,4 +47,45 @@ test("a saved preset is found by its id, which is what a download link names", a
   assert.equal((await getExportPreset("partners"))?.name, "Partners");
   assert.equal(await getExportPreset("gone"), undefined, "an unknown id is no preset (the landing page says the link is dead)");
   assert.deepEqual((await listExportPresets()).map((p) => p.id), ["front-desk", "partners"]);
+});
+
+test("a preset sent without an id is named from its name, past live ids, ids in the same save and deleted ones", async () => {
+  await saveExportPresets([
+    { id: "front-desk", name: "Front desk", is_default: true },
+    { id: "partners", name: "Partners" },
+  ]);
+  // Partners is deleted: its id is retired.
+  await saveExportPresets([{ id: "front-desk", name: "Front desk", is_default: true }]);
+  assert.ok((await retiredPresetIds()).has("partners"));
+  const out = await saveExportPresets([
+    { id: "front-desk", name: "Front desk", is_default: true },
+    { name: "Partners" },
+    { id: "", name: "Front desk" },
+    { name: "Front desk" },
+    { name: "  " },
+  ]);
+  assert.deepEqual(
+    out.map((p) => p.id),
+    ["front-desk", "partners-2", "front-desk-2", "front-desk-3", "directory"],
+    "a retired id and a live one are both passed over; a blank name falls back to the stored name"
+  );
+});
+
+test("the retired list keeps every id a save removes, and drops one that is live again", async () => {
+  await saveExportPresets([
+    { id: "a1", name: "A1", is_default: true },
+    { id: "b1", name: "B1" },
+    { id: "c1", name: "C1" },
+  ]);
+  await saveExportPresets([{ id: "a1", name: "A1", is_default: true }]);
+  let retired = await retiredPresetIds();
+  assert.ok(retired.has("b1") && retired.has("c1"));
+  // Put back through the API with its id: live again, so no longer retired.
+  await saveExportPresets([
+    { id: "a1", name: "A1", is_default: true },
+    { id: "b1", name: "B1" },
+  ]);
+  retired = await retiredPresetIds();
+  assert.equal(retired.has("b1"), false);
+  assert.ok(retired.has("c1"));
 });

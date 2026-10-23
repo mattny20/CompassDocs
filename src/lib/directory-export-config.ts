@@ -11,6 +11,7 @@ import { COLUMN_LIMIT, MARGIN_INCHES, MARGIN_PRESETS, type MarginBox, type Margi
 import { NAME_FORMAT_KEYS, NAME_SORT_KEYS, assistantDetailKeys, type NameFormat } from "./directory-display";
 import { MARKER_LIMIT, listMarkers, type ExportMarker } from "./directory-markers";
 import { getSetting, setSetting } from "./db";
+import { presetIdFor } from "./directory-export-link";
 import { listFields, validColumnKeys, type DirectoryField } from "./directory";
 
 export const PAPER_SIZES = ["letter", "a4", "legal"] as const;
@@ -135,6 +136,21 @@ export const PRESET_DEFAULTS: Omit<ExportPreset, "id" | "name"> = {
 
 const SETTING = "directory_export_presets";
 const MAX_PRESETS = 20;
+// Every preset id ever deleted (1.15.0): a download link names a preset by
+// id, so a preset made later must not take a deleted one's id and start
+// answering its links. Capped; the oldest drop off first.
+const RETIRED_SETTING = "directory_export_retired_ids";
+const RETIRED_MAX = 1000;
+
+/** The ids of presets deleted so far, which a new preset is never given. */
+export async function retiredPresetIds(): Promise<Set<string>> {
+  try {
+    const parsed = JSON.parse((await getSetting(RETIRED_SETTING)) ?? "[]");
+    return new Set(Array.isArray(parsed) ? parsed.map(String) : []);
+  } catch {
+    return new Set();
+  }
+}
 /** A section order lists at most this many values, each at most SECTION_VALUE_MAX characters (an option's length). */
 export const SECTION_ORDER_LIMIT = 200;
 const SECTION_VALUE_MAX = 120;
@@ -328,13 +344,16 @@ export async function saveExportPresets(raw: unknown, fields?: DirectoryField[])
   // A schedule that was just set, or moved, starts from now: its first send
   // is the next slot, not the one that already passed this period.
   const before = new Map((await listExportPresets(all, markers)).map((p) => [p.id, p]));
+  const retired = await retiredPresetIds();
   const now = new Date();
-  const presets = raw.slice(0, MAX_PRESETS).map((p, i) => {
-    const s = sanitizePreset(p, all, `preset-${i + 1}`, ids);
-    return { ...s, schedule: stampSchedule(s.schedule, before.get(s.id)?.schedule, now) };
-  });
+  const list = raw.slice(0, MAX_PRESETS);
+  // A preset sent without an id is new (the editor sends its new presets
+  // so): it is given one below, from its name. One sent with an id keeps it.
+  const fresh = list.map((p) => !String((p as Record<string, unknown> | null)?.id ?? "").trim());
+  const sanitized = list.map((p, i) => sanitizePreset(p, all, `preset-${i + 1}`, ids));
   const seen = new Set<string>();
-  const unique = presets.map((p, i) => {
+  const explicit = sanitized.map((p, i) => {
+    if (fresh[i]) return p;
     let id = p.id;
     // Counts on past a suffix that is itself taken (["a", "a-3", "a"] used
     // to retry "a-3" forever).
@@ -342,6 +361,14 @@ export async function saveExportPresets(raw: unknown, fields?: DirectoryField[])
     while (seen.has(id)) id = `${p.id}-${n++}`;
     seen.add(id);
     return { ...p, id };
+  });
+  // A new preset's id avoids every live id, every id in this save and every
+  // id deleted before (1.15.0, download links).
+  const taken = new Set<string>([...before.keys(), ...retired, ...seen]);
+  const unique = explicit.map((p, i) => {
+    const id = fresh[i] ? presetIdFor(p.name, taken) : p.id;
+    taken.add(id);
+    return { ...p, id, schedule: stampSchedule(p.schedule, before.get(id)?.schedule, now) };
   });
   let defaults = unique.filter((p) => p.is_default).length;
   const normalized = unique.map((p) => {
@@ -353,6 +380,12 @@ export async function saveExportPresets(raw: unknown, fields?: DirectoryField[])
   });
   if (!normalized.some((p) => p.is_default)) normalized[0] = { ...normalized[0], is_default: true };
   await setSetting(SETTING, JSON.stringify(normalized));
+  // The ids this save removed join the retired list; an id that is live
+  // again (put back through the API) leaves it.
+  const live = new Set(normalized.map((p) => p.id));
+  const removed = [...before.keys()].filter((id) => !live.has(id));
+  const nextRetired = [...retired, ...removed].filter((id, i, a) => !live.has(id) && a.indexOf(id) === i).slice(-RETIRED_MAX);
+  if (removed.length || nextRetired.length !== retired.size) await setSetting(RETIRED_SETTING, JSON.stringify(nextRetired));
   return normalized;
 }
 

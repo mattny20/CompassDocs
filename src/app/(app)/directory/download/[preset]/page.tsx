@@ -22,7 +22,7 @@ import { userHolds } from "@/lib/access";
 import { listFields } from "@/lib/directory";
 import { viewerScope } from "@/lib/directory-viewer";
 import { listExportPresets } from "@/lib/directory-export-config";
-import { exportLinkFileLabel, parseExportLinkFormat } from "@/lib/directory-export-link";
+import { exportLinkFileLabel, exportLinkSplits, parseExportLinkFormat } from "@/lib/directory-export-link";
 import { ExportDownload } from "@/components/ExportDownload";
 import { EmptyState } from "@/components/form";
 import { PageContainer } from "@/components/PageWidth";
@@ -86,7 +86,8 @@ export default async function DirectoryDownloadPage({
     );
   }
 
-  const split = format === "pdf" && Boolean(preset.split_by);
+  // A preset split by section sends its PDF and its CSV as a ZIP.
+  const split = exportLinkSplits(format, preset.split_by);
   const ext = split ? "zip" : format;
   return (
     <PageContainer>

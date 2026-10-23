@@ -26,7 +26,7 @@ import { jsonFetch } from "./shared";
 import { MarkersCard } from "./export/MarkersCard";
 import { PresetList } from "./export/PresetList";
 import { PresetEditor, type PresetEditorModel } from "./export/PresetEditor";
-import { LIMIT_MAX, LIMIT_MIN, MARGIN_SIDES, PRESET_BLANK, marginError, presetIdFor, type MarginSide } from "./export/preset-rules";
+import { DRAFT_PREFIX, LIMIT_MAX, LIMIT_MIN, MARGIN_SIDES, PRESET_BLANK, isDraftId, marginError, type MarginSide } from "./export/preset-rules";
 
 export function DirectoryExportPanel({
   fields,
@@ -73,9 +73,6 @@ export function DirectoryExportPanel({
   const [selected, setSelected] = useState(0);
   const [savingPresets, setSavingPresets] = useState(false);
   const [dirty, setDirty] = useState(false);
-  // The ids that have been saved: only those have a working download link,
-  // and only an id not yet among them is renamed after its preset on Save.
-  const [savedIds, setSavedIds] = useState<Set<string>>(() => new Set(initialPresets.map((p) => p.id)));
   // The markers as saved: what a preset may tick. The card's own unsaved
   // rows count for the page's leave guard too.
   const [markers, setMarkers] = useState<ExportMarker[]>(initialMarkers);
@@ -191,18 +188,23 @@ export function DirectoryExportPanel({
       delete next[id];
       return next;
     });
+    setRecipientsText((t) => {
+      const next = { ...t };
+      delete next[id];
+      return next;
+    });
   }
 
   function addPreset(from?: ExportPreset) {
     const base = from ? { ...from, is_default: false } : { ...PRESET_BLANK };
     const name = from ? `${from.name} (copy)` : "New export";
-    // Until Save the id is the list row's React key, so it must not repeat
-    // an unsaved one: the suffix counts past the ids in use, not from the
-    // array's length, which a deletion shrinks.
-    const stem = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+    // Until Save the id is a draft id: the list row's React key, never a
+    // saved id (a saved id is a slug, and "~" is not in one), so an unsaved
+    // preset never shows a deleted one's download link. Save sends it
+    // without an id and the server names it (saveExportPresets).
     let n = presets.length + 1;
-    while (presets.some((p) => p.id === `${stem}-${n}`)) n++;
-    const id = `${stem}-${n}`;
+    while (presets.some((p) => p.id === `${DRAFT_PREFIX}${n}`)) n++;
+    const id = `${DRAFT_PREFIX}${n}`;
     setPresets((ps) => [...ps, { ...base, id, name }]);
     setSelected(presets.length);
     setDirty(true);
@@ -223,17 +225,10 @@ export function DirectoryExportPanel({
   }
   async function savePresets() {
     setSavingPresets(true);
-    // A preset saved for the first time takes its id from its name (the
-    // download link carries it); a saved one keeps the id it has. An id
-    // saved earlier and deleted since is not handed to a new preset, so a
-    // link to the old one does not start serving a different list.
-    const taken = new Set(savedIds);
-    const outgoing = presets.map((p) => {
-      if (savedIds.has(p.id)) return p;
-      const id = presetIdFor(p.name, taken);
-      taken.add(id);
-      return { ...p, id };
-    });
+    // A new preset goes without an id: the server gives it one from its name
+    // that no live or deleted preset has had (download links carry it). A
+    // saved preset keeps its id.
+    const outgoing = presets.map((p) => (isDraftId(p.id) ? { ...p, id: "" } : p));
     const r = await jsonFetch("/api/admin/directory/export-presets", { method: "PUT", body: JSON.stringify({ presets: outgoing }) });
     setSavingPresets(false);
     if (!r.ok) {
@@ -241,10 +236,11 @@ export function DirectoryExportPanel({
       return;
     }
     setPresets(r.data.presets);
-    setSavedIds(new Set((r.data.presets as ExportPreset[]).map((p) => p.id)));
-    // The inputs now show what was saved, not what was typed.
+    // The inputs now show what was saved, not what was typed (keyed by id,
+    // and a new preset's id has just changed).
     setMarginText({});
     setTouched({});
+    setRecipientsText({});
     setDirty(false);
     toast("ok", "Export presets saved.");
   }
@@ -275,7 +271,7 @@ export function DirectoryExportPanel({
     smtpConfigured,
     lastRun: runLog[cur.id],
     linkOrigin,
-    saved: savedIds.has(cur.id),
+    saved: !isDraftId(cur.id),
   };
 
   return (

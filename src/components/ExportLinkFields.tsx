@@ -36,7 +36,7 @@ export function ExportLinkFields({
   onFormat,
 }: {
   presetId: string;
-  /** The preset splits into one file per section: its PDF arrives as a ZIP. */
+  /** The preset splits into one file per section: its PDF and CSV arrive as ZIPs. */
   split?: boolean;
   /** From useLinkOrigin. */
   origin: string;

@@ -90,8 +90,18 @@ test("a signed-out visitor signs in, the file downloads on the landing page, and
       await expect(status).toContainText("Downloaded");
       await expect(status).toContainText(`${id}.pdf`);
       await expect(visitor.getByRole("button", { name: "Download again" })).toBeVisible();
+      // The direct link stays after the download, for a browser that blocked it.
+      await expect(visitor.getByRole("link", { name: "Download it directly" })).toHaveAttribute("href", `/api/directory/export?preset=${id}&format=pdf&via=link`);
       await visitor.getByRole("link", { name: "Back to home" }).click();
       await visitor.waitForURL(/\/$/);
+      // Back to the page shows the result again; it does not fetch a second copy.
+      let again = false;
+      visitor.on("request", (r) => { if (r.url().includes("/api/directory/export")) again = true; });
+      await visitor.goBack();
+      await visitor.waitForURL(new RegExp(`/directory/download/${id}$`));
+      await expect(visitor.getByRole("status")).toContainText("Downloaded");
+      await visitor.waitForTimeout(800);
+      expect(again, "Back does not export the file again").toBe(false);
 
       // The CSV link, already signed in: straight to the file.
       const csv = visitor.waitForEvent("download");
@@ -162,7 +172,7 @@ test("the Directory page's Export menu copies a download link for any preset", a
     await dialog.getByRole("combobox", { name: "Export" }).selectOption({ label: name });
     // A preset split by office is a ZIP of PDFs; the file picker says so.
     const file = dialog.getByRole("combobox", { name: "File" });
-    await expect(file.locator("option").first()).toHaveText("ZIP of PDFs");
+    await expect(file.locator("option")).toHaveText(["ZIP of PDFs", "ZIP of CSVs", "Contact cards (.vcf)"]);
     const link = dialog.getByRole("textbox", { name: "Link" });
     await expect(link).toHaveValue(new RegExp(`^https?://[^/]+/directory/download/${id}$`));
     await file.selectOption("vcf");
@@ -188,11 +198,42 @@ test("a new preset saved from the editor takes its link id from its name", async
     await page.getByRole("button", { name: "Save presets" }).click();
     await expect(page.getByText("Export presets saved.")).toBeVisible();
     await expect(card.getByRole("textbox", { name: "Link" })).toHaveValue(new RegExp(`/directory/download/e2e-front-desk-${STAMP}$`));
-    // Renamed later, the id (and so the link) stays.
+    // Renamed later, the id (and so the link) stays. Two toasts: the first
+    // is still up when the second save lands.
     await page.getByRole("textbox", { name: "Preset name" }).fill(`${name} renamed`);
     await page.getByRole("button", { name: "Save presets" }).click();
-    await expect(page.getByText("Export presets saved.").first()).toBeVisible();
+    await expect(page.getByText("Export presets saved.")).toHaveCount(2);
     await expect(card.getByRole("textbox", { name: "Link" })).toHaveValue(new RegExp(`/directory/download/e2e-front-desk-${STAMP}$`));
+    const stored = (await api(page, "/api/admin/directory/export-presets")).body.presets as any[];
+    expect(stored.find((p) => p.id === `e2e-front-desk-${STAMP}`)?.name).toBe(`${name} renamed`);
+  } finally {
+    await api(page, "/api/admin/directory/export-presets", { method: "PUT", body: { presets } });
+  }
+});
+
+test("a new preset never takes a deleted preset's id, so the old link stays dead", async ({ page }) => {
+  await login(page, ADMIN);
+  const presets = (await api(page, "/api/admin/directory/export-presets")).body.presets as any[];
+  const name = `E2E Retired ${STAMP}`;
+  const old = `e2e-retired-${STAMP}`;
+  try {
+    // A preset with the id its name would give, then deleted.
+    expect((await api(page, "/api/admin/directory/export-presets", { method: "PUT", body: { presets: [...presets, { id: old, name }] } })).status).toBe(200);
+    expect((await api(page, "/api/admin/directory/export-presets", { method: "PUT", body: { presets } })).status).toBe(200);
+
+    // A new one with the same name, made in the editor after a reload.
+    await page.goto("/admin/directory/export");
+    await page.getByRole("button", { name: "New preset" }).click();
+    const card = page.locator("section#link");
+    await expect(card).toContainText("Save this preset to get its link.");
+    await page.getByRole("textbox", { name: "Preset name" }).fill(name);
+    await page.getByRole("button", { name: "Save presets" }).click();
+    await expect(page.getByText("Export presets saved.")).toBeVisible();
+    await expect(card.getByRole("textbox", { name: "Link" })).toHaveValue(new RegExp(`/directory/download/${old}-2$`));
+
+    // The old link still says it no longer works.
+    await page.goto(`/directory/download/${old}`);
+    await expect(page.getByText("This download link no longer works")).toBeVisible();
   } finally {
     await api(page, "/api/admin/directory/export-presets", { method: "PUT", body: { presets } });
   }

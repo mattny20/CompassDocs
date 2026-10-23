@@ -929,7 +929,8 @@ text-slate-500` before them ("Notary · Phoenix").
   router fetches, so a click never looks ignored and a fast navigation
   never flashes.
 - **Route skeletons** (`loading.tsx`) exist for the dashboard, a space, the
-  directory and analytics (`components/Skeleton`): the page's shape, inside
+  directory, a directory download link's landing page (`DownloadSkeleton`,
+  1.15.0) and analytics (`components/Skeleton`): the page's shape, inside
   a `PageContainer` so nothing shifts, one `role="status"` with the
   message, **no real heading** (every spec and the login helper wait on
   the real `h1`). Never under `/admin`, where a permission redirect would
@@ -958,8 +959,12 @@ text-slate-500` before them ("Notary · Phoenix").
   where it is (a `lg` spinner and "Preparing your PDF…", then a check and
   "Downloaded" with the file name, or a warning icon, the server's own
   `error` and **Try again**). **Back to home** is always there and becomes
-  the primary once the work is done; while it runs, a small "Nothing
-  happening?" direct link is the fallback. Whatever the page can tell
+  the primary once the work is done; a small direct link (`link`, "Nothing
+  happening?" while it runs, "Not in your downloads?" after) is the
+  fallback, and using it stops the page's own request. A retry moves focus
+  to the status region (`tabIndex={-1}`), since the button that had it goes
+  while the work runs. The history entry remembers that the job is done, so
+  Back to the page shows the result instead of doing it again. Whatever the page can tell
   before starting (no access, a link to something deleted) is an
   `EmptyState` with a way on, never a failed download. Its route has its
   own `loading.tsx` (`DownloadSkeleton`) so a parent's skeleton does not

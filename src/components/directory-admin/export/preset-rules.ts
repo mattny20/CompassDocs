@@ -64,18 +64,12 @@ export const PRESET_BLANK: Omit<ExportPreset, "id" | "name"> = {
 };
 
 /**
- * The id a new preset is saved under (1.15.0): its name as a slug, numbered
- * past any id in `taken`, so its download link reads
- * /directory/download/front-desk-list rather than the placeholder ("new-
- * export-3") it carried as a list key until Save. A saved preset keeps its
- * id for good: renaming it never breaks a link already sent.
+ * A preset made in the editor carries a draft id until it is saved (1.15.0):
+ * "~draft-N", which no saved id can be ("~" is never in a slug), so an
+ * unsaved preset never matches a saved or deleted one. Save sends it without
+ * an id and the server names it.
  */
-export function presetIdFor(name: string, taken: ReadonlySet<string>): string {
-  // 34 leaves room for "-NNN" inside the server's 40-character id.
-  const stem =
-    name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 34).replace(/-+$/, "") || "export";
-  if (!taken.has(stem)) return stem;
-  let n = 2;
-  while (taken.has(`${stem}-${n}`)) n++;
-  return `${stem}-${n}`;
+export const DRAFT_PREFIX = "~draft-";
+export function isDraftId(id: string): boolean {
+  return id.startsWith(DRAFT_PREFIX);
 }

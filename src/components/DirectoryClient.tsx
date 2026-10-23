@@ -822,8 +822,11 @@ export function DirectoryClient({
             <MenuSeparator />
             <MenuItem
               icon={<Link2 />}
-              onClick={() => { setExportOpen(false); setLinkOpen(true); }}
-              data-tt="For an email or an intranet page: whoever opens it gets the file"
+              // The dialog hands focus back to what had it when it opened:
+              // the Export button, not the menu item the popover removes.
+              onClick={() => { exportBtnRef.current?.focus(); setExportOpen(false); setLinkOpen(true); }}
+              data-tt="For an email or an intranet page: whoever opens it signs in and gets their own copy"
+              data-tt-wrap=""
             >
               Copy download link…
             </MenuItem>

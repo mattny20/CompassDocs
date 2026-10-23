@@ -11,9 +11,10 @@ on an intranet page, and whoever clicks it signs in and gets the file.
 
 ### Added
 - **A download link for every export preset.** Settings → Directory → Export
-  has a new **Download link** card under each preset: pick PDF (a ZIP of
-  PDFs when the preset makes one file per section), CSV or contact cards
-  (.vcf), then **Copy link**, or open it in a new tab to try it. On the
+  has a new **Download link** card under each preset: pick PDF, CSV or
+  contact cards (.vcf), then **Copy link**, or open it in a new tab to try
+  it. A preset that makes one file per section sends its PDF and CSV as a
+  ZIP, and the picker says so. On the
   Directory page, **Export → Copy download link…** does the same for
   anyone who can export, with the preset to pick. The link is built on the
   workspace's custom domain when one is set.
@@ -22,27 +23,32 @@ on an intranet page, and whoever clicks it signs in and gets the file.
   sign-in (password, SSO) and comes back to it, and the page starts the
   download at once. It says "Preparing your PDF…" while the file is made,
   then "Downloaded" with the file name once it is in the downloads folder,
-  with **Back to home** to the dashboard and **Download again**. If the
-  browser blocks the automatic download, a direct link is under the
-  status.
+  with **Back to home** to the dashboard and **Download again**. A direct
+  link sits under the status, while the file is made and after, for a
+  browser that blocks the automatic download. Coming Back to the page from
+  home shows "Downloaded" again rather than downloading a second copy.
 - The file is made for whoever opens the link, from what their own
   account can see: the same columns, people and restrictions as their own
   Export menu, never the copying admin's. A link carries no secret and
   grants nothing; an account that cannot read the directory is told so.
 - A link to a preset that has since been deleted says "This download link
   no longer works" with a way to the directory, instead of quietly serving
-  the default preset. A refusal (the export rate limit, a session that
-  expired) is said in words with **Try again**, or goes back through
-  sign-in.
+  the default preset. A refusal (the export rate limit) or a transfer cut
+  off half way is said in words with **Try again**; a session that expired
+  goes back through sign-in.
 - The audit log's "Exported directory" entry carries `via: "link"` for an
   export made through a link.
 
 ### Changed
-- A new preset takes its id from its name when it is first saved, so its
-  link reads `/directory/download/front-desk-list` rather than the
-  placeholder it had in the editor. A saved preset keeps its id for good:
-  renaming it never breaks a link already sent, and an id deleted in the
-  same session is not handed to a new preset.
+- A new preset made in the editor is given its id by the server when it is
+  first saved, from its name, so its link reads
+  `/directory/download/front-desk-list` rather than the placeholder it had
+  before ("new-export-3"). The id avoids every live preset's and every id
+  ever deleted (the workspace now keeps a list of deleted preset ids), so a
+  link to a deleted preset never starts serving a new one. A saved preset
+  keeps its id for good: renaming it never breaks a link already sent.
+  Through the API, a preset sent without an `id` is named the same way;
+  one sent with an id keeps it.
 
 ### Fixed
 - Saving presets whose ids repeated in a particular way (`a`, `a-3`, `a`)

@@ -5,10 +5,16 @@
 // bytes to the browser as a download (an object URL on an <a download>), so
 // the page knows when the file has arrived and can say so, and the visitor
 // stays here with a way back home. A refusal (rate limit, no access, a
-// preset removed since the link went out) is said in words with a way to
-// try again; a session that ran out goes back through sign-in. A plain
-// link to the same file sits under the status for a browser that blocks
-// the automatic download, or with JavaScript off.
+// preset removed since the link went out) or a transfer cut off half way
+// is said in words with Try again; a session that ran out goes back through
+// sign-in. A plain link to the same file sits under the status, while the
+// file is made and after, for a browser that blocks the automatic download
+// (or with JavaScript off); using it stops the page's own request, so the
+// file comes once.
+//
+// Once a visit has downloaded, the history entry remembers it: Back to this
+// page from home shows "Downloaded" again instead of fetching another copy.
+// Opening the link afresh (a new history entry) downloads as usual.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CircleCheck, Download, Home, RotateCcw, TriangleAlert } from "lucide-react";
@@ -19,8 +25,32 @@ import { loginHref } from "@/lib/return-to";
 
 type State =
   | { kind: "working" }
-  | { kind: "done"; filename: string }
+  /** `filename` is unknown when the visitor took the direct link. */
+  | { kind: "done"; filename?: string }
   | { kind: "error"; message: string };
+
+/** The key this page keeps in its history entry once it has downloaded. */
+const HISTORY_KEY = "compassDirectoryDownload";
+
+function rememberedDownload(api: string): string | null {
+  try {
+    const mark = (window.history.state as Record<string, unknown> | null)?.[HISTORY_KEY] as
+      | { api?: string; filename?: string }
+      | undefined;
+    return mark?.api === api ? (mark.filename ?? "") : null;
+  } catch {
+    return null;
+  }
+}
+
+function rememberDownload(api: string, filename: string) {
+  try {
+    // Next keeps its own keys in history.state; they are carried over.
+    window.history.replaceState({ ...(window.history.state ?? {}), [HISTORY_KEY]: { api, filename } }, "");
+  } catch {
+    // Remembering is a convenience: without it, Back downloads again.
+  }
+}
 
 export function ExportDownload({
   presetId,
@@ -36,16 +66,26 @@ export function ExportDownload({
   fallbackName: string;
 }) {
   const [state, setState] = useState<State>({ kind: "working" });
-  const started = useRef(false);
+  const inflight = useRef<AbortController | null>(null);
+  // Set when the visitor pressed Try again / Download again: that button
+  // goes while the file is made, so focus moves to the status once it lands.
+  const retried = useRef(false);
+  const statusRef = useRef<HTMLDivElement>(null);
   const api = exportLinkApiPath(presetId, format);
 
   const run = useCallback(async () => {
+    inflight.current?.abort();
+    const ctl = new AbortController();
+    inflight.current = ctl;
     setState({ kind: "working" });
+    const fail = (message: string) => {
+      if (!ctl.signal.aborted) setState({ kind: "error", message });
+    };
     let res: Response;
     try {
-      res = await fetch(api, { credentials: "same-origin", cache: "no-store" });
+      res = await fetch(api, { credentials: "same-origin", cache: "no-store", signal: ctl.signal });
     } catch {
-      setState({ kind: "error", message: "The download could not reach CompassDocs. Check your connection and try again." });
+      fail("The download could not reach CompassDocs. Check your connection and try again.");
       return;
     }
     // The session ran out between the page and the file: through sign-in and
@@ -65,11 +105,19 @@ export function ExportDownload({
           // keep the general sentence
         }
       }
-      setState({ kind: "error", message });
+      fail(message);
       return;
     }
     const filename = filenameFromDisposition(res.headers.get("content-disposition"), fallbackName);
-    const blob = await res.blob();
+    let blob: Blob;
+    try {
+      blob = await res.blob();
+    } catch {
+      fail("The download was cut off before it finished. Check your connection and try again.");
+      return;
+    }
+    // Left the page, or took the direct link, while the file was on its way.
+    if (ctl.signal.aborted) return;
     const href = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = href;
@@ -80,19 +128,49 @@ export function ExportDownload({
     a.remove();
     // Long enough for the browser to have taken the bytes.
     setTimeout(() => URL.revokeObjectURL(href), 60_000);
+    inflight.current = null;
+    rememberDownload(api, filename);
     setState({ kind: "done", filename });
   }, [api, fallbackName]);
 
   useEffect(() => {
-    // Once per visit (React runs effects twice in development).
-    if (started.current) return;
-    started.current = true;
+    const earlier = rememberedDownload(api);
+    if (earlier !== null) setState({ kind: "done", filename: earlier || undefined });
+    else void run();
+    // Leaving the page stops a file still being made. (Development's double
+    // effect aborts the first request here and the second one downloads.)
+    return () => inflight.current?.abort();
+  }, [api, run]);
+
+  useEffect(() => {
+    if (state.kind === "working" || !retried.current) return;
+    retried.current = false;
+    statusRef.current?.focus({ preventScroll: true });
+  }, [state.kind]);
+
+  function retry() {
+    retried.current = true;
     void run();
-  }, [run]);
+  }
+
+  /** The direct link was used: the browser fetches the file itself, so the page's own request stops. */
+  function tookDirect() {
+    if (state.kind !== "working") return;
+    inflight.current?.abort();
+    inflight.current = null;
+    rememberDownload(api, "");
+    setState({ kind: "done" });
+  }
 
   return (
     <div className="rounded-xl border border-slate-200 bg-surface px-4 py-10 text-center shadow-xs">
-      <div role="status" aria-live="polite" className="mx-auto flex max-w-md flex-col items-center gap-3">
+      <div
+        ref={statusRef}
+        role="status"
+        aria-live="polite"
+        tabIndex={-1}
+        className="mx-auto flex max-w-md flex-col items-center gap-3"
+      >
         {state.kind === "working" && (
           <>
             <Spinner size="lg" className="text-compass-600" />
@@ -105,7 +183,14 @@ export function ExportDownload({
             <CircleCheck className="h-8 w-8 text-emerald-600" aria-hidden />
             <p className="text-base font-semibold text-slate-800">Downloaded</p>
             <p className="text-sm text-slate-500">
-              <span className="font-medium text-slate-700 [overflow-wrap:anywhere]">{state.filename}</span> is in your downloads folder.
+              {state.filename ? (
+                <>
+                  <span className="font-medium text-slate-700 [overflow-wrap:anywhere]">{state.filename}</span> is in your
+                  downloads folder.
+                </>
+              ) : (
+                "The file is in your downloads folder."
+              )}
             </p>
           </>
         )}
@@ -123,15 +208,15 @@ export function ExportDownload({
           Back to home
         </Button>
         {state.kind !== "working" && (
-          <Button variant="secondary" icon={state.kind === "error" ? <RotateCcw /> : <Download />} onClick={() => void run()}>
+          <Button variant="secondary" icon={state.kind === "error" ? <RotateCcw /> : <Download />} onClick={retry}>
             {state.kind === "error" ? "Try again" : "Download again"}
           </Button>
         )}
       </div>
-      {state.kind === "working" && (
+      {state.kind !== "error" && (
         <p className="mt-4 text-xs text-slate-500">
-          Nothing happening?{" "}
-          <a href={api} download className="font-medium text-compass-700 hover:underline">
+          {state.kind === "working" ? "Nothing happening?" : "Not in your downloads?"}{" "}
+          <a href={api} download onClick={tookDirect} className="link font-medium">
             Download it directly
           </a>
           .

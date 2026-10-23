@@ -11,11 +11,13 @@ import {
   exportLinkFileLabel,
   exportLinkFormatOptions,
   exportLinkPath,
+  exportLinkSplits,
   exportLinkUrl,
   filenameFromDisposition,
   parseExportLinkFormat,
+  presetIdFor,
 } from "../src/lib/directory-export-link";
-import { presetIdFor } from "../src/components/directory-admin/export/preset-rules";
+import { DRAFT_PREFIX, isDraftId } from "../src/components/directory-admin/export/preset-rules";
 import { safeReturnPath } from "../src/lib/return-to";
 
 describe("download link", () => {
@@ -53,13 +55,19 @@ describe("download link", () => {
     assert.equal(parseExportLinkFormat(""), "pdf");
   });
 
-  test("a split preset's PDF is called a ZIP, in the picker and in words", () => {
+  test("a split preset's PDF and CSV are called ZIPs, as the export route makes them; contact cards never split", () => {
     assert.deepEqual(exportLinkFormatOptions(false).map((o) => o.label), ["PDF", "CSV", "Contact cards (.vcf)"]);
-    assert.equal(exportLinkFormatOptions(true)[0].label, "ZIP of PDFs");
+    assert.deepEqual(exportLinkFormatOptions(true).map((o) => o.label), ["ZIP of PDFs", "ZIP of CSVs", "Contact cards (.vcf)"]);
+    assert.equal(exportLinkSplits("pdf", "office"), true);
+    assert.equal(exportLinkSplits("csv", "office"), true);
+    assert.equal(exportLinkSplits("vcf", "office"), false);
+    assert.equal(exportLinkSplits("pdf", ""), false);
+    assert.equal(exportLinkSplits("csv", undefined), false);
     assert.equal(exportLinkFileLabel("pdf"), "PDF");
     assert.equal(exportLinkFileLabel("pdf", true), "ZIP of PDFs, one per section");
-    assert.equal(exportLinkFileLabel("csv", true), "CSV spreadsheet");
-    assert.equal(exportLinkFileLabel("vcf"), "contact cards (.vcf)");
+    assert.equal(exportLinkFileLabel("csv"), "CSV spreadsheet");
+    assert.equal(exportLinkFileLabel("csv", true), "ZIP of CSVs, one per section");
+    assert.equal(exportLinkFileLabel("vcf", true), "contact cards (.vcf)");
   });
 });
 
@@ -89,6 +97,12 @@ describe("file name from Content-Disposition", () => {
 });
 
 describe("a new preset's id", () => {
+  test("an editor draft id is never a slug, so it can never match a saved id", () => {
+    assert.ok(isDraftId(`${DRAFT_PREFIX}3`));
+    assert.equal(isDraftId("new-export-3"), false);
+    assert.equal(isDraftId(presetIdFor("~draft-3", new Set())), false, "a preset named like a draft still gets a slug");
+  });
+
   test("is its name as a slug", () => {
     assert.equal(presetIdFor("Front desk list", new Set()), "front-desk-list");
     assert.equal(presetIdFor("  Who's who (2026)  ", new Set()), "who-s-who-2026");
