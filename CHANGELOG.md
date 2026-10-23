@@ -58,6 +58,19 @@ on an intranet page, and whoever clicks it signs in and gets the file.
 - Saving presets whose ids repeated in a particular way (`a`, `a-3`, `a`)
   no longer hangs the save: the duplicate is numbered past a suffix that is
   itself taken.
+- Recipients typed into a preset's **Send to** box count as an unsaved
+  change at once, so **Save** (and Ctrl/Cmd+S, even with the box still
+  focused) saves them.
+
+### Security
+- Next.js 16.4.2 (from 16.3.8): fixes two critical advisories,
+  unauthenticated remote code execution in the image optimization API with
+  SVG files (GHSA-2464-fhr4-w9xw) and in `use cache` functions returning
+  typed arrays (GHSA-673q-mjm6-r5xr), and a denial of service through
+  Server Actions (GHSA-p3m5-59mp-jv5r).
+- DOMPurify 3.4.17 (through Mermaid): fixes a critical SAFE_FOR_TEMPLATES
+  bypass in shadow-root content (GHSA-cg2g-xh64-v4q7) and a high IN_PLACE
+  hook issue (GHSA-mrv2-3pqr-j5jr).
 
 ## [1.14.1] - 2026-10-21
 
