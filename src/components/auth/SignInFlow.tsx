@@ -144,6 +144,7 @@ export function SignInFlow({
     inFlight.current = false;
     setBusy(null);
     setLate(false);
+    setSignedInPreview(false);
   };
 
   // Hydration, the remembered identifier and the ?sso_error clean-up, once.
@@ -399,6 +400,7 @@ export function SignInFlow({
     e.preventDefault();
     if (inFlight.current) return;
     setFormError("");
+    setSignedInPreview(false);
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
       setFormError(OFFLINE);
       return;

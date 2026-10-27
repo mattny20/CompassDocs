@@ -30,7 +30,7 @@ describe("ssoErrorMessage", () => {
       link_ambiguous:
         "More than one account here uses your email address, so single sign-on can't tell which one is yours. Ask your administrator.",
       link_admin:
-        "Your email address belongs to an administrator account, which another administrator has to link to single sign-on.",
+        "Your email address belongs to an administrator account, and single sign-on never links administrator accounts. Sign in with your username and password instead (at /login?local=1 when single sign-on is required).",
       link_other_provider:
         "Your email address belongs to an account that signs in with a different identity provider. Ask your administrator.",
       // The generic one an older overlay sends for every cause.
@@ -40,6 +40,8 @@ describe("ssoErrorMessage", () => {
     for (const [code, sentence] of Object.entries(sentences)) {
       assert.equal(ssoErrorMessage(code), sentence, code);
       assert.doesNotMatch(sentence, /confirm the email|Email…/, code);
+      // Nothing in the product links an existing account to SSO by hand.
+      assert.doesNotMatch(sentence, /has to link|must link/, code);
     }
   });
 

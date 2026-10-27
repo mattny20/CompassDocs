@@ -20,7 +20,7 @@ const SSO_ERRORS: Record<string, string> = {
   link_ambiguous:
     "More than one account here uses your email address, so single sign-on can't tell which one is yours. Ask your administrator.",
   link_admin:
-    "Your email address belongs to an administrator account, which another administrator has to link to single sign-on.",
+    "Your email address belongs to an administrator account, and single sign-on never links administrator accounts. Sign in with your username and password instead (at /login?local=1 when single sign-on is required).",
   link_other_provider:
     "Your email address belongs to an account that signs in with a different identity provider. Ask your administrator.",
   link_denied:

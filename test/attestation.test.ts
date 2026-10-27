@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import { pool, getSetting } from "../src/lib/db";
 import { hashPassword } from "../src/lib/password";
 import { verifyAttestation, nameKey, signedNameFrom, SIGNED_NAME_MAX } from "../src/lib/attestation";
-import { loginRetryAfter } from "../src/lib/login-guard";
+import { loginRetryAfter, recordLoginFailure } from "../src/lib/login-guard";
 import { fixtureQuery } from "./support/retry";
 
 const STAMP = `attest-${Date.now()}`;
@@ -183,6 +183,9 @@ describe("local and SSO accounts", () => {
 
     const beta = await verifyAttestation(second, { signed_name: "Pair Beta", password: PASSWORD }, { ip });
     assert.deepEqual(beta, { ok: true, identity_proof: "password" }, "the second account on the same address signs");
+    // One below the 30 spray limit from the sign-in side: any typed-signature
+    // miss that had counted against the address would lock it now.
+    for (let i = 0; i < 29; i++) recordLoginFailure(`pair-spray-${i}`, ip);
     assert.equal(loginRetryAfter(second.username, ip), 0, "and can sign in: the address itself was never counted");
     assert.ok(loginRetryAfter(first.username, ip) > 0, "while the first account's pair stays locked");
   });

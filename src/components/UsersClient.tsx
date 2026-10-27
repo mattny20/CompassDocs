@@ -181,6 +181,8 @@ function UserTable({
       label: "Email",
       type: "email",
       initial: u.email,
+      // Empty clears the address (a planted or shared one).
+      required: false,
       confirmLabel: u.email_self_set === 1 ? "Confirm email" : "Save email",
       validate: (v) =>
         v.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim()) ? "That doesn't look like an email address." : undefined,
@@ -188,7 +190,7 @@ function UserTable({
     if (email === null) return;
     await patch(u.id, { email: email.trim() }, {
       fallback: "Couldn't save the email.",
-      ok: "Email saved.",
+      ok: email.trim() ? "Email saved." : "Email cleared.",
     });
   }
 
@@ -251,21 +253,27 @@ function UserTable({
           )}
           {users.map((u) => (
             <tr key={u.id} className={`${TR} ${isBusy(u.id) ? "opacity-50" : ""}`.trim()}>
-              <Td>
-                <div className="font-medium text-slate-800">
+              {/* w-full max-w-0: the column takes the spare width and its
+                  lines truncate inside it, so one long email never pushes
+                  the actions off the table. */}
+              <Td className="w-full max-w-0">
+                <div className="truncate font-medium text-slate-800">
                   {u.name || u.username}
                   {u.id === currentUserId && (
                     <span className="ml-2 text-xs font-normal text-slate-500">(you)</span>
                   )}
                 </div>
-                <div className="text-xs text-slate-500">@{u.username}</div>
+                <div className="truncate text-xs text-slate-500">@{u.username}</div>
                 {u.email && (
                   <div className="flex min-w-0 items-center gap-1.5 text-xs text-slate-500">
-                    <span className="truncate">{u.email}</span>
+                    <span className="min-w-0 truncate" title={u.email}>
+                      {u.email}
+                    </span>
                     {u.email_self_set === 1 && (
                       <Chip
                         tone="warn"
                         size="sm"
+                        className="shrink-0"
                         tabIndex={0}
                         data-tt="Typed by this person on their profile. Before confirming it (Email…), check it is theirs: single sign-on gives this account to whoever signs in with the address."
                         data-tt-wrap=""

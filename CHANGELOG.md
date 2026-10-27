@@ -69,11 +69,11 @@ at once can no longer outrun the lockout.
   providers and **SSO only**, as the page does: try `name@sso.example` for
   single sign-on, `name@both.example` for a choice when two providers are
   set up, or the password `2fa` for the code step (the code is 123456); with
-  SSO only on, any email or username goes straight to the one provider, or
-  to a choice of two. Admins who can read the single sign-on settings also
-  see **How people sign in**, the routing below in sentences, with a warning
-  when SSO is set up but cannot be used yet or when no email domains are
-  set.
+  SSO only on, any other email or username goes straight to the one
+  provider, or to a choice of two. Admins who can read the single sign-on
+  settings also see **How people sign in**, the routing below in sentences,
+  with a warning when SSO is set up but cannot be used yet or when no email
+  domains are set.
 - **Email-first sign-in when single sign-on is set up** (Enterprise,
   `sso`). The page asks for an email or username, and **Continue** sends
   it on:

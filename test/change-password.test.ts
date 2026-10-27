@@ -58,7 +58,7 @@ const HEADERS_STUB = path.join(__dirname, "stubs", "next-headers.change-password
 /* eslint-disable @typescript-eslint/no-require-imports */
 const db = require("../src/lib/db") as typeof import("../src/lib/db");
 const { hashPassword, newToken, verifyPassword } = require("../src/lib/password") as typeof import("../src/lib/password");
-const { loginRetryAfter } = require("../src/lib/login-guard") as typeof import("../src/lib/login-guard");
+const { loginRetryAfter, recordLoginFailure } = require("../src/lib/login-guard") as typeof import("../src/lib/login-guard");
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 const STAMP = `chpw${Date.now()}`;
@@ -163,7 +163,10 @@ test("the lock is the pair's: the sign-in form honours it, and the address's spr
   const ip = "203.0.113.72";
   for (let i = 0; i < 5; i++) await one(me.session, wrong, ip);
   assert.ok(loginRetryAfter(me.username, ip) > 0, "the same pair cannot sign in either");
-  assert.equal(loginRetryAfter(`${STAMP}-someone-else`, ip), 0);
+  // Fill the address to one below the 30 spray limit from the sign-in side:
+  // had any of the five misses counted against the address, it is locked.
+  for (let i = 0; i < 29; i++) recordLoginFailure(`${STAMP}-spray-${i}`, ip);
+  assert.equal(loginRetryAfter(`${STAMP}-someone-else`, ip), 0, "the address's spray counter never saw the misses");
   assert.equal((await one(me.session, right, "203.0.113.73")).status, 200, "another address is its own pair");
 });
 
