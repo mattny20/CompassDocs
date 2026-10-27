@@ -141,8 +141,10 @@ export async function storeSignInArt(input: Buffer): Promise<SignInArt> {
   let height = 0;
   try {
     // "truncated" refuses a part-written JPEG, PNG or GIF, which "none" would
-    // fill with grey; a camera's harmless libjpeg warnings still pass.
-    const base = sharp(input, { failOn: "truncated", animated: false }).rotate();
+    // fill with grey; a camera's harmless libjpeg warnings still pass. sharp's
+    // own pixel limit (268 MP) is off: it would throw before the 100 MP check
+    // below could say why, and that check is the stricter one.
+    const base = sharp(input, { failOn: "truncated", animated: false, limitInputPixels: false }).rotate();
     const meta = await base.metadata();
     // The size as shown: a phone photo stored sideways is rotated by EXIF.
     const shown = meta.autoOrient ?? { width: meta.width ?? 0, height: meta.height ?? 0 };
@@ -171,7 +173,14 @@ export async function storeSignInArt(input: Buffer): Promise<SignInArt> {
     if (e instanceof ArtworkError) throw e;
     throw new ArtworkError("That image could not be read. Try saving it as a JPEG or PNG.");
   }
-  const names = await Promise.all(encoded.map((b) => saveUpload(b, ".webp")));
+  // One failed write (a full volume) takes the copies that did land with it.
+  const settled = await Promise.allSettled(encoded.map((b) => saveUpload(b, ".webp")));
+  const names = settled.flatMap((s) => (s.status === "fulfilled" ? [s.value] : []));
+  const failed = settled.find((s): s is PromiseRejectedResult => s.status === "rejected");
+  if (failed) {
+    await Promise.all(names.map((n) => deleteUpload(n)));
+    throw failed.reason;
+  }
   const version = names[1].slice(0, 12);
   const dataUrl = `data:image/webp;base64,${placeholder.toString("base64")}`;
   try {

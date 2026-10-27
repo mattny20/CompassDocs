@@ -15,6 +15,7 @@ export const AUDIT_LABELS: Record<string, string> = {
   "auth.login_failed": "Failed sign-in",
   "auth.lockout": "Locked out after failed sign-ins",
   "auth.lookup_throttled": "Throttled sign-in lookups",
+  "auth.sso_link_refused": "Refused a single sign-on link",
 
   // Accounts (the Users section)
   "user.create": "Created user",

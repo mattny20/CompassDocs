@@ -1,9 +1,12 @@
 // The admin preview's transport (1.16.0): the real sign-in steps, scripted,
-// so an admin can walk through them without sending anything. The rules:
-//   identifier *@sso.example   → one provider (Microsoft)
-//   identifier *@both.example  → two providers (Microsoft and SAML)
+// so an admin can walk through them without sending anything. The providers
+// are the workspace's own (DEMO_PROVIDERS when it has none, for the preview's
+// ?flow=identify). The rules:
+//   identifier *@sso.example   → the first provider alone (the redirect step)
+//   identifier *@both.example  → every provider: a choice when there are two
 //   any other identifier       → the password step, or with SSO only on
-//                                both providers (no password step, as on /login)
+//                                every provider (rule 2, as on /login: one
+//                                provider redirects, two are a choice)
 //   password "wrong"           → Invalid username or password.
 //   password "locked"          → the lockout sentence
 //   password "2fa"             → a code step; 123456 signs in
@@ -17,6 +20,13 @@ export const DEMO_PROVIDERS: SignInProviderLink[] = [
   { id: "saml", label: "Sign in with single sign-on", mark: "saml", start: "/api/ee/saml/login" },
 ];
 
+export interface DemoOptions {
+  /** The workspace's "SSO only". */
+  ssoOnly?: boolean;
+  /** The workspace's providers; empty or missing, DEMO_PROVIDERS. */
+  providers?: SignInProviderLink[];
+}
+
 const wait = (ms: number, signal: AbortSignal) =>
   new Promise<void>((resolve, reject) => {
     const t = setTimeout(resolve, ms);
@@ -26,10 +36,11 @@ const wait = (ms: number, signal: AbortSignal) =>
     });
   });
 
-export function demoLookup(identifier: string, ssoOnly = false): LookupResult {
+export function demoLookup(identifier: string, opts: DemoOptions = {}): LookupResult {
+  const list = opts.providers?.length ? opts.providers : DEMO_PROVIDERS;
   const id = identifier.trim().toLowerCase();
-  if (id.endsWith("@sso.example")) return { kind: "sso", providers: [DEMO_PROVIDERS[0]] };
-  if (id.endsWith("@both.example") || ssoOnly) return { kind: "sso", providers: DEMO_PROVIDERS };
+  if (id.endsWith("@sso.example")) return { kind: "sso", providers: [list[0]] };
+  if (opts.ssoOnly || id.endsWith("@both.example")) return { kind: "sso", providers: list };
   return { kind: "password" };
 }
 
@@ -43,11 +54,11 @@ export function demoLogin(body: { password: string; totp_code?: string }): Login
   return { kind: "ok", mustChange: false };
 }
 
-export function demoTransport(onSignedIn: () => void, opts: { ssoOnly?: boolean } = {}): SignInTransport {
+export function demoTransport(onSignedIn: () => void, opts: DemoOptions = {}): SignInTransport {
   return {
     async lookup(identifier, _next, signal) {
       await wait(350, signal);
-      return demoLookup(identifier, Boolean(opts.ssoOnly));
+      return demoLookup(identifier, opts);
     },
     async login(body, signal) {
       await wait(350, signal);

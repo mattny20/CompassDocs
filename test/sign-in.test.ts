@@ -49,11 +49,12 @@ const edition = { present: true, features: ["sso"] };
 }
 
 /* eslint-disable @typescript-eslint/no-require-imports */
-const { pool, getSetting, setSetting, signInAccountFlags } = require("../src/lib/db") as typeof import("../src/lib/db");
+const { pool, getSetting, setSetting, signInAccountFlags, signInCandidates } = require("../src/lib/db") as typeof import("../src/lib/db");
 const routing = require("../src/lib/sign-in-routing") as typeof import("../src/lib/sign-in-routing");
 const auth = require("../src/lib/auth") as typeof import("../src/lib/auth");
 const { hashPassword } = require("../src/lib/password") as typeof import("../src/lib/password");
 const { signInLookupRetryAfter } = require("../src/lib/rate-limit") as typeof import("../src/lib/rate-limit");
+const { loginRetryAfter } = require("../src/lib/login-guard") as typeof import("../src/lib/login-guard");
 const { totpCode, generateTotpSecret } = require("../src/lib/totp") as typeof import("../src/lib/totp");
 const { PRESET_SSO, PRESET_SAML } = {
   PRESET_SSO: {
@@ -258,7 +259,7 @@ describe("the password step accepts an email", () => {
       return real.apply(this, a);
     };
     try {
-      for (const id of [`${STAMP}-pw`, `pw@${DOMAIN}`, `nobody@${DOMAIN}`, `nobody-${STAMP}`, `dup@${DOMAIN}`, `nopw@${DOMAIN}`, `gone@${DOMAIN}`, `jit@${DOMAIN}`]) {
+      for (const id of [`${STAMP}-pw`, `pw@${DOMAIN}`, `nobody@${DOMAIN}`, `nobody-${STAMP}`, `dup@${DOMAIN}`, `nopw@${DOMAIN}`, `gone@${DOMAIN}`, `jit@${DOMAIN}`, dotted(`${STAMP}-pw`)]) {
         n = 0;
         await auth.resolveSignInAccount(id);
         assert.equal(n, 1, id);
@@ -278,6 +279,74 @@ describe("the password step accepts an email", () => {
     const real = Math.min(await t(`${STAMP}-pw`), await t(`${STAMP}-pw`));
     const unknown = Math.min(await t(`nobody-${STAMP}`), await t(`nobody-${STAMP}`));
     assert.ok(unknown > real * 0.5, `unknown ${unknown.toFixed(1)}ms vs real ${real.toFixed(1)}ms`);
+  });
+});
+
+// Postgres lower() in a UTF-8 database (the postgres image's default) folds
+// U+0130 "İ" to "i", where JS toLowerCase(), which the sign-in throttle keys
+// on, gives "i" + U+0307: "alİce" would sign in as "alice" with five
+// attempts of its own. The test database is SQL_ASCII, whose lower() folds
+// ASCII only, so utf8Lower runs the sign-in queries as a UTF-8 database
+// would, folding "İ" inside every lower() in them.
+const dotted = (s: string) => s.replace("i", "İ");
+
+async function utf8Lower<T>(fn: () => Promise<T>): Promise<T> {
+  const p = pool() as unknown as { query: (...a: unknown[]) => unknown };
+  const real = p.query;
+  p.query = function (this: unknown, text: unknown, ...rest: unknown[]) {
+    const sql =
+      typeof text === "string" && /FROM users\s+WHERE lower\(username\) = lower\(\$1\)/.test(text)
+        ? text.replace(/lower\((username|email|\$1)\)/g, (_, x) => `lower(replace(${x}, 'İ', 'i'))`)
+        : text;
+    return real.call(this, sql, ...rest);
+  };
+  try {
+    return await fn();
+  } finally {
+    p.query = real;
+  }
+}
+
+describe("a spelling only Postgres folds to an account (U+0130) is not that account", () => {
+  const device = { ip: "203.0.113.41", userAgent: "test" };
+  const dot = `dot@${DOMAIN}`;
+
+  before(async () => {
+    // An SSO account whose username is an address, and two password accounts
+    // whose email is that address with "İ" in it.
+    const r = await pool().query<{ id: number }>(
+      `INSERT INTO users (username, name, email, auth_provider) VALUES ($1, 'Sign dot', $1, 'oidc') RETURNING id`,
+      [dot]
+    );
+    userIds.push(r.rows[0].id);
+    for (const n of [1, 2]) await newUser(`dot${n}`, { password: "Secret-pass-1", email: dotted(dot) });
+  });
+
+  test("the database matches it, and the password step does not", async () => {
+    await utf8Lower(async () => {
+      assert.equal((await signInCandidates(dotted(`${STAMP}-pw`)))[0]?.username, `${STAMP}-pw`, "lower() folds it to the account");
+      assert.equal(await auth.resolveSignInAccount(dotted(`${STAMP}-pw`)), undefined);
+      assert.equal(await auth.resolveSignInAccount(dotted(`pw@${DOMAIN}`)), undefined);
+      assert.equal(await auth.login(dotted(`${STAMP}-pw`), "Secret-pass-1", undefined, device), null);
+      // Case still folds where the two agree.
+      assert.equal((await auth.resolveSignInAccount(`${STAMP}-pw`.toUpperCase()))?.username, `${STAMP}-pw`);
+      assert.equal((await auth.resolveSignInAccount(`PW@${DOMAIN}`))?.username, `${STAMP}-pw`);
+    });
+  });
+
+  test("nor does the lookup's routing", async () => {
+    await utf8Lower(async () => {
+      assert.deepEqual(await signInAccountFlags(`${STAMP}-oidc`), { auth_provider: "oidc", has_password: false });
+      assert.equal(await signInAccountFlags(dotted(`${STAMP}-oidc`)), null);
+    });
+  });
+
+  test("dropping a username row only Postgres matched leaves an ambiguous email ambiguous", async () => {
+    await utf8Lower(async () => {
+      assert.equal((await signInCandidates(dotted(dot))).length, 3, "the SSO account's username and both emails");
+      assert.equal(await auth.resolveSignInAccount(dotted(dot)), undefined);
+      assert.equal(await signInAccountFlags(dotted(dot)), null);
+    });
   });
 });
 
@@ -469,6 +538,83 @@ describe("POST /api/auth/login", () => {
     assert.deepEqual(await audited("auth.login_failed", totpUser), Array(5).fill({ stage: "two_factor" }));
     assert.deepEqual(await audited("auth.lockout", totpUser), [{ minutes: 15, stage: "two_factor" }]);
   });
+
+  /** One of several requests in flight at once: the status only, and currentRequest left alone (none carries an Origin). */
+  async function send(body: Record<string, unknown>, ip: string) {
+    const res = await route.POST(
+      new Request("https://docs.example.test/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-forwarded-for": ip },
+        body: JSON.stringify(body),
+      })
+    );
+    return res.status;
+  }
+
+  const auditedFrom = async (action: string, ip: string, since: Date) =>
+    (
+      await pool().query<{ n: number }>("SELECT count(*)::int AS n FROM audit_log WHERE action = $1 AND ip = $2 AND at >= $3", [
+        action,
+        ip,
+        since,
+      ])
+    ).rows[0].n;
+
+  test("a burst sent at once gets five password checks for a name; the right password sent inside it once the lock engaged is refused", async () => {
+    const ip = "203.0.113.53";
+    const since = new Date();
+    const name = `${STAMP}-pw`;
+    let answered = 0;
+    const burst = Array.from({ length: 12 }, () => send({ username: name, password: "wrong" }, ip).finally(() => answered++));
+    for (let i = 0; i < 1000 && loginRetryAfter(name, ip) === 0; i++) await new Promise((r) => setImmediate(r));
+    assert.ok(answered < 12, "the burst is still being answered");
+    assert.equal(await send({ username: name, password: "Secret-pass-1" }, ip), 429);
+    const statuses = await Promise.all(burst);
+    assert.equal(statuses.filter((s) => s === 401).length, 5, statuses.join(" "));
+    assert.equal(statuses.filter((s) => s === 429).length, 7, statuses.join(" "));
+    assert.equal(await auditedFrom("auth.login_failed", ip, since), 5);
+    assert.equal(await auditedFrom("auth.lockout", ip, since), 1);
+  });
+
+  test("and thirty across names from one address", async () => {
+    const ip = "203.0.113.54";
+    const since = new Date();
+    const statuses = await Promise.all(Array.from({ length: 40 }, (_, i) => send({ username: `spray${i}-${STAMP}`, password: "wrong" }, ip)));
+    assert.equal(statuses.filter((s) => s === 401).length, 30, statuses.join(" "));
+    assert.equal(statuses.filter((s) => s === 429).length, 10);
+    assert.equal(await auditedFrom("auth.login_failed", ip, since), 30);
+    assert.equal(await auditedFrom("auth.lockout", ip, since), 1);
+  });
+
+  test("a sign-in gives its count back and clears the name's failures", async () => {
+    const ip = "203.0.113.56";
+    const name = `${STAMP}-pw`;
+    for (let i = 0; i < 4; i++) assert.equal(await send({ username: name, password: "wrong" }, ip), 401);
+    assert.equal(await send({ username: name, password: "Secret-pass-1" }, ip), 200, "the fifth attempt, right");
+    for (let i = 1; i <= 5; i++) assert.equal(await send({ username: name, password: "wrong" }, ip), 401, `failure ${i} after it`);
+    assert.equal(await send({ username: name, password: "Secret-pass-1" }, ip), 429);
+  });
+
+  test("the right password with the code still to come gives its count back, the fifth attempt too", async () => {
+    const ip = "203.0.113.57";
+    const since = new Date();
+    for (let i = 0; i < 4; i++) assert.equal(await send({ username: totpUser, password: "wrong" }, ip), 401);
+    assert.deepEqual((await post({ username: totpUser, password: "Secret-pass-1" }, ip)).body, { totp_required: true });
+    assert.equal(loginRetryAfter(totpUser, ip), 0, "the lock its count engaged is lifted");
+    const r = await post({ username: totpUser, password: "Secret-pass-1", totp_code: totpCode(secret, Date.now()) }, ip);
+    assert.equal(r.status, 200);
+    assert.equal(await auditedFrom("auth.lockout", ip, since), 0);
+  });
+
+  test("a spelling only Postgres folds to the account (U+0130) never signs in, right password or not", async () => {
+    const ip = "203.0.113.58";
+    await utf8Lower(async () => {
+      assert.equal((await post({ username: dotted(`${STAMP}-pw`), password: "Secret-pass-1" }, ip)).status, 401);
+      assert.equal((await post({ username: dotted(`pw@${DOMAIN}`), password: "Secret-pass-1" }, ip)).status, 401);
+      assert.equal((await post({ username: `${STAMP}-pw`.toUpperCase(), password: "Secret-pass-1" }, ip)).status, 200, "the account's own spellings still do");
+      assert.equal((await post({ username: `PW@${DOMAIN}`, password: "Secret-pass-1" }, ip)).status, 200);
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -478,8 +624,9 @@ describe("POST /api/auth/login", () => {
 // smaller than 1280 × 720 as shown (after the camera's EXIF rotation) or over
 // 100 megapixels, and otherwise re-encoded to WebP at 960, 1600 and 2560
 // wide, with its size, mean colour (in sRGB) and a blurred placeholder in
-// settings. Remove clears every key and deletes the files. Store and remove
-// take turns under one advisory lock, writing the five keys together.
+// settings; a write that fails part way leaves no file behind. Remove clears
+// every key and deletes the files. Store and remove take turns under one
+// advisory lock, writing the five keys together.
 //
 // The files go to a throwaway uploads directory: lib/uploads reads
 // COMPASSDOCS_UPLOAD_DIR on every call, so setting it here, before
@@ -589,14 +736,21 @@ describe("the sign-in artwork", () => {
     });
 
     test("over 100 megapixels, read from the header before anything is decoded", async () => {
-      // A 1 × 1 PNG whose header says 12000 × 9000: nothing behind it is read.
-      const header = Buffer.from(await png(1, 1));
-      header.writeUInt32BE(12000, 16);
-      header.writeUInt32BE(9000, 20);
-      header.writeUInt32BE(zlib.crc32(header.subarray(12, 29)), 29);
-      const meta = await sharp(header).metadata();
-      assert.deepEqual([meta.width, meta.height], [12000, 9000]);
-      await refused(header, "That image is 12000 × 9000 pixels. Use one with no more than 100 megapixels.");
+      // A 1 × 1 PNG whose header says width × height: nothing behind it is read.
+      const declaring = async (width: number, height: number) => {
+        const header = Buffer.from(await png(1, 1));
+        header.writeUInt32BE(width, 16);
+        header.writeUInt32BE(height, 20);
+        header.writeUInt32BE(zlib.crc32(header.subarray(12, 29)), 29);
+        const meta = await sharp(header, { limitInputPixels: false }).metadata();
+        assert.deepEqual([meta.width, meta.height], [width, height]);
+        return header;
+      };
+      await refused(await declaring(12000, 9000), "That image is 12000 × 9000 pixels. Use one with no more than 100 megapixels.");
+      // Past sharp's own limit (268 MP), which would refuse it before our check.
+      const huge = await declaring(24000, 12000);
+      await assert.rejects(sharp(huge).metadata(), /pixel limit/);
+      await refused(huge, "That image is 24000 × 12000 pixels. Use one with no more than 100 megapixels.");
     });
 
     test("smaller than 1280 × 720, by either side, with the image's own size in the sentence", async () => {
@@ -765,6 +919,38 @@ describe("the sign-in artwork", () => {
       const look = await art.getSignInLook();
       assert.equal(look.art, null);
       assert.equal(look.showText, true, "the default art always carries the name");
+    });
+  });
+
+  describe("a write that fails (a full volume)", () => {
+    before(clearArt);
+    after(clearArt);
+
+    test("removes the copies that landed and the part-written one, and keeps the old art", async () => {
+      const first = await art.storeSignInArt(await png(1600, 900));
+      const kept = storedFiles();
+      const next = await png(1920, 1080);
+      const fsp = fs.promises as unknown as { writeFile: (file: string, data: Buffer, ...rest: unknown[]) => Promise<void> };
+      const realWrite = fsp.writeFile;
+      let calls = 0;
+      // The second copy runs out of room part way: 4 KB land, then ENOSPC.
+      fsp.writeFile = async (file, data, ...rest) => {
+        if (++calls !== 2) return realWrite(file, data, ...rest);
+        await realWrite(file, data.subarray(0, 4096));
+        throw Object.assign(new Error("ENOSPC: no space left on device, write"), { code: "ENOSPC" });
+      };
+      try {
+        await assert.rejects(art.storeSignInArt(next), (e: unknown) => {
+          assert.equal((e as { code?: string }).code, "ENOSPC", "the write's own error (the route answers 500)");
+          assert.ok(!(e instanceof art.ArtworkError));
+          return true;
+        });
+      } finally {
+        fsp.writeFile = realWrite;
+      }
+      assert.equal(calls, 3, "all three copies were written");
+      assert.deepEqual(storedFiles(), kept, "only the old art's files are on disk");
+      assert.deepEqual(await art.getSignInArt(), first, "and the settings still name it");
     });
   });
 

@@ -13,8 +13,18 @@ const SSO_ERRORS: Record<string, string> = {
   no_email: "Your identity provider didn't share an email address.",
   domain: "Your email domain isn't allowed to sign in here.",
   no_account: "No account exists for you, and automatic account creation is off.",
+  // Why an existing account with the email was not linked, one code per cause
+  // (overlay ee/sso-shared); link_denied is the generic one older overlays send.
+  link_unconfirmed:
+    "An account here already uses your email address, but the address hasn't been confirmed as yours, so single sign-on can't link to it. Ask your administrator to check which account uses your address.",
+  link_ambiguous:
+    "More than one account here uses your email address, so single sign-on can't tell which one is yours. Ask your administrator.",
+  link_admin:
+    "Your email address belongs to an administrator account, which another administrator has to link to single sign-on.",
+  link_other_provider:
+    "Your email address belongs to an account that signs in with a different identity provider. Ask your administrator.",
   link_denied:
-    "An account with your email already exists and can't be linked to single sign-on automatically. Ask your administrator to confirm the email on that account (Settings → Users → Email…).",
+    "An account with your email already exists and can't be linked to single sign-on automatically. Ask your administrator.",
   disabled: "Your account is disabled. Ask your administrator.",
   internal: "Something went wrong during sign-in. Please try again.",
 };

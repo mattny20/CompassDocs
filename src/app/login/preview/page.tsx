@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requirePermission } from "@/lib/auth";
 import { getAppSettings } from "@/lib/settings-store";
-import { providersOf, signInSetup } from "@/lib/sign-in-routing";
+import { providerStart, providersOf, signInSetup } from "@/lib/sign-in-routing";
 import { getSignInLook, type SignInLook } from "@/lib/sign-in-art";
 import {
   asFocus,
@@ -12,7 +12,9 @@ import {
   type SignInTextKey,
 } from "@/lib/sign-in-text";
 import { DEMO_PROVIDERS } from "@/lib/sign-in-demo";
+import type { SignInProviderLink } from "@/lib/sign-in-transport";
 import { AuthShell } from "@/components/auth/AuthShell";
+import { providerName } from "@/components/auth/ProviderMark";
 import { SignInFlow, type SignInMode } from "@/components/auth/SignInFlow";
 
 export const dynamic = "force-dynamic";
@@ -20,7 +22,8 @@ export const metadata = { title: "Sign-in preview", robots: { index: false, foll
 
 // The sign-in page as the admin is editing it (1.16.0, Settings → Workspace
 // → Sign-in page). The real AuthShell and SignInFlow, with the demo
-// transport (lib/sign-in-demo): nothing typed here is sent anywhere. The
+// transport (lib/sign-in-demo): nothing typed here is sent anywhere. Its
+// answers use the workspace's own providers and SSO only, as /login does. The
 // form's unsaved values arrive in the query and are laid over the stored
 // look after the same normalisation the save applies; a value the save
 // would refuse is ignored, so the stored one shows. Lives under /login,
@@ -68,7 +71,12 @@ export default async function SignInPreviewPage({ searchParams }: { searchParams
   const look = withOverrides(stored, q);
   const framed = one(q, "frame") === "1";
   const theme = one(q, "theme") === "dark" ? "dark" : "light";
-  const mode: SignInMode = one(q, "flow") === "identify" || providersOf(setup).length > 0 ? "identify" : "combined";
+  // Started as /login starts them; the demo pair only for ?flow=identify on a
+  // workspace without single sign-on.
+  const configured: SignInProviderLink[] = providersOf(setup).map((p) => ({ ...p, start: providerStart(p.id, "/") }));
+  const mode: SignInMode = one(q, "flow") === "identify" || configured.length > 0 ? "identify" : "combined";
+  // The combined form has no providers on /login either.
+  const providers = mode === "identify" ? (configured.length ? configured : DEMO_PROVIDERS) : [];
 
   return (
     <>
@@ -82,15 +90,14 @@ export default async function SignInPreviewPage({ searchParams }: { searchParams
         />
       )}
       <AuthShell look={look} company={settings.company_name} logoUrl={settings.logo_url || undefined}>
-        {!framed && <PreviewNotice mode={mode} ssoOnly={setup.ssoOnly} identifyHref={identifyHref(q)} />}
+        {!framed && <PreviewNotice mode={mode} ssoOnly={setup.ssoOnly} providers={providers} identifyHref={identifyHref(q)} />}
         <SignInFlow
           key={mode}
           mode={mode}
           ssoOnly={setup.ssoOnly}
           next="/"
           company={settings.company_name}
-          // The combined form has no providers on /login either.
-          providers={mode === "identify" ? DEMO_PROVIDERS : []}
+          providers={providers}
           help={look.help || look.help_url ? { text: look.help, url: look.help_url } : undefined}
           example={look.example || undefined}
           demo
@@ -108,19 +115,33 @@ function identifyHref(q: Query): string {
   return `/login/preview?${params.toString()}`;
 }
 
-function PreviewNotice({ mode, ssoOnly, identifyHref }: { mode: SignInMode; ssoOnly: boolean; identifyHref: string }) {
+/** What to try, worded by the providers the preview answers with (one has no choice step). */
+function PreviewNotice({
+  mode,
+  ssoOnly,
+  providers,
+  identifyHref,
+}: {
+  mode: SignInMode;
+  ssoOnly: boolean;
+  providers: SignInProviderLink[];
+  identifyHref: string;
+}) {
+  const choice = providers.length > 1;
   return (
     <div className="notice-warn mb-6 rounded-lg border px-3 py-2 text-sm">
       {mode === "identify" && ssoOnly ? (
         <>
-          Preview. Nothing you type here is sent anywhere. SSO only is on, so every email or username goes to single
-          sign-on: try name@sso.example for one provider, anything else for a choice. Password sign-in is only at{" "}
-          <code className="font-mono">/login?local=1</code>.
+          Preview. Nothing you type here is sent anywhere. SSO only is on, so every email or username{" "}
+          {choice
+            ? "gets a choice of your two providers"
+            : `goes straight to ${providerName(providers[0].mark) ?? "single sign-on"}`}
+          . Password sign-in is only at <code className="font-mono">/login?local=1</code>.
         </>
       ) : mode === "identify" ? (
         <>
-          Preview. Nothing you type here is sent anywhere. Try name@sso.example for single sign-on, name@both.example
-          for a choice, or the password 2fa for a code step (123456).
+          Preview. Nothing you type here is sent anywhere. Try name@sso.example for single sign-on,{" "}
+          {choice && "name@both.example for a choice, "}or the password 2fa for a code step (123456).
         </>
       ) : (
         <>

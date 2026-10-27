@@ -169,11 +169,15 @@ function UserTable({
 
   // An administrator's save confirms the address (1.16.0): an email its
   // owner typed links to single sign-on and matches synced groups only
-  // after this, so saving it unchanged is how one is confirmed.
+  // after this, so saving it unchanged is how one is confirmed. The
+  // dialog asks for the ownership check that confirming stands for.
   async function editEmail(u: User) {
     const email = await promptDialog({
       title: `Email for ${u.username}`,
-      body: "Saving confirms this address: single sign-on can link to it and synced groups can match it.",
+      body:
+        u.email_self_set === 1
+          ? `Confirm only if this address belongs to ${u.name || u.username}. Whoever signs in through single sign-on with it will get this account. If it is someone else's, change or clear it.`
+          : "Single sign-on, synced groups and the directory match this account by this address.",
       label: "Email",
       type: "email",
       initial: u.email,
@@ -263,7 +267,7 @@ function UserTable({
                         tone="warn"
                         size="sm"
                         tabIndex={0}
-                        data-tt="Set by this person on their profile. Single sign-on won't link to it until an administrator confirms it (Email…)."
+                        data-tt="Typed by this person on their profile. Before confirming it (Email…), check it is theirs: single sign-on gives this account to whoever signs in with the address."
                         data-tt-wrap=""
                       >
                         Unconfirmed

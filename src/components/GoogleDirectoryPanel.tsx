@@ -159,7 +159,11 @@ export function GoogleDirectoryPanel({ initial }: { initial: GoogleState }) {
     const skipped = data.skippedNoAccount
       ? ` ${data.skippedNoAccount} member${data.skippedNoAccount === 1 ? "" : "s"} had no CompassDocs account and were skipped.`
       : "";
-    toast("ok", `${data.matched} group(s) synced, ${data.created} created.${skipped}`);
+    // 1.16.0: an account holds the email, but it is unconfirmed or shared.
+    const unconfirmed = data.skippedUnconfirmed
+      ? ` ${data.skippedUnconfirmed} member${data.skippedUnconfirmed === 1 ? "" : "s"} matched only an unconfirmed or shared email and ${data.skippedUnconfirmed === 1 ? "was" : "were"} skipped (see Settings → Users).`
+      : "";
+    toast("ok", `${data.matched} group(s) synced, ${data.created} created.${skipped}${unconfirmed}`);
   }
 
   async function disconnect() {

@@ -12,9 +12,10 @@ uploads, with the workspace's own headline and help. When single sign-on
 is set up (Enterprise), people enter their email or username first and go
 straight to their identity provider or to a password, and the page never
 says whether an account exists. The password step accepts an email, and
-the forced password change wears the same shell. It also closes an older
-hole: an email a person typed on their own profile can no longer capture
-a colleague's first single sign-on.
+the forced password change wears the same shell. It also closes older
+holes: an email a person typed on their own profile can no longer capture
+a colleague's first single sign-on, and a burst of sign-in attempts sent
+at once can no longer outrun the lockout.
 
 ### Added
 - **A new sign-in page.** From 1024 pixels wide, a cover fills the screen
@@ -31,25 +32,26 @@ a colleague's first single sign-on.
   own heading. The artwork steps aside in Windows high-contrast mode, and
   print leaves the cover out and shows the logo and name above the form.
 - **Sign-in artwork**, under **Settings → Workspace → Sign-in page**, a new
-  page beside Branding and Content. Upload a JPEG, PNG, WebP or GIF of up
-  to 15 MB, at least 1280 × 720 pixels and at most 100 megapixels; a file
-  that is cut short is refused rather than shown with a gap. 2560 pixels
-  or wider looks
-  sharpest, and a narrower picture gets a warning. CompassDocs stores three
-  WebP copies (960, 1600 and 2560 pixels wide) so phones download less,
-  keeps only the first frame of an animation and drops location and camera
-  data. While the picture loads, the page paints its average color and a
-  blurred copy, so nothing jumps. **Keep in view** picks which of nine
-  points of the picture stays in view when a screen crops it, **Artwork
-  side** puts the picture left of the form (the default) or right of it,
-  and **Show the name and headline over the artwork** can be turned off
-  when the picture already carries your branding (the form then shows the
-  logo and name). Text over a photo sits on a shade that keeps it readable
-  on any picture, at least 5.8:1 on a pure white one, and darker still
-  when the visitor asks for more contrast. Upload and Replace apply at
+  page beside Branding and Content. Upload a JPEG, PNG, WebP or GIF of up to
+  15 MB, at least 1280 × 720 pixels and at most 100 megapixels; a bigger
+  picture is refused with its size in pixels, however big, and a file that
+  is cut short is refused rather than shown with a gap. 2560 pixels or wider
+  looks sharpest, and a narrower picture gets a warning. CompassDocs stores
+  three WebP copies (960, 1600 and 2560 pixels wide) so phones download
+  less, keeps only the first frame of an animation and drops location and
+  camera data; an upload that fails while they are written (a full volume,
+  say) leaves none of them behind. While the picture loads, the page paints
+  its average color and a blurred copy, so nothing jumps. **Keep in view**
+  picks which of nine points of the picture stays in view when a screen
+  crops it, **Artwork side** puts the picture left of the form (the default)
+  or right of it, and **Show the name and headline over the artwork** can be
+  turned off when the picture already carries your branding (the form then
+  shows the logo and name). Text over a photo sits on a shade that keeps it
+  readable on any picture, at least 5.8:1 on a pure white one, and darker
+  still when the visitor asks for more contrast. Upload and Replace apply at
   once; **Remove artwork…** asks first, because it deletes the files. The
-  copies are served before sign-in from `/api/brand/artwork` and cached
-  for good, since every upload changes their address.
+  copies are served before sign-in from `/api/brand/artwork` and cached for
+  good, since every upload changes their address.
 - **Your own words on the sign-in page.** **Headline** (up to 60
   characters; blank shows the workspace name), **Tagline** (140) and
   **Caption** (80, such as a photo credit) go on the cover. **Example
@@ -60,15 +62,18 @@ a colleague's first single sign-on.
   without control characters, line breaks or doubled spaces; a value over
   its limit is refused with the field named, never cut.
 - **A live preview** of the sign-in page beside those settings, with the
-  unsaved changes, at Laptop (1440 × 900), Ultrawide (3440 × 1440) or
-  Phone (390 × 844) size, light or dark; **Open full-size preview** opens
-  it in a new tab. The preview is the real page answering from a script,
-  and nothing typed in it is sent anywhere: try `name@sso.example` for
-  single sign-on, `name@both.example` for a choice of two, or the password
-  `2fa` for the code step (the code is 123456). Admins who can read the
-  single sign-on settings also see **How people sign in**, the routing
-  below in sentences, with a warning when SSO is set up but cannot be used
-  yet or when no email domains are set.
+  unsaved changes, at Laptop (1440 × 900), Ultrawide (3440 × 1440) or Phone
+  (390 × 844) size, light or dark; **Open full-size preview** opens it in a
+  new tab. The preview is the real page answering from a script, and nothing
+  typed in it is sent anywhere. It answers with the workspace's own
+  providers and **SSO only**, as the page does: try `name@sso.example` for
+  single sign-on, `name@both.example` for a choice when two providers are
+  set up, or the password `2fa` for the code step (the code is 123456); with
+  SSO only on, any email or username goes straight to the one provider, or
+  to a choice of two. Admins who can read the single sign-on settings also
+  see **How people sign in**, the routing below in sentences, with a warning
+  when SSO is set up but cannot be used yet or when no email domains are
+  set.
 - **Email-first sign-in when single sign-on is set up** (Enterprise,
   `sso`). The page asks for an email or username, and **Continue** sends
   it on:
@@ -120,8 +125,12 @@ a colleague's first single sign-on.
 - **Confirm an account's email** from **Settings → Users**: each row
   shows the email, an email its owner typed on their profile is marked
   **Unconfirmed**, and **Email…** sets or confirms it (saving it unchanged
-  confirms it). Single sign-on links to an unconfirmed email only after
-  that. Recorded as **Changed email**.
+  confirms it). Single sign-on links to an unconfirmed email, group sync
+  matches it and the directory links a profile by it only after that. The
+  chip's tooltip and the dialog ask the admin to confirm only an address
+  that belongs to that person, because single sign-on gives the account to
+  whoever signs in with it; any other address is changed or cleared
+  instead. Recorded as **Changed email**.
 - Audit log entries **Uploaded sign-in artwork** (with the picture's
   size), **Removed sign-in artwork** and **Updated the sign-in page** (with
   the fields changed).
@@ -129,15 +138,18 @@ a colleague's first single sign-on.
 ### Changed
 - **The password step accepts an email.** Sign in with your username or
   with your email address: the username is tried first, then the one
-  active account with a password whose email it is. An email that two
-  accounts share signs nobody in. The API field is still `username`, so
-  scripts, the Outlook add-in and the break-glass `curl` keep working.
+  active account with a password whose email it is. An email that two or
+  more active accounts with a password share signs none of them in; a
+  disabled account or one without a password (SSO, SCIM) doesn't count.
+  The API field is still `username`, so scripts, the Outlook add-in and
+  the break-glass `curl` keep working.
 - **The forced password change wears the sign-in shell.** After a first
   sign-in or an admin reset, **Set a new password** shows the same cover
   and column, the account in a "Signed in as" row with **Sign out**,
   larger fields, **Show passwords** and a full-width **Set password &
   continue**. A hidden username field lets password managers update the
-  right entry. Changing a password from Account → Security is unchanged.
+  right entry. Changing a password from Account → Security looks as it
+  did.
 - **Outlook add-in:** the sign-in window's field reads **Email or
   username**, and its "use the full sign-in page" link comes back to the
   add-in after signing in.
@@ -147,11 +159,12 @@ a colleague's first single sign-on.
   lost or sent in an address, and a slow, offline or failed answer is said
   in words ("Couldn't reach the server. Check your connection and try
   again.") instead of failing quietly.
-- **An email set on Account → Profile must be free.** One that another
-  account already uses, as its email or its username, is refused with
-  "That email address is already used by another account." An email now
-  signs in, so it has to name one account. Saving an email on
-  **Settings → Users** follows the same rule.
+- **An email must be free.** One that another account already uses, as
+  its email or its username, is refused with "That email address is
+  already used by another account." on **Account → Profile**, and on
+  **Settings → Users** by **Add user** and **Email…**. An email now signs
+  in, so it has to name one account. **Add user** also refuses an address
+  that doesn't look like an email, as **Email…** does.
 - **Logo and artwork uploads must state their size.** A request with no
   `Content-Length` (a chunked body) is refused with 411 before any of it
   is read, and one over the limit with 413. The logo upload read a
@@ -182,17 +195,25 @@ a colleague's first single sign-on.
   `organizations` or `consumers`) with no allowed email domains is no
   longer offered: it could never succeed, because the callback refuses
   it. **How people sign in** says what to add.
+- A logo, attachment or other upload whose write fails part way (on a
+  full uploads volume, say) no longer leaves a partial file behind.
 
 ### Security
 - **A self-typed email can no longer capture someone's single sign-on.**
   Any local account could type a colleague's address on its profile; the
   colleague's first SSO sign-in was then linked to that account (the
-  oldest account with the email won), and synced groups matched it by
-  email. Accounts now record whether their email was typed by their owner.
-  SSO never links to such an email or to an email that two accounts share,
-  and group sync never matches one, until an administrator confirms it
-  (see Confirm an account's email). Present since profile emails became
-  editable; the Enterprise image carries the SSO and Google side.
+  oldest account with the email won), synced groups matched it by email,
+  and the directory linked it to the colleague's profile. Accounts now
+  record whether their email was typed by their owner. Until an
+  administrator confirms such an email (see Confirm an account's email),
+  SSO never links to it, Entra and Google group sync never match it, and
+  **Auto-link directory** and directory sync never link a profile by it.
+  An email that more than one account has is never linked either, and
+  group sync matches an email only when exactly one account has it
+  confirmed; an administrator changes or clears the address on the other
+  accounts, since **Email…** refuses an address another account uses.
+  Directory links already made are kept. Present since profile emails
+  became editable; the Enterprise image carries the SSO and Google side.
 - **A sign-in for an unknown account takes as long as a real one.** An
   unknown, disabled or password-less account failed without the password
   check, about 49 ms sooner, which told an attacker that the account did
@@ -202,7 +223,29 @@ a colleague's first single sign-on.
 - **The sign-in throttle keys on what was typed**, as in 1.15.0, and is
   checked before any database read, so a lockout never shows which
   account an email belongs to. A username and its email each get five
-  attempts per address, within the 30-per-address limit.
+  attempts per address, within the 30-per-address limit. A lock engaged
+  by the typed signature or a password change, which count against the
+  username, holds for signing in with the username, not with the email.
+- **A burst of sign-ins can no longer outrun the lockout.** The throttle
+  was checked before the password and the failure counted after it, so
+  attempts sent at once all passed the check: one address could try far
+  more than five passwords for a name, or 30 in all, in each 15 minutes,
+  and wrong two-factor codes likewise. Each attempt is now counted as it
+  starts and given back when it does not fail. Present before 1.16.0.
+- **A name signs in only as the throttle counts it.** The account was found
+  with the database's case folding and the attempts counted with the app's,
+  which differ on a UTF-8 database (as the bundled one is): a dotted capital
+  I (İ) in place of an i signed in as the plain name with five attempts of
+  its own, for each such spelling. A spelling the two fold differently now
+  signs nobody in. Present for usernames before 1.16.0.
+- **Changing your password is throttled and audited.** Account →
+  Security and the forced change check the current password, and a wrong
+  one was refused without limit and without a record. Wrong ones now count
+  against the username and address, with failed sign-ins under the
+  username and wrong typed signatures: five in 15 minutes lock all three
+  for 15 minutes (429). Each is in the audit log as `auth.login_failed`
+  with `via: change_password`, and the lock as `auth.lockout`. Present
+  before 1.16.0.
 - **Wrong two-factor codes are in the audit log** as `auth.login_failed`
   with `stage: two_factor`, as well as counting towards the lockout as
   before, and the lockout they cause is recorded as `auth.lockout`.
@@ -234,11 +277,22 @@ These ship from the Enterprise overlay, in the 1.16.0 Enterprise image.
 - **Single sign-on links only a confirmed, unique email.** On a first
   OIDC or SAML sign-in, an existing account is linked by email only when
   exactly one account has that email and its owner did not type it on
-  their profile; otherwise the person sees "An account with your email
-  already exists and can't be linked to single sign-on automatically."
-  Before, the oldest account with the email was linked.
-- **Google group sync matches members the same way:** by an email
-  exactly one account has, never one its owner typed.
+  their profile. Before, the oldest account with the email was linked.
+  A refusal still refuses, but the sign-in page now says which cause it
+  was, each in its own sentence: the one account with the email has an
+  address its owner typed (`link_unconfirmed`), more than one account has
+  it (`link_ambiguous`), it is an administrator's (`link_admin`), or it is
+  linked to another provider (`link_other_provider`). Each refusal is in
+  the audit log as **Refused a single sign-on link**
+  (`auth.sso_link_refused`), with the provider, the cause and the account
+  that blocked it.
+- **A linked account's email confirms itself.** When an account already
+  linked to single sign-on signs in and the provider asserts the same
+  email, an **Unconfirmed** mark on it is cleared.
+- **Google group sync matches members by their Google user id**, which
+  is how an account linked through Google sign-in is recorded, and
+  otherwise by an email exactly one account has confirmed, never one its
+  owner typed. Before, it matched by email alone.
 
 ### Upgrading
 - One schema change, applied on start: `users.email_self_set` and two
@@ -247,12 +301,22 @@ These ship from the Enterprise overlay, in the 1.16.0 Enterprise image.
   table, and its artwork lives in the uploads volume beside the logo, so
   backups cover both. A workspace without single sign-on gets the new
   page with the same one form.
-- Accounts whose owner changed their email on their profile, as the audit
-  log recorded, start **Unconfirmed**. With single sign-on or synced
-  groups, check **Settings → Users** and confirm the ones you trust with
-  **Email…**: until then SSO will not link them on a first sign-in, and
-  Entra or Google group sync will not match them by email (an account
-  already linked to SSO is matched by its SSO identity as before).
+- Password (local) accounts whose owner changed their email on their
+  profile, as the audit log recorded, start **Unconfirmed**. An account
+  already linked to single sign-on is not marked: its owner could no longer
+  edit the email, so it is the one the identity provider matched. With
+  single sign-on, synced groups or directory sync, check
+  **Settings → Users**: confirm with **Email…** only an address you know
+  belongs to that person, and change or clear any other. Until then SSO will
+  not link the account on a first sign-in, Entra and Google group sync will
+  not match it by email, and the directory will not link a profile by it.
+  Links made before the upgrade, to SSO or to a directory profile, are kept,
+  so also look through the audit log's **Updated own profile** entries for
+  an email changed to someone else's address.
+- Two accounts may already share an email, since nothing checked before
+  1.16.0. Such an email is never linked to single sign-on, and it signs
+  neither in when both are active and have a password; give each its own
+  with **Email…** (or clear it on all but one).
 - With single sign-on, add your email domains under **Settings → Single
   sign-on** (**Allowed email domains**, on the OIDC and the SAML panel) so
   new colleagues go straight to SSO; with none listed, only existing SSO
@@ -262,8 +326,14 @@ These ship from the Enterprise overlay, in the 1.16.0 Enterprise image.
   the password sign-in when the identity provider is down or
   misconfigured. SSO only removes no password, so anyone who has one,
   administrators included, can still sign in there.
-- Rolling back to 1.15.0 is safe: it ignores the new column, indexes,
-  settings keys and artwork files.
+- Rolling back to 1.15.0 works: it ignores the new column, indexes,
+  settings keys and artwork files. While rolled back, anyone with a
+  password account can again put any email on their profile, and it is
+  not marked **Unconfirmed**. Upgrading again does not re-check, because
+  the audit-log backfill runs only once, when the column is added. After
+  a re-upgrade, review the audit log's **Updated own profile** entries
+  from the time on 1.15.0, and change or clear with **Email…** on
+  **Settings → Users** any email that isn't that person's own.
 
 ## [1.15.0] - 2026-10-23
 

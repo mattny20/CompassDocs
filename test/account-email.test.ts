@@ -2,10 +2,13 @@
 // owner types on Account → Profile is unverified: it is refused when another
 // account already has it as its email or username (409), and it is marked,
 // so it never links an SSO identity (getUserByEmailForLink and the overlay's
-// link guard) or matches a synced group member by email
-// (matchUsersByIdentity). An administrator saving the email, or SCIM sending
-// one, clears the mark. The upgrade marks every profile email change the
-// audit log recorded, once.
+// link guard), matches a synced group member by email
+// (matchUsersByIdentity) or links a directory profile
+// (autoLinkUsersToDirectory). An administrator saving the email, SCIM
+// sending one, or the identity provider of an already-linked account
+// asserting it (confirmEmailBySso) clears the mark. Adding a user refuses an
+// email another account has, as the two saves do. The upgrade marks every
+// profile email change the audit log recorded on a local account, once.
 //
 // The route handlers are called directly, the way test/ack-statement.test.ts
 // does it: next/headers resolves to a stub that serves the request under
@@ -99,9 +102,9 @@ const row = async (id: number) =>
 
 type Handler = (req: Request, ctx?: { params: Promise<{ id: string }> }) => Promise<Response>;
 
-async function call(handler: Handler, url: string, session: string, body: unknown, id?: number) {
+async function call(handler: Handler, url: string, session: string, body: unknown, id?: number, method = "PATCH") {
   currentRequest = new Request(url, {
-    method: "PATCH",
+    method,
     headers: { cookie: `compass_session=${session}`, "content-type": "application/json", "x-forwarded-for": "203.0.113.90" },
     body: JSON.stringify(body),
   });
@@ -118,6 +121,7 @@ let meSession = "";
 let adminSession = "";
 let profile: { PATCH: Handler };
 let adminUser: { PATCH: Handler };
+let adminUsers: { POST: Handler };
 
 before(async () => {
   await db.getSetting("__schema_bootstrap__");
@@ -130,10 +134,13 @@ before(async () => {
   await newUser("jit", { username: `jit@${D}`, provider: "oidc" });
   profile = (await import("../src/app/api/account/profile/route")) as unknown as { PATCH: Handler };
   adminUser = (await import("../src/app/api/admin/users/[id]/route")) as unknown as { PATCH: Handler };
+  adminUsers = (await import("../src/app/api/admin/users/route")) as unknown as { POST: Handler };
 });
 
 after(async () => {
   await db.pool().query("DELETE FROM sessions WHERE user_id = ANY($1)", [userIds]);
+  // An account Add user made was enrolled in policies, with a welcome notice.
+  for (const id of userIds) await db.pool().query("DELETE FROM ack_outbox WHERE user_ids @> $1::jsonb", [JSON.stringify([id])]);
   await db.pool().query("DELETE FROM users WHERE id = ANY($1)", [userIds]);
 });
 
@@ -213,6 +220,51 @@ describe("an email an administrator or the directory sets", () => {
   });
 });
 
+describe("an administrator adding a user", () => {
+  const ADD_URL = "https://docs.example.test/api/admin/users";
+  const add = (tag: string, email: string) =>
+    call(
+      adminUsers.POST,
+      ADD_URL,
+      adminSession,
+      { username: `${STAMP}-${tag}`, name: `Added ${tag}`, email, role: "viewer", password: "Temporary-12345" },
+      undefined,
+      "POST"
+    );
+  const made = async (tag: string) =>
+    (await db.pool().query<{ id: number }>("SELECT id FROM users WHERE username = $1", [`${STAMP}-${tag}`])).rows[0]?.id;
+
+  test("is refused, and no account is made, when another account of any status has the email as its email or username", async () => {
+    for (const [tag, email] of [["add1", `TAKEN@${D}`], ["add2", `off@${D}`], ["add3", `Jit@${D}`]]) {
+      const r = await add(tag, email);
+      assert.equal(r.status, 409, email);
+      assert.equal(r.body?.error, "That email address is already used by another account.");
+      assert.equal(await made(tag), undefined, `${email}: no account`);
+    }
+    assert.equal((await db.getUserByEmailForLink(`taken@${D}`)).ambiguous, false, "the address still names one account");
+  });
+
+  test("a taken username is still the first answer, and an email must look like one", async () => {
+    const taken = await add("taken", `taken@${D}`);
+    assert.equal(taken.status, 409);
+    assert.equal(taken.body?.error, "That username is already taken.");
+    const bad = await add("add4", "not an email");
+    assert.equal(bad.status, 400);
+    assert.equal(bad.body?.error, "That email address doesn't look valid.");
+    assert.equal(await made("add4"), undefined);
+  });
+
+  test("a free address, or none, makes the account, and the email is the administrator's", async () => {
+    for (const [tag, email] of [["add5", ` added@${D} `], ["add6", ""]]) {
+      const r = await add(tag, email);
+      assert.equal(r.status, 201, `${email}: ${JSON.stringify(r.body)}`);
+      const id = (r.body as unknown as { user: { id: number } }).user.id;
+      userIds.push(id);
+      assert.deepEqual(await row(id), { email: email.trim(), email_self_set: 0 });
+    }
+  });
+});
+
 describe("matching an SSO identity or a group member by email", () => {
   test("SSO linking takes only the one account with the email, and carries the mark for the link guard", async () => {
     const solo = await newUser("solo", { email: `solo@${D}`, selfSet: 1 });
@@ -241,9 +293,20 @@ describe("matching an SSO identity or a group member by email", () => {
     ]);
     assert.deepEqual(ids.sort((a, b) => a - b), [trusted, claimed].sort((a, b) => a - b));
   });
+
+  test("the identity provider of a linked account asserting its own email, in any case, clears the mark; another email does not", async () => {
+    const id = await newUser("healed", { email: `Healed@${D}`, selfSet: 1, provider: "oidc", externalId: `heal-${STAMP}` });
+    assert.equal(await db.confirmEmailBySso(id, `someone@${D}`), false);
+    assert.equal((await row(id)).email_self_set, 1);
+    assert.equal(await db.confirmEmailBySso(id, `healed@${D}`), true);
+    assert.deepEqual(await row(id), { email: `Healed@${D}`, email_self_set: 0 });
+    assert.equal(await db.confirmEmailBySso(id, `healed@${D}`), false, "only once");
+  });
 });
 
-describe("the upgrade marks the emails the audit log shows their owners set", () => {
+// On a database of their own: the upgrade's marks need a column to create,
+// and the auto-link is one UPDATE over every account.
+describe("the upgrade's one-time marks, and the directory auto-link", () => {
   const BASE = process.env.DATABASE_URL ?? "";
   const DB = `email_self_set_${Date.now()}`;
   const urlFor = (name: string) => {
@@ -251,14 +314,16 @@ describe("the upgrade marks the emails the audit log shows their owners set", ()
     u.pathname = `/${name}`;
     return u.toString();
   };
-  const boot = () => {
+  const run = (script: string) => {
     const r = spawnSync(
       process.execPath,
-      [path.join(process.cwd(), "node_modules", "tsx", "dist", "cli.mjs"), "--tsconfig", "tsconfig.test.json", "test/support/boot.ts"],
+      [path.join(process.cwd(), "node_modules", "tsx", "dist", "cli.mjs"), "--tsconfig", "tsconfig.test.json", script],
       { env: { ...process.env, DATABASE_URL: urlFor(DB) }, encoding: "utf8", timeout: 180_000 }
     );
     assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
+    return r.stdout;
   };
+  const boot = () => run("test/support/boot.ts");
   async function withDb<T>(name: string, fn: (c: Client) => Promise<T>): Promise<T> {
     const c = new Client({ connectionString: urlFor(name) });
     await c.connect();
@@ -277,12 +342,15 @@ describe("the upgrade marks the emails the audit log shows their owners set", ()
     await withDb(adminDb, (c) => c.query(`DROP DATABASE IF EXISTS ${DB} WITH (FORCE)`));
   });
 
-  test("once, at the column's creation", async () => {
+  test("the upgrade marks a local account's email the audit log shows its owner set, once, at the column's creation", async () => {
     boot();
     const ids = await withDb(DB, async (c) => {
       await c.query("ALTER TABLE users DROP COLUMN email_self_set");
+      // 'linked' typed its email while local, then SSO linked it by that email.
       const u = await c.query<{ id: number; username: string }>(
-        `INSERT INTO users (username, email) VALUES ('typed', 'typed@x.test'), ('given', 'given@x.test'), ('cleared', '')
+        `INSERT INTO users (username, email, auth_provider) VALUES
+           ('typed', 'typed@x.test', 'local'), ('given', 'given@x.test', 'local'), ('cleared', '', 'local'),
+           ('linked', 'linked@x.test', 'saml')
          RETURNING id, username`
       );
       const id = Object.fromEntries(u.rows.map((r) => [r.username, r.id]));
@@ -290,8 +358,9 @@ describe("the upgrade marks the emails the audit log shows their owners set", ()
         `INSERT INTO audit_log (actor_id, actor_name, action, details) VALUES
            ($1, 'typed', 'account.profile_updated', '{"name_changed":false,"email_changed":true}'),
            ($2, 'given', 'account.profile_updated', '{"name_changed":true,"email_changed":false}'),
-           ($3, 'cleared', 'account.profile_updated', '{"name_changed":false,"email_changed":true}')`,
-        [id.typed, id.given, id.cleared]
+           ($3, 'cleared', 'account.profile_updated', '{"name_changed":false,"email_changed":true}'),
+           ($4, 'linked', 'account.profile_updated', '{"name_changed":false,"email_changed":true}')`,
+        [id.typed, id.given, id.cleared, id.linked]
       );
       return id;
     });
@@ -304,11 +373,55 @@ describe("the upgrade marks the emails the audit log shows their owners set", ()
           )
         )
       );
-    assert.deepEqual(await flags(), { typed: 1, given: 0, cleared: 0 });
+    assert.deepEqual(await flags(), { typed: 1, given: 0, cleared: 0, linked: 0 });
 
     // An administrator vouches for it; a later boot never marks it again.
     await withDb(DB, (c) => c.query("UPDATE users SET email_self_set = 0 WHERE id = $1", [ids.typed]));
     boot();
-    assert.deepEqual(await flags(), { typed: 0, given: 0, cleared: 0 });
+    assert.deepEqual(await flags(), { typed: 0, given: 0, cleared: 0, linked: 0 });
+  });
+
+  test("directory auto-link takes an email only when it is confirmed and no other account has it; an external id and an existing link stand", async () => {
+    const ids = await withDb(DB, async (c) => {
+      const p = await c.query<{ id: number; name: string }>(
+        `INSERT INTO directory_people (name, email, external_id) VALUES
+           ('trusted', 'trusted@dir.test', NULL), ('self', 'self@dir.test', NULL), ('shared', 'shared@dir.test', NULL),
+           ('ext', 'ext@dir.test', 'dir-ext-1'), ('kept', 'kept@dir.test', NULL)
+         RETURNING id, name`
+      );
+      const person = Object.fromEntries(p.rows.map((r) => [r.name, r.id]));
+      const u = await c.query<{ id: number; username: string }>(
+        `INSERT INTO users (username, email, email_self_set, external_id, directory_person_id) VALUES
+           ('l-trusted', 'TRUSTED@dir.test', 0, NULL, NULL),
+           ('l-self', 'self@dir.test', 1, NULL, NULL),
+           ('l-shared1', 'shared@dir.test', 0, NULL, NULL),
+           ('l-shared2', 'Shared@dir.test', 1, NULL, NULL),
+           ('l-ext', 'mine@dir.test', 1, 'dir-ext-1', NULL),
+           ('l-kept', 'kept@dir.test', 1, NULL, $1)
+         RETURNING id, username`,
+        [person.kept]
+      );
+      return { person, user: Object.fromEntries(u.rows.map((r) => [r.username, r.id])) };
+    });
+
+    assert.equal(JSON.parse(run("test/support/autolink.ts").trim().split("\n").pop()!), 2);
+    const links = await withDb(DB, async (c) =>
+      Object.fromEntries(
+        (
+          await c.query<{ username: string; directory_person_id: number | null }>(
+            "SELECT username, directory_person_id FROM users WHERE id = ANY($1)",
+            [Object.values(ids.user)]
+          )
+        ).rows.map((r) => [r.username, r.directory_person_id])
+      )
+    );
+    assert.deepEqual(links, {
+      "l-trusted": ids.person.trusted,
+      "l-self": null,
+      "l-shared1": null,
+      "l-shared2": null,
+      "l-ext": ids.person.ext,
+      "l-kept": ids.person.kept,
+    });
   });
 });

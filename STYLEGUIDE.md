@@ -95,7 +95,7 @@ none of those pages writes an `<h1>` of its own.
   Normal/Wide/Full width.
 - **Document title.** Every page exports `metadata` (or `generateMetadata`)
   with a page-specific title; the root layout's template appends the
-  workspace name, so the tab reads "Users & roles — Acme". Admin pages use
+  workspace name, so the tab reads "Users — Acme". Admin pages use
   `settingsMetadata(href)` from `lib/settings-sections` with the same href
   they hand `SettingsPage`; dynamic pages read the entity through
   `lib/page-data` (per-request `cache()`) so the title and the body share
@@ -1124,6 +1124,13 @@ nothing else for a confirmation's state (never "Acknowledged").
   chip with `Archive` and the retirer as its tooltip, in the collapsed
   **Retired · 3** group below Paused; its row keeps the record link and the
   CSV and offers Un-retire only.
+- **An email its owner typed is an "Unconfirmed" chip** (1.16.0,
+  `UsersClient`): `warn` `sm` beside the email under the username, with a
+  `data-tt` (`tabIndex={0}`, `data-tt-wrap`) saying what confirming does
+  and the check it stands for. Confirming is the row's named action
+  (**Email…**), never the chip, and its dialog says what confirming grants
+  and to whom (single sign-on gives the account to whoever signs in with
+  the address), so nobody confirms by habit.
 
 **Attribute chips** (a directory field shown as chips, a tag list) are not
 status: render them with `FieldChips`, which shows the option's **label**

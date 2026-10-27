@@ -23,6 +23,26 @@ describe("ssoErrorMessage", () => {
     assert.equal(ssoErrorMessage("internal"), INTERNAL);
   });
 
+  test("each refused link has its own sentence, and none tells the admin to confirm an email", () => {
+    const sentences: Record<string, string> = {
+      link_unconfirmed:
+        "An account here already uses your email address, but the address hasn't been confirmed as yours, so single sign-on can't link to it. Ask your administrator to check which account uses your address.",
+      link_ambiguous:
+        "More than one account here uses your email address, so single sign-on can't tell which one is yours. Ask your administrator.",
+      link_admin:
+        "Your email address belongs to an administrator account, which another administrator has to link to single sign-on.",
+      link_other_provider:
+        "Your email address belongs to an account that signs in with a different identity provider. Ask your administrator.",
+      // The generic one an older overlay sends for every cause.
+      link_denied:
+        "An account with your email already exists and can't be linked to single sign-on automatically. Ask your administrator.",
+    };
+    for (const [code, sentence] of Object.entries(sentences)) {
+      assert.equal(ssoErrorMessage(code), sentence, code);
+      assert.doesNotMatch(sentence, /confirm the email|Email…/, code);
+    }
+  });
+
   test("an unknown code is the internal sentence", () => {
     for (const code of ["bogus", "DOMAIN", " domain", "domain "]) {
       assert.equal(ssoErrorMessage(code), INTERNAL, code);

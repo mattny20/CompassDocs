@@ -83,8 +83,8 @@ export function SignInFlow({
   const router = useRouter();
   const [signedInPreview, setSignedInPreview] = useState(false);
   const transport: SignInTransport = useMemo(
-    () => (demo ? demoTransport(() => setSignedInPreview(true), { ssoOnly }) : realTransport(router)),
-    [demo, ssoOnly, router]
+    () => (demo ? demoTransport(() => setSignedInPreview(true), { ssoOnly, providers }) : realTransport(router)),
+    [demo, ssoOnly, providers, router]
   );
 
   const [hydrated, setHydrated] = useState(false);

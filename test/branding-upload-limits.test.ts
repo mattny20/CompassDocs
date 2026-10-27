@@ -54,7 +54,7 @@ let currentRequest: Request | null = null;
 }
 
 /* eslint-disable @typescript-eslint/no-require-imports */
-const { pool, createRole, assignRole, createSession } = require("../src/lib/db") as typeof import("../src/lib/db");
+const { pool, getSetting, createRole, assignRole, createSession } = require("../src/lib/db") as typeof import("../src/lib/db");
 const { newToken } = require("../src/lib/password") as typeof import("../src/lib/password");
 const { fixtureQuery } = require("./support/retry") as typeof import("./support/retry");
 const artwork = require("../src/app/api/admin/branding/artwork/route") as typeof import("../src/app/api/admin/branding/artwork/route");
@@ -68,6 +68,7 @@ let roleId = 0;
 let token = "";
 
 before(async () => {
+  await getSetting("__schema_bootstrap__"); // run the schema and migrations first
   const r = await fixtureQuery(
     "INSERT INTO users (username, name, email, role, status) VALUES ($1, $2, $3, 'viewer', 'active') RETURNING id",
     [STAMP, `Brand ${STAMP}`, `${STAMP}@example.test`]

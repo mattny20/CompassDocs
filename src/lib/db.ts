@@ -1813,9 +1813,12 @@ const SCHEMA_SQL = `
 
   -- 1.16.0: who set the account's email. 1 when its owner typed it on their
   -- profile (unverified), 0 when an administrator, SCIM or the identity
-  -- provider did. A self-set email never links an SSO identity or matches a
-  -- synced group member. Created once, after audit_log: every profile email
-  -- change the audit log recorded is backfilled as 1.
+  -- provider did. A self-set email never links an SSO identity, matches a
+  -- synced group member or links a directory profile. Created once, after
+  -- audit_log: every profile email change the audit log recorded on a local
+  -- account is backfilled as 1. An account already linked to SSO is not
+  -- marked: its owner could not edit the email once linked, so it is the
+  -- one the identity provider matched.
   DO $$ BEGIN
     IF NOT EXISTS (
       SELECT 1 FROM pg_attribute
@@ -1823,7 +1826,7 @@ const SCHEMA_SQL = `
     ) THEN
       ALTER TABLE users ADD COLUMN email_self_set integer NOT NULL DEFAULT 0;
       UPDATE users u SET email_self_set = 1
-       WHERE u.email <> ''
+       WHERE u.email <> '' AND u.auth_provider = 'local'
          AND EXISTS (SELECT 1 FROM audit_log a
                       WHERE a.actor_id = u.id AND a.action = 'account.profile_updated'
                         AND a.details->>'email_changed' = 'true');
@@ -4427,7 +4430,8 @@ export async function getUserByExternalId(
  * resolveSignInAccount), in one query whatever the outcome, so the time it
  * takes says nothing about the account: the one whose username is
  * `identifier` first, then, for an email, active accounts with a password
- * that have it. Two rows are enough to tell one email match from many.
+ * that have it. Three rows tell one email match from many even after lib/auth
+ * drops a username row only Postgres lower() matched.
  */
 export async function signInCandidates(identifier: string): Promise<
   (User & {
@@ -4443,7 +4447,7 @@ export async function signInCandidates(identifier: string): Promise<
       WHERE lower(username) = lower($1)
          OR (position('@' in $1) > 0 AND lower(email) = lower($1) AND status = 'active' AND password_hash IS NOT NULL)
       ORDER BY by_username DESC
-      LIMIT 2`,
+      LIMIT 3`,
     [identifier]
   );
 }
@@ -4451,22 +4455,26 @@ export async function signInCandidates(identifier: string): Promise<
 /**
  * What the sign-in lookup may know about an identifier (1.16.0): flags only,
  * never the account's name or anything shown back. The username match comes
- * first; an email match counts only when exactly one account has it.
+ * first; an email match counts only when exactly one account has it. A row
+ * counts only when it equals the identifier under JS toLowerCase() too, as on
+ * the password step (lib/auth resolveSignInAccount).
  */
 export async function signInAccountFlags(
   identifier: string
 ): Promise<{ auth_provider: string; has_password: boolean } | null> {
-  const rows = await q<{ by_username: boolean; auth_provider: string; has_password: boolean }>(
-    `SELECT lower(username) = lower($1) AS by_username, auth_provider, password_hash IS NOT NULL AS has_password
+  const rows = await q<{ username: string; email: string | null; auth_provider: string; has_password: boolean }>(
+    `SELECT username, email, auth_provider, password_hash IS NOT NULL AS has_password
        FROM users
       WHERE lower(username) = lower($1) OR (position('@' in $1) > 0 AND lower(email) = lower($1))
-      ORDER BY by_username DESC
+      ORDER BY lower(username) = lower($1) DESC
       LIMIT 3`,
     [identifier]
   );
-  const byName = rows.find((r) => r.by_username);
-  if (byName) return { auth_provider: byName.auth_provider, has_password: byName.has_password };
-  return rows.length === 1 ? { auth_provider: rows[0].auth_provider, has_password: rows[0].has_password } : null;
+  const key = identifier.toLowerCase();
+  const byName = (r: (typeof rows)[number]) => r.username.toLowerCase() === key;
+  const hits = rows.filter((r) => byName(r) || (key.includes("@") && (r.email || "").toLowerCase() === key));
+  const hit = hits.find(byName) ?? (hits.length === 1 ? hits[0] : undefined);
+  return hit ? { auth_provider: hit.auth_provider, has_password: hit.has_password } : null;
 }
 
 /** The oldest account with that email. SSO linking uses getUserByEmailForLink. */
@@ -4509,6 +4517,22 @@ export async function linkSsoIdentity(
     externalId,
     userId,
   ]);
+}
+
+/**
+ * An SSO sign-in to an account already linked to that identity, whose
+ * provider asserts the account's own email in any case (1.16.0): the
+ * provider vouches for it, so it is no longer self-set. True when the mark
+ * was cleared.
+ */
+export async function confirmEmailBySso(userId: number, email: string): Promise<boolean> {
+  const rows = await q(
+    `UPDATE users SET email_self_set = 0
+      WHERE id = $1 AND email_self_set = 1 AND email <> '' AND lower(email) = lower($2)
+      RETURNING id`,
+    [userId, email]
+  );
+  return rows.length > 0;
 }
 
 /** Provision a user from an SSO assertion — no password, so no local login. */
@@ -4634,6 +4658,18 @@ export async function scimUpdateUser(
   return getUserById(id);
 }
 
+/**
+ * Thrown by createUser, before anything is written, when the email is
+ * another account's email or username (1.16.0, the rule setUserProfile and
+ * setUserEmailByAdmin follow). Routes answer 409 with the message as is.
+ */
+export class EmailInUseError extends Error {
+  constructor() {
+    super("That email address is already used by another account.");
+    this.name = "EmailInUseError";
+  }
+}
+
 export async function createUser(input: {
   username: string;
   name: string;
@@ -4643,9 +4679,14 @@ export async function createUser(input: {
   passwordSalt: string;
   mustChange?: boolean;
 }): Promise<User> {
+  // The check and the insert are one statement, as in setUserEmailByAdmin.
   const r = await q<{ id: number }>(
     `INSERT INTO users (username, email, name, password_hash, password_salt, role, must_change_password)
-     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+     SELECT $1::text, $2::text, $3::text, $4::text, $5::text, $6::text, $7::int
+      WHERE $2::text = '' OR NOT EXISTS (
+              SELECT 1 FROM users o
+               WHERE lower(o.email) = lower($2::text) OR lower(o.username) = lower($2::text))
+     RETURNING id`,
     [
       input.username,
       input.email,
@@ -4656,6 +4697,7 @@ export async function createUser(input: {
       input.mustChange ? 1 : 0,
     ]
   );
+  if (!r[0]) throw new EmailInUseError();
   // New members inherit any auto-assign training decks (best effort —
   // a failure here must never block account creation), and a row for every
   // policy whose audience admits them, with one welcome notice (D1).
@@ -5388,6 +5430,8 @@ export async function listPublicSpaces(): Promise<(Space & { doc_count: number }
 /**
  * Link unlinked users to directory entries — by SSO external id first, then
  * by email. Returns how many links were created. Idempotent; never relinks.
+ * The email must be one its owner did not set and no other account has
+ * (1.16.0), the rule SSO linking and group sync follow.
  */
 export async function autoLinkUsersToDirectory(): Promise<number> {
   const res = await pool().query(
@@ -5396,7 +5440,8 @@ export async function autoLinkUsersToDirectory(): Promise<number> {
      WHERE u.directory_person_id IS NULL AND p.hidden = 0
        AND (
          (u.external_id IS NOT NULL AND u.external_id <> '' AND u.external_id = p.external_id)
-         OR (u.email <> '' AND lower(u.email) = lower(p.email))
+         OR (u.email <> '' AND u.email_self_set = 0 AND lower(u.email) = lower(p.email)
+             AND NOT EXISTS (SELECT 1 FROM users o WHERE o.id <> u.id AND lower(o.email) = lower(u.email)))
        )`
   );
   return res.rowCount ?? 0;
@@ -14561,9 +14606,10 @@ export async function saveSiteIcon(host: string, stored: string, mime: string): 
 
 /**
  * Map Entra member identities to local user ids (SSO id first, then email).
- * The email match skips an email its owner set (1.16.0) and counts only when
- * one account has it, so typing a colleague's email never pulls in their
- * groups.
+ * The email match ignores emails their owners set (1.16.0) and counts only
+ * when exactly one of the remaining accounts has it: typing a colleague's
+ * email never pulls in their groups, and never pushes the colleague out.
+ * (SSO linking is stricter: any second account with the email refuses.)
  */
 export async function matchUsersByIdentity(
   members: { externalId?: string | null; email?: string | null }[]

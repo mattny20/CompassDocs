@@ -26,7 +26,14 @@ export async function saveUpload(buf: Buffer, ext: string): Promise<string> {
   const dir = uploadDir();
   await mkdir(dir, { recursive: true });
   const name = randomBytes(16).toString("hex") + (ext || "");
-  await writeFile(join(dir, name), buf);
+  const path = join(dir, name);
+  try {
+    await writeFile(path, buf);
+  } catch (e) {
+    // A write cut short (a full volume) is removed: no caller learns its name.
+    await unlink(path).catch(() => {});
+    throw e;
+  }
   return name;
 }
 

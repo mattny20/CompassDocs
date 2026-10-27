@@ -230,13 +230,23 @@ type SignInRecord = Awaited<ReturnType<typeof signInCandidates>>[number];
  * username first, of any status, else the one active account with a password
  * whose email it is. Undefined when neither (or the email is ambiguous). One
  * query for every outcome (db signInCandidates).
+ *
+ * A row counts only when it equals the identifier under JS toLowerCase(), the
+ * folding the sign-in throttle keys on (lib/login-guard): Postgres lower() in
+ * a UTF-8 database also folds "İ" to "i", so "alİce" would sign in as "alice"
+ * with five attempts of its own.
  */
 export async function resolveSignInAccount(identifier: string): Promise<SignInRecord | undefined> {
   const id = identifier.trim();
   if (!id || id.length > IDENTIFIER_MAX) return undefined;
-  const rows = await signInCandidates(id);
-  if (rows[0]?.by_username) return rows[0];
-  return rows.length === 1 ? rows[0] : undefined;
+  const key = id.toLowerCase();
+  const byName = (r: SignInRecord) => r.username.toLowerCase() === key;
+  const rows = (await signInCandidates(id)).filter(
+    (r) =>
+      byName(r) ||
+      (key.includes("@") && r.status === "active" && !!r.password_hash && (r.email || "").toLowerCase() === key)
+  );
+  return rows.find(byName) ?? (rows.length === 1 ? rows[0] : undefined);
 }
 
 /**

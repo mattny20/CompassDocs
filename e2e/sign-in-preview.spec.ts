@@ -5,7 +5,9 @@ import { ADMIN, login } from "./helpers";
 // preview (/login/preview?flow=identify). The community build has no single
 // sign-on, so /login itself only ever shows the combined form; the preview
 // runs the real SignInFlow against the scripted demo transport
-// (lib/sign-in-demo), which is how CI exercises the other steps:
+// (lib/sign-in-demo), which is how CI exercises the other steps. A workspace
+// with SSO previews its own providers; this one has none, so the preview
+// answers with the demo pair (Microsoft and SAML):
 //   name@sso.example   → one provider: "Redirecting to Microsoft"
 //   name@both.example  → a choice of two
 //   anything else      → the password step
@@ -88,7 +90,12 @@ test("the preview opens on the email-first step and says nothing is sent", async
   const { ctx, page, sent } = await openPreview(browser);
   try {
     await expect(heading(page)).toHaveText("Sign in");
-    await expect(page.getByText(/^Preview\. Nothing you type here is sent anywhere\./)).toBeVisible();
+    const notice = page.getByText(/^Preview\. Nothing you type here is sent anywhere\./);
+    await expect(notice).toBeVisible();
+    // The demo pair has a choice step, so the notice offers it; without SSO
+    // only, nothing says where the field continues to.
+    await expect(notice).toContainText("Try name@sso.example for single sign-on, name@both.example for a choice, or the password 2fa");
+    await expect(page.getByText(/^You'll continue to/)).toHaveCount(0);
     await expect(identifier(page)).toHaveCount(1);
     await expect(page.getByLabel("Email or username")).toBeFocused();
     // No password field on the first step, and the escape to it is there.
