@@ -8,9 +8,10 @@
 // An unknown identifier and a password account get byte-identical answers;
 // nothing about the account (name, status, whether it exists) is returned.
 // `start` is a same-origin path built here, so the client never assembles a
-// URL from what was typed. POST only and JSON only, so the identifier never
-// lands in a URL, a log or a Referer, and a cross-site form cannot spend the
-// limit. lib/sign-in-routing holds the rules.
+// URL from what was typed. POST only and JSON only: the lookup carries the
+// identifier only in its body, and a cross-site form cannot spend the limit.
+// The `start` path it returns may carry an email as `login_hint` (OIDC only),
+// so the address that starts sign-in can. lib/sign-in-routing holds the rules.
 
 import { NextResponse } from "next/server";
 import { crossOriginRejection } from "@/lib/api-auth";

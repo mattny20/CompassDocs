@@ -15,6 +15,7 @@ export const dynamic = "force-dynamic";
 /** The body may carry the multipart envelope on top of the file itself. */
 const MAX_BODY = ART_MAX_BYTES + 512 * 1024;
 const TOO_BIG = "Artwork is limited to 15 MB.";
+const NO_LENGTH = "The request must state its size (a Content-Length header).";
 const NO_FILE = "Choose an image to upload.";
 const WRONG_TYPE = "Use a JPEG, PNG, WebP or GIF image.";
 
@@ -23,9 +24,12 @@ export async function POST(req: Request) {
   if (gate instanceof NextResponse) return gate;
 
   // req.formData() buffers the whole body, and nothing in front of the app
-  // caps it, so an oversized upload is refused before a byte is read.
-  const length = Number(req.headers.get("content-length") || 0);
-  if (length > MAX_BODY) return NextResponse.json({ error: TOO_BIG }, { status: 413 });
+  // caps it, so the declared length is the cap: Node reads no further than
+  // it. A body without one (chunked) is refused, as is one declared too big,
+  // before a byte is read. A browser's FormData upload always declares it.
+  const declared = req.headers.get("content-length");
+  if (declared === null || !/^\d+$/.test(declared)) return NextResponse.json({ error: NO_LENGTH }, { status: 411 });
+  if (Number(declared) > MAX_BODY) return NextResponse.json({ error: TOO_BIG }, { status: 413 });
   if (!(req.headers.get("content-type") || "").includes("multipart/form-data")) {
     return NextResponse.json({ error: NO_FILE }, { status: 400 });
   }

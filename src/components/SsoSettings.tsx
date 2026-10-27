@@ -279,7 +279,8 @@ export function SsoSettings({ initial }: { initial: SsoState }) {
           />
           {s.sso_only && (
             <p className="text-xs ink-warn">
-              Break-glass: an administrator with a password can still sign in at{" "}
+              Break-glass: SSO only hides the password form; it doesn&apos;t remove passwords. Anyone with a
+              password, administrators included, can still sign in at{" "}
               <code className="font-mono">/login?local=1</code>. Bookmark it before you turn this on.
             </p>
           )}

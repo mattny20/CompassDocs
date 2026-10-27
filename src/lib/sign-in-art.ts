@@ -12,7 +12,7 @@ import "server-only";
 // picture at once while the real one loads.
 
 import sharp from "sharp";
-import { getSetting, setSetting } from "./db";
+import { getSetting, setSetting, withAdvisoryLock } from "./db";
 import { deleteUpload, saveUpload, sniffImage, uploadExists } from "./uploads";
 import { SIGN_IN_TEXT_DEFAULTS, asFocus, asSide, type SignInText } from "./sign-in-text";
 
@@ -24,6 +24,11 @@ export type ArtWidth = (typeof ART_WIDTHS)[number];
 export const ART_MAX_BYTES = 15 * 1024 * 1024;
 /** The smallest artwork accepted, after the camera's rotation is applied. */
 export const ART_MIN = { width: 1280, height: 720 } as const;
+/** The largest, read from the header before anything is decoded (a 102 MP camera fits). */
+export const ART_MAX_PIXELS = 100_000_000;
+
+/** Store and remove take turns under this lock (lib/db withAdvisoryLock). */
+const LOCK = "sign_in_art";
 
 const KEY = {
   files: "sign_in_art_files",
@@ -74,6 +79,18 @@ function artUrl(width: ArtWidth, version: string): string {
   return `/api/brand/artwork?w=${width}&v=${version}`;
 }
 
+function artOf(version: string, color: string, placeholder: string, width: number, height: number): SignInArt {
+  return {
+    width,
+    height,
+    version,
+    color,
+    placeholder,
+    src: artUrl(1600, version),
+    srcSet: ART_WIDTHS.map((w) => `${artUrl(w, version)} ${w}w`).join(", "),
+  };
+}
+
 /** The stored artwork, or null when none is set (or its files are gone, as after a database-only restore). */
 export async function getSignInArt(): Promise<SignInArt | null> {
   const [files, version, color, placeholder, size] = await Promise.all([
@@ -87,15 +104,13 @@ export async function getSignInArt(): Promise<SignInArt | null> {
   if (!map || !version) return null;
   if (!(await uploadExists(map[1600]))) return null;
   const [w, h] = (size ?? "").split("x").map(Number);
-  return {
-    width: Number.isFinite(w) && w > 0 ? w : 0,
-    height: Number.isFinite(h) && h > 0 ? h : 0,
+  return artOf(
     version,
-    color: /^#[0-9a-f]{6}$/.test(color ?? "") ? color! : "#334155",
-    placeholder: (placeholder ?? "").startsWith("data:image/webp;base64,") ? placeholder! : "",
-    src: artUrl(1600, version),
-    srcSet: ART_WIDTHS.map((w) => `${artUrl(w, version)} ${w}w`).join(", "),
-  };
+    /^#[0-9a-f]{6}$/.test(color ?? "") ? color! : "#334155",
+    (placeholder ?? "").startsWith("data:image/webp;base64,") ? placeholder! : "",
+    Number.isFinite(w) && w > 0 ? w : 0,
+    Number.isFinite(h) && h > 0 ? h : 0
+  );
 }
 
 function parseFiles(raw: string | undefined): Record<ArtWidth, string> | null {
@@ -125,12 +140,18 @@ export async function storeSignInArt(input: Buffer): Promise<SignInArt> {
   let width = 0;
   let height = 0;
   try {
-    const base = sharp(input, { failOn: "none", animated: false }).rotate();
+    // "truncated" refuses a part-written JPEG, PNG or GIF, which "none" would
+    // fill with grey; a camera's harmless libjpeg warnings still pass.
+    const base = sharp(input, { failOn: "truncated", animated: false }).rotate();
     const meta = await base.metadata();
     // The size as shown: a phone photo stored sideways is rotated by EXIF.
     const shown = meta.autoOrient ?? { width: meta.width ?? 0, height: meta.height ?? 0 };
     width = shown.width;
     height = shown.height;
+    // From the header alone: a small file can declare a huge picture.
+    if (width * height > ART_MAX_PIXELS) {
+      throw new ArtworkError(`That image is ${width} × ${height} pixels. Use one with no more than 100 megapixels.`);
+    }
     if (width < ART_MIN.width || height < ART_MIN.height) {
       throw new ArtworkError(
         `That image is ${width} × ${height} pixels. Use one at least ${ART_MIN.width} pixels wide and ${ART_MIN.height} pixels tall.`
@@ -140,30 +161,57 @@ export async function storeSignInArt(input: Buffer): Promise<SignInArt> {
       ART_WIDTHS.map((w) => base.clone().resize({ width: w, withoutEnlargement: true }).webp({ quality: 80 }).toBuffer())
     );
     placeholder = await base.clone().resize({ width: 20 }).blur(1).webp({ quality: 40 }).toBuffer();
-    const { channels } = await base.clone().resize({ width: 32 }).stats();
+    // stats() measures the decoded input whatever the pipeline says, so it
+    // reads a small 8-bit sRGB copy: 16-bit, CMYK and grey+alpha come out right.
+    const small = await base.clone().resize({ width: 32 }).toColourspace("srgb").removeAlpha().png().toBuffer();
+    const { channels } = await sharp(small).stats();
     const hex = (n: number) => Math.round(Math.max(0, Math.min(255, n))).toString(16).padStart(2, "0");
-    color = `#${hex(channels[0].mean)}${hex(channels[1]?.mean ?? channels[0].mean)}${hex(channels[2]?.mean ?? channels[0].mean)}`;
+    color = `#${hex(channels[0].mean)}${hex(channels[1].mean)}${hex(channels[2].mean)}`;
   } catch (e) {
     if (e instanceof ArtworkError) throw e;
     throw new ArtworkError("That image could not be read. Try saving it as a JPEG or PNG.");
   }
   const names = await Promise.all(encoded.map((b) => saveUpload(b, ".webp")));
-  const files = Object.fromEntries(ART_WIDTHS.map((w, i) => [w, names[i]])) as Record<ArtWidth, string>;
-  const before = parseFiles(await getSetting(KEY.files));
   const version = names[1].slice(0, 12);
-  await setSetting(KEY.files, JSON.stringify(files));
-  await setSetting(KEY.version, version);
-  await setSetting(KEY.color, color);
-  await setSetting(KEY.placeholder, `data:image/webp;base64,${placeholder.toString("base64")}`);
-  await setSetting(KEY.size, `${width}x${height}`);
-  if (before) await Promise.all(Object.values(before).map((n) => deleteUpload(n)));
-  return (await getSignInArt())!;
+  const dataUrl = `data:image/webp;base64,${placeholder.toString("base64")}`;
+  try {
+    await replaceArt({
+      files: JSON.stringify(Object.fromEntries(ART_WIDTHS.map((w, i) => [w, names[i]]))),
+      version,
+      color,
+      placeholder: dataUrl,
+      size: `${width}x${height}`,
+    });
+  } catch (e) {
+    await Promise.all(names.map((n) => deleteUpload(n)));
+    throw e;
+  }
+  return artOf(version, color, dataUrl, width, height);
 }
 
 /** Remove the artwork: the page goes back to the accent default. */
 export async function removeSignInArt(): Promise<void> {
-  const before = parseFiles(await getSetting(KEY.files));
-  await Promise.all(Object.values(KEY).map((k) => setSetting(k, "")));
+  await replaceArt({ files: "", version: "", color: "", placeholder: "", size: "" });
+}
+
+/**
+ * Write all five keys in one statement under the lock, then delete the files
+ * they named before. Store and remove take turns, so each reads the files the
+ * last one wrote: every replaced set is deleted once and none is orphaned.
+ */
+async function replaceArt(value: Record<keyof typeof KEY, string>): Promise<void> {
+  const keys = Object.keys(KEY) as (keyof typeof KEY)[];
+  const before = await withAdvisoryLock(LOCK, async (client) => {
+    // Inside the lock every query goes through its client, never the pool.
+    const r = await client.query<{ value: string }>("SELECT value FROM settings WHERE key = $1", [KEY.files]);
+    await client.query(
+      `INSERT INTO settings (key, value) SELECT * FROM unnest($1::text[], $2::text[])
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      [keys.map((k) => KEY[k]), keys.map((k) => value[k])]
+    );
+    return parseFiles(r.rows[0]?.value);
+  });
+  // Only after the commit: a rolled-back write leaves these named.
   if (before) await Promise.all(Object.values(before).map((n) => deleteUpload(n)));
 }
 

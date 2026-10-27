@@ -3,8 +3,7 @@ import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { loginHref } from "./return-to";
 import {
-  getUserByUsername,
-  passwordAccountUsernameByEmail,
+  signInCandidates,
   getSessionUser,
   createSession,
   deleteSession,
@@ -224,29 +223,20 @@ export async function reachableSettingsSections(user: SessionUser): Promise<stri
 /** The longest identifier the sign-in accepts: an email address's maximum. */
 export const IDENTIFIER_MAX = 254;
 
-type SignInRecord = NonNullable<Awaited<ReturnType<typeof getUserByUsername>>>;
+type SignInRecord = Awaited<ReturnType<typeof signInCandidates>>[number];
 
 /**
  * The account an identifier names on the password step (1.16.0): the
- * username first, else the one active account with a password whose email
- * it is. Undefined when neither (or the email is ambiguous).
+ * username first, of any status, else the one active account with a password
+ * whose email it is. Undefined when neither (or the email is ambiguous). One
+ * query for every outcome (db signInCandidates).
  */
 export async function resolveSignInAccount(identifier: string): Promise<SignInRecord | undefined> {
   const id = identifier.trim();
   if (!id || id.length > IDENTIFIER_MAX) return undefined;
-  const byName = await getUserByUsername(id);
-  if (byName || !id.includes("@")) return byName;
-  const username = await passwordAccountUsernameByEmail(id);
-  return username ? getUserByUsername(username) : undefined;
-}
-
-/**
- * The key the sign-in throttle counts against: the account's own username
- * when the identifier names one, so its email and its username share one
- * budget of five, and the typed identifier otherwise.
- */
-export function signInThrottleKey(identifier: string, record: SignInRecord | undefined): string {
-  return record ? record.username : identifier.trim();
+  const rows = await signInCandidates(id);
+  if (rows[0]?.by_username) return rows[0];
+  return rows.length === 1 ? rows[0] : undefined;
 }
 
 /**
@@ -254,18 +244,17 @@ export function signInThrottleKey(identifier: string, record: SignInRecord | und
  * null on failure (bad password/code, unknown user, or disabled account), or
  * a totp_required marker when the password checked out but the account has
  * two-factor auth and no (valid) code was supplied yet. `username` may be an
- * email (resolveSignInAccount); pass `resolved` when the caller has already
- * looked the account up. Every failure before the password check spends the
- * same scrypt as a real one, so timing says nothing about the account.
+ * email (resolveSignInAccount). Every failure before the password check
+ * spends the same scrypt as a real one, so timing says nothing about the
+ * account.
  */
 export async function login(
   username: string,
   password: string,
   totpCode?: string,
-  device?: { ip?: string | null; userAgent?: string | null },
-  resolved?: { record: SignInRecord | undefined }
+  device?: { ip?: string | null; userAgent?: string | null }
 ): Promise<{ token: string; user: User } | { totp_required: true } | null> {
-  const record = resolved ? resolved.record : await resolveSignInAccount(username);
+  const record = await resolveSignInAccount(username);
   if (!record || record.status !== "active" || !record.password_hash || !record.password_salt) {
     return verifyNothing(password) || null;
   }

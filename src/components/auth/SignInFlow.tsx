@@ -83,8 +83,8 @@ export function SignInFlow({
   const router = useRouter();
   const [signedInPreview, setSignedInPreview] = useState(false);
   const transport: SignInTransport = useMemo(
-    () => (demo ? demoTransport(() => setSignedInPreview(true)) : realTransport(router)),
-    [demo, router]
+    () => (demo ? demoTransport(() => setSignedInPreview(true), { ssoOnly }) : realTransport(router)),
+    [demo, ssoOnly, router]
   );
 
   const [hydrated, setHydrated] = useState(false);
@@ -103,7 +103,6 @@ export function SignInFlow({
   const [formError, setFormError] = useState("");
   const [limited, setLimited] = useState(false);
   const [ssoHint, setSsoHint] = useState(false);
-  const [banner, setBanner] = useState(ssoError ?? "");
   const [remembered, setRemembered] = useState<string | null>(null);
   const [isRemembered, setIsRemembered] = useState(false);
   const [announce, setAnnounce] = useState("");
@@ -121,6 +120,8 @@ export function SignInFlow({
   const focusNext = useRef<FocusTarget>(null);
   const [focusTick, setFocusTick] = useState(0);
   const hadSsoError = useRef(Boolean(ssoError));
+  // The ?sso_error sentence, for the life of the page; typing does not dismiss it (bannerShown picks the steps).
+  const banner = ssoError ?? "";
 
   const locked = step !== "start" && step !== "chosen";
   const twoFactor = step === "totp" || step === "recovery";
@@ -135,6 +136,14 @@ export function SignInFlow({
   const goFocus = (t: FocusTarget) => {
     focusNext.current = t;
     setFocusTick((n) => n + 1);
+  };
+  /** Abandon what is in flight; its reply, if one still arrives, is ignored. */
+  const cancelPending = () => {
+    clearTimers();
+    abort.current?.abort();
+    inFlight.current = false;
+    setBusy(null);
+    setLate(false);
   };
 
   // Hydration, the remembered identifier and the ?sso_error clean-up, once.
@@ -166,12 +175,13 @@ export function SignInFlow({
   useEffect(() => {
     const onShow = (e: PageTransitionEvent) => {
       if (!e.persisted) return;
-      clearTimers();
-      abort.current?.abort();
-      inFlight.current = false;
-      setBusy(null);
+      cancelPending();
       setSpin(false);
-      setLate(false);
+      setFormError("");
+      setCodeError("");
+      setPwError("");
+      setIdError("");
+      setSsoHint(false);
       setStep("start");
       goFocus("id");
     };
@@ -207,9 +217,10 @@ export function SignInFlow({
   const keep = useCallback((id: string) => {
     if (!demo && id) rememberIdentifier(id);
   }, [demo]);
+  // The locked identifier, or what is in the field while it is editable.
   const remember = useCallback(() => {
-    keep(identifier || normalizeIdentifier(idRef.current?.value ?? ""));
-  }, [identifier, keep]);
+    keep(locked ? identifier : normalizeIdentifier(idRef.current?.value ?? ""));
+  }, [identifier, keep, locked]);
   /** A provider link's click: remembered on a plain click; in the preview it goes nowhere. */
   const follow = useCallback(
     (e: React.MouseEvent) => {
@@ -284,7 +295,7 @@ export function SignInFlow({
       } else if (list.length === 1) {
         startProvider(list[0], id);
       } else {
-        keep(id);
+        // Remembered on a provider click (follow), not for showing the choice.
         setChosen(list);
         setStep("choose");
         goFocus("title");
@@ -337,10 +348,14 @@ export function SignInFlow({
     try {
       r = await transport.login({ username: id, password, ...(code ? { totp_code: code } : {}) }, ac.signal);
     } catch {
-      inFlight.current = false;
-      setBusy(null);
+      if (abort.current === ac) {
+        inFlight.current = false;
+        setBusy(null);
+      }
       return;
     }
+    // Back, the code switch, Change or a restore from the back-forward cache took over.
+    if (abort.current !== ac || ac.signal.aborted) return;
     if (r.kind === "ok") {
       keep(id);
       if (demo) {
@@ -394,15 +409,13 @@ export function SignInFlow({
 
   /** Back to the first step with the identifier kept and selected. */
   function change() {
-    clearTimers();
-    abort.current?.abort();
+    cancelPending();
     if (step === "redirect") window.stop();
-    inFlight.current = false;
-    setBusy(null);
-    setLate(false);
     setFormError("");
     setCodeError("");
     setPwError("");
+    setIdError("");
+    setSsoHint(false);
     if (pwRef.current) pwRef.current.value = "";
     if (idRef.current && identifier) idRef.current.value = identifier;
     setStep("start");
@@ -411,11 +424,7 @@ export function SignInFlow({
 
   /** "Use a password instead": from the first step the identifier stays editable; from a hand-off it stays locked. */
   function usePassword() {
-    clearTimers();
-    abort.current?.abort();
-    inFlight.current = false;
-    setBusy(null);
-    setLate(false);
+    cancelPending();
     setFormError("");
     if (step === "redirect" || step === "continue" || step === "choose") {
       if (step === "redirect") window.stop();
@@ -432,6 +441,7 @@ export function SignInFlow({
   }
 
   function back() {
+    cancelPending();
     setFormError("");
     setCodeError("");
     setStep(pwStep);
@@ -532,6 +542,7 @@ export function SignInFlow({
         type="button"
         className="link text-sm font-medium"
         onClick={() => {
+          cancelPending();
           setCodeError("");
           setFormError("");
           setStep(step === "totp" ? "recovery" : "totp");
@@ -548,15 +559,16 @@ export function SignInFlow({
   }
 
   const helpText = help?.text || (passwordStep ? DEFAULT_HELP : "");
+  const helpExternal = /^https:/i.test(help?.url ?? "");
   const helpLine = help?.url ? (
     <p className="mt-10 text-xs text-slate-500">
       <a
         className="link inline-flex items-center gap-1"
         href={help.url}
-        {...(help.url.startsWith("https:") ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+        {...(helpExternal ? { target: "_blank", rel: "noopener noreferrer" } : {})}
       >
         {help.text || "Get help signing in"}
-        {help.url.startsWith("https:") && <ExternalLink className="h-3 w-3" aria-hidden />}
+        {helpExternal && <ExternalLink className="h-3 w-3" aria-hidden />}
       </a>
     </p>
   ) : helpText ? (
@@ -612,7 +624,6 @@ export function SignInFlow({
             onInput={(e) => {
               setIsRemembered(Boolean(remembered) && e.currentTarget.value === remembered);
               if (idError) setIdError("");
-              if (banner) setBanner("");
             }}
             className="h-10 text-base sm:text-sm"
           />
@@ -740,7 +751,7 @@ export function SignInFlow({
           </button>
         )}
 
-        {ssoHint && passwordStep && (
+        {ssoHint && passwordStep && showOtherWays && (
           <p className="text-xs text-slate-500">If your organization uses single sign-on, open Other ways to sign in below.</p>
         )}
       </form>

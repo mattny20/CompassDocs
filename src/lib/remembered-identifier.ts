@@ -6,6 +6,8 @@
 
 const KEY = "compass-sign-in-identifier";
 const MAX_AGE_MS = 180 * 24 * 60 * 60 * 1000;
+// A clock a little ahead when it was written is tolerated; a future-dated entry would never expire.
+const SKEW_MS = 24 * 60 * 60 * 1000;
 
 function valid(id: unknown): id is string {
   // eslint-disable-next-line no-control-regex
@@ -17,7 +19,8 @@ export function readRememberedIdentifier(now = Date.now()): string | null {
     const raw = window.localStorage.getItem(KEY);
     if (!raw) return null;
     const v = JSON.parse(raw) as { id?: unknown; at?: unknown };
-    if (!valid(v?.id) || typeof v.at !== "number" || now - v.at > MAX_AGE_MS) {
+    const at = v?.at;
+    if (!valid(v?.id) || typeof at !== "number" || !Number.isFinite(at) || now - at > MAX_AGE_MS || at - now > SKEW_MS) {
       window.localStorage.removeItem(KEY);
       return null;
     }

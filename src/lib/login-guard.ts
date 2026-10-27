@@ -6,7 +6,9 @@ import "server-only";
 //
 // Policy:
 //  - 5 failures for the same username+IP within the window → that pair is
-//    locked for 15 minutes.
+//    locked for 15 minutes. The sign-in route passes the identifier as
+//    typed, an email included (1.16.0), never the account it resolves to,
+//    so a lock says nothing about which account an email belongs to.
 //  - 30 failures from one IP across any usernames → the IP is locked for
 //    15 minutes (catches sprays across many accounts).
 //  - Any successful login clears the username+IP pair.

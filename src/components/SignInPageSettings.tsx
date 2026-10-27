@@ -250,13 +250,14 @@ export function SignInPageSettings({
 
   return (
     <>
-      {/* A leaf container: no overlay lives under it (confirmDialog portals to <body>). */}
+      {/* A leaf container: no overlay lives under it (confirmDialog portals to <body>).
+          @3xl (48rem): the Wide column (53rem) puts the preview beside the fields. */}
       <div className="@container">
-        <div className="grid gap-6 @5xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] @5xl:items-start">
-          <div className="@5xl:sticky @5xl:top-6 @5xl:col-start-2 @5xl:row-start-1">
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-6 @3xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] @3xl:items-start">
+          <div className="@3xl:sticky @3xl:top-6 @3xl:col-start-2 @3xl:row-start-1">
             <PreviewCard s={s} art={art} />
           </div>
-          <div className="space-y-6 @5xl:col-start-1 @5xl:row-start-1">
+          <div className="space-y-6 @3xl:col-start-1 @3xl:row-start-1">
             <Card
               id="artwork"
               className="scroll-mt-6"
@@ -326,7 +327,7 @@ export function SignInPageSettings({
                   </p>
                 </div>
                 <p className="text-xs text-slate-500">
-                  JPEG, PNG, WebP or GIF, up to 15 MB, at least 1280 × 720 pixels. 2560 pixels or wider looks sharpest.
+                  JPEG, PNG, WebP or GIF, up to 15 MB, at least 1280 × 720 pixels and at most 100 megapixels. 2560 pixels or wider looks sharpest.
                   We make smaller copies for phones, keep only the first frame of an animation, and remove location and
                   camera data.
                 </p>
@@ -545,6 +546,7 @@ function PreviewCard({ s, art }: { s: SignInText; art: SignInArtInfo | null }) {
           label="Preview size"
           value={preset}
           onChange={setPreset}
+          className="flex-wrap"
           options={[
             { value: "laptop", label: "Laptop", icon: Laptop },
             { value: "ultrawide", label: "Ultrawide", icon: Monitor },
@@ -556,6 +558,7 @@ function PreviewCard({ s, art }: { s: SignInText; art: SignInArtInfo | null }) {
           label="Preview theme"
           value={theme}
           onChange={setTheme}
+          className="flex-wrap"
           options={[
             { value: "light", label: "Light", icon: Sun },
             { value: "dark", label: "Dark", icon: Moon },

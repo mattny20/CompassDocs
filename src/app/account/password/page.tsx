@@ -32,7 +32,7 @@ export default async function ChangePasswordPage({
 
   return (
     <AuthShell look={look} company={settings.company_name} logoUrl={settings.logo_url || undefined}>
-      <AuthHeading title="Set a new password" subtitle="Choose a new password to continue." />
+      <AuthHeading title="Set a new password" subtitle={`Choose a new password to continue to ${settings.company_name}.`} />
       <ChangePasswordForm forced next={next} account={user.username} />
     </AuthShell>
   );

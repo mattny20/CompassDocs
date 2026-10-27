@@ -57,8 +57,45 @@ describe("How people sign in", () => {
     assert.ok(sum({}, null).warnings.includes("no_domains"));
   });
 
-  test("SSO only gives the break-glass address", () => {
+  test("one provider: its domains, then its accounts, then everyone else", () => {
+    assert.deepEqual(sum({ allowedDomains: ["acme.com"] }, null).sentences, [
+      "People enter their email or username first.",
+      "Emails at acme.com go straight to Microsoft.",
+      "Accounts that already sign in with single sign-on go straight to Microsoft.",
+      "Everyone else is asked for a password.",
+    ]);
+  });
+
+  test("a domain both providers list is a choice, not two straight routes", () => {
+    const both = sum({ allowedDomains: ["acme.com"] }, { allowedDomains: ["acme.com"] });
+    assert.equal(both.sentences[1], "Emails at acme.com choose between Microsoft and SAML single sign-on.");
+    assert.doesNotMatch(both.sentences.join(" "), /acme\.com go straight to/);
+
+    const partial = sum({ allowedDomains: ["acme.com", "beta.com"] }, { allowedDomains: ["acme.com"] });
+    assert.equal(
+      partial.sentences[1],
+      "Emails at beta.com go straight to Microsoft, and emails at acme.com choose between Microsoft and SAML single sign-on."
+    );
+  });
+
+  test("with two providers, SSO accounts go to their own, whichever lists domains", () => {
+    const mixed = sum({ allowedDomains: ["acme.com"] }, {});
+    assert.deepEqual(mixed.sentences, [
+      "People enter their email or username first.",
+      "Emails at acme.com go straight to Microsoft.",
+      "Accounts that already sign in with Microsoft or SAML single sign-on go straight to that provider.",
+      "Everyone else is asked for a password.",
+    ]);
+    assert.ok(!mixed.warnings.includes("no_domains"));
+  });
+
+  test("SSO only gives the break-glass address, for anyone with a password", () => {
     const s = sum({ ssoOnly: true }, null);
     assert.equal(s.localUrl, `${ORIGIN}/login?local=1`);
+    // SSO only removes no password (docs admin/sso.md), so the sentence names no role.
+    assert.deepEqual(s.sentences, [
+      "Everyone continues to Microsoft.",
+      `Anyone with a password, administrators included, can still sign in at ${ORIGIN}/login?local=1.`,
+    ]);
   });
 });

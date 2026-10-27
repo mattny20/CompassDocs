@@ -65,25 +65,33 @@ export function summarizeRouting(setup: SignInSetup, opts: { oidcStuck: boolean;
     const where = names.length === 1 ? names[0] : `${list(names, "disjunction")}, whichever they pick`;
     return {
       sentences: [
+        // SSO only shapes the page; the server still takes any password (docs admin/sso.md).
         `Everyone continues to ${where}.`,
-        `Administrators with a password can still sign in at ${localUrl}.`,
+        `Anyone with a password, administrators included, can still sign in at ${localUrl}.`,
       ],
       warnings,
       localUrl,
     };
   }
 
-  const claimed = providers.filter((p) => p.domains.length > 0);
-  const sentences = ["People enter their email or username first."];
-  if (claimed.length > 0) {
-    const routes = claimed.map((p) => `emails at ${domainList(p.domains)} go straight to ${providerName(p)}`);
-    sentences.push(`${capitalise(routes.join(", and "))}; accounts that already sign in with single sign-on do too.`);
-  } else {
-    sentences.push(
-      `Accounts that already sign in with single sign-on go straight to ${list(providers.map(providerName), "disjunction")}.`
-    );
-    warnings.push("no_domains");
+  // A domain both lists claim is a choice of the two (sign-in-routing rule 3).
+  const shared = setup.oidc && setup.saml ? setup.oidc.domains.filter((d) => setup.saml!.domains.includes(d)) : [];
+  const routes = providers
+    .map((p) => ({ p, own: p.domains.filter((d) => !shared.includes(d)) }))
+    .filter((r) => r.own.length > 0)
+    .map((r) => `emails at ${domainList(r.own)} go straight to ${providerName(r.p)}`);
+  if (shared.length > 0) {
+    routes.push(`emails at ${domainList(shared)} choose between ${list(providers.map(providerName), "conjunction")}`);
   }
+  const sentences = ["People enter their email or username first."];
+  if (routes.length > 0) sentences.push(`${capitalise(routes.join(", and "))}.`);
+  else warnings.push("no_domains");
+  // Rule 4: an SSO account goes to its own provider, else to the one there is.
+  sentences.push(
+    providers.length === 1
+      ? `Accounts that already sign in with single sign-on go straight to ${providerName(providers[0])}.`
+      : `Accounts that already sign in with ${list(providers.map(providerName), "disjunction")} go straight to that provider.`
+  );
   sentences.push("Everyone else is asked for a password.");
   return { sentences, warnings, localUrl: null };
 }

@@ -1,9 +1,10 @@
 // The sign-in cover (1.16.0, STYLEGUIDE §Sign-in surfaces): the admin's
 // photo or the default art drawn from the accent, with the workspace name,
 // headline, tagline and caption over it. Brand and decoration only, never
-// a control (the Card/Stage rule): the form repeats the company name in its
-// subtitle. With the text switched off over a photo the cover is pure art
-// (aria-hidden) and the form column carries the lockup instead. Server-safe.
+// a control (the Card/Stage rule): the first and password steps name the
+// workspace in their subtitle, and print shows the column's lockup in place
+// of the cover. With the text switched off over a photo the cover is pure
+// art (aria-hidden) and the column shows the lockup on screen too. Server-safe.
 
 import type { CSSProperties } from "react";
 import { BrandTile } from "@/components/Brand";

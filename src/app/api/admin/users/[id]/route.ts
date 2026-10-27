@@ -9,6 +9,7 @@ import {
   deleteUserSessions,
   disableTotp,
   countUserAttestations,
+  setUserEmailByAdmin,
 } from "@/lib/db";
 import { countGlobalUserAdmins } from "@/lib/authz";
 import { hashPassword } from "@/lib/password";
@@ -18,6 +19,8 @@ import { ROLE_ORDER } from "@/lib/types";
 import type { Role, SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const gate = await apiGuard("admin", "user.update_role");
@@ -68,6 +71,32 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       ip: ipFrom(req),
     });
     return NextResponse.json({ ok: true });
+  }
+
+  // Email (1.16.0). An administrator's save vouches for the address, even
+  // an unchanged one: an email its owner set on their profile links to SSO
+  // and matches synced groups only once an administrator has saved it here.
+  if (typeof body?.email === "string") {
+    const email = body.email.trim();
+    if (email !== "" && (email.length > 200 || !EMAIL_RE.test(email))) {
+      return NextResponse.json({ error: "That email address doesn't look valid." }, { status: 400 });
+    }
+    if (!(await setUserEmailByAdmin(target.id, email))) {
+      return NextResponse.json({ error: "That email address is already used by another account." }, { status: 409 });
+    }
+    await audit({
+      actor: actorFrom(admin),
+      action: "user.email_change",
+      targetType: "user",
+      targetId: target.id,
+      targetLabel: target.username,
+      details: {
+        changed: email.toLowerCase() !== target.email.toLowerCase(),
+        was_self_set: (target as { email_self_set?: number }).email_self_set === 1,
+      },
+      ip: ipFrom(req),
+    });
+    return NextResponse.json({ user: await getUserById(target.id) });
   }
 
   const role = body?.role as Role | undefined;

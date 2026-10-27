@@ -1810,6 +1810,28 @@ const SCHEMA_SQL = `
         FOR EACH ROW EXECUTE FUNCTION compass_sync_ladder_assignment();
     END IF;
   END $$;
+
+  -- 1.16.0: who set the account's email. 1 when its owner typed it on their
+  -- profile (unverified), 0 when an administrator, SCIM or the identity
+  -- provider did. A self-set email never links an SSO identity or matches a
+  -- synced group member. Created once, after audit_log: every profile email
+  -- change the audit log recorded is backfilled as 1.
+  DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_attribute
+      WHERE attrelid = to_regclass('users') AND attname = 'email_self_set' AND attnum > 0 AND NOT attisdropped
+    ) THEN
+      ALTER TABLE users ADD COLUMN email_self_set integer NOT NULL DEFAULT 0;
+      UPDATE users u SET email_self_set = 1
+       WHERE u.email <> ''
+         AND EXISTS (SELECT 1 FROM audit_log a
+                      WHERE a.actor_id = u.id AND a.action = 'account.profile_updated'
+                        AND a.details->>'email_changed' = 'true');
+    END IF;
+  END $$;
+  -- The password step and the sign-in lookup match on these (1.16.0).
+  CREATE INDEX IF NOT EXISTS idx_users_username_lower ON users(lower(username));
+  CREATE INDEX IF NOT EXISTS idx_users_email_lower ON users(lower(email));
 `;
 
 /**
@@ -3357,16 +3379,28 @@ export async function setUserPrefs(
   await q(`UPDATE users SET ${sets.join(", ")} WHERE id = $${vals.length}`, vals);
 }
 
-/** Self-service profile edit (local accounts): display name and email. */
+/**
+ * Self-service profile edit (local accounts): display name and email. False,
+ * and nothing saved, when a new email is another account's email or username
+ * (1.16.0: an email signs in, so it must name one account). A new email is
+ * marked self-set; clearing it clears the mark; an unchanged one (case
+ * aside) keeps it.
+ */
 export async function setUserProfile(
   userId: number,
   profile: { name: string; email: string }
-): Promise<void> {
-  await q("UPDATE users SET name = $1, email = $2 WHERE id = $3", [
-    profile.name,
-    profile.email,
-    userId,
-  ]);
+): Promise<boolean> {
+  const rows = await q(
+    `UPDATE users SET name = $1, email = $2,
+            email_self_set = CASE WHEN $2 = '' THEN 0 WHEN lower($2) = lower(email) THEN email_self_set ELSE 1 END
+      WHERE id = $3
+        AND ($2 = '' OR lower($2) = lower(email) OR NOT EXISTS (
+              SELECT 1 FROM users o
+               WHERE o.id <> $3 AND (lower(o.email) = lower($2) OR lower(o.username) = lower($2))))
+      RETURNING id`,
+    [profile.name, profile.email, userId]
+  );
+  return rows.length > 0;
 }
 
 /** Avatar as a small data: URL; empty string removes it. */
@@ -4352,7 +4386,7 @@ export async function getAllSettings(): Promise<Record<string, string>> {
 const USER_COLUMNS = `id, username, email, name, role, status, auth_provider, external_id,
   must_change_password, totp_enabled, directory_person_id, email_notifications,
   notify_webhook_url, page_width, ui_scale, single_key_shortcuts, newsletter_role, theme, timezone, date_format,
-  avatar, notify_prefs, created_at, last_login_at`;
+  avatar, notify_prefs, email_self_set, created_at, last_login_at`;
 
 export async function getUserById(id: number): Promise<User | undefined> {
   return (await q<User>(`SELECT ${USER_COLUMNS} FROM users WHERE id = $1`, [id]))[0];
@@ -4389,19 +4423,29 @@ export async function getUserByExternalId(
 }
 
 /**
- * The username of the one active account with a password whose email is
- * `email` (1.16.0: the password step accepts an email). Null when none or
- * more than one match: an email is not unique, and an ambiguous one never
- * signs anybody in.
+ * The accounts the password step chooses from (1.16.0, lib/auth
+ * resolveSignInAccount), in one query whatever the outcome, so the time it
+ * takes says nothing about the account: the one whose username is
+ * `identifier` first, then, for an email, active accounts with a password
+ * that have it. Two rows are enough to tell one email match from many.
  */
-export async function passwordAccountUsernameByEmail(email: string): Promise<string | null> {
-  const rows = await q<{ username: string }>(
-    `SELECT username FROM users
-      WHERE lower(email) = lower($1) AND status = 'active' AND password_hash IS NOT NULL
+export async function signInCandidates(identifier: string): Promise<
+  (User & {
+    password_hash: string | null;
+    password_salt: string | null;
+    totp_secret: string | null;
+    by_username: boolean;
+  })[]
+> {
+  return q(
+    `SELECT *, lower(username) = lower($1) AS by_username
+       FROM users
+      WHERE lower(username) = lower($1)
+         OR (position('@' in $1) > 0 AND lower(email) = lower($1) AND status = 'active' AND password_hash IS NOT NULL)
+      ORDER BY by_username DESC
       LIMIT 2`,
-    [email]
+    [identifier]
   );
-  return rows.length === 1 ? rows[0].username : null;
 }
 
 /**
@@ -4416,6 +4460,7 @@ export async function signInAccountFlags(
     `SELECT lower(username) = lower($1) AS by_username, auth_provider, password_hash IS NOT NULL AS has_password
        FROM users
       WHERE lower(username) = lower($1) OR (position('@' in $1) > 0 AND lower(email) = lower($1))
+      ORDER BY by_username DESC
       LIMIT 3`,
     [identifier]
   );
@@ -4424,7 +4469,7 @@ export async function signInAccountFlags(
   return rows.length === 1 ? { auth_provider: rows[0].auth_provider, has_password: rows[0].has_password } : null;
 }
 
-/** Email match for linking an SSO identity to a pre-existing account. */
+/** The oldest account with that email. SSO linking uses getUserByEmailForLink. */
 export async function getUserByEmail(email: string): Promise<User | undefined> {
   return (
     await q<User>(
@@ -4432,6 +4477,22 @@ export async function getUserByEmail(email: string): Promise<User | undefined> {
       [email]
     )
   )[0];
+}
+
+/**
+ * Email match for linking an SSO identity to a pre-existing account (1.16.0):
+ * the account only when it is the one account with that email. `ambiguous`
+ * when more than one has it, which the caller refuses rather than picking
+ * one. The row carries email_self_set for the overlay's link guard.
+ */
+export async function getUserByEmailForLink(
+  email: string
+): Promise<{ user: User | undefined; ambiguous: boolean }> {
+  const rows = await q<User>(
+    `SELECT ${USER_COLUMNS} FROM users WHERE lower(email) = lower($1) LIMIT 2`,
+    [email]
+  );
+  return { user: rows.length === 1 ? rows[0] : undefined, ambiguous: rows.length > 1 };
 }
 
 /**
@@ -4551,8 +4612,11 @@ export async function scimUpdateUser(
 ): Promise<User | undefined> {
   const existing = await getUserById(id);
   if (!existing) return undefined;
+  // An email the directory sends is the directory's, not the owner's (1.16.0).
   await q(
-    `UPDATE users SET username = $1, name = $2, email = $3, status = $4, external_id = $5 WHERE id = $6`,
+    `UPDATE users SET username = $1, name = $2, email = $3, status = $4, external_id = $5,
+            email_self_set = CASE WHEN $7 THEN 0 ELSE email_self_set END
+      WHERE id = $6`,
     [
       fields.username ?? existing.username,
       fields.name ?? existing.name,
@@ -4560,6 +4624,7 @@ export async function scimUpdateUser(
       fields.status ?? existing.status,
       fields.externalId ?? existing.external_id,
       id,
+      fields.email !== undefined,
     ]
   );
   // A status flip closes or re-opens the person's policy rows (D1).
@@ -4616,6 +4681,25 @@ export async function updateUser(
     await reconcilePoliciesForUser(id).catch((e) => console.error("[ack] could not reconcile the account's policies:", e));
   }
   return getUserById(id);
+}
+
+/**
+ * An administrator sets an account's email (1.16.0). It is no longer
+ * self-set, even when the address is unchanged: re-saving it is how an
+ * administrator vouches for an address its owner typed. False, and nothing
+ * saved, when the address is another account's email or username.
+ */
+export async function setUserEmailByAdmin(id: number, email: string): Promise<boolean> {
+  const rows = await q(
+    `UPDATE users SET email = $1, email_self_set = 0
+      WHERE id = $2
+        AND ($1 = '' OR NOT EXISTS (
+              SELECT 1 FROM users o
+               WHERE o.id <> $2 AND (lower(o.email) = lower($1) OR lower(o.username) = lower($1))))
+      RETURNING id`,
+    [email, id]
+  );
+  return rows.length > 0;
 }
 
 export async function setUserPassword(
@@ -14475,7 +14559,12 @@ export async function saveSiteIcon(host: string, stored: string, mime: string): 
   );
 }
 
-/** Map Entra member identities to local user ids (SSO id first, then email). */
+/**
+ * Map Entra member identities to local user ids (SSO id first, then email).
+ * The email match skips an email its owner set (1.16.0) and counts only when
+ * one account has it, so typing a colleague's email never pulls in their
+ * groups.
+ */
 export async function matchUsersByIdentity(
   members: { externalId?: string | null; email?: string | null }[]
 ): Promise<number[]> {
@@ -14486,9 +14575,11 @@ export async function matchUsersByIdentity(
       hit = (await q<{ id: number }>("SELECT id FROM users WHERE external_id = $1", [m.externalId]))[0];
     }
     if (!hit && m.email) {
-      hit = (
-        await q<{ id: number }>("SELECT id FROM users WHERE lower(email) = lower($1) LIMIT 1", [m.email])
-      )[0];
+      const byEmail = await q<{ id: number }>(
+        "SELECT id FROM users WHERE lower(email) = lower($1) AND email_self_set = 0 LIMIT 2",
+        [m.email]
+      );
+      if (byEmail.length === 1) hit = byEmail[0];
     }
     if (hit) ids.add(hit.id);
   }

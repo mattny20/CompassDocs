@@ -119,6 +119,23 @@ describe("help links", () => {
       assert.equal(helpUrlProblem(url), BAD_URL, url);
     }
   });
+
+  test("https without its two slashes is refused: on an https page the href is a same-origin path", () => {
+    for (const url of ["https:help.acme.example", "https:/help.acme.example"]) {
+      assert.equal(new URL(url).hostname, "help.acme.example", `${url} parses with a host on its own`);
+      assert.equal(new URL(url, "https://docs.acme.example/login").hostname, "docs.acme.example", `${url} is a path in an href`);
+      assert.equal(helpUrlProblem(url), BAD_URL, url);
+    }
+    assert.equal(helpUrlProblem("https:\\\\help.acme.example"), BAD_URL);
+    assert.equal(parseSignInText({ help_url: "https:help.acme.example" }).fields.help_url, BAD_URL);
+  });
+
+  test("the scheme may be in any case", () => {
+    assert.equal(helpUrlProblem("HTTPS://help.acme.example"), null);
+    assert.equal(helpUrlProblem("Https://help.acme.example/sign-in"), null);
+    assert.equal(helpUrlProblem("MAILTO:it@acme.example"), null);
+    assert.equal(helpUrlProblem("HTTPS:help.acme.example"), BAD_URL);
+  });
 });
 
 describe("lenTier", () => {

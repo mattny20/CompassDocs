@@ -105,13 +105,14 @@ export function hintable(identifier: string): boolean {
 
 /**
  * The same-origin URL that starts a provider's sign-in, carrying the page the
- * visitor wanted and, for an email, a login hint (an overlay that predates
- * hints ignores it). Never an absolute IdP URL: the flow cookie must be set
- * by our own start route.
+ * visitor wanted and, for an email on OIDC, a login hint (an overlay that
+ * predates hints ignores it; the SAML start never reads one, so it gets
+ * none). Never an absolute IdP URL: the flow cookie must be set by our own
+ * start route.
  */
 export function providerStart(id: SignInProviderId, next: string, identifier?: string): string {
   const base = withReturnPath(id === "oidc" ? "/api/ee/sso/login" : "/api/ee/saml/login", next);
-  if (!identifier || !hintable(identifier)) return base;
+  if (id !== "oidc" || !identifier || !hintable(identifier)) return base;
   return `${base}${base.includes("?") ? "&" : "?"}${new URLSearchParams({ login_hint: identifier }).toString()}`;
 }
 

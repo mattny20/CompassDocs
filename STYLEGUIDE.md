@@ -551,9 +551,15 @@ focus):
   `tabIndex={-1}` and `loading="lazy"`; its address carries the form's
   unsaved values and follows them 400ms behind, dimmed with `busyClass`
   until it loads; only the chosen preset is mounted. Size and theme are
-  two `sm` `Segmented` controls, and **Open full-size preview** opens the
-  same page in a new tab. The previewed page must send nothing anywhere
-  (the sign-in preview runs on a demo transport), and the card says so.
+  two `sm` `Segmented` controls with `flex-wrap` (§Segmented controls),
+  and **Open full-size preview** opens the same page in a new tab. The
+  previewed page must send nothing anywhere (the sign-in preview runs on
+  a demo transport), and the card says so. The card sits beside the
+  fields it previews, sticky (`@3xl:sticky @3xl:top-6`), from a 48rem
+  container, so the default Wide column (53rem) keeps it in view while a
+  field is typed in; narrower, it stacks above them in a
+  `grid-cols-[minmax(0,1fr)]` track, so no card's content can widen the
+  column on a phone.
 
 ## Forms
 
@@ -762,12 +768,15 @@ mechanical and comes later.
 - **The Card/Stage rule.** Nothing operable or essential ever sits on the
   art. The cover holds the logo tile, the workspace name, the headline,
   tagline and caption, and decoration; every control, error, help line
-  and link is in the column. The company name is always also in the
-  form's subtitle ("to continue to Acme"), so the cover can be cropped,
-  hidden in print or switched off without losing anything. With text, the
-  cover is `<aside aria-label="About {Company}">`; when an admin turns the
-  text off over a photo it is a `div` with `aria-hidden`, and the column
-  starts with the lockup instead (`BrandTile` and the name, `mb-8`).
+  and link is in the column. The first and password steps, and the
+  forced password change, also name the workspace in the form's subtitle
+  ("to continue to Acme"); a step with a sentence of its own (the
+  break-glass, the choice of providers, two-factor) does not. The column
+  starts with the lockup (`BrandTile` and the name, `mb-8`) whenever the
+  cover does not carry the name: on screen when an admin turns the text
+  off over a photo, and always in print (`hidden print:flex`), which
+  hides the cover. With text, the cover is `<aside aria-label="About
+  {Company}">`; with the text off it is a `div` with `aria-hidden`.
 - **Default art** (no upload) is drawn from the accent and makes no
   request. Back to front: `.auth-art-mesh` (compass 600 → 800 → 900 at
   200°, plus two glows at the top right from 64rem, which fade out before
@@ -801,7 +810,7 @@ mechanical and comes later.
   `prefers-contrast: more` raises the floor to 0.8 and drops the bezel and
   grain; `forced-colors: active` hides the art and its scrims and outlines
   the cover in `CanvasText`; print hides the cover and prints the form
-  alone.
+  under the column's lockup.
 
   | Pair | Worst case | Ratio |
   | --- | --- | --- |

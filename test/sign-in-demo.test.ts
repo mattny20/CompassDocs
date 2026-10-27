@@ -3,7 +3,8 @@
 // typed there is ever sent. The rules (spec §7.11):
 //   identifier *@sso.example   → one provider (Microsoft)
 //   identifier *@both.example  → two providers
-//   any other identifier       → the password step
+//   any other identifier       → the password step, or with SSO only on
+//                                both providers (the real lookup's rule 2)
 //   password "wrong"           → Invalid username or password.
 //   password "locked"          → the lockout sentence
 //   password "2fa"             → a code step; 123456 signs in
@@ -57,7 +58,16 @@ describe("demoLookup", () => {
   test("everything else is the password step: usernames, other domains, look-alikes", () => {
     for (const id of ["jane", "jane@acme.example", "x@sub.sso.example", "x@sso.example.com", "sso.example", "x@notsso.example", "x@both.examples", ""]) {
       assert.deepEqual(demoLookup(id), { kind: "password" }, id);
+      assert.deepEqual(demoLookup(id, false), { kind: "password" }, id);
     }
+  });
+
+  test("SSO only: every other identifier gets both providers, never the password step", () => {
+    for (const id of ["jane", "jane@acme.example", "x@both.example", "admin", ""]) {
+      assert.deepEqual(demoLookup(id, true), { kind: "sso", providers: DEMO_PROVIDERS }, id);
+    }
+    // The scripted single provider still shows the redirect step.
+    assert.deepEqual(demoLookup("x@sso.example", true), { kind: "sso", providers: [DEMO_PROVIDERS[0]] });
   });
 });
 
@@ -107,6 +117,13 @@ describe("demoTransport", () => {
       kind: "invalid",
       error: "Invalid username or password.",
     });
+  });
+
+  test("with SSO only, the lookup follows it", async () => {
+    const t = demoTransport(() => {}, { ssoOnly: true });
+    assert.deepEqual(await t.lookup("jane", "/", new AbortController().signal), { kind: "sso", providers: DEMO_PROVIDERS });
+    const off = demoTransport(() => {}, { ssoOnly: false });
+    assert.deepEqual(await off.lookup("jane", "/", new AbortController().signal), { kind: "password" });
   });
 
   test("an abort (Change, or Use a password instead) rejects with an AbortError at once", async () => {

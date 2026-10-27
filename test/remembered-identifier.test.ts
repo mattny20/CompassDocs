@@ -4,7 +4,7 @@
 // and every access is guarded: storage can be missing, blocked (Safari's
 // private mode throws on any access), full or hand-edited. A stored value
 // the page could not have written (too long, control characters, corrupt
-// JSON) is dropped rather than shown. window.localStorage is stubbed here.
+// JSON, a time more than a day ahead) is dropped rather than shown. window.localStorage is stubbed here.
 //
 // Run: npx tsx --tsconfig ./tsconfig.test.json --test test/remembered-identifier.test.ts
 
@@ -111,6 +111,27 @@ describe("expiry (180 days)", () => {
       storage.data.set(KEY, JSON.stringify(raw));
       assert.equal(readRememberedIdentifier(NOW), null, JSON.stringify(raw));
       assert.equal(storage.data.has(KEY), false);
+    }
+  });
+
+  test("a time that is not finite is dropped and removed (it would never expire)", () => {
+    for (const raw of ['{"id":"jane","at":1e999}', '{"id":"jane","at":-1e999}']) {
+      storage.data.set(KEY, raw);
+      assert.equal(readRememberedIdentifier(NOW), null, raw);
+      assert.equal(storage.data.has(KEY), false, raw);
+    }
+  });
+
+  test("a clock up to a day ahead is tolerated; further in the future is dropped and removed", () => {
+    rememberIdentifier("jane@acme.example", NOW + 60 * 60 * 1000);
+    assert.equal(readRememberedIdentifier(NOW), "jane@acme.example", "an hour ahead");
+    rememberIdentifier("jane@acme.example", NOW + DAY);
+    assert.equal(readRememberedIdentifier(NOW), "jane@acme.example", "exactly a day ahead");
+
+    for (const at of [NOW + DAY + 1, NOW + 2 * DAY, Date.UTC(2030, 0, 1), 1e15]) {
+      storage.data.set(KEY, JSON.stringify({ id: "jane", at }));
+      assert.equal(readRememberedIdentifier(NOW), null, String(at));
+      assert.equal(storage.data.has(KEY), false, String(at));
     }
   });
 });

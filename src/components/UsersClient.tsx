@@ -167,6 +167,27 @@ function UserTable({
     });
   }
 
+  // An administrator's save confirms the address (1.16.0): an email its
+  // owner typed links to single sign-on and matches synced groups only
+  // after this, so saving it unchanged is how one is confirmed.
+  async function editEmail(u: User) {
+    const email = await promptDialog({
+      title: `Email for ${u.username}`,
+      body: "Saving confirms this address: single sign-on can link to it and synced groups can match it.",
+      label: "Email",
+      type: "email",
+      initial: u.email,
+      confirmLabel: u.email_self_set === 1 ? "Confirm email" : "Save email",
+      validate: (v) =>
+        v.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim()) ? "That doesn't look like an email address." : undefined,
+    });
+    if (email === null) return;
+    await patch(u.id, { email: email.trim() }, {
+      fallback: "Couldn't save the email.",
+      ok: "Email saved.",
+    });
+  }
+
   async function remove(u: User) {
     if (
       !(await confirmDialog({
@@ -234,6 +255,22 @@ function UserTable({
                   )}
                 </div>
                 <div className="text-xs text-slate-500">@{u.username}</div>
+                {u.email && (
+                  <div className="flex min-w-0 items-center gap-1.5 text-xs text-slate-500">
+                    <span className="truncate">{u.email}</span>
+                    {u.email_self_set === 1 && (
+                      <Chip
+                        tone="warn"
+                        size="sm"
+                        tabIndex={0}
+                        data-tt="Set by this person on their profile. Single sign-on won't link to it until an administrator confirms it (Email…)."
+                        data-tt-wrap=""
+                      >
+                        Unconfirmed
+                      </Chip>
+                    )}
+                  </div>
+                )}
               </Td>
               <Td>
                 <Select
@@ -268,6 +305,13 @@ function UserTable({
               </Td>
               <Td fit>
                 <div className="flex justify-end gap-1.5 text-xs">
+                  <button
+                    onClick={() => editEmail(u)}
+                    disabled={isBusy(u.id)}
+                    className={buttonClass("secondary", "sm")}
+                  >
+                    Email…
+                  </button>
                   <button
                     onClick={() => resetPassword(u)}
                     disabled={isBusy(u.id)}

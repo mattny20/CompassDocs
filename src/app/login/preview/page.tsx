@@ -82,14 +82,15 @@ export default async function SignInPreviewPage({ searchParams }: { searchParams
         />
       )}
       <AuthShell look={look} company={settings.company_name} logoUrl={settings.logo_url || undefined}>
-        {!framed && <PreviewNotice mode={mode} identifyHref={identifyHref(q)} />}
+        {!framed && <PreviewNotice mode={mode} ssoOnly={setup.ssoOnly} identifyHref={identifyHref(q)} />}
         <SignInFlow
           key={mode}
           mode={mode}
           ssoOnly={setup.ssoOnly}
           next="/"
           company={settings.company_name}
-          providers={DEMO_PROVIDERS}
+          // The combined form has no providers on /login either.
+          providers={mode === "identify" ? DEMO_PROVIDERS : []}
           help={look.help || look.help_url ? { text: look.help, url: look.help_url } : undefined}
           example={look.example || undefined}
           demo
@@ -107,10 +108,16 @@ function identifyHref(q: Query): string {
   return `/login/preview?${params.toString()}`;
 }
 
-function PreviewNotice({ mode, identifyHref }: { mode: SignInMode; identifyHref: string }) {
+function PreviewNotice({ mode, ssoOnly, identifyHref }: { mode: SignInMode; ssoOnly: boolean; identifyHref: string }) {
   return (
     <div className="notice-warn mb-6 rounded-lg border px-3 py-2 text-sm">
-      {mode === "identify" ? (
+      {mode === "identify" && ssoOnly ? (
+        <>
+          Preview. Nothing you type here is sent anywhere. SSO only is on, so every email or username goes to single
+          sign-on: try name@sso.example for one provider, anything else for a choice. Password sign-in is only at{" "}
+          <code className="font-mono">/login?local=1</code>.
+        </>
+      ) : mode === "identify" ? (
         <>
           Preview. Nothing you type here is sent anywhere. Try name@sso.example for single sign-on, name@both.example
           for a choice, or the password 2fa for a code step (123456).

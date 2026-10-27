@@ -2,7 +2,8 @@
 // so an admin can walk through them without sending anything. The rules:
 //   identifier *@sso.example   → one provider (Microsoft)
 //   identifier *@both.example  → two providers (Microsoft and SAML)
-//   any other identifier       → the password step
+//   any other identifier       → the password step, or with SSO only on
+//                                both providers (no password step, as on /login)
 //   password "wrong"           → Invalid username or password.
 //   password "locked"          → the lockout sentence
 //   password "2fa"             → a code step; 123456 signs in
@@ -25,10 +26,10 @@ const wait = (ms: number, signal: AbortSignal) =>
     });
   });
 
-export function demoLookup(identifier: string): LookupResult {
+export function demoLookup(identifier: string, ssoOnly = false): LookupResult {
   const id = identifier.trim().toLowerCase();
   if (id.endsWith("@sso.example")) return { kind: "sso", providers: [DEMO_PROVIDERS[0]] };
-  if (id.endsWith("@both.example")) return { kind: "sso", providers: DEMO_PROVIDERS };
+  if (id.endsWith("@both.example") || ssoOnly) return { kind: "sso", providers: DEMO_PROVIDERS };
   return { kind: "password" };
 }
 
@@ -42,11 +43,11 @@ export function demoLogin(body: { password: string; totp_code?: string }): Login
   return { kind: "ok", mustChange: false };
 }
 
-export function demoTransport(onSignedIn: () => void): SignInTransport {
+export function demoTransport(onSignedIn: () => void, opts: { ssoOnly?: boolean } = {}): SignInTransport {
   return {
     async lookup(identifier, _next, signal) {
       await wait(350, signal);
-      return demoLookup(identifier);
+      return demoLookup(identifier, Boolean(opts.ssoOnly));
     },
     async login(body, signal) {
       await wait(350, signal);

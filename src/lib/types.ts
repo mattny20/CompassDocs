@@ -34,6 +34,8 @@ export interface User {
   id: number;
   username: string;
   email: string;
+  /** 1 when the owner typed the email on their profile (unconfirmed), 0 when an admin, SCIM or the IdP set it (1.16.0). */
+  email_self_set: number;
   name: string;
   role: Role;
   status: "active" | "disabled";

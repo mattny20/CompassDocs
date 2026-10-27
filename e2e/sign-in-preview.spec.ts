@@ -11,6 +11,8 @@ import { ADMIN, login } from "./helpers";
 //   anything else      → the password step
 //   password wrong / locked / 2fa (code 123456) / anything else
 // Nothing typed in the preview is sent: no request reaches /api/auth/.
+// The ?sso_error banner is checked on /login itself (a page load, nothing
+// sent either).
 
 type Ctx = { ctx: BrowserContext; page: Page; sent: string[] };
 let signedIn: Awaited<ReturnType<BrowserContext["storageState"]>>;
@@ -25,8 +27,11 @@ test.beforeAll(async ({ browser }) => {
   await ctx.close();
 });
 
-async function openPreview(browser: Browser, opts: { remembered?: boolean } = {}): Promise<Ctx> {
-  const ctx = await browser.newContext({ storageState: signedIn, viewport: { width: 1440, height: 900 } });
+async function openPreview(
+  browser: Browser,
+  opts: { remembered?: boolean; path?: string; viewport?: { width: number; height: number } } = {}
+): Promise<Ctx> {
+  const ctx = await browser.newContext({ storageState: signedIn, viewport: opts.viewport ?? { width: 1440, height: 900 } });
   const page = await ctx.newPage();
   const sent: string[] = [];
   page.on("request", (r) => {
@@ -41,15 +46,17 @@ async function openPreview(browser: Browser, opts: { remembered?: boolean } = {}
       }
     });
   }
-  await page.goto("/login/preview?flow=identify");
+  await page.goto(opts.path ?? "/login/preview?flow=identify");
   // Hydrated: the submit is server-rendered disabled until then.
-  await expect(page.getByRole("button", { name: "Continue" })).toBeEnabled();
+  await expect(page.locator('button[type="submit"]')).toBeEnabled();
   return { ctx, page, sent };
 }
 
 const heading = (page: Page) => page.getByRole("heading", { level: 1 });
 const identifier = (page: Page) => page.locator('input[autocomplete="username"]');
 const password = (page: Page) => page.locator('input[autocomplete="current-password"]');
+const alertWith = (page: Page, text: string) => page.getByRole("alert").filter({ hasText: text });
+const ssoHint = (page: Page) => page.getByText("If your organization uses single sign-on, open Other ways to sign in below.");
 
 /** The text of everything that describes a control (aria-describedby). */
 async function describedText(control: Locator): Promise<string> {
@@ -219,6 +226,53 @@ test("a password account: the password step under the locked identifier, Show pa
   }
 });
 
+test("Back from the identity provider, or Change, leaves no error or SSO hint from the last password behind", async ({ browser }) => {
+  const { ctx, page } = await openPreview(browser);
+  try {
+    await toPassword(page, "jane");
+    await signIn(page, "wrong");
+    await expect(alertWith(page, "Invalid username or password.")).toBeVisible();
+    await expect(ssoHint(page)).toBeVisible();
+
+    // The page restored from the back-forward cache (Back from the identity provider).
+    await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })));
+    await expect(heading(page)).toHaveText("Sign in");
+    await expect(identifier(page)).toBeFocused();
+    await expect(identifier(page)).toHaveValue("jane");
+    await expect(alertWith(page, "Invalid username or password.")).toHaveCount(0);
+
+    // A wrong password, Change, then a password step for someone else: nothing carried over.
+    await page.getByRole("button", { name: "Continue" }).click();
+    await expect(heading(page)).toHaveText("Enter your password");
+    await signIn(page, "wrong");
+    await expect(ssoHint(page)).toBeVisible();
+    await page.getByRole("button", { name: "Change email or username" }).click();
+    await identifier(page).fill("bob");
+    await page.getByRole("button", { name: "Use a password instead" }).click();
+    await expect(heading(page)).toHaveText("Sign in with a password");
+    await expect(ssoHint(page)).toHaveCount(0);
+    await expect(alertWith(page, "Invalid username or password.")).toHaveCount(0);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test("the combined preview has no single sign-on, as on /login: a wrong password shows no SSO hint", async ({ browser }) => {
+  const { ctx, page, sent } = await openPreview(browser, { path: "/login/preview" });
+  try {
+    test.skip((await password(page).count()) === 0, "this workspace has single sign-on, so the preview shows the email-first steps");
+    await identifier(page).fill("jane");
+    await signIn(page, "wrong");
+    await expect(alertWith(page, "Invalid username or password.")).toBeVisible();
+    await expect(page.locator("details", { hasText: "Other ways to sign in" })).toHaveCount(0);
+    await expect(ssoHint(page)).toHaveCount(0);
+    await expect(page.locator('a[href^="/api/ee/"]')).toHaveCount(0);
+    expect(sent).toEqual([]);
+  } finally {
+    await ctx.close();
+  }
+});
+
 test("2fa: the code step, the recovery code, a wrong code, then 123456 signs in (preview)", async ({ browser }) => {
   const { ctx, page, sent } = await openPreview(browser);
   try {
@@ -274,6 +328,62 @@ test("Back from the code step returns to the password step with the password kep
   }
 });
 
+test("Back or the code switch during a Verify abandons it: its answer never lands on the next step", async ({ browser }) => {
+  const { ctx, page } = await openPreview(browser);
+  try {
+    await toPassword(page, "jane");
+    await signIn(page, "2fa");
+    await page.getByLabel("Two-factor code").fill("000000");
+    // The demo answers after 350ms; Back comes first.
+    await page.getByRole("button", { name: "Verify" }).click();
+    await page.getByRole("button", { name: "Back", exact: true }).click();
+    await expect(heading(page)).toHaveText("Enter your password");
+    await expect(page.locator("form")).not.toHaveAttribute("aria-busy", "true");
+    await page.waitForTimeout(700);
+    await expect(heading(page)).toHaveText("Enter your password");
+    await expect(alertWith(page, "That code didn't work")).toHaveCount(0);
+    await expect(password(page)).toBeFocused();
+    // Nothing is left in flight: Sign in is not swallowed.
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    await expect(heading(page)).toHaveText("Two-factor authentication");
+
+    // The same with the switch to a recovery code: the half-typed code stays.
+    await page.getByLabel("Two-factor code").fill("000000");
+    await page.getByRole("button", { name: "Verify" }).click();
+    await page.getByRole("button", { name: "Use a recovery code" }).click();
+    const recovery = page.getByLabel("Recovery code");
+    await expect(recovery).toBeFocused();
+    await recovery.fill("abcd");
+    await page.waitForTimeout(700);
+    await expect(recovery).toHaveValue("abcd");
+    await expect(alertWith(page, "That code didn't work")).toHaveCount(0);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test("the locked identifier keeps its domain whole and shortens the part before the @ first (320px)", async ({ browser }) => {
+  const { ctx, page } = await openPreview(browser, { viewport: { width: 320, height: 640 } });
+  try {
+    for (const [who, localCut] of [
+      ["pat@acme.example", false],
+      ["alexandra.kowalczyk@acme.example", true],
+    ] as const) {
+      await toPassword(page, who);
+      const parts = await page
+        .getByRole("group", { name: "Email or username" })
+        .evaluate((g) => [...g.querySelectorAll("span[title] > span")].map((s) => ({ text: s.textContent, cut: s.scrollWidth > s.clientWidth })));
+      expect(parts, who).toEqual([
+        { text: who.slice(0, who.indexOf("@")), cut: localCut },
+        { text: "@acme.example", cut: false },
+      ]);
+      await page.getByRole("button", { name: "Change email or username" }).click();
+    }
+  } finally {
+    await ctx.close();
+  }
+});
+
 test("the remembered identifier is offered back, and Use another account clears it (the preview leaves the real one alone)", async ({ browser }) => {
   // The real sign-in in beforeAll remembered e2e_admin on this browser.
   const { ctx, page } = await openPreview(browser, { remembered: true });
@@ -291,6 +401,25 @@ test("the remembered identifier is offered back, and Use another account clears 
     // On /login this forgets it; the preview only clears the field.
     const kept = await page.evaluate(() => JSON.parse(localStorage.getItem("compass-sign-in-identifier") || "null"));
     expect(kept?.id).toBe(ADMIN.username);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test("an https help link opens in a new tab whatever the case of its scheme; a mailto link does not", async ({ browser }) => {
+  const url = (helpUrl: string) => `/login/preview?flow=identify&help=${encodeURIComponent("Need help?")}&help_url=${encodeURIComponent(helpUrl)}`;
+  const { ctx, page } = await openPreview(browser, { path: url("HTTPS://help.example.com/sign-in") });
+  try {
+    const link = page.getByRole("link", { name: "Need help?" });
+    await expect(link).toHaveAttribute("href", "HTTPS://help.example.com/sign-in");
+    await expect(link).toHaveAttribute("target", "_blank");
+    await expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    await expect(link.locator("svg")).toHaveCount(1);
+
+    await page.goto(url("mailto:help@example.com"));
+    await expect(link).toHaveAttribute("href", "mailto:help@example.com");
+    await expect(link).not.toHaveAttribute("target", "_blank");
+    await expect(link.locator("svg")).toHaveCount(0);
   } finally {
     await ctx.close();
   }
@@ -340,6 +469,33 @@ test("Caps Lock is announced under the password", async ({ browser }) => {
     await expect(page.locator('p[role="status"][aria-live="polite"]')).toHaveText("Caps Lock is on.");
     await capsKey(false);
     await expect.poll(() => describedText(password(page))).not.toContain("Caps Lock is on.");
+  } finally {
+    await ctx.close();
+  }
+});
+
+test("a ?sso_error banner on /login stays while the person types, and an unknown code is the general sentence", async ({ browser }) => {
+  // Signed out, and nothing is submitted: only page loads.
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const page = await ctx.newPage();
+  try {
+    await page.goto("/login?sso_error=domain&next=/search");
+    await expect(page.locator('button[type="submit"]')).toBeEnabled();
+    const banner = alertWith(page, "Your email domain isn't allowed to sign in here.");
+    await expect(banner).toBeVisible();
+    // The code leaves the address (a reload shows no stale banner); next stays.
+    await expect.poll(() => new URL(page.url()).search).toBe("?next=%2Fsearch");
+
+    await identifier(page).pressSequentially("ja");
+    await expect(banner).toBeVisible();
+    expect(await describedText(identifier(page))).toContain("Your email domain isn't allowed to sign in here.");
+
+    // Object.prototype's names are not codes.
+    for (const code of ["constructor", "__proto__", "toString"]) {
+      const res = await page.goto(`/login?sso_error=${code}`);
+      expect(res?.status(), code).toBe(200);
+      await expect(alertWith(page, "Something went wrong during sign-in. Please try again.")).toBeVisible();
+    }
   } finally {
     await ctx.close();
   }

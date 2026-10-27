@@ -20,6 +20,8 @@ const ACCEPTED: Record<string, string> = {
   "image/vnd.microsoft.icon": ".ico",
 };
 const MAX_BYTES = 1024 * 1024;
+/** The body may carry the multipart envelope on top of the file itself. */
+const MAX_BODY = MAX_BYTES + 512 * 1024;
 
 async function storeLogo(buf: Buffer, mime: string): Promise<string> {
   const stored = await saveUpload(buf, ACCEPTED[mime]);
@@ -35,6 +37,15 @@ async function storeLogo(buf: Buffer, mime: string): Promise<string> {
 export async function POST(req: Request) {
   const gate = await apiGuard("admin", "workspace.branding_manage");
   if (gate instanceof NextResponse) return gate;
+
+  // Both modes buffer the whole body, and nothing in front of the app caps
+  // it, so the declared length is the cap: Node reads no further than it. A
+  // body without one (chunked) is refused, as is one declared too big.
+  const declared = req.headers.get("content-length");
+  if (declared === null || !/^\d+$/.test(declared)) {
+    return NextResponse.json({ error: "The request must state its size (a Content-Length header)." }, { status: 411 });
+  }
+  if (Number(declared) > MAX_BODY) return NextResponse.json({ error: "Logos are limited to 1 MB." }, { status: 413 });
 
   const contentType = req.headers.get("content-type") || "";
 

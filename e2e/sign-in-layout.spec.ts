@@ -1,9 +1,11 @@
 import { test, expect, type Browser, type Page } from "@playwright/test";
 import sharp from "sharp";
-import { ADMIN, login } from "./helpers";
+import { ADMIN, api, login } from "./helpers";
 
 // 1.16.0: the sign-in shell (STYLEGUIDE §Sign-in surfaces) at the sizes it
-// has to hold: a phone, the Outlook add-in's sign-in dialog, a laptop and a
+// has to hold: a phone, a short dialog-sized window (the size of the Outlook
+// add-in's dialog, which shows /login only through its "full sign-in page"
+// link; its own /addin/outlook/auth form is not this shell), a laptop and a
 // 3440 ultrawide, in both themes. Below 64rem the cover is a band in normal
 // flow above the form; from 64rem it is a full-height cover beside the
 // column. Nothing may sit on top of the fields or the button (the
@@ -13,7 +15,7 @@ import { ADMIN, login } from "./helpers";
 
 const VIEWPORTS = [
   { name: "a phone", width: 375, height: 667, cover: false },
-  { name: "the Outlook dialog", width: 420, height: 560, cover: false },
+  { name: "a dialog-sized window", width: 420, height: 560, cover: false },
   { name: "a laptop", width: 1440, height: 900, cover: true },
   { name: "an ultrawide", width: 3440, height: 1440, cover: true },
 ] as const;
@@ -127,6 +129,23 @@ for (const theme of ["light", "dark"] as const) {
   }
 }
 
+test("print leaves the cover out and the column carries the workspace name", async ({ browser }) => {
+  const { ctx, page } = await openLogin(browser, VIEWPORTS[2]);
+  try {
+    const cover = page.locator("aside.auth-art");
+    const company = ((await cover.getAttribute("aria-label")) ?? "").replace(/^About /, "");
+    expect(company).not.toBe("");
+    // The subtitle reads "to continue to …", so only the lockup is the name alone.
+    const lockup = page.locator("main").getByText(company, { exact: true });
+    await expect(lockup, "on screen the cover carries the name").toBeHidden();
+    await page.emulateMedia({ media: "print" });
+    await expect(cover).toBeHidden();
+    await expect(lockup).toBeVisible();
+  } finally {
+    await ctx.close();
+  }
+});
+
 test("an uploaded photo is served by srcset at 1440 and 375, and the form stays on top", async ({ browser }) => {
   const admin = await browser.newContext();
   const adminPage = await admin.newPage();
@@ -176,6 +195,54 @@ test("an uploaded photo is served by srcset at 1440 and 375, and the form stays 
     await expect(page.locator('img[srcset*="/api/brand/artwork"]')).toHaveCount(0);
     await expect(page.locator("aside.auth-art")).toHaveAttribute("data-art", "default");
     expect((await page.request.get("/api/brand/artwork?w=1600")).status()).toBe(404);
+  } finally {
+    await ctx.close();
+  }
+});
+
+test("Sign-in page settings: the preview stays beside the fields at Wide, and nothing scrolls sideways on a phone", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const page = await ctx.newPage();
+  try {
+    await login(page, ADMIN);
+    // Wide is the default page width; other specs put it back after changing it.
+    await api(page, "/api/account/preferences", { method: "PATCH", body: { page_width: "wide" } });
+    await page.goto("/admin/workspace/sign-in");
+    const frame = page.locator('iframe[src*="/login/preview"]');
+    const headline = page.getByLabel("Headline (optional)");
+    await expect(frame).toBeVisible();
+
+    // While the headline is typed, the live preview is in view beside it.
+    await headline.scrollIntoViewIfNeeded();
+    await expect(headline).toBeInViewport();
+    await expect(frame).toBeInViewport();
+    const [f, h] = await Promise.all([frame.boundingBox(), headline.boundingBox()]);
+    expect(f!.x, "the preview sits beside the fields, not above them").toBeGreaterThan(h!.x + h!.width);
+    // Sticky: still in view at the last field of the page.
+    const helpLink = page.getByLabel("Help link (optional)");
+    await helpLink.scrollIntoViewIfNeeded();
+    await expect(helpLink).toBeInViewport();
+    await expect(frame).toBeInViewport();
+
+    // A phone: one column, the Preview size options wrap inside their card.
+    for (const width of [375, 320]) {
+      await page.setViewportSize({ width, height: 800 });
+      await page.reload();
+      await expect(frame).toBeVisible();
+      const m = await page.evaluate(() => {
+        const main = document.querySelector("main")!;
+        const group = document.querySelector('[role="radiogroup"][aria-label="Preview size"]')!;
+        const card = group.closest("section")!;
+        return {
+          scrollWidth: main.scrollWidth,
+          clientWidth: main.clientWidth,
+          group: group.getBoundingClientRect().right,
+          card: card.getBoundingClientRect().right,
+        };
+      });
+      expect(m.scrollWidth, `no sideways scroll at ${width}`).toBeLessThanOrEqual(m.clientWidth);
+      expect(m.group, `Preview size stays inside its card at ${width}`).toBeLessThanOrEqual(m.card);
+    }
   } finally {
     await ctx.close();
   }

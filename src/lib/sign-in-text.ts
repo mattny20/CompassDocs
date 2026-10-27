@@ -86,12 +86,16 @@ export function normalizeSignInText(raw: unknown): string {
 /** The sentence for a help link that is not https: or mailto:, or null when it is fine (or empty). */
 export function helpUrlProblem(url: string): string | null {
   if (!url) return null;
-  try {
-    const u = new URL(url);
-    if (u.protocol === "https:" && u.hostname) return null;
-    if (u.protocol === "mailto:" && u.pathname.includes("@")) return null;
-  } catch {
-    // fall through
+  // The text as typed must start so too: "https:host" parses with a host on
+  // its own, but in an href on an https page it is a same-origin path.
+  if (/^(https:\/\/|mailto:)/i.test(url)) {
+    try {
+      const u = new URL(url);
+      if (u.protocol === "https:" && u.hostname) return null;
+      if (u.protocol === "mailto:" && u.pathname.includes("@")) return null;
+    } catch {
+      // fall through
+    }
   }
   return "Use an address that starts with https:// or mailto:.";
 }

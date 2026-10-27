@@ -134,7 +134,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
   {
     label: "People & access",
     sections: [
-      { href: "/admin/users", label: "Users", icon: Users, description: "Accounts, roles, and password resets.", keywords: "users roles people accounts password reset viewer editor approver admin disable", permission: "user.read", docs: "https://docs.compassdocs.io/admin/users-and-roles/" },
+      { href: "/admin/users", label: "Users", icon: Users, description: "Accounts, roles, emails, and password resets.", keywords: "users roles people accounts email confirm password reset viewer editor approver admin disable", permission: "user.read", docs: "https://docs.compassdocs.io/admin/users-and-roles/" },
       { href: "/admin/roles", label: "Roles & permissions", icon: ShieldCheck, description: "Custom roles, the permission matrix, and who holds what.", keywords: "rbac permission role custom grant assign scope matrix explain access control least privilege", permission: "role.read", docs: "https://docs.compassdocs.io/admin/roles-and-permissions/", pages: [
           { href: "/admin/roles", label: "Roles", icon: ShieldCheck, keywords: "roles permission matrix custom" },
           { href: "/admin/roles/assignments", label: "Assignments", icon: ClipboardList, keywords: "assign grant holders delegate space-scoped" },

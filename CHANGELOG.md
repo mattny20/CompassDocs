@@ -12,24 +12,29 @@ uploads, with the workspace's own headline and help. When single sign-on
 is set up (Enterprise), people enter their email or username first and go
 straight to their identity provider or to a password, and the page never
 says whether an account exists. The password step accepts an email, and
-the forced password change wears the same shell.
+the forced password change wears the same shell. It also closes an older
+hole: an email a person typed on their own profile can no longer capture
+a colleague's first single sign-on.
 
 ### Added
 - **A new sign-in page.** From 1024 pixels wide, a cover fills the screen
-  beside a plain form column; on a phone, and in the Outlook add-in's
-  sign-in window, the cover is a band above the form. The cover carries
-  the logo, the workspace name set large (or a headline of your own), a
-  tagline and a caption. Every control stays in the form column, and the
-  form always names the workspace ("to continue to Acme"), so nothing is
-  lost when the cover is cropped, hidden or switched off. With no artwork
-  the cover is drawn from the accent color (a gradient, a compass dial and
-  a fine grain) and loads nothing extra. The form comes first for the
-  keyboard and for screen readers, and each step has its own heading. The
-  artwork steps aside in Windows high-contrast mode, and the cover is left
-  out in print.
+  beside a plain form column; on a phone, or in a narrower window such as
+  the full sign-in page opened from the Outlook add-in, the cover is a
+  band above the form. The cover carries the logo, the workspace name set
+  large (or a headline of your own), a tagline and a caption. Every
+  control stays in the form column, the first and password steps (and the
+  forced password change) name the workspace ("to continue to Acme"), and
+  the column shows the logo and name itself whenever the cover does not.
+  With no artwork the cover is drawn from the accent color (a gradient, a
+  compass dial and a fine grain) and loads nothing extra. The form comes
+  first for the keyboard and for screen readers, and each step has its
+  own heading. The artwork steps aside in Windows high-contrast mode, and
+  print leaves the cover out and shows the logo and name above the form.
 - **Sign-in artwork**, under **Settings → Workspace → Sign-in page**, a new
   page beside Branding and Content. Upload a JPEG, PNG, WebP or GIF of up
-  to 15 MB and at least 1280 × 720 pixels; 2560 pixels or wider looks
+  to 15 MB, at least 1280 × 720 pixels and at most 100 megapixels; a file
+  that is cut short is refused rather than shown with a gap. 2560 pixels
+  or wider looks
   sharpest, and a narrower picture gets a warning. CompassDocs stores three
   WebP copies (960, 1600 and 2560 pixels wide) so phones download less,
   keeps only the first frame of an animation and drops location and camera
@@ -112,6 +117,11 @@ the forced password change wears the same shell.
   forced change), switched back off before the form is sent so the browser
   still offers to save the password, and **Caps Lock is on.** under the
   password field while it is.
+- **Confirm an account's email** from **Settings → Users**: each row
+  shows the email, an email its owner typed on their profile is marked
+  **Unconfirmed**, and **Email…** sets or confirms it (saving it unchanged
+  confirms it). Single sign-on links to an unconfirmed email only after
+  that. Recorded as **Changed email**.
 - Audit log entries **Uploaded sign-in artwork** (with the picture's
   size), **Removed sign-in artwork** and **Updated the sign-in page** (with
   the fields changed).
@@ -137,6 +147,15 @@ the forced password change wears the same shell.
   lost or sent in an address, and a slow, offline or failed answer is said
   in words ("Couldn't reach the server. Check your connection and try
   again.") instead of failing quietly.
+- **An email set on Account → Profile must be free.** One that another
+  account already uses, as its email or its username, is refused with
+  "That email address is already used by another account." An email now
+  signs in, so it has to name one account. Saving an email on
+  **Settings → Users** follows the same rule.
+- **Logo and artwork uploads must state their size.** A request with no
+  `Content-Length` (a chunked body) is refused with 411 before any of it
+  is read, and one over the limit with 413. The logo upload read a
+  chunked body in full before. The settings pages are unaffected.
 - **Manage branding** (`workspace.branding_manage`) now also covers the
   sign-in artwork and the sign-in page's text, so a role holding it can
   run the new page. The Workspace section's description and the settings
@@ -156,32 +175,48 @@ the forced password change wears the same shell.
 - The recovery code field on the two-factor step opens a keyboard with
   letters on phones. It offered digits only, so a recovery code could not
   be typed there.
+- `/login` no longer fails with a server error for an `sso_error` such
+  as `constructor` or `toString`, or a repeated one; an unknown code
+  shows the general "Something went wrong during sign-in" sentence.
 - A Microsoft sign-in on a multi-tenant authority (`common`,
   `organizations` or `consumers`) with no allowed email domains is no
   longer offered: it could never succeed, because the callback refuses
   it. **How people sign in** says what to add.
 
 ### Security
+- **A self-typed email can no longer capture someone's single sign-on.**
+  Any local account could type a colleague's address on its profile; the
+  colleague's first SSO sign-in was then linked to that account (the
+  oldest account with the email won), and synced groups matched it by
+  email. Accounts now record whether their email was typed by their owner.
+  SSO never links to such an email or to an email that two accounts share,
+  and group sync never matches one, until an administrator confirms it
+  (see Confirm an account's email). Present since profile emails became
+  editable; the Enterprise image carries the SSO and Google side.
 - **A sign-in for an unknown account takes as long as a real one.** An
   unknown, disabled or password-less account failed without the password
   check, about 49 ms sooner, which told an attacker that the account did
   not exist or could not use a password. Every failure now spends the same
-  check.
-- **The sign-in throttle counts per account, whichever name is typed.** An
-  account's username and its email share one budget of five failed
-  attempts per address, so typing the email instead of the username does
-  not buy five more.
+  check, and the password step reads the database once whatever was
+  typed, so an email that belongs to an account costs no extra query.
+- **The sign-in throttle keys on what was typed**, as in 1.15.0, and is
+  checked before any database read, so a lockout never shows which
+  account an email belongs to. A username and its email each get five
+  attempts per address, within the 30-per-address limit.
 - **Wrong two-factor codes are in the audit log** as `auth.login_failed`
   with `stage: two_factor`, as well as counting towards the lockout as
-  before.
-- **The identifier is capped at 254 characters**, the longest email
-  address, on the sign-in and lookup routes, so an oversized value never
-  reaches the throttle or the audit log.
+  before, and the lockout they cause is recorded as `auth.lockout`.
+- **An identifier over 254 characters**, the longest email address, is
+  refused on the sign-in and lookup routes ("Invalid username or
+  password." on sign-in), so it never reaches the throttle, an account
+  read or the audit log.
 - The lookup accepts only a same-site JSON `POST`, sets no cookie, writes
-  no audit row per lookup and is never cached, so a typed email never
-  appears in an address, a server log or a Referer. The address that
-  starts single sign-on is built on the server and always stays on this
-  site.
+  no audit row per lookup and is never cached, and it carries the typed
+  identifier only in that JSON body, never in its address. When an email
+  routes to Microsoft or another OIDC provider, the address that starts
+  single sign-on carries it as `login_hint` for the provider, so a proxy
+  that logs query strings sees it there; the SAML start carries none.
+  That address is built on the server and always stays on this site.
 
 ### Enterprise image
 These ship from the Enterprise overlay, in the 1.16.0 Enterprise image.
@@ -196,23 +231,39 @@ These ship from the Enterprise overlay, in the 1.16.0 Enterprise image.
   cross-site `POST` to the ACS carries it. Browsers leave a `SameSite=Lax`
   cookie off such a post, and the sign-in ended in "The sign-in attempt
   expired or was tampered with." Without HTTPS it stays `Lax`.
+- **Single sign-on links only a confirmed, unique email.** On a first
+  OIDC or SAML sign-in, an existing account is linked by email only when
+  exactly one account has that email and its owner did not type it on
+  their profile; otherwise the person sees "An account with your email
+  already exists and can't be linked to single sign-on automatically."
+  Before, the oldest account with the email was linked.
+- **Google group sync matches members the same way:** by an email
+  exactly one account has, never one its owner typed.
 
 ### Upgrading
-- Nothing to do: no schema change and no new environment variable. The
-  sign-in page's settings are new keys in the settings table, and its
-  artwork lives in the uploads volume beside the logo, so backups cover
-  both. A workspace without single sign-on gets the new page with the
-  same one form.
+- One schema change, applied on start: `users.email_self_set` and two
+  indexes, on `lower(username)` and `lower(email)`. No new environment
+  variable. The sign-in page's settings are new keys in the settings
+  table, and its artwork lives in the uploads volume beside the logo, so
+  backups cover both. A workspace without single sign-on gets the new
+  page with the same one form.
+- Accounts whose owner changed their email on their profile, as the audit
+  log recorded, start **Unconfirmed**. With single sign-on or synced
+  groups, check **Settings → Users** and confirm the ones you trust with
+  **Email…**: until then SSO will not link them on a first sign-in, and
+  Entra or Google group sync will not match them by email (an account
+  already linked to SSO is matched by its SSO identity as before).
 - With single sign-on, add your email domains under **Settings → Single
   sign-on** (**Allowed email domains**, on the OIDC and the SAML panel) so
   new colleagues go straight to SSO; with none listed, only existing SSO
   accounts are sent there and everyone else is asked for a password.
   **Settings → Workspace → Sign-in page** shows how people will sign in.
 - With **SSO only** on, bookmark `https://YOUR-HOST/login?local=1`: it is
-  the password sign-in for administrators when the identity provider is
-  down or misconfigured.
-- Rolling back to 1.15.0 is safe: it ignores the new settings keys and the
-  artwork files.
+  the password sign-in when the identity provider is down or
+  misconfigured. SSO only removes no password, so anyone who has one,
+  administrators included, can still sign in there.
+- Rolling back to 1.15.0 is safe: it ignores the new column, indexes,
+  settings keys and artwork files.
 
 ## [1.15.0] - 2026-10-23
 

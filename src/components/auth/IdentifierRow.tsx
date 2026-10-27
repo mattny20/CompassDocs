@@ -26,7 +26,8 @@ export function IdentifierRow({ label, value, action }: { label: string; value: 
         {/* Plain text, so a native title for the truncated value is allowed (STYLEGUIDE §Tooltips: never on controls). */}
         <span className="flex min-w-0 flex-1 text-slate-800" title={value}>
           <span className="min-w-0 truncate">{local}</span>
-          {domain && <span className="max-w-[60%] shrink-0 truncate">{domain}</span>}
+          {/* The domain never shrinks; only a domain wider than the row (less a glimpse of the local part) truncates. */}
+          {domain && <span className="max-w-[calc(100%-1.5em)] shrink-0 truncate">{domain}</span>}
         </span>
         {action}
       </div>

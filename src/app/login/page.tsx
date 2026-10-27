@@ -7,6 +7,7 @@ import { providerStart, providersOf, signInSetup } from "@/lib/sign-in-routing";
 import { getSignInLook } from "@/lib/sign-in-art";
 import { ART_SIZES } from "@/lib/sign-in-text";
 import { safeReturnPath } from "@/lib/return-to";
+import { ssoErrorMessage } from "@/lib/sso-error";
 import { AuthShell } from "@/components/auth/AuthShell";
 import { SignInFlow, type SignInMode } from "@/components/auth/SignInFlow";
 
@@ -18,28 +19,12 @@ export const metadata = { title: "Sign in", robots: { index: false, follow: fals
 //   no usable SSO provider (community build, nothing configured) → one
 //   combined form, no lookup; ?local=1 with SSO → the same, the break-glass;
 //   otherwise email or username first (lib/sign-in-routing).
-
-// Short error codes from the SSO callback → human messages. Codes (not raw
-// messages) cross the redirect so nothing sensitive lands in the URL.
-const SSO_ERRORS: Record<string, string> = {
-  not_configured: "Single sign-on isn't fully configured. Ask your administrator.",
-  idp: "Your identity provider reported an error. Please try again.",
-  state: "The sign-in attempt expired or was tampered with. Please try again.",
-  exchange: "Couldn't complete sign-in with your identity provider.",
-  token: "Your identity provider returned an invalid token.",
-  no_email: "Your identity provider didn't share an email address.",
-  domain: "Your email domain isn't allowed to sign in here.",
-  no_account: "No account exists for you, and automatic account creation is off.",
-  link_denied:
-    "An account with your email already exists and can't be linked to SSO automatically. Ask your administrator to link it.",
-  disabled: "Your account is disabled. Ask your administrator.",
-  internal: "Something went wrong during sign-in. Please try again.",
-};
+// A ?sso_error code becomes its sentence in lib/sso-error.
 
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ sso_error?: string; next?: string; local?: string }>;
+  searchParams: Promise<{ sso_error?: string | string[]; next?: string; local?: string }>;
 }) {
   // Fresh install with no admin yet → send to the first-run setup wizard.
   if (await needsSetup()) redirect("/setup");
@@ -52,7 +37,7 @@ export default async function LoginPage({
   const [settings, setup, look] = await Promise.all([getAppSettings(), signInSetup(), getSignInLook()]);
   const providers = providersOf(setup).map((p) => ({ ...p, start: providerStart(p.id, next) }));
   const mode: SignInMode = providers.length === 0 ? "combined" : params.local === "1" ? "local" : "identify";
-  const ssoError = params.sso_error ? SSO_ERRORS[params.sso_error] || SSO_ERRORS.internal : undefined;
+  const ssoError = ssoErrorMessage(params.sso_error);
   if (look.art) {
     preload(look.art.src, { as: "image", imageSrcSet: look.art.srcSet, imageSizes: ART_SIZES, fetchPriority: "high" });
   }

@@ -20,6 +20,7 @@ export const AUDIT_LABELS: Record<string, string> = {
   "user.create": "Created user",
   "user.role_change": "Changed role",
   "user.reset_password": "Reset password",
+  "user.email_change": "Changed email",
   "user.enable": "Enabled user",
   "user.disable": "Disabled user",
   "user.delete": "Deleted user",
