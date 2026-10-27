@@ -197,6 +197,14 @@ describe("an email an administrator or the directory sets", () => {
     assert.equal((await row(id)).email_self_set, 1);
   });
 
+  test("an administrator can clear a planted email, which takes the mark with it", async () => {
+    const id = await newUser("planted", { email: `planted@${D}`, selfSet: 1 });
+    const r = await call(adminUser.PATCH, url(id), adminSession, { email: "" }, id);
+    assert.equal(r.status, 200);
+    assert.deepEqual(await row(id), { email: "", email_self_set: 0 });
+    assert.equal(await db.getUserByEmailForLink(`planted@${D}`).then((m) => m.user), undefined);
+  });
+
   test("an administrator cannot give an account another account's email (any case), and nothing is audited", async () => {
     const id = await newUser("vouch3", { email: `vouch3@${D}`, selfSet: 1 });
     await newUser("admintaken", { email: `admintaken@${D}` });

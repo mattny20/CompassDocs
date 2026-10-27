@@ -188,6 +188,7 @@ function UserTable({
         v.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim()) ? "That doesn't look like an email address." : undefined,
     });
     if (email === null) return;
+    if (!email.trim() && !u.email) return; // nothing to clear
     await patch(u.id, { email: email.trim() }, {
       fallback: "Couldn't save the email.",
       ok: email.trim() ? "Email saved." : "Email cleared.",
@@ -255,8 +256,9 @@ function UserTable({
             <tr key={u.id} className={`${TR} ${isBusy(u.id) ? "opacity-50" : ""}`.trim()}>
               {/* w-full max-w-0: the column takes the spare width and its
                   lines truncate inside it, so one long email never pushes
-                  the actions off the table. */}
-              <Td className="w-full max-w-0">
+                  the actions off the table; min-w-48 keeps it readable when
+                  a row carries every action (the table scrolls instead). */}
+              <Td className="w-full min-w-48 max-w-0">
                 <div className="truncate font-medium text-slate-800">
                   {u.name || u.username}
                   {u.id === currentUserId && (
