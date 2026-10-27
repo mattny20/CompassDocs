@@ -260,6 +260,12 @@ at once can no longer outrun the lockout.
   single sign-on carries it as `login_hint` for the provider, so a proxy
   that logs query strings sees it there; the SAML start carries none.
   That address is built on the server and always stays on this site.
+- **Dependencies:** `undici` 8.12.3 (CVE-2026-109869 and other advisories:
+  denial of service through excessive content encodings and unbounded
+  buffers, certificate checks dropped in some agents, cache poisoning on
+  cross-origin redirects), used for outbound webhooks and fetches; and
+  `nodemailer` 10.2.1 (address parsing that could add a recipient the
+  header did not name).
 
 ### Enterprise image
 These ship from the Enterprise overlay, in the 1.16.0 Enterprise image.
