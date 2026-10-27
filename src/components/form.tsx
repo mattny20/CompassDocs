@@ -44,11 +44,14 @@ export function Field({
   error,
   size = "full",
   className = "",
+  describedBy: extraDescribedBy,
   children,
 }: {
   label: React.ReactNode;
   /** Muted line under the control; hidden while an error is shown. */
   help?: React.ReactNode;
+  /** Another element that also describes the control (a banner above the form); merged with the help or error, never replacing them. */
+  describedBy?: string;
   /** Field-level validation error (red, replaces help, announced). */
   error?: React.ReactNode;
   /** Width cap for a single-line control (see the scale above). */
@@ -59,7 +62,7 @@ export function Field({
   const id = useId();
   const helpId = `${id}-help`;
   const errorId = `${id}-error`;
-  const describedBy = error ? errorId : help ? helpId : undefined;
+  const describedBy = [extraDescribedBy, error ? errorId : help ? helpId : undefined].filter(Boolean).join(" ") || undefined;
   return (
     <FieldContext.Provider value={{ describedBy, invalid: Boolean(error) }}>
       <div className={`${SIZE[size]} ${className}`.trim()}>

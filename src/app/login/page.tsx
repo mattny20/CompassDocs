@@ -1,16 +1,23 @@
 import { redirect } from "next/navigation";
+import { preload } from "react-dom";
 import { getCurrentUser } from "@/lib/auth";
 import { getAppSettings } from "@/lib/settings-store";
 import { needsSetup } from "@/lib/db";
-import { getSsoConfig, ssoConfigured } from "@/lib/sso-config";
-import { getSamlConfig, samlConfigured } from "@/lib/saml-config";
-import { featureEnabled } from "@/lib/ee";
-import { LoginForm } from "@/components/LoginForm";
-import { safeReturnPath, withReturnPath } from "@/lib/return-to";
-import { Brand } from "@/components/Brand";
+import { providerStart, providersOf, signInSetup } from "@/lib/sign-in-routing";
+import { getSignInLook } from "@/lib/sign-in-art";
+import { ART_SIZES } from "@/lib/sign-in-text";
+import { safeReturnPath } from "@/lib/return-to";
+import { AuthShell } from "@/components/auth/AuthShell";
+import { SignInFlow, type SignInMode } from "@/components/auth/SignInFlow";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Sign in", robots: { index: false, follow: false } };
+
+// The sign-in page (1.16.0, STYLEGUIDE §Sign-in surfaces): AuthShell's
+// cover and column, and SignInFlow's steps. Which steps, decided here:
+//   no usable SSO provider (community build, nothing configured) → one
+//   combined form, no lookup; ?local=1 with SSO → the same, the break-glass;
+//   otherwise email or username first (lib/sign-in-routing).
 
 // Short error codes from the SSO callback → human messages. Codes (not raw
 // messages) cross the redirect so nothing sensitive lands in the URL.
@@ -32,84 +39,36 @@ const SSO_ERRORS: Record<string, string> = {
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ sso_error?: string; next?: string }>;
+  searchParams: Promise<{ sso_error?: string; next?: string; local?: string }>;
 }) {
   // Fresh install with no admin yet → send to the first-run setup wizard.
   if (await needsSetup()) redirect("/setup");
-  const user = await getCurrentUser();
-  const paramsEarly = await searchParams;
+  const params = await searchParams;
   // Already signed in: straight to the page they wanted (lib/return-to keeps
   // this on-site, never the sign-in page or an API route).
-  const next = safeReturnPath(paramsEarly.next);
-  if (user) redirect(next);
-  const [settings, ssoCfg, samlCfg, ssoLicensed, params] = await Promise.all([
-    getAppSettings(),
-    getSsoConfig(),
-    getSamlConfig(),
-    featureEnabled("sso"),
-    searchParams,
-  ]);
-  const ssoActive = ssoLicensed && ssoConfigured(ssoCfg);
-  const samlActive = ssoLicensed && samlConfigured(samlCfg);
-  const anySso = ssoActive || samlActive;
-  const ssoError = params.sso_error ? SSO_ERRORS[params.sso_error] || SSO_ERRORS.internal : "";
+  const next = safeReturnPath(params.next);
+  if (await getCurrentUser()) redirect(next);
+
+  const [settings, setup, look] = await Promise.all([getAppSettings(), signInSetup(), getSignInLook()]);
+  const providers = providersOf(setup).map((p) => ({ ...p, start: providerStart(p.id, next) }));
+  const mode: SignInMode = providers.length === 0 ? "combined" : params.local === "1" ? "local" : "identify";
+  const ssoError = params.sso_error ? SSO_ERRORS[params.sso_error] || SSO_ERRORS.internal : undefined;
+  if (look.art) {
+    preload(look.art.src, { as: "image", imageSrcSet: look.art.srcSet, imageSizes: ART_SIZES, fetchPriority: "high" });
+  }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-linear-to-br from-slate-100 to-compass-50 px-4">
-      <div className="w-full max-w-sm">
-        <div className="mb-6 flex flex-col items-center">
-          <Brand name={settings.company_name} logoUrl={settings.logo_url || undefined} size="lg" layout="col" />
-          <p className="mt-1 text-sm text-slate-500">Sign in to your team&apos;s knowledge base</p>
-        </div>
-        <div className="rounded-2xl border border-slate-200 bg-surface p-6 shadow-xs">
-          {ssoError && (
-            <div className="notice-error mb-4 rounded-lg border px-3 py-2 text-sm">
-              {ssoError}
-            </div>
-          )}
-          {anySso && (
-            <>
-              <div className="space-y-2">
-                {ssoActive && (
-                  <a
-                    href={withReturnPath("/api/ee/sso/login", next)}
-                    className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-surface px-4 py-2 font-semibold text-slate-700 shadow-xs transition hover:bg-slate-50"
-                  >
-                    {/* Microsoft logo — four squares */}
-                    <svg viewBox="0 0 21 21" className="h-4 w-4" aria-hidden>
-                      <rect x="1" y="1" width="9" height="9" fill="#f25022" />
-                      <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
-                      <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
-                      <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
-                    </svg>
-                    Sign in with Microsoft
-                  </a>
-                )}
-                {samlActive && (
-                  <a
-                    href={withReturnPath("/api/ee/saml/login", next)}
-                    className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-surface px-4 py-2 font-semibold text-slate-700 shadow-xs transition hover:bg-slate-50"
-                  >
-                    <svg viewBox="0 0 24 24" className="h-4 w-4 text-compass-600" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-                      <path d="M12 2a10 10 0 100 20 10 10 0 000-20z" />
-                      <path d="M8 12l3 3 5-6" />
-                    </svg>
-                    {samlCfg.buttonLabel}
-                  </a>
-                )}
-              </div>
-              {!ssoCfg.ssoOnly && (
-                <div className="my-4 flex items-center gap-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  <span className="h-px flex-1 bg-slate-200" />
-                  or
-                  <span className="h-px flex-1 bg-slate-200" />
-                </div>
-              )}
-            </>
-          )}
-          {!(anySso && ssoCfg.ssoOnly) && <LoginForm next={next} />}
-        </div>
-      </div>
-    </div>
+    <AuthShell look={look} company={settings.company_name} logoUrl={settings.logo_url || undefined}>
+      <SignInFlow
+        mode={mode}
+        ssoOnly={setup.ssoOnly}
+        next={next}
+        company={settings.company_name}
+        providers={providers}
+        ssoError={ssoError}
+        help={look.help || look.help_url ? { text: look.help, url: look.help_url } : undefined}
+        example={look.example || undefined}
+      />
+    </AuthShell>
   );
 }

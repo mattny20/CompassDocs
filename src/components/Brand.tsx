@@ -28,13 +28,13 @@ export function Brand({
     // eslint-disable-next-line @next/next/no-img-element
     <img
       src={logoUrl}
-      alt={name}
+      alt={showName ? "" : name}
       className={`${box} object-contain bg-white shadow-xs ring-1 ring-slate-200`}
     />
   ) : (
     // The CompassDocs mark — a transparent PNG that sits on any background.
     // eslint-disable-next-line @next/next/no-img-element
-    <img src="/brand/mark.png" alt={name} className={`${box} object-contain`} />
+    <img src="/brand/mark.png" alt={showName ? "" : name} className={`${box} object-contain`} />
   );
 
   return (
@@ -43,6 +43,21 @@ export function Brand({
       {/* Row layout truncates: a 16-character firm name used to collide with
           the bell in the sidebar header (the login column keeps it whole). */}
       {showName && <span className={`${nameCls} ${layout === "row" ? "min-w-0 truncate" : ""}`}>{name}</span>}
+    </span>
+  );
+}
+
+/**
+ * The workspace mark alone on a light tile (1.16.0, the sign-in cover and
+ * its column lockup): the uploaded logo, else the CompassDocs mark. Always
+ * decorative (alt=""): the workspace name is written beside it. Size and
+ * ring come from the caller.
+ */
+export function BrandTile({ logoUrl, className = "" }: { logoUrl?: string; className?: string }) {
+  return (
+    <span className={`grid shrink-0 place-items-center rounded-xl bg-white p-1 shadow-xs ${className}`.trim()}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={logoUrl || "/brand/mark.png"} alt="" className="h-full w-full object-contain" />
     </span>
   );
 }
