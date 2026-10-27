@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { passwordProblem } from "@/lib/password-policy";
-import { createUser, getUserByUsername } from "@/lib/db";
+import { createUser, EmailInUseError, getUserByUsername } from "@/lib/db";
 import { hashPassword } from "@/lib/password";
 import { apiGuard } from "@/lib/api-auth";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
@@ -8,6 +8,8 @@ import { ROLE_ORDER } from "@/lib/types";
 import type { Role } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export async function POST(req: Request) {
   const gate = await apiGuard("admin", "user.create");
@@ -36,20 +38,31 @@ export async function POST(req: Request) {
   if (!ROLE_ORDER.includes(role)) {
     return NextResponse.json({ error: "Invalid role." }, { status: 400 });
   }
+  // The same email rules as Email… on an existing account (1.16.0).
+  const email = String(body?.email ?? "").trim();
+  if (email !== "" && (email.length > 200 || !EMAIL_RE.test(email))) {
+    return NextResponse.json({ error: "That email address doesn't look valid." }, { status: 400 });
+  }
   if (await getUserByUsername(username)) {
     return NextResponse.json({ error: "That username is already taken." }, { status: 409 });
   }
 
   const { hash, salt } = hashPassword(password);
-  const user = await createUser({
-    username,
-    name: String(body?.name ?? "").trim() || username,
-    email: String(body?.email ?? "").trim(),
-    role,
-    passwordHash: hash,
-    passwordSalt: salt,
-    mustChange: true,
-  });
+  let user;
+  try {
+    user = await createUser({
+      username,
+      name: String(body?.name ?? "").trim() || username,
+      email,
+      role,
+      passwordHash: hash,
+      passwordSalt: salt,
+      mustChange: true,
+    });
+  } catch (e) {
+    if (e instanceof EmailInUseError) return NextResponse.json({ error: e.message }, { status: 409 });
+    throw e;
+  }
   await audit({
     actor: actorFrom(gate),
     action: "user.create",

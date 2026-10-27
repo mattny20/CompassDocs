@@ -28,6 +28,7 @@ import {
   KeyRound,
   LayoutList,
   LayoutTemplate,
+  LogIn,
   Mail,
   Megaphone,
   Monitor,
@@ -92,9 +93,10 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
     label: "Platform",
     sections: [
       { href: "/admin", label: "System", icon: Monitor, description: "Version, updates, health, and diagnostics for this deployment.", keywords: "version update health status docker diagnostics metrics prometheus probes healthz readyz observability", permission: "system.diagnostics_read", docs: "https://docs.compassdocs.io/self-hosting/monitoring/" },
-      { href: "/admin/workspace", label: "Workspace", icon: Palette, description: "Name, branding, accent color, and workspace-wide content options.", keywords: "name logo accent color brand theme icon company date format nested pages backlinks sub-pages tree comments", permission: "workspace.branding_manage", docs: "https://docs.compassdocs.io/admin/appearance/", pages: [
+      { href: "/admin/workspace", label: "Workspace", icon: Palette, description: "Name, branding, accent color, sign-in page, and workspace-wide content options.", keywords: "name logo accent color brand theme icon company date format nested pages backlinks sub-pages tree comments sign-in login page artwork", permission: "workspace.branding_manage", docs: "https://docs.compassdocs.io/admin/appearance/", pages: [
           { href: "/admin/workspace", label: "Branding", icon: Palette, keywords: "name logo accent colour date time" },
           { href: "/admin/workspace/content", label: "Content", icon: FileText, keywords: "retention attachments comments nested pages approval session" },
+          { href: "/admin/workspace/sign-in", label: "Sign-in page", icon: LogIn, keywords: "login sign in page artwork background image photo headline tagline caption help example focus side" },
         ], topics: [
           { href: "/admin/workspace#branding", label: "Branding", keywords: "name logo accent colour color favicon icon" },
           { href: "/admin/workspace#date-time", label: "Date & time", keywords: "timezone time zone date format 24-hour clock" },
@@ -105,6 +107,9 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
           { href: "/admin/workspace/content#outlook", label: "Outlook add-in", keywords: "outlook add-in manifest office" },
           { href: "/admin/workspace/content#session", label: "Session timeout", keywords: "session timeout inactivity logout minutes" },
           { href: "/admin/workspace/content#approval", label: "Approval workflow", keywords: "approval workflow review publish approvers" },
+          { href: "/admin/workspace/sign-in#artwork", label: "Sign-in artwork", keywords: "login background image photo picture cover focus point side upload" },
+          { href: "/admin/workspace/sign-in#sign-in-text", label: "Sign-in text", keywords: "login headline tagline caption photo credit" },
+          { href: "/admin/workspace/sign-in#sign-in-help", label: "Sign-in help", keywords: "login help text link contact example email forgot password" },
         ] },
       { href: "/admin/domain", label: "Domain & HTTPS", icon: Globe, description: "Hostname, certificates, and TLS.", keywords: "tls ssl certificate caddy hostname url", permission: "workspace.domain_manage", docs: "https://docs.compassdocs.io/self-hosting/custom-domain/", topics: [
           { href: "/admin/domain#domain", label: "Custom domain", keywords: "hostname dns" },
@@ -129,7 +134,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
   {
     label: "People & access",
     sections: [
-      { href: "/admin/users", label: "Users", icon: Users, description: "Accounts, roles, and password resets.", keywords: "users roles people accounts password reset viewer editor approver admin disable", permission: "user.read", docs: "https://docs.compassdocs.io/admin/users-and-roles/" },
+      { href: "/admin/users", label: "Users", icon: Users, description: "Accounts, roles, emails, and password resets.", keywords: "users roles people accounts email confirm password reset viewer editor approver admin disable", permission: "user.read", docs: "https://docs.compassdocs.io/admin/users-and-roles/" },
       { href: "/admin/roles", label: "Roles & permissions", icon: ShieldCheck, description: "Custom roles, the permission matrix, and who holds what.", keywords: "rbac permission role custom grant assign scope matrix explain access control least privilege", permission: "role.read", docs: "https://docs.compassdocs.io/admin/roles-and-permissions/", pages: [
           { href: "/admin/roles", label: "Roles", icon: ShieldCheck, keywords: "roles permission matrix custom" },
           { href: "/admin/roles/assignments", label: "Assignments", icon: ClipboardList, keywords: "assign grant holders delegate space-scoped" },

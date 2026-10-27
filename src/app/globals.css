@@ -903,6 +903,191 @@ table {
   @apply dark:border-green-800/60 dark:bg-green-950/40 dark:text-green-300;
 }
 
+/* --- Sign-in shell (STYLEGUIDE §Sign-in surfaces, 1.16.0) ------------------
+ * AuthShell: a cover beside a plain form column from 64rem, a band above it
+ * below. The cover is brand and decoration only; nothing operable or
+ * essential sits on it (the Card/Stage rule). Breakpoints are viewport
+ * queries; type in the cover follows the cover's own width (cqi), so a 3440
+ * monitor and the admin preview agree. rem throughout, px only for hairlines.
+ * The cover's ink is a literal white: the art is dark in both themes (the
+ * accent's 600–900 steps keep white text at AA, lib/theme solidAccent), and
+ * text over a photo sits on a scrim each text block draws for itself, with a
+ * floor of 0.62 under every glyph (5.84:1 on a pure-white photo). */
+.auth-shell {
+  --auth-col: clamp(26rem, 34vw, 38rem);
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: rgb(var(--canvas));
+}
+.auth-main { grid-row: 2; min-width: 0; padding: 2rem 1rem 3rem; }
+.auth-col { width: 100%; max-width: 24rem; margin-inline: auto; }
+
+.auth-art {
+  grid-row: 1;
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  container: auth-art / inline-size;
+  height: 6rem;
+  color: #fff;
+  background-color: var(--art-tone, rgb(var(--compass-800)));
+  --art-pad: 1rem;
+  --fade: 3rem;
+  --scrim: 0.62;
+}
+@media (width >= 40rem) {
+  .auth-main { padding: 3.5rem 2rem 4rem; }
+  .auth-art { height: 10rem; --art-pad: 2rem; }
+}
+@media (width < 64rem) and (height < 34rem) {
+  .auth-art { height: 4rem; }
+  .auth-main { padding-top: 1.5rem; }
+}
+@media (width >= 64rem) {
+  .auth-shell { grid-template-rows: none; grid-template-columns: minmax(0, 1fr) var(--auth-col); }
+  .auth-shell[data-side="end"] { grid-template-columns: var(--auth-col) minmax(0, 1fr); }
+  .auth-main { grid-row: 1; grid-column: 2; padding: clamp(5rem, 22vh, 13rem) 2.5rem 4rem; }
+  .auth-shell[data-side="end"] .auth-main { grid-column: 1; }
+  .auth-art {
+    grid-row: 1;
+    grid-column: 1;
+    align-self: start;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    height: 100dvh;
+    --art-pad: clamp(2rem, 4cqi, 4.5rem);
+    --fade: 6rem;
+  }
+  .auth-shell[data-side="end"] .auth-art { grid-column: 2; }
+}
+
+/* The art's layers (inside .auth-art-bg, aria-hidden). */
+.auth-art-bg { position: absolute; inset: 0; z-index: -1; }
+.auth-art-layer { position: absolute; inset: 0; width: 100%; height: 100%; }
+.auth-art-mesh {
+  background: linear-gradient(200deg, rgb(var(--compass-600)) 0%, rgb(var(--compass-800)) 55%, rgb(var(--compass-900)) 100%);
+}
+@media (width >= 64rem) {
+  .auth-art-mesh {
+    background:
+      radial-gradient(55% 45% at 88% 8%, rgb(var(--compass-400) / 0.5), transparent 70%),
+      radial-gradient(40% 50% at 100% 62%, rgb(var(--compass-500) / 0.35), transparent 70%),
+      linear-gradient(200deg, rgb(var(--compass-600)) 0%, rgb(var(--compass-800)) 55%, rgb(var(--compass-900)) 100%);
+  }
+}
+.auth-art-bezel {
+  color: #fff;
+  -webkit-mask-image: linear-gradient(to right, transparent 55%, #000 80%);
+  mask-image: linear-gradient(to right, transparent 55%, #000 80%);
+}
+@media (width >= 64rem) {
+  .auth-art-bezel {
+    -webkit-mask-image: linear-gradient(to right, transparent 30%, #000 60%), linear-gradient(to bottom, #000 40%, transparent 62%);
+    -webkit-mask-composite: source-in;
+    mask-image: linear-gradient(to right, transparent 30%, #000 60%), linear-gradient(to bottom, #000 40%, transparent 62%);
+    mask-composite: intersect;
+  }
+}
+.auth-art-grain {
+  opacity: 0.08;
+  mix-blend-mode: soft-light;
+  background-size: 10rem 10rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 160 160'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+}
+.auth-art-blur {
+  inset: -2rem;
+  width: auto;
+  height: auto;
+  background-size: cover;
+  background-position: var(--art-focus, 50% 50%);
+  filter: blur(1.5rem);
+}
+.auth-art-img { object-fit: cover; object-position: var(--art-focus, 50% 50%); }
+[data-theme="dark"] .auth-art-bg { filter: brightness(0.8); }
+
+/* The cover's words. */
+.auth-art-content {
+  position: relative;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding-inline: var(--art-pad);
+}
+.auth-art-top {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: fit-content;
+  max-width: 55%;
+  min-width: 0;
+}
+.auth-art-tile { width: 2rem; height: 2rem; }
+.auth-art-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 1rem; font-weight: 600; }
+.auth-art-foot { display: none; }
+@media (width >= 40rem) {
+  .auth-art-tile { width: 2.5rem; height: 2.5rem; }
+  .auth-art-name { font-size: 1.25rem; }
+}
+@media (width >= 64rem) {
+  .auth-art-content { justify-content: space-between; padding-block: var(--art-pad); }
+  .auth-art-top { width: 100%; max-width: none; }
+  .auth-art-tile { width: clamp(2.5rem, 2rem + 0.8cqi, 3.25rem); height: clamp(2.5rem, 2rem + 0.8cqi, 3.25rem); }
+  .auth-art-name { font-size: clamp(1rem, 0.85rem + 0.35cqi, 1.25rem); max-width: 24ch; }
+  .auth-art[data-headline="0"] .auth-art-name { display: none; }
+  .auth-art-foot { display: block; position: relative; isolation: isolate; }
+}
+
+/* Text over a photo: each text block draws its own scrim. */
+.auth-art[data-art="photo"] .auth-art-top::before,
+.auth-art[data-art="photo"] .auth-art-foot::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  pointer-events: none;
+}
+.auth-art[data-art="photo"] .auth-art-top::before {
+  inset: -5rem calc(-1 * var(--fade)) -5rem calc(-1 * var(--art-pad));
+  background: linear-gradient(to right, rgb(2 6 23 / var(--scrim)) calc(100% - var(--fade)), rgb(2 6 23 / 0));
+}
+@media (width >= 64rem) {
+  .auth-art[data-art="photo"] .auth-art-top::before {
+    inset: calc(-1 * var(--art-pad)) calc(-1 * var(--art-pad)) calc(-1 * var(--fade));
+    background: linear-gradient(to bottom, rgb(2 6 23 / var(--scrim)) calc(100% - var(--fade)), rgb(2 6 23 / 0));
+  }
+  .auth-art[data-art="photo"] .auth-art-foot::before {
+    inset: calc(-1 * var(--fade)) calc(-1 * var(--art-pad)) calc(-1 * var(--art-pad));
+    background: linear-gradient(to top, rgb(2 6 23 / calc(var(--scrim) + 0.1)), rgb(2 6 23 / var(--scrim)) calc(100% - var(--fade)), rgb(2 6 23 / 0));
+  }
+}
+
+/* The display line, sized against the cover's width. */
+.auth-display { font-weight: 700; text-wrap: balance; overflow-wrap: anywhere; }
+.auth-display[data-len="s"] { font-size: clamp(2.75rem, 0.5rem + 6.2cqi, 5.5rem); line-height: 1.02; letter-spacing: -0.035em; max-width: 13ch; }
+.auth-display[data-len="m"] { font-size: clamp(2.25rem, 0.5rem + 4.4cqi, 4.25rem); line-height: 1.05; letter-spacing: -0.03em; max-width: 17ch; }
+.auth-display[data-len="l"] { font-size: clamp(1.875rem, 0.5rem + 3.1cqi, 3.25rem); line-height: 1.1; letter-spacing: -0.025em; max-width: 22ch; }
+.auth-tagline { margin-top: 1.25rem; max-width: 38ch; font-size: clamp(1.0625rem, 0.8rem + 0.5cqi, 1.375rem); line-height: 1.5; text-wrap: pretty; }
+.auth-caption { margin-top: 2rem; display: flex; align-items: center; gap: 0.75rem; font-size: 0.75rem; line-height: 1.4; }
+.auth-caption::before { content: ""; flex: none; width: 2rem; height: 1px; background: rgb(255 255 255 / 0.6); }
+
+@media (prefers-contrast: more) {
+  .auth-art { --scrim: 0.8; }
+  .auth-art-bezel, .auth-art-grain { display: none; }
+}
+@media (forced-colors: active) {
+  .auth-art-bg, .auth-art-top::before, .auth-art-foot::before { display: none; }
+  .auth-art { outline: 1px solid CanvasText; outline-offset: -1px; }
+}
+@media print {
+  .auth-art { display: none; }
+  .auth-shell { display: block; }
+}
+
 /* --- Command palette ------------------------------------------------------
  * Unlayered on purpose, exactly like the [data-tt] block above: these are
  * hand-written component styles, not Tailwind utilities. Unlayered rules also

@@ -87,7 +87,10 @@ describe("style drift guard", () => {
       "app/(public)/public/not-found.tsx",
       "app/(public)/upload/[token]/page.tsx",
       "app/oauth/authorize/page.tsx",
-      "app/account/password/page.tsx",
+      // Sign-in surfaces (1.16.0, §Sign-in surfaces): AuthHeading is the one
+      // h1 of AuthShell, for /login, its preview and the forced password
+      // change, so none of those pages writes an <h1> of its own.
+      "components/auth/AuthHeading.tsx",
       "app/setup/page.tsx",
       "app/not-found.tsx",
       "app/(app)/not-found.tsx",

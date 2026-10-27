@@ -450,7 +450,7 @@ export function AddinAuthClient({ authed }: { authed: boolean }) {
         ) : (
           <form onSubmit={submit} className="space-y-3">
             <FormError>{error}</FormError>
-            <Field label="Username">
+            <Field label="Email or username">
               <TextInput
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
@@ -474,7 +474,7 @@ export function AddinAuthClient({ authed }: { authed: boolean }) {
             </button>
             <p className="text-xs text-slate-500">
               Uses your normal CompassDocs account. If your team signs in with single sign-on,{" "}
-              <a href="/login" className="text-compass-700 underline">
+              <a href="/login?next=%2Faddin%2Foutlook%2Fauth" className="text-compass-700 underline">
                 use the full sign-in page
               </a>{" "}
               — then close this window and click Sign in again.

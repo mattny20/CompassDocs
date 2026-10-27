@@ -3,7 +3,7 @@ import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { loginHref } from "./return-to";
 import {
-  getUserByUsername,
+  signInCandidates,
   getSessionUser,
   createSession,
   deleteSession,
@@ -14,7 +14,7 @@ import {
 } from "./db";
 import { verifyTotpStep } from "./totp";
 import { openSecret } from "./secretbox";
-import { verifyPassword, newToken } from "./password";
+import { verifyPassword, verifyNothing, newToken } from "./password";
 import { getSessionTimeoutMinutes, getSecureCookieMode } from "./settings-store";
 import { SESSION_TIMEOUT_MAX } from "./settings";
 import { roleAtLeast } from "./types";
@@ -220,11 +220,43 @@ export async function reachableSettingsSections(user: SessionUser): Promise<stri
   return SETTINGS_SECTIONS.filter((s) => admits(grants, s.permission)).map((s) => s.href);
 }
 
+/** The longest identifier the sign-in accepts: an email address's maximum. */
+export const IDENTIFIER_MAX = 254;
+
+type SignInRecord = Awaited<ReturnType<typeof signInCandidates>>[number];
+
+/**
+ * The account an identifier names on the password step (1.16.0): the
+ * username first, of any status, else the one active account with a password
+ * whose email it is. Undefined when neither (or the email is ambiguous). One
+ * query for every outcome (db signInCandidates).
+ *
+ * A row counts only when it equals the identifier under JS toLowerCase(), the
+ * folding the sign-in throttle keys on (lib/login-guard): Postgres lower() in
+ * a UTF-8 database also folds "İ" to "i", so "alİce" would sign in as "alice"
+ * with five attempts of its own.
+ */
+export async function resolveSignInAccount(identifier: string): Promise<SignInRecord | undefined> {
+  const id = identifier.trim();
+  if (!id || id.length > IDENTIFIER_MAX) return undefined;
+  const key = id.toLowerCase();
+  const byName = (r: SignInRecord) => r.username.toLowerCase() === key;
+  const rows = (await signInCandidates(id)).filter(
+    (r) =>
+      byName(r) ||
+      (key.includes("@") && r.status === "active" && !!r.password_hash && (r.email || "").toLowerCase() === key)
+  );
+  return rows.find(byName) ?? (rows.length === 1 ? rows[0] : undefined);
+}
+
 /**
  * Verify credentials and open a session. Returns the token to set as a cookie,
  * null on failure (bad password/code, unknown user, or disabled account), or
  * a totp_required marker when the password checked out but the account has
- * two-factor auth and no (valid) code was supplied yet.
+ * two-factor auth and no (valid) code was supplied yet. `username` may be an
+ * email (resolveSignInAccount). Every failure before the password check
+ * spends the same scrypt as a real one, so timing says nothing about the
+ * account.
  */
 export async function login(
   username: string,
@@ -232,9 +264,10 @@ export async function login(
   totpCode?: string,
   device?: { ip?: string | null; userAgent?: string | null }
 ): Promise<{ token: string; user: User } | { totp_required: true } | null> {
-  const record = await getUserByUsername(username.trim());
-  if (!record || record.status !== "active") return null;
-  if (!record.password_hash || !record.password_salt) return null;
+  const record = await resolveSignInAccount(username);
+  if (!record || record.status !== "active" || !record.password_hash || !record.password_salt) {
+    return verifyNothing(password) || null;
+  }
   if (!verifyPassword(password, record.password_hash, record.password_salt)) return null;
 
   if (record.totp_enabled === 1 && record.totp_secret) {

@@ -18,6 +18,7 @@ import type { AppSettings } from "@/lib/settings";
 import { toast } from "@/components/Toasts";
 import { Field, TextInput, Select, Textarea, Toggle, rangeError } from "@/components/form";
 import { SaveRow } from "@/components/SaveRow";
+import { SettingsLink } from "@/components/SettingsLink";
 import { useLeaveGuard, useUnsavedChanges } from "@/lib/use-unsaved";
 import { contrastRatio, solidAccent } from "@/lib/theme";
 
@@ -298,6 +299,10 @@ export function WorkspaceSettings({ initial, scope }: { initial: AppSettings; sc
           <span className="text-xs font-medium text-slate-500">Preview</span>
           <Brand name={s.company_name || "CompassDocs"} logoUrl={s.logo_url || undefined} />
         </div>
+        <p className="mt-3 text-xs text-slate-500">
+          The sign-in page has its own artwork and text:{" "}
+          <SettingsLink href="/admin/workspace/sign-in">Sign-in page</SettingsLink>.
+        </p>
       </div>
 
       {/* Localization */}

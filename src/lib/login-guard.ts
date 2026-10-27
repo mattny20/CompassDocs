@@ -6,17 +6,26 @@ import "server-only";
 //
 // Policy:
 //  - 5 failures for the same username+IP within the window → that pair is
-//    locked for 15 minutes.
+//    locked for 15 minutes. The sign-in route passes the identifier as
+//    typed, an email included (1.16.0), never the account it resolves to,
+//    so a lock says nothing about which account an email belongs to.
 //  - 30 failures from one IP across any usernames → the IP is locked for
 //    15 minutes (catches sprays across many accounts).
 //  - Any successful login clears the username+IP pair.
-//  - The typed signature (lib/attestation, 1.12.0) counts against the
-//    username+IP pair only (recordPairFailure / pairRetryAfter below): a
-//    signed-in session has a fixed username, so the pair already bounds
-//    the oracle to 5 guesses per address, and a workforce signing a policy
-//    behind one NAT must not trip the spray counter and lock sign-in for
-//    the whole office. A pair lock engaged there holds for the sign-in
-//    form too (loginRetryAfter reads the same map).
+//  - The sign-in route counts an attempt as it starts (beginLoginAttempt),
+//    in the same synchronous step as the check, and gives it back when it
+//    did not fail (refundLoginAttempt): a burst sent at once can't all pass
+//    the check before the first failure is counted.
+//  - The typed signature (lib/attestation, 1.12.0) and the password change
+//    (/api/auth/change-password) count against the username+IP pair only
+//    (recordPairFailure / pairRetryAfter below), with no await between the
+//    check and the count: a signed-in session has a fixed username, so the
+//    pair already bounds the oracle to 5 guesses per address, and a
+//    workforce signing a policy behind one NAT must not trip the spray
+//    counter and lock sign-in for the whole office. A pair lock engaged
+//    there holds for the sign-in form too when the username is typed (an
+//    email is its own key); beginLoginAttempt and loginRetryAfter read the
+//    same map.
 
 const WINDOW_MS = 15 * 60 * 1000;
 const LOCK_MS = 15 * 60 * 1000;
@@ -59,6 +68,57 @@ function sweep(now: number): void {
 
 function pairKey(username: string, ip: string): string {
   return `${username.toLowerCase().trim()}|${ip}`;
+}
+
+/** One counted attempt in one map: the entry it went into, and whether it engaged that entry's lock. */
+type Slot = { key: string; entry: Entry; engaged: boolean };
+
+/**
+ * A sign-in attempt counted before its outcome is known. `wait` > 0: refused
+ * and not counted. `lockEngaged`: counting it engaged the pair or IP lock, to
+ * be audited once if the attempt fails.
+ */
+export type LoginAttempt = { wait: number; lockEngaged: boolean; pair?: Slot; ip?: Slot };
+
+function reserve(map: Map<string, Entry>, key: string, limit: number, now: number): Slot {
+  const engaged = bump(map, key, limit, now);
+  return { key, entry: map.get(key)!, engaged };
+}
+
+function release(map: Map<string, Entry>, slot: Slot): void {
+  if (map.get(slot.key) !== slot.entry) return; // cleared, swept or a new window since
+  slot.entry.fails = Math.max(0, slot.entry.fails - 1);
+  if (slot.engaged) slot.entry.lockedUntil = 0;
+}
+
+/**
+ * Check and count a sign-in attempt in one step: the caller must not await
+ * between the two, or a burst sent at once all passes the check. A failed
+ * attempt keeps its count; one that did not fail goes to refundLoginAttempt.
+ */
+export function beginLoginAttempt(username: string, ip: string): LoginAttempt {
+  const now = Date.now();
+  const key = pairKey(username, ip);
+  const wait = Math.max(lockedFor(pairs, key, now), lockedFor(ips, ip, now));
+  if (wait > 0) return { wait, lockEngaged: false };
+  const pair = reserve(pairs, key, PAIR_LIMIT, now);
+  const addr = reserve(ips, ip, IP_LIMIT, now);
+  return { wait: 0, lockEngaged: pair.engaged || addr.engaged, pair, ip: addr };
+}
+
+/**
+ * Give back an attempt that did not fail: signed in (which also clears the
+ * pair, as recordLoginSuccess does), or the right password with the code
+ * still to come. A lock that counting it engaged is lifted. Once only.
+ */
+export function refundLoginAttempt(attempt: LoginAttempt, signedIn: boolean): void {
+  const { pair, ip } = attempt;
+  attempt.pair = attempt.ip = undefined;
+  if (pair) {
+    if (signedIn) pairs.delete(pair.key);
+    else release(pairs, pair);
+  }
+  if (ip) release(ips, ip);
 }
 
 /** Seconds the caller must wait before another attempt, or 0 if allowed. */

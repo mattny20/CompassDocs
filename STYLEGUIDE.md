@@ -39,9 +39,11 @@ Documented exceptions: the dashboard greeting (an `h1` with no icon,
 because it is a greeting), the editor's sticky bar (the document title is
 the editable field), and the two mastheads — a space (its 48px icon tile)
 and a person (their photo) — where the tile or photo stands in for the
-24px lucide icon. Standalone surfaces outside the shell (setup, sign-in,
-the forced password change, OAuth consent, error pages, the public site)
-keep their own titles.
+24px lucide icon. Standalone surfaces outside the shell (setup, OAuth
+consent, error pages, the public site) keep their own titles. Sign-in, its
+admin preview and the forced password change (1.16.0) title themselves
+with `AuthHeading`, the one h1 of `AuthShell` (§Sign-in surfaces), and
+none of those pages writes an `<h1>` of its own.
 
 - **Never hard-code a page width** (`max-w-*` on the page wrapper) — that
   breaks the user's width preference. Narrow *content columns* inside a page
@@ -93,7 +95,7 @@ keep their own titles.
   Normal/Wide/Full width.
 - **Document title.** Every page exports `metadata` (or `generateMetadata`)
   with a page-specific title; the root layout's template appends the
-  workspace name, so the tab reads "Users & roles — Acme". Admin pages use
+  workspace name, so the tab reads "Users — Acme". Admin pages use
   `settingsMetadata(href)` from `lib/settings-sections` with the same href
   they hand `SettingsPage`; dynamic pages read the entity through
   `lib/page-data` (per-request `cache()`) so the title and the body share
@@ -133,7 +135,12 @@ skip the lucide page-title icon — the h1 is the thing itself (a document title
 "Add an image to X"), not a navigation label.
 
 Keep this list closed. A page that a signed-in user reaches from the product is
-a top-level page and uses `PageContainer`, however standalone it feels.
+a top-level page and uses `PageContainer`, however standalone it feels. The
+one page that looks like an exception is not: the sign-in preview
+(`/login/preview`, 1.16.0), which an admin opens from Settings → Workspace →
+Sign-in page, is the sign-in page itself rendered with scripted answers, so
+it wears `AuthShell` like `/login` (§Sign-in surfaces), not a page shell of
+its own.
 
 ## Sections and cards
 
@@ -299,6 +306,20 @@ the build on a primary recipe written outside the module.
 - Prefer **icon buttons with tooltips** where the action is obvious from the
   icon (toolbars, table row actions, dense UI); keep icon + text where the
   action is rare or destructive.
+- **An alternate-path action** on a sign-in surface (1.16.0: "Use a password
+  instead", "Use single sign-on instead", "Use a recovery code", "Use your
+  authenticator app", "Back") is `<button type="button" className="link
+  text-sm font-medium">`, or `<a className="link …">` when it goes to
+  another address. It is the one link-styled text button in the product,
+  and it sits flush left in a column under the form (`mt-6 flex flex-col
+  items-start gap-3`), never in a row beside the submit and never as a
+  `ghost` button: it is a way round the form, not a second action of it.
+- **On sign-in surfaces** the submit is a bare `<button type="submit"
+  className={buttonClass("primary", "lg", "w-full")}>`, whose busy state is
+  `aria-disabled` rather than `busy` (§Sign-in surfaces), and a single
+  sign-on hand-off is an `<a href>` styled with `buttonClass`, never
+  `<Button href>`: next/link can prefetch the GET that starts an identity
+  provider's flow.
 
 ## Tooltips
 
@@ -496,6 +517,49 @@ focus):
   the row's other controls take the typed label. Add is wrapped in
   `Tooltip` ("Up to 24 markers.") once the limit is reached.
   `MarkersCard` is the worked example.
+- **An image upload on a settings page acts at once**, like the logo
+  (1.16.0, the sign-in artwork): Upload and Replace store the file, toast
+  and `router.refresh()`, and never dirty the page's `SaveRow`, so a typed
+  but unsaved field survives them; Remove deletes files and cannot be
+  undone, so it asks through `confirmDialog({ danger: true })`. The file
+  input is `sr-only` with `tabIndex={-1}` behind a `secondary` button with
+  `ImageUp`, and the accepted types, the size limit and the smallest
+  useful size are one `text-xs text-slate-500` line under it.
+- **A focal-point picker** (1.16.0, "Keep in view" on the sign-in artwork)
+  is a `fieldset` with a legend holding the **uncropped** picture
+  (`object-contain` in a box at the image's own aspect ratio) and, over
+  it, a `role="radiogroup"` of nine cells in a 3×3 grid: each a `<button
+  role="radio" aria-checked>` named for its place ("Top left", "Center"),
+  one tab stop (roving `tabIndex`), Left and Right moving within a row, Up
+  and Down between rows, Home and End to the corners, the choice following
+  focus. The chosen cell's dot is `h-4 w-4` accent with a white border and
+  `shadow-float`; the others are small white dots that brighten on hover
+  and keyboard focus (literal white and black: they sit on the picture,
+  which does not follow the theme). One help sentence under it is the
+  group's description. `FocusPicker` in `SignInPageSettings` is the worked
+  example.
+- **A preview of a whole page is the real page in an iframe at a real
+  device size** (1.16.0, the sign-in page's Preview card;
+  `components/auth/PreviewFrame`), never a component scaled down in place:
+  rem, `clamp()`, `cqi` and breakpoints then resolve exactly as on the
+  device. The iframe is laid out at the preset's viewport in px (Laptop
+  1440×900, Ultrawide 3440×1440, Phone 390×844; §Scaling allows it) and
+  scaled with a `transform` to the card's width (a phone to at most 32rem
+  tall, centred), measured by a `ResizeObserver`. The wrapper is a leaf,
+  `inert`, `overflow-hidden rounded-lg ring-1 ring-slate-200`, so nothing
+  inside it takes focus or a click; the iframe has a `title`,
+  `tabIndex={-1}` and `loading="lazy"`; its address carries the form's
+  unsaved values and follows them 400ms behind, dimmed with `busyClass`
+  until it loads; only the chosen preset is mounted. Size and theme are
+  two `sm` `Segmented` controls with `flex-wrap` (§Segmented controls),
+  and **Open full-size preview** opens the same page in a new tab. The
+  previewed page must send nothing anywhere (the sign-in preview runs on
+  a demo transport), and the card says so. The card sits beside the
+  fields it previews, sticky (`@3xl:sticky @3xl:top-6`), from a 48rem
+  container, so the default Wide column (53rem) keeps it in view while a
+  field is typed in; narrower, it stacks above them in a
+  `grid-cols-[minmax(0,1fr)]` track, so no card's content can widen the
+  column on a phone.
 
 ## Forms
 
@@ -543,6 +607,26 @@ One field recipe, one input recipe, one width scale. Everything lives in
   (8). Every form shows `PASSWORD_HELP` under the field and validates with
   `passwordProblem()`; every route refuses with the same function. Never a
   literal number in a form or a route.
+- **On sign-in surfaces** (1.16.0, §Sign-in surfaces) inputs are
+  `TextInput className="h-10 text-base sm:text-sm"`: 2.5rem, the height of
+  the `lg` button under them, and 16px text on a phone so iOS does not zoom
+  in on focus. The forced password change uses the same recipe; Account →
+  Security keeps the house one.
+- **Show password** is a checkbox under the field ("Show password", or
+  "Show passwords" for the three fields of the forced change), `text-sm
+  text-slate-600`, never an eye icon inside the input (a `Field` holds one
+  control). Before the request it is switched off with `flushSync`, so the
+  field is `type="password"` again when the browser decides whether to
+  offer to save it.
+- **The Caps Lock hint** goes through the password `Field`'s `help` ("Caps
+  Lock is on."), read with `getModifierState("CapsLock")` on key down and
+  up, cleared on blur, and announced once per change; never a tooltip or a
+  second line of its own.
+- **`Field describedBy`** (1.16.0) adds ids to the control's
+  `aria-describedby` and **merges** with the Field's own help or error,
+  never replaces them: the sign-in page points the identifier at the
+  single sign-on error banner, so the banner is read with the autofocused
+  field while its own help and error still describe it.
 - **Labels** are `text-xs font-medium text-slate-500`, above the control;
   an optional field says so in the label (`(optional)`) rather than with a
   placeholder. Placeholders are examples, never the label: a control with
@@ -642,7 +726,223 @@ is a `Segmented` (1.9.3) — a radiogroup, so specs find it with
   like the console: an "Account" eyebrow, the rail (`AccountNav`, rows from
   `components/RailLink`) and `<AccountPage href>` rendering the section's
   icon, label and description from `lib/account-sections.ts` as the page's
-  `h1`. The forced password change (`/account/password`) stays standalone.
+  `h1`. The forced password change (`/account/password`) stays outside the
+  shell: it is the second half of signing in, so since 1.16.0 it wears the
+  sign-in shell (`AuthShell` and `AuthHeading`, §Sign-in surfaces) with
+  the account in an `IdentifierRow` ("Signed in as", with Sign out).
+  Changing a password from Account → Security is unchanged.
+
+## Sign-in surfaces
+
+The sign-in page (`/login`), its admin preview (`/login/preview`) and the
+forced password change (`/account/password`) share one shell (1.16.0).
+`/setup` and `/oauth/authorize` keep theirs for now; moving them is
+mechanical and comes later.
+
+- **`AuthShell` is the only auth shell** (`components/auth/AuthShell`,
+  server-safe, styled by the `.auth-*` block in `globals.css`). From 64rem
+  it is a **cover** beside a plain, card-less **form column**; below 64rem
+  the cover becomes a **band** above the column, in normal flow, so
+  nothing ever overlays an input. The column is `--auth-col: clamp(26rem,
+  34vw, 38rem)` wide (416px at 1024, 490 at 1440, capped at 38rem), the
+  form in it 24rem, text flush left and top-anchored (`clamp(5rem, 22vh,
+  13rem)` from the top), so the h1 never moves between steps; below 64rem
+  the form is centred in the 16px gutter. The band is 6rem tall on a phone
+  (the lockup only), 10rem from 40rem, and 4rem when the viewport is under
+  34rem tall (a landscape phone, the Outlook dialog), which wins by source
+  order. The cover is a sticky, full-height `aside`. The grid uses
+  `minmax(0, 1fr)`, so nothing scrolls sideways at 3440.
+- **DOM order is `<main>` first**, then the cover. The grid puts the cover
+  on the side the admin chose (**Artwork side**: `data-side="start"`, art
+  on the left, the default; `"end"`, art on the right), so Tab and a
+  screen reader reach the heading and the field before the art whichever
+  side it is on. `<main id="main" tabIndex={-1}>` holds the form.
+- **`AuthHeading` is the one h1** (`components/auth/AuthHeading`; the
+  style-drift h1 allow-list names it, not the pages): `text-3xl font-bold
+  tracking-[-0.02em] text-balance text-slate-900`, an optional `mt-2
+  text-sm text-slate-500` subtitle, `id="auth-title"` (the form's
+  `aria-labelledby`) and `tabIndex={-1}`, so a step without a field can
+  focus its heading (the house focus rule leaves `tabindex="-1"` out, so
+  never add `outline-none` to it). The page `metadata` title stays "Sign
+  in" (the template adds the workspace name) with `robots` noindex.
+- **The Card/Stage rule.** Nothing operable or essential ever sits on the
+  art. The cover holds the logo tile, the workspace name, the headline,
+  tagline and caption, and decoration; every control, error, help line
+  and link is in the column. The first and password steps, and the
+  forced password change, also name the workspace in the form's subtitle
+  ("to continue to Acme"); a step with a sentence of its own (the
+  break-glass, the choice of providers, two-factor) does not. The column
+  starts with the lockup (`BrandTile` and the name, `mb-8`) whenever the
+  cover does not carry the name: on screen when an admin turns the text
+  off over a photo, and always in print (`hidden print:flex`), which
+  hides the cover. With text, the cover is `<aside aria-label="About
+  {Company}">`; with the text off it is a `div` with `aria-hidden`.
+- **Default art** (no upload) is drawn from the accent and makes no
+  request. Back to front: `.auth-art-mesh` (compass 600 → 800 → 900 at
+  200°, plus two glows at the top right from 64rem, which fade out before
+  any text), `CompassBezel` (an inline SVG dial in white strokes, anchored
+  top-right with `xMaxYMin slice` on every aspect ratio and masked away
+  from the lockup's left 30% and the display's bottom 38%; in the band,
+  from the left 55%) and `.auth-art-grain` (a data-URI `feTurbulence` tile
+  at opacity .08, soft-light, which stops banding on a large panel). The
+  600 to 900 steps do not flip with the theme; dark mode dims
+  `.auth-art-bg` with `brightness(0.8)`. The dial is abstract, so it suits
+  a white-labelled workspace.
+- **A photo** is an `<img>` with a `srcset` of three WebP widths (960, 1600,
+  2560) and `sizes` written as a media list (`ART_SIZES`; never a
+  `clamp()` in `sizes`), `alt=""` and `object-fit: cover`, preloaded from
+  the server component with `fetchPriority="high"`. Under it, the
+  picture's mean colour (`--art-tone`) and a 20px blurred placeholder
+  paint at once, and since band and cover heights never depend on the
+  image nothing shifts and nothing fades. The **focus point** is one of
+  nine positions (`FOCUS_POSITION`) that sets `object-position` and the
+  placeholder's `background-position`. A missing file (a database-only
+  restore) falls back to the default art. One image serves both themes;
+  dark mode dims it as it dims the default art.
+- **Text on art.** Ink on the cover is a literal pure white in both themes
+  (the art is dark in both; §Color and theming), never translucent. Over
+  a photo each text block (`.auth-art-top`, `.auth-art-foot`) draws its
+  own scrim as a `::before` of `rgb(2 6 23 / var(--scrim))`, so the floor
+  of **0.62** sits under every glyph whatever the crop, focus point or
+  viewport; the foot's scrim deepens by 0.1 towards the bottom edge. A
+  scrim drawn by the text block is provable where an upload-time contrast
+  solver is not (which pixels sit under the text changes with the screen).
+  `prefers-contrast: more` raises the floor to 0.8 and drops the bezel and
+  grain; `forced-colors: active` hides the art and its scrims and outlines
+  the cover in `CanvasText`; print hides the cover and prints the form
+  under the column's lockup.
+
+  | Pair | Worst case | Ratio |
+  | --- | --- | --- |
+  | White text on a photo under the 0.62 scrim | a pure-white photo (rgb 98 101 111 under the text) | 5.84:1, AA for `text-xs` captions |
+  | The same under `prefers-contrast: more` (0.8) | a pure-white photo | about 11:1 |
+  | White on the default art | compass-600, the lightest step under text | 4.5:1 or more for any accent (`solidAccent`, `test/theme.test.ts`) |
+  | Dark mode | `brightness(0.8)` dims the art only, never the scrims | only improves |
+  | The form column | `slate-500` labels and help on `canvas`, `link` in accent ink | the house AA tokens |
+
+- **Display type follows the cover, not the viewport.** `.auth-art` is a
+  leaf `inline-size` container (`container: auth-art / inline-size`): a
+  sibling of `<main>`, holding no overlay, so §Scaling's container rule
+  allows it; band or cover is decided by viewport media queries in rem.
+  The big line (the headline, else the workspace name) takes one of three
+  tiers by length (`lenTier`: up to 18 characters `s`, up to 36 `m`,
+  longer `l`), each a `clamp()` in `cqi` with a `ch` cap (13, 17, 22): the
+  short tier is 45px at 1024, 67px at 1440 and 99px, its cap, at 2560. The
+  tagline and caption scale the same way, the lockup name is capped at
+  24ch, and the display hides the lockup's name when it is the name.
+  Aileron 400, 600 and 700 only; no display font, no weight 800.
+
+### Identifier-first steps
+
+`SignInFlow` (`components/auth/SignInFlow`, client) is the form. Its mode
+is decided on the server: with no usable single sign-on provider (the
+community build, or nothing configured) it is **one combined form**, email
+or username plus password, with today's DOM and **no lookup call, ever**;
+`/login?local=1` gives the same form while SSO is on (the break-glass);
+otherwise it asks for the email or username first and `POST
+/api/auth/lookup` says where it goes (`lib/sign-in-routing`).
+
+- **One form, fixed DOM positions.** The identifier input stays mounted
+  for the whole flow and is the only `autocomplete="username"` element;
+  once locked it is hidden and `IdentifierRow` shows the value in the same
+  2.5rem box, and Continue becomes Sign in on the same button, so nothing
+  jumps. The first step has **no password input** at all. At most one
+  submit per step; a step without a field (a redirect, a choice) has none.
+- **Uncontrolled inputs, read on submit.** The handler reads the values
+  from the DOM, so whatever was typed or filled by a password manager
+  before hydration is used; React state mirrors only what the UI needs
+  (the locked value, Caps Lock, Show password).
+- **No plain form post.** The submit is server-rendered `disabled` until
+  hydration (implicit submission is a no-op while the default button is
+  disabled, and Playwright's click waits for it to be enabled), and the
+  form is `method="post"` as defence in depth, so credentials never reach a
+  URL.
+- **Busy is `aria-disabled` plus `aria-busy`**, never `disabled`, so focus
+  never falls to `<body>`. A ref ignores repeats, the label never changes,
+  and the `Spinner` appears only once busy has lasted 150ms, so a fast
+  answer never flashes. On success it stays busy until the navigation
+  commits.
+- **A heading per step**, and focus on entering it:
+
+  | Step | h1 | Focus |
+  | --- | --- | --- |
+  | First step | Sign in | the identifier (`autoFocus`, any value selected) |
+  | Password (looked up, or chosen) | Enter your password / Sign in with a password | the password |
+  | One provider | Redirecting to Microsoft (Google, single sign-on) | the status row (`role="status"`, `tabIndex={-1}`) |
+  | One provider after an SSO error | Sign in with Microsoft (the provider's label) | the **Continue** anchor |
+  | Two providers | Choose how to sign in | the h1 |
+  | Two-factor | Two-factor authentication | the code |
+
+  One polite `sr-only` live region (`role="status"`), mounted from the
+  first render, announces "Checking how you sign in…", the step and Caps
+  Lock; field errors and `FormError` are alerts. A form error moves focus
+  to the field to fix, with a password or code cleared first. The
+  `FormError` sits above the submit, so fields never jump.
+- **`IdentifierRow`** (`components/auth/IdentifierRow`) is **not a
+  `Field`**, because a `<label>` around Change would fire it on a click on
+  the words: a label span, then a `role="group"` row named by it
+  (`bg-slate-100`, the field's border and height, a `CircleUserRound`
+  icon), the value with its part before the "@" truncating first (the
+  domain decides the routing, so it stays in view; a native `title` on
+  that plain text is allowed, §Tooltips) and an action. **Change** is
+  `buttonClass("ghost", "sm")` with an `sr-only` " email or username"; it
+  returns to the first step with the value kept and selected, and calls
+  `window.stop()` if a hand-off is under way. The forced password change
+  puts Sign out there.
+- **SSO never sits beside a password field.** On every password step
+  while a provider exists it is behind a closed native `<details>`
+  **Other ways to sign in** (the `DocBlocksStatic` accordion recipe; the
+  provider anchors inside), identical for an unknown account and a
+  password account, so it reveals nothing. It opens by itself only after
+  the lookup's 429. After a wrong password the only hint is a static
+  `text-xs text-slate-500` line ("If your organization uses single
+  sign-on, open Other ways to sign in below.") that never names an
+  account.
+- **The hand-off is a full navigation** to a same-origin `/api/ee/...`
+  address the server built (the client checks the prefix and refuses
+  anything else): an `<a href>` (`buttonClass("secondary", "lg",
+  "w-full")` with a `ProviderMark`, or the primary Continue anchor) or
+  `location.assign` after one paint. Never `<Button href>` (next/link
+  prefetches) and never a form submit that ends in a redirect to the
+  identity provider (CSP `form-action 'self'` covers the whole chain in
+  Chromium). A plain click remembers the identifier and never calls
+  `preventDefault`; a modified or middle click does nothing extra.
+- **Never auto-continue after `?sso_error`.** The banner (`notice-error`,
+  `role="alert"`, a `CircleAlert`, and in the identifier's
+  `aria-describedby`) stays while the person is on the first step or the
+  password step they chose from it, `history.replaceState` drops
+  `sso_error` (keeping `next` and
+  `local`) so a reload shows no stale banner, and a single provider waits
+  behind **Continue**. Back from the identity provider (`pageshow` with
+  `persisted`) resets to the first step with the value selected and
+  nothing in flight. The steps push no history; Change is the in-page
+  back.
+- **The remembered identifier** (`lib/remembered-identifier`) lives in
+  `localStorage` only, every access in try/catch, for 180 days, at most
+  254 characters and no control characters. It is written after a
+  successful sign-in and just before any SSO hand-off, prefilled only
+  into an **empty** field, never moves focus and is never submitted, with
+  "Not you? **Use another account**" under it to forget it. Never a
+  cookie, and never a "Welcome back, {name}" (that would say the account
+  exists).
+- **Two-factor codes are never auto-submitted**: a mistyped code spends
+  one of the five attempts. The authenticator field is `inputMode="numeric"
+  autoComplete="one-time-code"`, centred `font-mono`; the recovery field is
+  `inputMode="text"` with autocorrect and capitalisation off, because
+  recovery codes have letters. The input is keyed by mode, so the right
+  keyboard mounts. Back returns to the password step with the password
+  kept.
+- **Help under the form** is one `mt-10 text-xs text-slate-500` line: the
+  admin's text, or their link (`link`, its words the help text or "Get
+  help signing in"; an https link opens in a new tab with a 0.75rem
+  `ExternalLink`, a mailto link does not), on every step; without one,
+  password steps say "Forgot your password? Ask your administrator to
+  reset it."
+- **Two transports.** `SignInFlow` talks to the server through
+  `SignInTransport`: `realTransport` (`lib/sign-in-transport`) for the page
+  and `demoTransport` (`lib/sign-in-demo`) for the admin preview, which
+  answers from a script and sends nothing. A new step must work under
+  both; the demo is how community CI exercises the identifier-first steps.
 
 ## Rails and navigation rows
 
@@ -698,7 +998,8 @@ and `py-1.5` (`dense`) in the settings and account rails. Group labels
   white is right only for brand tiles, QR codes, media stages, the toggle knob
   and email previews). `test/style-drift.test.ts` enforces all of this.
 - Anything that must stay dark in both themes (code blocks, the code-block
-  header bar, the modal scrim) is **hard-coded literal**, never themed.
+  header bar, the modal scrim, the sign-in cover's white ink and its
+  `rgb(2 6 23 / …)` text scrims) is **hard-coded literal**, never themed.
 - **Accent AA.** `lib/theme.ts` derives the solid steps (600 and darker:
   buttons, links, focus rings) from `solidAccent(hex)`, which darkens a light
   accent until white text reaches 4.5:1; the tints (50–500) keep the chosen
@@ -731,6 +1032,14 @@ the only looping animation. Reduced motion is handled globally — one
 `prefers-reduced-motion` rule collapses every transition and animation except
 `.animate-spin` — and any JS-driven motion (`scrollIntoView({ behavior:
 "smooth" })`) checks `matchMedia("(prefers-reduced-motion: reduce)")`.
+
+A block that appears as a step changes (1.16.0, the sign-in steps: the
+password field, the redirect status row, the provider list, the code field)
+fades and rises in with Tailwind's `starting:` variant (`@starting-style`)
+on the layout-reveal tier: `transition-[opacity,translate] duration-200
+ease-out starting:-translate-y-1 starting:opacity-0`. No keyframes, no JS
+animation; the global reduced-motion rule collapses it. Headings change
+their words without motion, and nothing on the sign-in cover moves.
 
 ## Notices (persistent inline state banners)
 
@@ -815,6 +1124,13 @@ nothing else for a confirmation's state (never "Acknowledged").
   chip with `Archive` and the retirer as its tooltip, in the collapsed
   **Retired · 3** group below Paused; its row keeps the record link and the
   CSV and offers Un-retire only.
+- **An email its owner typed is an "Unconfirmed" chip** (1.16.0,
+  `UsersClient`): `warn` `sm` beside the email under the username, with a
+  `data-tt` (`tabIndex={0}`, `data-tt-wrap`) saying what confirming does
+  and the check it stands for. Confirming is the row's named action
+  (**Email…**), never the chip, and its dialog says what confirming grants
+  and to whom (single sign-on gives the account to whoever signs in with
+  the address), so nobody confirms by habit.
 
 **Attribute chips** (a directory field shown as chips, a tag list) are not
 status: render them with `FieldChips`, which shows the option's **label**
@@ -928,6 +1244,11 @@ text-slate-500` before them ("Notary · Phoenix").
   inside their `<Link>`; it shows a small spinner after 150 ms while the
   router fetches, so a click never looks ignored and a fast navigation
   never flashes.
+- **A submit that must keep focus while busy** (the sign-in steps, 1.16.0)
+  is `aria-disabled` and `aria-busy` rather than `disabled`, keeps its
+  label, and shows its `Spinner` after the same 150ms (§Sign-in surfaces).
+  The sign-in page has no `loading.tsx`: the login helper and every spec
+  wait on its real h1.
 - **Route skeletons** (`loading.tsx`) exist for the dashboard, a space, the
   directory, a directory download link's landing page (`DownloadSkeleton`,
   1.15.0) and analytics (`components/Skeleton`): the page's shape, inside
@@ -1120,6 +1441,15 @@ per-route variants:
   `<Sparkles /> Write`. Typed characters sit off the baseline, ignore the
   accent and vary by OS; a guard test keeps them out. The exceptions are
   emoji that are content (space icons people chose) and the keycap map.
+- **The provider-mark exception** (1.16.0, `components/auth/ProviderMark`):
+  on a single sign-on button, Microsoft's four squares and Google's
+  four-colour G are inline SVGs in their own literal colours, because
+  people look for those marks. They are the only non-lucide icons in the
+  product, always `aria-hidden` (the button's words name the provider) and
+  drawn only for the vendor actually configured. A generic OIDC provider
+  takes lucide `KeyRound` and SAML takes `Building2`, both in
+  `text-compass-600`. Never draw a vendor's mark for a provider that is
+  not that vendor.
 - Sizes: page title `h-6 w-6`, section heading `h-4 w-4`, inline/button
   `h-4 w-4`, chip/tiny `h-3 w-3` or `h-3.5 w-3.5`.
 - **Vocabulary:** a control that opens an editor or a new screen says
@@ -1342,7 +1672,10 @@ the same footing:
 - **Allowed in px**, because they are hairlines or belong to another medium:
   `1px`/`2px` borders, rings, `shadow-xs`, `outline-offset`, the scrim blur;
   `vw`/`vh` overlay bounds; geometry and `<text>` inside an `<svg>`; email
-  HTML (`lib/newsletter`, `lib/digest`); react-pdf exports (points); and the
+  HTML (`lib/newsletter`, `lib/digest`); react-pdf exports (points); the
+  device-viewport sizes of a preview iframe (an inline style: the frame is
+  laid out at a real device's size and scaled down with a transform,
+  §Settings pages); and the
   sidebar's `matchMedia("(max-width: 767px)")`, which must equal Tailwind's
   `md` breakpoint — rem in a media query resolves against the browser default,
   so breakpoints never move when the root scales.
@@ -1375,7 +1708,12 @@ element the containing block for `fixed` descendants and a stacking context —
 the same hazard §Overlays names for `transform`. So never put a container on
 `PageContainer`, `<main>`, the document page wrapper or any ancestor of
 `Lightbox`, `VideoPlayer`, `DocLinkSuggest`, the editor, `VideoInsertDialog`
-or the analytics drill-down.
+or the analytics drill-down. The sign-in cover (`.auth-art`, 1.16.0) is
+such a leaf in hand-written CSS: an `inline-size` container beside
+`<main>`, never around it, so its type can be sized in `cqi` against the
+cover's own width (§Sign-in surfaces). A settings card wrapper may be one
+too when its subtree's only overlay, a `confirmDialog`, portals to
+`<body>`.
 
 ## Print
 

@@ -303,7 +303,7 @@ Today there are **six** distinct principal types. Only the first carries a role 
 |---|---|---|---|---|---|
 | `workspace.settings_read` | Read workspace settings | Read the settings surface | global | Ad | |
 | `workspace.settings_manage` | Change workspace settings | Approval mode, session timeout, nested pages, secure-cookie mode | global | Ad | **Includes `approval_mode` — a meta-permission over `document.publish` for every editor** |
-| `workspace.branding_manage` | Manage branding | Upload/remove the workspace logo | global | Ad | |
+| `workspace.branding_manage` | Manage branding | Upload or remove the workspace logo and sign-in artwork, and edit the sign-in page | global | Ad | |
 | `workspace.public_site_manage` | Manage public site | Enable/configure anonymous public access and indexing | global | Ad | **Meta-permission over the entire anonymous surface.** Both settings default OFF |
 | `workspace.domain_manage` | Manage custom domain | Set the custom domain (drives TLS provisioning) | global | Ad | |
 | `workspace.section_access_manage` | Manage section delegation | Grant/revoke Announcements, Compliance, Training delegation | global | Ad | **Meta-permission over every `Sec` row in this catalog** |

@@ -44,7 +44,14 @@ export async function PATCH(req: Request) {
     if (email !== "" && (email.length > 200 || !EMAIL_RE.test(email))) {
       return NextResponse.json({ error: "That email address doesn't look valid." }, { status: 400 });
     }
-    await setUserProfile(user.id, { name, email });
+    // An email signs in and is matched on (1.16.0), so it must not be one
+    // another account already has, as its email or its username.
+    if (!(await setUserProfile(user.id, { name, email }))) {
+      return NextResponse.json(
+        { error: "That email address is already used by another account." },
+        { status: 409 }
+      );
+    }
     await audit({
       actor: actorFrom(user),
       action: "account.profile_updated",
