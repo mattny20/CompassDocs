@@ -4,6 +4,216 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.16.0] - 2026-10-27
+
+Sign-in, redesigned. The sign-in page is a cover beside a calm form
+column, the cover drawn from the accent color or from artwork an admin
+uploads, with the workspace's own headline and help. When single sign-on
+is set up (Enterprise), people enter their email or username first and go
+straight to their identity provider or to a password, and the page never
+says whether an account exists. The password step accepts an email, and
+the forced password change wears the same shell.
+
+### Added
+- **A new sign-in page.** From 1024 pixels wide, a cover fills the screen
+  beside a plain form column; on a phone, and in the Outlook add-in's
+  sign-in window, the cover is a band above the form. The cover carries
+  the logo, the workspace name set large (or a headline of your own), a
+  tagline and a caption. Every control stays in the form column, and the
+  form always names the workspace ("to continue to Acme"), so nothing is
+  lost when the cover is cropped, hidden or switched off. With no artwork
+  the cover is drawn from the accent color (a gradient, a compass dial and
+  a fine grain) and loads nothing extra. The form comes first for the
+  keyboard and for screen readers, and each step has its own heading. The
+  artwork steps aside in Windows high-contrast mode, and the cover is left
+  out in print.
+- **Sign-in artwork**, under **Settings → Workspace → Sign-in page**, a new
+  page beside Branding and Content. Upload a JPEG, PNG, WebP or GIF of up
+  to 15 MB and at least 1280 × 720 pixels; 2560 pixels or wider looks
+  sharpest, and a narrower picture gets a warning. CompassDocs stores three
+  WebP copies (960, 1600 and 2560 pixels wide) so phones download less,
+  keeps only the first frame of an animation and drops location and camera
+  data. While the picture loads, the page paints its average color and a
+  blurred copy, so nothing jumps. **Keep in view** picks which of nine
+  points of the picture stays in view when a screen crops it, **Artwork
+  side** puts the picture left of the form (the default) or right of it,
+  and **Show the name and headline over the artwork** can be turned off
+  when the picture already carries your branding (the form then shows the
+  logo and name). Text over a photo sits on a shade that keeps it readable
+  on any picture, at least 5.8:1 on a pure white one, and darker still
+  when the visitor asks for more contrast. Upload and Replace apply at
+  once; **Remove artwork…** asks first, because it deletes the files. The
+  copies are served before sign-in from `/api/brand/artwork` and cached
+  for good, since every upload changes their address.
+- **Your own words on the sign-in page.** **Headline** (up to 60
+  characters; blank shows the workspace name), **Tagline** (140) and
+  **Caption** (80, such as a photo credit) go on the cover. **Example
+  email** (64) shows faintly in the empty Email or username field. **Help
+  text** (160) and **Help link** (an https:// or mailto: address, which
+  turns the help text into a link) replace "Forgot your password? Ask your
+  administrator to reset it." under the form, on every step. Text is kept
+  without control characters, line breaks or doubled spaces; a value over
+  its limit is refused with the field named, never cut.
+- **A live preview** of the sign-in page beside those settings, with the
+  unsaved changes, at Laptop (1440 × 900), Ultrawide (3440 × 1440) or
+  Phone (390 × 844) size, light or dark; **Open full-size preview** opens
+  it in a new tab. The preview is the real page answering from a script,
+  and nothing typed in it is sent anywhere: try `name@sso.example` for
+  single sign-on, `name@both.example` for a choice of two, or the password
+  `2fa` for the code step (the code is 123456). Admins who can read the
+  single sign-on settings also see **How people sign in**, the routing
+  below in sentences, with a warning when SSO is set up but cannot be used
+  yet or when no email domains are set.
+- **Email-first sign-in when single sign-on is set up** (Enterprise,
+  `sso`). The page asks for an email or username, and **Continue** sends
+  it on:
+  - with **SSO only** on, everyone goes to the identity provider;
+  - an email whose domain is listed in a provider's **Allowed email
+    domains** goes straight to that provider, whether or not an account
+    exists yet, so a new colleague is created on first sign-in (when OIDC
+    and SAML both list the domain, the person picks);
+  - an existing account that signs in with SSO (named by its username, or
+    the one account with that email) goes to its provider;
+  - everyone else, an unknown identifier included, is asked for a
+    password.
+
+  One provider is followed at once ("Redirecting to Microsoft"), with a
+  link after three seconds in case the browser stays put; a choice of two
+  is offered as two buttons. The page never reveals whether an account
+  exists: an unknown identifier and a password account get the same
+  answer, byte for byte, nothing about an account (its name, its status,
+  whether it has a password) is ever returned, and an account is read only
+  when no setting decides. Those lookups are limited to 20 a minute and
+  100 an hour per address, recorded once as `auth.lookup_throttled` when
+  the limit engages; someone who reaches it can still open **Other ways to
+  sign in**. An empty domain list claims no domain. A workspace without
+  SSO, and every Community install, keeps the one form for email or
+  username and password and makes no lookup at all.
+- **Use a password instead**, under **Continue**, for administrators and
+  for accounts that keep a password inside a single sign-on domain; it
+  shows the password field without asking the server anything. A local
+  administrator is never sent to SSO by an account match, so typing their
+  username reaches the password step too. While **SSO only** is on the
+  link is hidden, and the break-glass is **`/login?local=1`**: "Sign in
+  with a password", the email or username and password form, with **Use
+  single sign-on instead** to go back.
+- **Other ways to sign in.** On every password step while single sign-on
+  is set up, the provider buttons sit in a closed **Other ways to sign
+  in** panel under the form, never beside the password field, and it looks
+  the same for every account. After a wrong password the page adds one
+  sentence pointing there, without naming any account.
+- **The sign-in page remembers who signed in last** on this browser: the
+  email or username is filled into the empty field on the next visit,
+  never submitted and never moving the cursor, with **Not you? Use another
+  account** to forget it. It is kept for 180 days in the browser's own
+  storage (never a cookie), written after a successful sign-in or just
+  before a hand-off to the identity provider.
+- **Show password** under the password field (**Show passwords** on the
+  forced change), switched back off before the form is sent so the browser
+  still offers to save the password, and **Caps Lock is on.** under the
+  password field while it is.
+- Audit log entries **Uploaded sign-in artwork** (with the picture's
+  size), **Removed sign-in artwork** and **Updated the sign-in page** (with
+  the fields changed).
+
+### Changed
+- **The password step accepts an email.** Sign in with your username or
+  with your email address: the username is tried first, then the one
+  active account with a password whose email it is. An email that two
+  accounts share signs nobody in. The API field is still `username`, so
+  scripts, the Outlook add-in and the break-glass `curl` keep working.
+- **The forced password change wears the sign-in shell.** After a first
+  sign-in or an admin reset, **Set a new password** shows the same cover
+  and column, the account in a "Signed in as" row with **Sign out**,
+  larger fields, **Show passwords** and a full-width **Set password &
+  continue**. A hidden username field lets password managers update the
+  right entry. Changing a password from Account → Security is unchanged.
+- **Outlook add-in:** the sign-in window's field reads **Email or
+  username**, and its "use the full sign-in page" link comes back to the
+  add-in after signing in.
+- The sign-in page's buttons are the large size and its fields 2.5rem
+  tall, with 16-pixel text on phones so iOS does not zoom in on focus. The
+  form cannot be sent before the page is ready, so nothing typed early is
+  lost or sent in an address, and a slow, offline or failed answer is said
+  in words ("Couldn't reach the server. Check your connection and try
+  again.") instead of failing quietly.
+- **Manage branding** (`workspace.branding_manage`) now also covers the
+  sign-in artwork and the sign-in page's text, so a role holding it can
+  run the new page. The Workspace section's description and the settings
+  search include the sign-in page, and the Branding card links to it.
+
+### Fixed
+- A Google or generic OIDC sign-in no longer shows "Sign in with
+  Microsoft" and the Microsoft logo: the button reads **Sign in with
+  Google** with Google's mark, or **Sign in with single sign-on** with a
+  key icon, and the SAML button carries a building icon beside its own
+  label.
+- A single sign-on error from the identity provider is announced to
+  screen readers (an alert, and part of the field's description), and the
+  page never sends the person straight back to a provider that just
+  failed: one provider waits behind **Continue**. Reloading the page no
+  longer shows the old error.
+- The recovery code field on the two-factor step opens a keyboard with
+  letters on phones. It offered digits only, so a recovery code could not
+  be typed there.
+- A Microsoft sign-in on a multi-tenant authority (`common`,
+  `organizations` or `consumers`) with no allowed email domains is no
+  longer offered: it could never succeed, because the callback refuses
+  it. **How people sign in** says what to add.
+
+### Security
+- **A sign-in for an unknown account takes as long as a real one.** An
+  unknown, disabled or password-less account failed without the password
+  check, about 49 ms sooner, which told an attacker that the account did
+  not exist or could not use a password. Every failure now spends the same
+  check.
+- **The sign-in throttle counts per account, whichever name is typed.** An
+  account's username and its email share one budget of five failed
+  attempts per address, so typing the email instead of the username does
+  not buy five more.
+- **Wrong two-factor codes are in the audit log** as `auth.login_failed`
+  with `stage: two_factor`, as well as counting towards the lockout as
+  before.
+- **The identifier is capped at 254 characters**, the longest email
+  address, on the sign-in and lookup routes, so an oversized value never
+  reaches the throttle or the audit log.
+- The lookup accepts only a same-site JSON `POST`, sets no cookie, writes
+  no audit row per lookup and is never cached, so a typed email never
+  appears in an address, a server log or a Referer. The address that
+  starts single sign-on is built on the server and always stays on this
+  site.
+
+### Enterprise image
+These ship from the Enterprise overlay, in the 1.16.0 Enterprise image.
+- **The identity provider no longer asks for the email again.** The OIDC
+  start passes the email typed on the sign-in page as `login_hint`, plus
+  `domain_hint` on a multi-tenant Microsoft authority and `hd` on Google
+  when the domain is allowed, so Microsoft and Google go straight to that
+  account. It is a hint only: the callback still signs in whoever the
+  provider returns and still checks the allowed domains.
+- **SAML sign-in survives the identity provider's post back.** The SAML
+  flow cookie is now `SameSite=None; Secure` on HTTPS, so the provider's
+  cross-site `POST` to the ACS carries it. Browsers leave a `SameSite=Lax`
+  cookie off such a post, and the sign-in ended in "The sign-in attempt
+  expired or was tampered with." Without HTTPS it stays `Lax`.
+
+### Upgrading
+- Nothing to do: no schema change and no new environment variable. The
+  sign-in page's settings are new keys in the settings table, and its
+  artwork lives in the uploads volume beside the logo, so backups cover
+  both. A workspace without single sign-on gets the new page with the
+  same one form.
+- With single sign-on, add your email domains under **Settings → Single
+  sign-on** (**Allowed email domains**, on the OIDC and the SAML panel) so
+  new colleagues go straight to SSO; with none listed, only existing SSO
+  accounts are sent there and everyone else is asked for a password.
+  **Settings → Workspace → Sign-in page** shows how people will sign in.
+- With **SSO only** on, bookmark `https://YOUR-HOST/login?local=1`: it is
+  the password sign-in for administrators when the identity provider is
+  down or misconfigured.
+- Rolling back to 1.15.0 is safe: it ignores the new settings keys and the
+  artwork files.
+
 ## [1.15.0] - 2026-10-23
 
 Directory: download links. Copy a link to an export, put it in an email or

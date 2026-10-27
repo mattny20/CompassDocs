@@ -203,10 +203,24 @@ export function SignInFlow({
     if (t === "id" && idRef.current) idRef.current.select();
   }, [focusTick]);
 
+  // The preview never remembers what an admin types (it would prefill their real sign-in page).
+  const keep = useCallback((id: string) => {
+    if (!demo && id) rememberIdentifier(id);
+  }, [demo]);
   const remember = useCallback(() => {
-    const id = identifier || normalizeIdentifier(idRef.current?.value ?? "");
-    if (id) rememberIdentifier(id);
-  }, [identifier]);
+    keep(identifier || normalizeIdentifier(idRef.current?.value ?? ""));
+  }, [identifier, keep]);
+  /** A provider link's click: remembered on a plain click; in the preview it goes nowhere. */
+  const follow = useCallback(
+    (e: React.MouseEvent) => {
+      if (demo) {
+        e.preventDefault();
+        return;
+      }
+      if (plainClick(e)) remember();
+    },
+    [demo, remember]
+  );
 
   function startProvider(p: SignInProviderLink, id: string) {
     if (!p.start.startsWith("/api/ee/")) {
@@ -221,7 +235,7 @@ export function SignInFlow({
       goFocus("continue");
       return;
     }
-    rememberIdentifier(id);
+    keep(id);
     setChosen([p]);
     setStep("redirect");
     setAnnounce(statusText(p));
@@ -270,7 +284,7 @@ export function SignInFlow({
       } else if (list.length === 1) {
         startProvider(list[0], id);
       } else {
-        rememberIdentifier(id);
+        keep(id);
         setChosen(list);
         setStep("choose");
         goFocus("title");
@@ -328,7 +342,7 @@ export function SignInFlow({
       return;
     }
     if (r.kind === "ok") {
-      rememberIdentifier(id);
+      keep(id);
       if (demo) {
         inFlight.current = false;
         setBusy(null);
@@ -425,7 +439,7 @@ export function SignInFlow({
   }
 
   function useAnotherAccount() {
-    forgetIdentifier();
+    if (!demo) forgetIdentifier();
     setRemembered(null);
     setIsRemembered(false);
     if (idRef.current) idRef.current.value = "";
@@ -633,7 +647,7 @@ export function SignInFlow({
               />
             </Field>
             <label className="mt-2 inline-flex items-center gap-2 text-sm text-slate-600">
-              <input type="checkbox" className="h-4 w-4 accent-compass-600" checked={show} onChange={(e) => setShow(e.target.checked)} />
+              <input type="checkbox" className="h-4 w-4" checked={show} onChange={(e) => setShow(e.target.checked)} />
               Show password
             </label>
           </div>
@@ -687,7 +701,7 @@ export function SignInFlow({
             {late && (
               <p className="text-sm text-slate-500">
                 Not redirected?{" "}
-                <a className="link font-medium" href={p0.start} onClick={(e) => plainClick(e) && remember()}>
+                <a className="link font-medium" href={p0.start} onClick={follow}>
                   {p0.label}
                 </a>
               </p>
@@ -696,7 +710,7 @@ export function SignInFlow({
         )}
 
         {step === "continue" && p0 && (
-          <a ref={continueRef} href={p0.start} onClick={(e) => plainClick(e) && remember()} className={buttonClass("primary", "lg", "w-full")}>
+          <a ref={continueRef} href={p0.start} onClick={follow} className={buttonClass("primary", "lg", "w-full")}>
             Continue
           </a>
         )}
@@ -705,7 +719,7 @@ export function SignInFlow({
           <ul className="space-y-2">
             {chosen.map((p) => (
               <li key={p.id}>
-                <ProviderLink p={p} onFollow={remember} />
+                <ProviderLink p={p} onFollow={follow} />
               </li>
             ))}
           </ul>
@@ -742,7 +756,7 @@ export function SignInFlow({
           <ul className="space-y-2 border-t border-slate-100 p-3">
             {providers.map((p) => (
               <li key={p.id}>
-                <ProviderLink p={p} onFollow={remember} />
+                <ProviderLink p={p} onFollow={follow} />
               </li>
             ))}
           </ul>
@@ -764,9 +778,9 @@ function statusText(p: SignInProviderLink): string {
 }
 
 /** A provider's sign-in, always a plain link (a full navigation), never next/link. */
-function ProviderLink({ p, onFollow }: { p: SignInProviderLink; onFollow: () => void }) {
+function ProviderLink({ p, onFollow }: { p: SignInProviderLink; onFollow: (e: React.MouseEvent) => void }) {
   return (
-    <a href={p.start} onClick={(e) => plainClick(e) && onFollow()} className={buttonClass("secondary", "lg", "w-full gap-2.5")}>
+    <a href={p.start} onClick={onFollow} className={buttonClass("secondary", "lg", "w-full gap-2.5")}>
       <ProviderMark mark={p.mark} className="h-4 w-4" />
       <span className="min-w-0 truncate">{p.label}</span>
     </a>

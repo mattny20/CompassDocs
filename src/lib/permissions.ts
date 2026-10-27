@@ -285,7 +285,7 @@ export const PERMISSIONS = [
   { key: "user.update_role", label: "Change a user's role", description: "Assign viewer/editor/approver/admin", scope: "global" },
   { key: "user.update_status", label: "Enable/disable a user", description: "Activate or disable an account", scope: "global" },
   // --- workspace ---
-  { key: "workspace.branding_manage", label: "Manage branding", description: "Upload/remove the workspace logo", scope: "global" },
+  { key: "workspace.branding_manage", label: "Manage branding", description: "Upload or remove the workspace logo and sign-in artwork, and edit the sign-in page", scope: "global" },
   { key: "workspace.domain_manage", label: "Manage custom domain", description: "Set the custom domain (drives TLS provisioning)", scope: "global" },
   { key: "workspace.public_site_manage", label: "Manage public site", description: "Enable/configure anonymous public access and indexing", scope: "global" },
   { key: "workspace.section_access_manage", label: "Manage section delegation", description: "Grant/revoke Announcements, Compliance, Training delegation", scope: "global" },

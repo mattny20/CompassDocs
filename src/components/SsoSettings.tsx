@@ -218,6 +218,7 @@ export function SsoSettings({ initial }: { initial: SsoState }) {
                 <span className="text-slate-500">(optional, comma-separated)</span>
               </>
             }
+            help="Since 1.16.0 these domains also route sign-in: someone who types an email at one of them goes straight to single sign-on, new colleagues included."
           >
             <TextInput
               value={s.allowed_domains}
@@ -278,12 +279,8 @@ export function SsoSettings({ initial }: { initial: SsoState }) {
           />
           {s.sso_only && (
             <p className="text-xs ink-warn">
-              Break-glass: local sign-in still works by POSTing to /api/auth/login — an admin
-              locked out of SSO can use{" "}
-              <code className="font-mono">
-                curl -X POST /api/auth/login -d {"'{"}&quot;username&quot;:…{"}'"}
-              </code>
-              .
+              Break-glass: an administrator with a password can still sign in at{" "}
+              <code className="font-mono">/login?local=1</code>. Bookmark it before you turn this on.
             </p>
           )}
         </div>

@@ -256,6 +256,9 @@ export const AUDIT_LABELS: Record<string, string> = {
   "branding.logo_uploaded": "Uploaded logo",
   "branding.logo_fetched": "Fetched logo from website",
   "branding.logo_removed": "Removed logo",
+  "branding.artwork_uploaded": "Uploaded sign-in artwork",
+  "branding.artwork_removed": "Removed sign-in artwork",
+  "branding.sign_in_updated": "Updated the sign-in page",
 
   // Provisioning and system
   "scim.user_create": "SCIM provisioned user",
