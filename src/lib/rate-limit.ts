@@ -28,6 +28,23 @@ function limited(key: string, max: number, windowMs: number): boolean {
   return w.count > max;
 }
 
+/** Like limited(), but answers how many seconds remain in the window (0 when allowed). */
+function limitedFor(key: string, max: number, windowMs: number): number {
+  if (!limited(key, max, windowMs)) return 0;
+  const w = buckets.get(key);
+  return w ? Math.max(1, Math.ceil((w.resetAt - Date.now()) / 1000)) : 1;
+}
+
+/**
+ * The sign-in page's account lookup (1.16.0, /api/auth/lookup): 20 a minute
+ * and 100 an hour per IP, counted only for lookups that read an account.
+ * Answers the seconds to wait, or 0. Separate from the login throttle: a
+ * lookup is not a failed sign-in.
+ */
+export function signInLookupRetryAfter(ip: string): number {
+  return Math.max(limitedFor(`lookup-m:${ip}`, 20, 60_000), limitedFor(`lookup-h:${ip}`, 100, 3_600_000));
+}
+
 /** AI question/generation calls: 20 per minute per key (e.g. per user). */
 export function aiRateLimited(key: string): boolean {
   return limited(`ai:${key}`, 20, 60_000);

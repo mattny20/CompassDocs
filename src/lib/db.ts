@@ -4388,6 +4388,42 @@ export async function getUserByExternalId(
   )[0];
 }
 
+/**
+ * The username of the one active account with a password whose email is
+ * `email` (1.16.0: the password step accepts an email). Null when none or
+ * more than one match: an email is not unique, and an ambiguous one never
+ * signs anybody in.
+ */
+export async function passwordAccountUsernameByEmail(email: string): Promise<string | null> {
+  const rows = await q<{ username: string }>(
+    `SELECT username FROM users
+      WHERE lower(email) = lower($1) AND status = 'active' AND password_hash IS NOT NULL
+      LIMIT 2`,
+    [email]
+  );
+  return rows.length === 1 ? rows[0].username : null;
+}
+
+/**
+ * What the sign-in lookup may know about an identifier (1.16.0): flags only,
+ * never the account's name or anything shown back. The username match comes
+ * first; an email match counts only when exactly one account has it.
+ */
+export async function signInAccountFlags(
+  identifier: string
+): Promise<{ auth_provider: string; has_password: boolean } | null> {
+  const rows = await q<{ by_username: boolean; auth_provider: string; has_password: boolean }>(
+    `SELECT lower(username) = lower($1) AS by_username, auth_provider, password_hash IS NOT NULL AS has_password
+       FROM users
+      WHERE lower(username) = lower($1) OR (position('@' in $1) > 0 AND lower(email) = lower($1))
+      LIMIT 3`,
+    [identifier]
+  );
+  const byName = rows.find((r) => r.by_username);
+  if (byName) return { auth_provider: byName.auth_provider, has_password: byName.has_password };
+  return rows.length === 1 ? { auth_provider: rows[0].auth_provider, has_password: rows[0].has_password } : null;
+}
+
 /** Email match for linking an SSO identity to a pre-existing account. */
 export async function getUserByEmail(email: string): Promise<User | undefined> {
   return (
