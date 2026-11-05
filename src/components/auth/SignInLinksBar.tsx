@@ -1,13 +1,15 @@
-// The sign-in page's quick links (1.17.0, STYLEGUIDE §Sign-in surfaces): the
-// links an admin marked "Sign-in page" in Settings → Links (only links with
-// no group restriction may be), at most eight, by position. They live in the
-// cover, after the form in DOM and tab order: a translucent bar across the
-// middle of the cover from 64rem, a scrolling strip along the bottom of the
-// band below. The one deliberate exception to the Card/Stage rule: these are
-// the only controls on the art, and nothing essential to signing in is here.
-// Each opens in a new tab and is counted by the same-origin click beacon
-// (TrackedLink) without touching its href; the admin preview passes
-// track={false} so trying the page does not count. Server-safe.
+// The sign-in page's quick links (1.17.0; a bar across the top of the art
+// since 1.18.1, STYLEGUIDE §Sign-in surfaces): the links an admin marked
+// "Sign-in page" in Settings → Links (only links with no group restriction
+// may be), at most eight, by position. They live in the cover, after the form
+// in DOM and tab order: buttons the height of the logo tile, right-aligned in
+// a frosted bar across the top of the cover from 64rem, a scrolling strip
+// along the top of the band below. The one deliberate exception to the
+// Card/Stage rule: these are the only controls on the art, and nothing
+// essential to signing in is here. Each opens in a new tab and is counted by
+// the same-origin click beacon (TrackedLink) without touching its href; the
+// admin preview passes track={false} so trying the page does not count.
+// Server-safe.
 
 import { ExternalLink } from "lucide-react";
 import { TrackedLink } from "@/components/TrackedLink";
@@ -36,11 +38,8 @@ export function SignInLinksBar({ links, track = true }: { links: SignInLinkItem[
   const shown = links.slice(0, SIGN_IN_LINKS_MAX);
   if (!shown.length) return null;
   return (
+    // No visible caption: the nav's name says it.
     <nav className="auth-links" aria-label="Quick links">
-      {/* The nav's name already says it; this is the wide cover's caption. */}
-      <p className="auth-links-label" aria-hidden>
-        Quick links
-      </p>
       <ul className="auth-links-list">
         {shown.map((link) => {
           const body = (
@@ -55,7 +54,7 @@ export function SignInLinksBar({ links, track = true }: { links: SignInLinkItem[
               </span>
               {/* A long title truncates; the full one is content, so a plain
                   title on the text is allowed (§Tooltips). */}
-              <span className="auth-link-title" title={link.title.length > 28 ? link.title : undefined}>
+              <span className="auth-link-title" title={link.title.length > 20 ? link.title : undefined}>
                 {link.title}
               </span>
               <ExternalLink className="auth-link-ext" aria-hidden />
