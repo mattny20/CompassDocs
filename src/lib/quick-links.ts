@@ -142,6 +142,24 @@ export async function getPinnedQuickLinks(user: SessionUser): Promise<QuickLinkI
   return pinnedItems(pins, new Map(links.map((l) => [l.id, l])), settings.logo_url || "");
 }
 
+// The workspace ranking counts people, not clicks (one person's script
+// cannot lift a link for everyone), over every click in the window: the
+// same for every viewer, so one process-wide copy serves all dashboards
+// for WORKSPACE_TTL_MS before visibility is applied per viewer.
+const WORKSPACE_TTL_MS = 5 * 60_000;
+let workspaceCache: { at: number; rows: Promise<{ link_id: number; n: number }[]> } | null = null;
+function workspaceRanking(): Promise<{ link_id: number; n: number }[]> {
+  const now = Date.now();
+  if (!workspaceCache || now - workspaceCache.at > WORKSPACE_TTL_MS) {
+    const rows = rankedLinkClicks(null, CLICK_WINDOW_DAYS);
+    workspaceCache = { at: now, rows };
+    rows.catch(() => {
+      if (workspaceCache?.rows === rows) workspaceCache = null;
+    });
+  }
+  return workspaceCache.rows;
+}
+
 /** Everything the dashboard's Quick links tile shows, already de-duplicated. */
 export async function getDashboardQuickLinks(user: SessionUser): Promise<{
   pinned: QuickLinkItem[];
@@ -149,11 +167,10 @@ export async function getDashboardQuickLinks(user: SessionUser): Promise<{
   mostUsed: QuickLinkItem[];
   mostUsedIsWorkspace: boolean;
 }> {
-  const [links, pins, mine, workspace, settings] = await Promise.all([
+  const [links, pins, mine, settings] = await Promise.all([
     visibleLinks(user),
     listUserQuickLinks(user.id),
     rankedLinkClicks(user.id, CLICK_WINDOW_DAYS),
-    rankedLinkClicks(null, CLICK_WINDOW_DAYS),
     getAppSettings(),
   ]);
   const brandLogo = settings.logo_url || "";
@@ -178,6 +195,9 @@ export async function getDashboardQuickLinks(user: SessionUser): Promise<{
     shown.add(link.id);
   }
   let mostUsedIsWorkspace = false;
+  // The workspace filler only when the viewer's own clicks leave room; it
+  // is the same for everyone, so it is shared for a few minutes.
+  const workspace = mostUsed.length < MOST_USED_LIMIT ? await workspaceRanking() : [];
   for (const r of workspace) {
     if (mostUsed.length >= MOST_USED_LIMIT) break;
     const link = visible.get(r.link_id);

@@ -60,7 +60,7 @@ export async function POST(req: Request) {
     pin = { title, url };
   }
 
-  const row = await addUserQuickLink(user.id, pin);
+  const row = await addUserQuickLink(user.id, pin, user.role === "admin");
   if (!row) {
     return NextResponse.json(
       { error: `You can pin up to ${MAX_USER_QUICK_LINKS} links. Remove one to add another.` },

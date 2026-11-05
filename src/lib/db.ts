@@ -14138,18 +14138,28 @@ export async function linkClickCounts(days = 30): Promise<Record<number, number>
 }
 
 /**
- * Clicks per link over the last `days` days, most first, ties to the most
- * recent click: one person's (userId) or the whole workspace's (null, which
- * counts sign-in page clicks too). The caller filters to visible links.
+ * Links ranked over the last `days` days, most first, ties to the most
+ * recent click: one person's clicks (userId), or for the whole workspace
+ * (null) the number of different people who clicked, so one person's
+ * repeated clicks cannot lift a link for everyone. The caller filters to
+ * visible links.
  */
 export async function rankedLinkClicks(
   userId: number | null,
   days = 30
 ): Promise<{ link_id: number; n: number }[]> {
+  if (userId === null) {
+    return q(
+      `SELECT link_id, COUNT(DISTINCT user_id)::int AS n FROM link_clicks
+       WHERE clicked_at > now() - ($1 * interval '1 day') AND user_id IS NOT NULL
+       GROUP BY link_id
+       ORDER BY COUNT(DISTINCT user_id) DESC, MAX(clicked_at) DESC, link_id`,
+      [days]
+    );
+  }
   return q(
     `SELECT link_id, COUNT(*)::int AS n FROM link_clicks
-     WHERE clicked_at > now() - ($1 * interval '1 day')
-       AND ($2::int IS NULL OR user_id = $2)
+     WHERE clicked_at > now() - ($1 * interval '1 day') AND user_id = $2
      GROUP BY link_id
      ORDER BY COUNT(*) DESC, MAX(clicked_at) DESC, link_id`,
     [days, userId]
@@ -14212,7 +14222,11 @@ export async function listUserQuickLinks(userId: number): Promise<UserQuickLinkR
  */
 export async function addUserQuickLink(
   userId: number,
-  pin: { linkId: number } | { title: string; url: string }
+  pin: { linkId: number } | { title: string; url: string },
+  /** Admins see every link; for anyone else a pin whose link they can no
+   *  longer see (restricted since) is hidden from them, so it must not hold
+   *  one of their slots either. */
+  seesAllLinks = false
 ): Promise<UserQuickLinkRow | null> {
   const client = await pool().connect();
   try {
@@ -14229,8 +14243,16 @@ export async function addUserQuickLink(
       }
     }
     const stats = await client.query<{ n: number; m: number }>(
-      "SELECT COUNT(*)::int AS n, COALESCE(MAX(position), 0)::int AS m FROM user_quick_links WHERE user_id = $1",
-      [userId]
+      `SELECT COUNT(*) FILTER (
+                WHERE $2::boolean OR q.link_id IS NULL
+                   OR NOT EXISTS (SELECT 1 FROM link_groups lg WHERE lg.link_id = q.link_id)
+                   OR EXISTS (SELECT 1 FROM link_groups lg
+                                JOIN group_members gm ON gm.group_id = lg.group_id
+                              WHERE lg.link_id = q.link_id AND gm.user_id = q.user_id)
+              )::int AS n,
+              COALESCE(MAX(q.position), 0)::int AS m
+         FROM user_quick_links q WHERE q.user_id = $1`,
+      [userId, seesAllLinks]
     );
     if (stats.rows[0].n >= MAX_USER_QUICK_LINKS) {
       await client.query("ROLLBACK");

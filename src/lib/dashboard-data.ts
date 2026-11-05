@@ -94,6 +94,31 @@ export async function listLatestDocuments(opts: {
   );
 }
 
+// The week's view counts per document are the same for every viewer, and
+// counting a busy week of views on every dashboard load is the expensive
+// part: one process-wide copy (the most-read POPULAR_POOL documents) serves
+// all dashboards for POPULAR_TTL_MS, and each viewer's scope is applied to
+// it afterwards.
+const POPULAR_TTL_MS = 5 * 60_000;
+const POPULAR_POOL = 500;
+let popularCache: { at: number; rows: Promise<{ document_id: number; views: number }[]> } | null = null;
+function weeklyViewCounts(): Promise<{ document_id: number; views: number }[]> {
+  const now = Date.now();
+  if (!popularCache || now - popularCache.at > POPULAR_TTL_MS) {
+    const rows = q<{ document_id: number; views: number }>(
+      `SELECT v.document_id, COUNT(*)::int AS views FROM doc_views v
+       WHERE v.viewed_at > now() - interval '7 days'
+       GROUP BY v.document_id ORDER BY COUNT(*) DESC LIMIT $1`,
+      [POPULAR_POOL]
+    );
+    popularCache = { at: now, rows };
+    rows.catch(() => {
+      if (popularCache?.rows === rows) popularCache = null;
+    });
+  }
+  return popularCache.rows;
+}
+
 /**
  * The most-read documents of the last 7 days among those the viewer can
  * read, with their view counts (every recorded view, the in-app reader and
@@ -104,8 +129,10 @@ export async function listPopularThisWeek(
   includeDrafts: boolean,
   limit = 5
 ): Promise<(DashboardDoc & { views: number })[]> {
+  const counts = await weeklyViewCounts();
+  if (counts.length === 0) return [];
   const conds = ["d.deleted_at IS NULL", "d.branch_of IS NULL"];
-  const params: unknown[] = [limit];
+  const params: unknown[] = [limit, counts.map((c) => c.document_id), counts.map((c) => c.views)];
   if (!includeDrafts) conds.push("d.status = 'published'");
   if (Array.isArray(scope)) {
     params.push(scope);
@@ -113,10 +140,7 @@ export async function listPopularThisWeek(
   }
   return q(
     `SELECT ${DOC_COLUMNS}, pv.views
-     FROM (
-       SELECT v.document_id, COUNT(*)::int AS views FROM doc_views v
-       WHERE v.viewed_at > now() - interval '7 days' GROUP BY v.document_id
-     ) pv
+     FROM unnest($2::int[], $3::int[]) AS pv(document_id, views)
      JOIN documents d ON d.id = pv.document_id
      JOIN spaces s ON s.id = d.space_id
      WHERE ${conds.join(" AND ")}

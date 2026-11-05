@@ -224,8 +224,13 @@ describe("the dashboard's Quick links", () => {
     await clicks(mine2, viewerId, 3);
     await clicks(featured, viewerId, 9); // featured wins over most used
     await clicks(restrictedClicked, viewerId, 7); // clicked before the restriction: not visible now
-    await clicks(busier, otherId, 900);
-    await clicks(busy, otherId, 800);
+    // The workspace ranks by people, not clicks: one person's 900 clicks
+    // lose to more people's fewer.
+    const crowd: number[] = [];
+    for (let i = 0; i < 12; i++) crowd.push(await newUser(`crowd${i}`));
+    for (const u of crowd) await clicks(busier, u, 1);
+    for (const u of crowd.slice(0, 10)) await clicks(busy, u, 1); // 11 people with otherId
+    await clicks(busy, otherId, 900);
     await clicks(mine1, viewerId, 50, 45); // outside the 30-day window
 
     await db.addUserQuickLink(viewerId, { linkId: pinnedCurated });

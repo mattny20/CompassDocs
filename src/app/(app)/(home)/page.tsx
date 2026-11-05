@@ -143,7 +143,7 @@ export default async function DashboardPage({
           block for fixed descendants (STYLEGUIDE §Overlays). */}
       <div className="@container">
         <div className="flex flex-col gap-6 @4xl:flex-row @4xl:items-start">
-          <div className="flex min-w-0 flex-1 flex-col gap-6 empty:hidden">
+          <div className="flex min-w-0 flex-1 flex-col gap-6 [&:not(:has(section))]:hidden">
             {show("latest") && (
               <LatestTile
                 user={user}

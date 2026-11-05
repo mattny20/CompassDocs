@@ -30,7 +30,7 @@ const MAX_PINS = 12;
 const TITLE_MAX = 60;
 const URL_MAX = 2000;
 /** A group's links: one column in the side column, two when the tile is wide. */
-const LIST = "grid @xl:grid-cols-2 @xl:gap-x-4";
+const LIST = "grid grid-cols-1 @xl:grid-cols-2 @xl:gap-x-4 [&>li]:min-w-0";
 const FULL_MESSAGE = `You can pin up to ${MAX_PINS} links. Remove one to make room.`;
 
 type Result = { ok: true; data: { item?: QuickLinkItem } } | { ok: false; error: string };
@@ -409,6 +409,9 @@ export function QuickLinksClient(props: {
         onPin={pin}
         onUnpin={(item) => void unpin(item, { undo: false })}
         onAdded={(item) => {
+          // The empty state's button goes away once the tile fills: focus
+          // returns to the header "+" instead of <body>.
+          focusNext.current = ["add"];
           setPinned((p) => [...p.filter((x) => x.key !== item.key), item]);
           refreshWhenIdle();
         }}
@@ -629,8 +632,15 @@ function AddQuickLinkDialog({
                         <button
                           type="button"
                           aria-pressed={on}
-                          disabled={waiting || (!on && full)}
-                          onClick={() => (pin ? onUnpin(pin) : onPin(link))}
+                          // Waiting keeps focus: a natively disabled button
+                          // would drop it to <body> on every pin.
+                          aria-disabled={waiting || undefined}
+                          disabled={!on && full}
+                          onClick={() => {
+                            if (waiting) return;
+                            if (pin) onUnpin(pin);
+                            else onPin(link);
+                          }}
                           className={`inline-flex h-7 shrink-0 items-center gap-1 rounded-full px-2.5 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-60 [&>svg]:h-3.5 [&>svg]:w-3.5 ${
                             on
                               ? "bg-compass-600 text-white hover:opacity-90"
@@ -638,9 +648,9 @@ function AddQuickLinkDialog({
                           }`}
                         >
                           <Pin aria-hidden />
-                          {/* One name in both states ("Pin Teams"); aria-pressed says which. */}
+                          {/* The visible label starts the name (label-in-name); aria-pressed says the state. */}
                           <span aria-hidden>{on ? "Pinned" : "Pin"}</span>
-                          <span className="sr-only">Pin {link.title}</span>
+                          <span className="sr-only">{on ? "Pinned" : "Pin"} {link.title}</span>
                         </button>
                       </li>
                     );

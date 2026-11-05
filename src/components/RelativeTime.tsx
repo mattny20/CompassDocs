@@ -28,7 +28,9 @@ export function RelativeTime({
   const fmt = useFormatDate();
   const iso = toIso(value);
   return (
-    <time dateTime={iso} data-tt={fmt.dateTime(iso)} data-tt-pos={pos} tabIndex={0} className={`outline-hidden ${className}`.trim()}>
+    // The minute can turn between the server render and hydration; only the
+    // text may differ, so React keeps the server HTML.
+    <time dateTime={iso} data-tt={fmt.dateTime(iso)} data-tt-pos={pos} tabIndex={0} suppressHydrationWarning className={`outline-hidden ${className}`.trim()}>
       {timeAgo(value)}
     </time>
   );
