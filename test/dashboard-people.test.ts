@@ -282,7 +282,7 @@ describe("My team", () => {
     // never changed, so other files reading it meanwhile are not affected.
     const fields = await listFields();
     assert.ok(managerField(fields), "the built-in Reports to field");
-    const adminsOnly = fields.map((f) => (f.key === "manager" ? { ...f, visibility: "admins" } : f));
+    const adminsOnly = fields.map((f) => (f.key === "manager" ? { ...f, visibility: "admins" as const } : f));
     assert.ok(managerField((await viewerScope(session(ids.uMia), fields)).fields), "visible as stored");
     assert.equal(managerField((await viewerScope(session(ids.uMia), adminsOnly)).fields), undefined, "admin-only: not a viewer's");
     assert.ok(managerField((await viewerScope(session(ids.uAdmin, "admin"), adminsOnly)).fields), "an admin's still");

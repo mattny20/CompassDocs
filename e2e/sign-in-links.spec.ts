@@ -180,7 +180,10 @@ test("nothing of the bar prints", async ({ browser }) => {
   await ctx.close();
 });
 
-test("a click before sign-in is counted with no user", async ({ browser }) => {
+// The admin API exposes the count only, not who clicked: that the click is
+// stored with no user is test/quick-links.test.ts's ("without a session,
+// only a sign-in page link is recorded (with no user)").
+test("a click before sign-in goes through the beacon and is counted", async ({ browser }) => {
   const before = await clicksOn(adminPage, shownId);
   expect(before).toBe(0);
 
@@ -193,7 +196,7 @@ test("a click before sign-in is counted with no user", async ({ browser }) => {
   expect(opened.url()).toBe(TARGET);
   await ctx.close();
 
-  // Signed out, so the one click the admin now sees has no user on it.
+  // The one click, from a page with no session, is on the admin's count.
   await expect.poll(() => clicksOn(adminPage, shownId)).toBe(1);
 });
 

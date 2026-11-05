@@ -15,29 +15,46 @@ async function setHidden(page: Page, hidden: string[]) {
   expect(res.status).toBe(200);
 }
 
+async function setPageWidth(page: Page, width: string) {
+  const res = await api(page, "/api/account/preferences", { method: "PATCH", body: { page_width: width } });
+  expect(res.status).toBe(200);
+}
+
 test("tiles carry their titles inside and sit in two columns, one on a phone", async ({ browser }) => {
-  for (const width of [1440, 375]) {
-    const ctx = await browser.newContext({ viewport: { width, height: 1200 } });
-    const page = await ctx.newPage();
-    await login(page, ADMIN);
-    try {
-      await setHidden(page, []);
-      await page.goto("/");
-      const latest = tile(page, "latest");
-      const spaces = tile(page, "spaces");
-      await expect(latest.getByRole("heading", { name: "Latest in your spaces" })).toBeVisible();
-      await expect(spaces.getByRole("heading", { name: "Spaces", exact: true })).toBeVisible();
-      // The section is named by its own heading.
-      await expect(page.getByRole("region", { name: "Latest in your spaces" })).toBeVisible();
-      // At most eight spaces, rows linking to each.
-      expect(await spaces.locator("a[href^='/spaces/']").count()).toBeLessThanOrEqual(8);
-      // The left column stacks with 24px between tiles.
-      const lb = (await latest.boundingBox())!;
-      const sb = (await spaces.boundingBox())!;
-      expect(sb.y).toBeGreaterThan(lb.y + lb.height);
-      // Quick links: beside Latest on the wide page, under the left column on a phone.
-      const ql = tile(page, "quick_links");
-      if (await ql.count()) {
+  // The columns below are the Wide page width's (the default; other specs
+  // switch it): set it for the test, and put back what the admin had.
+  const setup = await browser.newContext();
+  const adminPage = await setup.newPage();
+  await login(adminPage, ADMIN);
+  const priorWidth = (await adminPage.locator("[data-page-width]").first().getAttribute("data-page-width")) || "wide";
+  await setPageWidth(adminPage, "wide");
+  try {
+    for (const width of [1440, 375]) {
+      const ctx = await browser.newContext({ viewport: { width, height: 1200 } });
+      const page = await ctx.newPage();
+      await login(page, ADMIN);
+      try {
+        await setHidden(page, []);
+        // Everything, so Latest has rows whichever spaces the admin follows.
+        await page.goto("/?latest=everything");
+        await expect(page.locator("[data-page-width]").first()).toHaveAttribute("data-page-width", "wide");
+        const latest = tile(page, "latest");
+        const spaces = tile(page, "spaces");
+        await expect(latest.getByRole("heading", { name: "Latest in your spaces" })).toBeVisible();
+        await expect(spaces.getByRole("heading", { name: "Spaces", exact: true })).toBeVisible();
+        // The section is named by its own heading.
+        await expect(page.getByRole("region", { name: "Latest in your spaces" })).toBeVisible();
+        // At most eight spaces, rows linking to each.
+        expect(await spaces.locator("a[href^='/spaces/']").count()).toBeLessThanOrEqual(8);
+        // The left column stacks with 24px between tiles.
+        const lb = (await latest.boundingBox())!;
+        const sb = (await spaces.boundingBox())!;
+        expect(sb.y).toBeGreaterThan(lb.y + lb.height);
+        // Quick links: beside Latest on the wide page, under the left column on a phone.
+        // The tile always renders (empty, it invites the first pin).
+        const ql = tile(page, "quick_links");
+        await expect(ql).toBeVisible();
+        await expect(ql.getByRole("heading", { name: "Quick links", exact: true })).toBeVisible();
         const qb = (await ql.boundingBox())!;
         if (width === 1440) {
           expect(qb.x, "right column").toBeGreaterThan(lb.x + lb.width);
@@ -47,22 +64,24 @@ test("tiles carry their titles inside and sit in two columns, one on a phone", a
         } else {
           expect(qb.y, "below the left column").toBeGreaterThan(sb.y + sb.height);
         }
-      }
-      const o = await page.evaluate(() => {
-        const m = document.querySelector("main")!;
-        return { body: document.body.scrollWidth - document.body.clientWidth, main: m.scrollWidth - m.clientWidth };
-      });
-      expect(o.body, `no sideways scroll at ${width}`).toBeLessThanOrEqual(0);
-      expect(o.main, `no sideways scroll at ${width}`).toBeLessThanOrEqual(0);
-      // A phone folds Space and Updated by under the title.
-      const spaceHeader = latest.getByRole("columnheader", { name: "Space" });
-      if ((await latest.getByRole("row").count()) > 1) {
+        const o = await page.evaluate(() => {
+          const m = document.querySelector("main")!;
+          return { body: document.body.scrollWidth - document.body.clientWidth, main: m.scrollWidth - m.clientWidth };
+        });
+        expect(o.body, `no sideways scroll at ${width}`).toBeLessThanOrEqual(0);
+        expect(o.main, `no sideways scroll at ${width}`).toBeLessThanOrEqual(0);
+        // A phone folds Space and Updated by under the title.
+        const spaceHeader = latest.getByRole("columnheader", { name: "Space" });
+        expect(await latest.getByRole("row").count(), "a header row and the seeded documents").toBeGreaterThan(1);
         if (width === 375) await expect(spaceHeader).toBeHidden();
         else await expect(spaceHeader).toBeVisible();
+      } finally {
+        await ctx.close();
       }
-    } finally {
-      await ctx.close();
     }
+  } finally {
+    await setPageWidth(adminPage, priorWidth);
+    await setup.close();
   }
 });
 
@@ -85,15 +104,18 @@ test("Edit dashboard hides sections for this person until they switch them back 
     await expect(tile(page, "spaces")).toHaveCount(0);
     await expect(tile(page, "latest")).toHaveCount(0);
 
-    // Stored for the person: a fresh load keeps them hidden.
+    // Stored for the person: a fresh load keeps them hidden, and the dialog
+    // reads both back as off.
     await page.goto("/");
     await expect(page.locator("h1")).toBeVisible();
     await expect(tile(page, "spaces")).toHaveCount(0);
-    const stored = await api(page, "/api/account/dashboard", { method: "PUT", body: { hidden: ["latest", "spaces"] } });
-    expect(stored.body?.hidden).toEqual(["latest", "spaces"]);
+    await expect(tile(page, "latest")).toHaveCount(0);
+    await page.getByRole("button", { name: "Edit dashboard" }).click();
+    await expect(dialog.getByRole("switch", { name: /^Spaces/ })).toHaveAttribute("aria-checked", "false");
+    await expect(dialog.getByRole("switch", { name: /^Latest in your spaces/ })).toHaveAttribute("aria-checked", "false");
+    await expect(dialog.getByRole("switch", { name: /^Quick links/ })).toHaveAttribute("aria-checked", "true");
 
     // Cancel leaves the stored state alone.
-    await page.getByRole("button", { name: "Edit dashboard" }).click();
     await dialog.getByRole("switch", { name: /^Spaces/ }).click();
     await dialog.getByRole("button", { name: "Cancel" }).click();
     await page.goto("/");
@@ -185,6 +207,7 @@ test("the status strip names each service and counts the ones with problems", as
   await login(page, ADMIN);
   const s = stamp();
   let serviceId: number | undefined;
+  let incidentId: number | undefined;
   try {
     await setHidden(page, []);
     const made = await api(page, "/api/admin/status", {
@@ -204,6 +227,8 @@ test("the status strip names each service and counts the ones with problems", as
       body: { action: "declare", service_id: serviceId, title: "Slow", severity: "degraded" },
     });
     expect(declared.status).toBeLessThan(300);
+    incidentId = declared.body?.id;
+    expect(incidentId).toBeTruthy();
     await page.goto("/");
     // Problems lead the list, with the incident's words.
     await expect(strip.getByText(/^\d+ services? degraded$/)).toBeVisible();
@@ -217,6 +242,12 @@ test("the status strip names each service and counts the ones with problems", as
     await expect(tile(page, "status")).toHaveCount(0);
   } finally {
     await setHidden(page, []);
+    // Resolved before the service goes: everyone was told it was degraded,
+    // so everyone is told it is over, and no incident is left open.
+    if (incidentId) {
+      const resolved = await api(page, "/api/status/incidents", { method: "POST", body: { action: "resolve", incident_id: incidentId } });
+      expect(resolved.status).toBe(200);
+    }
     if (serviceId) await api(page, `/api/admin/status?id=${serviceId}`, { method: "DELETE" });
   }
 });
