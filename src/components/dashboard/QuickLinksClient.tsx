@@ -29,6 +29,8 @@ import { DashboardTile, TileLabel } from "./DashboardTile";
 const MAX_PINS = 12;
 const TITLE_MAX = 60;
 const URL_MAX = 2000;
+/** A group's links: one column in the side column, two when the tile is wide. */
+const LIST = "grid @xl:grid-cols-2 @xl:gap-x-4";
 const FULL_MESSAGE = `You can pin up to ${MAX_PINS} links. Remove one to make room.`;
 
 type Result = { ok: true; data: { item?: QuickLinkItem } } | { ok: false; error: string };
@@ -308,14 +310,16 @@ export function QuickLinksClient(props: {
           </Button>
         </div>
       ) : (
-        <>
+        // Beside the main column the tile is 19rem: one link per row. Where
+        // the dashboard stacks it full width, two.
+        <div className="@container">
           {(pinned.length > 0 || editing) && (
             <>
               <TileLabel icon={<Pin aria-hidden />}>Pinned by you</TileLabel>
               {editing && pinned.length === 0 ? (
                 <SectionEmpty className="px-2 py-1.5">Nothing pinned yet.</SectionEmpty>
               ) : (
-                <ul>
+                <ul className={editing ? "" : LIST}>
                   {pinned.map((item, i) => (
                     <li key={item.key}>
                       {editing ? (
@@ -370,7 +374,7 @@ export function QuickLinksClient(props: {
           {featured.length > 0 && (
             <>
               <TileLabel icon={<Star fill="currentColor" aria-hidden />}>From your admin</TileLabel>
-              <ul>
+              <ul className={LIST}>
                 {featured.map((item) => (
                   <li key={item.key}>
                     <LinkRow item={item} />
@@ -384,7 +388,7 @@ export function QuickLinksClient(props: {
               <TileLabel icon={<TrendingUp aria-hidden />}>
                 {props.mostUsedIsWorkspace && !personalCounts ? "Popular in your workspace" : "Most used · last 30 days"}
               </TileLabel>
-              <ul>
+              <ul className={LIST}>
                 {mostUsed.map((item) => (
                   <li key={item.key}>
                     <LinkRow item={item} />
@@ -393,7 +397,7 @@ export function QuickLinksClient(props: {
               </ul>
             </>
           )}
-        </>
+        </div>
       )}
 
       <AddQuickLinkDialog

@@ -14119,7 +14119,7 @@ export async function setLinkGroups(linkId: number, groupIds: number[]): Promise
 
 // --- Quick links 1.17.0: clicks, sign-in links, personal pins --------------------
 
-/** Record one click on a curated link (user NULL: the sign-in page). */
+/** Record one click on a curated link (user NULL: a click on the sign-in page). */
 export async function recordLinkClick(linkId: number, userId: number | null): Promise<void> {
   await q("INSERT INTO link_clicks (link_id, user_id) VALUES ($1, $2)", [linkId, userId]);
 }

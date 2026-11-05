@@ -52,7 +52,13 @@ export async function LatestTile({
     <DashboardTile
       id="latest"
       title="Latest in your spaces"
-      actions={<LatestViewSwitch value={view} />}
+      // Beside the title where the page's content column has room (the
+      // page's @container); under it on a phone, so the title never wraps.
+      actions={
+        <span className="hidden @md:flex">
+          <LatestViewSwitch value={view} />
+        </span>
+      }
       flush
       footer={
         <span className="text-slate-500">
@@ -60,6 +66,9 @@ export async function LatestTile({
         </span>
       }
     >
+      <div className="px-4 pb-2.5 @md:hidden">
+        <LatestViewSwitch value={view} />
+      </div>
       {docs.length === 0 ? (
         <SectionEmpty
           className="border-t border-slate-100 px-4 py-6"
@@ -108,13 +117,19 @@ export async function LatestTile({
                           Draft
                         </Chip>
                       )}
-                      <span className="ml-auto shrink-0">
+                      <span className="ml-auto hidden shrink-0 @min-[40rem]:inline-flex">
                         <TypeBadge type={d.type} />
                       </span>
                     </div>
-                    {/* Folded: where and who under the title. */}
-                    <p className="mt-0.5 truncate text-xs text-slate-500 @min-[40rem]:hidden">
-                      <span aria-hidden>{d.space_icon}</span> {d.space_name} · {d.author}
+                    {/* Folded: the type, where and who under the title, which
+                        then keeps the whole row. */}
+                    <p className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-slate-500 @min-[40rem]:hidden">
+                      <span className="shrink-0">
+                        <TypeBadge type={d.type} />
+                      </span>
+                      <span className="truncate">
+                        <span aria-hidden>{d.space_icon}</span> {d.space_name} · {d.author}
+                      </span>
                     </p>
                   </td>
                   <td className="hidden truncate px-4 py-2.5 text-slate-600 @min-[40rem]:table-cell">

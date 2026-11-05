@@ -106,9 +106,10 @@ export default async function DashboardPage({
       {/* Greeting + hero search */}
       <header className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         {/* Edit dashboard sits on the date's line: the greeting's own box
-            dissolves into this grid (its h1 spans both columns), so the
-            link follows the date however long the weekday is. */}
-        <div className="grid grid-cols-[auto_1fr] items-baseline gap-x-3 [&>div]:contents [&_h1]:col-span-2">
+            dissolves into this row (its h1 takes a line of its own), so the
+            link follows the date however long the weekday is, and wraps
+            under it on a phone. */}
+        <div className="flex flex-wrap items-baseline gap-x-3 [&>div]:contents [&_h1]:basis-full">
           <DashboardGreeting name={user.name || user.username} />
           <EditDashboardButton sections={editable} hidden={[...hidden]} />
         </div>

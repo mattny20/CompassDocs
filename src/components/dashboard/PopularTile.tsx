@@ -16,7 +16,7 @@ export async function PopularTile({ scope, includeDrafts }: { scope: SpaceScope;
     <DashboardTile
       id="popular"
       title="Popular this week"
-      actions={<span className="text-slate-500">Most read in your spaces</span>}
+      actions={<span className="hidden text-slate-500 @md:inline">Most read in your spaces</span>}
       flush
       // The last row's hover band follows the rounded corners.
       className="overflow-hidden"
