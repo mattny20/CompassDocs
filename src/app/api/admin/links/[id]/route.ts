@@ -1,6 +1,13 @@
 import { NextResponse } from "next/server";
 import { apiGuard } from "@/lib/api-auth";
-import { getLink, updateLink, deleteLink, setLinkGroups, getLinkGroupIds } from "@/lib/db";
+import {
+  getLink,
+  updateLink,
+  deleteLink,
+  setLinkGroups,
+  getLinkGroupIds,
+  linkClickCounts,
+} from "@/lib/db";
 import { fetchFavicon } from "@/lib/favicon";
 import { deleteUpload } from "@/lib/uploads";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
@@ -52,6 +59,42 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     patch.icon_type = body.icon_type;
   }
 
+  // Placement (1.17.0): Dashboard features the link on everyone's Quick
+  // links (still subject to its groups); Sign-in page shows it before
+  // anyone signs in, so only a link everyone may see can have it. A link
+  // that gains a group restriction loses its sign-in place in the same save.
+  const currentGroupIds = await getLinkGroupIds(link.id);
+  const nextGroupIds: number[] = Array.isArray(body?.group_ids)
+    ? body.group_ids.filter((g: unknown) => Number.isInteger(g))
+    : currentGroupIds;
+  if (body?.dashboard_featured !== undefined) {
+    if (typeof body.dashboard_featured !== "boolean") {
+      return NextResponse.json({ error: "Invalid request." }, { status: 400 });
+    }
+    patch.dashboard_featured = body.dashboard_featured;
+  }
+  if (body?.signin !== undefined) {
+    if (typeof body.signin !== "boolean") {
+      return NextResponse.json({ error: "Invalid request." }, { status: 400 });
+    }
+    if (body.signin && nextGroupIds.length > 0) {
+      return NextResponse.json(
+        { error: "Only a link everyone can see can be on the sign-in page. Set Who can see it to Everyone first." },
+        { status: 400 }
+      );
+    }
+    patch.signin = body.signin;
+  }
+  let signinCleared = false;
+  if (link.signin && nextGroupIds.length > 0 && patch.signin === undefined) {
+    patch.signin = false;
+    signinCleared = true;
+  }
+  // A save that only flips the two placements is audited as those, not as an edit.
+  const PLACEMENT_KEYS = ["dashboard_featured", "signin"];
+  const placementOnly =
+    Object.keys(body ?? {}).length > 0 && Object.keys(body ?? {}).every((k) => PLACEMENT_KEYS.includes(k));
+
   const nextType = patch.icon_type ?? link.icon_type;
   const urlChanged = patch.url !== undefined && patch.url !== link.url;
 
@@ -82,22 +125,50 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     await deleteUpload(link.icon_file);
   }
 
+  // Groups first: a link restricted in this save has its sign-in place
+  // cleared below, and the sign-in page never lists a restricted link
+  // whatever the moment (lib/db listSignInLinkRows).
+  const groupIds = nextGroupIds;
+  if (Array.isArray(body?.group_ids)) await setLinkGroups(link.id, groupIds);
+
   const updated = await updateLink(link.id, patch);
+  const label = updated?.title ?? link.title;
 
-  let groupIds = await getLinkGroupIds(link.id);
-  if (Array.isArray(body?.group_ids)) {
-    groupIds = body.group_ids.filter((g: unknown) => Number.isInteger(g));
-    await setLinkGroups(link.id, groupIds);
+  if (!placementOnly) {
+    await audit({
+      actor: actorFrom(gate),
+      action: "link.updated",
+      targetLabel: label,
+      details: { url: updated?.url ?? link.url, groups: groupIds.length },
+      ip: ipFrom(req),
+    });
   }
-
-  await audit({
-    actor: actorFrom(gate),
-    action: "link.updated",
-    targetLabel: updated?.title ?? link.title,
-    details: { url: updated?.url ?? link.url, groups: groupIds.length },
-    ip: ipFrom(req),
-  });
-  return NextResponse.json({ link: { ...updated, group_ids: groupIds } });
+  if (patch.dashboard_featured !== undefined && Number(patch.dashboard_featured) !== link.dashboard_featured) {
+    await audit({
+      actor: actorFrom(gate),
+      action: patch.dashboard_featured ? "link.dashboard_featured" : "link.dashboard_unfeatured",
+      targetType: "link",
+      targetId: link.id,
+      targetLabel: label,
+      details: { url: updated?.url ?? link.url },
+      ip: ipFrom(req),
+    });
+  }
+  if (patch.signin !== undefined && Number(patch.signin) !== link.signin) {
+    await audit({
+      actor: actorFrom(gate),
+      action: patch.signin ? "link.signin_shown" : "link.signin_hidden",
+      targetType: "link",
+      targetId: link.id,
+      targetLabel: label,
+      details: signinCleared
+        ? { url: updated?.url ?? link.url, reason: "restricted_to_groups" }
+        : { url: updated?.url ?? link.url },
+      ip: ipFrom(req),
+    });
+  }
+  const clicks = (await linkClickCounts(30))[link.id] ?? 0;
+  return NextResponse.json({ link: { ...updated, group_ids: groupIds, clicks } });
 }
 
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {

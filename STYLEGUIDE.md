@@ -750,7 +750,8 @@ mechanical and comes later.
   the form is centred in the 16px gutter. The band is 6rem tall on a phone
   (the lockup only), 10rem from 40rem, and 4rem when the viewport is under
   34rem tall (a landscape phone, the Outlook dialog), which wins by source
-  order. The cover is a sticky, full-height `aside`. The grid uses
+  order; each grows by 3.5rem when it carries the quick links strip (below).
+  The cover is a sticky, full-height `aside`. The grid uses
   `minmax(0, 1fr)`, so nothing scrolls sideways at 3440.
 - **DOM order is `<main>` first**, then the cover. The grid puts the cover
   on the side the admin chose (**Artwork side**: `data-side="start"`, art
@@ -768,7 +769,9 @@ mechanical and comes later.
 - **The Card/Stage rule.** Nothing operable or essential ever sits on the
   art. The cover holds the logo tile, the workspace name, the headline,
   tagline and caption, and decoration; every control, error, help line
-  and link is in the column. The first and password steps, and the
+  and link is in the column. **The one deliberate exception** is the
+  sign-in quick links (1.17.0, below): convenience links, never part of
+  signing in, after the form in DOM and tab order. The first and password steps, and the
   forced password change, also name the workspace in the form's subtitle
   ("to continue to Acme"); a step with a sentence of its own (the
   break-glass, the choice of providers, two-factor) does not. The column
@@ -776,7 +779,9 @@ mechanical and comes later.
   cover does not carry the name: on screen when an admin turns the text
   off over a photo, and always in print (`hidden print:flex`), which
   hides the cover. With text, the cover is `<aside aria-label="About
-  {Company}">`; with the text off it is a `div` with `aria-hidden`.
+  {Company}">`; with the text off it is a `div` with `aria-hidden`, unless
+  it carries quick links: a control is never inside `aria-hidden`, so the
+  `div` drops it and only `.auth-art-bg` stays hidden.
 - **Default art** (no upload) is drawn from the accent and makes no
   request. Back to front: `.auth-art-mesh` (compass 600 → 800 → 900 at
   200°, plus two glows at the top right from 64rem, which fade out before
@@ -831,6 +836,46 @@ mechanical and comes later.
   tagline and caption scale the same way, the lockup name is capped at
   24ch, and the display hides the lockup's name when it is the name.
   Aileron 400, 600 and 700 only; no display font, no weight 800.
+- **Sign-in quick links** (1.17.0, `components/auth/SignInLinksBar`, the
+  `.auth-links` rules): the links an admin marks **Sign-in page** in
+  Settings → Links, only links with no group restriction (the chip is
+  disabled with a `data-tt` reason otherwise, the server refuses the flag,
+  and restricting a link later clears it), at most 8, by position. The
+  pages load them through `signInLinks()`, which returns none on an error,
+  so the links can never stop anyone signing in; with none, nothing
+  renders and the cover is unchanged. A `<nav aria-label="Quick links">`
+  inside the cover, between the lockup and the words in the DOM, so after
+  the form for Tab and a screen reader. Each link is a button-shaped `<a>`
+  to the link's own address (`TrackedLink`: the same-origin click beacon
+  counts it, a signed-out click with no user; the admin preview passes
+  `trackLinks={false}`), `target="_blank" rel="noopener noreferrer"` with
+  an `sr-only` "(opens in a new tab)": a white icon tile (the favicon or
+  custom icon from the public-safe icon route, else the letter in
+  `compass-700`), the title (600, white, truncating at 14rem), then a
+  0.875rem `ExternalLink` at 60% opacity. Buttons are 0.625rem radius,
+  `rgb(255 255 255 / .14)` on a `.22` hairline, raised to `.26` / `.42`
+  on hover and focus; the focus ring on the art is a 2px **white**
+  outline (the house accent ring does not show on the accent art).
+  - **From 64rem, a bar across the middle of the cover**: the content
+    becomes a `1fr auto 1fr` grid with the bar in the middle row, so it
+    sits on the cover's vertical middle when there is room and is pushed
+    towards the lockup, never over it or the words, when there is not
+    (under 40rem tall it also tightens and drops its caption). 2.5rem
+    from the cover's edges, 1rem radius, `rgb(15 23 42 / .32)` with
+    `backdrop-filter: blur(14px) saturate(1.2)`, a `rgb(255 255 255 /
+    .16)` hairline and a soft shadow, `.875rem 1rem` padding; an
+    uppercase "Quick links" caption (11px, 600, 0.08em, white at 75%,
+    `aria-hidden`: the nav is already named) over buttons that wrap. With
+    the text off over a photo the bar is all the cover holds.
+  - **Below 64rem, a strip along the bottom of the band**: 3.5rem tall,
+    `rgb(15 23 42 / .38)` with `blur(12px)` and a top hairline, one row
+    that scrolls sideways (scroll-snap, no visible scrollbar, inset by
+    the band's own padding), smaller buttons (1.375rem tiles, 13px); the
+    band grows by the strip so the lockup keeps its height above it.
+  - `prefers-reduced-transparency` and `prefers-contrast: more` swap the
+    glass for solid slate (`rgb(15 23 42)`, buttons `rgb(51 65 85)`);
+    `forced-colors` draws `Canvas` boxes with `CanvasText` and `LinkText`
+    borders; print hides it with the cover. Nothing on it moves.
 
 ### Identifier-first steps
 

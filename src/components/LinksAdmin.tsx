@@ -3,7 +3,10 @@
 // Admin manager for the Quick links launchpad: categories (rename/reorder/
 // delete) and links (title, URL, description, category, icon source, and
 // per-group visibility). Icon sources: auto-fetched site favicon, the
-// workspace brand logo, or a custom uploaded image.
+// workspace brand logo, or a custom uploaded image. Each link row also shows
+// its clicks over 30 days and two placement toggles (1.17.0): Dashboard
+// (featured on everyone's Quick links) and Sign-in page (unrestricted links
+// only; the server refuses it on a restricted one too).
 
 import { useRef, useState } from "react";
 import { buttonClass } from "@/components/Button";
@@ -16,9 +19,12 @@ import {
   ChevronDown,
   RefreshCw,
   ExternalLink,
+  Star,
+  LogIn,
 } from "lucide-react";
 import { Field, SectionEmpty, Select, TextInput } from "@/components/form";
 import { EntityPicker } from "@/components/EntityPicker";
+import { Tooltip } from "@/components/Tooltip";
 import { confirmDialog, promptDialog } from "@/components/Dialog";
 import { useAction } from "@/lib/use-action";
 
@@ -39,6 +45,12 @@ interface AdminLink {
   icon_mime: string | null;
   position: number;
   group_ids: number[];
+  /** 1 = featured on everyone's dashboard Quick links. */
+  dashboard_featured: number;
+  /** 1 = shown on the sign-in page (unrestricted links only). */
+  signin: number;
+  /** Clicks over the last 30 days. */
+  clicks: number;
 }
 
 interface GroupLite {
@@ -274,6 +286,29 @@ export function LinksAdmin({
     await reload();
   }
 
+  // Dashboard / Sign-in page: flipped in place, put back if the save fails.
+  async function togglePlacement(l: AdminLink, field: "dashboard_featured" | "signin") {
+    const next = l[field] ? 0 : 1;
+    const put = (v: number) =>
+      setLinks((ls) => ls.map((x) => (x.id === l.id ? { ...x, [field]: v } : x)));
+    put(next);
+    const ok = await run(
+      `link-${l.id}`,
+      () =>
+        fetch(`/api/admin/links/${l.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ [field]: next === 1 }),
+        }),
+      {
+        fallback:
+          field === "signin" ? "Couldn't change the sign-in page." : "Couldn't change the dashboard.",
+        refresh: false,
+      }
+    );
+    if (!ok) put(l[field]);
+  }
+
   async function deleteLink(l: AdminLink) {
     if (!(await confirmDialog({ title: `Delete the "${l.title}" link?`, confirmLabel: "Delete", danger: true }))) return;
     const ok = await run(
@@ -359,12 +394,18 @@ export function LinksAdmin({
       </div>
 
       {/* Links */}
-      <div className="rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="font-semibold text-slate-900">All links</h2>
+      <div className="@container rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
+        <div className="mb-3 flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h2 className="font-semibold text-slate-900">All links</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Clicks are counted over the last 30 days. Dashboard puts a link in everyone&apos;s
+              Quick links; Sign-in page shows it on the login screen (links for Everyone only).
+            </p>
+          </div>
           <button
             onClick={startNew}
-            className={buttonClass("primary")}
+            className={buttonClass("primary", "md", "shrink-0")}
           >
             <Plus className="h-4 w-4" /> Add link
           </button>
@@ -396,7 +437,7 @@ export function LinksAdmin({
             </h3>
             <ul className="divide-y divide-slate-100">
               {s.links.map((l) => (
-                <li key={l.id} className="flex items-center gap-3 py-2 text-sm">
+                <li key={l.id} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 py-2 text-sm">
                   <IconPreview link={l} brandLogo={brandLogo} bust={iconBust} size="sm" />
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center gap-1.5 font-medium text-slate-800">
@@ -407,6 +448,11 @@ export function LinksAdmin({
                     </span>
                     <span className="block truncate text-xs text-slate-500">{l.url}</span>
                   </span>
+                  <LinkPlacement
+                    link={l}
+                    disabled={busy || isBusy(`link-${l.id}`)}
+                    onToggle={(field) => togglePlacement(l, field)}
+                  />
                   <span className="hidden shrink-0 text-xs text-slate-500 sm:block">
                     {l.group_ids.length === 0
                       ? "Everyone"
@@ -443,6 +489,69 @@ export function LinksAdmin({
         )}
       </div>
     </div>
+  );
+}
+
+const placementChip =
+  "inline-flex h-6 items-center gap-1 rounded-full border px-2.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 print:hidden";
+const placementOn = "border-compass-200 bg-compass-50 text-compass-700 hover:bg-compass-100";
+const placementOff = "border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700";
+
+/**
+ * A link row's 30-day clicks and its two placement toggles. Below the
+ * container's @3xl they drop to their own line under the title.
+ */
+function LinkPlacement({
+  link,
+  disabled,
+  onToggle,
+}: {
+  link: AdminLink;
+  disabled: boolean;
+  onToggle: (field: "dashboard_featured" | "signin") => void;
+}) {
+  const featured = link.dashboard_featured === 1;
+  const signin = link.signin === 1;
+  const restricted = link.group_ids.length > 0;
+  const signinChip = (
+    <button
+      type="button"
+      onClick={() => onToggle("signin")}
+      disabled={disabled || (restricted && !signin)}
+      aria-pressed={signin}
+      data-tt={restricted ? undefined : signin ? "On the sign-in page. Click to remove it." : "Show on the sign-in page, before anyone signs in"}
+      data-tt-wrap=""
+      className={`${placementChip} ${signin ? placementOn : placementOff}`}
+    >
+      <LogIn className="h-3.5 w-3.5" aria-hidden />
+      Sign-in page
+    </button>
+  );
+  return (
+    <span className="order-last flex w-full flex-wrap items-center gap-1.5 pl-11 @3xl:order-none @3xl:w-auto @3xl:pl-0">
+      <span className="text-xs tabular-nums text-slate-500 @3xl:w-20 @3xl:text-right">
+        {link.clicks === 1 ? "1 click" : `${link.clicks.toLocaleString()} clicks`}
+      </span>
+      <button
+        type="button"
+        onClick={() => onToggle("dashboard_featured")}
+        disabled={disabled}
+        aria-pressed={featured}
+        data-tt={featured ? "On everyone's dashboard Quick links. Click to remove it." : "Show on everyone's dashboard Quick links"}
+        data-tt-wrap=""
+        className={`${placementChip} ${featured ? placementOn : placementOff}`}
+      >
+        <Star className="h-3.5 w-3.5" fill={featured ? "currentColor" : "none"} aria-hidden />
+        Dashboard
+      </button>
+      {restricted && !signin ? (
+        <Tooltip label="Only links for Everyone can go on the sign-in page.">
+          {signinChip}
+        </Tooltip>
+      ) : (
+        signinChip
+      )}
+    </span>
   );
 }
 
@@ -619,6 +728,11 @@ function LinkForm({
             {groupsError(form) && (
               <span role="alert" className="mt-1 block text-xs text-red-600">
                 {groupsError(form)}
+              </span>
+            )}
+            {editingLink?.signin === 1 && (
+              <span className="mt-1 block text-xs text-slate-500">
+                Restricting this link takes it off the sign-in page.
               </span>
             )}
           </div>

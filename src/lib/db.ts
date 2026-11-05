@@ -1446,6 +1446,44 @@ const SCHEMA_SQL = `
     PRIMARY KEY (link_id, group_id)
   );
 
+  -- --- Quick links 1.17.0 ---------------------------------------------------
+  -- An admin can feature a link on everyone's dashboard Quick links
+  -- (dashboard_featured) and show it on the sign-in page (signin, only for a
+  -- link with no link_groups rows: the sign-in page is public, and the API
+  -- refuses the flag on a restricted link and clears it when one is
+  -- restricted later).
+  ALTER TABLE links ADD COLUMN IF NOT EXISTS dashboard_featured integer NOT NULL DEFAULT 0;
+  ALTER TABLE links ADD COLUMN IF NOT EXISTS signin integer NOT NULL DEFAULT 0;
+  -- One row per click on a curated link (the Links page, the dashboard's
+  -- Quick links, the sign-in page), recorded by a same-origin beacon; the
+  -- href itself is never rewritten. user_id is NULL for a click on the
+  -- sign-in page and once the account is deleted. Pruned after 90 days
+  -- (runDbMaintenance); the counts shown are over the last 30.
+  CREATE TABLE IF NOT EXISTS link_clicks (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    link_id integer NOT NULL REFERENCES links(id) ON DELETE CASCADE,
+    user_id integer REFERENCES users(id) ON DELETE SET NULL,
+    clicked_at timestamptz NOT NULL DEFAULT now()
+  );
+  CREATE INDEX IF NOT EXISTS idx_link_clicks_link_at ON link_clicks(link_id, clicked_at);
+  CREATE INDEX IF NOT EXISTS idx_link_clicks_user_at ON link_clicks(user_id, clicked_at);
+  CREATE INDEX IF NOT EXISTS idx_link_clicks_at ON link_clicks(clicked_at);
+  -- A person's own dashboard pins: either a curated link (link_id) or their
+  -- own title + URL (link_id NULL). Ordered by position; at most 12 a person
+  -- (enforced by the API). They go with the account and with the link.
+  CREATE TABLE IF NOT EXISTS user_quick_links (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    link_id integer REFERENCES links(id) ON DELETE CASCADE,
+    title text NOT NULL DEFAULT '',
+    url text NOT NULL DEFAULT '',
+    position integer NOT NULL DEFAULT 0,
+    created_at timestamptz NOT NULL DEFAULT now()
+  );
+  CREATE INDEX IF NOT EXISTS idx_user_quick_links_user ON user_quick_links(user_id, position);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_user_quick_links_pin
+    ON user_quick_links(user_id, link_id) WHERE link_id IS NOT NULL;
+
   -- Organization announcements: admin-posted messages shown on every user's
   -- dashboard until they expire, are archived by an admin, or the user
   -- dismisses them for themselves. Email/webhook delivery happens at post
@@ -1835,6 +1873,12 @@ const SCHEMA_SQL = `
   -- The password step and the sign-in lookup match on these (1.16.0).
   CREATE INDEX IF NOT EXISTS idx_users_username_lower ON users(lower(username));
   CREATE INDEX IF NOT EXISTS idx_users_email_lower ON users(lower(email));
+
+  -- --- Dashboard 1.17.0 ------------------------------------------------------
+  -- The home dashboard sections a person has switched off with Edit
+  -- dashboard (keys from lib/dashboard-sections). Empty = everything shown,
+  -- so a new section appears for everyone until they hide it.
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS dashboard_hidden text[] NOT NULL DEFAULT '{}';
 `;
 
 /**
@@ -4056,6 +4100,8 @@ export async function runDbMaintenance(): Promise<{ sessions: number; oauthCodes
   await pool().query(
     "DELETE FROM doc_editing_presence WHERE last_seen < now() - interval '10 minutes'"
   );
+  // Link clicks (1.17.0) feed 30-day counts; nothing reads past 90 days.
+  await pool().query("DELETE FROM link_clicks WHERE clicked_at < now() - interval '90 days'");
   // The notice outbox is a queue, not a record (ack_notices is the record):
   // closed rows are kept a month for support and then dropped. A row that
   // gave up (three failed attempts, or an instance that died on the last
@@ -13748,6 +13794,61 @@ export async function teamPolicyRows(groupIds: number[], viewerId: number): Prom
   );
 }
 
+// --- Dashboard: Team compliance for directory managers (1.17.0) -----------------
+//
+// The home dashboard's Team compliance tile (components/dashboard/
+// TeamComplianceTile): for a manager whose directory entry has direct
+// reports mapped to accounts, how many of those reports hold a current
+// confirmation of each policy that asks them. Same fragments as
+// teamPolicyRows (an open, non-exempt row of an active account; the
+// current-ask confirmation; the viewer's readable spaces, so a private-space
+// title never reaches a manager who cannot read it). The caller decides who
+// counts as a report (lib/dashboard-people) and whether the viewer may see
+// policy standing at all.
+
+export interface ReportPolicyStanding {
+  document_id: number;
+  title: string;
+  /** Reports the policy asks (open rows). */
+  owed: number;
+  /** Of those, how many hold a current confirmation. */
+  confirmed: number;
+  /** The names still to confirm, by name. */
+  outstanding: string[];
+}
+
+/** The policies `reportIds` owe, fewest confirmed (by share) first, at most `limit`. */
+export async function reportPolicyStanding(
+  reportIds: number[],
+  viewerId: number,
+  limit = 3
+): Promise<ReportPolicyStanding[]> {
+  if (!reportIds.length) return [];
+  return q<ReportPolicyStanding>(
+    `SELECT d.id AS document_id, d.title,
+            COUNT(*)::int AS owed,
+            (COUNT(*) FILTER (WHERE cur.ok))::int AS confirmed,
+            COALESCE(array_agg(COALESCE(NULLIF(u.name, ''), u.username) ORDER BY u.name, u.id)
+                     FILTER (WHERE NOT cur.ok), '{}') AS outstanding
+     FROM policy_assignments pa
+     JOIN users u ON u.id = pa.user_id
+     JOIN documents d ON d.id = pa.document_id
+     JOIN spaces s ON s.id = d.space_id
+     CROSS JOIN LATERAL (
+       SELECT EXISTS (
+         SELECT 1 FROM acknowledgements a
+         WHERE a.document_id = d.id AND a.user_id = u.id AND ${ACK_CURRENT_PA}
+       ) AS ok
+     ) cur
+     WHERE pa.user_id = ANY($1::int[]) AND ${PA_OWES} AND ${MY_POLICY_DOC} AND ${ACK_VISIBILITY}
+       AND d.space_id IN (${readableSpaceIdsSql("$2")})
+     GROUP BY d.id, d.title
+     ORDER BY (COUNT(*) FILTER (WHERE cur.ok))::float / COUNT(*), COUNT(*) DESC, d.title, d.id
+     LIMIT $3`,
+    [reportIds, viewerId, limit]
+  );
+}
+
 /** One open requirement a lead asked to remind, with everything the route decides on. */
 export interface LeadRemindRow {
   assignment_id: number;
@@ -13831,6 +13932,10 @@ export interface QuickLink {
   icon_mime: string | null;
   position: number;
   created_at: string;
+  /** 1 = featured on everyone's dashboard Quick links (1.17.0). */
+  dashboard_featured: number;
+  /** 1 = shown on the sign-in page; only ever set on an unrestricted link (1.17.0). */
+  signin: number;
 }
 
 export async function listLinkCategories(): Promise<LinkCategory[]> {
@@ -13944,6 +14049,8 @@ export async function updateLink(
     icon_file: string | null;
     icon_mime: string | null;
     position: number;
+    dashboard_featured: boolean;
+    signin: boolean;
   }>
 ): Promise<QuickLink | undefined> {
   const sets: string[] = [];
@@ -13960,6 +14067,8 @@ export async function updateLink(
   if (patch.icon_file !== undefined) push("icon_file", patch.icon_file);
   if (patch.icon_mime !== undefined) push("icon_mime", patch.icon_mime);
   if (patch.position !== undefined) push("position", patch.position);
+  if (patch.dashboard_featured !== undefined) push("dashboard_featured", patch.dashboard_featured ? 1 : 0);
+  if (patch.signin !== undefined) push("signin", patch.signin ? 1 : 0);
   if (!sets.length) return getLink(id);
   vals.push(id);
   return (
@@ -14006,6 +14115,169 @@ export async function setLinkGroups(linkId: number, groupIds: number[]): Promise
   } finally {
     client.release();
   }
+}
+
+// --- Quick links 1.17.0: clicks, sign-in links, personal pins --------------------
+
+/** Record one click on a curated link (user NULL: the sign-in page). */
+export async function recordLinkClick(linkId: number, userId: number | null): Promise<void> {
+  await q("INSERT INTO link_clicks (link_id, user_id) VALUES ($1, $2)", [linkId, userId]);
+}
+
+/** link_id → clicks over the last `days` days, workspace-wide (admin counts). */
+export async function linkClickCounts(days = 30): Promise<Record<number, number>> {
+  const rows = await q<{ link_id: number; n: number }>(
+    `SELECT link_id, COUNT(*)::int AS n FROM link_clicks
+     WHERE clicked_at > now() - ($1 * interval '1 day')
+     GROUP BY link_id`,
+    [days]
+  );
+  const map: Record<number, number> = {};
+  for (const r of rows) map[r.link_id] = r.n;
+  return map;
+}
+
+/**
+ * Clicks per link over the last `days` days, most first, ties to the most
+ * recent click: one person's (userId) or the whole workspace's (null, which
+ * counts sign-in page clicks too). The caller filters to visible links.
+ */
+export async function rankedLinkClicks(
+  userId: number | null,
+  days = 30
+): Promise<{ link_id: number; n: number }[]> {
+  return q(
+    `SELECT link_id, COUNT(*)::int AS n FROM link_clicks
+     WHERE clicked_at > now() - ($1 * interval '1 day')
+       AND ($2::int IS NULL OR user_id = $2)
+     GROUP BY link_id
+     ORDER BY COUNT(*) DESC, MAX(clicked_at) DESC, link_id`,
+    [days, userId]
+  );
+}
+
+/**
+ * The sign-in page's links: flagged and unrestricted (a link restricted to
+ * groups never shows before sign-in, whatever its flag says), by position.
+ */
+export async function listSignInLinkRows(limit = 8): Promise<QuickLink[]> {
+  return q(
+    `SELECT l.* FROM links l
+     WHERE l.signin = 1
+       AND NOT EXISTS (SELECT 1 FROM link_groups lg WHERE lg.link_id = l.id)
+     ORDER BY l.position, l.title
+     LIMIT $1`,
+    [limit]
+  );
+}
+
+/** Whether a link may be served before sign-in (its icon, its click beacon). */
+export async function linkIsPublicSignIn(linkId: number): Promise<boolean> {
+  const rows = await q<{ ok: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM links l
+       WHERE l.id = $1 AND l.signin = 1
+         AND NOT EXISTS (SELECT 1 FROM link_groups lg WHERE lg.link_id = l.id)) AS ok`,
+    [linkId]
+  );
+  return rows[0]?.ok ?? false;
+}
+
+export interface UserQuickLinkRow {
+  id: number;
+  user_id: number;
+  /** A curated link, or NULL for the person's own title + URL. */
+  link_id: number | null;
+  title: string;
+  url: string;
+  position: number;
+  created_at: string;
+}
+
+/** Most pins one person may keep on their dashboard. */
+export const MAX_USER_QUICK_LINKS = 12;
+
+export async function listUserQuickLinks(userId: number): Promise<UserQuickLinkRow[]> {
+  return q(
+    "SELECT * FROM user_quick_links WHERE user_id = $1 ORDER BY position, id",
+    [userId]
+  );
+}
+
+/**
+ * Pin a curated link or an own link at the end of the person's list. Returns
+ * null when the list is full; pinning a curated link twice returns the
+ * existing pin. The count and insert share a lock on the person's row, so two
+ * tabs cannot both take the twelfth place.
+ */
+export async function addUserQuickLink(
+  userId: number,
+  pin: { linkId: number } | { title: string; url: string }
+): Promise<UserQuickLinkRow | null> {
+  const client = await pool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT id FROM users WHERE id = $1 FOR UPDATE", [userId]);
+    if ("linkId" in pin) {
+      const existing = await client.query<UserQuickLinkRow>(
+        "SELECT * FROM user_quick_links WHERE user_id = $1 AND link_id = $2",
+        [userId, pin.linkId]
+      );
+      if (existing.rows[0]) {
+        await client.query("COMMIT");
+        return existing.rows[0];
+      }
+    }
+    const stats = await client.query<{ n: number; m: number }>(
+      "SELECT COUNT(*)::int AS n, COALESCE(MAX(position), 0)::int AS m FROM user_quick_links WHERE user_id = $1",
+      [userId]
+    );
+    if (stats.rows[0].n >= MAX_USER_QUICK_LINKS) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    const row = await client.query<UserQuickLinkRow>(
+      `INSERT INTO user_quick_links (user_id, link_id, title, url, position)
+       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      "linkId" in pin
+        ? [userId, pin.linkId, "", "", stats.rows[0].m + 1]
+        : [userId, null, pin.title.trim().slice(0, 60), pin.url.trim().slice(0, 2000), stats.rows[0].m + 1]
+    );
+    await client.query("COMMIT");
+    return row.rows[0];
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+/** Remove one of the person's own pins; false when it is not theirs. */
+export async function deleteUserQuickLink(userId: number, pinId: number): Promise<boolean> {
+  const res = await pool().query("DELETE FROM user_quick_links WHERE id = $1 AND user_id = $2", [
+    pinId,
+    userId,
+  ]);
+  return (res.rowCount ?? 0) > 0;
+}
+
+/**
+ * Put the person's pins in the given order. Ids that are not theirs are
+ * ignored; pins left out keep their relative order after the listed ones.
+ */
+export async function reorderUserQuickLinks(userId: number, pinIds: number[]): Promise<void> {
+  const current = await listUserQuickLinks(userId);
+  const mine = new Set(current.map((p) => p.id));
+  const listed = [...new Set(pinIds)].filter((id) => mine.has(id));
+  const order = [...listed, ...current.map((p) => p.id).filter((id) => !listed.includes(id))];
+  if (!order.length) return;
+  await q(
+    `UPDATE user_quick_links u SET position = o.pos
+     FROM unnest($2::int[]) WITH ORDINALITY AS o(id, pos)
+     WHERE u.id = o.id AND u.user_id = $1`,
+    [userId, order]
+  );
 }
 
 // --- Document comments (0.38) -----------------------------------------------------

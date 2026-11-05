@@ -12,6 +12,7 @@ import {
   type SignInTextKey,
 } from "@/lib/sign-in-text";
 import { DEMO_PROVIDERS } from "@/lib/sign-in-demo";
+import { signInLinks } from "@/components/auth/SignInLinksBar";
 import type { SignInProviderLink } from "@/lib/sign-in-transport";
 import { AuthShell } from "@/components/auth/AuthShell";
 import { providerName } from "@/components/auth/ProviderMark";
@@ -34,6 +35,8 @@ export const metadata = { title: "Sign-in preview", robots: { index: false, foll
 //                   dropped, so the frame renders at the real device size
 //   ?flow=identify  the email-first steps, whatever the workspace's mode
 //   ?art=none       the default art (the artwork was just removed)
+//
+// The cover shows the real sign-in links (Settings → Links), uncounted.
 
 type Query = Partial<Record<string, string | string[]>>;
 
@@ -67,7 +70,12 @@ function withOverrides(look: SignInLook, q: Query): SignInLook {
 export default async function SignInPreviewPage({ searchParams }: { searchParams: Promise<Query> }) {
   await requirePermission("admin", "workspace.branding_manage");
   const q = await searchParams;
-  const [settings, setup, stored] = await Promise.all([getAppSettings(), signInSetup(), getSignInLook()]);
+  const [settings, setup, stored, links] = await Promise.all([
+    getAppSettings(),
+    signInSetup(),
+    getSignInLook(),
+    signInLinks(),
+  ]);
   const look = withOverrides(stored, q);
   const framed = one(q, "frame") === "1";
   const theme = one(q, "theme") === "dark" ? "dark" : "light";
@@ -89,7 +97,13 @@ export default async function SignInPreviewPage({ searchParams }: { searchParams
           }}
         />
       )}
-      <AuthShell look={look} company={settings.company_name} logoUrl={settings.logo_url || undefined}>
+      <AuthShell
+        look={look}
+        company={settings.company_name}
+        logoUrl={settings.logo_url || undefined}
+        links={links}
+        trackLinks={false}
+      >
         {!framed && <PreviewNotice mode={mode} ssoOnly={setup.ssoOnly} providers={providers} identifyHref={identifyHref(q)} />}
         <SignInFlow
           key={mode}

@@ -8,6 +8,7 @@ import { getSignInLook } from "@/lib/sign-in-art";
 import { ART_SIZES } from "@/lib/sign-in-text";
 import { safeReturnPath } from "@/lib/return-to";
 import { ssoErrorMessage } from "@/lib/sso-error";
+import { signInLinks } from "@/components/auth/SignInLinksBar";
 import { AuthShell } from "@/components/auth/AuthShell";
 import { SignInFlow, type SignInMode } from "@/components/auth/SignInFlow";
 
@@ -19,7 +20,8 @@ export const metadata = { title: "Sign in", robots: { index: false, follow: fals
 //   no usable SSO provider (community build, nothing configured) → one
 //   combined form, no lookup; ?local=1 with SSO → the same, the break-glass;
 //   otherwise email or username first (lib/sign-in-routing).
-// A ?sso_error code becomes its sentence in lib/sso-error.
+// A ?sso_error code becomes its sentence in lib/sso-error. The links an
+// admin put on the sign-in page (1.17.0) ride in the cover.
 
 export default async function LoginPage({
   searchParams,
@@ -34,7 +36,12 @@ export default async function LoginPage({
   const next = safeReturnPath(params.next);
   if (await getCurrentUser()) redirect(next);
 
-  const [settings, setup, look] = await Promise.all([getAppSettings(), signInSetup(), getSignInLook()]);
+  const [settings, setup, look, links] = await Promise.all([
+    getAppSettings(),
+    signInSetup(),
+    getSignInLook(),
+    signInLinks(),
+  ]);
   const providers = providersOf(setup).map((p) => ({ ...p, start: providerStart(p.id, next) }));
   const mode: SignInMode = providers.length === 0 ? "combined" : params.local === "1" ? "local" : "identify";
   const ssoError = ssoErrorMessage(params.sso_error);
@@ -43,7 +50,7 @@ export default async function LoginPage({
   }
 
   return (
-    <AuthShell look={look} company={settings.company_name} logoUrl={settings.logo_url || undefined}>
+    <AuthShell look={look} company={settings.company_name} logoUrl={settings.logo_url || undefined} links={links}>
       <SignInFlow
         mode={mode}
         ssoOnly={setup.ssoOnly}
