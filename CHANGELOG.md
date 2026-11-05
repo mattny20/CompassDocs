@@ -4,6 +4,81 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.17.0] - 2026-11-05
+
+A new home dashboard and quick links. Every section is now a tile with its
+title inside, in two columns: what changed and what people read on the
+left, and the links and people that matter to you on the right. Quick links
+learn from what you click, admins can feature links for everyone, and
+chosen links appear on the sign-in page across the artwork.
+
+### Added
+- **Quick links on the dashboard.** A tile in the right column with three
+  groups: **Pinned by you** (links you pinned from the Links page, or your
+  own title and http(s) address, up to 12), **From your admin** (links an
+  admin features for everyone) and **Most used · last 30 days** (the links
+  you clicked most, with counts; while you have little history it fills
+  from what is popular across the workspace). A **New** chip marks links
+  added in the last week. **Add a quick link** opens a dialog with **From
+  the Links page** and **Your own link**; the pencil reorders and removes
+  pins, with Undo. Only you see your pins, and nobody is ever shown a link
+  they cannot see on the Links page.
+- **Link usage.** Clicks on the Links page, on Quick links and on the
+  sign-in page are counted without changing where a link points, so
+  copying a link still copies the real address. **Settings > Links** shows
+  each link's clicks over the last 30 days. Clicks are kept for 90 days,
+  and an account's clicks lose their name when the account is deleted.
+- **Featured and sign-in links in Settings > Links.** Each link has a
+  **Dashboard** toggle (everyone's Quick links) and a **Sign-in page**
+  toggle. Only a link everyone can see may go on the sign-in page;
+  restricting a link to groups takes it off. Both are audited.
+- **Quick links on the sign-in page.** Up to 8 links marked **Sign-in
+  page** sit on a frosted bar across the middle of the artwork on screens
+  1024 pixels and wider, and on a strip along the bottom of the band on
+  phones, so the artwork still shows through. They open in a new tab, come
+  after the sign-in form for the keyboard, are left out of print, and turn
+  solid for reduced transparency, more contrast and forced colours. The
+  sign-in preview and the forced password change show them too. This is
+  the one control allowed on the artwork.
+- **My team.** Who you report to, your team-mates under the same manager
+  and your direct reports, from the directory's manager field, each linking
+  to their profile. Teams presence shows where the Enterprise presence
+  feature is on.
+- **People this week.** New starters, work anniversaries and birthdays from
+  the directory's start-date and birthday fields; a field kept from you in
+  the directory stays out of the tile.
+- **My training** (Training licence): your open training, overdue first,
+  with progress and due dates.
+- **Team compliance** (Read confirmation licence): for managers in the
+  directory, how many of their direct reports have confirmed each policy,
+  least confirmed first; hover a count to see who is still to confirm. It
+  follows the **Group leads see policy standing** setting.
+- **Popular this week.** The five most-read documents of the last 7 days
+  that you can read.
+- **A status strip** under the greeting with a dot for every tracked
+  service and a link to Status. It replaces the problems banner and is left
+  out when no service is tracked.
+- **Edit dashboard**, beside the date: show or hide each section for
+  yourself. A hidden section is not loaded at all.
+
+### Changed
+- **Latest in your spaces** is a compact table (document with its type and
+  any Draft tag, space, who updated it, when) with a **Following |
+  Everything** switch. Following is the spaces you follow and is the
+  default when you follow any.
+- **Spaces** is one tile with two columns of spaces, each with its document
+  count and last update; **New space** is offered to people who can create
+  spaces.
+- The greeting and Ask bar run full width above the tiles. Announcements,
+  newsletters, Needs your attention and Pick up where you left off stay
+  above the tiles, as before.
+
+### Upgrading
+- Additive schema, applied on start: `link_clicks`, `user_quick_links`,
+  `links.dashboard_featured`, `links.signin` and
+  `users.dashboard_hidden`. No new environment variable.
+- Rolling back to 1.16.0 is safe: it ignores the new tables and columns.
+
 ## [1.16.0] - 2026-10-27
 
 Sign-in, redesigned. The sign-in page is a cover beside a calm form

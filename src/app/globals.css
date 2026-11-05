@@ -1164,8 +1164,8 @@ table {
     display: block;
     height: auto;
     margin-block: 1.5rem;
-    /* 2.5rem from the cover's edges, whatever --art-pad is. */
-    margin-inline: calc(2.5rem - var(--art-pad));
+    /* Lined up with the logo and headline: the cover's own padding. */
+    margin-inline: 0;
     padding: 0.875rem 1rem;
     overflow: visible;
     border: 1px solid rgb(255 255 255 / 0.16);

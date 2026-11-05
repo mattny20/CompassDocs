@@ -352,6 +352,10 @@ export function SignInPageSettings({
               title="Text on the artwork"
               description="Shown over the artwork on screens 1024 pixels and wider, on a shade that keeps it readable on any picture."
             >
+              <p className="mb-3 text-xs text-slate-500">
+                Quick links across the artwork are chosen in <SettingsLink href="/admin/links">Links</SettingsLink>: turn on
+                Sign-in page for a link everyone can see.
+              </p>
               {art && !s.show_text && (
                 <p className="mb-3 text-xs text-slate-500">
                   Hidden while Show the name and headline over the artwork is off.

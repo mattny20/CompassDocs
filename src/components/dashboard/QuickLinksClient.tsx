@@ -424,7 +424,7 @@ function LinkTile({ item }: { item: QuickLinkItem }) {
   if (item.iconUrl) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
-      <img src={item.iconUrl} alt="" className="h-7.5 w-7.5 shrink-0 rounded-lg bg-surface object-contain p-0.5 ring-1 ring-slate-100" />
+      <img src={item.iconUrl} alt="" className="h-7.5 w-7.5 shrink-0 rounded-lg bg-white object-contain p-0.5 ring-1 ring-slate-100" />
     );
   }
   return (

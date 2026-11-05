@@ -96,7 +96,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
       { href: "/admin/workspace", label: "Workspace", icon: Palette, description: "Name, branding, accent color, sign-in page, and workspace-wide content options.", keywords: "name logo accent color brand theme icon company date format nested pages backlinks sub-pages tree comments sign-in login page artwork", permission: "workspace.branding_manage", docs: "https://docs.compassdocs.io/admin/appearance/", pages: [
           { href: "/admin/workspace", label: "Branding", icon: Palette, keywords: "name logo accent colour date time" },
           { href: "/admin/workspace/content", label: "Content", icon: FileText, keywords: "retention attachments comments nested pages approval session" },
-          { href: "/admin/workspace/sign-in", label: "Sign-in page", icon: LogIn, keywords: "login sign in page artwork background image photo headline tagline caption help example focus side" },
+          { href: "/admin/workspace/sign-in", label: "Sign-in page", icon: LogIn, keywords: "login sign in page artwork background image photo headline tagline caption help example focus side quick links" },
         ], topics: [
           { href: "/admin/workspace#branding", label: "Branding", keywords: "name logo accent colour color favicon icon" },
           { href: "/admin/workspace#date-time", label: "Date & time", keywords: "timezone time zone date format 24-hour clock" },

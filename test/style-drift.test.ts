@@ -208,6 +208,7 @@ describe("style drift guard", () => {
       "components/form.tsx",
       "components/LinksAdmin.tsx",
       "app/(app)/links/page.tsx",
+      "components/dashboard/QuickLinksClient.tsx",
       "components/NewsletterPeople.tsx",
       "components/EmailTemplatesPanel.tsx",
       "components/EmailTemplate.tsx",
