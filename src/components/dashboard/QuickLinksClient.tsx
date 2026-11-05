@@ -648,9 +648,11 @@ function AddQuickLinkDialog({
                           }`}
                         >
                           <Pin aria-hidden />
-                          {/* The visible label starts the name (label-in-name); aria-pressed says the state. */}
+                          {/* One name in both states ("Pin Teams"), the toggle-button
+                              pattern: aria-pressed says which, and saying "Pin"
+                              still reaches it by voice when it reads "Pinned". */}
                           <span aria-hidden>{on ? "Pinned" : "Pin"}</span>
-                          <span className="sr-only">{on ? "Pinned" : "Pin"} {link.title}</span>
+                          <span className="sr-only">Pin {link.title}</span>
                         </button>
                       </li>
                     );
