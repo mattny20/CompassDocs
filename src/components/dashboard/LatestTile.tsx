@@ -81,7 +81,7 @@ export async function LatestTile({
                 <th scope="col" className={TH}>
                   Document
                 </th>
-                <th scope="col" className={`hidden w-[11.5rem] @min-[40rem]:table-cell ${TH}`}>
+                <th scope="col" className={`hidden w-[12.5rem] @min-[40rem]:table-cell ${TH}`}>
                   Space
                 </th>
                 <th scope="col" className={`hidden w-[10rem] @min-[40rem]:table-cell ${TH}`}>

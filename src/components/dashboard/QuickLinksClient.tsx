@@ -319,7 +319,7 @@ export function QuickLinksClient(props: {
                   {pinned.map((item, i) => (
                     <li key={item.key}>
                       {editing ? (
-                        <div className="flex items-center gap-2.5 rounded-lg px-2 py-1.5">
+                        <div className="flex items-center gap-2.5 rounded-lg px-2 py-1.75">
                           <LinkTile item={item} />
                           <LinkText item={item} />
                           <span className="flex shrink-0 items-center">
@@ -449,7 +449,7 @@ function LinkText({ item, external = false }: { item: QuickLinkItem; external?: 
 }
 
 function LinkRow({ item }: { item: QuickLinkItem }) {
-  const cls = "group flex items-center gap-2.5 rounded-lg px-2 py-1.5 transition hover:bg-slate-50";
+  const cls = "group flex items-center gap-2.5 rounded-lg px-2 py-1.75 transition hover:bg-slate-50";
   const body = (
     <>
       <LinkTile item={item} />
