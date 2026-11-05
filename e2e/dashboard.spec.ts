@@ -41,7 +41,9 @@ test("tiles carry their titles inside and sit in two columns, one on a phone", a
         const qb = (await ql.boundingBox())!;
         if (width === 1440) {
           expect(qb.x, "right column").toBeGreaterThan(lb.x + lb.width);
-          expect(Math.round(qb.width)).toBeLessThanOrEqual(19 * 16 + 1);
+          // 19rem of a fluid root (globals.css scales it with the viewport).
+          const rem = await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).fontSize));
+          expect(Math.abs(qb.width - 19 * rem)).toBeLessThanOrEqual(1);
         } else {
           expect(qb.y, "below the left column").toBeGreaterThan(sb.y + sb.height);
         }
