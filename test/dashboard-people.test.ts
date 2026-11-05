@@ -27,7 +27,9 @@ import {
   recordAcknowledgement,
   reportPolicyStanding,
 } from "../src/lib/db";
-import { createField, updateField } from "../src/lib/directory";
+import { createField, listFields } from "../src/lib/directory";
+import { viewerScope } from "../src/lib/directory-viewer";
+import { managerField } from "../src/lib/directory-org";
 import { fixtureQuery } from "./support/retry";
 import { switchOn } from "./support/assign";
 import {
@@ -35,6 +37,7 @@ import {
   weekOf,
   ymdText,
   peopleThisWeek,
+  PEOPLE_THIS_WEEK_MAX,
   getMyTeam,
   getPeopleThisWeek,
   getMyOpenTraining,
@@ -96,7 +99,9 @@ describe("people this week (pure)", () => {
   test("the five nearest today are kept; a 29 February recurs on the 28th; the week may straddle a year", () => {
     const many = Array.from({ length: 8 }, (_, i) => P(10 + i, `P${i}`, { bday: `11-0${2 + (i % 7)}` }));
     const kept = peopleThisWeek(many, fields, today);
-    assert.equal(kept.length, 5);
+    assert.equal(PEOPLE_THIS_WEEK_MAX, 5);
+    assert.equal(kept.length, PEOPLE_THIS_WEEK_MAX);
+    assert.equal(peopleThisWeek(many, fields, today, 100).length, 8, "the cap is the only thing that drops them");
     assert.ok(kept.every((e) => Math.abs(Number(e.date.slice(-2)) - 5) <= 2), "the nearest days win");
     assert.deepEqual(kept.map((e) => e.date), [...kept.map((e) => e.date)].sort(), "then shown in day order");
 
@@ -151,6 +156,36 @@ async function account(suffix: string, name: string, personId: number | null, ro
 }
 const session = (id: number, role: "viewer" | "admin" = "viewer"): SessionUser =>
   ({ id, username: `u${id}`, name: `User ${id}`, email: "", role, must_change_password: false, timezone: "", date_format: "auto" }) as SessionUser;
+
+/**
+ * Run `fn` with the rows of the queries whose SQL matches `match` passed
+ * through `rewrite` — in this process only, the database untouched. The
+ * shared database's other people and fields stay out of an assertion
+ * without changing what anyone else reads. `hits` says the query was met.
+ */
+async function withRowsRewritten<T>(
+  match: RegExp,
+  rewrite: (rows: any[]) => any[],
+  fn: () => Promise<T>
+): Promise<{ result: T; hits: number }> {
+  const p = pool() as unknown as { query: (...args: unknown[]) => Promise<{ rows: any[] }> };
+  const original = p.query;
+  let hits = 0;
+  p.query = async (...args: unknown[]) => {
+    const res = await original.apply(p, args);
+    const text = typeof args[0] === "string" ? args[0] : ((args[0] as { text?: string } | null)?.text ?? "");
+    if (match.test(text)) {
+      hits++;
+      res.rows = rewrite(res.rows);
+    }
+    return res;
+  };
+  try {
+    return { result: await fn(), hits };
+  } finally {
+    p.query = original;
+  }
+}
 
 before(async () => {
   await getSetting("__schema_bootstrap__");
@@ -242,38 +277,73 @@ describe("My team", () => {
   test("null for an unlinked account, a person with nobody around them, and an admin-only Reports to", async () => {
     assert.equal(await getMyTeam(session(ids.uAdmin, "admin")), null);
     assert.equal(await getMyTeam(session(ids.uLoner)), null);
-    const manager = (await pool().query<{ id: number; visibility: string }>("SELECT id, visibility FROM directory_fields WHERE key = 'manager'")).rows[0];
-    await updateField(manager.id, { visibility: "admins" });
-    try {
-      assert.equal(await getMyTeam(session(ids.uMia)), null, "a viewer may not see Reports to");
-      assert.deepEqual(await directReportAccounts(session(ids.uMia)), [], "nor build a team on it");
-    } finally {
-      await updateField(manager.id, { visibility: manager.visibility });
-    }
-    assert.ok(await getMyTeam(session(ids.uMia)), "restored");
+
+    // "Reports to" made admin-only in memory: the shared built-in field is
+    // never changed, so other files reading it meanwhile are not affected.
+    const fields = await listFields();
+    assert.ok(managerField(fields), "the built-in Reports to field");
+    const adminsOnly = fields.map((f) => (f.key === "manager" ? { ...f, visibility: "admins" } : f));
+    assert.ok(managerField((await viewerScope(session(ids.uMia), fields)).fields), "visible as stored");
+    assert.equal(managerField((await viewerScope(session(ids.uMia), adminsOnly)).fields), undefined, "admin-only: not a viewer's");
+    assert.ok(managerField((await viewerScope(session(ids.uAdmin, "admin"), adminsOnly)).fields), "an admin's still");
+
+    // The readers themselves, with the field list they load read as admin-only.
+    const FIELD_READ = /FROM directory_fields ORDER BY sort, id/;
+    const asAdminsOnly = (rows: { key: string }[]) => rows.map((r) => (r.key === "manager" ? { ...r, visibility: "admins" } : r));
+    const team = await withRowsRewritten(FIELD_READ, asAdminsOnly, () => getMyTeam(session(ids.uMia)));
+    assert.ok(team.hits > 0, "the field list was read");
+    assert.equal(team.result, null, "a viewer may not see Reports to");
+    const reports = await withRowsRewritten(FIELD_READ, asAdminsOnly, () => directReportAccounts(session(ids.uMia)));
+    assert.ok(reports.hits > 0);
+    assert.deepEqual(reports.result, [], "nor build a team on it");
+    assert.ok(await getMyTeam(session(ids.uMia)), "and as stored, Mia's team is there");
   });
 });
 
 describe("People this week", () => {
-  test("start dates for everyone, an admin-only birthday for admins only, hidden people never", async () => {
-    const start = await createField({ key: `${KEY}_start`, label: `${STAMP} Start`, kind: "date", date_role: "start" });
-    const bday = await createField({ key: `${KEY}_bday`, label: `${STAMP} Birthday`, kind: "date", date_role: "birthday", visibility: "admins" });
-    fieldIds.push(start.id, bday.id);
-    const now = new Date("2026-11-05T12:00:00Z");
+  // Thursday 5 November 2026.
+  const now = new Date("2026-11-05T12:00:00Z");
+  let start: { key: string };
+  let bday: { key: string };
+  before(async () => {
+    const s = await createField({ key: `${KEY}_start`, label: `${STAMP} Start`, kind: "date", date_role: "start" });
+    const b = await createField({ key: `${KEY}_bday`, label: `${STAMP} Birthday`, kind: "date", date_role: "birthday", visibility: "admins" });
+    fieldIds.push(s.id, b.id);
+    start = s;
+    bday = b;
+  });
+
+  // The tile keeps the five nearest today across the whole directory, and
+  // the shared database has other people with dates this week: the people
+  // read is narrowed to this test's own, so the five are chosen from them.
+  // Hidden people and the dated keys are still the real query's to filter.
+  const PEOPLE_READ = /jsonb_each_text\(p\.synced \|\| p\.custom\)/;
+  const weekFor = async (u: SessionUser, mine: Set<number>) => {
+    const r = await withRowsRewritten(PEOPLE_READ, (rows: { id: number }[]) => rows.filter((x) => mine.has(x.id)), () =>
+      getPeopleThisWeek(u, "UTC", now)
+    );
+    assert.equal(r.hits, 1, "the people read was met");
+    return r.result;
+  };
+  const people = () => {
     const mine = new Set<number>();
     const add = async (name: string, custom: Record<string, string>, extra: { hidden?: number; department?: string } = {}) => {
       const id = await person(name, { ...extra, custom });
       mine.add(id);
       return id;
     };
+    return { mine, add };
+  };
+
+  test("start dates for everyone, an admin-only birthday for admins only, hidden people never", async () => {
+    const { mine, add } = people();
     const lena = await add("Lena", { [start.key]: "2026-11-02" }, { department: "Customer Success" });
     const tom = await add("Tom", { [start.key]: "2021-11-04" });
     const aisha = await add("Aisha", { [bday.key]: "1990-11-06" });
     await add("Ghost", { [start.key]: "2026-11-03" }, { hidden: 1 });
     await add("Olga", { [start.key]: "2020-01-15" });
 
-    const view = async (u: SessionUser) =>
-      (await getPeopleThisWeek(u, "UTC", now)).filter((e) => mine.has(e.person.id)).map((e) => [e.person.id, e.kind, e.date, e.years]);
+    const view = async (u: SessionUser) => (await weekFor(u, mine)).map((e) => [e.person.id, e.kind, e.date, e.years]);
     assert.deepEqual(await view(session(ids.uMia)), [
       [lena, "started", "2026-11-02", 0],
       [tom, "anniversary", "2026-11-04", 5],
@@ -283,9 +353,23 @@ describe("People this week", () => {
       [tom, "anniversary", "2026-11-04", 5],
       [aisha, "birthday", "2026-11-06", 0],
     ]);
-    const row = (await getPeopleThisWeek(session(ids.uMia), "UTC", now)).find((e) => e.person.id === lena)!;
+    const row = (await weekFor(session(ids.uMia), mine)).find((e) => e.person.id === lena)!;
     assert.equal(row.person.department, "Customer Success");
     assert.ok(!("custom" in row.person), "the date values stay on the server");
+  });
+
+  test("at most five, the nearest today, shown in day order", async () => {
+    const { mine, add } = people();
+    // A five-year anniversary on each day, Monday 2 to Sunday 8 November.
+    const byDay = new Map<number, number>();
+    for (let d = 2; d <= 8; d++) byDay.set(d, await add(`Anniv ${d}`, { [start.key]: `2021-11-0${d}` }));
+    const got = await weekFor(session(ids.uMia), mine);
+    assert.equal(got.length, PEOPLE_THIS_WEEK_MAX, "seven this week, five on the tile");
+    assert.deepEqual(
+      got.map((e) => [e.person.id, e.date]),
+      [3, 4, 5, 6, 7].map((d) => [byDay.get(d), `2026-11-0${d}`]),
+      "Monday and Sunday, three days off, are the two left out"
+    );
   });
 });
 

@@ -13,8 +13,10 @@
 //     only), at most twelve, unpin only your own, reorder
 //   - admin PATCH: Dashboard and Sign-in page are audited as themselves; the
 //     sign-in place is refused on a restricted link and cleared when a link
-//     is restricted; listSignInLinks never lists a restricted link
-//   - the icon route serves a sign-in link without a session, nothing else
+//     is restricted; listSignInLinks never lists a restricted link and shows
+//     the first eight by position
+//   - the icon route serves a sign-in link's stored icon without a session,
+//     nothing else; with one, the link's visibility applies
 //   - clicks older than 90 days are pruned; a deleted account's clicks stay
 //     (user NULL) and its pins go
 //
@@ -25,8 +27,15 @@
 
 import Module from "node:module";
 import path from "node:path";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
+
+// lib/uploads reads COMPASSDOCS_UPLOAD_DIR on every call: the icon fixtures'
+// files go to a directory of this run's own.
+const UPLOAD_DIR = mkdtempSync(path.join(tmpdir(), "compass-ql-"));
+process.env.COMPASSDOCS_UPLOAD_DIR = UPLOAD_DIR;
 
 let currentRequest: Request | null = null;
 const HEADERS_STUB = path.join(__dirname, "stubs", "next-headers.quick-links.virtual.js");
@@ -71,6 +80,7 @@ const db = require("../src/lib/db") as typeof import("../src/lib/db");
 const ql = require("../src/lib/quick-links") as typeof import("../src/lib/quick-links");
 const { newToken } = require("../src/lib/password") as typeof import("../src/lib/password");
 const { actionLabel } = require("../src/lib/audit-labels") as typeof import("../src/lib/audit-labels");
+const { saveUpload } = require("../src/lib/uploads") as typeof import("../src/lib/uploads");
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 const STAMP = `ql${Date.now()}`;
@@ -95,13 +105,24 @@ async function sessionFor(userId: number): Promise<string> {
   return token;
 }
 
-async function newLink(tag: string, opts: { groups?: number[]; featured?: boolean; signin?: boolean; ageDays?: number } = {}) {
+// A 1×1 transparent PNG: a real stored icon for the icon route to serve.
+const PNG_1X1 = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+  "base64"
+);
+
+async function newLink(
+  tag: string,
+  opts: { groups?: number[]; featured?: boolean; signin?: boolean; ageDays?: number; icon?: boolean } = {}
+) {
+  const icon = opts.icon ? { icon_file: await saveUpload(PNG_1X1, ".png"), icon_mime: "image/png" } : {};
   const link = await db.createLink({
     category_id: null,
     title: `${STAMP} ${tag}`,
     url: `https://${tag.toLowerCase()}.${STAMP}.example.test/path`,
     description: "",
-    icon_type: "favicon",
+    icon_type: opts.icon ? "custom" : "favicon",
+    ...icon,
   });
   linkIds.push(link.id);
   if (opts.groups?.length) await db.setLinkGroups(link.id, opts.groups);
@@ -158,7 +179,7 @@ async function call(
     } catch {
       body = text;
     }
-    return { status: res.status, body };
+    return { status: res.status, body, headers: res.headers };
   } finally {
     currentRequest = null;
   }
@@ -207,6 +228,7 @@ after(async () => {
   await db.pool().query("DELETE FROM sessions WHERE user_id = ANY($1)", [userIds]);
   await db.pool().query("DELETE FROM users WHERE id = ANY($1)", [userIds]);
   await db.pool().end();
+  rmSync(UPLOAD_DIR, { recursive: true, force: true });
 });
 
 describe("the dashboard's Quick links", () => {
@@ -480,18 +502,55 @@ describe("the admin's placements and the sign-in page", () => {
     // A flag set behind the API's back still never shows a restricted link.
     await db.pool().query("UPDATE links SET signin = 1 WHERE id = $1", [restricted]);
     assert.ok(!(await db.listSignInLinkRows(10_000)).some((l) => l.id === restricted));
-    assert.ok((await ql.listSignInLinks()).length <= 8, "at most eight on the page");
+  });
+
+  test("listSignInLinks shows the first eight by position", async () => {
+    // Nine flagged, unrestricted links placed ahead of every other link in
+    // the shared database, so the page's eight are exactly the first eight
+    // of these whatever else is flagged; given out of order to see the sort.
+    const lowest = (await db.pool().query<{ m: number }>("SELECT COALESCE(MIN(position), 0)::int AS m FROM links")).rows[0].m;
+    const nine: number[] = [];
+    for (let i = 0; i < 9; i++) nine.push(await newLink(`SigninCap${i}`, { signin: true }));
+    try {
+      const order = [4, 0, 8, 2, 6, 1, 7, 3, 5]; // nine[order[k]] gets the k-th place
+      for (const [k, i] of order.entries()) {
+        await db.pool().query("UPDATE links SET position = $2 WHERE id = $1", [nine[i], lowest - 100 + k]);
+      }
+      const shown = await ql.listSignInLinks();
+      assert.equal(shown.length, 8, "eight on the page, not nine");
+      assert.deepEqual(
+        shown.map((l) => l.id),
+        order.slice(0, 8).map((i) => nine[i]),
+        "by position; the ninth is left off"
+      );
+      assert.ok(!shown.some((l) => l.id === nine[order[8]]));
+      assert.equal(shown[0].title, `${STAMP} SigninCap4`);
+      assert.equal(shown[0].iconUrl, null, "no stored icon: the letter tile");
+    } finally {
+      // Off the shared sign-in page at once (the rows go in after()).
+      await db.pool().query("UPDATE links SET signin = 0 WHERE id = ANY($1)", [nine]);
+    }
   });
 
   test("the icon route answers without a session only for a sign-in link", async () => {
-    const signin = await newLink("IconSignin", { signin: true });
-    const plain = await newLink("IconPlain");
+    const signin = await newLink("IconSignin", { signin: true, icon: true });
+    const plain = await newLink("IconPlain", { icon: true });
+    const restricted = await newLink("IconRestricted", { groups: [groupId], icon: true });
     const iconUrl = (id: number) => `${ORIGIN}/api/links/icon/${id}`;
-    // Neither has a cached icon: the sign-in link gets as far as "no icon".
-    assert.equal((await call(iconRoute.GET, iconUrl(signin), { id: signin, method: "GET" })).status, 404);
-    assert.equal((await call(iconRoute.GET, iconUrl(plain), { id: plain, method: "GET" })).status, 401);
-    const restricted = await newLink("IconRestricted", { groups: [groupId] });
-    assert.equal((await call(iconRoute.GET, iconUrl(restricted), { id: restricted, method: "GET", session: viewerSession })).status, 404);
+    const get = (id: number, session?: string) => call(iconRoute.GET, iconUrl(id), { id, method: "GET", session });
+
+    // Every fixture has a stored icon, so a 404 below is the visibility rule
+    // and not a missing file.
+    const pub = await get(signin);
+    assert.equal(pub.status, 200, "a sign-in link's icon without a session");
+    assert.equal(pub.headers.get("content-type"), "image/png");
+    assert.equal((await get(plain)).status, 401, "any other link's needs a session");
+    assert.equal((await get(restricted)).status, 401);
+
+    assert.equal((await get(plain, viewerSession)).status, 200, "a visible link's icon with a session");
+    assert.equal((await get(restricted, viewerSession)).status, 404, "a restricted link the viewer cannot see");
+    assert.equal((await get(restricted, otherSession)).status, 200, "the group member sees it");
+    assert.equal((await get(restricted, adminSession)).status, 200, "admins see every link");
   });
 });
 
