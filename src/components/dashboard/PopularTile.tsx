@@ -1,15 +1,26 @@
 // Popular this week (1.17.0): the five most-read documents of the last seven
 // days among those the person can read, ranked, with their space and view
-// count. Left out when nothing was read this week. Server component;
+// count; handbook-only documents are left out for readers (Handbooks 1.18.0,
+// H6). Left out when nothing was read this week. Server component;
 // fetches its own data.
 
 import Link from "next/link";
 import { DashboardTile } from "./DashboardTile";
 import { listPopularThisWeek } from "@/lib/dashboard-data";
 import type { SpaceScope } from "@/lib/space-scope";
+import type { FindScope } from "@/lib/handbook-visibility";
 
-export async function PopularTile({ scope, includeDrafts }: { scope: SpaceScope; includeDrafts: boolean }) {
-  const docs = await listPopularThisWeek(scope, includeDrafts, 5);
+export async function PopularTile({
+  scope,
+  includeDrafts,
+  find,
+}: {
+  scope: SpaceScope;
+  includeDrafts: boolean;
+  /** Handbooks 1.18.0 (H6): the viewer's FindScope (findScopeFor). */
+  find: FindScope | Promise<FindScope>;
+}) {
+  const docs = await listPopularThisWeek(scope, includeDrafts, 5, await find);
   if (docs.length === 0) return null;
 
   return (

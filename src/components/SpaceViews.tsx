@@ -5,7 +5,7 @@
 // by-tag grouping. A segmented switcher picks the view; the choice persists
 // per space per browser, defaulting to the admin-configured space view.
 
-import { useEffect, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { RelativeTime } from "./RelativeTime";
 import { chipClass } from "@/components/Chip";
 import Link from "next/link";
@@ -28,6 +28,12 @@ import type { LucideIcon } from "lucide-react";
 import { TypeBadge, StatusBadge } from "./Badges";
 import { timeAgo } from "@/lib/ui";
 import type { DocumentWithSpace, SpaceView } from "@/lib/types";
+import { HandbookOnlyChip } from "./handbooks/HandbookOnlyChip";
+
+// Handbooks 1.18.0 (H6): document id → the published handbooks its readers
+// find it in, for the handbook-only documents this viewer still sees here
+// (they look after the space). Every view marks those rows.
+const HandbookOnlyContext = createContext<Record<number, string[]>>({});
 
 interface Category {
   id: number;
@@ -59,6 +65,7 @@ export function SpaceViews({
   bulk = false,
   canPublish = false,
   moveTargets = [],
+  handbookOnly = {},
 }: {
   docs: DocumentWithSpace[];
   categories: Category[];
@@ -71,6 +78,8 @@ export function SpaceViews({
   canPublish?: boolean;
   /** Spaces the user may move documents into. */
   moveTargets?: { id: number; name: string }[];
+  /** Handbook-only documents (id → handbook titles), marked in every view. */
+  handbookOnly?: Record<number, string[]>;
 }) {
   const storageKey = `compass_space_view_${spaceId}`;
   const [view, setView] = useState<SpaceView>(defaultView === "tree" && !nestedPages ? "cards" : defaultView);
@@ -95,6 +104,7 @@ export function SpaceViews({
   const visible = VIEWS.filter((v) => v.key !== "tree" || nestedPages);
 
   return (
+    <HandbookOnlyContext.Provider value={handbookOnly}>
     <div>
       {/* The one segmented control (STYLEGUIDE §Segmented controls), not a
           tab list that never behaved like one (1.9.3). */}
@@ -124,6 +134,7 @@ export function SpaceViews({
       {view === "timeline" && <TimelineView docs={docs} />}
       {view === "tags" && <TagsView docs={docs} />}
     </div>
+    </HandbookOnlyContext.Provider>
   );
 }
 
@@ -183,8 +194,10 @@ function DocRowLink({
   indent?: number;
   stacked?: boolean;
 }) {
+  const handbooks = useContext(HandbookOnlyContext)[d.id];
   const meta = (
     <>
+      {handbooks && <HandbookOnlyChip handbooks={handbooks} inLink />}
       <TypeBadge type={d.type} />
       {d.status === "draft" && <StatusBadge status="draft" />}
       <RelativeTime value={d.updated_at} className="ml-auto shrink-0 text-xs text-slate-500" />
@@ -306,6 +319,7 @@ function CardsView({
   nestedPages: boolean;
 }) {
   const map = useMemo(() => byParent(docs), [docs]);
+  const handbookOnly = useContext(HandbookOnlyContext);
   // With nesting on, visible children live under their parent's card instead
   // of getting their own; a child whose parent isn't visible stays top-level.
   const topLevel = useMemo(() => {
@@ -327,7 +341,7 @@ function CardsView({
           <div className="columns-2xs gap-4">
             {s.docs.map((d) => (
               <div key={d.id} className="mb-4 break-inside-avoid">
-                <DocCard doc={d} inSpace />
+                <DocCard doc={d} inSpace handbookOnly={handbookOnly[d.id]} />
                 {nestedPages && <CardSubs parentId={d.id} map={map} />}
               </div>
             ))}
@@ -358,6 +372,7 @@ function TableView({
   moveTargets?: { id: number; name: string }[];
 }) {
   const router = useRouter();
+  const handbookOnly = useContext(HandbookOnlyContext);
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "updated_at", dir: -1 });
 
   // Multi-select for bulk actions.
@@ -500,6 +515,9 @@ function TableView({
                 <Link href={`/doc/${d.id}`} className="font-medium text-slate-700 hover:text-compass-700">
                   {d.title}
                 </Link>
+                {handbookOnly[d.id] && (
+                  <HandbookOnlyChip handbooks={handbookOnly[d.id]} className="ml-2 align-middle" />
+                )}
                 {reviewOverdue(d) && (
                   <span data-tt="Review overdue" className="ml-2 inline-flex align-middle text-amber-500">
                     <AlarmClock className="h-3.5 w-3.5" aria-label="Review overdue" />

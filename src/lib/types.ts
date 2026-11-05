@@ -250,6 +250,15 @@ export interface Document {
   publish_at?: string | null;
   /** One-shot: unpublish (back to draft) at the given time. */
   archive_at?: string | null;
+  /**
+   * Handbooks 1.18.0: "Where people find it" as stored ('space' or
+   * 'handbook_only'; see lib/handbook-visibility for the effective rule),
+   * the policy page's "In short" points and its "Applies to" line.
+   * Optional because older row shapes (search cards, change requests) omit them.
+   */
+  find_mode?: "space" | "handbook_only";
+  summary_points?: string[];
+  applies_to?: string;
   created_at: string;
   updated_at: string;
   deleted_at?: string | null;

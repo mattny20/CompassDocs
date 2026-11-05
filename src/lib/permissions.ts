@@ -134,6 +134,13 @@ export const PERMISSIONS = [
   { key: "group.manage_members", label: "Manage group membership", description: "Add/remove members", scope: "global" },
   { key: "group.read", label: "Read groups", description: "List groups and members", scope: "global" },
   { key: "group.update", label: "Rename group", description: "Rename a group", scope: "global" },
+  // --- handbook ---
+  // Space-scoped (1.18.0): held globally it builds workspace handbooks from
+  // any published document a person can see, and handbooks in every space;
+  // assigned on one space it makes that person the space's handbook admin,
+  // building handbooks owned by that space from its documents. Reading a
+  // handbook needs no permission: its audience decides.
+  { key: "handbook.manage", label: "Build handbooks", description: "Create, edit, publish and delete handbooks: workspace-wide when held globally, a space's own when assigned on that space", scope: "space" },
   // --- identity ---
   { key: "identity.saml_manage", label: "Manage SAML", description: "Change identity-provider trust", scope: "global" },
   { key: "identity.saml_read", label: "Read SAML config", description: "View SAML settings", scope: "global" },
@@ -609,6 +616,7 @@ export const PRESET_ROLES = {
       "group.manage_members",
       "group.read",
       "group.update",
+      "handbook.manage",
       "identity.saml_manage",
       "identity.saml_read",
       "identity.scim_manage",

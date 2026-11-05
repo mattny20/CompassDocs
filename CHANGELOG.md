@@ -4,6 +4,142 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.18.0] - 2026-11-05
+
+Policy handbooks. A handbook brings published policies from any spaces
+together in numbered sections with an introduction, for people to read as
+one, print as a paper copy and, with the Read confirmation licence,
+confirm as a whole. Each policy in a handbook can also be kept out of its
+space's listings, so readers find it only in the handbook.
+
+### Added
+- **Handbooks.** A **Handbooks** page lists the handbooks you can read and
+  the drafts you can edit, with the number of policies, the owner, the
+  status and a print link. For a handbook that asks to be confirmed as a
+  whole, its editors also see progress (Read confirmation licence).
+  **Handbooks** is in the sidebar and the command palette for anyone who
+  reads a handbook or may build one.
+- **Building a handbook.** **New handbook** takes a title, an owner (the
+  whole workspace, or one space you manage), an introduction, the
+  audience, and two switches: **Ask readers to confirm the whole
+  handbook** and **Require a typed signature**. The **Contents** card adds,
+  renames and removes sections and moves policies up and down, across
+  sections too; **Add policies** searches the published documents you may
+  add. One **Save** (or Ctrl/Cmd+S) keeps everything; **Publish**,
+  **Unpublish** and **Delete** are named actions and ask first. If someone
+  else saved the handbook since you opened it, your save is refused and
+  your edits stay on the page until you reload. Every change is audited.
+- **The Build handbooks permission** (`handbook.manage`). Held globally,
+  as the Administrator role holds it, it builds workspace handbooks and
+  handbooks owned by any space. Assigned on a space, it builds handbooks
+  owned by that space from the spaces where the person holds it. An editor
+  only sees, and can only publish or widen, contents from spaces they
+  could add from: documents from other spaces show as "A document you
+  can't open", and the audience, owner and Publish are refused.
+- **Who reads a handbook.** A draft is its editors' alone. A published
+  workspace handbook is read by everyone or by chosen groups. A published
+  space handbook is read by everyone who can read the space, or by the
+  people in chosen groups who can read it.
+- **Handbook access opens its policies.** Anyone who can read a published
+  handbook reads every published document in it through the handbook
+  (the text, its images and the printed copy), even from a space they
+  cannot open. The document's own page keeps the space's permissions.
+  Unpublishing the handbook, or taking a document out of it, ends that
+  access.
+- **The handbook reader**, at `/handbooks/{id}`, with the contents down the
+  side (behind a **Contents** button on phones) and one address per
+  policy. A policy page shows its type, **Handbook only** where that
+  applies, **Policy k of N**, a facts row (Owner, Approved by, Version,
+  Effective, Next review, Applies to) from the latest published version,
+  an **In short** box, the text, and **Next**. The Owner is chosen as the
+  compliance portal chooses it.
+- **Read confirmation in the reader** (Read confirmation licence). Each
+  policy shows **To confirm**, **Confirmed**, **Updated since you
+  confirmed** or **For information**; the contents tick what you have
+  confirmed and show your progress, and a confirmation bar under each
+  policy confirms it, typed signature and all. After a re-ask, a **What
+  changed in version N** box lists the notes since the version you
+  confirmed.
+- **Confirm the whole handbook** (Read confirmation licence), at
+  `/handbooks/{id}/confirm`. Every policy is listed with where it stands;
+  one statement and one button confirm every policy still waiting for
+  you, each against its current version and exactly as its own card would
+  (the same record and `document.acknowledge` audit entry, marked as made
+  through the handbook). A policy that asks in its own words is listed
+  under the statement and keeps its words on its record. Your name and
+  password are asked once when any waiting policy needs a typed signature
+  or the handbook's switch is on. Every check runs before the first record
+  is written, and a page drawn before a policy changed is refused as
+  stale. Once nothing is left waiting, one whole-handbook record (who,
+  when, and the policies and versions confirmed) is kept for reporting.
+- **Require a typed signature** covers confirmations made in the handbook:
+  the whole-handbook confirm and the reader's confirmation bar. Someone
+  who reads a policy only through handbooks signs if any published
+  handbook they can read that holds it asks for a signature. Confirming on
+  the policy's own page follows the policy's own setting.
+- **A handbook's audience joins its policies' confirmation audience** (Read
+  confirmation licence). A policy set to ask everyone who can see its
+  space also asks everyone who reads it through a published handbook, and
+  an audience rule may name them. A private-space policy in a handbook for
+  everyone therefore asks the whole workspace. Publishing, unpublishing or
+  deleting a handbook, changing its audience or contents, and changes to
+  its groups or space bring the policies up to date at once.
+- **In short and Applies to.** A document's properties have up to five
+  **In short** points (200 characters each) and an **Applies to** line
+  (200 characters), shown in the handbook reader and the printed copy. On
+  live content, changing them needs publish rights.
+- **Where people find it.** Each policy in a handbook is **Space +
+  handbook** (as today) or **Handbook only**. A handbook-only document is
+  left out, for ordinary readers, of its space page and page tree,
+  search, Ask, the dashboard, the command palette, `[[` link suggestions,
+  related documents, sub-pages and Linked from, space and tag counts, the
+  directory, the weekly digest, subscription notices, the public site,
+  the Outlook add-in, the chat channel, the Claude connector and the v1
+  API. People who may write in its space still see it, marked **Handbook
+  only**, and the space page says how many of its documents are. Anyone
+  who can open the space can still open it by its link. A handbook-only
+  document in no published handbook shows everywhere as usual.
+- **The printed copy**, at `/handbooks/{id}/print`: a cover, a contents
+  page, each policy on a new page with a running header and its facts and
+  In short, and an acknowledgement page to sign. Every page has a footer
+  naming the handbook, who printed it and when ("uncontrolled when
+  printed") and the page number. A4 or Letter. Every print is audited.
+- **Audit actions:** `handbook.created`, `handbook.updated`,
+  `handbook.contents_changed`, `handbook.find_mode_changed`,
+  `handbook.published`, `handbook.unpublished`, `handbook.deleted` (also
+  for each handbook a space deletion removes), `handbook.printed` and
+  `handbook.confirmed`.
+
+### Changed
+- When a confirmation request is re-opened (an audience comes back, a
+  handbook is republished, an account regains access), a confirmation
+  that still counts for the current version is kept instead of being
+  asked for again. A material change or a re-ask still asks again, and a
+  re-enabled account still starts afresh.
+- Erasing a person's compliance record also anonymises their
+  whole-handbook confirmation records.
+- A page header's actions drop onto their own row when they do not fit
+  beside the title, instead of pushing the page sideways on a phone.
+
+### Known limitation
+- People asked to confirm only through a handbook (who cannot open the
+  policy's space) confirm in the handbook. Reminders, **My policies**,
+  the sidebar badge, Team compliance and the team view still count only
+  people who can open the policy's space.
+
+### Upgrading
+- Additive schema, applied on start: `handbooks`, `handbook_sections`,
+  `handbook_items`, `handbook_audience`, `handbook_confirmations`,
+  `documents.find_mode`, `documents.summary_points` and
+  `documents.applies_to`. No new environment variable.
+- The Administrator role gains **Build handbooks**. Custom roles do not;
+  add it to a role, or assign it on a space, to let others build them.
+- Rolling back to 1.17.0 is safe: it ignores the new tables and columns.
+  Handbook-only documents show in their spaces again, handbooks are gone
+  until you upgrade again, and with the Read confirmation licence the
+  hourly sweep closes the requests of people asked only through a
+  handbook (their confirmations are kept).
+
 ## [1.17.0] - 2026-11-05
 
 A new home dashboard and quick links. Every section is now a tile with its

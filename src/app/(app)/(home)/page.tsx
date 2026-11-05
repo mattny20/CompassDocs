@@ -14,6 +14,7 @@ import {
 } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { spaceScopeFor, userHolds, type SpaceScope } from "@/lib/access";
+import { findScopeFor, type FindScope } from "@/lib/handbook-visibility";
 import { navCapabilities, type NavCapabilities } from "@/lib/nav-capabilities";
 import { featureEnabled } from "@/lib/ee";
 import { timeAgo } from "@/lib/ui";
@@ -55,9 +56,9 @@ type Doc = Awaited<ReturnType<typeof listRecentlyViewedBy>>[number];
  * The pick-up cards' documents, started once and awaited twice: the cards
  * render them, and Latest leaves them out (1.9.3) without a second query.
  */
-async function loadPickUp(user: SessionUser, scope: SpaceScope, isEditor: boolean) {
+async function loadPickUp(user: SessionUser, scope: SpaceScope, isEditor: boolean, find: Promise<FindScope>) {
   const [recentlyViewed, myDrafts] = await Promise.all([
-    listRecentlyViewedBy(user.id, scope, isEditor, 5),
+    find.then((f) => listRecentlyViewedBy(user.id, scope, isEditor, 5, f)), // Handbooks 1.18.0 (H6)
     isEditor ? listDraftsByAuthor(user.name, scope, 3) : Promise.resolve([] as Doc[]),
   ]);
   // Drafts also appear in "recently viewed" — don't show them twice.
@@ -91,8 +92,13 @@ export default async function DashboardPage({
     featureEnabled("policy_ack"),
   ]);
   const show = (key: string) => !hidden.has(key);
+  // Handbooks 1.18.0 (H6): Continue, Latest, Popular and the Spaces tile leave
+  // handbook-only documents out for readers (policies to confirm, training
+  // and team compliance stay: they are a task, not a find). Started here,
+  // awaited by each tile; findScopeFor is cached per request.
+  const find = findScopeFor(user);
   // Started here, awaited by the pinned blocks and by Latest.
-  const pickUp = loadPickUp(user, scope, caps.isEditor);
+  const pickUp = loadPickUp(user, scope, caps.isEditor, find);
 
   // Edit dashboard offers what this workspace has: no Training switch
   // without the training feature, no Team compliance without read
@@ -150,11 +156,12 @@ export default async function DashboardPage({
                 scope={scope}
                 includeDrafts={caps.isEditor}
                 view={latestView}
+                find={find}
                 excludeIds={pickUp.then((p) => [...p.myDrafts, ...p.continueDocs].map((d) => d.id))}
               />
             )}
-            {show("popular") && <PopularTile scope={scope} includeDrafts={caps.isEditor} />}
-            {show("spaces") && <SpacesTile scope={scope} canCreate={canCreateSpace} />}
+            {show("popular") && <PopularTile scope={scope} includeDrafts={caps.isEditor} find={find} />}
+            {show("spaces") && <SpacesTile scope={scope} canCreate={canCreateSpace} find={find} />}
             {/* Side by side when both apply and fit; one alone takes the row. */}
             <div className="grid gap-6 empty:hidden [grid-template-columns:repeat(auto-fit,minmax(min(100%,18rem),1fr))]">
               {show("training") && caps.showTraining && <MyTrainingTile user={user} />}

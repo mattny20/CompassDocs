@@ -3,6 +3,7 @@ import { getAppSettings } from "@/lib/settings-store";
 import { requireUser } from "@/lib/auth";
 import { canSeeDrafts, spaceScopeFor } from "@/lib/access";
 import { listPopularDocuments, listSpaces } from "@/lib/db";
+import { findScopeFor } from "@/lib/handbook-visibility";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Ask" };
@@ -18,7 +19,8 @@ export default async function SearchPage({
   // The first-run state (1.9.3): what people here read most, scoped to this
   // viewer, and the spaces they can narrow to.
   const [popular, spaces] = await Promise.all([
-    listPopularDocuments(scope, await canSeeDrafts(user), 6),
+    // Handbooks 1.18.0 (H6): handbook-only documents stay out of a reader's suggestions.
+    listPopularDocuments(scope, await canSeeDrafts(user), 6, await findScopeFor(user)),
     listSpaces(scope),
   ]);
   return (

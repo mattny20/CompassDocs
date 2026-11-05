@@ -57,6 +57,7 @@ export async function Sidebar({
       showAnnouncements={caps.showAnnouncements}
       showCompliance={caps.showCompliance}
       showTraining={caps.showTraining}
+      showHandbooks={caps.showHandbooks}
       trainingCount={caps.showTraining ? await countMyOpenTraining(user.id) : 0}
       // The policies to confirm (B4): counted only when the item shows, the
       // way the training badge follows its capability.

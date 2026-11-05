@@ -29,7 +29,8 @@ export function PageHeader({
   subtitle?: React.ReactNode;
   /** The parent destination, for sub-pages. */
   back?: { href: string; label: React.ReactNode };
-  /** Right-aligned controls (an export button, a Create action). */
+  /** Right-aligned controls (an export button, a Create action). On a
+   *  narrow screen they wrap onto their own row under the title. */
   actions?: React.ReactNode;
   /** Replaces the default bottom margin. */
   className?: string;
@@ -49,7 +50,13 @@ export function PageHeader({
           </h1>
           {subtitle && <p className="mt-1 text-sm text-slate-500">{subtitle}</p>}
         </div>
-        {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
+        {/* Title and actions share a row while both fit at their natural
+            width; otherwise the actions drop to a row of their own, where
+            they shrink to the row and wrap instead of pushing the page
+            sideways (three buttons on a 375px phone). Callers pass their
+            actions once, at full labels: no phone-only copy, no sr-only
+            label trimming. */}
+        {actions && <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">{actions}</div>}
       </div>
     </div>
   );

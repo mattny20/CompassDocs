@@ -17,6 +17,7 @@ import { ViewTracker } from "@/components/ViewTracker";
 import { requireUser } from "@/lib/auth";
 import { userHolds, canPublishDirectly, canSeeDrafts, spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
 import { resolveAuthorPerson } from "@/lib/directory";
+import { findScopeFor } from "@/lib/handbook-visibility";
 import { featureEnabled } from "@/lib/ee";
 import {
   getCurrentAck,
@@ -109,8 +110,11 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
 
   const versions = await listVersions(doc.id);
   const versionCount = versions.length;
+  // Handbooks 1.18.0 (H6): related documents, sub-pages and "Linked from"
+  // leave handbook-only documents out for a reader, as the space page does.
+  const find = await findScopeFor(user);
   const relations =
-    doc.branch_of === null ? await relationsFor(doc.id, scope, seeDraftsAnywhere) : [];
+    doc.branch_of === null ? await relationsFor(doc.id, scope, seeDraftsAnywhere, find) : [];
   const pending = (await userHolds(user, "change_request.read", {
     spaceId: doc.space_id,
     legacyMin: "approver",
@@ -144,9 +148,9 @@ export default async function DocPage({ params }: { params: Promise<{ id: string
   const nestedOn = settings.nested_pages_enabled && doc.branch_of === null;
   const [ancestors, children, backlinks] = await Promise.all([
     nestedOn ? ancestorsOf(doc.id) : Promise.resolve([]),
-    nestedOn ? childrenOf(doc.id, { includeDrafts: isStaff }) : Promise.resolve([]),
+    nestedOn ? childrenOf(doc.id, { includeDrafts: isStaff, find }) : Promise.resolve([]),
     settings.backlinks_enabled && doc.branch_of === null
-      ? backlinksFor(doc.id, scope, seeDraftsAnywhere)
+      ? backlinksFor(doc.id, scope, seeDraftsAnywhere, find)
       : Promise.resolve([]),
   ]);
   // Draft-branch context: the source doc for the banner, live branches for the note.

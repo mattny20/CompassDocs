@@ -9,6 +9,7 @@ import { notify } from "./notifications";
 import { getSmtpConfig, smtpConfigured } from "./smtp-config";
 import { sendMail } from "./mailer";
 import { renderEmail } from "./email-templates";
+import { keepWhoFind } from "./handbook-visibility";
 
 const MAX_RECIPIENTS = 200;
 
@@ -27,7 +28,12 @@ export interface SubscriberEvent {
 export async function notifySpaceSubscribers(ev: SubscriberEvent): Promise<void> {
   // Inbox notification first — it doesn't depend on SMTP being set up.
   try {
-    await notify(await listSubscriberIds(ev.spaceId, ev.actorUserId), {
+    // Handbooks 1.18.0 (H6): a handbook-only document is news only to the
+    // subscribers who still see it in the space.
+    const ids = (
+      await keepWhoFind(ev.docId, ev.spaceId, (await listSubscriberIds(ev.spaceId, ev.actorUserId)).map((id) => ({ id })))
+    ).map((p) => p.id);
+    await notify(ids, {
       kind: "doc_update",
       title: `${ev.actorName} ${ev.kind === "published" ? "published" : "updated"} "${ev.title}"`,
       body: `In ${ev.spaceName}`,
@@ -41,10 +47,10 @@ export async function notifySpaceSubscribers(ev: SubscriberEvent): Promise<void>
 
   try {
     if (!smtpConfigured(await getSmtpConfig())) return;
-    const recipients = (await listSubscriberRecipients(ev.spaceId, ev.actorUserId)).slice(
-      0,
-      MAX_RECIPIENTS
-    );
+    // Handbooks 1.18.0 (H6): as above, for the email.
+    const recipients = (
+      await keepWhoFind(ev.docId, ev.spaceId, await listSubscriberRecipients(ev.spaceId, ev.actorUserId))
+    ).slice(0, MAX_RECIPIENTS);
     if (recipients.length === 0) return;
 
     const verb = ev.kind === "published" ? "published" : "updated";

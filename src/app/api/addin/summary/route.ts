@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { listRecentDocuments } from "@/lib/db";
 import { canSeeDrafts, spaceScopeFor } from "@/lib/access";
 import { getAppSettings } from "@/lib/settings-store";
+import { findScopeFor } from "@/lib/handbook-visibility";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +16,13 @@ export async function GET() {
   if (!user) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
 
   const settings = await getAppSettings();
-  const recent = await listRecentDocuments(6, await canSeeDrafts(user), await spaceScopeFor(user));
+  // Handbooks 1.18.0 (H6): handbook-only documents stay out of a reader's recents.
+  const recent = await listRecentDocuments(
+    6,
+    await canSeeDrafts(user),
+    await spaceScopeFor(user),
+    await findScopeFor(user)
+  );
 
   return NextResponse.json({
     user: { name: user.name || user.username },

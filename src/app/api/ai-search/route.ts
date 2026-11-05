@@ -5,6 +5,7 @@ import { canSeeDrafts, spaceScopeFor } from "@/lib/access";
 import { crossOriginRejection } from "@/lib/api-auth";
 import { getCurrentUser } from "@/lib/auth";
 import { aiRateLimited } from "@/lib/rate-limit";
+import { findScopeFor } from "@/lib/handbook-visibility";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -30,7 +31,9 @@ export async function POST(req: Request) {
   }
 
   const includeDrafts = await canSeeDrafts(user);
-  const result = await answerQuestion(question, includeDrafts, await spaceScopeFor(user));
+  // Handbooks 1.18.0 (H6): handbook-only documents answer only where the asker still sees them.
+  const find = await findScopeFor(user);
+  const result = await answerQuestion(question, includeDrafts, await spaceScopeFor(user), find);
   void recordSearch(user.id, question, result.sources.length, "ask").catch(() => {});
   return NextResponse.json(result);
 }

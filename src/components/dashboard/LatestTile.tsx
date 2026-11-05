@@ -4,7 +4,8 @@
 // subscriptions plus the admin-assigned group ones they have not muted) and
 // is the default whenever they follow any; Everything is every space they can
 // read. Below a ~40rem tile the Space and Updated-by columns fold under the
-// title. Never repeats what the pick-up cards above show (1.9.3). Server
+// title. Never repeats what the pick-up cards above show (1.9.3). Leaves
+// handbook-only documents out for readers (Handbooks 1.18.0, H6). Server
 // component; fetches its own data.
 
 import Link from "next/link";
@@ -12,6 +13,7 @@ import { DashboardTile } from "./DashboardTile";
 import { LatestViewSwitch, type LatestView } from "./LatestViewSwitch";
 import { listFollowedSpaceIds, listLatestDocuments } from "@/lib/dashboard-data";
 import type { SpaceScope } from "@/lib/space-scope";
+import type { FindScope } from "@/lib/handbook-visibility";
 import type { SessionUser } from "@/lib/types";
 import { TypeBadge } from "@/components/Badges";
 import { Chip } from "@/components/Chip";
@@ -28,16 +30,19 @@ export async function LatestTile({
   includeDrafts,
   view: asked,
   excludeIds,
+  find,
 }: {
   user: SessionUser;
   scope: SpaceScope;
   includeDrafts: boolean;
+  /** Handbooks 1.18.0 (H6): the viewer's FindScope (findScopeFor). */
+  find: FindScope | Promise<FindScope>;
   /** From ?latest=; anything else falls back to the default. */
   view?: string;
   /** Documents already on the page (the pick-up cards); may still be loading. */
   excludeIds: number[] | Promise<number[]>;
 }) {
-  const [followed, exclude] = await Promise.all([listFollowedSpaceIds(user.id, scope), excludeIds]);
+  const [followed, exclude, findScope] = await Promise.all([listFollowedSpaceIds(user.id, scope), excludeIds, find]);
   const view: LatestView =
     asked === "following" || asked === "everything" ? asked : followed.length > 0 ? "following" : "everything";
   const docs = await listLatestDocuments({
@@ -46,6 +51,7 @@ export async function LatestTile({
     spaceIds: view === "following" ? followed : undefined,
     excludeIds: exclude,
     limit: 8,
+    find: findScope, // Handbooks 1.18.0 (H6)
   });
 
   return (

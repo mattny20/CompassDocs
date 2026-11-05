@@ -109,6 +109,16 @@ none of those pages writes an `<h1>` of its own.
 - Subtitles: `mt-1 text-sm text-slate-500` (plus `mb-6` when the next block
   needs the gap). Card/section sub-descriptions use the smaller tier:
   `mt-0.5 text-xs text-slate-500`.
+- **Header actions wrap; callers never fork them** (1.18.0). PageHeader's
+  title block and actions share a row while both fit at their natural
+  width; otherwise the actions drop to a row of their own under the
+  subtitle, where the slot (`min-w-0 max-w-full flex-wrap`) shrinks to the
+  row and wraps its buttons rather than pushing the page sideways — three
+  buttons fit a 375px phone. Pass the actions **once, at their full
+  labels**: never a `hidden sm:flex` copy beside a phone-only row, never
+  `max-sm:sr-only` to trim "Publish handbook" to "Publish". A status chip
+  in the slot (the handbook editor's Published / Draft) wraps with the
+  buttons; `print:hidden` goes on each control.
 - **A page under a section layout that owns the h1** (the Compliance
   section's pages, 1.14.0) titles itself with a `SectionHeading` (h2, its
   lucide icon) and one `text-sm text-slate-500` sentence under it, never a
@@ -120,6 +130,16 @@ none of those pages writes an `<h1>` of its own.
   `(record)/compliance/person/[id]` (1.14.0), so it renders its own
   `PageHeader` with a back link instead of the Compliance section's header
   and tab row.
+- **A page that must not have the app shell at all** lives in a route
+  group beside `(app)`, not under it: the printed handbook is
+  `(print)/handbooks/[id]/print` (1.18.0, §Print), with no sidebar,
+  palette or skip link. It repeats what `(app)/layout.tsx` does first
+  (sign-in, the forced password change) before its own read check.
+- **A chapter inside a page keeps the ladder** (1.18.0). In the handbook
+  reader the h1 is the handbook's (PageHeader); the policy on screen is an
+  `h2` at the document-title size (`text-3xl font-bold tracking-tight`),
+  so a policy reads as the document it is while the page keeps one h1
+  (§Handbooks).
 
 ### Standalone link pages (the one exception)
 
@@ -150,6 +170,15 @@ its own.
   `padding="none"` when the children own it — a table — which gives the
   header an inner `border-b border-slate-100 px-4 py-3` row). The bare
   recipe is `CARD_CLASS` for the rare wrapper that cannot be a `Card`.
+- **A card that holds a popup menu is `CARD_CLASS`, not `<Card
+  padding="none">`** (1.18.0). `padding="none"` adds `overflow-hidden` (so
+  a table's corners stay round), which also clips any `Popover` hanging
+  from a row inside it. The handbook editor's Contents card is the worked
+  example: a `<section className={CARD_CLASS} aria-labelledby>` whose rows
+  each carry a "Where people find it" menu; it draws the header row
+  (`border-b border-slate-100 px-4 py-3`) itself. A card that only clips
+  its own decoration (the reader's policy page, with its accent wash) may
+  add `overflow-hidden` because nothing floats out of it.
 - Headings below the page title come from `components/Heading` and step
   down one size per tier: `SectionHeading` (h2, `text-lg font-semibold`, a
   group of cards — "Users (2)"), `CardTitle` (h3, `text-base font-semibold`,
@@ -439,6 +468,17 @@ focus):
   beside `data-tt`. A control with `aria-expanded="true"` shows no tooltip
   (the open panel is the label), so a popup trigger keeps `data-tt` and
   sets `aria-expanded` rather than toggling the attribute.
+- **A control flush with a card's right edge** (a Contents row's Remove
+  `X`, 1.18.0) keeps its tooltip to one word ("Remove"): the bubble is
+  centred on the control, so a long one hangs past the edge and, even
+  hidden, widens a 375px page into a sideways scroll. The `aria-label`
+  keeps the whole sentence ("Remove {title} from the handbook"). There is
+  no end-aligned variant; `data-tt-align="start"` is for the left edge.
+- **Icon-only on a phone only** (a row action whose words are
+  `max-sm:sr-only`, the editor's "Rename section"): it carries `data-tt`
+  with the same words and `sm:after:hidden!`, so the bubble labels the
+  bare pencil under `sm` and never repeats the visible words beside it.
+  (`!`: the `[data-tt]` rules are unlayered.)
 - **Icon-only controls must also carry `aria-label`** (matching the tooltip
   text) — `data-tt` is presentation, not an accessible name. Elements with
   visible text must NOT get `aria-label` (it would override the text).
@@ -1238,6 +1278,42 @@ card, never on the chip).
 The read-confirmation chips are a closed set — **Confirmed** (`ok`),
 **Pending** (`warn`), **Overdue** (`error`), **Exempt** (`neutral`) — and
 nothing else for a confirmation's state (never "Acknowledged").
+A reader's standing on a policy **inside a handbook** (1.18.0) adds three
+words to that set, from the reader's side rather than the compliance
+desk's: **To confirm** (`accent`), **Updated since you confirmed**
+(`warn`: they confirmed an earlier version) and **For information**
+(`neutral`: the policy does not ask them), beside **Confirmed** (`ok`,
+with `Check`). One component renders all four, `StandingChip`
+(`components/handbooks/confirm`, `sm`), on the confirm-the-handbook list
+and the reader's policy masthead alike; never a second switch over the
+same words. The contents rail does not repeat the chip: it shows a
+confirmed policy as an emerald `Check` with "(confirmed)" for screen
+readers, and nothing for the others.
+
+**"Handbook only"** (1.18.0) is a `neutral` `sm` chip with the `BookOpen`
+icon, `HandbookOnlyChip` (`components/handbooks`): a document readers
+find only through its handbooks. Where it stands alone (a space's table
+view, the reader's masthead) it carries `data-tt` "Readers find it only
+in {handbooks}." with `tabIndex={0}` and `data-tt-wrap`; inside a row or
+card that is one big link it takes `inLink` and is plain text, because a
+focusable tooltip cannot sit inside a link.
+
+**A choice is a pill menu button, not a chip** (1.18.0). When a row
+carries a setting the editor changes in place (the handbook editor's
+"Where people find it", `FindModeMenu`), the control is a `button` with
+`aria-haspopup="menu"`, `aria-expanded`, a `data-tt` naming the setting
+and an `aria-label` that says the row and the value ("Where people find
+{title}: Handbook only"). It is pill-shaped (`h-7 rounded-full px-2.5
+text-xs font-medium`, a `ChevronDown`) so it reads as the row's setting:
+outlined (`border-slate-200 bg-surface`) for the default, filled
+(`bg-slate-800 text-surface`, which inverts with the theme) for the
+exceptional value. It opens a `Popover role="menu"` of the options, each
+a `menuitemradio` (§Overlays and modals, picker menu) with a bold title
+and **one sentence** saying what it does, the chosen one `aria-checked`
+on `bg-compass-50` with a `Check`; the menu opens with focus on it. Under `sm` the panel hangs from the row (the wrapper is
+`sm:relative`, the panel `max-sm:left-2 max-sm:right-2`) so it spans the
+row instead of running off the screen. The chevron is what tells it from
+a status chip; a status chip never has one.
 
 - **The review queue's chip says what approving does** (1.11.0,
   `ReviewClient` is the worked example). Beside the kind chip ("Edit" /
@@ -1623,6 +1699,12 @@ per-route variants:
   overlay stack, focus back to the trigger. The trigger carries
   `aria-expanded` and `aria-haspopup`. Never hand-roll an `absolute …
   shadow-lg` panel (a guard test fails the build).
+- **A picker menu** (one choice among a few, 1.18.0: `FindModeMenu`) is a
+  `Popover role="menu"` whose rows are `role="menuitemradio"` with
+  `aria-checked` on the chosen one, never `menuitem` plus an sr-only
+  "(current)". The Popover opens on the checked row (a plain menu opens on
+  its first item), and its arrows, Home and End walk `menuitem`,
+  `menuitemradio` and `menuitemcheckbox` rows alike.
 - **A popover holds a handful of controls, never a settings page**
   (1.10.0). The Read confirmation popover on the document shield
   (`AckSettings`, A5) holds **four controls** under its heading — the
@@ -1738,6 +1820,20 @@ page does, so a body that opens with "# Title" is not shown twice
 (`lib/drop-title`: the first block only, an H1 only, loosely matched). No
 other `MarkdownView` host passes it.
 
+**Heading offset** (1.18.0). A host whose own title already holds a place
+in the outline passes `headingOffset` to `MarkdownView`, and the body's
+headings are re-tagged that many levels down (capped at h6), so the page
+keeps one h1 and an unbroken ladder. The handbook reader's policy page,
+its introduction and the printed handbook pass `2`: the policy title (or
+"Introduction") is the h2, so an authored `# Heading` is an h3 there. The
+tag is the outline; the look stays the level the author wrote: each
+shifted heading carries `data-md-level` and that level's `.doc-prose`
+look as `!`-utilities (the prose rules are unlayered), so a reader sees
+the same document as on its own page. Anything that reads a body's
+headings (a contents rail) queries h1-h6 and takes the shallowest levels
+present, never a fixed `h1, h2, h3`. The document page itself passes
+nothing: its title is the page's h1.
+
 Surfaces with no `data-page-width` ancestor — the share page, the public
 document page — fall back to `60ch` / ~78 characters. They have no preference
 to read, and legibility is the right default for an anonymous reader.
@@ -1794,6 +1890,158 @@ Rules:
 - A panel carrying long-form prose is a smell. Callouts are one to three
   sentences by convention; if one grows into an essay, the fix is to promote it
   out of the callout, not to re-narrow the panel.
+
+## Handbooks
+
+A handbook (1.18.0) is an ordered bundle of published policies from any
+space, in numbered sections, read as one (`/handbooks/{id}`), printed as
+one (§Print) and, with read confirmation licensed, confirmed as one
+(`/handbooks/{id}/confirm`). Its components live under
+`components/handbooks/` (`reader/`, `editor/`, `confirm/`, `print/`).
+
+- **The reader's frame** (`HandbookReader`) is the page skeleton: a
+  `Breadcrumbs` back to Handbooks, then `PageHeader` with `BookOpen`, the
+  handbook's title and the subtitle "N policies in M sections · updated
+  {date} · for the whole workspace" (or "owned by {space}"). The actions,
+  in order: **Edit** (`secondary`
+  `Pencil`, editors only), **Print or save as PDF** (`secondary`
+  `Printer`, to `/handbooks/{id}/print?print=1`) and **Confirm handbook**
+  (`primary` `ShieldCheck`, to `/handbooks/{id}/confirm`; published
+  handbooks that ask for it, under the licence), each `print:hidden`. A
+  draft shows one `notice-warn` line under the header ("This handbook is
+  a draft…"). Under it, `lg:grid-cols-[16rem_minmax(0,1fr)]`: the
+  contents rail and the pane. A handbook with an introduction opens on it
+  (`HandbookIntro`: a `CARD_CLASS` section, an h2 "Introduction", the
+  Markdown, and one `primary` "Start reading: {title}" or "Continue:
+  {title}").
+- **The contents rail** (`HandbookContents`) is a `<nav aria-label=
+  "Handbook contents">` on `CARD_CLASS px-2 py-3`, **sticky beside the
+  pane from `lg`** (`lg:sticky lg:top-6`, capped at the viewport and
+  scrolling itself). On a phone it sits above the pane **collapsed behind
+  one button**, "Contents · Policy k of N · x of y confirmed"
+  (`TableOfContents`, a turning `ChevronDown`, `aria-expanded` /
+  `aria-controls`), so the policy is the first thing a small screen
+  shows; following a link closes it. Inside, top to bottom: **Your
+  progress** (a `RAIL_GROUP_TEXT` label, "x of y confirmed" and the
+  percentage, a `role="progressbar"` `h-1.5` bar in `bg-compass-600`;
+  only when the licence is on and some policy asks this reader), the
+  Introduction link, then each section as a group label ("1 · Working
+  here", a `RAIL_GROUP_TEXT` div, not a heading — the policy's h2 owns
+  the outline) over an `<ol>` of numbered policy links (`tabular-nums`
+  number, title, the emerald `Check` once confirmed). The policy on
+  screen is `aria-current="page"` on `bg-compass-50 font-semibold
+  text-compass-700`, and under it an "On this policy" list: "In short"
+  when it has summary points, then the two shallowest heading levels of
+  its body (whatever their tags once shifted, §Reading measure, heading
+  offset), the one being read `aria-current="location"` with a 2px
+  inset accent bar. Each policy is a link with its own address
+  (`/handbooks/{id}/{docId}`), so it can be bookmarked and shared.
+- **The policy masthead** (`PolicyPage`) sits on `CARD_CLASS` with an
+  accent wash (`bg-linear-to-b from-compass-50 to-transparent`, dropped in
+  print). One wrapping row of badges: `TypeBadge`, `HandbookOnlyChip`
+  when that is where people find it (its tooltip naming this handbook), "Policy k of N" (`text-xs
+  text-slate-500`, plain text), and the reader's `StandingChip` pushed
+  right (`ml-auto`). Then the title (an h2 at the document-title size,
+  §Page skeleton) and the **facts row** (`PolicyFacts`): a `<dl>` of
+  Owner, Approved by, Version, Effective, Next review, Applies to, each a
+  `text-3xs` uppercase `dt` over a `text-sm font-medium` `dd`, wrapping
+  `gap-x-7 gap-y-3`; an empty fact is left out, never a dash.
+- **In short** (`InShort`): up to five summary points in an accent panel
+  (`rounded-lg border-compass-200 bg-compass-50`, an h3 "In short" in
+  `text-sm font-bold text-compass-700`, a disc list), above the body. A
+  point is one sentence; `**bold**` is the only markup it keeps, rendered
+  as React text (`boldRuns`) so a point can never carry a link or HTML,
+  on paper too: the printed sheet's "In short" uses the same
+  `boldRuns`, never `MarkdownView`. Its id is the rail's "In short"
+  anchor.
+- **What changed** (`WhatChanged`), for a reader who confirmed an
+  earlier version: one `notice-warn` box, "**What changed in version 3**
+  (you confirmed version 2): {the version notes since, oldest first}." and
+  a **Compare versions** link (underlined in the notice's own ink, not
+  the accent, which loses contrast on amber in dark mode) only for a
+  reader who may open the document's own page.
+- **The body** is the document renderer in a `doc-read` article (the
+  reading measure, §Reading measure) with `headingOffset={2}` (its h1 is
+  an h3 under the policy's h2), then **the confirm bar**
+  (`PolicyConfirmBar`): the end-of-article action (§Sections and cards)
+  in a handbook's clothes — the same `AckProvider` state, the same POST
+  and typed signature — on a `rounded-lg border bg-slate-50` strip. A
+  **tick box** beside the policy's own confirmation statement (rendered
+  through `MarkdownView`, with the version line under it) **gates the
+  button**: **Confirm** (`primary`, `Check`) is `aria-disabled` with
+  `aria-describedby` on a visible "Tick the statement to confirm" line
+  (then "Sign above to confirm" on a signature policy) until ticked and
+  signed. When a signature is asked, the **Sign to confirm** block sits
+  between the statement and the button row, so the order on screen is the
+  tab order: tick, sign, Confirm, Next. Done, the strip says "You
+  confirmed version N on {date}" with the emerald `CircleCheckBig` and
+  **View your record** (a `link`, inside the sentence); a policy that
+  does not ask says "For information." in one sentence. The navigation
+  sits in the same strip: "Next: {title} →" (`secondary`), or on the last
+  policy **Confirm handbook** when the handbook asks for it, else the
+  previous policy. Every navigation button is `max-w-full` with its label
+  in a `min-w-0 truncate` span, in a `min-w-0 max-w-full` wrapper (never
+  `shrink-0`), so a long title truncates instead of widening a phone.
+  The **Related** documents under the strip are `link`s.
+- **Confirm the whole handbook** (`HandbookConfirm`) lists every policy
+  with its `StandingChip`, one statement checkbox ("I have read and
+  understood all N policies in {title}, and I agree to follow them."),
+  the **Sign to confirm** block only when an outstanding policy needs a
+  typed signature, and one `primary` "Confirm K policies" ("Confirm the
+  handbook" once every policy already counts).
+- **The editor** (`HandbookEditor`) is the explicit-save pattern
+  (`SaveRow`, Ctrl/⌘+S, the leave guard): Details and Contents beside a
+  sticky Add policies panel (`lg:grid-cols-[minmax(0,1fr)_22rem]`), the
+  status chip and the named actions (Preview, Publish handbook /
+  Unpublish) in the header, each `print:hidden`, Delete in the
+  `DangerZone`. Each Contents row (a locked placeholder aside, below)
+  carries the pill **Where people find it** menu (§Status chips), which
+  is why that card is `CARD_CLASS` (§Sections and cards). Move up / Move
+  down keep focus on the pressed arrow, so the card says where the row
+  went in an always-mounted `sr-only` `aria-live="polite"` line ("Moved
+  {title} to 3 of 8, in {section}."; a remove says "Removed …"). A Save
+  that fails validation focuses the first invalid control in the card's
+  order: Title, Introduction, then the groups picker's search box. After
+  a contents save the page takes the new sections' ids from the answer,
+  so a Save after a later step's refusal does not send the contents
+  again.
+- **A locked placeholder** (a Contents row whose document is in a space
+  the editor can't add from, `HandbookItem.restricted`): the server sends
+  no title, space or version, so the row shows a `Lock` (`h-3.5 w-3.5`,
+  `aria-hidden`, `items-start` + `mt-0.5` so it leads the first line when
+  the title wraps on a phone) and "A document you can't open"
+  (`HANDBOOK_RESTRICTED_ITEM`) in `text-sm font-medium text-slate-500`,
+  over the `text-xs text-slate-500` line "From a space you can't add from.
+  You can move or remove it." It keeps Move up / Move down / Remove (their
+  `aria-label`s name it by number, "item 3 (a document you can't open)",
+  since placeholders share a title) and has no **Where people find it**
+  menu and nothing that opens it. While the handbook holds one, the routes
+  refuse Publish and any change to who reads or owns it with 403
+  (`HANDBOOK_FOREIGN_CONTENTS`); the editor shows that sentence as a
+  `FormError` at the foot of the Details card (the fields it is about,
+  scrolled into view with `scroll-mb-24` clear of the pinned Save row),
+  from a Save and from Publish alike, never a toast, and keeps the edits.
+- **Two editors at once** (optimistic concurrency, 1.18.0). The details
+  PATCH and the contents PUT send `if_updated_at`, the handbook's
+  `updated_at` as the page last saw it (loaded, or answered by its own
+  previous write, publishing and unpublishing included); a find-mode
+  change leaves it alone. When someone else saved in between, the route
+  answers 409 with "This handbook was changed by someone else. Reload to
+  see their changes." and writes nothing. The page keeps every edit and
+  shows that sentence in a `FormError` (§Forms) with a `secondary` `sm`
+  **Reload** (`RefreshCw`), on its own line inside the Save row (`order-first
+  basis-full`), which is pinned while the page is dirty, so it is on
+  screen wherever Save was pressed; no toast repeats it. Reload asks
+  first (`confirmDialog`, `danger`, "Reload and discard your changes?")
+  when there are unsaved edits.
+- **Handbook-only documents in their space.** Readers no longer find
+  them there; the people who look after the space still do, each marked
+  with `HandbookOnlyChip`, and the space page opens with one
+  `SpaceHandbookNotice`: a `role="note"` line on `rounded-lg border
+  border-slate-200 bg-surface px-4 py-3 text-sm` with a `BookOpen`, "**3
+  documents here are handbook only.** You see them because you edit this
+  space; readers find them only in {handbook links}." Informational, so
+  neither a `notice-*` state banner nor a card, and `print:hidden`.
 
 ## Scaling
 
@@ -1877,6 +2125,48 @@ a label on paper. The compliance portal's menu (Matrix CSV, Ledger CSV,
 Audit package (ZIP), Print…; 1.14.0) and the record page's (Export CSV,
 Ledger CSV (all confirmations), Print…) follow the same shape, "Print…"
 last.
+
+**A printed handbook is the one print-first page** (1.18.0,
+`/handbooks/{id}/print`). It is a reading copy people put on paper or
+save as PDF from the browser, not a record export, so it is browser print,
+not a server-rendered file — the content is the documents' own rendered
+Markdown (`MarkdownView`), which a server PDF would have to re-implement.
+What makes that hold:
+
+- **Outside the shell.** The page lives in the `(print)` route group
+  (§Page skeleton), so the cover starts at the paper's corner. Its one
+  control strip is `PrintToolbar` (back to the handbook, an A4 / Letter
+  `Segmented`, "Print or save as PDF"), which carries the page's h1
+  ("Print preview") and is never printed; on paper each sheet heads
+  itself with an h2, and a policy's body (or the introduction page's
+  text) sits under it with `headingOffset={2}`, so its own h1 is an h3.
+- **Sheets are paper in both themes.** On screen the page is a preview:
+  white sheets standing on the canvas, one per cover, contents, policy and
+  signature page. A sheet's subtree re-declares the light tokens — both
+  the raw `--slate-*` / `--surface` triplets and Tailwind's resolved
+  `--color-*` (they are resolved where declared, on `:root`) — plus
+  `color-scheme: light`, so the shared prose prints dark ink on white in
+  dark mode too (`HandbookPrint.module.css`). Its white is literal, like an
+  email preview's.
+- **Page furniture is `@page` margin boxes**, which Chromium prints: the
+  footer on every page ("Title · Company" | "Printed {date} by {name} ·
+  uncontrolled when printed" | `"Page " counter(page)`) and, per policy, a
+  running header ("1 · Working here" | "Policy 2 of 8"). The header rides
+  on **CSS named pages**: each policy sheet sets `page: hb-p-{n}` with an
+  `@page hb-p-{n}` rule of its own, which also forces the page break, so
+  every policy starts on a new page and every page of a long one carries
+  its header. The cover is `@page hb-cover` (no margin, no furniture).
+  The rules carry the handbook's title and people's names, so they are
+  built per request (`page-css.ts`) and every string goes through
+  `cssString`, which escapes it for a CSS string and for the `<style>` it
+  is inlined into. Never furniture as fixed-position elements in the flow.
+- **No page numbers in the contents.** Chromium has no
+  `target-counter()`, so the contents numbers the policies instead and the
+  running header says "Policy k of N".
+- **`?print=1` opens the dialog once** the fonts and images have settled,
+  then drops the flag from the address; the reader's "Print or save as
+  PDF" and the handbook list's print icon link there. Every print (the
+  button, the flag, Ctrl+P) records `handbook.printed` from `beforeprint`.
 
 **A record page carries a `hidden print:block` footer**, "Generated {date}
 by {viewer} · CompassDocs {version}" (the person record, 1.14.0), so a

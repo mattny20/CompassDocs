@@ -6,6 +6,7 @@ import { FileText } from "lucide-react";
 import { getSpaceBySlug, listDocumentsBySpace } from "@/lib/db";
 import { EmptyState } from "@/components/form";
 import { DOC_TYPE_LABEL } from "@/lib/types";
+import { FIND_ANONYMOUS } from "@/lib/handbook-visibility";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +32,8 @@ export default async function PublicSpacePage({
   params: Promise<{ space: string }>;
 }) {
   const space = await publicSpace((await params).space);
-  const docs = await listDocumentsBySpace(space.id, false); // published only
+  // Published only; Handbooks 1.18.0 (H6): never a handbook-only document.
+  const docs = await listDocumentsBySpace(space.id, false, FIND_ANONYMOUS);
 
   return (
     <div>

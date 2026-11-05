@@ -27,6 +27,7 @@ import type { DocType, DocStatus, Space } from "@/lib/types";
 import type { EditDefault } from "@/lib/compliance-settings";
 import { changeSummary, suggestReconfirm } from "@/lib/diff";
 import { people } from "@/components/compliance/copy";
+import { PolicyFactsFields, cleanPoints } from "./handbooks/PolicyFactsFields";
 
 type EditorTab = "rich" | "markdown" | "preview";
 
@@ -100,6 +101,9 @@ interface Initial {
   /** Concurrency token: the updated_at this editor session loaded. */
   updated_at?: string;
   ack?: EditorAck;
+  /** Handbooks 1.18.0: the policy page's "In short" points and "Applies to" line (edit mode). */
+  summary_points?: string[];
+  applies_to?: string;
 }
 
 /** What GET /api/documents/[id]/ack?baseline=1 answers (the parts the editor reads). */
@@ -195,6 +199,9 @@ export function DocEditor({
   const [archiveAt, setArchiveAt] = useState<string>(toLocal(initial.archive_at));
   const [summary, setSummary] = useState(initial.summary);
   const [tags, setTags] = useState(initial.tags.join(", "));
+  // Handbooks 1.18.0 (H6): the policy page's facts, saved with the document.
+  const [points, setPoints] = useState<string[]>(initial.summary_points ?? []);
+  const [appliesTo, setAppliesTo] = useState(initial.applies_to ?? "");
   const [content, setContent] = useState(initial.content);
   const [changeNote, setChangeNote] = useState("");
   // Field-level validation for the change note: under the 'reset' edit
@@ -349,12 +356,29 @@ export function DocEditor({
     content,
     parentId,
     changeNote,
+    cleanPoints(points),
+    appliesTo.trim(),
   ]);
   // Shared with every settings page (lib/use-unsaved): the touched gate, the
   // beforeunload guard and the in-app link guard. The leave prompt is the
   // browser's own on purpose; editor-safety.spec listens for it.
   const rootRef = useRef<HTMLDivElement>(null);
   const { dirty, markDirty, markClean, hasUnsavedChanges } = useUnsavedChanges(snapshot);
+
+  // Handbooks 1.18.0 (H6): In short and Applies to are reader-facing text a
+  // change request cannot carry, so on live content (published, or a draft
+  // armed to publish) they need publish rights, as the server enforces.
+  const factsShown = mode === "edit" && initial.summary_points !== undefined;
+  const factsLocked = !canPublish && (savedStatus === "published" || Boolean(initial.publish_at));
+  function factsPayload(): { summary_points?: string[]; applies_to?: string } {
+    if (factsLocked) return {};
+    const out: { summary_points?: string[]; applies_to?: string } = {};
+    const next = cleanPoints(points);
+    const before = initial.summary_points ?? [];
+    if (next.length !== before.length || next.some((p, i) => p !== before[i])) out.summary_points = next;
+    if (appliesTo.trim() !== (initial.applies_to ?? "")) out.applies_to = appliesTo.trim();
+    return out;
+  }
   // Properties sit in a sticky rail beside the editor when the page column
   // is wide enough to share (Wide and Full, at lg and up — the same rule as
   // the document page's rail), and above it otherwise (1.9.1).
@@ -718,6 +742,9 @@ export function DocEditor({
       tags,
       content,
       ...(nestedEnabled ? { parent_id: parentId } : {}),
+      // Handbooks 1.18.0 (H6): only what changed since this editor loaded, so
+      // a save never writes back facts someone else changed meanwhile.
+      ...(docId && factsShown ? factsPayload() : {}),
       ...(canPublish && docId
         ? {
             // Only the field matching the submitted status applies; the other
@@ -1127,6 +1154,28 @@ export function DocEditor({
               placeholder="deploy, ci-cd, release"
             />
           </Field>
+          {factsShown && (
+            <PolicyFactsFields
+              points={points}
+              appliesTo={appliesTo}
+              onPointsChange={(next) => {
+                markDirty();
+                setPoints(next);
+              }}
+              onAppliesToChange={(next) => {
+                markDirty();
+                setAppliesTo(next);
+              }}
+              disabledReason={
+                factsLocked
+                  ? savedStatus === "published"
+                    ? "Changing these on a published document needs publish rights."
+                    : "Changing these on a document scheduled to publish needs publish rights."
+                  : undefined
+              }
+              className={beside ? "" : "sm:col-span-3"}
+            />
+          )}
           {mode === "edit" && (
             <Field
               label="Change note"

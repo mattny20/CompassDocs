@@ -9,6 +9,9 @@
 import "server-only";
 import { pool } from "./db";
 import type { Document } from "./types";
+// Handbooks 1.18.0 (H6): a handbook-only sub-page stays out of a reader's list.
+import { handbookFilterSql } from "./handbook-visibility";
+import type { FindScope } from "./handbook-visibility";
 
 export const MAX_DEPTH = 3; // 1 = top level, 3 = grandchild
 
@@ -29,14 +32,17 @@ export interface DocTreeNode {
 /** Live (non-deleted, non-branch) children of a document, in manual order. */
 export async function childrenOf(
   docId: number,
-  opts: { includeDrafts: boolean }
+  /** `find` — Handbooks 1.18.0 (H6): hide handbook-only sub-pages outside these spaces; omit for none hidden. */
+  opts: { includeDrafts: boolean; find?: FindScope }
 ): Promise<Pick<Document, "id" | "title" | "slug" | "status" | "position">[]> {
+  const params: unknown[] = [docId];
+  const hidden = handbookFilterSql("d", opts.find, params); // Handbooks 1.18.0 (H6)
   return q(
-    `SELECT id, title, slug, status, position FROM documents
-     WHERE parent_id = $1 AND deleted_at IS NULL AND branch_of IS NULL
-       ${opts.includeDrafts ? "" : "AND status = 'published'"}
-     ORDER BY position, LOWER(title)`,
-    [docId]
+    `SELECT d.id, d.title, d.slug, d.status, d.position FROM documents d
+     WHERE d.parent_id = $1 AND d.deleted_at IS NULL AND d.branch_of IS NULL
+       ${opts.includeDrafts ? "" : "AND d.status = 'published'"}${hidden}
+     ORDER BY d.position, LOWER(d.title)`,
+    params
   );
 }
 
@@ -157,14 +163,22 @@ export async function moveSibling(docId: number, dir: -1 | 1): Promise<boolean> 
  * The visible page tree for a space: top-level pages with children nested,
  * drafts included only for staff. Docs whose parent is trashed (or invisible
  * to the viewer) surface at the top level rather than vanishing.
+ *
+ * Handbooks 1.18.0 (H6): `find` is the viewer's find scope (findScopeFor):
+ * an effectively handbook-only page is left out for a viewer who does not
+ * look after its space, as the space page leaves it out; its sub-pages
+ * surface at the top level like any other page whose parent is invisible.
+ * Omit for none hidden.
  */
-export async function treeForSpace(spaceId: number, includeDrafts: boolean): Promise<DocTreeNode[]> {
+export async function treeForSpace(spaceId: number, includeDrafts: boolean, find?: FindScope): Promise<DocTreeNode[]> {
+  const params: unknown[] = [spaceId];
+  const hidden = handbookFilterSql("d", find, params); // Handbooks 1.18.0 (H6)
   const rows = await q<DocTreeNode>(
-    `SELECT id, title, slug, status, parent_id, position FROM documents
-     WHERE space_id = $1 AND deleted_at IS NULL AND branch_of IS NULL
-       ${includeDrafts ? "" : "AND status = 'published'"}
-     ORDER BY position, LOWER(title)`,
-    [spaceId]
+    `SELECT d.id, d.title, d.slug, d.status, d.parent_id, d.position FROM documents d
+     WHERE d.space_id = $1 AND d.deleted_at IS NULL AND d.branch_of IS NULL
+       ${includeDrafts ? "" : "AND d.status = 'published'"}${hidden}
+     ORDER BY d.position, LOWER(d.title)`,
+    params
   );
   const byId = new Map<number, DocTreeNode>();
   for (const r of rows) byId.set(r.id, { ...r, children: [] });

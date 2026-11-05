@@ -426,6 +426,12 @@ Today there are **six** distinct principal types. Only the first carries a role 
 
 > The Slack/Teams ask endpoints are *not* in this family because they authenticate by request signature and answer from a fixed synthetic scope (`chatSpaceScope()` — non-private spaces). They are gated by `integration.chat_ask_manage` at configuration time and by nothing at request time. **Flag for review**: this is the one surface where an answer's grounding scope is decoupled from any principal.
 
+### 3.31 `handbook` — 1 (1.18.0)
+
+| Key | Label | Description | Scope | Legacy roles | Conditions |
+|---|---|---|---|---|---|
+| `handbook.manage` | Build handbooks | Create, edit, publish and delete handbooks: workspace-wide when held globally, a space's own when assigned on that space | space | Ad | Held **globally**: workspace handbooks from any published document the holder can see, and handbooks owned by any space. Assigned **on a space**: that space's handbook admin — handbooks owned by the space, built from documents in the spaces where the key is held. There is no space-admin role today (§5.5 `preset.space_admin` is reserved), so a space-scoped grant of this key *is* "the space's admin" for handbooks. Checked in `lib/handbooks` (`canManage`, `canManageOwner`) with visibility folded in: a space you cannot read is never one you manage. Legacy break-glass: admin only. **Reading** a handbook needs no permission: a published handbook's audience (everyone / the space's readers / chosen groups) decides, and reading it opens its documents through the handbook reader (`handbookGrantsRead`) without widening `/doc/{id}` |
+
 ---
 
 ## 4. Ordinal-ladder artefacts — where a flat catalog changes behaviour

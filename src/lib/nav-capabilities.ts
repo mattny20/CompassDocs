@@ -10,6 +10,7 @@ import { canUseNewsletter } from "./newsletter-access";
 import { featureEnabled } from "./ee";
 import { canSeeDrafts, editableScopeFor, spaceScopeFor, userHolds } from "./access";
 import { hasPolicyInScope } from "./db";
+import { seesHandbooks } from "./handbooks";
 import type { SessionUser } from "./types";
 import type { CapKey } from "./nav-items";
 import { NAV_ITEMS } from "./nav-items";
@@ -27,6 +28,8 @@ export interface NavCapabilities {
   showAnnouncements: boolean;
   showCompliance: boolean;
   showTraining: boolean;
+  /** Reads at least one handbook, or may create one (1.18.0). */
+  showHandbooks: boolean;
   /** Has at least one space they may write in. */
   canAuthor: boolean;
 }
@@ -60,11 +63,12 @@ async function showComplianceFor(user: SessionUser): Promise<boolean> {
 }
 
 export async function navCapabilities(user: SessionUser): Promise<NavCapabilities> {
-  const [showAnnouncements, showCompliance, showTraining, canAuthor, isEditor, isApprover] =
+  const [showAnnouncements, showCompliance, showTraining, showHandbooks, canAuthor, isEditor, isApprover] =
     await Promise.all([
       canAccessSection(user, "announcements"),
       showComplianceFor(user),
       featureEnabled("training"),
+      seesHandbooks(user),
       canAuthorFor(user),
       canSeeDrafts(user),
       userHolds(user, "change_request.read", { legacyMin: "approver" }),
@@ -77,6 +81,7 @@ export async function navCapabilities(user: SessionUser): Promise<NavCapabilitie
     showAnnouncements,
     showCompliance,
     showTraining,
+    showHandbooks,
     canAuthor,
   };
 }

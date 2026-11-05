@@ -6,6 +6,7 @@
 import type { LucideIcon } from "lucide-react";
 import {
   Activity,
+  BookOpen,
   BookUser,
   GraduationCap,
   Home,
@@ -29,6 +30,7 @@ export type CapKey =
   | "showAnnouncements"
   | "showCompliance"
   | "showTraining"
+  | "showHandbooks"
   | "canAuthor";
 
 export interface NavItem {
@@ -49,6 +51,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/directory", label: "Directory", icon: BookUser, keywords: "people staff phone contact who", cap: null, chord: "p" },
   { href: "/links", label: "Links", icon: SquareArrowOutUpRight, keywords: "shortcuts tools launchpad apps", cap: null, chord: "l" },
   { href: "/status", label: "Status", icon: Activity, keywords: "service incidents uptime outage", cap: null, chord: "s" },
+  { href: "/handbooks", label: "Handbooks", icon: BookOpen, keywords: "handbook policies bundle read print confirm employee staff onboarding", cap: "showHandbooks" },
   { href: "/training", label: "Training", icon: GraduationCap, keywords: "courses decks compliance learning", cap: "showTraining", chord: "t" },
   { href: "/review", label: "Review queue", icon: ClipboardList, keywords: "approve suggestions change requests pending", cap: "isApprover", chord: "r" },
   { href: "/announcements", label: "Announcements", icon: Megaphone, keywords: "news posts broadcast", cap: "showAnnouncements", chord: "n" },

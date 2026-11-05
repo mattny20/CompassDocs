@@ -2,12 +2,15 @@ import { NextResponse } from "next/server";
 import { apiGuard } from "@/lib/api-auth";
 import { pool } from "@/lib/db";
 import { spaceScopeFor } from "@/lib/access";
+import { findScopeFor, handbookFilterSql } from "@/lib/handbook-visibility";
 import type { SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 // Lightweight title lookup for the editor's [[ link autocomplete and the
 // parent-page picker: id + title + space, scope-filtered, no bodies.
+// Handbooks 1.18.0: a handbook-only document is offered only to someone who
+// looks after its space (findScopeFor), as every other listing does.
 export async function GET(req: Request) {
   const gate = await apiGuard("editor", "document.lookup");
   if (gate instanceof NextResponse) return gate;
@@ -29,6 +32,8 @@ export async function GET(req: Request) {
     params.push(spaceId);
     where.push(`d.space_id = $${params.length}`);
   }
+  const hidden = handbookFilterSql("d", await findScopeFor(user), params); // Handbooks 1.18.0 (H6)
+  if (hidden) where.push(hidden.replace(/^ AND /, ""));
   let order = "LOWER(d.title)";
   if (q) {
     params.push(`%${q}%`);

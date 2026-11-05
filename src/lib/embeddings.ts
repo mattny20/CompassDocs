@@ -21,6 +21,9 @@ import { pool, getSetting, setSetting } from "./db";
 import { safeFetch } from "./safe-fetch";
 import type { Document, SearchHit } from "./types";
 import type { SpaceScope } from "./space-scope";
+// Handbooks 1.18.0 (H6): handbook-only documents stay out of reader search.
+import { handbookFilterSql } from "./handbook-visibility";
+import type { FindScope } from "./handbook-visibility";
 
 async function q<T = any>(sql: string, params: any[] = []): Promise<T[]> {
   return (await pool().query(sql, params)).rows as T[];
@@ -353,7 +356,9 @@ export async function semanticSearch(
   limit: number,
   includeDrafts: boolean,
   scope: SpaceScope,
-  spaceId?: number
+  spaceId?: number,
+  /** Handbooks 1.18.0 (H6): hide handbook-only documents outside these spaces; omit for none hidden. */
+  find?: FindScope
 ): Promise<SemanticHit[]> {
   try {
     const cfg = await getEmbeddingsConfig();
@@ -361,10 +366,14 @@ export async function semanticSearch(
     if (!(await ensureSchema())) return [];
 
     const [vec] = await embedTexts(cfg, [query.trim().slice(0, 1000)], "query");
+    const params: unknown[] = Array.isArray(scope)
+      ? [toVectorLiteral(vec), limit * 4, scope]
+      : [toVectorLiteral(vec), limit * 4];
     const filter =
       (includeDrafts ? "" : " AND d.status = 'published'") +
       (Array.isArray(scope) ? " AND d.space_id = ANY($3)" : "") +
-      (spaceId ? ` AND d.space_id = ${Number(spaceId)}` : "");
+      (spaceId ? ` AND d.space_id = ${Number(spaceId)}` : "") +
+      handbookFilterSql("d", find, params); // Handbooks 1.18.0 (H6)
     const rows = await q<{ id: number; distance: number; heading: string; content: string }>(
       `SELECT d.id, c.heading, c.content, (c.embedding <=> $1::vector) AS distance
        FROM doc_chunks c
@@ -372,9 +381,7 @@ export async function semanticSearch(
        WHERE d.deleted_at IS NULL AND d.branch_of IS NULL${filter}
        ORDER BY c.embedding <=> $1::vector
        LIMIT $2`,
-      Array.isArray(scope)
-        ? [toVectorLiteral(vec), limit * 4, scope]
-        : [toVectorLiteral(vec), limit * 4]
+      params
     );
 
     const seen = new Map<number, SemanticHit>();
@@ -409,17 +416,19 @@ export async function hybridSearchDocuments(
   limit = 25,
   includeDrafts = false,
   scope: SpaceScope,
-  spaceId?: number
+  spaceId?: number,
+  /** Handbooks 1.18.0 (H6): hide handbook-only documents outside these spaces; omit for none hidden. */
+  find?: FindScope
 ): Promise<SearchHit[]> {
   const { searchDocuments, searchCardsByIds } = await import("./db");
   const { parseSearchQuery } = await import("./search-query");
   const { text, filters, hasFilters } = parseSearchQuery(raw);
   const [keyword, semanticRaw] = await Promise.all([
-    searchDocuments(text, limit, includeDrafts, scope, spaceId, filters),
+    searchDocuments(text, limit, includeDrafts, scope, spaceId, filters, find),
     // Semantic side embeds only the free text; operator filters are applied
     // to its hits below via the card fields (author isn't on cards, so
     // author-filtered queries stay keyword-only).
-    text.trim() ? semanticSearch(text, limit, includeDrafts, scope, spaceId) : Promise.resolve([]),
+    text.trim() ? semanticSearch(text, limit, includeDrafts, scope, spaceId, find) : Promise.resolve([]),
   ]);
   let semantic = semanticRaw;
   if (hasFilters && semantic.length) {
@@ -475,12 +484,14 @@ export async function hybridRetrieveForAnswer(
   raw: string,
   limit = 6,
   includeDrafts = false,
-  scope: SpaceScope
+  scope: SpaceScope,
+  /** Handbooks 1.18.0 (H6): hide handbook-only documents outside these spaces; omit for none hidden. */
+  find?: FindScope
 ): Promise<Document[]> {
   const { retrieveForAnswer, getDocumentsByIds } = await import("./db");
   const [keyword, semantic] = await Promise.all([
-    retrieveForAnswer(raw, limit, includeDrafts, scope),
-    semanticSearch(raw, limit, includeDrafts, scope),
+    retrieveForAnswer(raw, limit, includeDrafts, scope, find),
+    semanticSearch(raw, limit, includeDrafts, scope, undefined, find),
   ]);
   if (semantic.length === 0) return keyword;
 

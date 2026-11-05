@@ -6,6 +6,9 @@
 
 import "server-only";
 import { pool } from "./db";
+// Handbooks 1.18.0 (H6): "Linked from" leaves handbook-only documents out for ordinary readers.
+import { handbookFilterSql } from "./handbook-visibility";
+import type { FindScope } from "./handbook-visibility";
 
 async function q<T = any>(sql: string, params: any[] = []): Promise<T[]> {
   return (await pool().query(sql, params)).rows as T[];
@@ -59,9 +62,13 @@ export interface Backlink {
 export async function backlinksFor(
   docId: number,
   scope: number[] | "all",
-  includeDrafts: boolean
+  includeDrafts: boolean,
+  /** Handbooks 1.18.0 (H6): hide handbook-only documents outside these spaces; omit for none hidden. */
+  find?: FindScope
 ): Promise<Backlink[]> {
   const scopeFilter = scope === "all" ? "" : "AND d.space_id = ANY($2)";
+  const params: unknown[] = scope === "all" ? [docId] : [docId, scope];
+  const hidden = handbookFilterSql("d", find, params); // Handbooks 1.18.0 (H6)
   return q<Backlink>(
     `SELECT d.id, d.title, d.slug, d.status, d.space_id, s.name AS space_name, s.icon AS space_icon
      FROM doc_links l
@@ -69,9 +76,9 @@ export async function backlinksFor(
      JOIN spaces s ON s.id = d.space_id
      WHERE l.to_id = $1 AND d.deleted_at IS NULL AND d.branch_of IS NULL
        ${includeDrafts ? "" : "AND d.status = 'published'"}
-       ${scopeFilter}
+       ${scopeFilter}${hidden}
      ORDER BY LOWER(d.title)`,
-    scope === "all" ? [docId] : [docId, scope]
+    params
   );
 }
 

@@ -4,6 +4,7 @@ import { getDocument } from "@/lib/db";
 import { canSeeDrafts, spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
 import { relationsFor, addRelation, removeRelation, RELATION_KINDS } from "@/lib/relations";
 import type { RelationKind } from "@/lib/relations";
+import { findScopeFor } from "@/lib/handbook-visibility";
 import type { NextRequest } from "next/server";
 import type { SessionUser } from "@/lib/types";
 
@@ -14,6 +15,8 @@ export const dynamic = "force-dynamic";
 // "direction" field controls which side of a directional kind this doc is on:
 // "out" = this doc → target (this doc is a procedure for the target),
 // "in"  = target → this doc (the target is a procedure for this doc).
+// Handbooks 1.18.0 (H6): the list leaves out handbook-only documents the
+// caller does not look after, as the document page's Related does.
 
 async function visibleDoc(user: SessionUser, id: number) {
   const doc = await getDocument(id);
@@ -34,7 +37,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const relations = await relationsFor(
     doc.id,
     await spaceScopeFor(user),
-    await canSeeDrafts(user)
+    await canSeeDrafts(user),
+    await findScopeFor(user) // Handbooks 1.18.0 (H6)
   );
   return NextResponse.json({ relations });
 }
@@ -74,7 +78,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const relations = await relationsFor(
     doc.id,
     await spaceScopeFor(user),
-    await canSeeDrafts(user)
+    await canSeeDrafts(user),
+    await findScopeFor(user) // Handbooks 1.18.0 (H6)
   );
   return NextResponse.json({ ok: true, relations }, { status: 201 });
 }
@@ -97,7 +102,8 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   const relations = await relationsFor(
     doc.id,
     await spaceScopeFor(user),
-    await canSeeDrafts(user)
+    await canSeeDrafts(user),
+    await findScopeFor(user) // Handbooks 1.18.0 (H6)
   );
   return NextResponse.json({ ok: true, relations });
 }

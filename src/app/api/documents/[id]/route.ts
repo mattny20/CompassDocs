@@ -16,6 +16,9 @@ import { requestOrigin } from "@/lib/oauth";
 import { getComplianceSettings } from "@/lib/compliance-settings";
 import { userHolds, canPublishDirectly, canSeeDrafts, spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
 import type { DocType, DocStatus, SessionUser } from "@/lib/types";
+import { parseAppliesTo, parseSummaryPoints } from "@/lib/handbooks";
+import { policyFactsChanges, setPolicyFacts } from "@/lib/policy-facts";
+import type { PolicyFactsPatch } from "@/lib/policy-facts";
 
 export const dynamic = "force-dynamic";
 
@@ -171,6 +174,38 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     schedulePatch[field] = when.toISOString();
   }
 
+  // Handbooks 1.18.0 (H6): the policy page's "In short" points and "Applies
+  // to". Parsed and bounded here, before any write. They are reader-facing
+  // text with no place on a change request, so on live content (published,
+  // or a draft armed to publish on schedule) they need publish rights, like
+  // a schedule, rather than being dropped from a queued edit. On a plain
+  // draft they are written to the draft even when its publish is queued for
+  // review: they go live only when an approver publishes it. A save that
+  // leaves them as they are is never refused.
+  const factsPatch: PolicyFactsPatch = {};
+  if (body?.summary_points !== undefined) {
+    const parsed = parseSummaryPoints(body.summary_points);
+    if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
+    factsPatch.summary_points = parsed.value;
+  }
+  if (body?.applies_to !== undefined) {
+    const parsed = parseAppliesTo(body.applies_to);
+    if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
+    factsPatch.applies_to = parsed.value;
+  }
+  const factsChanges = policyFactsChanges(
+    { summary_points: existing.summary_points ?? [], applies_to: existing.applies_to ?? "" },
+    factsPatch
+  );
+  const factsLive =
+    existing.status === "published" || (existing.status === "draft" && existing.publish_at != null);
+  if (Object.keys(factsChanges).length > 0 && factsLive && !canPublish) {
+    return NextResponse.json(
+      { error: "Changing In short or Applies to on a published document needs publish rights." },
+      { status: 403 }
+    );
+  }
+
   // What to do with existing confirmations if this save changes the text of
   // a confirmed document (A2): 'keep' or 'reset' with a change note of 10+
   // characters, or nothing, which is 'auto' and follows the document's edit
@@ -193,6 +228,20 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     typeof body?.ack_reason === "string" ? body.ack_reason.trim().slice(0, ACK_REASON_MAX) : "";
 
   if (affectsLive && !canPublish) {
+    // Handbooks 1.18.0 (H6): only reachable for a plain draft (see above):
+    // its facts are written now and published with it on approval.
+    if (Object.keys(factsChanges).length > 0) {
+      await setPolicyFacts(existing.id, factsChanges);
+      await audit({
+        actor: actorFrom(user),
+        action: "document.update",
+        targetType: "document",
+        targetId: existing.id,
+        targetLabel: existing.title,
+        details: { ...factsChanges },
+        ip: ipFrom(req),
+      });
+    }
     // Editor in strict mode: queue a change request; leave the live doc
     // untouched. The editor's choice travels with the request as the
     // submitter's recommendation (A6); the approver decides at approval.
@@ -304,6 +353,13 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
         sideChanges.parent_id = nextParent;
       }
     }
+  }
+
+  // Handbooks 1.18.0 (H6): the policy page's facts, validated above.
+  if (Object.keys(factsChanges).length > 0) {
+    await setPolicyFacts(existing.id, factsChanges);
+    Object.assign(sideChanges, factsChanges);
+    if (doc) Object.assign(doc, factsChanges);
   }
 
   if (!changed) {

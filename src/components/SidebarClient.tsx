@@ -35,6 +35,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   GraduationCap,
+  BookOpen,
 } from "lucide-react";
 import { PaletteTrigger } from "./palette/PaletteTrigger";
 import { NotificationsBell } from "./NotificationsBell";
@@ -78,6 +79,7 @@ export function SidebarClient({
   showAnnouncements,
   showCompliance,
   showTraining = false,
+  showHandbooks = false,
   trainingCount = 0,
   pendingAckCount = 0,
   isEditor,
@@ -108,6 +110,8 @@ export function SidebarClient({
   showCompliance: boolean;
   /** Training entitlement present: everyone gets the tab (badge = open assignments). */
   showTraining?: boolean;
+  /** Reads a handbook or may create one (1.18.0). */
+  showHandbooks?: boolean;
   trainingCount?: number;
   /** Policies the person has not confirmed the current ask of — badged on Compliance (B4). */
   pendingAckCount?: number;
@@ -352,6 +356,15 @@ export function SidebarClient({
           badge={statusProblemCount}
           badgeLabel="service problems"
         />
+        {showHandbooks && (
+          <NavLink
+            href="/handbooks"
+            icon={<BookOpen className="h-4 w-4" />}
+            label="Handbooks"
+            collapsed={collapsed}
+            active={isActivePath(pathname, "/handbooks")}
+          />
+        )}
         {showTraining && (
           <NavLink
             href="/training"

@@ -1,0 +1,168 @@
+/* The printed handbook (1.18.0, /handbooks/{id}/print).
+ *
+ * On screen the page is a preview: the sheets stand on the canvas as paper,
+ * one per cover, contents, policy and signature page. On paper the sheets
+ * lose their chrome and the @page rules (page-css.ts, inlined by the page
+ * because they carry the handbook's own title) supply the margins, the
+ * running header and the footer with the page number.
+ *
+ * A sheet is paper in both themes: like an email preview, its white is
+ * literal. Its subtree re-declares the light tokens, so the shared document
+ * renderer (.doc-prose, which reads the slate ramp) prints dark ink on the
+ * white sheet in dark mode too. Tailwind's --color-* are resolved where
+ * they are declared (:root), so both layers are re-declared here.
+ */
+
+.stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 1.5rem 1rem 3rem;
+}
+
+.paper {
+  color-scheme: light;
+  --surface: 255 255 255;
+  --canvas: 255 255 255;
+  --slate-50: 248 250 252;
+  --slate-100: 241 245 249;
+  --slate-200: 226 232 240;
+  --slate-300: 203 213 225;
+  --slate-400: 148 163 184;
+  --slate-500: 90 105 128;
+  --slate-600: 71 85 105;
+  --slate-700: 51 65 85;
+  --slate-800: 30 41 59;
+  --slate-900: 15 23 42;
+  --slate-950: 2 6 23;
+  --compass-ink: var(--compass-600);
+  --compass-ink-strong: var(--compass-700);
+  --color-surface: rgb(var(--surface));
+  --color-canvas: rgb(var(--canvas));
+  --color-slate-50: rgb(var(--slate-50));
+  --color-slate-100: rgb(var(--slate-100));
+  --color-slate-200: rgb(var(--slate-200));
+  --color-slate-300: rgb(var(--slate-300));
+  --color-slate-400: rgb(var(--slate-400));
+  --color-slate-500: rgb(var(--slate-500));
+  --color-slate-600: rgb(var(--slate-600));
+  --color-slate-700: rgb(var(--slate-700));
+  --color-slate-800: rgb(var(--slate-800));
+  --color-slate-900: rgb(var(--slate-900));
+  --color-slate-950: rgb(var(--slate-950));
+  --color-compass-ink: rgb(var(--compass-ink));
+  --color-compass-ink-strong: rgb(var(--compass-ink-strong));
+  color: rgb(var(--slate-800));
+}
+
+/* globals.css lightens prose links and inline code under the dark theme;
+ * on the white sheet they keep their light-theme ink. */
+:global(:root[data-theme="dark"]) .paper :global(.doc-prose a) {
+  color: rgb(var(--compass-600));
+}
+:global(:root[data-theme="dark"]) .paper :global(.doc-prose code) {
+  color: rgb(190 24 93);
+}
+:global(:root[data-theme="dark"]) .paper :global(.doc-prose pre code) {
+  color: inherit;
+}
+
+.sheet {
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  background: #fff;
+  box-shadow: 0 6px 24px rgb(15 23 42 / 0.16), 0 1px 2px rgb(15 23 42 / 0.08);
+  padding: 1.5rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.a4 {
+  max-width: 210mm;
+}
+.letter {
+  max-width: 8.5in;
+}
+
+@media (min-width: 40rem) {
+  .sheet {
+    padding: 20mm 18mm 14mm;
+  }
+}
+
+/* The cover: the workspace accent, edge to edge, one page tall. Its ink is
+ * literal white on the accent in both themes. */
+.cover {
+  aspect-ratio: 210 / 297;
+  color: #fff;
+  background: linear-gradient(160deg, rgb(var(--compass-600)), rgb(var(--compass-900)));
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.letter.cover {
+  aspect-ratio: 8.5 / 11;
+}
+.cover :global(.doc-prose) {
+  color: rgb(255 255 255 / 0.88);
+  font-size: inherit;
+  line-height: 1.55;
+}
+.cover :global(.doc-prose a) {
+  color: #fff;
+}
+.cover :global(.doc-prose p) {
+  margin: 0 0 0.5em;
+}
+.coverMark {
+  height: 2.25rem;
+  width: 2.25rem;
+}
+
+/* The body grows so the on-screen footer sits at the foot of the sheet. */
+.grow {
+  flex: 1 1 auto;
+}
+
+/* Signature lines. */
+.line {
+  border-bottom: 1px solid rgb(var(--slate-400));
+  height: 2.25rem;
+}
+
+@media print {
+  .stage {
+    display: block;
+    padding: 0;
+    gap: 0;
+  }
+  .sheet {
+    max-width: none;
+    width: auto;
+    box-shadow: none;
+    padding: 0;
+    display: block;
+    background: none;
+  }
+  .sheet + .sheet {
+    break-before: page;
+  }
+  /* The cover is exactly the paper: its @page has no margin. The accent is
+   * repeated because the .sheet reset above clears backgrounds. */
+  .cover {
+    background: linear-gradient(160deg, rgb(var(--compass-600)), rgb(var(--compass-900)));
+    aspect-ratio: auto;
+    height: var(--hb-paper-height);
+    overflow: hidden;
+    padding: 18mm 18mm;
+    display: flex;
+  }
+  .policyHead,
+  .paper :global(.doc-prose) :is(h1, h2, h3, h4, h5, h6) {
+    break-after: avoid;
+  }
+  .keep {
+    break-inside: avoid;
+  }
+}
