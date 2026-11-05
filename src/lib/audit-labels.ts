@@ -122,6 +122,16 @@ export const AUDIT_LABELS: Record<string, string> = {
   "ack.set_deactivated": "Deactivated policy set",
   "ack.set_deleted": "Deleted policy set",
   "ack.set_assigned": "Assigned policy set",
+  // Handbooks (1.18.0)
+  "handbook.created": "Created handbook",
+  "handbook.updated": "Edited handbook",
+  "handbook.contents_changed": "Changed handbook contents",
+  "handbook.find_mode_changed": "Changed where people find a policy",
+  "handbook.published": "Published handbook",
+  "handbook.unpublished": "Unpublished handbook",
+  "handbook.deleted": "Deleted handbook",
+  "handbook.printed": "Printed handbook",
+  "handbook.confirmed": "Confirmed handbook",
   // Bulk actions across policies and people (F5, 1.14.0): one summary row
   // per call beside the per-policy and per-row rows the writes emit
   // (ack.bulk_extended, above, is the dispatcher's since 1.13.0).

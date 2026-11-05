@@ -16,6 +16,7 @@ import { officeBlock, officeKeyOf, officeProfileFor } from "@/lib/directory-offi
 import { listDocumentsByAuthor, listLinkedUserNames, getSetting } from "@/lib/db";
 import { getAppSettings } from "@/lib/settings-store";
 import { canSeeDrafts, spaceScopeFor } from "@/lib/access";
+import { findScopeFor } from "@/lib/handbook-visibility";
 import { DocCard } from "@/components/DocCard";
 import { FieldChips } from "@/components/TagBadges";
 import { EmptyState } from "@/components/form";
@@ -50,7 +51,8 @@ export default async function PersonProfilePage({
   const isEditor = await canSeeDrafts(user);
   const aliases = [...new Set([person.name, ...(await listLinkedUserNames(person.id))])];
   const [docs, offices, settings, domain, large, allPeople] = await Promise.all([
-    listDocumentsByAuthor(aliases, isEditor, spaces),
+    // Handbooks 1.18.0 (H6): handbook-only documents stay out of a reader's list.
+    listDocumentsByAuthor(aliases, isEditor, spaces, await findScopeFor(user)),
     getOfficeConfig(),
     getAppSettings(),
     getSetting("custom_domain"),

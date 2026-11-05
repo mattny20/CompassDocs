@@ -5,6 +5,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { canSeeDrafts, spaceScopeFor, scopeAllows } from "@/lib/access";
 import { searchRateLimited } from "@/lib/rate-limit";
 import { metric } from "@/lib/metrics";
+import { findScopeFor } from "@/lib/handbook-visibility";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +32,9 @@ export async function GET(req: Request) {
   if (spaceParam && !scopeAllows(scope, spaceParam)) {
     return NextResponse.json({ hits: [] });
   }
-  const hits = await hybridSearchDocuments(q, limit, includeDrafts, scope, spaceParam);
+  // Handbooks 1.18.0 (H6): handbook-only documents stay out of a reader's results.
+  const find = await findScopeFor(user);
+  const hits = await hybridSearchDocuments(q, limit, includeDrafts, scope, spaceParam, find);
   // Nested pages: attach each hit's ancestor path so results show where a
   // sub-page lives (admin-gated).
   let withPaths: any[] = hits;

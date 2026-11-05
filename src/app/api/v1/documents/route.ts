@@ -9,6 +9,7 @@ import {
   getApprovalMode,
 } from "@/lib/db";
 import { spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
+import { findScopeFor } from "@/lib/handbook-visibility";
 import { type DocType } from "@/lib/types";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
 import { notifySpaceSubscribers } from "@/lib/subscriptions";
@@ -51,6 +52,8 @@ export async function GET(req: Request) {
     includeDrafts: canSeeDrafts,
     limit,
     offset,
+    // Handbooks 1.18.0 (H6): handbook-only documents stay out of a reader's listing.
+    find: await findScopeFor(user),
   });
   return NextResponse.json({ items: items.map((d) => v1Doc(d)), total, limit, offset });
 }

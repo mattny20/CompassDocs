@@ -6,6 +6,7 @@ import { canSeeDrafts, spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/ac
 import { getAttachment, getDocument, deleteAttachmentRow } from "@/lib/db";
 import { recordDownload } from "@/lib/analytics";
 import { getPublicSiteConfig } from "@/lib/public-site";
+import { documentReadVia } from "@/lib/handbooks";
 import { uploadReadStream, deleteUpload, isInlineImage, isInlineVideo } from "@/lib/uploads";
 import type { SessionUser } from "@/lib/types";
 
@@ -14,7 +15,11 @@ export const dynamic = "force-dynamic";
 // Serve an attachment. Signed-in users follow their space scope (drafts are
 // editors+ only). Anonymous requests are allowed exactly when the public site
 // is enabled AND the attachment hangs off a published doc in a public space —
-// the same rule as the public doc pages that link here.
+// the same rule as the public doc pages that link here. A signed-in reader
+// who reaches the attachment's (published) document only through a handbook
+// (lib/handbooks documentReadVia) loads it too: the handbook reader renders
+// the policy's body, images included. Only the document the attachment
+// belongs to counts, never one that merely embeds its link.
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser();
 
@@ -26,7 +31,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   if (!doc) return NextResponse.json({ error: "Not found." }, { status: 404 });
 
   if (user) {
-    if (!scopeAllows(await spaceScopeFor(user), doc.space_id)) {
+    if (!(await documentReadVia(user, doc))) {
       return NextResponse.json({ error: "Not found." }, { status: 404 });
     }
     if (doc.status === "draft" && !(await canSeeDrafts(user, doc.space_id))) {

@@ -1,6 +1,7 @@
 import "server-only";
 import { pool } from "./db";
 import type { SpaceScope } from "./space-scope";
+import { handbookFilterSql, type FindScope } from "./handbook-visibility";
 import type { DocStatus, DocType } from "./types";
 
 // The home dashboard's own queries (1.17.0): Latest in your spaces (with the
@@ -8,6 +9,9 @@ import type { DocStatus, DocType } from "./types";
 // query takes the viewer's SpaceScope from lib/access and the drafts flag
 // the page already resolved (canSeeDrafts), the way listRecentDocuments
 // does, so a tile can never list a document its reader could not open.
+// Handbooks 1.18.0 (H6): the document lists also take the viewer's FindScope
+// (findScopeFor), so Latest and Popular leave handbook-only documents out for
+// readers, as the Ask page's suggestions and the old dashboard did.
 
 async function q<T = any>(sql: string, params: unknown[] = []): Promise<T[]> {
   return (await pool().query(sql, params)).rows as T[];
@@ -68,6 +72,8 @@ export async function listLatestDocuments(opts: {
   spaceIds?: number[];
   excludeIds?: number[];
   limit?: number;
+  /** Handbooks 1.18.0 (H6): hide handbook-only documents outside these spaces; omit for none hidden. */
+  find?: FindScope;
 }): Promise<DashboardDoc[]> {
   const conds = ["d.deleted_at IS NULL", "d.branch_of IS NULL"];
   const params: unknown[] = [];
@@ -84,11 +90,12 @@ export async function listLatestDocuments(opts: {
     params.push(opts.excludeIds);
     conds.push(`NOT (d.id = ANY($${params.length}))`);
   }
+  const hidden = handbookFilterSql("d", opts.find, params); // Handbooks 1.18.0 (H6)
   params.push(opts.limit ?? 8);
   return q<DashboardDoc>(
     `SELECT ${DOC_COLUMNS}
      FROM documents d JOIN spaces s ON s.id = d.space_id
-     WHERE ${conds.join(" AND ")}
+     WHERE ${conds.join(" AND ")}${hidden}
      ORDER BY d.updated_at DESC, d.id DESC LIMIT $${params.length}`,
     params
   );
@@ -98,7 +105,9 @@ export async function listLatestDocuments(opts: {
 // counting a busy week of views on every dashboard load is the expensive
 // part: one process-wide copy (the most-read POPULAR_POOL documents) serves
 // all dashboards for POPULAR_TTL_MS, and each viewer's scope is applied to
-// it afterwards.
+// it afterwards. Handbooks 1.18.0 (H6): so is the viewer's FindScope — the
+// cached counts are everyone's, and the handbook-only filter belongs to the
+// per-viewer query below, never to the cache.
 const POPULAR_TTL_MS = 5 * 60_000;
 const POPULAR_POOL = 500;
 let popularCache: { at: number; rows: Promise<{ document_id: number; views: number }[]> } | null = null;
@@ -127,7 +136,9 @@ function weeklyViewCounts(): Promise<{ document_id: number; views: number }[]> {
 export async function listPopularThisWeek(
   scope: SpaceScope,
   includeDrafts: boolean,
-  limit = 5
+  limit = 5,
+  /** Handbooks 1.18.0 (H6): hide handbook-only documents outside these spaces; omit for none hidden. */
+  find?: FindScope
 ): Promise<(DashboardDoc & { views: number })[]> {
   const counts = await weeklyViewCounts();
   if (counts.length === 0) return [];
@@ -138,12 +149,13 @@ export async function listPopularThisWeek(
     params.push(scope);
     conds.push(`d.space_id = ANY($${params.length})`);
   }
+  const hidden = handbookFilterSql("d", find, params); // Handbooks 1.18.0 (H6): per viewer, after the shared cache
   return q(
     `SELECT ${DOC_COLUMNS}, pv.views
      FROM unnest($2::int[], $3::int[]) AS pv(document_id, views)
      JOIN documents d ON d.id = pv.document_id
      JOIN spaces s ON s.id = d.space_id
-     WHERE ${conds.join(" AND ")}
+     WHERE ${conds.join(" AND ")}${hidden}
      ORDER BY pv.views DESC, d.updated_at DESC, d.id DESC LIMIT $1`,
     params
   );

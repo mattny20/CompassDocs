@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { DocumentWithSpace } from "@/lib/types";
 import { TypeBadge, StatusBadge } from "./Badges";
 import { Chip } from "./Chip";
+import { HandbookOnlyChip, handbookNames } from "./handbooks/HandbookOnlyChip";
 import { timeAgo } from "@/lib/ui";
 
 /**
@@ -10,7 +11,20 @@ import { timeAgo } from "@/lib/ui";
  * card said nothing (1.9.3). In cross-space lists (a person's documents) the
  * space name stays, because there it is the distinguishing fact.
  */
-export function DocCard({ doc, inSpace = false }: { doc: DocumentWithSpace; inSpace?: boolean }) {
+export function DocCard({
+  doc,
+  inSpace = false,
+  handbookOnly,
+}: {
+  doc: DocumentWithSpace;
+  inSpace?: boolean;
+  /**
+   * Handbooks 1.18.0: the handbooks a handbook-only document is read in,
+   * when the viewer still sees it in its space (they look after it). Marks
+   * the card and names the handbooks on the meta line.
+   */
+  handbookOnly?: string[];
+}) {
   const due = doc.review_due_at ? new Date(doc.review_due_at) : null;
   const overdue = due !== null && doc.status === "published" && due.getTime() <= Date.now();
   return (
@@ -21,6 +35,7 @@ export function DocCard({ doc, inSpace = false }: { doc: DocumentWithSpace; inSp
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <TypeBadge type={doc.type} />
         {doc.status === "draft" && <StatusBadge status="draft" />}
+        {handbookOnly && <HandbookOnlyChip handbooks={handbookOnly} inLink />}
         {inSpace && overdue && <Chip tone="warn">Review overdue</Chip>}
       </div>
       <h3 className="line-clamp-2 font-semibold text-slate-900 group-hover:text-compass-700">
@@ -39,6 +54,9 @@ export function DocCard({ doc, inSpace = false }: { doc: DocumentWithSpace; inSp
         <span>·</span>
         <span className="whitespace-nowrap">{timeAgo(doc.updated_at)}</span>
       </div>
+      {handbookOnly && handbookOnly.length > 0 && (
+        <span className="mt-0.5 block truncate text-xs text-slate-500">In {handbookNames(handbookOnly)}</span>
+      )}
     </Link>
   );
 }

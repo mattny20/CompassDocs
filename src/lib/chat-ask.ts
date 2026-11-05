@@ -17,6 +17,7 @@ import { pool, getSetting, setSetting } from "./db";
 import { answerQuestion, type AiAnswer } from "./ai";
 import { asScope, scopeIsEmpty } from "./space-scope";
 import type { SpaceScope } from "./space-scope";
+import { FIND_ANONYMOUS } from "./handbook-visibility";
 
 async function q<T = any>(sql: string, params: any[] = []): Promise<T[]> {
   return (await pool().query(sql, params)).rows as T[];
@@ -122,7 +123,9 @@ export async function chatAnswer(question: string): Promise<AiAnswer> {
       mode: "fallback",
     };
   }
-  return answerQuestion(question, false, scope);
+  // Handbooks 1.18.0 (H6): a chat asker is an ordinary reader, so handbook-only
+  // documents are not answered from here; they are read in their handbooks.
+  return answerQuestion(question, false, scope, FIND_ANONYMOUS);
 }
 
 /** Absolute base URL for doc links in chat, from the configured domain. */

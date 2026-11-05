@@ -20,6 +20,7 @@ import { readSecondsSince } from "@/lib/analytics";
 import { reachedEndFromBody } from "@/lib/read-evidence";
 import { verifyAttestation, signedNameFrom } from "@/lib/attestation";
 import type { AckIdentityProof } from "@/lib/db";
+import { documentReadVia, handbookConfirmationContext, handbookSignatureRequired, mayConfirmPolicy } from "@/lib/handbooks";
 import type { SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -105,6 +106,24 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 // with `via: "attestation"`, and auth.lockout when it engaged the throttle):
 // the card is a password check reachable with a session cookie, so each
 // miss leaves a row an admin can see.
+//
+// Handbooks (1.18.0): a reader who reaches the policy only through a
+// published handbook (lib/handbooks documentReadVia: its audience holds
+// them, they cannot open the space) may confirm it here too. The space's
+// document.ack_submit is then stood in for by the handbook (mayConfirmPolicy:
+// the permission held somewhere, and that handbook's grant); the policy's
+// own audience row is required exactly as for anyone else. The reader's
+// confirm bar sends `handbook_id`: the person must be able to read that
+// handbook and it must hold this document (404 otherwise), and when its
+// "Require a typed signature" is on the signature is asked as if the
+// policy required one. A reader who reaches the policy only through a
+// handbook must name it (400 otherwise), and is asked for the signature
+// when ANY published handbook of theirs that holds the policy has the
+// switch on (lib/handbooks handbookSignatureRequired), so naming another
+// handbook, one with the switch off, cannot step around it; a reader of
+// the space may leave the handbook out (the document page's own card),
+// and then the policy's own setting applies. The row and its audit echo
+// are the card's, plus `via: "handbook"` and the handbook's id on the echo.
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const gate = await apiGuard("viewer", "document.ack_submit");
   if (gate instanceof NextResponse) return gate;
@@ -119,7 +138,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   const { id } = await params;
   const doc = await getDocument(Number(id));
-  if (!doc || !scopeAllows(await spaceScopeFor(user), doc.space_id)) {
+  const via = doc ? await documentReadVia(user, doc) : null;
+  if (!doc || !via) {
     return NextResponse.json({ error: "Not found." }, { status: 404 });
   }
   if (doc.status !== "published" || doc.ack_required !== 1) {
@@ -145,12 +165,40 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     return NextResponse.json({ error: "version_id is required." }, { status: 400 });
   }
 
+  // The handbook the confirmation is made in (1.18.0), when the reader's
+  // bar names one; then the handbook's grant when the space is not the
+  // reader's. Both answer 404, the shape of "not yours".
+  let handbook: Awaited<ReturnType<typeof handbookConfirmationContext>> = null;
+  if (body.handbook_id !== undefined && body.handbook_id !== null) {
+    const handbookId = Number(body.handbook_id);
+    handbook = Number.isSafeInteger(handbookId) && handbookId > 0 ? await handbookConfirmationContext(user, handbookId, doc.id) : null;
+    if (!handbook) return NextResponse.json({ error: "Not found." }, { status: 404 });
+  }
+  if (via === "handbook") {
+    // Someone who reads the policy only through a handbook confirms it in
+    // one, so that handbook's signature switch cannot be stepped around by
+    // leaving its id out.
+    if (!handbook) {
+      return NextResponse.json({ error: "Confirm this policy from the handbook you read it in." }, { status: 400 });
+    }
+    if (!(await mayConfirmPolicy(user, doc, handbook.id))) {
+      return NextResponse.json({ error: "Not found." }, { status: 404 });
+    }
+  }
+
   // The typed signature (C2): checked before anything is written, so a
   // wrong name or password records nothing. The helper's own sentence is
-  // the answer (409, or 429 while the throttle holds).
+  // the answer (409, or 429 while the throttle holds). Asked when the
+  // policy requires one, or the handbook it is confirmed in does, or — for
+  // a reader who has it only through handbooks — any handbook of theirs
+  // that holds it does.
   let signedName: string | null = null;
   let identityProof: AckIdentityProof | "" = "";
-  if (doc.ack_signature === 1) {
+  const signatureRequired =
+    doc.ack_signature === 1 ||
+    handbook?.require_signature === true ||
+    (via === "handbook" && (await handbookSignatureRequired(user, doc.id)));
+  if (signatureRequired) {
     const signed = await verifyAttestation(user, { signed_name: body.signed_name, password }, { ip: ipFrom(req) });
     if (!signed.ok) {
       if (signed.code === "password") {
@@ -219,7 +267,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       version_id: ack?.version_id ?? versionId,
       version: ack?.rev ?? null,
       content_sha256: ack?.content_sha256 ?? null,
-      details: { user_agent: userAgent, signed_name: signedName, identity_proof: identityProof },
+      details: {
+        user_agent: userAgent,
+        signed_name: signedName,
+        identity_proof: identityProof,
+        ...(handbook ? { via: "handbook", handbook_id: handbook.id } : {}),
+      },
     });
   }
   return NextResponse.json({

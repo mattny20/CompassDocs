@@ -4,12 +4,15 @@ import { getSpaceById } from "@/lib/db";
 import { canSeeDrafts, spaceScopeFor, scopeAllows } from "@/lib/access";
 import { getAppSettings } from "@/lib/settings-store";
 import { treeForSpace } from "@/lib/doc-tree";
+import { findScopeFor } from "@/lib/handbook-visibility";
 import type { SessionUser } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 // The nested page tree for one space (sidebar navigation). Viewer-safe:
-// scope-checked, drafts included only for staff.
+// scope-checked, drafts included only for staff, and (Handbooks 1.18.0)
+// handbook-only pages left out for anyone who does not look after the
+// space, as the space page leaves them out.
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const gate = await apiGuard("viewer", "space.tree_read");
   if (gate instanceof NextResponse) return gate;
@@ -23,6 +26,6 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   if (!space || !scopeAllows(await spaceScopeFor(user), space.id)) {
     return NextResponse.json({ error: "Not found." }, { status: 404 });
   }
-  const tree = await treeForSpace(space.id, await canSeeDrafts(user, space.id));
+  const tree = await treeForSpace(space.id, await canSeeDrafts(user, space.id), await findScopeFor(user));
   return NextResponse.json({ tree });
 }

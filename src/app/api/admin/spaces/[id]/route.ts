@@ -203,5 +203,28 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
     targetLabel: existing.name,
     ip: ipFrom(req),
   });
+  // Handbooks 1.18.0: the space's handbooks went with it (lib/db deleteSpace,
+  // which also reconciled the policies they held); each is on the record as
+  // a handbook delete puts it (lib/handbooks deleteHandbook), naming the
+  // space delete that took it.
+  for (const h of res.handbooks) {
+    await audit({
+      actor: actorFrom(gate),
+      action: "handbook.deleted",
+      targetType: "handbook",
+      targetId: h.id,
+      targetLabel: h.title,
+      details: {
+        handbook_id: h.id,
+        status: h.status,
+        owner: existing.name,
+        policies: h.doc_ids.length,
+        doc_ids: h.doc_ids,
+        via: "space.delete",
+        space_id: id,
+      },
+      ip: ipFrom(req),
+    });
+  }
   return NextResponse.json({ ok: true });
 }

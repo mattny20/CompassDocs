@@ -18,6 +18,14 @@
 import { useEffect, useRef, type ReactNode, type RefObject } from "react";
 import { pushOverlay, bindEscapeDispatcher } from "@/lib/overlay-stack";
 
+/**
+ * The items arrows walk in a role="menu" panel: plain actions and the
+ * single-choice rows of a picker menu (FindModeMenu), skipping disabled ones.
+ */
+const MENU_ITEMS = ['[role="menuitem"]', '[role="menuitemradio"]', '[role="menuitemcheckbox"]']
+  .map((r) => `${r}:not([disabled])`)
+  .join(", ");
+
 export function Popover({
   open,
   onClose,
@@ -66,10 +74,14 @@ export function Popover({
     }
     document.addEventListener("mousedown", onPointer);
     // A real menu: focus moves into it on open and arrows walk the items.
+    // A picker menu (menuitemradio) opens on its checked choice, as a
+    // listbox opens on its selection; any other menu on its first item.
     let raf = 0;
     if (role === "menu") {
       raf = requestAnimationFrame(() => {
-        panel.current?.querySelector<HTMLElement>('[role="menuitem"]:not([disabled])')?.focus();
+        const items = panel.current?.querySelectorAll<HTMLElement>(MENU_ITEMS);
+        const checked = Array.from(items ?? []).find((el) => el.getAttribute("aria-checked") === "true");
+        (checked ?? items?.[0])?.focus();
       });
     }
     return () => {
@@ -82,7 +94,7 @@ export function Popover({
 
   function onKeyDown(e: React.KeyboardEvent) {
     if (role !== "menu" || !panel.current) return;
-    const items = Array.from(panel.current.querySelectorAll<HTMLElement>('[role="menuitem"]:not([disabled])'));
+    const items = Array.from(panel.current.querySelectorAll<HTMLElement>(MENU_ITEMS));
     if (items.length === 0) return;
     const i = items.indexOf(document.activeElement as HTMLElement);
     let next: number | null = null;

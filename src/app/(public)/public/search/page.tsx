@@ -6,6 +6,7 @@ import { recordSearch } from "@/lib/analytics";
 import { searchRateLimited } from "@/lib/public-site";
 import { safeSnippet } from "@/lib/snippet";
 import { scopeIsEmpty } from "@/lib/space-scope";
+import { FIND_ANONYMOUS } from "@/lib/handbook-visibility";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +31,8 @@ export default async function PublicSearchPage({
     limited = searchRateLimited(ip);
     if (!limited) {
       const scope = await publicSpaceScope();
-      hits = scopeIsEmpty(scope) ? [] : await searchDocuments(q, 20, false, scope);
+      // Handbooks 1.18.0 (H6): an anonymous reader never finds a handbook-only document.
+      hits = scopeIsEmpty(scope) ? [] : await searchDocuments(q, 20, false, scope, undefined, undefined, FIND_ANONYMOUS);
       void recordSearch(null, q, hits.length, "public").catch(() => {});
     }
   }

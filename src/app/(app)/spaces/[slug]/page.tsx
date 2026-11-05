@@ -18,6 +18,9 @@ import { requireUser } from "@/lib/auth";
 import { canPublishDirectly, canSeeDrafts, spaceScopeFor, scopeAllows, canEditSpace } from "@/lib/access";
 import { getAppSettings } from "@/lib/settings-store";
 import { getApprovalMode } from "@/lib/db";
+import { findScopeFor, findScopeAllows, handbookOnlyMarks } from "@/lib/handbook-visibility";
+import type { HandbookOnlyMark } from "@/lib/handbook-visibility";
+import { SpaceHandbookNotice } from "@/components/handbooks/SpaceHandbookNotice";
 import type { DocumentWithSpace } from "@/lib/types";
 
 import type { Metadata } from "next";
@@ -38,12 +41,24 @@ export default async function SpacePage({ params }: { params: Promise<{ slug: st
   if (!scopeAllows(await spaceScopeFor(user), space.id)) notFound();
 
   const isEditor = await canSeeDrafts(user, space.id);
+  // Handbooks 1.18.0 (H6): readers don't come across handbook-only documents
+  // here; the people who look after the space still do, marked.
+  const find = await findScopeFor(user);
   const [docs, categories, sub, canAuthor] = await Promise.all([
-    listDocumentsBySpace(space.id, isEditor),
+    listDocumentsBySpace(space.id, isEditor, find),
     listSpaceCategories(space.id),
     getSubscriptionState(space.id, user.id),
     canEditSpace(user, space.id),
   ]);
+  const marks: Map<number, HandbookOnlyMark> = findScopeAllows(find, space.id)
+    ? await handbookOnlyMarks(docs.map((d) => d.id))
+    : new Map();
+  const handbookOnly: Record<number, string[]> = {};
+  const noticeHandbooks = new Map<number, { id: number; title: string }>();
+  for (const m of marks.values()) {
+    handbookOnly[m.docId] = m.handbooks.map((h) => h.title);
+    for (const h of m.handbooks) noticeHandbooks.set(h.id, h);
+  }
 
   const nestedOn = (await getAppSettings()).nested_pages_enabled;
 
@@ -91,6 +106,11 @@ export default async function SpacePage({ params }: { params: Promise<{ slug: st
         </div>
       </div>
 
+      <SpaceHandbookNotice
+        count={marks.size}
+        handbooks={[...noticeHandbooks.values()].sort((a, b) => a.title.localeCompare(b.title))}
+      />
+
       <SpaceSearch spaceId={space.id} spaceName={space.name}>
         {docs.length === 0 ? (
           <EmptyState
@@ -121,6 +141,7 @@ export default async function SpacePage({ params }: { params: Promise<{ slug: st
             bulk={isEditor && canAuthor}
             canPublish={await canPublishDirectly(user, space.id)}
             moveTargets={moveTargets}
+            handbookOnly={handbookOnly}
           />
         )}
       </SpaceSearch>

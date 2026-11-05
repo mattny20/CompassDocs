@@ -8,6 +8,9 @@
 import "server-only";
 import { pool } from "./db";
 import type { SpaceScope } from "./access";
+// Handbooks 1.18.0 (H6): related documents leave handbook-only ones out for ordinary readers.
+import { handbookFilterSql } from "./handbook-visibility";
+import type { FindScope } from "./handbook-visibility";
 import type { DocStatus, DocType } from "./types";
 
 async function q<T = any>(sql: string, params: any[] = []): Promise<T[]> {
@@ -51,12 +54,15 @@ export interface RelatedDoc {
 export async function relationsFor(
   docId: number,
   scope: SpaceScope,
-  includeDrafts: boolean
+  includeDrafts: boolean,
+  /** Handbooks 1.18.0 (H6): hide handbook-only documents outside these spaces; omit for none hidden. */
+  find?: FindScope
 ): Promise<RelatedDoc[]> {
+  const params: any[] = Array.isArray(scope) ? [docId, scope] : [docId];
   const filter =
     (includeDrafts ? "" : " AND d.status = 'published'") +
-    (Array.isArray(scope) ? " AND d.space_id = ANY($2)" : "");
-  const params: any[] = Array.isArray(scope) ? [docId, scope] : [docId];
+    (Array.isArray(scope) ? " AND d.space_id = ANY($2)" : "") +
+    handbookFilterSql("d", find, params); // Handbooks 1.18.0 (H6)
   const rows = await q(
     `SELECT r.id AS relation_id, r.kind,
             (r.doc_id = $1) AS outgoing,

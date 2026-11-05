@@ -5,6 +5,11 @@ import { hashPassword } from "./password";
 import { sealSecret, openSecret, isSealed, getMasterKey, MasterKeyError } from "./secretbox";
 import { asScope } from "./space-scope";
 import type { SpaceScope } from "./space-scope";
+// Handbooks 1.18.0 (H6): the listing filter for handbook-only documents.
+import { FIND_ANONYMOUS, handbookFilterSql } from "./handbook-visibility";
+import type { FindScope } from "./handbook-visibility";
+// Handbooks 1.18.0 (H1): the same no-orphans predicate for the handbook queries.
+import { effectiveHandbookOnlySql } from "./handbook-visibility";
 import type {
   Document,
   DocumentWithSpace,
@@ -1879,6 +1884,96 @@ const SCHEMA_SQL = `
   -- dashboard (keys from lib/dashboard-sections). Empty = everything shown,
   -- so a new section appears for everyone until they hide it.
   ALTER TABLE users ADD COLUMN IF NOT EXISTS dashboard_hidden text[] NOT NULL DEFAULT '{}';
+
+  --- Handbooks 1.18.0 ------------------------------------------------------
+  -- A handbook is a named, ordered bundle of published documents from any
+  -- spaces, in sections, read, printed and (policy_ack) confirmed as one
+  -- (lib/handbooks). space_id NULL = a workspace handbook, otherwise the
+  -- space that owns it (deleting the space removes its handbooks, never the
+  -- documents). status 'draft' (its editors only) or 'published'. audience
+  -- 'all' = everyone (workspace) or everyone who can read the space (space
+  -- handbook), 'groups' = the handbook_audience groups. Items reference
+  -- documents and go with them on purge; a trashed or unpublished document
+  -- is left out of every read rather than removed. New tables and
+  -- metadata-only column adds (constant defaults): a 1.17 binary on the same
+  -- database is unaffected.
+  CREATE TABLE IF NOT EXISTS handbooks (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    title text NOT NULL,
+    introduction text NOT NULL DEFAULT '',
+    space_id integer REFERENCES spaces(id) ON DELETE CASCADE,
+    status text NOT NULL DEFAULT 'draft',
+    audience text NOT NULL DEFAULT 'all',
+    confirm_whole integer NOT NULL DEFAULT 0,
+    require_signature integer NOT NULL DEFAULT 0,
+    created_by integer REFERENCES users(id) ON DELETE SET NULL,
+    created_by_name text NOT NULL DEFAULT '',
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_by_name text NOT NULL DEFAULT '',
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    published_at timestamptz
+  );
+  CREATE INDEX IF NOT EXISTS idx_handbooks_space ON handbooks(space_id) WHERE space_id IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS idx_handbooks_created_by ON handbooks(created_by) WHERE created_by IS NOT NULL;
+  CREATE TABLE IF NOT EXISTS handbook_sections (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    handbook_id integer NOT NULL REFERENCES handbooks(id) ON DELETE CASCADE,
+    title text NOT NULL DEFAULT '',
+    position integer NOT NULL DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS idx_handbook_sections_hb ON handbook_sections(handbook_id, position);
+  -- One row per document per handbook, ordered within its section by position.
+  CREATE TABLE IF NOT EXISTS handbook_items (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    handbook_id integer NOT NULL REFERENCES handbooks(id) ON DELETE CASCADE,
+    section_id integer NOT NULL REFERENCES handbook_sections(id) ON DELETE CASCADE,
+    document_id integer NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    position integer NOT NULL DEFAULT 0,
+    UNIQUE (handbook_id, document_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_handbook_items_section ON handbook_items(section_id, position);
+  -- "Is this document in a published handbook?" (no orphans, access) and the purge cascade.
+  CREATE INDEX IF NOT EXISTS idx_handbook_items_doc ON handbook_items(document_id);
+  CREATE TABLE IF NOT EXISTS handbook_audience (
+    handbook_id integer NOT NULL REFERENCES handbooks(id) ON DELETE CASCADE,
+    group_id integer NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+    PRIMARY KEY (handbook_id, group_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_handbook_audience_group ON handbook_audience(group_id);
+  -- A whole-handbook confirmation, for reporting: who, when, and of which
+  -- contents (fingerprint = sha256 of the ordered "doc_id:version_id" list,
+  -- items = that list as JSON). The per-policy rows are acknowledgements as
+  -- always. Like the ledger, a record outlives its handbook and its person:
+  -- both references SET NULL and the names are snapshots.
+  CREATE TABLE IF NOT EXISTS handbook_confirmations (
+    id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    handbook_id integer REFERENCES handbooks(id) ON DELETE SET NULL,
+    handbook_title text NOT NULL DEFAULT '',
+    user_id integer REFERENCES users(id) ON DELETE SET NULL,
+    user_name text NOT NULL DEFAULT '',
+    confirmed_at timestamptz NOT NULL DEFAULT now(),
+    fingerprint text NOT NULL,
+    items jsonb NOT NULL DEFAULT '[]',
+    policies_confirmed integer NOT NULL DEFAULT 0,
+    signed_name text,
+    ip text NOT NULL DEFAULT '',
+    user_agent text NOT NULL DEFAULT ''
+  );
+  CREATE INDEX IF NOT EXISTS idx_handbook_conf_hb ON handbook_confirmations(handbook_id, user_id, confirmed_at DESC);
+  -- One record per handbook, person and contents: two submits at once write
+  -- one (insertHandbookConfirmation's ON CONFLICT DO NOTHING). The table is
+  -- new in 1.18.0, so no earlier binary wrote duplicates this could trip on;
+  -- a deleted handbook's records (handbook_id NULL) never conflict.
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_handbook_conf_once ON handbook_confirmations(handbook_id, user_id, fingerprint);
+  CREATE INDEX IF NOT EXISTS idx_handbook_conf_user ON handbook_confirmations(user_id) WHERE user_id IS NOT NULL;
+  -- "Where people find it": 'space' (listed as usual) or 'handbook_only'
+  -- (hidden from ordinary readers outside its handbooks, but only while it
+  -- is in a published handbook: handbookOnlyEffectiveSql). Summary points
+  -- ("In short", up to 5) and "applies to" belong to the policy page.
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS find_mode text NOT NULL DEFAULT 'space';
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS summary_points text[] NOT NULL DEFAULT '{}';
+  ALTER TABLE documents ADD COLUMN IF NOT EXISTS applies_to text NOT NULL DEFAULT '';
+  --- end Handbooks 1.18.0 --------------------------------------------------
 `;
 
 /**
@@ -3000,16 +3095,20 @@ function mapDoc(row: any): DocumentWithSpace {
 // --- Spaces ------------------------------------------------------------------
 
 export async function listSpaces(
-  scope: SpaceScope
+  scope: SpaceScope,
+  /** Handbooks 1.18.0 (H6): leave handbook-only documents outside these spaces out of doc_count and last_activity; omit for none hidden. */
+  find?: FindScope
 ): Promise<(Space & { doc_count: number; last_activity: string | null })[]> {
+  const params: unknown[] = Array.isArray(scope) ? [scope] : [];
   const filter = Array.isArray(scope) ? " WHERE s.id = ANY($1)" : "";
+  const hidden = handbookFilterSql("d", find, params); // Handbooks 1.18.0 (H6): one parameter, both subqueries
   return q(
     `SELECT s.*, (SELECT COUNT(*)::int FROM documents d
-       WHERE d.space_id = s.id AND d.deleted_at IS NULL AND d.branch_of IS NULL) AS doc_count,
+       WHERE d.space_id = s.id AND d.deleted_at IS NULL AND d.branch_of IS NULL${hidden}) AS doc_count,
        (SELECT MAX(d.updated_at) FROM documents d
-       WHERE d.space_id = s.id AND d.deleted_at IS NULL AND d.branch_of IS NULL) AS last_activity
+       WHERE d.space_id = s.id AND d.deleted_at IS NULL AND d.branch_of IS NULL${hidden}) AS last_activity
      FROM spaces s${filter} ORDER BY s.name`,
-    Array.isArray(scope) ? [scope] : []
+    params
   );
 }
 
@@ -3087,13 +3186,41 @@ export async function updateSpace(
  * Delete a space. Refuses if it still holds any documents (including trashed
  * ones) so a space can never silently cascade-delete content.
  */
-export async function deleteSpace(id: number): Promise<{ ok: boolean; docCount: number }> {
+/** A handbook a space delete took with it (Handbooks 1.18.0): what its handbook.deleted audit row names. */
+export interface CascadedHandbook {
+  id: number;
+  title: string;
+  status: "draft" | "published";
+  doc_ids: number[];
+}
+
+/**
+ * Delete an empty space. Its handbooks go with it (handbooks.space_id ON
+ * DELETE CASCADE; the documents they held live in other spaces and stay):
+ * they are answered in `handbooks` for the caller's handbook.deleted audit
+ * rows, and the policies the published ones held are reconciled here, since
+ * their readers were within those policies' ceiling (ACK_DOC_VISIBILITY).
+ */
+export async function deleteSpace(id: number): Promise<{ ok: boolean; docCount: number; handbooks: CascadedHandbook[] }> {
   const docCount = (
     await q<{ n: number }>("SELECT COUNT(*)::int AS n FROM documents WHERE space_id = $1", [id])
   )[0].n;
-  if (docCount > 0) return { ok: false, docCount };
+  if (docCount > 0) return { ok: false, docCount, handbooks: [] };
+  const handbooks = await q<CascadedHandbook>(
+    `SELECT h.id, h.title, h.status,
+            COALESCE((SELECT array_agg(hi.document_id ORDER BY hi.document_id) FROM handbook_items hi WHERE hi.handbook_id = h.id),
+                     '{}'::int[]) AS doc_ids
+       FROM handbooks h WHERE h.space_id = $1 ORDER BY h.id`,
+    [id]
+  );
   await q("DELETE FROM spaces WHERE id = $1", [id]);
-  return { ok: true, docCount: 0 };
+  const affected = [...new Set(handbooks.filter((h) => h.status === "published").flatMap((h) => h.doc_ids))];
+  if (affected.length > 0) {
+    await reconcilePoliciesForDocuments(affected).catch((e) =>
+      console.error("[ack] could not reconcile the policies of the deleted space's handbooks:", e)
+    );
+  }
+  return { ok: true, docCount: 0, handbooks };
 }
 
 export async function createSpace(input: {
@@ -3157,7 +3284,9 @@ export async function listLinkedUserNames(personId: number): Promise<string[]> {
 export async function listDocumentsByAuthor(
   author: string | string[],
   includeDrafts = false,
-  scope: SpaceScope
+  scope: SpaceScope,
+  /** Handbooks 1.18.0 (H6): hide handbook-only documents outside these spaces; omit for none hidden. */
+  find?: FindScope
 ): Promise<DocumentWithSpace[]> {
   const names = (Array.isArray(author) ? author : [author]).map((n) => n.toLowerCase());
   const conds = ["lower(d.author) = ANY($1)", "d.deleted_at IS NULL", "d.branch_of IS NULL"];
@@ -3167,8 +3296,9 @@ export async function listDocumentsByAuthor(
     params.push(scope);
     conds.push(`d.space_id = ANY($${params.length})`);
   }
+  const hidden = handbookFilterSql("d", find, params); // Handbooks 1.18.0 (H6)
   const rows = await q(
-    `${DOC_SELECT} WHERE ${conds.join(" AND ")} ORDER BY d.updated_at DESC LIMIT 100`,
+    `${DOC_SELECT} WHERE ${conds.join(" AND ")}${hidden} ORDER BY d.updated_at DESC LIMIT 100`,
     params
   );
   return rows.map(mapDoc);
@@ -3184,12 +3314,16 @@ export async function exportDocuments(): Promise<DocumentWithSpace[]> {
 
 export async function listDocumentsBySpace(
   spaceId: number,
-  includeDrafts = false
+  includeDrafts = false,
+  /** Handbooks 1.18.0 (H6): hide handbook-only documents outside these spaces; omit for none hidden. */
+  find?: FindScope
 ): Promise<DocumentWithSpace[]> {
   const filter = includeDrafts ? "" : " AND d.status = 'published'";
+  const params: unknown[] = [spaceId];
+  const hidden = handbookFilterSql("d", find, params); // Handbooks 1.18.0 (H6)
   const rows = await q(
-    `${DOC_SELECT} WHERE d.space_id = $1 AND d.deleted_at IS NULL AND d.branch_of IS NULL${filter} ORDER BY d.updated_at DESC`,
-    [spaceId]
+    `${DOC_SELECT} WHERE d.space_id = $1 AND d.deleted_at IS NULL AND d.branch_of IS NULL${filter}${hidden} ORDER BY d.updated_at DESC`,
+    params
   );
   return rows.map(mapDoc);
 }
@@ -3202,6 +3336,8 @@ export async function listDocumentsV1(opts: {
   includeDrafts: boolean;
   limit: number;
   offset: number;
+  /** Handbooks 1.18.0 (H6): hide handbook-only documents outside these spaces; omit for none hidden. */
+  find?: FindScope;
 }): Promise<{ items: DocumentWithSpace[]; total: number }> {
   const conds = ["d.deleted_at IS NULL", "d.branch_of IS NULL"];
   const params: unknown[] = [];
@@ -3218,7 +3354,8 @@ export async function listDocumentsV1(opts: {
     params.push(opts.spaceId);
     conds.push(`d.space_id = $${params.length}`);
   }
-  const where = conds.join(" AND ");
+  // Handbooks 1.18.0 (H6): in the WHERE, so `total` and the pages agree.
+  const where = conds.join(" AND ") + handbookFilterSql("d", opts.find, params);
   const total = (
     await q<{ n: number }>(`SELECT COUNT(*)::int AS n FROM documents d WHERE ${where}`, params)
   )[0].n;
@@ -3234,13 +3371,17 @@ export async function listDocumentsV1(opts: {
 export async function listRecentDocuments(
   limit = 8,
   includeDrafts = false,
-  scope: SpaceScope
+  scope: SpaceScope,
+  /** Handbooks 1.18.0 (H6): hide handbook-only documents outside these spaces; omit for none hidden. */
+  find?: FindScope
 ): Promise<DocumentWithSpace[]> {
   const filter = includeDrafts ? "" : " AND d.status = 'published'";
   const scoped = Array.isArray(scope) ? " AND d.space_id = ANY($2)" : "";
+  const params: unknown[] = Array.isArray(scope) ? [limit, scope] : [limit];
+  const hidden = handbookFilterSql("d", find, params); // Handbooks 1.18.0 (H6)
   const rows = await q(
-    `${DOC_SELECT} WHERE d.deleted_at IS NULL AND d.branch_of IS NULL${filter}${scoped} ORDER BY d.updated_at DESC LIMIT $1`,
-    Array.isArray(scope) ? [limit, scope] : [limit]
+    `${DOC_SELECT} WHERE d.deleted_at IS NULL AND d.branch_of IS NULL${filter}${scoped}${hidden} ORDER BY d.updated_at DESC LIMIT $1`,
+    params
   );
   return rows.map(mapDoc);
 }
@@ -3253,18 +3394,22 @@ export async function listRecentDocuments(
 export async function listPopularDocuments(
   scope: SpaceScope,
   includeDrafts = false,
-  limit = 6
+  limit = 6,
+  /** Handbooks 1.18.0 (H6): hide handbook-only documents outside these spaces; omit for none hidden. */
+  find?: FindScope
 ): Promise<DocumentWithSpace[]> {
   const filter = includeDrafts ? "" : " AND d.status = 'published'";
   const scoped = Array.isArray(scope) ? " AND d.space_id = ANY($2)" : "";
+  const params: unknown[] = Array.isArray(scope) ? [limit, scope] : [limit];
+  const hidden = handbookFilterSql("d", find, params); // Handbooks 1.18.0 (H6)
   const rows = await q(
     `${DOC_SELECT} JOIN (
        SELECT v.document_id, COUNT(*)::int AS views FROM doc_views v
        WHERE v.viewed_at > now() - interval '30 days' GROUP BY v.document_id
      ) pv ON pv.document_id = d.id
-     WHERE d.deleted_at IS NULL AND d.branch_of IS NULL${filter}${scoped}
+     WHERE d.deleted_at IS NULL AND d.branch_of IS NULL${filter}${scoped}${hidden}
      ORDER BY pv.views DESC, d.updated_at DESC LIMIT $1`,
-    Array.isArray(scope) ? [limit, scope] : [limit]
+    params
   );
   return rows.map(mapDoc);
 }
@@ -3279,10 +3424,14 @@ export async function listRecentlyViewedBy(
   userId: number,
   scope: SpaceScope,
   includeDrafts = false,
-  limit = 6
+  limit = 6,
+  /** Handbooks 1.18.0 (H6): hide handbook-only documents outside these spaces; omit for none hidden. */
+  find?: FindScope
 ): Promise<DocumentWithSpace[]> {
   const filter = includeDrafts ? "" : " AND d.status = 'published'";
   const scoped = Array.isArray(scope) ? " AND d.space_id = ANY($3)" : "";
+  const params: unknown[] = Array.isArray(scope) ? [userId, limit, scope] : [userId, limit];
+  const hidden = handbookFilterSql("d", find, params); // Handbooks 1.18.0 (H6)
   const rows = await q(
     `SELECT dd.*, s.name AS space_name, s.slug AS space_slug, s.icon AS space_icon,
             s.color AS space_color, s.visibility AS space_visibility
@@ -3290,13 +3439,13 @@ export async function listRecentlyViewedBy(
        SELECT d.*, MAX(v.viewed_at) AS last_viewed_at
        FROM doc_views v
        JOIN documents d ON d.id = v.document_id
-       WHERE v.user_id = $1 AND d.deleted_at IS NULL AND d.branch_of IS NULL${filter}${scoped}
+       WHERE v.user_id = $1 AND d.deleted_at IS NULL AND d.branch_of IS NULL${filter}${scoped}${hidden}
        GROUP BY d.id
        ORDER BY MAX(v.viewed_at) DESC
        LIMIT $2
      ) dd JOIN spaces s ON s.id = dd.space_id
      ORDER BY dd.last_viewed_at DESC`,
-    Array.isArray(scope) ? [userId, limit, scope] : [userId, limit]
+    params
   );
   return rows.map(mapDoc);
 }
@@ -3332,9 +3481,15 @@ export async function countDocuments(
   )[0].n;
 }
 
-export async function allTags(): Promise<{ tag: string; count: number }[]> {
+export async function allTags(
+  /** Handbooks 1.18.0 (H6): leave handbook-only documents outside these spaces out of the counts; omit for none hidden. */
+  find?: FindScope
+): Promise<{ tag: string; count: number }[]> {
+  const params: unknown[] = [];
+  const hidden = handbookFilterSql("d", find, params); // Handbooks 1.18.0 (H6)
   const rows = await q<{ tags: string }>(
-    "SELECT tags FROM documents WHERE tags <> '' AND deleted_at IS NULL"
+    `SELECT d.tags FROM documents d WHERE d.tags <> '' AND d.deleted_at IS NULL${hidden}`,
+    params
   );
   const counts = new Map<string, number>();
   for (const r of rows) {
@@ -4192,7 +4347,8 @@ async function browseDocuments(
   includeDrafts: boolean,
   scope: number[] | "all" | undefined,
   spaceId: number | undefined,
-  f: SearchSqlFilters
+  f: SearchSqlFilters,
+  find?: FindScope
 ): Promise<SearchHit[]> {
   const params: unknown[] = [limit];
   const p = (v: unknown) => {
@@ -4208,6 +4364,7 @@ async function browseDocuments(
   if (f.tag) filter += ` AND (',' || lower(d.tags) || ',') LIKE ${p(`%,${f.tag.toLowerCase()},%`)}`;
   if (f.author) filter += ` AND d.author ILIKE ${p(`%${f.author}%`)}`;
   if (f.status && includeDrafts) filter += ` AND d.status = ${p(f.status)}`;
+  filter += handbookFilterSql("d", find, params); // Handbooks 1.18.0 (H6)
   const rows = await q(
     `SELECT d.id, d.title, d.slug, d.type, d.status, d.tags, d.updated_at,
             s.name AS space_name, s.slug AS space_slug, s.icon AS space_icon, s.color AS space_color,
@@ -4243,12 +4400,14 @@ export async function searchDocuments(
   /** Restrict hits to one space (the in-space search box). */
   spaceId?: number,
   /** Parsed `type:`/`tag:`/… operators from the query. */
-  f?: SearchSqlFilters
+  f?: SearchSqlFilters,
+  /** Handbooks 1.18.0 (H6): hide handbook-only documents outside these spaces; omit for none hidden. */
+  find?: FindScope
 ): Promise<SearchHit[]> {
   // Filter-only queries ("type:sop" with no words) browse by recency instead.
   if (!raw.trim()) {
     if (!f || Object.keys(f).length === 0) return [];
-    return browseDocuments(limit, includeDrafts, scope, spaceId, f);
+    return browseDocuments(limit, includeDrafts, scope, spaceId, f, find);
   }
   const params: unknown[] = [raw, limit];
   const p = (v: unknown) => {
@@ -4264,6 +4423,7 @@ export async function searchDocuments(
   if (f?.tag) filter += ` AND (',' || lower(d.tags) || ',') LIKE ${p(`%,${f.tag.toLowerCase()},%`)}`;
   if (f?.author) filter += ` AND d.author ILIKE ${p(`%${f.author}%`)}`;
   if (f?.status && includeDrafts) filter += ` AND d.status = ${p(f.status)}`;
+  filter += handbookFilterSql("d", find, params); // Handbooks 1.18.0 (H6)
   // Rank = weighted full-text score (normalized to 0..1 with flag 32) plus a
   // bonus when the query appears verbatim in the title, scaled by a gentle
   // freshness factor so recently-updated docs win ties against stale ones.
@@ -4336,19 +4496,23 @@ export async function retrieveForAnswer(
   raw: string,
   limit = 6,
   includeDrafts = false,
-  scope: SpaceScope
+  scope: SpaceScope,
+  /** Handbooks 1.18.0 (H6): hide handbook-only documents outside these spaces; omit for none hidden. */
+  find?: FindScope
 ): Promise<Document[]> {
   if (!raw.trim()) return [];
+  const params: unknown[] = Array.isArray(scope) ? [raw, limit, scope] : [raw, limit];
   const filter =
     (includeDrafts ? "" : " AND d.status = 'published'") +
-    (Array.isArray(scope) ? " AND d.space_id = ANY($3)" : "");
+    (Array.isArray(scope) ? " AND d.space_id = ANY($3)" : "") +
+    handbookFilterSql("d", find, params); // Handbooks 1.18.0 (H6)
   const rows = await q(
     `SELECT d.* FROM documents d
      CROSS JOIN LATERAL (SELECT ${OR_TSQUERY} AS query) tq
      WHERE d.search @@ tq.query AND d.deleted_at IS NULL AND d.branch_of IS NULL${filter}
      ORDER BY ts_rank(d.search, tq.query) DESC
      LIMIT $2`,
-    Array.isArray(scope) ? [raw, limit, scope] : [raw, limit]
+    params
   );
   return rows.map((r) => ({ ...r, tags: parseTags(r.tags) }));
 }
@@ -4836,6 +5000,14 @@ export async function deleteUser(id: number): Promise<boolean> {
        FROM users u WHERE u.id = $1 AND a.user_id = $1 AND a.user_name = ''`,
       [id]
     );
+    // Whole-handbook confirmations (Handbooks 1.18.0) are kept the same way
+    // (user_id SET NULL); every row is written with its name, and a blank
+    // one gets it here before the account goes.
+    await client.query(
+      `UPDATE handbook_confirmations hc SET user_name = COALESCE(NULLIF(u.name, ''), u.username)
+       FROM users u WHERE u.id = $1 AND hc.user_id = $1 AND hc.user_name = ''`,
+      [id]
+    );
     const res = await client.query("DELETE FROM users WHERE id = $1", [id]);
     await client.query("COMMIT");
     return (res.rowCount ?? 0) > 0;
@@ -4847,10 +5019,11 @@ export async function deleteUser(id: number): Promise<boolean> {
   }
 }
 
-/** How many attestation records a user has (kept after deleteUser; the audit detail). */
+/** How many attestation records a user has, whole-handbook confirmations included (kept after deleteUser; the audit detail). */
 export async function countUserAttestations(userId: number): Promise<number> {
   const r = await q<{ n: number }>(
-    "SELECT COUNT(*)::int AS n FROM acknowledgements WHERE user_id = $1",
+    `SELECT ((SELECT COUNT(*) FROM acknowledgements WHERE user_id = $1)
+           + (SELECT COUNT(*) FROM handbook_confirmations WHERE user_id = $1))::int AS n`,
     [userId]
   );
   return r[0]?.n ?? 0;
@@ -5124,7 +5297,19 @@ export async function renameGroup(id: number, name: string): Promise<void> {
 }
 
 export async function deleteGroup(id: number): Promise<boolean> {
+  // Handbooks 1.18.0: the policies the group reaches (its rules, its
+  // private spaces, the published handbooks whose audience names it) are
+  // captured first — the grants and handbook audience rows that name the
+  // group cascade with it — and reconciled once it is gone, so a handbook
+  // whose only audience group this was stops asking its readers now rather
+  // than at the next hourly sweep.
+  const affected = (await q<{ id: number }>(GROUP_POLICIES_SQL, [String(id), id])).map((d) => d.id);
   const res = await pool().query("DELETE FROM groups WHERE id = $1", [id]);
+  if ((res.rowCount ?? 0) > 0 && affected.length > 0) {
+    await reconcilePoliciesForDocuments(affected, { narrowing: "left_group" }).catch((e) =>
+      console.error("[ack] could not reconcile the deleted group's policies:", e)
+    );
+  }
   return (res.rowCount ?? 0) > 0;
 }
 
@@ -5462,12 +5647,20 @@ export async function publicSpaceScope(): Promise<SpaceScope> {
   return asScope(rows.map((r) => r.id));
 }
 
-/** Public spaces with their *published* doc counts, for the public landing. */
+/**
+ * Public spaces with their *published* doc counts, for the public landing
+ * (and the admin's preview of it). Counted as the anonymous reader sees
+ * them: handbook-only documents are not on the public site (H6), so they
+ * are not counted either.
+ */
 export async function listPublicSpaces(): Promise<(Space & { doc_count: number })[]> {
+  const params: unknown[] = [];
+  const hidden = handbookFilterSql("d", FIND_ANONYMOUS, params); // Handbooks 1.18.0 (H6)
   return q(
     `SELECT s.*, (SELECT COUNT(*)::int FROM documents d
-       WHERE d.space_id = s.id AND d.deleted_at IS NULL AND d.status = 'published') AS doc_count
-     FROM spaces s WHERE s.visibility = 'public' ORDER BY s.name`
+       WHERE d.space_id = s.id AND d.deleted_at IS NULL AND d.status = 'published'${hidden}) AS doc_count
+     FROM spaces s WHERE s.visibility = 'public' ORDER BY s.name`,
+    params
   );
 }
 
@@ -5950,6 +6143,22 @@ const ACK_VISIBILITY = `(
     OR ${HOLDS_ON_SPACE("space.member", "s.id", "u.id")}
   )`;
 const ACK_ELIGIBLE = `u.status = 'active' AND ${ACK_VISIBILITY}`;
+// Handbooks 1.18.0: "handbook access opens its policies". A person in the
+// audience of a PUBLISHED handbook that holds the published policy (alias
+// d) reads it through the handbook whether or not they can open its space,
+// so the policy may ask them to confirm it: ACK_DOC_VISIBILITY is the
+// audience's ceiling (the reconcile, its user-scoped twin and the preview),
+// and POST /api/documents/[id]/ack admits them through the same grant
+// (lib/handbooks documentReadVia). Every rule still narrows within it. The
+// paths that send a person to the document page (compliancePendingUsers'
+// notices, the Remind stamp) keep ACK_VISIBILITY: a notice never links
+// someone to a page they cannot open.
+const ACK_VIA_HANDBOOK = `EXISTS (
+    SELECT 1 FROM handbook_items ahi JOIN handbooks ah ON ah.id = ahi.handbook_id
+     WHERE ahi.document_id = d.id AND ah.status = 'published' AND d.status = 'published'
+       AND ${handbookAudienceAdmitsSql("ah", "u.id")}
+  )`;
+const ACK_DOC_VISIBILITY = `(${ACK_VISIBILITY} OR ${ACK_VIA_HANDBOOK})`;
 
 // A confirmation (alias a) counts for a document (alias d) while it was made
 // on or after the doc's confirmation marker. The marker — not updated_at — is
@@ -6119,6 +6328,23 @@ const PA_OVERDUE = (graceParam: string) =>
    AND pa.due_at + make_interval(days => COALESCE((s.policy_defaults->>'overdue_grace_days')::int, ${graceParam}::int, 0)) < now()`;
 
 /**
+ * The policy's named owner, one rule for the compliance portal
+ * (complianceDocs) and a handbook's Owner fact (listHandbookItemRows), so
+ * the two cannot drift: the policy's own owner (policy_settings.owner_user_id),
+ * else its space's Policy owner (spaces.policy_defaults), else whoever
+ * switched the requirement on (policy_settings.requested_by) — the first of
+ * them that is an active account. The WHERE/ORDER BY/LIMIT of a LATERAL over
+ * `users o`, given the policy_settings and spaces aliases; the caller picks
+ * the columns.
+ */
+const POLICY_OWNER_PICK = (ps: string, s: string) =>
+  `o.status = 'active'
+     AND o.id IN (${ps}.owner_user_id, (${s}.policy_defaults->>'owner_user_id')::int, ${ps}.requested_by)
+   ORDER BY COALESCE(o.id = ${ps}.owner_user_id, false) DESC,
+            COALESCE(o.id = (${s}.policy_defaults->>'owner_user_id')::int, false) DESC
+   LIMIT 1`;
+
+/**
  * Central compliance portal: every ack-required doc with counts and its last
  * decisions. Published policies and paused ones alike (G2, 1.11.0: an
  * unpublished policy keeps its requirement and its confirmations; `status`
@@ -6169,12 +6395,7 @@ export async function complianceDocs(): Promise<ComplianceDocRow[]> {
      LEFT JOIN documents r ON r.id = d.ack_superseded_by AND r.deleted_at IS NULL
      LEFT JOIN policy_settings ps ON ps.document_id = d.id
      LEFT JOIN LATERAL (
-       SELECT o.id, o.name FROM users o
-       WHERE o.status = 'active'
-         AND o.id IN (ps.owner_user_id, (s.policy_defaults->>'owner_user_id')::int, ps.requested_by)
-       ORDER BY COALESCE(o.id = ps.owner_user_id, false) DESC,
-                COALESCE(o.id = (s.policy_defaults->>'owner_user_id')::int, false) DESC
-       LIMIT 1
+       SELECT o.id, o.name FROM users o WHERE ${POLICY_OWNER_PICK("ps", "s")}
      ) o ON true
      LEFT JOIN policy_assignments pa ON pa.document_id = d.id AND ${PA_OPEN}
      LEFT JOIN users u ON u.id = pa.user_id AND u.status = 'active'
@@ -6617,7 +6838,8 @@ export async function complianceKpiExtras(opts: { documentIds?: number[] } = {})
 //
 // The target of a policy = the people its rules admit who are active and
 // can see its space (ACK_VISIBILITY, the ceiling the ack route and the
-// document page enforce), so a rule narrows and never widens. Rows of a
+// document page enforce) or read it through a published handbook
+// (ACK_DOC_VISIBILITY, Handbooks 1.18.0), so a rule narrows and never widens. Rows of a
 // policy that stopped asking (requirement off, retired, trashed) are left
 // as they are: ack_required = 0 takes the policy out of every sum, and
 // un-retiring reconciles. The doc-scoped reconcile serves a save, a switch-on
@@ -6702,7 +6924,7 @@ const audienceSql = (rules: string, mode: string, excludeStewards: string): Audi
   rules,
   mode,
   excludeStewards,
-  visible: ACK_VISIBILITY,
+  visible: ACK_DOC_VISIBILITY,
   steward: ACK_STEWARD,
 });
 
@@ -6715,21 +6937,51 @@ const SAVED_AUDIENCE = audienceSql(
 /** A policy whose audience is kept: the requirement on, live, not a branch, not retired (paused ones included: they resume with the audience they had). */
 const AUDIENCE_POLICY = `d.ack_required = 1 AND d.deleted_at IS NULL AND d.branch_of IS NULL AND d.ack_retired_at IS NULL`;
 /** In the audience: an active account that can see the space and the rules admit. */
-const IN_AUDIENCE = `u.status = 'active' AND ${ACK_VISIBILITY} AND ${audienceAdmitsSql(SAVED_AUDIENCE)}`;
+const IN_AUDIENCE = `u.status = 'active' AND ${ACK_DOC_VISIBILITY} AND ${audienceAdmitsSql(SAVED_AUDIENCE)}`;
 /** The FROM list the audience statements share: the policy, its space and its settings row. */
 const AUDIENCE_FROM = `documents d
        JOIN spaces s ON s.id = d.space_id
        LEFT JOIN policy_settings ps ON ps.document_id = d.id`;
 /**
  * The upsert's conflict arm: a closed row of a returning person re-opens
- * with a fresh cycle and deadline and the reminder and escalation stamps
- * cleared (the new cycle is reminded and escalated on its own; the count
- * and the exemption are history and stay); an open row is left alone. A
- * fresh row (the INSERT arm) takes the policy's cycle, d.ack_revision_at:
- * a first assignment counts a confirmation from the marker, as 1.12.0 did,
- * so the heal of a row a 1.12.0 binary never wrote moves no count.
+ * with a fresh deadline and the reminder and escalation stamps cleared (the
+ * new cycle is reminded and escalated on its own; the count and the
+ * exemption are history and stay); an open row is left alone. A fresh row
+ * (the INSERT arm) takes the policy's cycle, d.ack_revision_at: a first
+ * assignment counts a confirmation from the marker, as 1.12.0 did, so the
+ * heal of a row a 1.12.0 binary never wrote moves no count.
+ *
+ * The cycle (1.18.0): a returning person whose newest confirmation would
+ * still have counted on the closed row (made on or after both the policy's
+ * marker and the row's own cycle start: ACK_CURRENT_PA) keeps that cycle,
+ * so the confirmation still counts. Closing and re-opening a row is the
+ * audience moving — a handbook unpublished and republished, a policy taken
+ * out of one and put back, a group left and re-joined, a narrowing undone,
+ * or the sweep of a binary that does not know an audience path closing rows
+ * the next one re-opens — and none of that is asking again. A real re-ask
+ * still asks: a material revision moves the marker past the confirmation,
+ * and a per-person re-ask moves the row's cycle past it, so neither
+ * confirmation passes this test. Anyone else re-opens with a fresh cycle
+ * (now()), as before.
  */
 const AUDIENCE_REOPEN = `ON CONFLICT (document_id, user_id) DO UPDATE
+       SET removed_at = NULL, removed_reason = '',
+           cycle_started_at = CASE WHEN EXISTS (
+               SELECT 1 FROM acknowledgements ka
+                WHERE ka.document_id = policy_assignments.document_id AND ka.user_id = policy_assignments.user_id
+                  AND ka.acknowledged_at >= GREATEST(
+                        (SELECT kd.ack_revision_at FROM documents kd WHERE kd.id = policy_assignments.document_id),
+                        policy_assignments.cycle_started_at))
+             THEN policy_assignments.cycle_started_at ELSE now() END,
+           due_at = EXCLUDED.due_at, source = EXCLUDED.source,
+           reminded_at = NULL, escalated_at = NULL
+       WHERE policy_assignments.removed_at IS NOT NULL`;
+/**
+ * The status flip's conflict arm (reconcileUserOn): a re-enabled account is
+ * asked afresh, its earlier confirmations no longer counting (1.13.0, and
+ * unchanged: a disabled account coming back is not the audience moving).
+ */
+const AUDIENCE_REOPEN_AFRESH = `ON CONFLICT (document_id, user_id) DO UPDATE
        SET removed_at = NULL, removed_reason = '', cycle_started_at = now(),
            due_at = EXCLUDED.due_at, source = EXCLUDED.source,
            reminded_at = NULL, escalated_at = NULL
@@ -6816,7 +7068,10 @@ async function reconcilePolicyOn(
      FROM ${AUDIENCE_FROM}, users u
      WHERE d.id = $1 AND ${IN_AUDIENCE}
      ${AUDIENCE_REOPEN}
-     RETURNING user_id, (xmax = 0) AS inserted, (exempt_at IS NULL) AS asks`,
+     RETURNING user_id, (xmax = 0) AS inserted,
+               -- A re-opened row whose confirmation still counts kept its
+               -- cycle (AUDIENCE_REOPEN): nothing is asked of that person.
+               (exempt_at IS NULL AND (xmax = 0 OR cycle_started_at = now())) AS asks`,
     [docId, opts.initial ? defaults.due_days : defaults.new_joiner_days, defaults.timeZone]
   );
   let added = 0;
@@ -6880,7 +7135,7 @@ async function reconcileUserOn(
      WHERE u.id = $1 AND ${AUDIENCE_POLICY}
        AND ($4::boolean = false OR ${gate})
        AND ${IN_AUDIENCE}
-     ${AUDIENCE_REOPEN}
+     ${AUDIENCE_REOPEN_AFRESH}
      RETURNING document_id, due_at, (xmax = 0) AS inserted`,
     [userId, opts.defaults.new_joiner_days, opts.defaults.timeZone, opts.auto]
   );
@@ -6982,42 +7237,108 @@ export function drainAudienceSyncTally(): { added: number; closed: number } {
 }
 
 /**
- * A group's membership changed (a manual edit, an Entra or Google sync):
- * the policies with a rule naming the group, and every policy in a private
- * space the group reaches (a space.member grant on that space, or
- * space.read_all held globally, whichever role carries them). A private
- * space the group holds nothing on is left to the hourly sweep: a sync of
- * many groups must not reconcile every private-space policy per group.
+ * SQL predicate: does the group `$2` reach the private space `spaceAlias`
+ * (a space.member grant on it, or space.read_all held globally, whichever
+ * role carries them)? Over the parameter the group statements bind.
  */
+const GROUP_REACHES_PRIVATE = (spaceAlias: string) => `(${spaceAlias}.visibility = 'private'
+       AND (EXISTS (SELECT 1 FROM (${GRANT_SUBJECTS("space.member")}) g WHERE g.space_id = ${spaceAlias}.id AND g.group_id = $2::int)
+            OR EXISTS (SELECT 1 FROM role_assignments ra
+                       JOIN role_permissions rp ON rp.role_id = ra.role_id AND rp.permission = 'space.read_all'
+                       WHERE ra.scope_type = 'global' AND ra.group_id = $2::int)))`;
+
+/**
+ * The live policies a group's membership reaches, over `$1` (the group id
+ * as text, the rules' ref) and `$2` (the id): a rule naming the group,
+ * every policy in a private space the group reaches, and (Handbooks
+ * 1.18.0) every policy in a PUBLISHED handbook whose audience names the
+ * group or whose owning space is a private one the group reaches — the
+ * handbook's readers are within those policies' ceiling
+ * (ACK_DOC_VISIBILITY). A private space the group holds nothing on is left
+ * to the hourly sweep: a sync of many groups must not reconcile every
+ * private-space policy per group.
+ */
+const GROUP_POLICIES_SQL = `SELECT d.id, d.title FROM documents d JOIN spaces s ON s.id = d.space_id
+     WHERE ${AUDIENCE_POLICY}
+       AND (${GROUP_REACHES_PRIVATE("s")}
+            OR EXISTS (SELECT 1 FROM policy_audience_rules r
+                       WHERE r.document_id = d.id AND r.kind = 'group' AND r.ref = $1::text)
+            OR EXISTS (SELECT 1 FROM handbook_items ghi
+                         JOIN handbooks gh ON gh.id = ghi.handbook_id AND gh.status = 'published'
+                         LEFT JOIN spaces ghs ON ghs.id = gh.space_id
+                        WHERE ghi.document_id = d.id
+                          AND (EXISTS (SELECT 1 FROM handbook_audience gha WHERE gha.handbook_id = gh.id AND gha.group_id = $2::int)
+                               OR (ghs.id IS NOT NULL AND ${GROUP_REACHES_PRIVATE("ghs")}))))
+     ORDER BY d.id`;
+
+/** A group's membership changed (a manual edit, an Entra or Google sync): the policies it reaches (GROUP_POLICIES_SQL). */
 export async function reconcilePoliciesForGroup(groupId: number): Promise<ReconcileResult> {
   await ready();
   const defaults = await workspaceAudienceDefaults();
-  const docs = await q<{ id: number; title: string }>(
-    `SELECT d.id, d.title FROM documents d JOIN spaces s ON s.id = d.space_id
-     WHERE ${AUDIENCE_POLICY}
-       AND ((s.visibility = 'private'
-             AND (EXISTS (SELECT 1 FROM (${GRANT_SUBJECTS("space.member")}) g WHERE g.space_id = s.id AND g.group_id = $2::int)
-                  OR EXISTS (SELECT 1 FROM role_assignments ra
-                             JOIN role_permissions rp ON rp.role_id = ra.role_id AND rp.permission = 'space.read_all'
-                             WHERE ra.scope_type = 'global' AND ra.group_id = $2::int)))
-            OR EXISTS (SELECT 1 FROM policy_audience_rules r
-                       WHERE r.document_id = d.id AND r.kind = 'group' AND r.ref = $1::text))
-     ORDER BY d.id`,
-    [String(groupId), groupId]
-  );
+  const docs = await q<{ id: number; title: string }>(GROUP_POLICIES_SQL, [String(groupId), groupId]);
   const total = await reconcileEach(docs, { defaults, auto: true, narrowing: "left_group" });
   audienceSyncTally.added += total.added + total.reopened;
   audienceSyncTally.closed += total.closed;
   return total;
 }
 
-/** A space's visibility or its member grants changed: every live policy in it. */
+/**
+ * A space's visibility or its member grants changed: every live policy in
+ * it, and (Handbooks 1.18.0) every live policy in a published handbook the
+ * space owns, whose readers are the space's (handbookAudienceAdmitsSql).
+ */
 export async function reconcilePoliciesForSpace(spaceId: number): Promise<ReconcileResult> {
   await ready();
   const defaults = await workspaceAudienceDefaults();
   const docs = await q<{ id: number; title: string }>(
-    `SELECT d.id, d.title FROM documents d WHERE d.space_id = $1 AND ${AUDIENCE_POLICY} ORDER BY d.id`,
+    `SELECT d.id, d.title FROM documents d
+      WHERE ${AUDIENCE_POLICY}
+        AND (d.space_id = $1
+             OR EXISTS (SELECT 1 FROM handbook_items shi
+                          JOIN handbooks sh ON sh.id = shi.handbook_id AND sh.status = 'published'
+                         WHERE shi.document_id = d.id AND sh.space_id = $1))
+      ORDER BY d.id`,
     [spaceId]
+  );
+  return reconcileEach(docs, { defaults, auto: true });
+}
+
+/**
+ * Handbooks 1.18.0: these live policies, each against its audience — the
+ * ones a delete is about to take a path away from (a group whose handbook
+ * audience rows cascade, a space whose handbooks do), captured before the
+ * delete because the rows that named them are gone after it.
+ */
+export async function reconcilePoliciesForDocuments(
+  docIds: number[],
+  opts: { narrowing?: AudienceNarrowing } = {}
+): Promise<ReconcileResult> {
+  if (docIds.length === 0) return { ...NO_CHANGE };
+  await ready();
+  const defaults = await workspaceAudienceDefaults();
+  const docs = await q<{ id: number; title: string }>(
+    `SELECT d.id, d.title FROM documents d WHERE ${AUDIENCE_POLICY} AND d.id = ANY($1::int[]) ORDER BY d.id`,
+    [docIds]
+  );
+  return reconcileEach(docs, { defaults, auto: true, narrowing: opts.narrowing });
+}
+
+/**
+ * Handbooks 1.18.0: a handbook was published or unpublished, its contents
+ * changed, or its audience did — every live policy it holds (or held:
+ * `extraDocIds`, the ones a contents change just removed), since its
+ * readers are within those policies' ceiling only while it is published
+ * (ACK_DOC_VISIBILITY). Automatic, like a space change.
+ */
+export async function reconcilePoliciesForHandbook(handbookId: number, extraDocIds: number[] = []): Promise<ReconcileResult> {
+  await ready();
+  const defaults = await workspaceAudienceDefaults();
+  const docs = await q<{ id: number; title: string }>(
+    `SELECT d.id, d.title FROM documents d
+      WHERE ${AUDIENCE_POLICY}
+        AND (d.id IN (SELECT hi.document_id FROM handbook_items hi WHERE hi.handbook_id = $1) OR d.id = ANY($2::int[]))
+      ORDER BY d.id`,
+    [handbookId, extraDocIds]
   );
   return reconcileEach(docs, { defaults, auto: true });
 }
@@ -7356,7 +7677,7 @@ export async function previewAudience(
   const a = audienceSql(audienceRulesFromJson("$2"), "$3::text", "$4::boolean");
   const r = await q<{ count: number; no_access: number; sample: string[] | null }>(
     `WITH cand AS (
-       SELECT u.name, (${ACK_VISIBILITY}) AS visible
+       SELECT u.name, (${ACK_DOC_VISIBILITY}) AS visible
        FROM documents d JOIN spaces s ON s.id = d.space_id, users u
        WHERE d.id = $1 AND u.status = 'active' AND ${audienceAdmitsSql(a)}
      )
@@ -9534,6 +9855,17 @@ export async function anonymiseComplianceRecord(
       userId,
       alias,
     ]);
+    // A whole-handbook confirmation (Handbooks 1.18.0) is a record of the
+    // same kind: the name snapshot becomes the alias, and the typed
+    // signature, IP and user agent are blanked as on the acknowledgements.
+    const handbookRecords = await client.query(
+      `UPDATE handbook_confirmations
+       SET user_name = $2, ip = '',
+           signed_name = CASE WHEN signed_name IS NULL THEN NULL ELSE '' END,
+           user_agent = ''
+       WHERE user_id = $1`,
+      [userId, alias]
+    );
     // Stored snapshots (F2, 1.14.0) that name the person are re-serialised
     // with the alias (lib/evidence rewriteSnapshotText: the person's own
     // rows by user_id, and any string equal to their name or address) and
@@ -9575,7 +9907,13 @@ export async function anonymiseComplianceRecord(
     }
     await client.query("COMMIT");
     return {
-      rows: (res.rowCount ?? 0) + (decisions.rowCount ?? 0) + (notices.rowCount ?? 0) + (outbox.rowCount ?? 0) + (taken.rowCount ?? 0),
+      rows:
+        (res.rowCount ?? 0) +
+        (decisions.rowCount ?? 0) +
+        (notices.rowCount ?? 0) +
+        (outbox.rowCount ?? 0) +
+        (taken.rowCount ?? 0) +
+        (handbookRecords.rowCount ?? 0),
       snapshots_rewritten: snapshotsRewritten,
     };
   } catch (e) {
@@ -9586,10 +9924,20 @@ export async function anonymiseComplianceRecord(
   }
 }
 
-/** Attestation counts by user id (the Users page shows the erasure action only where there is a record). */
+/**
+ * Attestation counts by user id (the Users page shows the erasure action
+ * only where there is a record). Whole-handbook confirmations (Handbooks
+ * 1.18.0) count too: anonymiseComplianceRecord rewrites them, and a
+ * handbook of policies that ask nobody can leave one with no
+ * acknowledgement beside it.
+ */
 export async function attestationCountsByUser(): Promise<Map<number, number>> {
   const rows = await q<{ user_id: number; n: number }>(
-    "SELECT user_id, COUNT(*)::int AS n FROM acknowledgements WHERE user_id IS NOT NULL GROUP BY user_id"
+    `SELECT user_id, SUM(n)::int AS n FROM (
+       SELECT user_id, COUNT(*) AS n FROM acknowledgements WHERE user_id IS NOT NULL GROUP BY user_id
+       UNION ALL
+       SELECT user_id, COUNT(*) AS n FROM handbook_confirmations WHERE user_id IS NOT NULL GROUP BY user_id
+     ) x GROUP BY user_id`
   );
   return new Map(rows.map((r) => [r.user_id, r.n]));
 }
@@ -16107,3 +16455,695 @@ export async function extraRolesByUser(): Promise<Map<number, string[]>> {
   }
   return out;
 }
+
+// --- Handbooks (1.18.0) ------------------------------------------------------------
+//
+// The handbook tables' queries (schema: "Handbooks 1.18.0" in SCHEMA_SQL).
+// Decisions — who builds, who reads, what is addable, the audit — are
+// lib/handbooks'; these only read and write rows. The contents are only
+// ever written through mutateHandbookContents, which locks the handbook row
+// and rewrites sections and items in one transaction, so two editors saving
+// at once serialise rather than interleave. Nothing here calls another
+// function that takes a pool client while it holds one.
+
+/**
+ * SQL predicate: is the user `userExpr` (`$1`, `u.id`, …: a placeholder or
+ * column this module or its caller writes, never input) in the audience of
+ * the handbook row `h`? Status is not tested — callers add
+ * `h.status = 'published'` where a reader is meant. A space handbook only
+ * ever reaches people who can read its owning space (the same set
+ * readableSpaceIdsSql and spaceScopeFor answer), and 'groups' narrows within
+ * them; a workspace handbook reaches everyone, or the chosen groups.
+ *
+ * The owning-space test is an EXISTS on that one space (public/internal,
+ * space.read_all held globally, or space.member on it) rather than
+ * `space_id IN (readableSpaceIdsSql(…))`: the same set, but the IN form
+ * rebuilt every readable space per user, and this predicate runs per user
+ * inside the audience ceiling (ACK_DOC_VISIBILITY) and the progress counts.
+ */
+export function handbookAudienceAdmitsSql(h: string, userExpr: string): string {
+  return `((${h}.space_id IS NULL OR EXISTS (
+        SELECT 1 FROM spaces hbs
+         WHERE hbs.id = ${h}.space_id
+           AND (hbs.visibility IN ('public', 'internal')
+                OR ${HOLDS_GLOBALLY("space.read_all", userExpr)}
+                OR ${HOLDS_ON_SPACE("space.member", "hbs.id", userExpr)})))
+      AND (${h}.audience <> 'groups' OR EXISTS (
+        SELECT 1 FROM handbook_audience hba JOIN group_members hbgm ON hbgm.group_id = hba.group_id
+         WHERE hba.handbook_id = ${h}.id AND hbgm.user_id = ${userExpr})))`;
+}
+
+/** A handbook row with its owner's space and audience groups. */
+export interface HandbookRow {
+  id: number;
+  title: string;
+  introduction: string;
+  space_id: number | null;
+  space_name: string | null;
+  space_slug: string | null;
+  space_icon: string | null;
+  status: "draft" | "published";
+  audience: "all" | "groups";
+  confirm_whole: number;
+  require_signature: number;
+  created_by: number | null;
+  created_by_name: string;
+  created_at: string;
+  updated_by_name: string;
+  updated_at: string;
+  published_at: string | null;
+  group_ids: number[];
+}
+
+/** A section row. */
+export interface HandbookSectionRow {
+  id: number;
+  handbook_id: number;
+  title: string;
+  position: number;
+}
+
+/**
+ * An item row joined to its document and space. `version_id` is what a
+ * whole-handbook confirmation is of (the fingerprint): the confirmation
+ * marker's version (ack_version_id) for a policy that asks for
+ * confirmation — the one the per-document confirmation records against —
+ * else the latest version. The facts the reader and the printed copy show
+ * — `version`, `version_at`, the approver, the Effective date and the
+ * publisher the Owner falls back to — are the LATEST version's: the text
+ * the reader is shown (an edit kept without asking again leaves the marker
+ * behind, but it is the current text). `live` = published and not in the
+ * trash (readers see only live items).
+ */
+export interface HandbookItemRow {
+  id: number;
+  handbook_id: number;
+  section_id: number;
+  position: number;
+  doc_id: number;
+  title: string;
+  type: DocType;
+  doc_status: "draft" | "published";
+  live: boolean;
+  space_id: number;
+  space_name: string;
+  space_slug: string;
+  space_icon: string;
+  /** The fingerprint's version: the marker's for a policy that asks for confirmation, else the latest. */
+  version_id: number | null;
+  /** The latest version's ordinal ("v4"); null before the first version. */
+  version: number | null;
+  /** When the latest version was written. */
+  version_at: string | null;
+  updated_at: string;
+  find_mode: "space" | "handbook_only";
+  /** Effectively handbook-only: stored so AND in a published handbook (effectiveHandbookOnlySql, the no-orphans rule). */
+  effective_handbook_only: boolean;
+  ack_required: number;
+  ack_signature: number;
+  summary_points: string[];
+  applies_to: string;
+  /**
+   * The policy page's Owner fact, one rule for the reader and the printed
+   * copy, and the compliance portal's own order (POLICY_OWNER_PICK, shared
+   * with complianceDocs): the policy's own owner
+   * (policy_settings.owner_user_id), else its space's Policy owner
+   * (spaces.policy_defaults), else whoever switched the requirement on
+   * (policy_settings.requested_by), the first that is an active account;
+   * then, where the portal shows nobody, whoever published the latest
+   * version, else that version's author, else the document's byline.
+   */
+  owner_name: string;
+  /** Who approved the latest version (doc_versions.approved_by_name); '' when it went live without a review. */
+  approver_name: string;
+  /** The Effective fact: when the latest version was written (= version_at). */
+  effective_at: string | null;
+}
+
+const HANDBOOK_SELECT = `
+  SELECT h.id, h.title, h.introduction, h.space_id, s.name AS space_name, s.slug AS space_slug, s.icon AS space_icon,
+         h.status, h.audience, h.confirm_whole, h.require_signature, h.created_by, h.created_by_name,
+         h.created_at, h.updated_by_name, h.updated_at, h.published_at,
+         COALESCE((SELECT array_agg(ha.group_id ORDER BY ha.group_id) FROM handbook_audience ha WHERE ha.handbook_id = h.id),
+                  '{}'::int[]) AS group_ids
+    FROM handbooks h LEFT JOIN spaces s ON s.id = h.space_id`;
+
+/** Every handbook (the domain filters by who may see it), title order. */
+export async function listHandbookRows(): Promise<HandbookRow[]> {
+  return q<HandbookRow>(`${HANDBOOK_SELECT} ORDER BY lower(h.title), h.id`);
+}
+
+export async function getHandbookRow(id: number): Promise<HandbookRow | undefined> {
+  return (await q<HandbookRow>(`${HANDBOOK_SELECT} WHERE h.id = $1`, [id]))[0];
+}
+
+/** The sections of these handbooks, in order. */
+export async function listHandbookSectionRows(handbookIds: number[]): Promise<HandbookSectionRow[]> {
+  if (handbookIds.length === 0) return [];
+  return q<HandbookSectionRow>(
+    `SELECT id, handbook_id, title, position FROM handbook_sections
+      WHERE handbook_id = ANY($1::int[]) ORDER BY handbook_id, position, id`,
+    [handbookIds]
+  );
+}
+
+/** The items of these handbooks with their documents, in reading order; trashed documents are left out. */
+export async function listHandbookItemRows(handbookIds: number[]): Promise<HandbookItemRow[]> {
+  if (handbookIds.length === 0) return [];
+  return q<HandbookItemRow>(
+    `SELECT hi.id, hi.handbook_id, hi.section_id, hi.position, d.id AS doc_id, d.title, d.type,
+            d.status AS doc_status, (d.status = 'published') AS live,
+            d.space_id, s.name AS space_name, s.slug AS space_slug, s.icon AS space_icon,
+            CASE WHEN d.ack_required = 1 AND d.ack_version_id IS NOT NULL THEN mv.id ELSE lv.id END AS version_id,
+            lv.created_at AS version_at,
+            ${VERSION_REV("lv.id")} AS version,
+            d.updated_at, d.find_mode, ${effectiveHandbookOnlySql("d")} AS effective_handbook_only,
+            d.ack_required, d.ack_signature, d.summary_points, d.applies_to,
+            COALESCE(po.name, NULLIF(lv.published_by_name, ''), NULLIF(lv.author, ''), d.author, '') AS owner_name,
+            COALESCE(lv.approved_by_name, '') AS approver_name,
+            lv.created_at AS effective_at
+       FROM handbook_items hi
+       JOIN handbook_sections hs ON hs.id = hi.section_id
+       JOIN documents d ON d.id = hi.document_id
+       JOIN spaces s ON s.id = d.space_id
+       -- The latest version: the facts.
+       LEFT JOIN LATERAL (
+         SELECT v.id, v.created_at, v.published_by_name, v.author, v.approved_by_name FROM doc_versions v
+          WHERE v.document_id = d.id
+          ORDER BY v.created_at DESC, v.id DESC
+          LIMIT 1
+       ) lv ON true
+       -- The confirmation marker's version (a policy that asks): the fingerprint only.
+       LEFT JOIN doc_versions mv ON mv.id = d.ack_version_id AND mv.document_id = d.id
+       LEFT JOIN policy_settings ps ON ps.document_id = d.id
+       LEFT JOIN LATERAL (
+         SELECT COALESCE(NULLIF(o.name, ''), o.username) AS name FROM users o WHERE ${POLICY_OWNER_PICK("ps", "s")}
+       ) po ON true
+      WHERE hi.handbook_id = ANY($1::int[]) AND d.deleted_at IS NULL
+      ORDER BY hi.handbook_id, hs.position, hs.id, hi.position, hi.id`,
+    [handbookIds]
+  );
+}
+
+/** What createHandbookRow writes. */
+export interface HandbookRowInput {
+  title: string;
+  introduction: string;
+  space_id: number | null;
+  audience: "all" | "groups";
+  group_ids: number[];
+  confirm_whole: boolean;
+  require_signature: boolean;
+}
+
+async function writeHandbookAudience(client: Queryable, id: number, groupIds: number[]): Promise<void> {
+  await client.query("DELETE FROM handbook_audience WHERE handbook_id = $1", [id]);
+  if (groupIds.length === 0) return;
+  // Unknown group ids are dropped (the join), never an FK error.
+  await client.query(
+    `INSERT INTO handbook_audience (handbook_id, group_id)
+     SELECT $1, g.id FROM groups g WHERE g.id = ANY($2::int[]) ON CONFLICT DO NOTHING`,
+    [id, groupIds]
+  );
+}
+
+/** A new draft handbook with one empty section titled `firstSection`; answers its id. */
+export async function createHandbookRow(
+  input: HandbookRowInput,
+  actor: { id: number; name: string },
+  firstSection: string
+): Promise<number> {
+  await ready();
+  const client = await pool().connect();
+  try {
+    await client.query("BEGIN");
+    const r = await client.query<{ id: number }>(
+      `INSERT INTO handbooks (title, introduction, space_id, audience, confirm_whole, require_signature,
+                              created_by, created_by_name, updated_by_name)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8) RETURNING id`,
+      [
+        input.title,
+        input.introduction,
+        input.space_id,
+        input.audience,
+        input.confirm_whole ? 1 : 0,
+        input.require_signature ? 1 : 0,
+        actor.id,
+        actor.name,
+      ]
+    );
+    const id = r.rows[0].id;
+    await writeHandbookAudience(client, id, input.audience === "groups" ? input.group_ids : []);
+    await client.query("INSERT INTO handbook_sections (handbook_id, title, position) VALUES ($1, $2, 0)", [id, firstSection]);
+    await client.query("COMMIT");
+    return id;
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * SQL: is the locked handbook row's updated_at still the token the editor
+ * loaded (`param`, an ISO string, or NULL for no check)? Compared to the
+ * millisecond, the precision the token crosses the wire with (toIso).
+ */
+const HANDBOOK_TOKEN_FRESH = (param: string) =>
+  `(${param}::timestamptz IS NULL OR date_trunc('milliseconds', updated_at) = date_trunc('milliseconds', ${param}::timestamptz))`;
+
+/**
+ * Change the details (any subset) under the handbook's row lock; `group_ids`
+ * replaces the audience groups. Answers the new updated_at, null for an
+ * unknown handbook, or "conflict" (nothing written) when `ifUpdatedAt` is
+ * given and the row moved since the editor loaded it.
+ */
+export async function updateHandbookRow(
+  id: number,
+  patch: Partial<HandbookRowInput>,
+  actorName: string,
+  opts: { ifUpdatedAt?: string } = {}
+): Promise<string | null | "conflict"> {
+  await ready();
+  const client = await pool().connect();
+  try {
+    await client.query("BEGIN");
+    const locked = await client.query<{ fresh: boolean }>(
+      `SELECT ${HANDBOOK_TOKEN_FRESH("$2")} AS fresh FROM handbooks WHERE id = $1 FOR UPDATE`,
+      [id, opts.ifUpdatedAt ?? null]
+    );
+    if (locked.rowCount === 0 || !locked.rows[0].fresh) {
+      await client.query("ROLLBACK");
+      return locked.rowCount === 0 ? null : "conflict";
+    }
+    const sets: string[] = [];
+    const vals: unknown[] = [id];
+    const put = (col: string, v: unknown) => {
+      vals.push(v);
+      sets.push(`${col} = $${vals.length}`);
+    };
+    if (patch.title !== undefined) put("title", patch.title);
+    if (patch.introduction !== undefined) put("introduction", patch.introduction);
+    if (patch.space_id !== undefined) put("space_id", patch.space_id);
+    if (patch.audience !== undefined) put("audience", patch.audience);
+    if (patch.confirm_whole !== undefined) put("confirm_whole", patch.confirm_whole ? 1 : 0);
+    if (patch.require_signature !== undefined) put("require_signature", patch.require_signature ? 1 : 0);
+    put("updated_by_name", actorName);
+    // clock_timestamp(), not now(): a save that waited on the lock stamps a
+    // time after the one it waited for, so the token only moves forward.
+    const r = await client.query<{ updated_at: string }>(
+      `UPDATE handbooks SET ${sets.join(", ")}, updated_at = clock_timestamp() WHERE id = $1 RETURNING updated_at`,
+      vals
+    );
+    if (r.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    if (patch.audience === "all") await writeHandbookAudience(client, id, []);
+    else if (patch.group_ids !== undefined) await writeHandbookAudience(client, id, patch.group_ids);
+    await client.query("COMMIT");
+    return r.rows[0].updated_at;
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+/** Publish or unpublish; published_at is stamped on every publish. False for an unknown handbook. */
+export async function setHandbookStatusRow(id: number, status: "draft" | "published", actorName: string): Promise<boolean> {
+  const r = await q(
+    `UPDATE handbooks SET status = $2, updated_by_name = $3, updated_at = clock_timestamp(),
+            published_at = CASE WHEN $2 = 'published' THEN now() ELSE published_at END
+      WHERE id = $1 RETURNING id`,
+    [id, status, actorName]
+  );
+  return r.length > 0;
+}
+
+/** Delete a handbook (sections, items and audience go with it; confirmation records stay). */
+export async function deleteHandbookRow(id: number): Promise<boolean> {
+  return (await q("DELETE FROM handbooks WHERE id = $1 RETURNING id", [id])).length > 0;
+}
+
+/** The Contents card as the writer sees it: sections in order, each with its doc ids in order. */
+export interface HandbookContentsDraft {
+  sections: { id: number | null; title: string; doc_ids: number[] }[];
+}
+
+/**
+ * Rewrite a handbook's contents under its row lock. `fn` gets the current
+ * contents and answers the new ones (or throws, which rolls back and
+ * rethrows); it must not query (the transaction's client is held). A
+ * section id that is not this handbook's is treated as a new section.
+ * Items keep their row when they stay (moved by UPDATE), sections dropped
+ * from the answer are deleted after their items have moved. Answers the
+ * contents before and after with the new updated_at, null for an unknown
+ * handbook, or "conflict" (nothing written, `fn` not called) when
+ * `ifUpdatedAt` is given and the row moved since the editor loaded it.
+ */
+export async function mutateHandbookContents(
+  id: number,
+  fn: (current: HandbookContentsDraft) => HandbookContentsDraft,
+  actorName: string,
+  opts: { ifUpdatedAt?: string } = {}
+): Promise<{ before: HandbookContentsDraft; after: HandbookContentsDraft; updated_at: string } | null | "conflict"> {
+  await ready();
+  const client = await pool().connect();
+  try {
+    await client.query("BEGIN");
+    const locked = await client.query<{ fresh: boolean }>(
+      `SELECT ${HANDBOOK_TOKEN_FRESH("$2")} AS fresh FROM handbooks WHERE id = $1 FOR UPDATE`,
+      [id, opts.ifUpdatedAt ?? null]
+    );
+    if (locked.rowCount === 0 || !locked.rows[0].fresh) {
+      await client.query("ROLLBACK");
+      return locked.rowCount === 0 ? null : "conflict";
+    }
+    const secRows = (
+      await client.query<{ id: number; title: string }>(
+        "SELECT id, title FROM handbook_sections WHERE handbook_id = $1 ORDER BY position, id",
+        [id]
+      )
+    ).rows;
+    const itemRows = (
+      await client.query<{ section_id: number; document_id: number }>(
+        "SELECT section_id, document_id FROM handbook_items WHERE handbook_id = $1 ORDER BY position, id",
+        [id]
+      )
+    ).rows;
+    const before: HandbookContentsDraft = {
+      sections: secRows.map((s) => ({
+        id: s.id,
+        title: s.title,
+        doc_ids: itemRows.filter((i) => i.section_id === s.id).map((i) => i.document_id),
+      })),
+    };
+    const next = fn(structuredClone(before));
+    const known = new Set(secRows.map((s) => s.id));
+    const after: HandbookContentsDraft = { sections: [] };
+    for (let i = 0; i < next.sections.length; i++) {
+      const s = next.sections[i];
+      let sid: number;
+      if (s.id !== null && known.has(s.id)) {
+        sid = s.id;
+        await client.query("UPDATE handbook_sections SET title = $2, position = $3 WHERE id = $1", [sid, s.title, i]);
+      } else {
+        const ins = await client.query<{ id: number }>(
+          "INSERT INTO handbook_sections (handbook_id, title, position) VALUES ($1, $2, $3) RETURNING id",
+          [id, s.title, i]
+        );
+        sid = ins.rows[0].id;
+      }
+      after.sections.push({ id: sid, title: s.title, doc_ids: [...s.doc_ids] });
+    }
+    const docIds: number[] = [];
+    const sectionIds: number[] = [];
+    const positions: number[] = [];
+    for (const s of after.sections) {
+      s.doc_ids.forEach((d, p) => {
+        docIds.push(d);
+        sectionIds.push(s.id!);
+        positions.push(p);
+      });
+    }
+    await client.query("DELETE FROM handbook_items WHERE handbook_id = $1 AND NOT (document_id = ANY($2::int[]))", [id, docIds]);
+    if (docIds.length > 0) {
+      await client.query(
+        `INSERT INTO handbook_items (handbook_id, document_id, section_id, position)
+         SELECT $1, x.doc, x.sec, x.pos FROM unnest($2::int[], $3::int[], $4::int[]) AS x(doc, sec, pos)
+         ON CONFLICT (handbook_id, document_id) DO UPDATE SET section_id = EXCLUDED.section_id, position = EXCLUDED.position`,
+        [id, docIds, sectionIds, positions]
+      );
+    }
+    await client.query("DELETE FROM handbook_sections WHERE handbook_id = $1 AND NOT (id = ANY($2::int[]))", [
+      id,
+      after.sections.map((s) => s.id!),
+    ]);
+    const stamped = await client.query<{ updated_at: string }>(
+      "UPDATE handbooks SET updated_at = clock_timestamp(), updated_by_name = $2 WHERE id = $1 RETURNING updated_at",
+      [id, actorName]
+    );
+    await client.query("COMMIT");
+    return { before, after, updated_at: stamped.rows[0].updated_at };
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * The documents among `docIds` a handbook may hold: live, published, not a
+ * branch and not retired, in one of `spaceIds` ("all" = any space). Answers
+ * the ids that qualify.
+ */
+export async function addableHandbookDocIds(docIds: number[], spaceIds: "all" | number[]): Promise<number[]> {
+  if (docIds.length === 0) return [];
+  const rows = await q<{ id: number }>(
+    `SELECT d.id FROM documents d
+      WHERE d.id = ANY($1::int[]) AND d.status = 'published' AND d.deleted_at IS NULL
+        AND d.branch_of IS NULL AND d.ack_retired_at IS NULL
+        AND ($2::int[] IS NULL OR d.space_id = ANY($2::int[]))`,
+    [docIds, spaceIds === "all" ? null : spaceIds]
+  );
+  return rows.map((r) => r.id);
+}
+
+/** A row of the editor's "Add policies" search. */
+export interface HandbookCandidateRow {
+  id: number;
+  title: string;
+  type: DocType;
+  space_id: number;
+  space_name: string;
+  space_icon: string;
+  version: number | null;
+  updated_at: string;
+  in_handbook: boolean;
+}
+
+/**
+ * The "Add policies" search: documents addableHandbookDocIds would accept,
+ * in `spaceIds`, matching `q` in the title (or the full-text index), of
+ * `type` when given, in `spaceId` when given. Policies first, then title.
+ */
+export async function handbookCandidateRows(opts: {
+  handbookId: number | null;
+  spaceIds: "all" | number[];
+  q: string;
+  type: DocType | null;
+  spaceId: number | null;
+  limit: number;
+}): Promise<HandbookCandidateRow[]> {
+  const like = `%${opts.q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+  return q<HandbookCandidateRow>(
+    `SELECT d.id, d.title, d.type, d.space_id, s.name AS space_name, s.icon AS space_icon, d.updated_at,
+            NULLIF((SELECT COUNT(*) FROM doc_versions v WHERE v.document_id = d.id), 0)::int AS version,
+            EXISTS (SELECT 1 FROM handbook_items hi WHERE hi.handbook_id = $1 AND hi.document_id = d.id) AS in_handbook
+       FROM documents d JOIN spaces s ON s.id = d.space_id
+      WHERE d.status = 'published' AND d.deleted_at IS NULL AND d.branch_of IS NULL AND d.ack_retired_at IS NULL
+        AND ($2::int[] IS NULL OR d.space_id = ANY($2::int[]))
+        AND ($3 = '' OR d.title ILIKE $4 OR d.search @@ websearch_to_tsquery('english', $3))
+        AND ($5::text IS NULL OR d.type = $5)
+        AND ($6::int IS NULL OR d.space_id = $6)
+      ORDER BY (d.type = 'policy') DESC, lower(d.title), d.id
+      LIMIT $7`,
+    [
+      opts.handbookId,
+      opts.spaceIds === "all" ? null : opts.spaceIds,
+      opts.q,
+      like,
+      opts.type,
+      opts.spaceId,
+      opts.limit,
+    ]
+  );
+}
+
+/**
+ * Store "Where people find it" on a document. Metadata only: updated_at
+ * (the editor's conflict token) and the confirmation marker do not move.
+ * Answers the previous value, or null for an unknown document.
+ */
+export async function setDocumentFindMode(docId: number, mode: "space" | "handbook_only"): Promise<"space" | "handbook_only" | null> {
+  const r = await q<{ before: "space" | "handbook_only" }>(
+    `UPDATE documents d SET find_mode = $2 FROM (SELECT id, find_mode FROM documents WHERE id = $1) old
+      WHERE d.id = old.id RETURNING old.find_mode AS before`,
+    [docId, mode]
+  );
+  return r[0]?.before ?? null;
+}
+
+/** documents.find_mode as stored and after the no-orphans rule (effectiveHandbookOnlySql); null for an unknown document. */
+export async function documentFindModeRow(
+  docId: number
+): Promise<{ find_mode: "space" | "handbook_only"; effective_handbook_only: boolean } | null> {
+  const r = await q<{ find_mode: "space" | "handbook_only"; effective_handbook_only: boolean }>(
+    `SELECT d.find_mode, ${effectiveHandbookOnlySql("d")} AS effective_handbook_only FROM documents d WHERE d.id = $1`,
+    [docId]
+  );
+  return r[0] ?? null;
+}
+
+/**
+ * Does a PUBLISHED handbook whose audience holds this user contain this
+ * live, published document (in `handbookId` only, when given)?
+ */
+export async function publishedHandbookAdmits(userId: number, docId: number, handbookId: number | null): Promise<boolean> {
+  const r = await q<{ ok: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM handbook_items hi
+         JOIN handbooks h ON h.id = hi.handbook_id
+         JOIN documents d ON d.id = hi.document_id
+        WHERE hi.document_id = $2 AND h.status = 'published'
+          AND d.status = 'published' AND d.deleted_at IS NULL
+          AND ($3::int IS NULL OR h.id = $3)
+          AND ${handbookAudienceAdmitsSql("h", "$1")}
+     ) AS ok`,
+    [userId, docId, handbookId]
+  );
+  return r[0]?.ok === true;
+}
+
+/**
+ * "Require a typed signature" for someone who reads this document only
+ * through handbooks: is it on in ANY published handbook whose audience
+ * holds this user and which holds this live, published document? (One with
+ * the switch off cannot be named to step around one with it on.)
+ */
+export async function publishedHandbookRequiresSignature(userId: number, docId: number): Promise<boolean> {
+  const r = await q<{ ok: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM handbook_items hi
+         JOIN handbooks h ON h.id = hi.handbook_id
+         JOIN documents d ON d.id = hi.document_id
+        WHERE hi.document_id = $2 AND h.status = 'published' AND h.require_signature = 1
+          AND d.status = 'published' AND d.deleted_at IS NULL
+          AND ${handbookAudienceAdmitsSql("h", "$1")}
+     ) AS ok`,
+    [userId, docId]
+  );
+  return r[0]?.ok === true;
+}
+
+/** The spaces of every document a handbook holds, trashed ones and drafts included (what publishing it would open). */
+export async function handbookItemSpaceIds(handbookId: number): Promise<number[]> {
+  return (
+    await q<{ space_id: number }>(
+      `SELECT DISTINCT d.space_id FROM handbook_items hi JOIN documents d ON d.id = hi.document_id
+        WHERE hi.handbook_id = $1 ORDER BY d.space_id`,
+      [handbookId]
+    )
+  ).map((r) => r.space_id);
+}
+
+/** Per document, the handbooks it is in (title order). */
+export async function handbooksForDocumentRows(
+  docIds: number[]
+): Promise<{ doc_id: number; id: number; title: string; status: "draft" | "published" }[]> {
+  if (docIds.length === 0) return [];
+  return q(
+    `SELECT hi.document_id AS doc_id, h.id, h.title, h.status
+       FROM handbook_items hi JOIN handbooks h ON h.id = hi.handbook_id
+      WHERE hi.document_id = ANY($1::int[])
+      ORDER BY hi.document_id, lower(h.title), h.id`,
+    [docIds]
+  );
+}
+
+/** The group ids a user belongs to. */
+export async function groupIdsOfUser(userId: number): Promise<number[]> {
+  return (await q<{ group_id: number }>("SELECT group_id FROM group_members WHERE user_id = $1", [userId])).map(
+    (r) => r.group_id
+  );
+}
+
+/** Every group, name order (the audience picker). */
+export async function listGroupNames(): Promise<{ id: number; name: string }[]> {
+  return q("SELECT id, name FROM groups ORDER BY lower(name), id");
+}
+
+/**
+ * Whole-handbook progress over the active accounts in the audience: how
+ * many there are, and how many hold a handbook confirmation of these
+ * contents (`fingerprint`).
+ */
+export async function handbookProgressCounts(id: number, fingerprint: string): Promise<{ audience: number; confirmed: number }> {
+  const r = await q<{ audience: number; confirmed: number }>(
+    `SELECT COUNT(*)::int AS audience,
+            COUNT(*) FILTER (WHERE EXISTS (
+              SELECT 1 FROM handbook_confirmations hc
+               WHERE hc.handbook_id = h.id AND hc.user_id = u.id AND hc.fingerprint = $2))::int AS confirmed
+       FROM handbooks h JOIN users u ON u.status = 'active'
+      WHERE h.id = $1 AND ${handbookAudienceAdmitsSql("h", "u.id")}`,
+    [id, fingerprint]
+  );
+  return r[0] ?? { audience: 0, confirmed: 0 };
+}
+
+/** What a whole-handbook confirmation records (handbook_confirmations). */
+export interface HandbookConfirmationInput {
+  handbook_id: number;
+  handbook_title: string;
+  user_id: number;
+  user_name: string;
+  fingerprint: string;
+  items: { doc_id: number; version_id: number | null }[];
+  policies_confirmed: number;
+  signed_name: string | null;
+  ip: string;
+  user_agent: string;
+}
+
+/**
+ * Write one whole-handbook confirmation (on `client` when inside a
+ * transaction); answers its id and time, or null when this person already
+ * holds a record of these contents (idx_handbook_conf_once: a concurrent
+ * submit won, and nothing is written twice).
+ */
+export async function insertHandbookConfirmation(
+  client: Queryable | null,
+  row: HandbookConfirmationInput
+): Promise<{ id: number; at: string } | null> {
+  if (!client) await ready();
+  const r = await (client ?? pool()).query<{ id: number; at: string }>(
+    `INSERT INTO handbook_confirmations
+       (handbook_id, handbook_title, user_id, user_name, fingerprint, items, policies_confirmed, signed_name, ip, user_agent)
+     VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10)
+     ON CONFLICT (handbook_id, user_id, fingerprint) DO NOTHING
+     RETURNING id, confirmed_at AS at`,
+    [
+      row.handbook_id,
+      row.handbook_title,
+      row.user_id,
+      row.user_name,
+      row.fingerprint,
+      JSON.stringify(row.items),
+      row.policies_confirmed,
+      row.signed_name,
+      row.ip,
+      row.user_agent.slice(0, 300),
+    ]
+  );
+  return r.rows[0] ?? null;
+}
+
+/** When this person last confirmed the handbook: of these contents when `fingerprint` is given, else of any. */
+export async function latestHandbookConfirmation(
+  handbookId: number,
+  userId: number,
+  fingerprint?: string
+): Promise<{ at: string; fingerprint: string } | null> {
+  const r = await q<{ at: string; fingerprint: string }>(
+    `SELECT confirmed_at AS at, fingerprint FROM handbook_confirmations
+      WHERE handbook_id = $1 AND user_id = $2 AND ($3::text IS NULL OR fingerprint = $3)
+      ORDER BY confirmed_at DESC, id DESC LIMIT 1`,
+    [handbookId, userId, fingerprint ?? null]
+  );
+  return r[0] ?? null;
+}
+// --- end Handbooks (1.18.0) ------------------------------------------------------------

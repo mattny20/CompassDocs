@@ -36,6 +36,57 @@ export const MD_INLINE_SANITIZE_SCHEMA: typeof defaultSchema = {
   attributes: { a: defaultSchema.attributes?.a ?? [] },
 };
 
+/**
+ * How a shifted heading keeps the look of the level it was written at: the
+ * `.doc-prose h1/h2/h3` rules of globals.css, restated. Those rules are
+ * unlayered, so a plain utility loses to them on the tag the heading lands
+ * on (an authored h1 drawn by `.doc-prose h3`): the box and type are
+ * !important; the ink is not, so the heading-highlight and panel rules
+ * still win it on h1-h3. Levels 4-6 have no prose rule, so they need none.
+ * Keep in step with globals.css.
+ */
+const SHIFTED_LOOK: Record<number, string> = {
+  1: "mt-8! mb-4! first:mt-0! text-2xl! font-bold! text-slate-900",
+  2: "mt-8! mb-3! border-b! border-slate-100! pb-1! text-xl! font-semibold! text-slate-900",
+  3: "mt-6! mb-2! text-lg! font-semibold! text-slate-900",
+};
+/** A level-1 heading landing on h2, whose prose rule rules a line under it. */
+const SHIFTED_FLAT = "border-b-0! pb-0!";
+/** The heading-highlight rule (globals.css) covers h1-h3 only; past h3 it is restated. */
+const SHIFTED_HIGHLIGHT =
+  "[&[style*=background-color]]:rounded-lg [&[style*=background-color]]:px-[0.55em] [&[style*=background-color]]:py-[0.3em] [&[style*=background-color]]:text-[#0f172a]";
+
+/**
+ * Re-tags every heading `offset` levels down (h1 → h3 for 2), capped at h6,
+ * records the level it was written at as data-md-level, and dresses it in
+ * that level's look (SHIFTED_LOOK). Runs after the sanitizer, so the
+ * attribute and the classes are ours, never the author's.
+ */
+function rehypeHeadingOffset(offset: number) {
+  return (tree: any) => {
+    const walk = (node: any) => {
+      for (const child of node?.children ?? []) {
+        if (child?.type !== "element") continue;
+        const m = /^h([1-6])$/.exec(child.tagName);
+        if (m) {
+          const level = Number(m[1]);
+          const tag = Math.min(6, level + offset);
+          const look = [SHIFTED_LOOK[level] ?? "", tag === 2 ? SHIFTED_FLAT : "", tag > 3 ? SHIFTED_HIGHLIGHT : ""];
+          const had = child.properties?.className;
+          child.tagName = `h${tag}`;
+          child.properties = {
+            ...child.properties,
+            dataMdLevel: level,
+            className: [...(Array.isArray(had) ? had : had ? [String(had)] : []), ...look.join(" ").split(" ").filter(Boolean)],
+          };
+        }
+        walk(child);
+      }
+    };
+    walk(tree);
+  };
+}
+
 /** Tab titles for a md-tabs group, read from the hast children. */
 function tabTitles(node: any): string[] {
   const titles: string[] = [];
@@ -57,6 +108,7 @@ export function MarkdownView({
   slideBreaks,
   dropTitle,
   inline,
+  headingOffset = 0,
 }: {
   content: string;
   docKey?: string;
@@ -74,6 +126,14 @@ export function MarkdownView({
    * lib/drop-title). Only the three reading surfaces pass it.
    */
   dropTitle?: string;
+  /**
+   * Levels to shift the body's headings down by, for a host whose own title
+   * already holds a place in the outline (STYLEGUIDE §Reading measure,
+   * "Heading offset"): the handbook reader and print pass 2 under a policy's
+   * h2, so the body's h1 is an h3 and the page keeps one h1. The look stays
+   * the level the author wrote; only the tag moves. Default 0.
+   */
+  headingOffset?: number;
   /**
    * How `---` thematic breaks render. Training decks split slides on them, so
    * the editor preview shows a labeled indicator ("indicator") while the
@@ -122,7 +182,12 @@ export function MarkdownView({
         // The rich editor stores a little inline HTML (underline, alignment,
         // indent, buttons, spacers). Raw HTML is reified, sanitized against an
         // allowlist schema, and inline styles filtered to safe properties.
-        rehypePlugins={[rehypeRaw, [rehypeSanitize, MD_SANITIZE_SCHEMA], rehypeFilterStyles]}
+        rehypePlugins={[
+          rehypeRaw,
+          [rehypeSanitize, MD_SANITIZE_SCHEMA],
+          rehypeFilterStyles,
+          ...(headingOffset > 0 ? [[rehypeHeadingOffset, headingOffset] as [typeof rehypeHeadingOffset, number]] : []),
+        ]}
         components={{
           // Slide breaks (training decks): indicator in the editor preview,
           // invisible on the published page, a plain rule everywhere else.

@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getDocument, getSpaceById } from "@/lib/db";
 import { recordView, touchView } from "@/lib/analytics";
-import { canSeeDrafts, spaceScopeFor, scopeAllows } from "@/lib/access";
+import { canSeeDrafts } from "@/lib/access";
+import { documentReadVia } from "@/lib/handbooks";
 import { getPublicSiteConfig } from "@/lib/public-site";
 
 export const dynamic = "force-dynamic";
@@ -11,7 +12,10 @@ export const dynamic = "force-dynamic";
 // one POST {docId} when the page opens (returns a view id), then heartbeat
 // POSTs {viewId, seconds} every 15s while the tab is visible, so duration
 // reflects real reading time. Anonymous tracking is allowed only for
-// documents actually visible on the public site.
+// documents actually visible on the public site. A signed-in reader who
+// reaches a published policy only through a handbook (lib/handbooks
+// documentReadVia) is tracked too: the handbook reader mounts the same
+// tracker, and the read time is what a read confirmation stores.
 
 export async function POST(req: Request) {
   let body: any;
@@ -41,7 +45,7 @@ export async function POST(req: Request) {
   if (!doc) return NextResponse.json({ error: "Not found." }, { status: 404 });
 
   if (user) {
-    if (!scopeAllows(await spaceScopeFor(user), doc.space_id)) {
+    if (!(await documentReadVia(user, doc))) {
       return NextResponse.json({ error: "Not found." }, { status: 404 });
     }
     if (doc.status === "draft" && !(await canSeeDrafts(user, doc.space_id))) {

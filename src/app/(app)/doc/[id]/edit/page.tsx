@@ -71,6 +71,12 @@ export default async function EditDocPage({ params }: { params: Promise<{ id: st
         publish_at: doc.publish_at ?? null,
         archive_at: doc.archive_at ?? null,
         updated_at: doc.updated_at,
+        // Handbooks 1.18.0 (H6): the policy page's facts. Not on a draft
+        // branch: a merge carries the text, not these, so they are edited on
+        // the document itself.
+        ...(doc.branch_of === null
+          ? { summary_points: doc.summary_points ?? [], applies_to: doc.applies_to ?? "" }
+          : {}),
         ack: ack
           ? {
               required: ack.required,

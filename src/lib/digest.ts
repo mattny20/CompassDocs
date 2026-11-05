@@ -16,6 +16,8 @@ import { sendMail } from "./mailer";
 import { formatDate, settingsForUser } from "./format";
 import { smtpConfigured, getSmtpConfig } from "./smtp-config";
 import { audit } from "./audit";
+import { findScopeFor, handbookFilterSql } from "./handbook-visibility";
+import type { Role } from "./types";
 
 async function q<T = any>(sql: string, params: any[] = []): Promise<T[]> {
   return (await pool().query(sql, params)).rows as T[];
@@ -163,6 +165,15 @@ export async function maybeSendWeeklyDigests(now = new Date()): Promise<void> {
       const scopeFilter =
         u.role === "admin" ? "" : ` AND d.space_id IN (${readableSpaceIdsSql("$1")})`;
 
+      // Handbooks 1.18.0 (H6): the reader's sections (1 and 3) leave
+      // handbook-only documents out, unless this person looks after the
+      // space; reviews (2) are staff work and keep them.
+      const find = await findScopeFor({ id: u.id, role: u.role as Role });
+      const yoursParams: unknown[] = [u.id];
+      const yoursHidden = handbookFilterSql("d", find, yoursParams);
+      const trendingParams: unknown[] = u.role === "admin" ? [] : [u.id];
+      const trendingHidden = handbookFilterSql("d", find, trendingParams);
+
       // 1) Updated this week in spaces the user subscribes to. "Subscribed"
       // means the same thing it means for per-change emails
       // (listSubscriberRecipients): a direct subscription, or membership in
@@ -183,10 +194,10 @@ export async function maybeSendWeeklyDigests(now = new Date()): Promise<void> {
                AND NOT EXISTS (SELECT 1 FROM space_subscriptions ss
                                WHERE ss.space_id = d.space_id AND ss.user_id = $1 AND ss.state = 'muted')
              )
-           ) ${scopeFilter}
+           ) ${scopeFilter}${yoursHidden}
          ORDER BY d.updated_at DESC
          LIMIT ${MAX_ROWS}`,
-        [u.id]
+        yoursParams
       );
 
       // 2) Reviews due (approvers and admins).
@@ -216,11 +227,11 @@ export async function maybeSendWeeklyDigests(now = new Date()): Promise<void> {
          FROM doc_views v
          JOIN documents d ON d.id = v.document_id AND d.deleted_at IS NULL AND d.branch_of IS NULL AND d.status = 'published'
          JOIN spaces s ON s.id = d.space_id
-         WHERE v.viewed_at > now() - interval '7 days' ${scopeFilter}
+         WHERE v.viewed_at > now() - interval '7 days' ${scopeFilter}${trendingHidden}
          GROUP BY d.id, d.title, s.name
          ORDER BY count(v.id) DESC
          LIMIT 5`,
-        u.role === "admin" ? [] : [u.id]
+        trendingParams
       );
 
       const sections = [

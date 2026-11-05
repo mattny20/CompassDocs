@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { v1Auth, v1Error, v1Holds } from "@/lib/v1-auth";
 import { hybridSearchDocuments } from "@/lib/embeddings";
 import { spaceScopeFor } from "@/lib/access";
+import { findScopeFor } from "@/lib/handbook-visibility";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +23,10 @@ export async function GET(req: Request) {
     q,
     limit,
     await v1Holds(user, "document.read_draft"),
-    await spaceScopeFor(user)
+    await spaceScopeFor(user),
+    undefined,
+    // Handbooks 1.18.0 (H6): handbook-only documents stay out of a reader's results.
+    await findScopeFor(user)
   );
   return NextResponse.json({
     items: hits.map((h) => ({

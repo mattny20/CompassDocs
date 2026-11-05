@@ -9,13 +9,24 @@ import { ChevronRight, Plus } from "lucide-react";
 import { DashboardTile } from "./DashboardTile";
 import { listSpaces } from "@/lib/db";
 import type { SpaceScope } from "@/lib/space-scope";
+import type { FindScope } from "@/lib/handbook-visibility";
 import { SectionEmpty } from "@/components/form";
 import { timeAgo } from "@/lib/ui";
 
 const SHOWN = 8;
 
-export async function SpacesTile({ scope, canCreate }: { scope: SpaceScope; canCreate: boolean }) {
-  const spaces = await listSpaces(scope);
+export async function SpacesTile({
+  scope,
+  canCreate,
+  find,
+}: {
+  scope: SpaceScope;
+  canCreate: boolean;
+  /** Handbooks 1.18.0 (H6): the viewer's FindScope (findScopeFor). */
+  find: FindScope | Promise<FindScope>;
+}) {
+  // H6: the counts and "updated X ago" leave handbook-only documents out too.
+  const spaces = await listSpaces(scope, await find);
   const active = [...spaces]
     .sort((a, b) => (b.last_activity ?? "").localeCompare(a.last_activity ?? "") || a.name.localeCompare(b.name))
     .slice(0, SHOWN);

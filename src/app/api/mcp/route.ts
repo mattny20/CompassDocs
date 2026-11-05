@@ -38,6 +38,7 @@ import { getAppSettings } from "@/lib/settings-store";
 import { formatDate } from "@/lib/format";
 import { publicOrigin } from "@/lib/oauth";
 import { notifyWebhooks } from "@/lib/webhooks";
+import { findScopeFor } from "@/lib/handbook-visibility";
 import { notifyCrSubmitted } from "@/lib/notifications";
 import { notifySpaceSubscribers } from "@/lib/subscriptions";
 import { audit, auditAckDecision, actorFrom, ipFrom } from "@/lib/audit";
@@ -431,22 +432,25 @@ async function callTool(user: User, name: string, args: any, origin: string, ip:
 
   switch (name) {
     case "list_spaces": {
-      const spaces = await listSpaces(scope);
+      // Handbooks 1.18.0 (H6): handbook-only documents are not counted for a reader.
+      const spaces = await listSpaces(scope, await findScopeFor(user));
       return toolJson(
         spaces.map((s) => ({ slug: s.slug, name: s.name, description: s.description, docs: s.doc_count }))
       );
     }
 
     case "list_docs": {
+      // Handbooks 1.18.0 (H6): handbook-only documents stay out of a reader's listing.
+      const find = await findScopeFor(user);
       let docs;
       if (args?.space) {
         const space = await getSpaceBySlug(String(args.space));
         if (!space || !scopeAllows(scope, space.id)) {
           return toolText(`No space with slug "${args.space}".`, true);
         }
-        docs = await listDocumentsBySpace(space.id, await canSeeDrafts(user, space.id));
+        docs = await listDocumentsBySpace(space.id, await canSeeDrafts(user, space.id), find);
       } else {
-        docs = await listRecentDocuments(30, seeDrafts, scope);
+        docs = await listRecentDocuments(30, seeDrafts, scope, find);
       }
       return toolJson(
         docs.map((d) => ({
@@ -463,7 +467,8 @@ async function callTool(user: User, name: string, args: any, origin: string, ip:
 
     case "search_docs": {
       const { hybridSearchDocuments } = await import("@/lib/embeddings");
-      const hits = await hybridSearchDocuments(String(args?.query ?? ""), 15, seeDrafts, scope);
+      // Handbooks 1.18.0 (H6): handbook-only documents stay out of a reader's results.
+      const hits = await hybridSearchDocuments(String(args?.query ?? ""), 15, seeDrafts, scope, undefined, await findScopeFor(user));
       return toolJson(
         hits.map((h) => ({
           id: h.id,
@@ -491,7 +496,8 @@ async function callTool(user: User, name: string, args: any, origin: string, ip:
         const { ancestorsOf, childrenOf } = await import("@/lib/doc-tree");
         const [ancestors, children] = await Promise.all([
           ancestorsOf(doc.id),
-          childrenOf(doc.id, { includeDrafts: await canSeeDrafts(user, doc.space_id) }),
+          // Handbooks 1.18.0 (H6): handbook-only sub-pages stay out of a reader's context.
+          childrenOf(doc.id, { includeDrafts: await canSeeDrafts(user, doc.space_id), find: await findScopeFor(user) }),
         ]);
         if (ancestors.length) {
           structure += `\n> path: ${[...ancestors].reverse().map((a) => `${a.title} (id ${a.id})`).join(" › ")}`;
@@ -502,7 +508,7 @@ async function callTool(user: User, name: string, args: any, origin: string, ip:
       }
       if (appSettings.backlinks_enabled && doc.branch_of === null) {
         const { backlinksFor } = await import("@/lib/backlinks");
-        const links = await backlinksFor(doc.id, scope, seeDrafts);
+        const links = await backlinksFor(doc.id, scope, seeDrafts, await findScopeFor(user)); // Handbooks 1.18.0 (H6)
         if (links.length) {
           structure += `\n> linked from: ${links.map((b) => `${b.title} (id ${b.id})`).join("; ")}`;
         }

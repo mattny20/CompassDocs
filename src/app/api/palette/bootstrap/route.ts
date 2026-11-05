@@ -3,6 +3,7 @@ import { apiGuard } from "@/lib/api-auth";
 import { canSeeDrafts, spaceScopeFor } from "@/lib/access";
 import { listRecentlyViewedBy, listLinksVisibleTo } from "@/lib/db";
 import { shareLinksEnabled } from "@/lib/shares";
+import { findScopeFor } from "@/lib/handbook-visibility";
 
 export const dynamic = "force-dynamic";
 
@@ -24,9 +25,10 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const limit = Math.min(12, Math.max(1, Number(searchParams.get("limit")) || 8));
 
-  const [scope, drafts] = await Promise.all([spaceScopeFor(gate), canSeeDrafts(gate)]);
+  // Handbooks 1.18.0 (H6): `find` keeps handbook-only documents out of a reader's recents.
+  const [scope, drafts, find] = await Promise.all([spaceScopeFor(gate), canSeeDrafts(gate), findScopeFor(gate)]);
   const [docs, shareLinks, quickLinks] = await Promise.all([
-    listRecentlyViewedBy(gate.id, scope, drafts, limit),
+    listRecentlyViewedBy(gate.id, scope, drafts, limit, find),
     shareLinksEnabled(),
     // The Links launchpad, filtered to this user's groups, so the palette
     // can find a configured tool by name (1.9.2).
