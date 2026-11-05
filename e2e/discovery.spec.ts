@@ -27,11 +27,12 @@ test("the dashboard shows at most eight spaces, Latest never repeats a pick-up c
     const spaces = spacesHeading.locator("..").locator("..").locator("a[href^='/spaces/']");
     expect(await spaces.count()).toBeLessThanOrEqual(8);
     expect(await main.getByRole("link", { name: new RegExp(`E2E dash dedupe ${s}`) }).count(), "shown once").toBe(1);
-    const latest = main.getByRole("heading", { name: "Latest in your spaces" }).locator("..").locator("..");
+    // Latest is a table since 1.17.0 (the tile is the section the heading names).
+    const latest = main.getByRole("region", { name: "Latest in your spaces" });
     await expect(latest.getByRole("link").first()).toBeVisible();
     // Type badges, not clocks: every row names its type.
-    const first = latest.getByRole("link").first();
-    await expect(first.getByText(/^(SOP|Technical|Policy|Knowledge)$/)).toBeVisible();
+    const first = latest.getByRole("row").nth(1);
+    await expect(first.getByText(/^(SOP|Technical|Policy|Knowledge)$/).filter({ visible: true })).toHaveCount(1);
   } finally {
     if (docId) await api(page, `/api/documents/${docId}`, { method: "DELETE" });
   }

@@ -9,12 +9,14 @@ import { EmptyState } from "@/components/form";
 import { SettingsLink } from "@/components/SettingsLink";
 import { PageContainer } from "@/components/PageWidth";
 import { PageHeader } from "@/components/PageHeader";
+import { TrackedLink } from "@/components/TrackedLink";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Links" };
 
 // The Quick links launchpad: admin-curated external shortcuts, grouped by
-// category and filtered to what the signed-in user's groups may see.
+// category and filtered to what the signed-in user's groups may see. Each
+// card keeps the link's real href; TrackedLink records the click (1.17.0).
 export default async function LinksPage() {
   const user = await requireUser();
   const [categories, links, settings] = await Promise.all([
@@ -78,8 +80,9 @@ export default async function LinksPage() {
           </h2>
           <div className="card-grid gap-3 [--card-min:16rem]">
             {section.links.map((l) => (
-              <a
+              <TrackedLink
                 key={l.id}
+                linkId={l.id}
                 href={l.url}
                 target="_blank"
                 rel="noopener noreferrer"
@@ -97,7 +100,7 @@ export default async function LinksPage() {
                     </span>
                   )}
                 </span>
-              </a>
+              </TrackedLink>
             ))}
           </div>
         </section>

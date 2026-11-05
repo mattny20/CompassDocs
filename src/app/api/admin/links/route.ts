@@ -6,6 +6,7 @@ import {
   listAllLinkGroups,
   createLink,
   setLinkGroups,
+  linkClickCounts,
 } from "@/lib/db";
 import { fetchFavicon } from "@/lib/favicon";
 import { audit, actorFrom, ipFrom } from "@/lib/audit";
@@ -27,14 +28,16 @@ function validUrl(raw: string): string | null {
 export async function GET() {
   const gate = await apiGuard("admin", "link.manage");
   if (gate instanceof NextResponse) return gate;
-  const [categories, links, groups] = await Promise.all([
+  const [categories, links, groups, clicks] = await Promise.all([
     listLinkCategories(),
     listLinksVisibleTo("all"),
     listAllLinkGroups(),
+    linkClickCounts(30),
   ]);
   return NextResponse.json({
     categories,
-    links: links.map((l) => ({ ...l, group_ids: groups[l.id] ?? [] })),
+    // clicks: over the last 30 days, everyone's and the sign-in page's (1.17.0).
+    links: links.map((l) => ({ ...l, group_ids: groups[l.id] ?? [], clicks: clicks[l.id] ?? 0 })),
   });
 }
 
@@ -91,5 +94,5 @@ export async function POST(req: Request) {
     details: { url, groups: groupIds.length },
     ip: ipFrom(req),
   });
-  return NextResponse.json({ link: { ...link, group_ids: groupIds } });
+  return NextResponse.json({ link: { ...link, group_ids: groupIds, clicks: 0 } });
 }

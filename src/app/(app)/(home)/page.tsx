@@ -3,8 +3,6 @@ import { getAppSettings } from "@/lib/settings-store";
 import { PageContainer } from "@/components/PageWidth";
 import { askLabel } from "@/lib/nav-items";
 import {
-  listSpaces,
-  listRecentDocuments,
   listRecentlyViewedBy,
   listDraftsByAuthor,
   listPendingAcksFor,
@@ -13,23 +11,32 @@ import {
   listDashboardNewslettersFor,
   listChangeRequests,
   listSuggestions,
-  listStatusProblems,
 } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
-import { spaceScopeFor } from "@/lib/access";
-import { navCapabilities } from "@/lib/nav-capabilities";
+import { spaceScopeFor, userHolds, type SpaceScope } from "@/lib/access";
+import { navCapabilities, type NavCapabilities } from "@/lib/nav-capabilities";
 import { featureEnabled } from "@/lib/ee";
 import { timeAgo } from "@/lib/ui";
+import { DASHBOARD_SECTIONS, getHiddenDashboardSections } from "@/lib/dashboard-sections";
+import type { SessionUser } from "@/lib/types";
 import { AnnouncementBoard } from "@/components/AnnouncementBoard";
 import { NewsletterBoard } from "@/components/NewsletterBoard";
 import { DashboardGreeting } from "@/components/DashboardGreeting";
-import { StatusBadge, TypeBadge } from "@/components/Badges";
-import { SectionEmpty } from "@/components/form";
+import { StatusBadge } from "@/components/Badges";
 import { listReviewsDue } from "@/lib/reviews";
 import { formatDate, settingsForUser } from "@/lib/format";
+import { EditDashboardButton } from "@/components/dashboard/EditDashboardButton";
+import { StatusStrip } from "@/components/dashboard/StatusStrip";
+import { LatestTile } from "@/components/dashboard/LatestTile";
+import { PopularTile } from "@/components/dashboard/PopularTile";
+import { SpacesTile } from "@/components/dashboard/SpacesTile";
+import { QuickLinksTile } from "@/components/dashboard/QuickLinksTile";
+import { MyTeamTile } from "@/components/dashboard/MyTeamTile";
+import { PeopleThisWeekTile } from "@/components/dashboard/PeopleThisWeekTile";
+import { MyTrainingTile } from "@/components/dashboard/MyTrainingTile";
+import { TeamComplianceTile } from "@/components/dashboard/TeamComplianceTile";
 import {
   Sparkles,
-  TriangleAlert,
   CalendarClock,
   ClipboardCheck,
   GitPullRequest,
@@ -41,64 +48,71 @@ import {
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Dashboard" };
 
-export default async function DashboardPage() {
-  const user = await requireUser();
-  // Same resolution the sidebar and palette use, so the dashboard cannot
-  // show a review queue the nav says you have no access to.
-  const { isEditor, isApprover } = await navCapabilities(user);
-  const scope = await spaceScopeFor(user);
-  const appSettings = await getAppSettings();
-  // The policies to confirm, in the person's priority (overdue first, then
-  // the soonest deadline), and how many are overdue (E1, 1.13.0).
-  const [pendingAcks, overdueAcks] = (await featureEnabled("policy_ack"))
-    ? await Promise.all([listPendingAcksFor(user.id, scope), countOverdueAcksFor(user.id, scope)])
-    : [[], 0];
-  const [
-    spaces,
-    recent,
-    recentlyViewed,
-    myDrafts,
-    announcements,
-    newsletters,
-    reviewsDue,
-    pendingCrs,
-    openSuggestions,
-    statusProblems,
-  ] = await Promise.all([
-    listSpaces(scope),
-    // Over-fetched: the pick-up cards above take their documents out of
-    // this list, and it must still show eight.
-    listRecentDocuments(16, isEditor, scope),
-    listRecentlyViewedBy(user.id, scope, isEditor, 5),
-    isEditor ? listDraftsByAuthor(user.name, scope, 3) : Promise.resolve([]),
-    listActiveAnnouncementsFor(user.id),
-    listDashboardNewslettersFor(user.id),
-    isEditor ? listReviewsDue(scope, 12) : Promise.resolve([]),
-    isApprover ? listChangeRequests("pending", scope) : Promise.resolve([]),
-    isEditor ? listSuggestions("open", scope) : Promise.resolve([]),
-    listStatusProblems().catch(() => []),
-  ]);
+type AppSettings = Awaited<ReturnType<typeof getAppSettings>>;
+type Doc = Awaited<ReturnType<typeof listRecentlyViewedBy>>[number];
 
+/**
+ * The pick-up cards' documents, started once and awaited twice: the cards
+ * render them, and Latest leaves them out (1.9.3) without a second query.
+ */
+async function loadPickUp(user: SessionUser, scope: SpaceScope, isEditor: boolean) {
+  const [recentlyViewed, myDrafts] = await Promise.all([
+    listRecentlyViewedBy(user.id, scope, isEditor, 5),
+    isEditor ? listDraftsByAuthor(user.name, scope, 3) : Promise.resolve([] as Doc[]),
+  ]);
   // Drafts also appear in "recently viewed" — don't show them twice.
   const draftIds = new Set(myDrafts.map((d) => d.id));
   const continueDocs = recentlyViewed.filter((d) => !draftIds.has(d.id)).slice(0, 4);
-  // Latest never repeats what the pick-up cards already show (1.9.3).
-  const shownAbove = new Set([...myDrafts, ...continueDocs].map((d) => d.id));
-  const latest = recent.filter((d) => !shownAbove.has(d.id)).slice(0, 8);
-  // Spaces: the eight most recently active, in a compact grid; the rest are
-  // one click away in the sidebar and on the space pages.
-  const activeSpaces = [...spaces]
-    .sort((a, b) => (b.last_activity ?? "").localeCompare(a.last_activity ?? "") || a.name.localeCompare(b.name))
-    .slice(0, 8);
+  return { myDrafts, continueDocs };
+}
 
-  const attentionCount =
-    pendingAcks.length + reviewsDue.length + pendingCrs.length + openSuggestions.length;
+type PickUp = Awaited<ReturnType<typeof loadPickUp>>;
+
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ latest?: string }>;
+}) {
+  const user = await requireUser();
+  const [{ latest: latestView }, caps, scope, appSettings, hidden, canCreateSpace, ackOn] = await Promise.all([
+    searchParams,
+    // Same resolution the sidebar and palette use, so the dashboard cannot
+    // show a review queue the nav says you have no access to.
+    navCapabilities(user),
+    spaceScopeFor(user),
+    getAppSettings(),
+    getHiddenDashboardSections(user.id),
+    // "New space" on the Spaces tile: the create permission and the page
+    // that holds the form (Settings → Spaces).
+    Promise.all([
+      userHolds(user, "space.create", { legacyMin: "admin" }),
+      userHolds(user, "space.manage_members", { legacyMin: "admin" }),
+    ]).then(([create, page]) => create && page),
+    featureEnabled("policy_ack"),
+  ]);
+  const show = (key: string) => !hidden.has(key);
+  // Started here, awaited by the pinned blocks and by Latest.
+  const pickUp = loadPickUp(user, scope, caps.isEditor);
+
+  // Edit dashboard offers what this workspace has: no Training switch
+  // without the training feature, no Team compliance without read
+  // confirmations.
+  const editable = DASHBOARD_SECTIONS.filter(
+    (s) => (s.key !== "training" || caps.showTraining) && (s.key !== "compliance" || ackOn)
+  ).map(({ key, label, help }) => ({ key, label, help }));
 
   return (
     <PageContainer>
       {/* Greeting + hero search */}
       <header className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <DashboardGreeting name={user.name || user.username} />
+        {/* Edit dashboard sits on the date's line: the greeting's own box
+            dissolves into this row (its h1 takes a line of its own), so the
+            link follows the date however long the weekday is, and wraps
+            under it on a phone. */}
+        <div className="flex flex-wrap items-baseline gap-x-3 [&>div]:contents [&_h1]:basis-full">
+          <DashboardGreeting name={user.name || user.username} />
+          <EditDashboardButton sections={editable} hidden={[...hidden]} />
+        </div>
         {/* The Ask entry — not a second search box. Ctrl K is the palette
             (sidebar trigger), so no keycap here; the width follows the page
             instead of a fixed 24rem that truncated the copy at 1920+. */}
@@ -113,39 +127,100 @@ export default async function DashboardPage() {
         </Link>
       </header>
 
-      {statusProblems.length > 0 && (
-        <Link
-          href="/status"
-          className={`mb-6 flex items-start gap-3 rounded-xl border p-4 shadow-xs transition hover:shadow-md ${
-            statusProblems.some((p) => p.status === "outage")
-              ? "border-red-200 bg-red-50 dark:border-red-900/60 dark:bg-red-950/30"
-              : "border-amber-200 bg-amber-50 dark:border-amber-900/60 dark:bg-amber-950/30"
-          }`}
-        >
-          <TriangleAlert
-            className={`mt-0.5 h-5 w-5 shrink-0 ${
-              statusProblems.some((p) => p.status === "outage") ? "text-red-500" : "text-amber-500"
-            }`}
-            aria-hidden
-          />
-          <span className="min-w-0">
-            <span className="block font-semibold text-slate-900">
-              {statusProblems.length === 1
-                ? `${statusProblems[0].name}: ${statusProblems[0].status}`
-                : `${statusProblems.length} services are having problems`}
-            </span>
-            <span className="block truncate text-sm text-slate-600">
-              {statusProblems
-                .slice(0, 3)
-                .map((p) => `${p.name}${p.detail ? ` — ${p.detail}` : ""}`)
-                .join(" · ")}
-              {statusProblems.length > 3 ? " · …" : ""}
-              <span className="ml-1 font-medium text-compass-700">View status →</span>
-            </span>
-          </span>
-        </Link>
-      )}
+      {/* The status strip replaces the old problems banner (1.17.0). */}
+      {show("status") && <StatusStrip />}
 
+      <PinnedBlocks user={user} caps={caps} scope={scope} appSettings={appSettings} ackOn={ackOn} pickUp={pickUp} />
+
+      {/* The tiles (STYLEGUIDE §Dashboard tiles): two columns once the
+          content column is at least 56rem (a container query, not a
+          viewport breakpoint, so Normal stacks and Wide/Full split whatever
+          the monitor), the right one 19rem; one column below, the right
+          column's tiles after the left's. Every tile fetches its own data,
+          so the sections render in parallel, and a tile that does not apply
+          returns nothing; a column left empty disappears with its gap.
+          Overlays inside are portalled Modals: a container is a containing
+          block for fixed descendants (STYLEGUIDE §Overlays). */}
+      <div className="@container">
+        <div className="flex flex-col gap-6 @4xl:flex-row @4xl:items-start">
+          <div className="flex min-w-0 flex-1 flex-col gap-6 [&:not(:has(section))]:hidden">
+            {show("latest") && (
+              <LatestTile
+                user={user}
+                scope={scope}
+                includeDrafts={caps.isEditor}
+                view={latestView}
+                excludeIds={pickUp.then((p) => [...p.myDrafts, ...p.continueDocs].map((d) => d.id))}
+              />
+            )}
+            {show("popular") && <PopularTile scope={scope} includeDrafts={caps.isEditor} />}
+            {show("spaces") && <SpacesTile scope={scope} canCreate={canCreateSpace} />}
+            {/* Side by side when both apply and fit; one alone takes the row. */}
+            <div className="grid gap-6 empty:hidden [grid-template-columns:repeat(auto-fit,minmax(min(100%,18rem),1fr))]">
+              {show("training") && caps.showTraining && <MyTrainingTile user={user} />}
+              {show("compliance") && ackOn && <TeamComplianceTile user={user} />}
+            </div>
+          </div>
+          <div className="flex min-w-0 flex-col gap-6 empty:hidden @4xl:w-[19rem] @4xl:shrink-0">
+            {show("quick_links") && <QuickLinksTile user={user} />}
+            {show("my_team") && <MyTeamTile user={user} />}
+            {show("people") && <PeopleThisWeekTile user={user} />}
+          </div>
+        </div>
+      </div>
+    </PageContainer>
+  );
+}
+
+/**
+ * Everything above the tiles that is waiting on this person: announcements,
+ * newsletters, Needs your attention and Pick up where you left off. These
+ * are not sections and cannot be hidden.
+ */
+async function PinnedBlocks({
+  user,
+  caps,
+  scope,
+  appSettings,
+  ackOn,
+  pickUp,
+}: {
+  user: SessionUser;
+  caps: NavCapabilities;
+  scope: SpaceScope;
+  appSettings: AppSettings;
+  /** The read-confirmation feature (policy_ack) is on. */
+  ackOn: boolean;
+  pickUp: Promise<PickUp>;
+}) {
+  const { isEditor, isApprover } = caps;
+  const [
+    { myDrafts, continueDocs },
+    pendingAcks,
+    overdueAcks,
+    announcements,
+    newsletters,
+    reviewsDue,
+    pendingCrs,
+    openSuggestions,
+  ] = await Promise.all([
+    pickUp,
+    // The policies to confirm, in the person's priority (overdue first, then
+    // the soonest deadline), and how many are overdue (E1, 1.13.0).
+    ackOn ? listPendingAcksFor(user.id, scope) : Promise.resolve([]),
+    ackOn ? countOverdueAcksFor(user.id, scope) : Promise.resolve(0),
+    listActiveAnnouncementsFor(user.id),
+    listDashboardNewslettersFor(user.id),
+    isEditor ? listReviewsDue(scope, 12) : Promise.resolve([]),
+    isApprover ? listChangeRequests("pending", scope) : Promise.resolve([]),
+    isEditor ? listSuggestions("open", scope) : Promise.resolve([]),
+  ]);
+
+  const attentionCount =
+    pendingAcks.length + reviewsDue.length + pendingCrs.length + openSuggestions.length;
+
+  return (
+    <>
       <AnnouncementBoard
         initial={announcements.map((a) => ({
           id: a.id,
@@ -232,7 +307,7 @@ export default async function DashboardPage() {
 
       {/* Pick up where you left off */}
       {(continueDocs.length > 0 || myDrafts.length > 0) && (
-        <section className="mb-8">
+        <section className="mb-6">
           <h2 className="mb-3 text-lg font-semibold text-slate-900">Pick up where you left off</h2>
           <div className="card-grid gap-3 [--card-min:20rem]">
             {myDrafts.map((d) => (
@@ -279,88 +354,7 @@ export default async function DashboardPage() {
           </div>
         </section>
       )}
-
-      {/* Two columns: activity + spaces. A container query, not a viewport
-          breakpoint: the 3/2 split appears when the content column is at
-          least 56rem, so Normal stacks and Wide/Full split whatever the
-          monitor. Safe to contain: these sections hold only links (a
-          container is a containing block for fixed overlays — STYLEGUIDE
-          §Overlays). */}
-      <div className="mb-8 grid grid-cols-1 gap-8 @container @4xl:grid-cols-5">
-        <section className="@4xl:col-span-3">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-slate-900">Latest in your spaces</h2>
-          </div>
-          <div className="divide-y divide-slate-100 rounded-xl border border-slate-200 bg-surface shadow-xs">
-            {latest.map((d) => (
-              <Link
-                key={d.id}
-                href={`/doc/${d.id}`}
-                className="group flex items-center gap-3 px-4 py-3 transition first:rounded-t-xl last:rounded-b-xl hover:bg-slate-50"
-              >
-                <span className="text-lg" aria-hidden>
-                  {d.space_icon}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-2">
-                    <span className="truncate font-medium text-slate-900 group-hover:text-compass-700">
-                      {d.title}
-                    </span>
-                    {d.status === "draft" && <StatusBadge status="draft" />}
-                  </span>
-                  <span className="mt-0.5 block truncate text-xs text-slate-500">
-                    {d.author} · {d.space_name} · {timeAgo(d.updated_at)}
-                  </span>
-                </span>
-                {/* What it is, not an inert clock that looked like a button. */}
-                <TypeBadge type={d.type} />
-              </Link>
-            ))}
-            {latest.length === 0 && (
-              <SectionEmpty>Nothing here yet — publish a first document to get the ball rolling.</SectionEmpty>
-            )}
-          </div>
-        </section>
-
-        <section className="@container @4xl:col-span-2">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-slate-900">Spaces</h2>
-          </div>
-          {/* A compact grid of the eight most recently active spaces (1.9.3):
-              thirty spaces used to be thirty 70px cards in one column. */}
-          <div className="card-grid gap-2.5 [--card-min:11rem]">
-            {activeSpaces.map((s) => (
-              <Link
-                key={s.id}
-                href={`/spaces/${s.slug}`}
-                className="group flex items-center gap-2.5 rounded-xl border border-slate-200 bg-surface p-2.5 shadow-xs transition hover:border-compass-300 hover:shadow-md"
-              >
-                <div
-                  className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-base"
-                  style={{ backgroundColor: `${s.color}1a` }}
-                >
-                  {s.icon}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <h3 className="truncate text-sm font-semibold text-slate-900 group-hover:text-compass-700">
-                    {s.name}
-                  </h3>
-                  <p className="truncate text-xs text-slate-500">
-                    {s.doc_count} document{s.doc_count === 1 ? "" : "s"}
-                  </p>
-                </div>
-              </Link>
-            ))}
-          </div>
-          {spaces.length === 0 && <SectionEmpty>No spaces yet.</SectionEmpty>}
-          {spaces.length > activeSpaces.length && (
-            <p className="mt-2 text-xs text-slate-500">
-              {spaces.length - activeSpaces.length} more in the sidebar.
-            </p>
-          )}
-        </section>
-      </div>
-    </PageContainer>
+    </>
   );
 }
 

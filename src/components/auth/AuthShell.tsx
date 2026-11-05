@@ -2,21 +2,28 @@
 // and the cover. <main> comes first in the DOM, so the keyboard and a
 // screen reader reach the heading and the field before the art; the grid
 // puts the cover on the side the admin chose. Used by /login, its admin
-// preview and the forced password change. Server-safe.
+// preview and the forced password change. Server-safe. `links` are the
+// sign-in page's quick links (1.17.0, SignInLinksBar), drawn in the cover;
+// `trackLinks` is off in the admin preview.
 
 import { BrandTile } from "@/components/Brand";
 import type { SignInLook } from "@/lib/sign-in-art";
 import { AuthArt } from "./AuthArt";
+import type { SignInLinkItem } from "./SignInLinksBar";
 
 export function AuthShell({
   look,
   company,
   logoUrl,
+  links = [],
+  trackLinks = true,
   children,
 }: {
   look: SignInLook;
   company: string;
   logoUrl?: string;
+  links?: SignInLinkItem[];
+  trackLinks?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -33,7 +40,7 @@ export function AuthShell({
           {children}
         </div>
       </main>
-      <AuthArt look={look} company={company} logoUrl={logoUrl} />
+      <AuthArt look={look} company={company} logoUrl={logoUrl} links={links} trackLinks={trackLinks} />
     </div>
   );
 }
