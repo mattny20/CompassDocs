@@ -33,11 +33,14 @@ export function DashboardTile({
       data-dashboard-section={id}
       className={`min-w-0 rounded-xl border border-slate-200 bg-surface shadow-xs ${className}`.trim()}
     >
-      <div className="flex min-h-14 items-center justify-between gap-3 px-4 pb-2 pt-3.5">
-        <h2 id={headingId} className="text-lg font-semibold text-slate-900">
+      {/* The row wraps rather than squeezing the title: in a narrow tile the
+          actions drop under the title (each keeps its natural width), so a
+          title never breaks into three lines beside a control. */}
+      <div className="flex min-h-14 flex-wrap items-center justify-between gap-x-3 gap-y-1.5 px-4 pb-2 pt-3.5">
+        <h2 id={headingId} className="min-w-0 text-lg font-semibold text-slate-900">
           {title}
         </h2>
-        {actions && <div className="flex shrink-0 items-center gap-1.5 text-sm">{actions}</div>}
+        {actions && <div className="flex min-w-0 max-w-full items-center gap-1.5 text-sm">{actions}</div>}
       </div>
       <div className={flush ? "" : "px-2 pb-2"}>{children}</div>
       {footer && (

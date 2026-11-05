@@ -395,7 +395,7 @@ export function LinksAdmin({
 
       {/* Links */}
       <div className="@container rounded-xl border border-slate-200 bg-surface p-4 shadow-xs">
-        <div className="mb-3 flex items-start justify-between gap-4">
+        <div className="mb-3 flex flex-col gap-3 @xl:flex-row @xl:items-start @xl:justify-between @xl:gap-4">
           <div className="min-w-0">
             <h2 className="font-semibold text-slate-900">All links</h2>
             <p className="mt-1 text-sm text-slate-500">
@@ -405,7 +405,7 @@ export function LinksAdmin({
           </div>
           <button
             onClick={startNew}
-            className={buttonClass("primary", "md", "shrink-0")}
+            className={buttonClass("primary", "md", "shrink-0 self-start")}
           >
             <Plus className="h-4 w-4" /> Add link
           </button>
@@ -528,7 +528,7 @@ function LinkPlacement({
     </button>
   );
   return (
-    <span className="order-last flex w-full flex-wrap items-center gap-1.5 pl-11 @3xl:order-none @3xl:w-auto @3xl:pl-0">
+    <span className="order-last flex w-full flex-wrap items-center gap-1.5 @md:pl-11 @3xl:order-none @3xl:w-auto @3xl:pl-0">
       <span className="text-xs tabular-nums text-slate-500 @3xl:w-20 @3xl:text-right">
         {link.clicks === 1 ? "1 click" : `${link.clicks.toLocaleString()} clicks`}
       </span>

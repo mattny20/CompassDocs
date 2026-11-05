@@ -52,13 +52,8 @@ export async function LatestTile({
     <DashboardTile
       id="latest"
       title="Latest in your spaces"
-      // Beside the title where the page's content column has room (the
-      // page's @container); under it on a phone, so the title never wraps.
-      actions={
-        <span className="hidden @md:flex">
-          <LatestViewSwitch value={view} />
-        </span>
-      }
+      // Beside the title; under it in a narrow tile (DashboardTile wraps).
+      actions={<LatestViewSwitch value={view} />}
       flush
       footer={
         <span className="text-slate-500">
@@ -66,9 +61,6 @@ export async function LatestTile({
         </span>
       }
     >
-      <div className="px-4 pb-2.5 @md:hidden">
-        <LatestViewSwitch value={view} />
-      </div>
       {docs.length === 0 ? (
         <SectionEmpty
           className="border-t border-slate-100 px-4 py-6"

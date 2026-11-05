@@ -226,6 +226,93 @@ its own.
   (those are state, not an invitation) and never a second card.
   `TeamLeadBanner` is the first.
 
+## Dashboard tiles
+
+The home dashboard (1.17.0, `app/(app)/(home)/page.tsx`) is a set of
+sections, and **every section is one `DashboardTile`** from
+`components/dashboard/DashboardTile`: `<DashboardTile id title actions
+footer flush className>`.
+
+- **The title is inside the tile.** The tile is the card (`rounded-xl
+  border border-slate-200 bg-surface shadow-xs`); its first row holds the
+  `h2` (`text-lg font-semibold`, the section tier, named by
+  `aria-labelledby` so the tile is a findable region) and, on the right,
+  `actions`: one small control or link ("New space", "Directory →", the
+  Following | Everything `Segmented size="sm"`, a 28px
+  `iconButtonClass("bordered")` with `data-tt` and `aria-label`) or a
+  `text-sm text-slate-500` meta ("Most read in your spaces", "2 of 3
+  due"). The row wraps: in a narrow tile the actions drop under the title
+  instead of squeezing it. Never a heading above a bare card, which was the
+  pre-1.17.0 dashboard. Meta a phone can do without is `hidden @md:inline`
+  (the page's container, below).
+- **`id` is the section key** from `lib/dashboard-sections`
+  (`status`, `latest`, `popular`, `spaces`, `training`, `compliance`,
+  `quick_links`, `my_team`, `people`); it becomes `data-dashboard-section`
+  and the heading's id stem, and specs locate tiles by it.
+- **Body**: inset (`px-2 pb-2`, rows with their own `px-2` padding) by
+  default; `flush` for a table or a divided list that runs edge to edge
+  (cells `px-4`, so they line up with the title). Labels inside a tile are
+  `TileLabel` (the group-label tier with a 14px lucide icon: "Pinned by
+  you"). **`footer`**: one or two links under a hairline ("Add a quick
+  link" · "All links →", "Open the directory"); a footer with nothing to
+  link is a `text-slate-500` sentence ("Updated in the spaces you follow")
+  or absent. A tile whose last row has a hover band and no footer passes
+  `className="overflow-hidden"` (only when nothing in it has a `data-tt`,
+  which would clip).
+- **A compact table in a tile** (Latest): `table-fixed`, a `bg-slate-50`
+  header row in the eyebrow tier, fixed widths for the side columns
+  (Space 12.5rem, Updated by 10rem, the time 5.5rem with an `sr-only`
+  header), the primary column truncating. It **folds under a ~40rem
+  tile** (`@container` around the table, `@min-[40rem]:` on the side
+  columns): the type badge, the space and the person move to a line under
+  the title. An initials avatar in a cell is a 22px `bg-compass-100
+  text-compass-700` circle; times are `RelativeTime`.
+- **Layout**: the greeting and Ask, the status strip, the pinned blocks
+  (announcements, newsletters, Needs your attention, Pick up where you
+  left off), then the tiles in two columns inside an `@container`: from
+  `@4xl` (a 56rem content column, where the old grid split; Wide and Full
+  at a desktop, never Normal) a `minmax(0,1fr)` left column and a 19rem
+  right one, as a flex row (`@4xl:flex-row`, right column
+  `@4xl:w-[19rem] @4xl:shrink-0`); below it one column, the right column's
+  tiles after the left's. **24px between tiles** in both directions
+  (`gap-6`), never a margin on a tile. Two tiles that pair up (My training
+  and Team compliance) sit in an `auto-fit` grid
+  (`minmax(min(100%,18rem),1fr)`), so one alone takes the row.
+- **Hide when empty.** A tile that has nothing for this person (no
+  training assigned, no reports, nothing read this week, no directory
+  link) is not rendered at all: its component returns `null`, never an
+  empty card. A column (and the pair row) is `empty:hidden`, so a column
+  with no tiles takes no gap. A tile whose list is merely empty for now
+  but that the person can fill (Quick links, Latest in Following) keeps
+  the tile and shows a `SectionEmpty` with its action.
+- **Data**: each tile is an async server component that fetches its own
+  data (taking `user`, and the `scope` / drafts flag the page resolved,
+  never a scope of its own), so the tiles render in parallel; work two
+  places need (the pick-up cards and Latest's exclusions) is started once
+  in the page and handed down as a promise. A tile's client parts live in
+  a sibling `…Client.tsx`. Overlays a tile opens are `Modal`s (portalled):
+  the tile columns are a container, and a container is a containing block
+  for fixed descendants (§Overlays).
+- **Edit dashboard** (`EditDashboardButton`): a `link`-weight text button
+  with a 14px `Pencil`, on the date's line under the greeting, opening a
+  `Modal` with one `Toggle` per section (label and a one-sentence help) in
+  dashboard order, Cancel and Save. Save `PUT`s the whole hidden set to
+  `/api/account/dashboard` (stored in `users.dashboard_hidden`) and
+  refreshes; **a hidden section is neither rendered nor fetched**. The
+  dialog offers only what the workspace has (no My training without the
+  training feature, no Team compliance without read confirmations). The
+  pinned blocks above the tiles are not sections and cannot be hidden: they
+  are things waiting on the person.
+- **The status strip** (`StatusStrip`, key `status`) is the one full-width
+  row that is not a tile: a slim card (`px-4 py-2.5 text-sm`) with an
+  `sr-only` h2 "System status", a summary with a dot ("All systems normal",
+  "1 service degraded", red dot when any is down), every tracked service as
+  an 8px dot and its name (problems first, the problem in its ink:
+  `ink-warn`, `text-red-600`, sky for maintenance; operational ones carry
+  an `sr-only` status), at most eight then "+N more", and "Status →" to
+  `/status`. A phone shows the summary and the link only. Left out when no
+  service is tracked. It replaces the pre-1.17.0 problems banner.
+
 ## Empty states
 
 Two tiers, and both come from `components/form` — never hand-roll a "nothing
@@ -1294,7 +1381,9 @@ text-slate-500` before them ("Notary · Phoenix").
   label, and shows its `Spinner` after the same 150ms (§Sign-in surfaces).
   The sign-in page has no `loading.tsx`: the login helper and every spec
   wait on its real h1.
-- **Route skeletons** (`loading.tsx`) exist for the dashboard, a space, the
+- **Route skeletons** (`loading.tsx`) exist for the dashboard (its tile
+  columns, drawn in `(home)/loading.tsx` from the `Skeleton` primitive,
+  1.17.0), a space, the
   directory, a directory download link's landing page (`DownloadSkeleton`,
   1.15.0) and analytics (`components/Skeleton`): the page's shape, inside
   a `PageContainer` so nothing shifts, one `role="status"` with the
