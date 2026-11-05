@@ -112,7 +112,9 @@ test("one confirmation covers every waiting policy; the button waits for the tic
     if (r.method() === "POST" && new URL(r.url()).pathname === `/api/handbooks/${hb}/confirm`) posts.push(r.url());
   };
   page.on("request", onRequest);
-  await button.click();
+  // aria-disabled, not disabled: it stays focusable, so Playwright's
+  // enabled check would wait forever; force the click a person can make.
+  await button.click({ force: true });
   await expect(page.getByRole("status").getByText("1 confirmation recorded.")).toHaveCount(0);
   page.off("request", onRequest);
   expect(posts, "no confirmation was sent").toEqual([]);
@@ -130,5 +132,6 @@ test("one confirmation covers every waiting policy; the button waits for the tic
 
   // The policy's own page agrees: its card is in the done state.
   await page.goto(`/doc/${waiting}`);
-  await expect(page.getByText(/You confirmed (version \d+|reading this document) on /)).toBeVisible();
+  // The card says it (the sticky strip repeats it): read the card's.
+  await expect(page.getByLabel("Confirmation recorded").getByText(/You confirmed (version \d+|reading this document) on /)).toBeVisible();
 });
