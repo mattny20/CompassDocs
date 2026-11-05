@@ -229,7 +229,8 @@ its own.
 ## Dashboard tiles
 
 The home dashboard (1.17.0, `app/(app)/(home)/page.tsx`) is a set of
-sections, and **every section is one `DashboardTile`** from
+sections, and **every section but the status strip is one
+`DashboardTile`** from
 `components/dashboard/DashboardTile`: `<DashboardTile id title actions
 footer flush className>`.
 
@@ -858,7 +859,8 @@ mechanical and comes later.
   tagline and caption, and decoration; every control, error, help line
   and link is in the column. **The one deliberate exception** is the
   sign-in quick links (1.17.0, below): convenience links, never part of
-  signing in, after the form in DOM and tab order. The first and password steps, and the
+  signing in, after the form in DOM and tab order. The first and password
+  steps, and the
   forced password change, also name the workspace in the form's subtitle
   ("to continue to Acme"); a step with a sentence of its own (the
   break-glass, the choice of providers, two-factor) does not. The column
@@ -947,13 +949,17 @@ mechanical and comes later.
     becomes a `1fr auto 1fr` grid with the bar in the middle row, so it
     sits on the cover's vertical middle when there is room and is pushed
     towards the lockup, never over it or the words, when there is not
-    (under 40rem tall it also tightens and drops its caption). 2.5rem
-    from the cover's edges, 1rem radius, `rgb(15 23 42 / .32)` with
+    (under 40rem tall it also tightens and drops its caption). It sits
+    inside the cover's own padding (`--art-pad`), 1rem radius,
+    `rgb(15 23 42 / .32)` with
     `backdrop-filter: blur(14px) saturate(1.2)`, a `rgb(255 255 255 /
     .16)` hairline and a soft shadow, `.875rem 1rem` padding; an
     uppercase "Quick links" caption (11px, 600, 0.08em, white at 75%,
     `aria-hidden`: the nav is already named) over buttons that wrap. With
-    the text off over a photo the bar is all the cover holds.
+    the text off over a photo the bar is all the cover holds. **Over a
+    photo the glass is darker** (`rgb(2 6 23 / .7)`, buttons `/ .1`, `.2`
+    on hover and focus, white caption), so the links stay readable on a
+    bright picture; the solid fallbacks below still win.
   - **Below 64rem, a strip along the bottom of the band**: 3.5rem tall,
     `rgb(15 23 42 / .38)` with `blur(12px)` and a top hairline, one row
     that scrolls sideways (scroll-snap, no visible scrollbar, inset by
@@ -1383,10 +1389,10 @@ text-slate-500` before them ("Notary · Phoenix").
   wait on its real h1.
 - **Route skeletons** (`loading.tsx`) exist for the dashboard (its tile
   columns, drawn in `(home)/loading.tsx` from the `Skeleton` primitive,
-  1.17.0), a space, the
-  directory, a directory download link's landing page (`DownloadSkeleton`,
-  1.15.0) and analytics (`components/Skeleton`): the page's shape, inside
-  a `PageContainer` so nothing shifts, one `role="status"` with the
+  1.17.0), a space, the directory, a directory download link's landing
+  page (`DownloadSkeleton`, 1.15.0) and analytics (`components/Skeleton`):
+  the page's shape, inside a `PageContainer` so nothing shifts, one
+  `role="status"` with the
   message, **no real heading** (every spec and the login helper wait on
   the real `h1`). Never under `/admin`, where a permission redirect would
   replace the skeleton a moment later — which is why the dashboard page

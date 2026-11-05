@@ -25,10 +25,11 @@ chosen links appear on the sign-in page across the artwork.
   they cannot see on the Links page.
 - **Link usage.** Clicks on the Links page, on Quick links and on the
   sign-in page are counted without changing where a link points, so
-  copying a link still copies the real address. **Settings > Links** shows
-  each link's clicks over the last 30 days. Clicks are kept for 90 days,
-  and an account's clicks lose their name when the account is deleted.
-- **Featured and sign-in links in Settings > Links.** Each link has a
+  copying a link still copies the real address. **Settings → Links**
+  shows each link's clicks over the last 30 days. Clicks are kept for 90
+  days, and an account's clicks lose their name when the account is
+  deleted.
+- **Featured and sign-in links in Settings → Links.** Each link has a
   **Dashboard** toggle (everyone's Quick links) and a **Sign-in page**
   toggle. Only a link everyone can see may go on the sign-in page;
   restricting a link to groups takes it off. Both are audited.
@@ -50,9 +51,10 @@ chosen links appear on the sign-in page across the artwork.
 - **My training** (Training licence): your open training, overdue first,
   with progress and due dates.
 - **Team compliance** (Read confirmation licence): for managers in the
-  directory, how many of their direct reports have confirmed each policy,
-  least confirmed first; hover a count to see who is still to confirm. It
-  follows the **Group leads see policy standing** setting.
+  directory, how many of their direct reports have confirmed the three
+  least-confirmed policies; hover a count to see who is still to confirm.
+  It follows the **Group leads see policy standing** setting, and always
+  shows to people with **Read team policies**.
 - **Popular this week.** The five most-read documents of the last 7 days
   that you can read.
 - **A status strip** under the greeting with a dot for every tracked
@@ -67,8 +69,8 @@ chosen links appear on the sign-in page across the artwork.
   Everything** switch. Following is the spaces you follow and is the
   default when you follow any.
 - **Spaces** is one tile with two columns of spaces, each with its document
-  count and last update; **New space** is offered to people who can create
-  spaces.
+  count and last update; **New space** is offered to people who can both
+  create spaces and manage their members.
 - The greeting and Ask bar run full width above the tiles. Announcements,
   newsletters, Needs your attention and Pick up where you left off stay
   above the tiles, as before.
