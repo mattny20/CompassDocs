@@ -100,7 +100,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
   // Re-fetch the favicon when the link now wants one and either asked for a
   // refresh, points somewhere new, or never had one cached.
+  // A placement toggle never fetches: it must stay instant.
   if (
+    !placementOnly &&
     nextType === "favicon" &&
     (body?.refresh_icon === true || urlChanged || link.icon_type !== "favicon" || !link.icon_file)
   ) {

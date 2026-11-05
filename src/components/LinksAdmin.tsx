@@ -100,7 +100,7 @@ export function LinksAdmin({
   const [iconBust, setIconBust] = useState(0); // cache-buster after refresh/upload
   const fileInput = useRef<HTMLInputElement>(null);
   // Row actions; keys are prefixed because category and link ids overlap.
-  const { run, isBusy } = useAction();
+  const { run, isBusy, busy: acting } = useAction();
 
   async function reload() {
     const res = await fetch("/api/admin/links");
@@ -450,7 +450,9 @@ export function LinksAdmin({
                   </span>
                   <LinkPlacement
                     link={l}
-                    disabled={busy || isBusy(`link-${l.id}`)}
+                    // One action at a time (useAction): a second click while a
+                    // toggle saves would otherwise be dropped silently.
+                    disabled={busy || Boolean(acting) || isBusy(`link-${l.id}`)}
                     onToggle={(field) => togglePlacement(l, field)}
                   />
                   <span className="hidden shrink-0 text-xs text-slate-500 sm:block">
