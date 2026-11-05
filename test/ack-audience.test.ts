@@ -413,7 +413,12 @@ describe("space mode: the old rule, as rows", () => {
     // the private one nothing moves.
     await retryOnTeardownRace(() => reconcilePolicyAssignments(null, open.id));
     assert.deepEqual(mine((await ackStatusForDocument(open.id)).map((r) => r.id)), ["alice", "bob", "carol", "dave", "erin", "frank"]);
-    assert.deepEqual(await assignEveryone(closed.id), { added: 0, closed: 0, reopened: 0 });
+    // The private one's set is G1 plus the workspace's admins, and another
+    // file may create an admin meanwhile: only this file's rows must not move.
+    const closedRows = mine((await ackStatusForDocument(closed.id)).map((r) => r.id));
+    const again = await assignEveryone(closed.id);
+    assert.equal(again.closed + again.reopened, 0, "nothing closes or re-opens");
+    assert.deepEqual(mine((await ackStatusForDocument(closed.id)).map((r) => r.id)), closedRows);
   });
 
   test("a confirmation counts from the later of the marker and the row's cycle, so the roster, the summary and the reader agree", async () => {
@@ -480,8 +485,16 @@ describe("targeted mode: rules, exclusions and the ceiling", () => {
     // so no stored exclusion keeps carol out) although the save sent none;
     // and the people the save re-opened are told, in one request row
     // limited to them (alice, who stayed open, is not on it).
+    const ours = Object.values(people);
+    const rowsBefore = new Map<number, number | undefined>();
+    for (const uid of ours) rowsBefore.set(uid, (await row(id, uid))?.id);
     const widened = await retryOnTeardownRace(() => saveAudienceRules(id, { audience_mode: "space" }));
-    assert.equal(widened!.added, 0);
+    // The space is internal, so other files' new accounts (created in
+    // parallel) can be added here: only this file's people are checked.
+    for (const uid of ours) {
+      const before = rowsBefore.get(uid);
+      if (before !== undefined) assert.equal((await row(id, uid))!.id, before, "nobody of ours is added: their rows are re-used");
+    }
     assert.ok(widened!.reopened >= 5, `the closed rows re-open (${widened!.reopened})`);
     assert.deepEqual(widened!.rules, [], "the answer carries no rules");
     assert.deepEqual(await listAudienceRules(id), [], "space mode cleared the stored rules, the exclusion included");
@@ -489,13 +502,15 @@ describe("targeted mode: rules, exclusions and the ceiling", () => {
     assert.equal((await row(id, people.bob))!.removed_at, null);
     assert.equal((await row(id, people.bob))!.removed_reason, "");
     assert.equal(await hasOpenAssignment(id, people.carol), true, "carol is back: the exclusion is gone with the rules");
-    const told = await requestRows(id);
+    const allTold = await requestRows(id);
+    const told = allTold.filter((r) => r.user_ids.some((u: number) => ours.includes(u)));
     assert.equal(told.length, 1, "one request row for the people the save re-opened");
     assert.equal(told[0].source, "manual");
-    assert.equal(told[0].user_ids.length, widened!.reopened, "limited to them");
+    // The re-opened, plus any other file's account the save added (above).
+    assert.equal(told[0].user_ids.length, widened!.reopened + widened!.added, "limited to them");
     assert.ok(told[0].user_ids.includes(people.bob) && told[0].user_ids.includes(people.carol));
     assert.ok(!told[0].user_ids.includes(people.alice), "alice stayed open and is not told again");
-    await pool().query("DELETE FROM ack_outbox WHERE id = $1", [told[0].id]);
+    await pool().query("DELETE FROM ack_outbox WHERE id = ANY($1)", [allTold.map((r) => r.id)]);
 
     // An exclude rule is a targeted-mode rule: in space mode (a hand-written
     // row, or the preview of a draft) it keeps nobody out. Compared on the

@@ -456,13 +456,16 @@ describe("Team compliance", () => {
 
   test("reports are the active accounts of direct reports; the standing never names a policy the manager cannot read", async () => {
     assert.deepEqual(await directReportAccounts(session(ids.uMia)), [ids.uR1, ids.uR2].sort((a, b) => a - b));
-    const rows = await reportPolicyStanding([ids.uR1, ids.uR2], ids.uMia);
+    // Other files' policies in spaces everyone reads may ask these reports
+    // too (integration files run in parallel): only this file's are compared.
+    const ours = (r: { document_id: number }) => r.document_id === policyA || r.document_id === policyB;
+    const rows = await reportPolicyStanding([ids.uR1, ids.uR2], ids.uMia, 1000);
     assert.deepEqual(
-      rows.map((r) => [r.document_id, r.owed, r.confirmed, r.outstanding]),
+      rows.filter(ours).map((r) => [r.document_id, r.owed, r.confirmed, r.outstanding]),
       [[policyA, 2, 1, ["Rob Two"]]]
     );
     assert.ok(!rows.some((r) => r.document_id === policyB));
-    const asR1 = await reportPolicyStanding([ids.uR1, ids.uR2], ids.uR1);
+    const asR1 = (await reportPolicyStanding([ids.uR1, ids.uR2], ids.uR1, 1000)).filter(ours);
     assert.deepEqual(asR1.map((r) => [r.document_id, r.confirmed]).sort(), [[policyA, 1], [policyB, 0]].sort(), "fewest confirmed first, for a viewer who reads both");
     assert.equal(asR1[0].document_id, policyB);
   });
@@ -471,7 +474,13 @@ describe("Team compliance", () => {
     const c = await getTeamCompliance(session(ids.uMia));
     assert.ok(c);
     assert.equal(c.reports, 2);
-    assert.deepEqual(c.policies.map((p) => p.document_id), [policyA]);
+    // Three least-confirmed: policyA (1 of 2) shows unless other files'
+    // policies with fewer confirmations fill the three; policyB never does.
+    assert.ok(!c.policies.some((p) => p.document_id === policyB), "never a policy Mia cannot read");
+    assert.ok(
+      c.policies.some((p) => p.document_id === policyA) || (c.policies.length === 3 && c.policies.every((p) => p.confirmed * 2 <= p.owed)),
+      "policyA, or three policies at least as far behind"
+    );
     assert.equal(c.teamView, false, "Mia leads no group: no link to the team view");
     assert.equal(await getTeamCompliance(session(ids.uR1)), null, "not a manager");
 
