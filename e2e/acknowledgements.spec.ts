@@ -833,7 +833,10 @@ test("the shield popover: switching on asks first and Cancel leaves it off; Requ
 
     // Switching off is reversible: no question, a toast with Undo, the
     // record kept, the audit row carrying the standing; Undo re-requires
-    // quietly.
+    // quietly. The edit-default save above must settle first: a click while
+    // it is in flight can land on a re-rendering switch.
+    await page.waitForLoadState("networkidle");
+    await expect(toggle).toBeEnabled();
     await toggle.click();
     const stopped = page.locator('[role="status"]').getByText("Read confirmation no longer required for this document");
     await expect(stopped).toBeVisible();

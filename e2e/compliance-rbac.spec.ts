@@ -382,8 +382,9 @@ test("a program_read-only role reads the portal and nothing more; unknown action
       // re-confirmation settings (none set here).
       const statementAt = header.indexOf("statement");
       expect(statementAt, "statement follows the evidence pair").toBe(reachedAt + 1);
-      // 1.14.0 (D3) appends `set`, the policy's sets.
-      expect(header.slice(statementAt), "the six columns in order, then the five of 1.13.0 (D2) and the set of 1.14.0, last").toEqual([
+      // 1.14.0 (D3) appends `set`, the policy's sets; 1.18.3 appends
+      // `asked_through`.
+      expect(header.slice(statementAt), "the six columns in order, then the five of 1.13.0 (D2) the set of 1.14.0, then asked_through of 1.18.3, last").toEqual([
         "statement",
         "signed_name",
         "identity_proof",
@@ -396,6 +397,7 @@ test("a program_read-only role reads the portal and nothing more; unknown action
         "snoozed_until",
         "due_at",
         "set",
+        "asked_through",
       ]);
       expect(adminLine![header.indexOf("exempt_reason")], "the admin is not exempt").toBe("");
       expect(adminLine![header.indexOf("snoozed_until")], "nor snoozed").toBe("");
@@ -551,10 +553,11 @@ test("a program_read-only role reads the portal and nothing more; unknown action
     expect(typeof matrixExport[0].details?.rows).toBe("number");
     // The matrix carries the same six columns (C4, 1.12.0) and, after them,
     // the same five exemption and deadline columns (D2, 1.13.0), then the
-    // status and set columns (F1, D3, 1.14.0) at the end:
+    // status and set columns (F1, D3, 1.14.0) and asked_through (1.18.3)
+    // at the end:
     // MATRIX_CSV_HEADER in src/lib/read-evidence.ts.
     const matrixHeader = cells(matrix.text.trim().split("\n")[0]);
-    expect(matrixHeader.slice(-13)).toEqual([
+    expect(matrixHeader.slice(-14)).toEqual([
       "statement",
       "signed_name",
       "identity_proof",
@@ -568,6 +571,7 @@ test("a program_read-only role reads the portal and nothing more; unknown action
       "due_at",
       "status",
       "set",
+      "asked_through",
     ]);
 
     // The ledgers (C4, 1.12.0): the workspace file from the portal route and
