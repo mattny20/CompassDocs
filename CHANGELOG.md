@@ -4,6 +4,31 @@ All notable changes to CompassDocs are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and the project follows
 [Semantic Versioning](https://semver.org/).
 
+## [1.18.4] - 2026-11-06
+
+The document editor moves to Tiptap 3. Nothing changes in how documents
+are written, stored or shown.
+
+### Changed
+- **The rich-text editor runs on Tiptap 3** (3.33), with tiptap-markdown
+  0.9, its Tiptap 3 release. This clears the moderate Tiptap 2 advisory
+  (GHSA-cp6q-959q-f8rh), whose fix exists only in the Tiptap 3 major.
+  Documents, templates and newsletters are stored as the same Markdown,
+  byte for byte: the editor reads and writes every stored body exactly as
+  before, and a new round-trip test pins it. The editor looks and behaves
+  as it did, from the toolbar to tables, task lists, the link dialog and
+  `[[` document links, with the one exception below. Tiptap 3 additions
+  that would change a saved document or a keystroke (link titles, table
+  cell alignment, image sizes, a trailing empty paragraph, the list
+  keymap) stay off. tippy.js and Popper leave the dependency tree. The one
+  advisory left is a low KaTeX one that arrives with mermaid.
+- **Typing a space at the end of a link ends the link.** Before, the
+  space and the words after it joined the link until it was turned off;
+  now the link stops where it did. Typing inside a link still extends it,
+  and web addresses still link themselves as you type.
+- Dependabot proposes Tiptap majors again, as one grouped pull request.
+  tiptap-markdown stays patch-only, like the other 0.x packages.
+
 ## [1.18.3] - 2026-11-06
 
 People asked to confirm a policy only through a handbook are now reached

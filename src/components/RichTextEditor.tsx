@@ -10,17 +10,12 @@ import Underline from "@tiptap/extension-underline";
 import TextAlign from "@tiptap/extension-text-align";
 import Paragraph from "@tiptap/extension-paragraph";
 import Heading from "@tiptap/extension-heading";
-import Table from "@tiptap/extension-table";
-import TableRow from "@tiptap/extension-table-row";
-import TableHeader from "@tiptap/extension-table-header";
-import TableCell from "@tiptap/extension-table-cell";
-import TextStyle from "@tiptap/extension-text-style";
-import FontFamily from "@tiptap/extension-font-family";
+import { Table, TableRow, TableHeader, TableCell } from "@tiptap/extension-table";
+import { TextStyle, FontFamily } from "@tiptap/extension-text-style";
 import { Node, Extension, mergeAttributes, getHTMLFromFragment } from "@tiptap/core";
 import { Fragment } from "@tiptap/pm/model";
-import { Markdown } from "tiptap-markdown";
-import TaskList from "@tiptap/extension-task-list";
-import TaskItem from "@tiptap/extension-task-item";
+import { Markdown, type MarkdownStorage } from "tiptap-markdown";
+import { TaskList, TaskItem } from "@tiptap/extension-list";
 import { EDITOR_BLOCK_EXTENSIONS, PreviewCodeBlock } from "./EditorBlocks";
 import { VideoInsertDialog } from "./VideoInsertDialog";
 import { promptDialog, formDialog } from "@/components/Dialog";
@@ -73,6 +68,14 @@ import {
   Globe,
 } from "lucide-react";
 
+// Tiptap 3 types extension storage per extension; tiptap-markdown predates
+// that and doesn't declare its own.
+declare module "@tiptap/core" {
+  interface Storage {
+    markdown: MarkdownStorage;
+  }
+}
+
 // Starter content inserted by the "Email template" toolbar button. Rendered
 // on document pages as a letter-style card with copy buttons (```email).
 const EMAIL_STARTER = `Subject:
@@ -91,10 +94,89 @@ const TB_ICON = "h-4 w-4";
 const INDENT_STEP_PX = 32;
 const INDENT_MAX = 4;
 
+// --- Tiptap 2 schema, kept under Tiptap 3 ---------------------------------------
+// Tiptap 3 gives some nodes and marks new attributes or parsing. Each would
+// change what the editor writes back (HTML islands, link titles) or how a
+// loaded document behaves, so these keep the Tiptap 2 behaviour; the
+// round-trip test (test/editor-roundtrip.test.ts) pins the result.
+
+/** Drop attributes Tiptap 3 added to an extension's Tiptap 2 set. */
+function withoutAttrs<T extends Record<string, unknown>>(attrs: T | undefined, names: string[]): T {
+  const out = { ...(attrs ?? {}) } as Record<string, unknown>;
+  for (const n of names) delete out[n];
+  return out as T;
+}
+
+// Image: no width/height (Tiptap 2 ignored those on a raw <img>; the
+// display width lives in the "w=NN%" title token).
+const V2Image = Image.extend({
+  addAttributes() {
+    return withoutAttrs(this.parent?.(), ["width", "height"]);
+  },
+});
+
+// Link: no title (Tiptap 2 dropped it, so `[a](u "t")` saves as `[a](u)`).
+const V2Link = Link.extend({
+  addAttributes() {
+    return withoutAttrs(this.parent?.(), ["title"]);
+  },
+});
+
+// Table cells: no align attribute, column widths only from `colwidth`, one
+// parse rule, and colspan/rowspan always written, so tables stored as HTML
+// islands serialize byte for byte as before.
+const v2CellAttributes = () => ({
+  colspan: { default: 1 },
+  rowspan: { default: 1 },
+  colwidth: {
+    default: null,
+    parseHTML: (el: HTMLElement) => {
+      const colwidth = el.getAttribute("colwidth");
+      return colwidth ? colwidth.split(",").map((w) => parseInt(w, 10)) : null;
+    },
+  },
+});
+const V2TableCell = TableCell.extend({
+  addAttributes: v2CellAttributes,
+  parseHTML: () => [{ tag: "td" }],
+  renderHTML({ HTMLAttributes }) {
+    return ["td", mergeAttributes(this.options.HTMLAttributes, HTMLAttributes), 0];
+  },
+});
+const V2TableHeader = TableHeader.extend({
+  addAttributes: v2CellAttributes,
+  parseHTML: () => [{ tag: "th" }],
+  renderHTML({ HTMLAttributes }) {
+    return ["th", mergeAttributes(this.options.HTMLAttributes, HTMLAttributes), 0];
+  },
+});
+
+// Text style: Tiptap 2's span rule (consuming, nested span styles not
+// merged into each other), which decides how pasted or raw nested spans load.
+const V2TextStyle = TextStyle.extend({
+  parseHTML: () => [{ tag: "span", getAttrs: (el) => (el.hasAttribute("style") ? {} : false) }],
+});
+
+// Font family read through the CSSOM, as Tiptap 2 did (Tiptap 3 keeps the
+// raw declaration's quotes), so loaded text carries the same mark attrs.
+const V2FontFamily = FontFamily.extend({
+  addGlobalAttributes() {
+    return (this.parent?.() ?? []).map((g) => ({
+      ...g,
+      attributes: Object.fromEntries(
+        Object.entries(g.attributes).map(([name, attr]) => [
+          name,
+          name === "fontFamily" ? { ...attr, parseHTML: (el: HTMLElement) => el.style.fontFamily } : attr,
+        ])
+      ),
+    }));
+  },
+});
+
 // Image with an author-chosen display width. The width is carried in the
 // node's `title` attribute as "w=NN%", which tiptap-markdown serializes to
 // standard `![alt](src "w=NN%")` — the same token MarkdownView renders.
-const SizableImage = Image.extend({
+const SizableImage = V2Image.extend({
   renderHTML({ node, HTMLAttributes }) {
     const m = /^w=(\d{1,3})%$/.exec(String(node.attrs.title ?? ""));
     return [
@@ -441,6 +523,53 @@ const SpacerBlock = Node.create({
   },
 });
 
+/** The editor's schema and Markdown pipeline. Exported so the round-trip
+ *  test (test/editor-roundtrip.test.ts) parses and serializes with exactly
+ *  what the editor uses. */
+export function richTextExtensions() {
+  return [
+    StarterKit.configure({
+      heading: false,
+      paragraph: false,
+      codeBlock: false,
+      // Tiptap 3's kit also bundles these. Link and Underline are registered
+      // below in their Tiptap 2 positions (extension order is schema order,
+      // which decides how stacked marks serialize); the trailing empty
+      // paragraph and the list keymap would change the document and the
+      // keyboard, so they stay off as they were.
+      link: false,
+      underline: false,
+      trailingNode: false,
+      listKeymap: false,
+    }),
+    // Code blocks with a live diagram preview for mermaid/plantuml/decision.
+    PreviewCodeBlock,
+    // Rich blocks (callouts, accordions, tabs, embeds) + directive parsing.
+    ...EDITOR_BLOCK_EXTENSIONS,
+    TaskList,
+    TaskItem.configure({ nested: true }),
+    MdParagraph,
+    MdHeading.configure({ levels: [1, 2, 3] }),
+    Underline,
+    TextAlign.configure({ types: ["heading", "paragraph"] }),
+    Indentable,
+    EmailButton,
+    SpacerBlock,
+    ColorPanel,
+    V2TextStyle,
+    V2FontFamily,
+    MdTable.configure({ resizable: false }),
+    TableRow,
+    V2TableHeader,
+    V2TableCell,
+    // shouldAutoLink: Tiptap 2's default (Tiptap 3 skips IPs and dotless hosts).
+    V2Link.configure({ openOnClick: false, autolink: true, shouldAutoLink: (url) => !!url }),
+    // Inline so two sized photos can sit next to each other in one paragraph.
+    SizableImage.configure({ inline: true }),
+    Markdown.configure({ html: true, linkify: true, breaks: true }),
+  ];
+}
+
 // A WYSIWYG editor for people who don't want to write Markdown. It reads and
 // writes Markdown under the hood (via tiptap-markdown), so the stored content,
 // search, export, and preview all stay Markdown — the same format the raw
@@ -495,33 +624,10 @@ export function RichTextEditor({
     // Next.js renders this on the server first; defer creation to the client to
     // avoid a hydration mismatch.
     immediatelyRender: false,
-    extensions: [
-      StarterKit.configure({ heading: false, paragraph: false, codeBlock: false }),
-      // Code blocks with a live diagram preview for mermaid/plantuml/decision.
-      PreviewCodeBlock,
-      // Rich blocks (callouts, accordions, tabs, embeds) + directive parsing.
-      ...EDITOR_BLOCK_EXTENSIONS,
-      TaskList,
-      TaskItem.configure({ nested: true }),
-      MdParagraph,
-      MdHeading.configure({ levels: [1, 2, 3] }),
-      Underline,
-      TextAlign.configure({ types: ["heading", "paragraph"] }),
-      Indentable,
-      EmailButton,
-      SpacerBlock,
-      ColorPanel,
-      TextStyle,
-      FontFamily,
-      MdTable.configure({ resizable: false }),
-      TableRow,
-      TableHeader,
-      TableCell,
-      Link.configure({ openOnClick: false, autolink: true }),
-      // Inline so two sized photos can sit next to each other in one paragraph.
-      SizableImage.configure({ inline: true }),
-      Markdown.configure({ html: true, linkify: true, breaks: true }),
-    ],
+    // The toolbar reads isActive()/getAttributes() while rendering, so it
+    // re-renders on every transaction, as Tiptap 2 did by default.
+    shouldRerenderOnTransaction: true,
+    extensions: richTextExtensions(),
     content: value,
     editorProps: {
       attributes: {
@@ -559,7 +665,7 @@ export function RichTextEditor({
     if (!editor) return;
     const current = editor.storage.markdown.getMarkdown();
     if (value !== current) {
-      editor.commands.setContent(value, false);
+      editor.commands.setContent(value, { emitUpdate: false });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value, editor]);
