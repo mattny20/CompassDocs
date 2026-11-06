@@ -40,6 +40,11 @@ are counted, and every link takes them into the handbook.
   handbook" when you can't see which), blank otherwise. Every other
   column keeps its place.
 
+### Fixed
+- **The Require readers to confirm switch** could ignore a click made
+  while another setting in the Read confirmation popover was saving. It
+  now shows as busy until that save finishes.
+
 ### Unchanged
 - Who can read a document. A handbook still opens its published policies
   only to its own audience.
